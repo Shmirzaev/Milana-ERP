@@ -6338,3 +6338,12 @@ concise source of truth, not a transcript.
 - Focused cross-area backend run: 145 passed, 13 skipped (PostgreSQL-only tests unavailable in this combined run). The receipt concurrency race passed separately on disposable PostgreSQL (2 cases); fresh PostgreSQL schema replay passed separately (1 case). Existing combined backend suite from cycle 8 passed 327 with 44 expected PostgreSQL-only skips.
 - Sales Order currency provenance slice passed 49 backend tests, frontend currency-format runtime, TypeScript and targeted ESLint. HR document picker and Finance invoice picker runtimes, TypeScript and targeted ESLint passed; invoice pagination API tests passed four cases. Waste sale/balance passed 37 with five expected PostgreSQL-only skips. Purchase receipt SQLite selection passed 40 with three PostgreSQL-only skips, plus one 401-line query-growth case.
 - Audit ledger remains 106 fixed, 15 partial and 6 open. Remaining partial/open entries include historical-record reconciliation, currency evidence for legacy rows, production-schema/index query plans, deployment/restore/network/credential evidence and broad production load measurements. No production write, migration, push, merge or deployment occurred.
+
+## 2026-09-25 - Audit fix pass cycle 10
+
+- Commit `34c615fa` rejects forced batch quantity reductions that would leave active batch-specific reservations under-backed; 35 inventory master-data tests and Ruff pass.
+- Commit `075018db` makes ForecastRecommendation reads tolerate malformed historical `source_json` roots without rewriting stored rows; five focused/adjacent cases and Ruff pass.
+- Commit `2e60854f` pages model constructor/designer employee selectors; the 501-row runtime regression confirms department filtering and selected-name persistence, and TypeScript, targeted ESLint and diff checks pass.
+- Latest combined inventory master-data and forecast legacy-shape regression run passes 36 tests.
+- Final bounded scans found no additional unsafe DB02 vocabulary mutation or unguarded FN07 numeric writer; reviewed candidates are already schema/route guarded. Manual-vs-1C one-cent settlement status policy remains owner-dependent.
+- Ledger counts remain 106 fixed, 15 partial and 6 open. Historical evidence, production schema/query plans, deployment and infrastructure/credential/restore validation remain outside local code fixes. No production write, migration, push, merge or deployment occurred.
