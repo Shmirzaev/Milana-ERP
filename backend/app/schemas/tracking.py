@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Annotated, Literal, Optional
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 from app.schemas.common import ORMModel, SchemaModel
 
@@ -225,6 +225,13 @@ class PackageChangeRequestIn(BaseModel):
 
 class PackageChangeDecisionIn(BaseModel):
     notes: Optional[str] = None
+
+    @field_validator("notes")
+    @classmethod
+    def bound_notes_for_audit_json(cls, value: str | None) -> str | None:
+        if value is not None and len(value.encode("utf-8")) > 4096:
+            raise ValueError("decision notes cannot exceed 4096 UTF-8 bytes")
+        return value
 
 
 class PackageOut(ORMModel):

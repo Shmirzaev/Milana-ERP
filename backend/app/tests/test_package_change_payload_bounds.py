@@ -6,8 +6,8 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, LegacyStockReceipt, Model, Package, PackageChangeRequest, PackageItem
-from app.schemas.tracking import PackageBulkIn, PackageEditPayload, PackageIn
+from app.models import AuditLog, LegacyStockReceipt, Model, Notification, Package, PackageChangeRequest, PackageItem
+from app.schemas.tracking import PackageBulkIn, PackageChangeDecisionIn, PackageEditPayload, PackageIn
 from app.services.packages import (
     _normalize_package_items,
     _validate_batch_allocations,
@@ -88,6 +88,43 @@ def _editable_package() -> int:
         db.add(PackageItem(package_id=pkg.id, model_id=model_id, color="blue", size="M", quantity=1))
         db.commit()
         return int(pkg.id)
+
+
+def test_package_decision_notes_bound_is_measured_in_utf8_bytes():
+    assert PackageChangeDecisionIn(notes="🍃" * 1024).notes == "🍃" * 1024
+    with pytest.raises(ValidationError, match="4096 UTF-8 bytes"):
+        PackageChangeDecisionIn(notes="🍃" * 1025)
+
+
+@pytest.mark.parametrize("decision", ["approve", "reject"])
+def test_oversized_package_decision_notes_leave_request_notification_and_audit_unchanged(
+    client, auth_headers, decision,
+):
+    package_id = _editable_package()
+    created = client.post(
+        f"/api/packages/{package_id}/change-requests", headers=auth_headers,
+        json={"request_type": "edit", "payload": {"notes": "Updated package"}},
+    )
+    assert created.status_code == 201, created.text
+    request_id = created.json()["id"]
+    with SessionLocal() as db:
+        before = (
+            db.get(PackageChangeRequest, request_id).status,
+            db.get(PackageChangeRequest, request_id).decision_notes,
+            db.query(Notification).count(), db.query(AuditLog).count(),
+        )
+
+    rejected = client.post(
+        f"/api/packages/change-requests/{request_id}/{decision}", headers=auth_headers,
+        json={"notes": "🍃" * 1025},
+    )
+    assert rejected.status_code == 422, rejected.text
+    with SessionLocal() as db:
+        request = db.get(PackageChangeRequest, request_id)
+        assert (
+            request.status, request.decision_notes,
+            db.query(Notification).count(), db.query(AuditLog).count(),
+        ) == before
 
 
 @pytest.mark.parametrize("edit", [
