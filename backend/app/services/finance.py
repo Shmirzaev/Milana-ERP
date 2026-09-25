@@ -1,13 +1,14 @@
 """Finance/reporting service."""
 from datetime import datetime
 from decimal import Decimal
-from sqlalchemy import func
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, load_only, noload, selectinload
 
 from app.core.dt import as_utc
 from app.models import (
     SalesOrder, SalesOrderItem, ProductionOrder, FinishedGoodsStock,
     WasteRecord, Invoice, Payment, ModelBOM, StockBatch, Customer, Item,
+    StockMovement, CuttingRecord, PackagingRecord, WorkOrder, MaterialReservation,
 )
 
 
@@ -67,6 +68,47 @@ def _latest_stock_batch_costs(db: Session, item_ids: set[int]) -> dict[int, Deci
     return {int(item_id): Decimal(str(cost or 0)) for item_id, cost in rows}
 
 
+def _recorded_material_cost(db: Session, production_order_ids: set[int]) -> Decimal | None:
+    if not production_order_ids:
+        return None
+    cutting_ids = (
+        select(CuttingRecord.id)
+        .join(WorkOrder, CuttingRecord.work_order_id == WorkOrder.id)
+        .where(WorkOrder.production_order_id.in_(production_order_ids))
+    )
+    packaging_ids = (
+        select(PackagingRecord.id)
+        .join(WorkOrder, PackagingRecord.work_order_id == WorkOrder.id)
+        .where(WorkOrder.production_order_id.in_(production_order_ids))
+    )
+    reservation_ids = select(MaterialReservation.id).where(
+        MaterialReservation.production_order_id.in_(production_order_ids)
+    )
+    linked_reference = or_(
+        and_(StockMovement.reference_type == "ProductionOrder",
+             StockMovement.reference_id.in_(production_order_ids)),
+        and_(StockMovement.reference_type == "CuttingRecord",
+             StockMovement.reference_id.in_(cutting_ids)),
+        and_(StockMovement.reference_type == "PackagingRecord",
+             StockMovement.reference_id.in_(packaging_ids)),
+        and_(StockMovement.reference_type == "MaterialReservation",
+             StockMovement.reference_id.in_(reservation_ids)),
+    )
+    rows = (
+        db.query(StockMovement.quantity, StockMovement.unit_cost_at_movement)
+        .filter(StockMovement.movement_type == "consume", linked_reference)
+        .all()
+    )
+    # Older and batchless movements have no cost snapshot. Never price them
+    # from a mutable batch or today's BOM and call the result historical profit.
+    if not rows or any(cost is None or Decimal(str(cost)) <= 0 for _, cost in rows):
+        return None
+    return sum(
+        (Decimal(str(quantity)) * Decimal(str(cost)) for quantity, cost in rows),
+        Decimal("0"),
+    )
+
+
 def order_profit(db: Session, sales_order_id: int) -> dict:
     so = (
         db.query(SalesOrder)
@@ -91,53 +133,16 @@ def order_profit(db: Session, sales_order_id: int) -> dict:
          for i in so.items),
         Decimal("0"),
     )
-    # cost = sum over production orders linked to SO: estimated material cost via BOM
-    cost = Decimal("0")
     pos = (
         db.query(ProductionOrder)
         .options(load_only(
             ProductionOrder.id,
             ProductionOrder.sales_order_id,
-            ProductionOrder.model_id,
-            ProductionOrder.planned_quantity,
         ))
         .filter(ProductionOrder.sales_order_id == sales_order_id)
         .all()
     )
-    if pos:
-        model_ids = {p.model_id for p in pos}
-        bom_rows = (
-            db.query(ModelBOM)
-            .options(
-                load_only(
-                    ModelBOM.id,
-                    ModelBOM.model_id,
-                    ModelBOM.item_id,
-                    ModelBOM.quantity_per_piece,
-                    ModelBOM.waste_percent,
-                ),
-                noload(ModelBOM.item),
-                noload(ModelBOM.stock_batch),
-            )
-            .filter(ModelBOM.model_id.in_(model_ids))
-            .all()
-        )
-        boms_by_model: dict[int, list[ModelBOM]] = {}
-        for row in bom_rows:
-            boms_by_model.setdefault(row.model_id, []).append(row)
-
-        item_ids = {int(row.item_id) for row in bom_rows if row.item_id is not None}
-        latest_cost_by_item = _latest_stock_batch_costs(db, item_ids)
-
-        for po in pos:
-            for b in boms_by_model.get(po.model_id, []):
-                unit_cost = latest_cost_by_item.get(b.item_id, Decimal("0"))
-                cost += (
-                    Decimal(str(b.quantity_per_piece or 0))
-                    * Decimal(str(po.planned_quantity or 0))
-                    * unit_cost
-                    * (Decimal("1") + Decimal(str(b.waste_percent or 0)) / Decimal("100"))
-                )
+    cost = _recorded_material_cost(db, {int(po.id) for po in pos})
     waste = Decimal(str(db.query(func.coalesce(func.sum(WasteRecord.estimated_value), 0)).filter(
         WasteRecord.production_order_id.in_([p.id for p in pos]) if pos else False
     ).scalar() or 0))
@@ -145,9 +150,10 @@ def order_profit(db: Session, sales_order_id: int) -> dict:
         "sales_order_id": sales_order_id,
         "order_no": so.order_no,
         "revenue": float(revenue),
-        "material_cost": float(cost),
+        "material_cost": float(cost) if cost is not None else None,
         "waste_cost": float(waste),
-        "gross_profit": float(revenue - cost - waste),
+        "gross_profit": float(revenue - cost - waste) if cost is not None else None,
+        "material_cost_basis": "transaction_snapshot" if cost is not None else "unavailable",
     }
 
 
