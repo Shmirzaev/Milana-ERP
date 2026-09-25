@@ -107,3 +107,21 @@ def test_brand_search_filters_before_paging_and_escapes_like_wildcards():
         literal, _ = _read(db, page=1, page_size=50, q="%_")
         assert literal["total"] == 1
         assert literal["rows"][0].name == "Brand %_ literal"
+
+
+def test_brand_id_lookup_keeps_visible_collection_brands_outside_first_page(client, auth_headers):
+    with _brand_database(401) as db:
+        selected_ids = [
+            int(row.id)
+            for row in db.query(Brand.id).filter(Brand.name.in_(("Brand 0000", "Brand 0400"))).all()
+        ]
+        page, _ = _read(db, page=1, page_size=50, ids=selected_ids)
+        assert page["total"] == 2
+        assert [row.name for row in page["rows"]] == ["Brand 0000", "Brand 0400"]
+
+    response = client.get(
+        "/api/brands",
+        params=[("page", "1"), ("page_size", "50"), *(("ids", str(index)) for index in range(1, 102))],
+        headers=auth_headers,
+    )
+    assert response.status_code == 422, response.text

@@ -18,12 +18,13 @@ const dependencies = {
       return [state[index], (value) => { state[index] = value; }];
     },
     useEffect() {},
+    useMemo: (compute) => compute(),
   },
   "react/jsx-runtime": { jsx, jsxs: jsx },
   "next/navigation": { useSearchParams: () => ({ get: (key) => key === "q" ? "needle" : null }) },
   swr: { default: (key) => {
     requests.push(key);
-    if (key === "/api/brands") return { data: [{ id: 9, name: "Needle Brand" }] };
+    if (key?.startsWith("/api/brands?")) return { data: { rows: [{ id: 9, name: "Needle Brand" }] } };
     const page = Number(new URL(key, "http://test.local").searchParams.get("page"));
     return { data: {
       rows: [{ id: page, brand_id: 9, name: `Season ${page}`, year: 2090, status: "draft" }],
@@ -34,6 +35,7 @@ const dependencies = {
   "@/components/PageHeader": { default: "page-header" },
   "@/components/PaginationControls": { default: "pagination-controls" },
   "@/components/Modal": { default: "modal" },
+  "@/components/BrandAsyncSelect": { default: "brand-select" },
   "@/components/StagePipeline": { statusLabel: (value) => value },
   "@/lib/auth": { useMe: () => ({ me: null }), can: () => false },
   "@/lib/i18n": { useT: () => ({ t: (key) => key }) },
@@ -58,11 +60,14 @@ function render() { cursor = 0; return testModule.exports.default(); }
 
 let tree = render();
 assert.ok(requests.includes("/api/collections?page=1&page_size=50&q=needle"));
+assert.ok(requests.includes("/api/brands?page=1&page_size=50&ids=9"));
 let controls = visit(tree, (node) => node.type === "pagination-controls")[0].props;
 assert.equal(controls.total, 101);
 assert.equal(controls.count, 1);
 assert.ok(visit(tree, (node) => node.props?.children === "Season 1").length,
   "a match on brand name must remain visible even when the collection name differs");
+assert.ok(visit(tree, (node) => node.props?.children === "Needle Brand").length,
+  "the page must resolve the visible collection's brand without the capped legacy brand list");
 
 controls.onPageChange(2);
 tree = render();

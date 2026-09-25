@@ -1,11 +1,12 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import PaginationControls from "@/components/PaginationControls";
 import Modal from "@/components/Modal";
+import BrandAsyncSelect from "@/components/BrandAsyncSelect";
 import { statusLabel } from "@/components/StagePipeline";
 import { useMe, can } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
@@ -16,6 +17,7 @@ type Collection = {
   season?: string | null; year?: number | null; description?: string | null; status: string;
 };
 type CollectionPage = { rows: Collection[]; total: number; page: number; page_size: number };
+type BrandPage = { rows: Array<{ id: number; name: string }> };
 
 export default function CollectionsPage() {
   const searchParams = useSearchParams();
@@ -30,7 +32,19 @@ export default function CollectionsPage() {
     `/api/collections?page=${page}&page_size=${pageSize}&q=${encodeURIComponent(q)}`,
     fetcher,
   );
-  const { data: brands } = useSWR<any[]>("/api/brands", fetcher);
+  const rows = useMemo(() => data?.rows ?? [], [data?.rows]);
+  const visibleBrandKey = useMemo(() => {
+    const ids = [...new Set(rows.map((row) => row.brand_id).filter((id) => id > 0))];
+    if (!ids.length) return null;
+    const params = new URLSearchParams({ page: "1", page_size: "50" });
+    for (const id of ids) params.append("ids", String(id));
+    return `/api/brands?${params.toString()}`;
+  }, [rows]);
+  const { data: visibleBrandPage } = useSWR<BrandPage>(visibleBrandKey, fetcher);
+  const brandById = useMemo(
+    () => new Map((visibleBrandPage?.rows ?? []).map((brand) => [brand.id, brand.name])),
+    [visibleBrandPage?.rows],
+  );
   const [form, setForm] = useState<{ brand_id: number; name: string; season: string; year: NumberInputValue }>({ brand_id: 0, name: "", season: "", year: 2025 });
 
   const [editing, setEditing] = useState<Collection | null>(null);
@@ -60,16 +74,11 @@ export default function CollectionsPage() {
     catch (e: any) { setEditMsg(e.message); }
   }
 
-  const rows = data?.rows ?? [];
-
   return (
     <div>
       <PageHeader title={t("page.collections.title")} />
       <form onSubmit={submit} className="card mb-6 grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 xl:grid-cols-5">
-        <select className="input" value={form.brand_id} onChange={(e) => setForm({ ...form, brand_id: Number(e.target.value) })} required>
-          <option value={0}>{t("ph.brand")}</option>
-          {brands?.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-        </select>
+        <BrandAsyncSelect inputId="collection-create-brand" value={form.brand_id || null} onChange={(brandId) => setForm({ ...form, brand_id: brandId })} required />
         <input className="input" placeholder={t("common.name")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
         <input className="input" placeholder={t("field.season")} value={form.season} onChange={(e) => setForm({ ...form, season: e.target.value })} />
         <input className="input" type="number" placeholder={t("field.year")} value={form.year} onChange={(e) => setForm({ ...form, year: parseNumberInput(e.target.value) })} required />
@@ -87,7 +96,7 @@ export default function CollectionsPage() {
           <tbody>
             {rows.map((c) => (
               <tr key={c.id}>
-                <td>{brands?.find((b) => b.id === c.brand_id)?.name ?? c.brand_id}</td>
+                <td>{brandById.get(c.brand_id) ?? c.brand_id}</td>
                 <td>{c.name}</td><td>{c.season}</td><td>{c.year}</td>
                 <td><span className="badge">{statusLabel(c.status, t)}</span></td>
                 {isAdmin && (
@@ -113,9 +122,7 @@ export default function CollectionsPage() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label">{t("field.brand")}</label>
-              <select className="input" value={edit.brand_id} onChange={(e) => setEdit({ ...edit, brand_id: Number(e.target.value) })}>
-                {brands?.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
+              <BrandAsyncSelect inputId="collection-edit-brand" value={edit.brand_id || null} onChange={(brandId) => setEdit({ ...edit, brand_id: brandId })} />
             </div>
             <div>
               <label className="label">{t("common.name")}</label>
