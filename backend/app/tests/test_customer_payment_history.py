@@ -1,6 +1,9 @@
 import re
 from uuid import uuid4
 
+from app.db.session import SessionLocal
+from app.models import Item, ProductionOrder, StockBatch, StockMovement, Warehouse
+
 
 def _find_model_id(client, headers) -> int:
     r = client.get("/api/models", headers=headers)
@@ -190,6 +193,95 @@ def test_sales_order_history_endpoint_returns_order_ledger(client, auth_headers)
     assert payload["payments"][0]["id"] == payment["id"]
     assert any(event["type"] == "order_created" for event in payload["timeline"])
     assert any(event["type"] == "payment" for event in payload["timeline"])
+
+
+def test_order_history_material_cost_uses_snapshot_and_marks_legacy_unknown(client, auth_headers):
+    model_id = _find_model_id(client, auth_headers)
+    customer_id = _create_customer(client, auth_headers)
+    order = _create_sales_order(client, auth_headers, customer_id=customer_id, model_id=model_id, unit_price=10)
+    with SessionLocal() as db:
+        item = Item(
+            sku=f"HISTORY-COST-{uuid4().hex}", name="Historical fabric", category="fabric",
+            unit="kg", default_cost=17,
+        )
+        db.add(item)
+        db.flush()
+        warehouse = db.query(Warehouse).first()
+        batch = StockBatch(
+            item_id=item.id, batch_no=f"HISTORY-BATCH-{uuid4().hex}", quantity=10,
+            unit="kg", cost_per_unit=3, warehouse_id=warehouse.id,
+        )
+        production = ProductionOrder(
+            production_no=f"HISTORY-PO-{uuid4().hex}", production_type="branded_stock",
+            model_id=model_id, planned_quantity=1,
+        )
+        db.add_all([batch, production])
+        db.flush()
+        for reference_type, reference_id in (("SalesOrder", order["id"]), ("ProductionOrder", production.id)):
+            db.add_all([
+                StockMovement(
+                    movement_type="consume", item_id=item.id, batch_id=batch.id, quantity=2,
+                    unit="kg", reference_type=reference_type, reference_id=reference_id,
+                    unit_cost_at_movement=3,
+                ),
+                StockMovement(
+                    movement_type="consume", item_id=item.id, batch_id=batch.id, quantity=1,
+                    unit="kg", reference_type=reference_type, reference_id=reference_id,
+                    unit_cost_at_movement=0,
+                ),
+            ])
+        production_id = production.id
+        production_no = production.production_no
+        item_id = item.id
+        batch_id = batch.id
+        db.commit()
+
+    paths = (
+        f"/api/sales-orders/{order['id']}/history",
+        f"/api/sales-orders/history/production/{production_id}",
+    )
+
+    def assert_costs(expected):
+        for path in paths:
+            response = client.get(path, headers=auth_headers)
+            assert response.status_code == 200, response.text
+            detail = response.json()
+            assert detail["summary"]["material_spent_cost"] == expected
+            assert detail["materials"]["spent"][0]["estimated_cost"] == expected
+            movements = detail["materials"]["movements"]
+            snapshot = next(row for row in movements if row["unit_cost_at_movement"] == 3)
+            assert snapshot["estimated_cost"] == 6
+            assert snapshot["unit_cost_at_movement"] == 3
+            assert "cost_per_unit" not in snapshot["batch"]
+            zero_cost = next(row for row in movements if row["unit_cost_at_movement"] == 0)
+            assert zero_cost["estimated_cost"] == 0
+            if expected is None:
+                legacy = next(row for row in movements if row["unit_cost_at_movement"] is None)
+                assert legacy["estimated_cost"] is None
+                assert legacy["unit_cost_at_movement"] is None
+
+    assert_costs(6)
+    with SessionLocal() as db:
+        db.get(StockBatch, batch_id).cost_per_unit = 11
+        db.get(Item, item_id).default_cost = 19
+        db.commit()
+    assert_costs(6)
+
+    with SessionLocal() as db:
+        for reference_type, reference_id in (("SalesOrder", order["id"]), ("ProductionOrder", production_id)):
+            db.add(StockMovement(
+                movement_type="consume", item_id=item_id, quantity=1, unit="kg",
+                reference_type=reference_type, reference_id=reference_id,
+            ))
+        db.commit()
+    assert_costs(None)
+    for order_no in (order["order_no"], production_no):
+        history = client.get(
+            "/api/sales-orders/history", params={"q": order_no}, headers=auth_headers,
+        )
+        assert history.status_code == 200, history.text
+        assert history.json()
+        assert all(row["summary"]["material_spent_cost"] is None for row in history.json())
 
 
 def test_customer_payment_history_has_bounded_limit(client, auth_headers):

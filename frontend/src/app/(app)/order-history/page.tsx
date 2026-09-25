@@ -29,7 +29,7 @@ type HistorySummary = {
   order_amount: number;
   paid_total: number;
   outstanding_amount: number;
-  material_spent_cost: number;
+  material_spent_cost: number | null;
   ordered_at?: string | null;
   completed_at?: string | null;
   last_activity_at?: string | null;
@@ -90,7 +90,7 @@ type MaterialSpent = {
   category: string;
   unit: string;
   quantity: number;
-  estimated_cost: number;
+  estimated_cost: number | null;
 };
 
 type ProductionOrder = {
@@ -180,6 +180,10 @@ type DetailTab = "overview" | "planning" | "production" | "materials" | "package
 
 function money(value: number) {
   return `$${Number(value || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function historicalMoney(value: number | null) {
+  return value === null ? "—" : money(value);
 }
 
 function qty(value: number, unit = "") {
@@ -653,7 +657,7 @@ export default function OrderHistoryPage() {
                 <StatCard icon={PackageCheck} label={t("page.orderHistory.orderedQty")} value={qty(detail.summary.ordered_qty)} detail={t("page.orderHistory.plannedQty", { qty: qty(detail.summary.planned_qty) })} />
                 <StatCard icon={Truck} label={t("page.orderHistory.shipped")} value={qty(detail.summary.shipped_qty)} detail={t("page.orderHistory.packagesShipments", { packages: detail.summary.package_count, shipments: detail.summary.shipment_count })} />
                 <StatCard icon={WalletCards} label={t("page.orderHistory.money")} value={money(detail.summary.order_amount)} detail={t("page.orderHistory.paidOutstanding", { paid: money(detail.summary.paid_total), open: money(detail.summary.outstanding_amount) })} />
-                <StatCard icon={CalendarCheck} label={t("page.orderHistory.materialSpend")} value={money(detail.summary.material_spent_cost)} detail={t("page.orderHistory.materialLines", { count: detail.materials.spent.length })} />
+                <StatCard icon={CalendarCheck} label={t("page.orderHistory.materialSpend")} value={historicalMoney(detail.summary.material_spent_cost)} detail={t("page.orderHistory.materialLines", { count: detail.materials.spent.length })} />
               </section>
 
               <section className="card overflow-x-auto">
@@ -722,7 +726,7 @@ export default function OrderHistoryPage() {
                         <td><span className="mono">{row.sku}</span> - {row.name}</td>
                         <td>{row.category}</td>
                         <td className="text-right">{qty(row.quantity, row.unit)}</td>
-                        <td className="text-right">{money(row.estimated_cost)}</td>
+                        <td className="text-right">{historicalMoney(row.estimated_cost)}</td>
                       </tr>
                     ))}
                     {detail.materials.spent.length === 0 ? <tr><td colSpan={4} className="text-[#8a8472]">{t("page.orderHistory.noRows")}</td></tr> : null}

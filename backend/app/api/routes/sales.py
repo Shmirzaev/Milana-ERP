@@ -575,9 +575,10 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
     for movement, item, batch in movement_rows:
         qty = _num(movement.quantity)
         unit = movement.unit or item.unit
-        unit_cost = _num(batch.cost_per_unit if batch else item.default_cost)
-        cost = qty * unit_cost
-        material_cost_total += cost
+        unit_cost = _num(movement.unit_cost_at_movement) if movement.unit_cost_at_movement is not None else None
+        cost = qty * unit_cost if unit_cost is not None else None
+        if material_cost_total is not None:
+            material_cost_total = material_cost_total + cost if cost is not None else None
         key = (int(item.id), unit)
         bucket = material_by_key.setdefault(
             key,
@@ -592,7 +593,8 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
             },
         )
         bucket["quantity"] += qty
-        bucket["estimated_cost"] += cost
+        if bucket["estimated_cost"] is not None:
+            bucket["estimated_cost"] = bucket["estimated_cost"] + cost if cost is not None else None
         material_movements.append(
             {
                 "id": movement.id,
@@ -600,6 +602,7 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
                 "quantity": qty,
                 "unit": unit,
                 "estimated_cost": cost,
+                "unit_cost_at_movement": unit_cost,
                 "reference_type": movement.reference_type,
                 "reference_id": movement.reference_id,
                 "created_at": movement.created_at,
@@ -612,7 +615,6 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
                 "batch": {
                     "id": batch.id,
                     "batch_no": batch.batch_no,
-                    "cost_per_unit": _num(batch.cost_per_unit),
                 } if batch else None,
             }
         )
@@ -985,9 +987,10 @@ def _stock_production_history(db: DbSession, po: ProductionOrder, *, include_det
     for movement, item, batch in movement_rows:
         quantity = _num(movement.quantity)
         unit = movement.unit or item.unit
-        unit_cost = _num(batch.cost_per_unit if batch else item.default_cost)
-        cost = quantity * unit_cost
-        material_cost_total += cost
+        unit_cost = _num(movement.unit_cost_at_movement) if movement.unit_cost_at_movement is not None else None
+        cost = quantity * unit_cost if unit_cost is not None else None
+        if material_cost_total is not None:
+            material_cost_total = material_cost_total + cost if cost is not None else None
         bucket = material_by_key.setdefault(
             (int(item.id), unit),
             {
@@ -996,15 +999,17 @@ def _stock_production_history(db: DbSession, po: ProductionOrder, *, include_det
             },
         )
         bucket["quantity"] += quantity
-        bucket["estimated_cost"] += cost
+        if bucket["estimated_cost"] is not None:
+            bucket["estimated_cost"] = bucket["estimated_cost"] + cost if cost is not None else None
         material_movements.append(
             {
                 "id": movement.id, "movement_type": movement.movement_type, "quantity": quantity,
-                "unit": unit, "estimated_cost": cost, "reference_type": movement.reference_type,
+                "unit": unit, "estimated_cost": cost, "unit_cost_at_movement": unit_cost,
+                "reference_type": movement.reference_type,
                 "reference_id": movement.reference_id, "created_at": movement.created_at,
                 "item": {"id": item.id, "sku": item.sku, "name": item.name, "category": item.category},
                 "batch": {
-                    "id": batch.id, "batch_no": batch.batch_no, "cost_per_unit": _num(batch.cost_per_unit),
+                    "id": batch.id, "batch_no": batch.batch_no,
                 } if batch else None,
             }
         )
