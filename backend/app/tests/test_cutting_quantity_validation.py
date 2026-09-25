@@ -247,6 +247,57 @@ def test_cutting_bundle_plan_caps_raw_rows_even_when_bundle_count_is_zero():
         _parse_cutting_bundle_specs(rows)
 
 
+@pytest.mark.parametrize(
+    ("destination", "message"),
+    [
+        ({"next": "pakaging"}, "unsupported next stage"),
+        ({"next": "sewing", "sewing_factory": "besttexx"}, "unsupported sewing factory"),
+    ],
+)
+def test_cutting_bundle_plan_rejects_unknown_destination(destination, message):
+    spec = {"color": "white", "size": "M", "quantity": 1, "count": 1, **destination}
+
+    with pytest.raises(HTTPException, match=message):
+        _parse_cutting_bundle_specs([spec])
+
+
+def test_cutting_bundle_plan_preserves_supported_destination_aliases():
+    parsed = _parse_cutting_bundle_specs([
+        {"color": "white", "size": "M", "quantity": 1, "count": 1, "next": "printing", "sewing_factory": "besttex"},
+        {"color": "white", "size": "L", "quantity": 1, "count": 1, "next": "BST"},
+        {"color": "white", "size": "XL", "quantity": 1, "count": 1},
+    ])
+
+    assert [(row["next_code"], row["factory_code"]) for row in parsed] == [
+        ("PRT", "BST"),
+        ("BST", "BST"),
+        ("MIL", "MIL"),
+    ]
+
+
+def test_cutting_bundle_unknown_destination_does_not_write_cutting_state(client, auth_headers):
+    order_id, work_order_id = _cutting_scope()
+    before = _write_state(order_id, work_order_id)
+    payload = {
+        "work_order_id": work_order_id,
+        "input_quantity": 0,
+        "cut_pieces": 0,
+        "passed_pieces": 0,
+        "defective_pieces": 0,
+        "waste_quantity": 0,
+        "bundles": [
+            {"color": "white", "size": "M", "quantity": 1, "count": 1, "next": "pakaging"},
+        ],
+    }
+
+    response = client.post("/api/cutting/records", headers=auth_headers, json=payload)
+
+    assert response.status_code == 400, response.text
+    assert "unsupported next stage" in response.json()["detail"]
+    assert _write_state(order_id, work_order_id) == before
+    assert client.post("/api/cutting/records", json=payload).status_code == 401
+
+
 def test_cutting_bundle_shape_failure_does_not_write_cutting_state(client, auth_headers):
     order_id, work_order_id = _cutting_scope()
     before = _write_state(order_id, work_order_id)

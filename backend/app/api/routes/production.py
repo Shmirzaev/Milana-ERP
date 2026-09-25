@@ -3382,9 +3382,13 @@ def _parse_cutting_bundle_specs(specs: list[dict]) -> list[dict]:
         if total_quantity > 2_147_483_647:
             raise HTTPException(400, "Bundle plan total quantity is too large")
         raw_next = str(spec.get("next") or "").strip().lower()
+        if raw_next and raw_next not in {"printing", "sewing"} and not is_sewing_department_code(raw_next):
+            raise HTTPException(400, f"Bundle plan row {i}: unsupported next stage")
         raw_factory = spec.get("sewing_factory") or spec.get("sewingFactory") or spec.get("factory")
         if not raw_factory and is_sewing_department_code(raw_next):
             raw_factory = raw_next
+        if raw_factory and not is_sewing_department_code(str(raw_factory)):
+            raise HTTPException(400, f"Bundle plan row {i}: unsupported sewing factory")
         factory_code = resolve_sewing_factory_code(str(raw_factory) if raw_factory else None)
         parsed.append({
             "count": count,
