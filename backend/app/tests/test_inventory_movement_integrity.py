@@ -357,6 +357,27 @@ def test_batchless_transfer_requires_source_ledger_stock(
         assert current_stock_for_item(db, movement_stock["item_id"], movement_stock["destination_id"]) == destination_before
 
 
+@pytest.mark.parametrize("movement_type", ["issue", "consume", "return", "adjustment"])
+@pytest.mark.parametrize("batchless", [False, True])
+def test_direct_movement_rejects_opposite_direction_warehouse_without_writes(
+    client, auth_headers, movement_stock, movement_type, batchless,
+):
+    opposite_field = "to_warehouse_id" if movement_type in {"issue", "consume"} else "from_warehouse_id"
+    before = stock_state(movement_stock)
+    response = client.post(
+        "/api/inventory/transfer",
+        headers={**auth_headers, "Idempotency-Key": f"opposite-{movement_type}-{batchless}"},
+        json=movement_payload(
+            movement_stock, movement_type,
+            batch_id=None if batchless else movement_stock["batch_id"],
+            **{opposite_field: movement_stock["destination_id"]},
+        ),
+    )
+    assert response.status_code == 400, response.text
+    assert "movement cannot have" in response.json()["detail"]
+    assert stock_state(movement_stock) == before
+
+
 def test_batchless_transfer_moves_only_ledger_stock_between_warehouses(
     client, auth_headers, movement_stock,
 ):

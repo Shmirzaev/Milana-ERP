@@ -1536,6 +1536,10 @@ def transfer_stock(
                 raise HTTPException(404, "Warehouse not found")
             if payload.batch_id is None and payload.movement_type != "transfer":
                 validate_stock_batch_warehouse(item, warehouse)
+    if payload.movement_type in {"issue", "consume"} and payload.to_warehouse_id is not None:
+        raise HTTPException(400, "Outgoing movement cannot have a destination warehouse")
+    if payload.movement_type in {"return", "adjustment"} and payload.from_warehouse_id is not None:
+        raise HTTPException(400, "Incoming movement cannot have a source warehouse")
 
     if payload.batch_id is None:
         lock_stock_item_availability(db, int(item.id))
