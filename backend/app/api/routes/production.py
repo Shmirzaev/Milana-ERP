@@ -105,7 +105,7 @@ from app.services.workflow import (
 from app.services.model_identity import model_number_fields
 from app.services.model_images import material_preview_image_url, model_preview_image_url
 from app.services.cutting_sheet import render_cutting_sheet_html
-from app.services.factory_scope import require_factory_access, selected_factory_code
+from app.services.factory_scope import cutting_department_scope, require_factory_access, selected_factory_code
 from app.services.factory_scope import require_work_order_factory_access
 
 router = APIRouter(tags=["production"])
@@ -616,6 +616,7 @@ def list_pos(
     _: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS)),
     status: str | None = None,
     production_type: str | None = None,
+    cutting_department_code: str | None = None,
     q: Annotated[str | None, Query(max_length=100)] = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=500)] = 50,
@@ -629,6 +630,18 @@ def list_pos(
     ).filter(
         ProductionOrder.source_type == "standard"
     )
+    if cutting_department_code is not None:
+        department_code = cutting_department_scope(_, cutting_department_code)
+        eco_cutting_order_ids = (
+            db.query(WorkOrder.production_order_id)
+            .join(Department, Department.id == WorkOrder.department_id)
+            .filter(WorkOrder.operation == "cutting", Department.code == "ECT")
+            .distinct()
+        )
+        if department_code == "ECT":
+            qry = qry.filter(ProductionOrder.id.in_(eco_cutting_order_ids))
+        else:
+            qry = qry.filter(ProductionOrder.id.notin_(eco_cutting_order_ids))
     if status: qry = qry.filter(ProductionOrder.status == status)
     if production_type: qry = qry.filter(ProductionOrder.production_type == production_type)
     needle = (q or "").strip()

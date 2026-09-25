@@ -19,16 +19,14 @@ const { useCuttingPassportDirectoryKeys } = require(tempPath);
 
 function Probe({ open }) {
   const keys = useCuttingPassportDirectoryKeys(open);
-  return React.createElement("output", { "data-production-orders": keys.productionOrders ?? "null", "data-operators": keys.operators ?? "null" });
+  return React.createElement("output", { "data-operators": keys.operators ?? "null" });
 }
 
 const closed = renderToStaticMarkup(React.createElement(Probe, { open: false }));
-assert.match(closed, /data-production-orders="null"/);
 assert.match(closed, /data-operators="null"/);
 
 const open = renderToStaticMarkup(React.createElement(Probe, { open: true }));
-assert.match(open, /data-production-orders="\/api\/production-orders\?page_size=500"/);
 assert.match(open, /data-operators="\/api\/cutting-passports\/operators"/);
 
 fs.unlinkSync(tempPath);
-console.log("Cutting passport directory hook execution passed: closed skips both keys; open enables both keys.");
+console.log("Cutting passport operator directory hook execution passed: closed skips the key; open enables it.");

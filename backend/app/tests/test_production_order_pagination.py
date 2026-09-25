@@ -6,7 +6,7 @@ from sqlalchemy import event
 
 from app.api.routes.production import list_pos
 from app.db.session import SessionLocal
-from app.models import AuditLog, Model, ProductionOrder, SalesOrder
+from app.models import AuditLog, Department, Model, ProductionOrder, SalesOrder, WorkOrder
 
 
 def _seed_orders(count: int) -> tuple[str, int]:
@@ -35,7 +35,7 @@ def _seed_orders(count: int) -> tuple[str, int]:
         return production_type, int(model.id)
 
 
-def _read(**kwargs):
+def _read(current=None, **kwargs):
     with SessionLocal() as db:
         statements = []
 
@@ -44,7 +44,7 @@ def _read(**kwargs):
 
         event.listen(db.bind, "before_cursor_execute", capture)
         try:
-            payload = list_pos(db, SimpleNamespace(), **kwargs)
+            payload = list_pos(db, current or SimpleNamespace(), **kwargs)
             if isinstance(payload, dict):
                 payload = {**payload, "rows": [int(row.id) for row in payload["rows"]]}
             else:
@@ -115,6 +115,50 @@ def test_production_order_pages_bound_rows_and_preserve_legacy_payload(order_cou
     assert wildcard["rows"] == []
     assert len([statement for statement in legacy_statements if statement.startswith("select")]) == 2
     assert writes == []
+
+
+def test_cutting_passport_order_pages_scope_factory_before_count_and_limit():
+    production_type, _ = _seed_orders(401)
+    with SessionLocal() as db:
+        ect = db.query(Department).filter_by(code="ECT").one()
+        ids = [row.id for row in db.query(ProductionOrder.id).filter_by(
+            production_type=production_type,
+        ).order_by(ProductionOrder.id.asc()).all()]
+        db.add_all([
+            WorkOrder(
+                production_order_id=order_id,
+                department_id=ect.id,
+                operation="cutting",
+                status="waiting",
+            ) for order_id in ids[200:]
+        ])
+        db.commit()
+
+    def user(factory):
+        return SimpleNamespace(
+            role=SimpleNamespace(name=""), extra_permissions=["cutting.records"],
+            factory_code=factory, session_factory_code=factory,
+        )
+
+    cut_page, cut_sql = _read(
+        current=user("MIL"), production_type=production_type,
+        cutting_department_code="CUT", page=1, page_size=50, include_total=True,
+    )
+    ect_page, ect_sql = _read(
+        current=user("ECO"), production_type=production_type,
+        cutting_department_code="ECT", page=1, page_size=50, include_total=True,
+    )
+    ect_page_two, _ = _read(
+        current=user("ECO"), production_type=production_type,
+        cutting_department_code="ECT", page=2, page_size=50, include_total=True,
+    )
+    assert (cut_page["total"], ect_page["total"]) == (200, 201)
+    assert len(cut_page["rows"]) == len(ect_page["rows"]) == 50
+    assert set(cut_page["rows"]).isdisjoint(ect_page["rows"])
+    assert set(ect_page["rows"]).isdisjoint(ect_page_two["rows"])
+    assert len([sql for sql in cut_sql if sql.startswith("select")]) == 3
+    assert len([sql for sql in ect_sql if sql.startswith("select")]) == 3
+    assert all(" limit ? offset ?" in sql for sql in (cut_sql[1], ect_sql[1]))
 
 
 def test_production_order_list_projects_sales_order_reference_fields():

@@ -7,7 +7,7 @@ assert.match(page, /const \[showForm, setShowForm\] = useState\(false\);/, "cutt
 assert.match(
   page,
   /useCuttingPassportDirectoryKeys\(showForm\)/,
-  "the 500-order directory must load only while the create/edit form is open",
+  "the operator directory must load only while the create/edit form is open",
 );
 assert.match(
   page,
@@ -15,22 +15,24 @@ assert.match(
   "the operator directory must load only while the create/edit form is open",
 );
 assert.match(page, /<Modal[\s\S]*?open=\{showForm\}/, "the guarded directories must correspond to the passport form modal");
+assert.match(page, /<CuttingProductionOrderSelect inputId="cutting-passport-production-order"/, "the bounded production-order picker must mount only inside the form");
+assert.doesNotMatch(page, /\/api\/production-orders\?page_size=500/, "the form must not load a capped order directory");
 
 const requests = [];
 const requestDirectories = (open) => {
   const keys = open
-    ? ["/api/production-orders?page_size=500", "/api/cutting-passports/operators"]
-    : [null, null];
+    ? ["/api/cutting-passports/operators"]
+    : [null];
   requests.push(keys);
   return keys;
 };
 
-assert.deepEqual(requestDirectories(false), [null, null], "closed form must skip both option directories");
+assert.deepEqual(requestDirectories(false), [null], "closed form must skip its operator directory");
 assert.deepEqual(
   requestDirectories(true),
-  ["/api/production-orders?page_size=500", "/api/cutting-passports/operators"],
-  "create/edit form must load both option directories",
+  ["/api/cutting-passports/operators"],
+  "create/edit form must load the operator directory",
 );
-assert.deepEqual(requests, [[null, null], ["/api/production-orders?page_size=500", "/api/cutting-passports/operators"]]);
+assert.deepEqual(requests, [[null], ["/api/cutting-passports/operators"]]);
 
 console.log("Cutting passport hidden-fetch contract passed.");
