@@ -263,8 +263,9 @@ def reservation_postgres_engine():
         engine.dispose()
 
 
-def test_postgres_batchless_transfer_waits_for_item_only_reservation(
-    reservation_postgres_engine,
+@pytest.mark.parametrize("movement_type", ["transfer", "issue", "consume"])
+def test_postgres_batchless_movement_waits_for_item_only_reservation(
+    reservation_postgres_engine, movement_type,
 ):
     sessions = sessionmaker(bind=reservation_postgres_engine, autoflush=False, expire_on_commit=False)
     marker = uuid4().hex[:10]
@@ -295,7 +296,7 @@ def test_postgres_batchless_transfer_waits_for_item_only_reservation(
 
     reservation_ready = Event()
     release_reservation = Event()
-    transfer_pid = Queue()
+    movement_pid = Queue()
 
     def reserve():
         with sessions() as db:
@@ -308,14 +309,15 @@ def test_postgres_batchless_transfer_waits_for_item_only_reservation(
             assert release_reservation.wait(10), "Coordinator did not release reservation transaction"
             db.commit()
 
-    def transfer():
+    def move_stock():
         with sessions() as db:
-            transfer_pid.put(db.execute(text("SELECT pg_backend_pid()")).scalar_one())
+            movement_pid.put(db.execute(text("SELECT pg_backend_pid()")).scalar_one())
             try:
                 inventory_routes.transfer_stock(
                     StockMovementIn(
-                        movement_type="transfer", item_id=item_id, batch_id=None,
-                        from_warehouse_id=source_id, to_warehouse_id=destination_id,
+                        movement_type=movement_type, item_id=item_id, batch_id=None,
+                        from_warehouse_id=source_id,
+                        to_warehouse_id=destination_id if movement_type == "transfer" else None,
                         quantity=2, unit="pcs",
                     ),
                     db, db.get(User, user_id), idempotency_key=None,
@@ -329,27 +331,27 @@ def test_postgres_batchless_transfer_waits_for_item_only_reservation(
         reservation_future = workers.submit(reserve)
         try:
             assert reservation_ready.wait(10), "Reservation did not acquire its item lock"
-            transfer_future = workers.submit(transfer)
-            pid = transfer_pid.get(timeout=10)
+            movement_future = workers.submit(move_stock)
+            pid = movement_pid.get(timeout=10)
             deadline = monotonic() + 10
             while monotonic() < deadline:
                 if observer.execute(text("SELECT pg_blocking_pids(:pid)"), {"pid": pid}).scalar_one():
                     break
-                if transfer_future.done():
-                    pytest.fail(f"Transfer completed before reservation commit: {transfer_future.result()}")
+                if movement_future.done():
+                    pytest.fail(f"Movement completed before reservation commit: {movement_future.result()}")
                 sleep(0.02)
             else:
-                pytest.fail("Transfer must wait on the reservation's item availability lock")
+                pytest.fail("Movement must wait on the reservation's item availability lock")
         finally:
             release_reservation.set()
         reservation_future.result(timeout=10)
-        assert transfer_future.result(timeout=10) == 409
+        assert movement_future.result(timeout=10) == 409
 
     with sessions() as db:
         assert inventory.current_stock_for_item(db, item_id, source_id) == 5
         assert inventory.current_stock_for_item(db, item_id, destination_id) == 0
         assert inventory.reserved_stock_for_item(db, item_id, source_id) == 4
-        assert db.query(StockMovement).filter_by(item_id=item_id, movement_type="transfer").count() == 0
+        assert db.query(StockMovement).filter_by(item_id=item_id, movement_type=movement_type).count() == 0
 
 
 @pytest.mark.parametrize("case", [

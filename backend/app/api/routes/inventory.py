@@ -1551,8 +1551,11 @@ def transfer_stock(
             raise HTTPException(400, "Destination warehouse must differ from the source")
         validate_stock_batch_warehouse(item, db.get(Warehouse, source_id))
         validate_stock_batch_warehouse(item, db.get(Warehouse, destination_id))
-        # Tracked batch stock cannot back this transfer.
-        unbatched_reserved = db.query(func.coalesce(func.sum(
+    if payload.batch_id is None and payload.movement_type in {"transfer", "issue", "consume"}:
+        # Tracked batches cannot back an item-level debit. The item advisory
+        # lock above also serializes this check with reservation creation.
+        source_id = payload.from_warehouse_id
+        reserved_query = db.query(func.coalesce(func.sum(
             MaterialReservation.reserved_quantity
             - MaterialReservation.consumed_quantity
             - MaterialReservation.released_quantity,
@@ -1560,13 +1563,19 @@ def transfer_stock(
             MaterialReservation.item_id == item.id,
             MaterialReservation.stock_batch_id.is_(None),
             MaterialReservation.status.in_(ACTIVE_RESERVATION_STATUSES),
-            or_(MaterialReservation.warehouse_id == source_id, MaterialReservation.warehouse_id.is_(None)),
-        ).scalar()
+        )
+        if source_id is not None:
+            reserved_query = reserved_query.filter(or_(
+                MaterialReservation.warehouse_id == source_id,
+                MaterialReservation.warehouse_id.is_(None),
+            ))
+        unbatched_reserved = reserved_query.scalar()
         available_unbatched = batchless_stock_for_item(db, item.id, source_id) - max(
             Decimal(0), Decimal(str(unbatched_reserved or 0)),
         )
         if quantity > available_unbatched:
-            raise HTTPException(409, "Transfer quantity exceeds available batchless stock")
+            action = "Transfer" if payload.movement_type == "transfer" else "Movement"
+            raise HTTPException(409, f"{action} quantity exceeds available batchless stock")
 
     movement_data = payload.model_dump()
     movement_data["quantity"] = quantity

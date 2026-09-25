@@ -868,8 +868,63 @@ def test_fractional_batch_ledger_stays_exact(client, auth_headers, movement_stoc
     assert_batch_ledger(movement_stock, "9.6997")
 
 
-@pytest.mark.parametrize(("movement_type", "expected"), [("issue", 6), ("consume", 6), ("return", 14), ("adjustment", 14)])
-def test_batchless_movement_keeps_existing_ledger_behavior(client, auth_headers, movement_stock, movement_type, expected):
+@pytest.mark.parametrize("movement_type", ["issue", "consume"])
+def test_batchless_outgoing_cannot_borrow_tracked_batch_stock_without_writes(
+    client, auth_headers, movement_stock, movement_type,
+):
+    before = stock_state(movement_stock)
+    response = client.post(
+        "/api/inventory/transfer",
+        headers={**auth_headers, "Idempotency-Key": f"unbacked-{movement_type}"},
+        json=movement_payload(movement_stock, movement_type, batch_id=None),
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "Movement quantity exceeds available batchless stock"
+    assert stock_state(movement_stock) == before
+
+
+@pytest.mark.parametrize("movement_type", ["issue", "consume"])
+def test_batchless_outgoing_respects_item_only_reservation_and_source_ledger(
+    client, auth_headers, movement_stock, movement_type,
+):
+    deposited = client.post(
+        "/api/inventory/transfer", headers=auth_headers,
+        json=movement_payload(movement_stock, "adjustment", batch_id=None, quantity=5),
+    )
+    assert deposited.status_code == 201, deposited.text
+    with session_module.SessionLocal() as db:
+        order = ProductionOrder(
+            production_no=f"BATCHLESS-{movement_type.upper()}-RESERVATION",
+            production_type="branded_stock", model_id=db.query(Model.id).first()[0], planned_quantity=1,
+        )
+        db.add(order)
+        db.flush()
+        db.add(MaterialReservation(
+            reservation_no=f"BATCHLESS-{movement_type.upper()}-RESERVATION",
+            production_order_id=order.id, item_id=movement_stock["item_id"],
+            warehouse_id=movement_stock["source_id"], reserved_quantity=3, unit="pcs",
+        ))
+        db.commit()
+
+    allowed = client.post(
+        "/api/inventory/transfer", headers=auth_headers,
+        json=movement_payload(movement_stock, movement_type, batch_id=None, quantity=2),
+    )
+    assert allowed.status_code == 201, allowed.text
+    before_rejected = stock_state(movement_stock)
+    rejected = client.post(
+        "/api/inventory/transfer", headers=auth_headers,
+        json=movement_payload(movement_stock, movement_type, batch_id=None, quantity=0.0001),
+    )
+    assert rejected.status_code == 409, rejected.text
+    assert stock_state(movement_stock) == before_rejected
+    with session_module.SessionLocal() as db:
+        assert db.get(StockBatch, movement_stock["batch_id"]).quantity == 10
+        assert current_stock_for_item(db, movement_stock["item_id"], movement_stock["source_id"]) == 13
+
+
+@pytest.mark.parametrize(("movement_type", "expected"), [("return", 14), ("adjustment", 14)])
+def test_batchless_incoming_keeps_existing_ledger_behavior(client, auth_headers, movement_stock, movement_type, expected):
     response = client.post("/api/inventory/transfer", headers=auth_headers,
                            json=movement_payload(movement_stock, movement_type, batch_id=None))
     assert response.status_code == 201, response.text
