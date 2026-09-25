@@ -1,3 +1,4 @@
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -8,12 +9,14 @@ from app.db.session import SessionLocal
 from app.models import (
     AuditLog,
     IdempotencyRecord,
+    Item,
     PurchaseOrder,
     PurchaseOrderLine,
     Role,
     StockBatch,
     StockMovement,
     User,
+    Warehouse,
 )
 from app.schemas.inventory import StockBatchIn, StockBatchUpdate
 from app.schemas.purchasing import PurchaseOrderLineIn, PurchaseOrderReceiveLineIn
@@ -192,3 +195,41 @@ def test_fractional_cost_api_rejections_do_not_write(client, auth_headers):
     ]
     assert [response.status_code for response in responses] == [422] * 4
     assert _write_counts() == before
+
+
+def test_negative_order_cost_requires_nonnegative_receipt_override(client, auth_headers):
+    with SessionLocal() as db:
+        item = db.query(Item).filter(Item.category == "fabric").order_by(Item.id).first()
+        warehouse = db.query(Warehouse).filter(Warehouse.type == "fabric_storage").order_by(Warehouse.id).first()
+        assert item is not None and warehouse is not None
+        item_id, item_unit, warehouse_id = item.id, item.unit, warehouse.id
+
+    order = client.post("/api/purchasing/orders", headers=auth_headers, json={"lines": [{
+        "item_id": item_id, "ordered_quantity": 1, "unit": item_unit,
+        "unit_cost": -1, "warehouse_id": warehouse_id,
+    }]})
+    assert order.status_code == 201, order.text
+    order_id = order.json()["id"]
+    line_id = order.json()["lines"][0]["id"]
+    with SessionLocal() as db:
+        db.get(PurchaseOrder, order_id).status = "sent"
+        db.commit()
+    before = _write_counts()
+
+    receipt = {"lines": [{
+        "purchase_order_line_id": line_id, "received_quantity": 1,
+        "batch_no": f"NEG-COST-{line_id}", "warehouse_id": warehouse_id,
+    }]}
+    rejected = client.post(f"/api/purchasing/orders/{order_id}/receive", headers=auth_headers, json=receipt)
+    assert rejected.status_code == 422, rejected.text
+    assert "nonnegative" in rejected.json()["detail"]
+    assert _write_counts() == before
+    with SessionLocal() as db:
+        assert db.get(PurchaseOrderLine, line_id).received_quantity == 0
+
+    receipt["lines"][0]["cost_per_unit"] = "2.1234"
+    accepted = client.post(f"/api/purchasing/orders/{order_id}/receive", headers=auth_headers, json=receipt)
+    assert accepted.status_code == 200, accepted.text
+    with SessionLocal() as db:
+        assert db.get(PurchaseOrderLine, line_id).unit_cost == Decimal("2.1234")
+        assert db.query(StockBatch).filter_by(batch_no=f"NEG-COST-{line_id}").one().cost_per_unit == Decimal("2.1234")

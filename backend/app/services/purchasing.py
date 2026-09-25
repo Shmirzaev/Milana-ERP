@@ -621,6 +621,8 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
         if piece_count is not None and not 0 <= piece_count <= MAX_STOCK_BATCH_PIECE_COUNT:
             raise HTTPException(422, "piece_count must be between 0 and 2147483647")
         cost_per_unit = _num(raw.get("cost_per_unit")) if raw.get("cost_per_unit") is not None else _num(line.unit_cost)
+        if cost_per_unit < 0:
+            raise HTTPException(422, "Received stock cost per unit must be nonnegative")
         roll_weights, piece_count = normalize_material_roll_weights(
             item_category=item.category,
             unit=unit,
