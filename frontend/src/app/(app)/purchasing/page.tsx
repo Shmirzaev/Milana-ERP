@@ -32,11 +32,10 @@ type PurchaseRequestPage = {
   page_size: number;
   has_more: boolean;
 };
-type PurchaseOrder = { id: number; status: string; lines: { id: number; remaining_quantity: number }[] };
+type PurchaseOrderCountPage = { total: number };
 type ApprovalLineDraft = { material_name: string; photo_url: string; preferred_supplier_id: number };
 type OrderDraft = { expected_date: string; quantities: Record<number, string> };
 
-const RECEIVABLE_ORDER_STATUSES = new Set(["sent", "approved", "partially_received"]);
 const ACTIVE_REQUEST_STATUSES = new Set(["draft", "pending_approval", "approved"]);
 
 function fmtQty(value: number | string | null | undefined) {
@@ -80,7 +79,10 @@ export default function PurchasingPage() {
       : null,
     fetcher,
   );
-  const { data: orders, mutate: refreshOrders } = useSWR<PurchaseOrder[]>(canView ? "/api/purchasing/orders" : null, fetcher);
+  const { data: orders, mutate: refreshOrders } = useSWR<PurchaseOrderCountPage>(
+    canView ? "/api/purchasing/orders?page=1&page_size=1&receivable_only=true" : null,
+    fetcher,
+  );
   const { data: materialItems } = useSWR<Item[]>(canRequest && showRequestForm ? "/api/inventory/items?group=materials&page_size=500" : null, fetcher);
   const { data: accessoryItems } = useSWR<Item[]>(canRequest && showRequestForm ? "/api/inventory/items?group=accessories&page_size=500" : null, fetcher);
   const { data: suppliers } = useSWR<Supplier[]>(canRequest || canApprove ? "/api/suppliers" : null, fetcher);
@@ -226,7 +228,7 @@ export default function PurchasingPage() {
     return folders;
   }, new Map<string, { key: string; supplierName: string; requests: PurchaseRequest[] }>()).values())
     .sort((a, b) => a.supplierName.localeCompare(b.supplierName));
-  const openOrderCount = (orders || []).filter((row) => RECEIVABLE_ORDER_STATUSES.has(row.status) && row.lines.some((line) => Number(line.remaining_quantity || 0) > 0)).length;
+  const openOrderCount = Number(orders?.total || 0);
   const today = new Date().toISOString().slice(0, 10);
 
   const renderRequestRows = (folderRequests: PurchaseRequest[]) => folderRequests.map((request) => (

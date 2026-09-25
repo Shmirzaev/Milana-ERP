@@ -67,7 +67,7 @@ new Function("exports", "require", output)(exports, name => ({
   } },
   swr: { default: key => {
     keys.push(key);
-    if (key === "/api/purchasing/orders") return { data: [], mutate: async () => {} };
+    if (key === "/api/purchasing/orders?page=1&page_size=1&receivable_only=true") return { data: { rows: [], total: 401, page: 1, page_size: 1, has_more: true }, mutate: async () => {} };
     if (key === "/api/inventory/items?group=materials&page_size=500") {
       return { data: [{ id: 1, sku: "FAB-1", name: "Deferred Fabric", unit: "kg" }] };
     }
@@ -114,7 +114,7 @@ function find(node, predicate) {
 const closed = render();
 assert.deepEqual(keys, [
   "/api/purchasing/requests?page=1&page_size=100",
-  "/api/purchasing/orders",
+  "/api/purchasing/orders?page=1&page_size=1&receivable_only=true",
   null,
   null,
   "/api/suppliers",
@@ -124,6 +124,7 @@ assert.ok(closedHtml.includes("Visible Supplier") === false);
 assert.ok(!closedHtml.includes("Deferred Fabric"));
 assert.ok(!closedHtml.includes("Deferred Button"));
 assert.ok(closedHtml.includes("PR-1"));
+assert.ok(closedHtml.includes("401"), "active-order badge must use the exact filtered server total");
 assert.ok(!closedHtml.includes("PR-2"));
 
 const loadMore = find(closed, node => node.type === "button" && node.props.children === "common.loadMore");
@@ -135,7 +136,7 @@ const expanded = render();
 assert.deepEqual(keys, [
   "/api/purchasing/requests?page=1&page_size=100",
   "/api/purchasing/requests?page=2&page_size=100",
-  "/api/purchasing/orders",
+  "/api/purchasing/orders?page=1&page_size=1&receivable_only=true",
   null,
   null,
   "/api/suppliers",
@@ -153,7 +154,7 @@ const opened = render();
 assert.deepEqual(keys, [
   "/api/purchasing/requests?page=1&page_size=100",
   "/api/purchasing/requests?page=2&page_size=100",
-  "/api/purchasing/orders",
+  "/api/purchasing/orders?page=1&page_size=1&receivable_only=true",
   "/api/inventory/items?group=materials&page_size=500",
   "/api/inventory/items?group=accessories&page_size=500",
   "/api/suppliers",
