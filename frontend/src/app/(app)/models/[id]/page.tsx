@@ -8,6 +8,7 @@ import { Edit3, Plus, Trash2 } from "lucide-react";
 import { fetcher, api } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import SearchableSelect from "@/components/SearchableSelect";
+import ModelEmployeeAsyncSelect, { type ModelEmployee } from "@/components/ModelEmployeeAsyncSelect";
 import { useT } from "@/lib/i18n";
 import { statusLabel } from "@/components/StagePipeline";
 import { useDialogs } from "@/components/DialogProvider";
@@ -208,7 +209,6 @@ export default function ModelDetail() {
   const { data: items } = useSWR<any[]>(tab === 3 ? `${modelApiBase}/bom-items` : null, fetcher);
   const { data: brands } = useSWR<any[]>("/api/brands", fetcher);
   const { data: seasons } = useSWR<string[]>(isEditable ? "/api/collections/seasons" : null, fetcher);
-  const { data: employees } = useSWR<any[]>("/api/employees", fetcher);
   const { data: depts } = useSWR<any[]>("/api/departments", fetcher);
   const tabs = TAB_KEYS.map((k) => t(k));
 
@@ -239,7 +239,29 @@ export default function ModelDetail() {
     status: "draft",
     sam_minutes: "",
   });
+  const [selectedConstructor, setSelectedConstructor] = useState<ModelEmployee | null>(null);
+  const [selectedDesigner, setSelectedDesigner] = useState<ModelEmployee | null>(null);
+  const { data: constructorDetail } = useSWR<ModelEmployee>(
+    tab === 1 && modelForm.constructor_employee_id && selectedConstructor?.id !== modelForm.constructor_employee_id
+      ? `/api/employees/${modelForm.constructor_employee_id}` : null,
+    fetcher,
+  );
+  const { data: designerDetail } = useSWR<ModelEmployee>(
+    tab === 1 && modelForm.designer_employee_id && selectedDesigner?.id !== modelForm.designer_employee_id
+      ? `/api/employees/${modelForm.designer_employee_id}` : null,
+    fetcher,
+  );
   const [details, setDetails] = useState<ModelDetails>({});
+  const constructorEmployee = modelForm.constructor_employee_id
+    ? (selectedConstructor?.id === modelForm.constructor_employee_id ? selectedConstructor
+      : constructorDetail?.id === modelForm.constructor_employee_id ? constructorDetail
+        : details.general?.constructor ? { id: modelForm.constructor_employee_id, full_name: details.general.constructor } : null)
+    : null;
+  const designerEmployee = modelForm.designer_employee_id
+    ? (selectedDesigner?.id === modelForm.designer_employee_id ? selectedDesigner
+      : designerDetail?.id === modelForm.designer_employee_id ? designerDetail
+        : details.general?.designer ? { id: modelForm.designer_employee_id, full_name: details.general.designer } : null)
+    : null;
 
   const [bomRow, setBomRow] = useState<BomFormState>(() => emptyBomRow());
   const [editingBom, setEditingBom] = useState<{ id: number; section: BomSection } | null>(null);
@@ -433,11 +455,6 @@ export default function ModelDetail() {
         .map((d: any) => Number(d.id)),
     );
   }, [depts]);
-  const modelingEmployees = useMemo(() => {
-    const rows = employees || [];
-    if (!modelingDepartmentIds.size) return rows;
-    return rows.filter((e: any) => modelingDepartmentIds.has(Number(e.department_id)));
-  }, [employees, modelingDepartmentIds]);
   const brandOptions = useMemo(() => [
     { value: 0, label: t("ph.brand") },
     ...(brands || []).map((brand: any) => ({ value: Number(brand.id), label: String(brand.name || `#${brand.id}`) })),
@@ -449,14 +466,6 @@ export default function ModelDetail() {
       .filter((season) => season !== modelForm.season)
       .map((season) => ({ value: season, label: season })),
   ], [modelForm.season, seasons]);
-  const modelingEmployeeOptions = useMemo(() => [
-    { value: 0, label: "-" },
-    ...modelingEmployees.map((employee: any) => ({
-      value: Number(employee.id),
-      label: String(employee.full_name || `#${employee.id}`),
-      searchText: [employee.position, employee.employee_no, employee.department_name].filter(Boolean).join(" "),
-    })),
-  ], [modelingEmployees]);
   const accessoryItemOptions = useMemo(() => accessoryItems.map((item: any) => ({
     value: Number(item.id),
     label: `${item.sku} - ${item.name} (${item.category})`,
@@ -582,8 +591,10 @@ export default function ModelDetail() {
 
   async function saveModel() {
     const selectedBrand = (brands || []).find((b) => Number(b.id) === Number(modelForm.brand_id));
-    const constructor = (employees || []).find((e) => Number(e.id) === Number(modelForm.constructor_employee_id));
-    const designer = (employees || []).find((e) => Number(e.id) === Number(modelForm.designer_employee_id));
+    const constructorName = modelForm.constructor_employee_id
+      ? constructorEmployee?.full_name || details.general?.constructor || "" : "";
+    const designerName = modelForm.designer_employee_id
+      ? designerEmployee?.full_name || details.general?.designer || "" : "";
     const nextCode = buildModelCode(modelForm.model_no, modelForm.variant_no) || modelForm.code;
     if (!nextCode || !modelForm.name.trim()) {
       await dialogs.notify(t("page.modelDetail.modelNoNameRequired"));
@@ -615,9 +626,9 @@ export default function ModelDetail() {
       brand_id: modelForm.brand_id || undefined,
       product_type: modelForm.product_type || "",
       season: modelForm.season || "",
-      constructor: constructor?.full_name || "",
+      constructor: constructorName,
       constructor_employee_id: modelForm.constructor_employee_id || undefined,
-      designer: designer?.full_name || "",
+      designer: designerName,
       designer_employee_id: modelForm.designer_employee_id || undefined,
       qolip_no: normalizedQolipNo,
       mold_no: normalizedQolipNo,
@@ -1168,24 +1179,32 @@ export default function ModelDetail() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
                 <label className="label" htmlFor="model-constructor">{t("page.modelDetail.constructor")}</label>
-                <SearchableSelect
+                <ModelEmployeeAsyncSelect
                   inputId="model-constructor"
                   value={modelForm.constructor_employee_id}
-                  options={modelingEmployeeOptions}
-                  onChange={(employeeId) => setModelForm({ ...modelForm, constructor_employee_id: Number(employeeId) })}
+                  selectedEmployee={constructorEmployee}
+                  departmentIds={modelingDepartmentIds}
+                  enabled={tab === 1}
+                  onChange={(employee) => {
+                    setSelectedConstructor(employee);
+                    setModelForm((current) => ({ ...current, constructor_employee_id: employee?.id || 0 }));
+                  }}
                   placeholder={t("page.modelDetail.constructor")}
-                  noResultsText={t("page.search.noMatches")}
                 />
               </div>
               <div>
                 <label className="label" htmlFor="model-designer">{t("page.modelDetail.designer")}</label>
-                <SearchableSelect
+                <ModelEmployeeAsyncSelect
                   inputId="model-designer"
                   value={modelForm.designer_employee_id}
-                  options={modelingEmployeeOptions}
-                  onChange={(employeeId) => setModelForm({ ...modelForm, designer_employee_id: Number(employeeId) })}
+                  selectedEmployee={designerEmployee}
+                  departmentIds={modelingDepartmentIds}
+                  enabled={tab === 1}
+                  onChange={(employee) => {
+                    setSelectedDesigner(employee);
+                    setModelForm((current) => ({ ...current, designer_employee_id: employee?.id || 0 }));
+                  }}
                   placeholder={t("page.modelDetail.designer")}
-                  noResultsText={t("page.search.noMatches")}
                 />
               </div>
             </div>
