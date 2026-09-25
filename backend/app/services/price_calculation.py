@@ -368,6 +368,12 @@ def create_price_request(db: Session, model_id: int, current: User) -> PriceCalc
     details = model.details_json if isinstance(model.details_json, dict) else {}
     costing = details.get("costing") if isinstance(details.get("costing"), dict) else {}
     margin = _decimal(costing.get("target_margin_pct"))
+    if margin is not None and (
+        not margin.is_finite()
+        or abs(margin) > Decimal("999999.99")
+        or margin != margin.quantize(Decimal("0.01"))
+    ):
+        raise HTTPException(422, "Model target margin exceeds supported price calculation precision")
     request = PriceCalculationRequest(
         model_id=model.id,
         created_by_id=current.id,
