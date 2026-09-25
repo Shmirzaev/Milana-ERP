@@ -36,6 +36,7 @@ def _create_sales_order(client, headers, *, customer_id: int, model_id: int, uni
         "/api/sales-orders",
         json={
             "customer_id": customer_id,
+            "currency": "UZS",
             "order_type": "client_order",
             "items": [
                 {
@@ -178,7 +179,10 @@ def test_sales_order_history_endpoint_returns_order_ledger(client, auth_headers)
     assert row["customer_name"]
     assert row["summary"]["ordered_qty"] == 1
     assert row["summary"]["order_amount"] == 100
+    assert row["currency"] == "UZS"
+    assert row["summary"]["order_currency"] == "UZS"
     assert row["summary"]["paid_total"] == 35
+    assert row["summary"]["payment_currency"] == "UZS"
     assert row["summary"]["outstanding_amount"] == 65
     assert row["summary"]["invoice_count"] == 1
     assert row["summary"]["payment_count"] == 1
@@ -189,10 +193,52 @@ def test_sales_order_history_endpoint_returns_order_ledger(client, auth_headers)
     assert payload["order_no"] == order["order_no"]
     assert payload["items"][0]["quantity"] == 1
     assert payload["items"][0]["line_total"] == 100
+    assert payload["items"][0]["currency"] == "UZS"
     assert payload["invoices"][0]["invoice_no"] == invoice["invoice_no"]
+    assert payload["invoices"][0]["currency"] == "UZS"
     assert payload["payments"][0]["id"] == payment["id"]
+    assert payload["payments"][0]["currency"] == "UZS"
     assert any(event["type"] == "order_created" for event in payload["timeline"])
     assert any(event["type"] == "payment" for event in payload["timeline"])
+
+    from app.models import Invoice, Payment
+
+    with SessionLocal() as db:
+        db.get(Payment, int(payment["id"])).currency = "USD"
+        db.commit()
+    mixed = client.get(f"/api/sales-orders/{order['id']}/history", headers=auth_headers)
+    assert mixed.status_code == 200, mixed.text
+    assert mixed.json()["summary"]["paid_total"] == 35
+    assert mixed.json()["summary"]["payment_currency"] == "USD"
+    assert mixed.json()["summary"]["outstanding_amount"] is None
+
+    with SessionLocal() as db:
+        db.get(Payment, int(payment["id"])).currency = None
+        db.commit()
+    unknown = client.get(f"/api/sales-orders/{order['id']}/history", headers=auth_headers)
+    assert unknown.status_code == 200, unknown.text
+    assert unknown.json()["summary"]["paid_total"] is None
+    assert unknown.json()["payments"][0]["amount"] is None
+
+    with SessionLocal() as db:
+        db.get(Payment, int(payment["id"])).currency = "UZS"
+        db.get(Invoice, int(invoice["id"])).currency = "USD"
+        db.commit()
+    mismatched_invoice = client.get(f"/api/sales-orders/{order['id']}/history", headers=auth_headers)
+    assert mismatched_invoice.status_code == 200, mismatched_invoice.text
+    assert mismatched_invoice.json()["summary"]["invoice_currency"] == "USD"
+    assert mismatched_invoice.json()["summary"]["outstanding_amount"] is None
+
+    from app.models import SalesOrder
+
+    with SessionLocal() as db:
+        db.get(SalesOrder, int(order["id"])).currency = None
+        db.commit()
+    legacy = client.get(f"/api/sales-orders/{order['id']}/history", headers=auth_headers)
+    assert legacy.status_code == 200, legacy.text
+    assert legacy.json()["summary"]["order_amount"] is None
+    assert legacy.json()["order"]["total_amount"] is None
+    assert legacy.json()["order"]["items"][0]["unit_price"] is None
 
 
 def test_order_history_material_cost_uses_snapshot_and_marks_legacy_unknown(client, auth_headers):
@@ -223,11 +269,13 @@ def test_order_history_material_cost_uses_snapshot_and_marks_legacy_unknown(clie
                     movement_type="consume", item_id=item.id, batch_id=batch.id, quantity=2,
                     unit="kg", reference_type=reference_type, reference_id=reference_id,
                     unit_cost_at_movement=3,
+                    cost_currency_at_movement="UZS",
                 ),
                 StockMovement(
                     movement_type="consume", item_id=item.id, batch_id=batch.id, quantity=1,
                     unit="kg", reference_type=reference_type, reference_id=reference_id,
                     unit_cost_at_movement=0,
+                    cost_currency_at_movement="UZS",
                 ),
             ])
         production_id = production.id
@@ -261,6 +309,25 @@ def test_order_history_material_cost_uses_snapshot_and_marks_legacy_unknown(clie
                 assert legacy["unit_cost_at_movement"] is None
 
     assert_costs(6)
+    with SessionLocal() as db:
+        mixed_movement = db.query(StockMovement).filter(
+            StockMovement.reference_type == "ProductionOrder",
+            StockMovement.reference_id == production_id,
+            StockMovement.unit_cost_at_movement == 0,
+        ).one()
+        mixed_movement.cost_currency_at_movement = "USD"
+        mixed_movement_id = mixed_movement.id
+        db.commit()
+    mixed_costs = client.get(f"/api/sales-orders/history/production/{production_id}", headers=auth_headers)
+    assert mixed_costs.status_code == 200, mixed_costs.text
+    assert mixed_costs.json()["summary"]["material_spent_cost"] is None
+    assert mixed_costs.json()["summary"]["material_cost_currency"] is None
+    assert mixed_costs.json()["materials"]["spent"][0]["estimated_cost"] is None
+    with SessionLocal() as db:
+        db.query(StockMovement).filter(StockMovement.id == mixed_movement_id).update(
+            {StockMovement.cost_currency_at_movement: "UZS"}, synchronize_session=False,
+        )
+        db.commit()
     with SessionLocal() as db:
         db.get(StockBatch, batch_id).cost_per_unit = 11
         db.get(Item, item_id).default_cost = 19

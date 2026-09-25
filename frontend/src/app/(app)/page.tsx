@@ -22,7 +22,8 @@ type ActiveProductionOrder = {
   status: string;
   deadline: string | null;
   deadline_label?: string;
-  value: number;
+  value: number | null;
+  currency: string | null;
   type: string;
   order_type?: string;
 };
@@ -93,8 +94,9 @@ function Kpi({ label, value, sub, tone = "neutral", visual }: { label: string; v
   );
 }
 
-function Money({ value }: { value: number }) {
-  return <span className="mono">${value.toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>;
+function Money({ value, currency }: { value: number | null; currency: string | null }) {
+  if (value === null || !currency) return <span className="mono">—</span>;
+  return <span className="mono">{value.toLocaleString("en-US", { maximumFractionDigits: 2 })} {currency}</span>;
 }
 
 function toCsvCell(v: unknown): string {
@@ -196,9 +198,10 @@ function LegacyHomePage() {
       o.type || o.order_type || "",
       o.status,
       o.deadline || "",
-      Number(o.value || 0).toFixed(2),
+      o.value === null || !o.currency ? "" : o.value.toFixed(2),
+      o.currency || "",
     ]);
-    const header = ["order_no", "customer", "order_type", "status", "deadline", "total_amount"];
+    const header = ["order_no", "customer", "order_type", "status", "deadline", "total_amount", "currency"];
     const csv = [header, ...rows].map((r) => r.map(toCsvCell).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -334,7 +337,7 @@ function LegacyHomePage() {
                     </div>
                     <div>
                       <div className="label">{t("field.value")}</div>
-                      <div className="font-semibold"><Money value={Number(o.value || 0)} /></div>
+                      <div className="font-semibold"><Money value={o.value} currency={o.currency} /></div>
                     </div>
                     <div>
                       <div className="label">{t("field.deadline")}</div>
@@ -383,7 +386,7 @@ function LegacyHomePage() {
                       </td>
                       <td><span className="badge bg-[#fbe9dd] text-[#c2410c]">{statusLabel(o.status, t)}</span></td>
                       <td className="mono text-[#8a8472]">{o.deadline_label || (o.deadline ? new Date(o.deadline).toLocaleDateString("en-US", { month: "short", day: "2-digit" }) : "-")}</td>
-                      <td className="text-right"><Money value={Number(o.value || 0)} /></td>
+                      <td className="text-right"><Money value={o.value} currency={o.currency} /></td>
                     </tr>
                   );
                 })}
@@ -418,8 +421,8 @@ function LegacyHomePage() {
           <div className="card p-4">
             <h3 className="app-card-title">{t("dash.finance")}</h3>
             <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-              <div><div className="label">{t("dash.revenue")}</div><div className="text-xl"><Money value={fin.revenue_total || 0} /></div></div>
-              <div><div className="label">{t("dash.payments")}</div><div className="text-xl"><Money value={fin.payments_received || 0} /></div></div>
+              <div><div className="label">{t("dash.revenue")}</div><div className="text-xl">{fin.revenue_total == null || !fin.revenue_currency ? "—" : `${Number(fin.revenue_total).toFixed(2)} ${fin.revenue_currency}`}</div></div>
+              <div><div className="label">{t("dash.payments")}</div><div className="text-xl">{fin.payments_received == null || !fin.payments_currency ? "—" : `${Number(fin.payments_received).toFixed(2)} ${fin.payments_currency}`}</div></div>
             </div>
           </div>
           <a href="/processes" className="card p-4 transition hover:border-[#c2410c]">

@@ -154,6 +154,16 @@ def _num(value) -> float:
     return float(value or 0)
 
 
+def _history_money_total(rows: list, *, empty_currency: str | None = None) -> tuple[float | None, str | None]:
+    """Sum recorded amounts only when every row has the same known currency."""
+    if not rows:
+        return (0.0, empty_currency) if empty_currency else (None, None)
+    currencies = {row.currency for row in rows}
+    if len(currencies) != 1 or None in currencies:
+        return None, None
+    return sum(_num(row.amount) for row in rows), currencies.pop()
+
+
 def _int_qty(value) -> int:
     return int(_num(value))
 
@@ -397,7 +407,7 @@ def _production_step_records(db: DbSession, production_orders: list[ProductionOr
                 "package_id": row.package_id, "model_id": row.model_id, "collection_id": row.collection_id,
                 "brand_id": row.brand_id, "color": row.color, "size": row.size, "quantity": row.quantity,
                 "available_qty": row.available_qty, "reserved_qty": row.reserved_qty, "sold_qty": row.sold_qty,
-                "cost_per_piece": _num(row.cost_per_piece), "selling_price": _num(row.selling_price),
+                "cost_per_piece": None, "selling_price": None,
                 "warehouse_id": row.warehouse_id, "status": row.status, "created_at": row.created_at,
             }
             for row in finished_goods
@@ -566,17 +576,20 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
     packed_record_qty = sum(_int_qty(row.total_packed_quantity or row.packed_qty) for row in packaging_records)
     packaged_qty = sum(_int_qty(pkg.total_quantity) for pkg in packages)
     shipped_qty = sum(_int_qty(row.quantity) for row in shipment_package_rows)
-    invoice_total = sum(_num(inv.amount) for inv in invoices)
-    paid_total = sum(_num(payment.amount) for payment in payments)
+    invoice_total, invoice_currency = _history_money_total(invoices, empty_currency=so.currency)
+    paid_total, payment_currency = _history_money_total(payments, empty_currency=so.currency)
 
     material_by_key: dict[tuple[int, str], dict] = {}
     material_movements: list[dict] = []
     material_cost_total = 0.0
+    material_cost_currencies: set[str | None] = set()
     for movement, item, batch in movement_rows:
         qty = _num(movement.quantity)
         unit = movement.unit or item.unit
         unit_cost = _num(movement.unit_cost_at_movement) if movement.unit_cost_at_movement is not None else None
-        cost = qty * unit_cost if unit_cost is not None else None
+        cost_currency = movement.cost_currency_at_movement
+        material_cost_currencies.add(cost_currency)
+        cost = qty * unit_cost if unit_cost is not None and cost_currency else None
         if material_cost_total is not None:
             material_cost_total = material_cost_total + cost if cost is not None else None
         key = (int(item.id), unit)
@@ -590,9 +603,11 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
                 "unit": unit,
                 "quantity": 0.0,
                 "estimated_cost": 0.0,
+                "_cost_currencies": set(),
             },
         )
         bucket["quantity"] += qty
+        bucket["_cost_currencies"].add(cost_currency)
         if bucket["estimated_cost"] is not None:
             bucket["estimated_cost"] = bucket["estimated_cost"] + cost if cost is not None else None
         material_movements.append(
@@ -602,7 +617,8 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
                 "quantity": qty,
                 "unit": unit,
                 "estimated_cost": cost,
-                "unit_cost_at_movement": unit_cost,
+                "unit_cost_at_movement": unit_cost if cost_currency else None,
+                "cost_currency": cost_currency,
                 "reference_type": movement.reference_type,
                 "reference_id": movement.reference_id,
                 "created_at": movement.created_at,
@@ -618,7 +634,18 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
                 } if batch else None,
             }
         )
+    for bucket in material_by_key.values():
+        currencies = bucket.pop("_cost_currencies")
+        bucket["cost_currency"] = next(iter(currencies)) if len(currencies) == 1 and None not in currencies else None
+        if bucket["cost_currency"] is None:
+            bucket["estimated_cost"] = None
     materials_spent = sorted(material_by_key.values(), key=lambda row: (str(row["category"]), str(row["sku"])))
+    material_cost_currency = (
+        next(iter(material_cost_currencies))
+        if len(material_cost_currencies) == 1 and None not in material_cost_currencies else None
+    )
+    if material_cost_currency is None:
+        material_cost_total = None
 
     done_markers = (
         [sh.delivered_at for sh in shipments]
@@ -656,11 +683,23 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
         "shipment_count": len(shipments),
         "invoice_count": len(invoices),
         "payment_count": len(payments),
-        "order_amount": _num(so.total_amount),
+        "order_amount": _num(so.total_amount) if so.currency else None,
+        "order_currency": so.currency,
         "invoice_total": invoice_total,
+        "invoice_currency": invoice_currency,
         "paid_total": paid_total,
-        "outstanding_amount": max(_num(so.total_amount) - paid_total, 0),
+        "payment_currency": payment_currency,
+        "outstanding_amount": (
+            max(_num(so.total_amount) - paid_total, 0)
+            if (
+                so.currency
+                and payment_currency == so.currency
+                and (not invoices or invoice_currency == so.currency)
+                and paid_total is not None
+            ) else None
+        ),
         "material_spent_cost": material_cost_total,
+        "material_cost_currency": material_cost_currency,
         "material_spent": materials_spent,
         "ordered_at": so.created_at,
         "completed_at": completed_at,
@@ -687,7 +726,8 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
         "updated_at": so.updated_at,
         "completed_at": completed_at,
         "last_activity_at": last_activity_at,
-        "total_amount": _num(so.total_amount),
+        "total_amount": _num(so.total_amount) if so.currency else None,
+        "currency": so.currency,
         "products": _history_products(db, product_model_ids),
         "summary": summary,
     }
@@ -733,9 +773,9 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
         timeline.append(_history_event("shipment_shipped", f"Shipment {sh.shipment_no} shipped", sh.shipped_at, shipment_id=sh.id, status=sh.status))
         timeline.append(_history_event("shipment_delivered", f"Shipment {sh.shipment_no} delivered", sh.delivered_at, shipment_id=sh.id, status=sh.status))
     for inv in invoices:
-        timeline.append(_history_event("invoice", f"Invoice {inv.invoice_no}", inv.issued_at or inv.created_at, invoice_id=inv.id, amount=_num(inv.amount), status=inv.status))
+        timeline.append(_history_event("invoice", f"Invoice {inv.invoice_no}", inv.issued_at or inv.created_at, invoice_id=inv.id, amount=_num(inv.amount) if inv.currency else None, currency=inv.currency, status=inv.status))
     for payment in payments:
-        timeline.append(_history_event("payment", "Payment received", payment.paid_at or payment.created_at, payment_id=payment.id, amount=_num(payment.amount)))
+        timeline.append(_history_event("payment", "Payment received", payment.paid_at or payment.created_at, payment_id=payment.id, amount=_num(payment.amount) if payment.currency else None, currency=payment.currency))
     for audit, user in audit_rows:
         timeline.append(_history_event("audit", f"Sales order {audit.action}", audit.created_at, action=audit.action, user=user.name if user else None))
     timeline = sorted([event for event in timeline if event], key=_event_sort_key)
@@ -744,9 +784,14 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
     for row_sp in shipment_package_rows:
         shipment_packages_by_shipment[int(row_sp.shipment_id)].append(row_sp)
 
+    order_payload = _serialize_sales_order(db, so, include_items=True)
+    if not so.currency:
+        order_payload["total_amount"] = None
+        for order_item in order_payload.get("items", []):
+            order_item["unit_price"] = None
     detail = {
         **row,
-        "order": _serialize_sales_order(db, so, include_items=True),
+        "order": order_payload,
         "items": [
             {
                 "id": item.id,
@@ -757,8 +802,9 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
                 "color": item.color,
                 "size": item.size,
                 "quantity": _int_qty(item.quantity),
-                "unit_price": _num(item.unit_price),
-                "line_total": _num(item.unit_price) * _int_qty(item.quantity),
+                "unit_price": _num(item.unit_price) if so.currency else None,
+                "line_total": _num(item.unit_price) * _int_qty(item.quantity) if so.currency else None,
+                "currency": so.currency,
                 "source_type": item.source_type,
                 "printing_required": bool(item.printing_required),
                 "notes": item.notes,
@@ -920,7 +966,8 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
             {
                 "id": inv.id,
                 "invoice_no": inv.invoice_no,
-                "amount": _num(inv.amount),
+                "amount": _num(inv.amount) if inv.currency else None,
+                "currency": inv.currency,
                 "status": inv.status,
                 "issued_at": inv.issued_at,
                 "due_date": inv.due_date,
@@ -931,7 +978,8 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
             {
                 "id": payment.id,
                 "invoice_id": payment.invoice_id,
-                "amount": _num(payment.amount),
+                "amount": _num(payment.amount) if payment.currency else None,
+                "currency": payment.currency,
                 "payment_method": payment.payment_method,
                 "paid_at": payment.paid_at,
                 "notes": payment.notes,
@@ -984,11 +1032,14 @@ def _stock_production_history(db: DbSession, po: ProductionOrder, *, include_det
     material_by_key: dict[tuple[int, str], dict] = {}
     material_movements: list[dict] = []
     material_cost_total = 0.0
+    material_cost_currencies: set[str | None] = set()
     for movement, item, batch in movement_rows:
         quantity = _num(movement.quantity)
         unit = movement.unit or item.unit
         unit_cost = _num(movement.unit_cost_at_movement) if movement.unit_cost_at_movement is not None else None
-        cost = quantity * unit_cost if unit_cost is not None else None
+        cost_currency = movement.cost_currency_at_movement
+        material_cost_currencies.add(cost_currency)
+        cost = quantity * unit_cost if unit_cost is not None and cost_currency else None
         if material_cost_total is not None:
             material_cost_total = material_cost_total + cost if cost is not None else None
         bucket = material_by_key.setdefault(
@@ -996,15 +1047,19 @@ def _stock_production_history(db: DbSession, po: ProductionOrder, *, include_det
             {
                 "item_id": int(item.id), "sku": item.sku, "name": item.name,
                 "category": item.category, "unit": unit, "quantity": 0.0, "estimated_cost": 0.0,
+                "_cost_currencies": set(),
             },
         )
         bucket["quantity"] += quantity
+        bucket["_cost_currencies"].add(cost_currency)
         if bucket["estimated_cost"] is not None:
             bucket["estimated_cost"] = bucket["estimated_cost"] + cost if cost is not None else None
         material_movements.append(
             {
                 "id": movement.id, "movement_type": movement.movement_type, "quantity": quantity,
-                "unit": unit, "estimated_cost": cost, "unit_cost_at_movement": unit_cost,
+                "unit": unit, "estimated_cost": cost,
+                "unit_cost_at_movement": unit_cost if cost_currency else None,
+                "cost_currency": cost_currency,
                 "reference_type": movement.reference_type,
                 "reference_id": movement.reference_id, "created_at": movement.created_at,
                 "item": {"id": item.id, "sku": item.sku, "name": item.name, "category": item.category},
@@ -1013,7 +1068,18 @@ def _stock_production_history(db: DbSession, po: ProductionOrder, *, include_det
                 } if batch else None,
             }
         )
+    for bucket in material_by_key.values():
+        currencies = bucket.pop("_cost_currencies")
+        bucket["cost_currency"] = next(iter(currencies)) if len(currencies) == 1 and None not in currencies else None
+        if bucket["cost_currency"] is None:
+            bucket["estimated_cost"] = None
     materials_spent = sorted(material_by_key.values(), key=lambda row: (str(row["category"]), str(row["sku"])))
+    material_cost_currency = (
+        next(iter(material_cost_currencies))
+        if len(material_cost_currencies) == 1 and None not in material_cost_currencies else None
+    )
+    if material_cost_currency is None:
+        material_cost_total = None
 
     planned_qty = _int_qty(po.planned_quantity)
     cut_qty = sum(_int_qty(row.cut_pieces) for row in cutting)
@@ -1038,9 +1104,11 @@ def _stock_production_history(db: DbSession, po: ProductionOrder, *, include_det
         "sewn_passed_qty": sum(_int_qty(row.passed_qty) for row in sewing),
         "packed_record_qty": sum(_int_qty(row.total_packed_quantity or row.packed_qty) for row in packaging),
         "packaged_qty": packaged_qty, "shipped_qty": shipped_qty, "package_count": len(packages),
-        "shipment_count": 0, "invoice_count": 0, "payment_count": 0, "order_amount": 0.0,
-        "invoice_total": 0.0, "paid_total": 0.0, "outstanding_amount": 0.0,
-        "material_spent_cost": material_cost_total, "material_spent": materials_spent,
+        "shipment_count": 0, "invoice_count": 0, "payment_count": 0, "order_amount": None,
+        "order_currency": None, "invoice_total": None, "invoice_currency": None,
+        "paid_total": None, "payment_currency": None, "outstanding_amount": None,
+        "material_spent_cost": material_cost_total, "material_cost_currency": material_cost_currency,
+        "material_spent": materials_spent,
         "ordered_at": po.created_at, "completed_at": completed_at, "last_activity_at": last_activity_at,
     }
     product_model_ids = {int(po.model_id)} if po.model_id else set()
@@ -1053,7 +1121,7 @@ def _stock_production_history(db: DbSession, po: ProductionOrder, *, include_det
         "ordered_for": planning_order.ordered_for_name if planning_order else None,
         "order_type": po.production_type, "status": po.status, "deadline": po.deadline,
         "created_at": po.created_at, "updated_at": po.updated_at, "completed_at": completed_at,
-        "last_activity_at": last_activity_at, "total_amount": 0.0,
+        "last_activity_at": last_activity_at, "total_amount": None, "currency": None,
         "products": _history_products(db, product_model_ids), "summary": summary,
     }
     if not include_detail:
@@ -1907,6 +1975,7 @@ def list_sales_order_history(
                 SalesOrder.created_at,
                 SalesOrder.planning_estimate_submitted_at,
                 SalesOrder.total_amount,
+                SalesOrder.currency,
                 SalesOrder.order_no,
                 SalesOrder.customer_id,
                 SalesOrder.order_type,

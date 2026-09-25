@@ -64,7 +64,8 @@ class ActiveProductionOut(BaseModel):
     status: str
     deadline: str | None = None
     deadline_label: str
-    value: float
+    value: float | None
+    currency: str | None = None
     type: str
     order_type: str
 
@@ -97,6 +98,7 @@ def active_production(
         SalesOrder.status,
         SalesOrder.deadline,
         SalesOrder.total_amount,
+        SalesOrder.currency,
     )).filter(SalesOrder.status.in_(("planning", "confirmed", "in_production")))
     ordered_query = query.order_by(SalesOrder.deadline.asc(), SalesOrder.id.asc())
     paginated = page is not None or page_size is not None
@@ -187,7 +189,8 @@ def active_production(
                 "status": order.status,
                 "deadline": order.deadline.isoformat() if order.deadline else None,
                 "deadline_label": order.deadline.strftime("%b %d") if order.deadline else "-",
-                "value": float(order.total_amount or 0),
+                "value": float(order.total_amount or 0) if order.currency else None,
+                "currency": order.currency,
                 "type": order.order_type,
                 "order_type": order.order_type,
             }

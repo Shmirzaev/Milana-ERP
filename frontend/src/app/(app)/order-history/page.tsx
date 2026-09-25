@@ -26,10 +26,13 @@ type HistorySummary = {
   shipment_count: number;
   invoice_count: number;
   payment_count: number;
-  order_amount: number;
-  paid_total: number;
-  outstanding_amount: number;
+  order_amount: number | null;
+  order_currency: string | null;
+  paid_total: number | null;
+  payment_currency: string | null;
+  outstanding_amount: number | null;
   material_spent_cost: number | null;
+  material_cost_currency: string | null;
   ordered_at?: string | null;
   completed_at?: string | null;
   last_activity_at?: string | null;
@@ -51,7 +54,8 @@ type HistoryRow = {
   created_at?: string | null;
   completed_at?: string | null;
   last_activity_at?: string | null;
-  total_amount: number;
+  total_amount: number | null;
+  currency: string | null;
   products?: HistoryProduct[];
   summary: HistorySummary;
 };
@@ -78,8 +82,9 @@ type OrderItem = {
   color: string;
   size: string;
   quantity: number;
-  unit_price: number;
-  line_total: number;
+  unit_price: number | null;
+  line_total: number | null;
+  currency: string | null;
   printing_required?: boolean;
 };
 
@@ -91,6 +96,7 @@ type MaterialSpent = {
   unit: string;
   quantity: number;
   estimated_cost: number | null;
+  cost_currency: string | null;
 };
 
 type ProductionOrder = {
@@ -142,7 +148,8 @@ type ShipmentRow = {
 type InvoiceRow = {
   id: number;
   invoice_no: string;
-  amount: number;
+  amount: number | null;
+  currency: string | null;
   status: string;
   issued_at?: string | null;
   due_date?: string | null;
@@ -151,7 +158,8 @@ type InvoiceRow = {
 type PaymentRow = {
   id: number;
   invoice_id?: number | null;
-  amount: number;
+  amount: number | null;
+  currency: string | null;
   payment_method?: string | null;
   paid_at?: string | null;
 };
@@ -178,12 +186,19 @@ type HistoryDetail = HistoryRow & {
 
 type DetailTab = "overview" | "planning" | "production" | "materials" | "packages" | "finance" | "timeline";
 
-function money(value: number) {
-  return `$${Number(value || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+function money(value: number | null, currency: string | null) {
+  return value === null || !currency
+    ? "—"
+    : `${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
 }
 
-function historicalMoney(value: number | null) {
-  return value === null ? "—" : money(value);
+function sumMoney(rows: { amount: number | null; currency: string | null }[], emptyCurrency: string | null = null) {
+  if (!rows.length) return { amount: emptyCurrency ? 0 : null, currency: emptyCurrency };
+  const currency = rows[0].currency;
+  if (!currency || rows.some((row) => row.amount === null || row.currency !== currency)) {
+    return { amount: null, currency: null };
+  }
+  return { amount: rows.reduce((total, row) => total + (row.amount ?? 0), 0), currency };
 }
 
 function qty(value: number, unit = "") {
@@ -435,18 +450,21 @@ export default function OrderHistoryPage() {
   }, [rows, activeKey]);
 
   const totals = useMemo(() => {
-    return rows.reduce(
+    const counts = rows.reduce(
       (acc, row) => {
         acc.orders += 1;
         acc.ordered += Number(row.summary?.ordered_qty || 0);
         acc.packaged += Number(row.summary?.packaged_qty || 0);
         acc.shipped += Number(row.summary?.shipped_qty || 0);
-        acc.value += Number(row.total_amount || 0);
-        acc.paid += Number(row.summary?.paid_total || 0);
         return acc;
       },
-      { orders: 0, ordered: 0, packaged: 0, shipped: 0, value: 0, paid: 0 },
+      { orders: 0, ordered: 0, packaged: 0, shipped: 0 },
     );
+    return {
+      ...counts,
+      value: sumMoney(rows.map((row) => ({ amount: row.total_amount, currency: row.currency }))),
+      paid: sumMoney(rows.map((row) => ({ amount: row.summary.paid_total, currency: row.summary.payment_currency }))),
+    };
   }, [rows]);
 
   return (
@@ -461,7 +479,7 @@ export default function OrderHistoryPage() {
         <StatCard icon={FileText} label={t("page.orderHistory.orders")} value={qty(totals.orders)} detail={t("page.orderHistory.ordersShown")} />
         <StatCard icon={PackageCheck} label={t("page.orderHistory.productFlow")} value={`${qty(totals.packaged)} / ${qty(totals.ordered)}`} detail={t("page.orderHistory.packagedOrdered")} />
         <StatCard icon={Truck} label={t("page.orderHistory.shipped")} value={qty(totals.shipped)} detail={t("page.orderHistory.fromVisibleOrders")} />
-        <StatCard icon={WalletCards} label={t("page.orderHistory.paid")} value={money(totals.paid)} detail={t("page.orderHistory.value", { amount: money(totals.value) })} />
+        <StatCard icon={WalletCards} label={t("page.orderHistory.paid")} value={money(totals.paid.amount, totals.paid.currency)} detail={t("page.orderHistory.value", { amount: money(totals.value.amount, totals.value.currency) })} />
       </div>
 
       <div className="mb-4 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(280px,1fr)_12rem_12rem]">
@@ -575,7 +593,7 @@ export default function OrderHistoryPage() {
                           <span className="mono text-xs text-[#8a8472]">{pct}%</span>
                         </div>
                       </td>
-                      <td className="text-right">{money(row.total_amount)}</td>
+                      <td className="text-right">{money(row.total_amount, row.currency)}</td>
                       <td><span className="badge">{statusLabel(row.status, t)}</span></td>
                     </tr>
                   );
@@ -656,8 +674,8 @@ export default function OrderHistoryPage() {
               <section className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <StatCard icon={PackageCheck} label={t("page.orderHistory.orderedQty")} value={qty(detail.summary.ordered_qty)} detail={t("page.orderHistory.plannedQty", { qty: qty(detail.summary.planned_qty) })} />
                 <StatCard icon={Truck} label={t("page.orderHistory.shipped")} value={qty(detail.summary.shipped_qty)} detail={t("page.orderHistory.packagesShipments", { packages: detail.summary.package_count, shipments: detail.summary.shipment_count })} />
-                <StatCard icon={WalletCards} label={t("page.orderHistory.money")} value={money(detail.summary.order_amount)} detail={t("page.orderHistory.paidOutstanding", { paid: money(detail.summary.paid_total), open: money(detail.summary.outstanding_amount) })} />
-                <StatCard icon={CalendarCheck} label={t("page.orderHistory.materialSpend")} value={historicalMoney(detail.summary.material_spent_cost)} detail={t("page.orderHistory.materialLines", { count: detail.materials.spent.length })} />
+                <StatCard icon={WalletCards} label={t("page.orderHistory.money")} value={money(detail.summary.order_amount, detail.summary.order_currency)} detail={t("page.orderHistory.paidOutstanding", { paid: money(detail.summary.paid_total, detail.summary.payment_currency), open: money(detail.summary.outstanding_amount, detail.summary.order_currency) })} />
+                <StatCard icon={CalendarCheck} label={t("page.orderHistory.materialSpend")} value={money(detail.summary.material_spent_cost, detail.summary.material_cost_currency)} detail={t("page.orderHistory.materialLines", { count: detail.materials.spent.length })} />
               </section>
 
               <section className="card overflow-x-auto">
@@ -681,7 +699,7 @@ export default function OrderHistoryPage() {
                         <td>{item.color}</td>
                         <td>{item.size}</td>
                         <td className="text-right">{qty(item.quantity)}</td>
-                        <td className="text-right">{money(item.line_total)}</td>
+                        <td className="text-right">{money(item.line_total, item.currency)}</td>
                       </tr>
                     ))}
                     {detail.items.length === 0 ? <tr><td colSpan={5} className="text-[#8a8472]">{t("page.orderHistory.noRows")}</td></tr> : null}
@@ -726,7 +744,7 @@ export default function OrderHistoryPage() {
                         <td><span className="mono">{row.sku}</span> - {row.name}</td>
                         <td>{row.category}</td>
                         <td className="text-right">{qty(row.quantity, row.unit)}</td>
-                        <td className="text-right">{historicalMoney(row.estimated_cost)}</td>
+                        <td className="text-right">{money(row.estimated_cost, row.cost_currency)}</td>
                       </tr>
                     ))}
                     {detail.materials.spent.length === 0 ? <tr><td colSpan={4} className="text-[#8a8472]">{t("page.orderHistory.noRows")}</td></tr> : null}
@@ -836,13 +854,16 @@ export default function OrderHistoryPage() {
                   </thead>
                   <tbody>
                     {detail.invoices.map((invoice) => {
-                      const paid = detail.payments.filter((payment) => payment.invoice_id === invoice.id).reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+                      const paid = sumMoney(
+                        detail.payments.filter((payment) => payment.invoice_id === invoice.id),
+                        invoice.currency,
+                      );
                       return (
                         <tr key={invoice.id}>
                           <td className="mono">{invoice.invoice_no}</td>
-                          <td className="text-right">{money(invoice.amount)}</td>
+                          <td className="text-right">{money(invoice.amount, invoice.currency)}</td>
                           <td><span className="badge">{statusLabel(invoice.status, t)}</span></td>
-                          <td>{money(paid)}</td>
+                          <td>{money(paid.currency === invoice.currency ? paid.amount : null, paid.currency)}</td>
                         </tr>
                       );
                     })}

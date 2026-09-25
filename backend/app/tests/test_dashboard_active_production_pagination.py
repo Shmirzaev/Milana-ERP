@@ -119,3 +119,18 @@ def test_active_production_page_contract_auth_and_no_writes(client, auth_headers
     with SessionLocal() as db:
         after = (db.query(SalesOrder).count(), db.query(AuditLog).count())
     assert after == before
+
+
+def test_active_production_value_requires_recorded_currency(client, auth_headers):
+    known_id, unknown_id = _seed_active_orders(2)
+    with SessionLocal() as db:
+        db.get(SalesOrder, known_id).currency = "UZS"
+        db.commit()
+
+    response = client.get("/api/dashboard/active-production", headers=auth_headers)
+    assert response.status_code == 200, response.text
+    rows = {row["id"]: row for row in response.json()}
+    assert rows[known_id]["value"] == 1
+    assert rows[known_id]["currency"] == "UZS"
+    assert rows[unknown_id]["value"] is None
+    assert rows[unknown_id]["currency"] is None
