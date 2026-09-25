@@ -31,11 +31,6 @@ def upgrade() -> None:
         "payroll_adjustments",
         ["source_payroll_record_id"],
     )
-    op.create_index(
-        "ix_payroll_adjustments_source_payroll_record_id",
-        "payroll_adjustments",
-        ["source_payroll_record_id"],
-    )
 
     # Freeze the abandoned workspace before the final data check so a concurrent
     # write cannot arrive between validation and the table drops. Empty shifts
@@ -153,7 +148,6 @@ def downgrade() -> None:
     for column in ("assignment_id", "idempotency_key", "payroll_record_id", "status"):
         op.create_index(f"ix_piecework_acceptances_{column}", "piecework_acceptances", [column])
 
-    op.drop_index("ix_payroll_adjustments_source_payroll_record_id", table_name="payroll_adjustments")
     op.drop_constraint("uq_payroll_adjustments_source_record", "payroll_adjustments", type_="unique")
     op.drop_constraint("fk_payroll_adjustments_source_payroll_record_id", "payroll_adjustments", type_="foreignkey")
     op.drop_column("payroll_adjustments", "source_payroll_record_id")

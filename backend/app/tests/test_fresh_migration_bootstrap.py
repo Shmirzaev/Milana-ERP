@@ -349,6 +349,15 @@ def test_postgres_fresh_head_rerun_and_known_drift_baseline(postgres_migrations)
     assert {"manual_accessory_issues", "eco_fabric_dispatches", "sewing_records"} <= tables
     assert _duplicate_foreign_key_groups(inspector) == {}
     assert _duplicate_unique_index_groups(inspector) == {}
+    for table, columns, redundant_index in (
+        ("packaging_receipts", ("bundle_id",), "ix_packaging_receipts_bundle_id"),
+        ("payroll_adjustments", ("source_payroll_record_id",), "ix_payroll_adjustments_source_payroll_record_id"),
+    ):
+        assert columns in {
+            tuple(constraint.get("column_names") or ())
+            for constraint in inspector.get_unique_constraints(table)
+        }
+        assert redundant_index not in {index["name"] for index in inspector.get_indexes(table)}
     mutations = []
 
     def capture(_connection, _cursor, statement, _parameters, _context, _executemany):

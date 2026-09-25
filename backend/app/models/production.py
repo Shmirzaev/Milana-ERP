@@ -505,7 +505,7 @@ class PackagingReceipt(Base, PkMixin, TimestampMixin):
     source_work_order_id: Mapped[int] = mapped_column(ForeignKey("work_orders.id"), nullable=False, index=True)
     production_order_id: Mapped[int] = mapped_column(ForeignKey("production_orders.id"), nullable=False, index=True)
     production_batch_id: Mapped[int | None] = mapped_column(ForeignKey("production_batches.id"), index=True)
-    bundle_id: Mapped[int | None] = mapped_column(ForeignKey("bundles.id"), index=True)
+    bundle_id: Mapped[int | None] = mapped_column(ForeignKey("bundles.id"))
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     receive_method: Mapped[str] = mapped_column(String(16), nullable=False)
     received_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))

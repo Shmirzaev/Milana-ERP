@@ -2,7 +2,10 @@ import { DailyOutput, Factory, factoryCodes, factoryNames, Overview, Stage, stag
 
 // Operational dashboards use API data. Retain fixtures for isolated presentation tests.
 export const dashboardDemoEnabled = false;
-export const demoFinance = { revenue_total: 428650, payments_received: 386420 };
+export const demoFinance = {
+  revenue_total: 428650, revenue_currency: "UZS",
+  payments_received: 386420, payments_currency: "UZS",
+};
 export const demoMessages = {
   en: { label: "Demo data", note: "Illustrative figures for all three factories. This dashboard does not show live production or financial data.", generated: "Demo generated" },
   ru: { label: "Демо-данные", note: "Примерные показатели трёх фабрик. Эта панель не отображает реальные производственные и финансовые данные.", generated: "Демо сформировано" },

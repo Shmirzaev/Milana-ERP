@@ -25,7 +25,7 @@ const escaped = value => renderToStaticMarkup(React.createElement("span", null, 
 assert.equal(demo.dashboardDemoEnabled, false, "ERP dashboard must use live APIs, not forced demo figures");
 
 for (const lang of ["en", "ru", "uz"]) {
-  for (const scenario of ["success", "loading", "error", "denied", "no-finance"]) {
+  for (const scenario of ["success", "unknown-currency", "loading", "error", "denied", "no-finance"]) {
     const keys = [];
     const fixture = {
       ...demo.demoOverview("2026-09-14", "2026-09-20", "ALL", "2026-09-20"),
@@ -38,7 +38,9 @@ for (const lang of ["en", "ru", "uz"]) {
         const overview = key?.startsWith("/api/dashboard/overview?");
         return {
           data: !key || ["loading", "error"].includes(scenario) ? undefined
-            : overview ? fixture : { revenue_total: 987654, payments_received: 123456 },
+            : overview ? fixture : scenario === "unknown-currency"
+              ? { revenue_total: 987654, revenue_currency: null, payments_received: 123456, payments_currency: null }
+              : { revenue_total: 987654, revenue_currency: "UZS", payments_received: 123456, payments_currency: "UZS" },
           error: key && scenario === "error" ? new Error("Network unavailable") : undefined,
           isLoading: Boolean(key) && scenario === "loading", isValidating: false, mutate() {},
         };
@@ -61,10 +63,15 @@ for (const lang of ["en", "ru", "uz"]) {
     } else {
       assert.match(keys[0], /^\/api\/dashboard\/overview\?start=.*&end=.*&factory=ALL$/);
       assert.equal(keys[1], scenario === "no-finance" ? null : "/api/dashboard/finance");
-      if (scenario === "success" || scenario === "no-finance") {
+      if (["success", "unknown-currency", "no-finance"].includes(scenario)) {
         assert.match(html, />917</);
         assert.ok(html.includes(messages.messages[lang].updated));
-        assert.equal(html.includes((987654).toLocaleString()), scenario === "success");
+        assert.equal(html.includes("987654.00 UZS"), scenario === "success");
+        assert.equal(html.includes("123456.00 UZS"), scenario === "success");
+        if (scenario === "unknown-currency") {
+          assert.equal(html.includes("987654.00"), false, "unknown or mixed currency totals must not display as bare money");
+          assert.equal(html.includes("123456.00"), false, "unknown or mixed currency totals must not display as bare money");
+        }
       } else if (scenario === "loading") {
         assert.ok(html.includes(escaped(messages.messages[lang].loading)));
       } else {

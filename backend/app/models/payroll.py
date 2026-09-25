@@ -149,7 +149,7 @@ class PayrollAdjustment(Base, PkMixin):
 
     factory_code: Mapped[str] = mapped_column(String(3), nullable=False, default="MIL", server_default="MIL", index=True)
     payroll_period_id: Mapped[int | None] = mapped_column(ForeignKey("payroll_periods.id"), index=True)
-    source_payroll_record_id: Mapped[int | None] = mapped_column(ForeignKey("payroll_records.id"), index=True)
+    source_payroll_record_id: Mapped[int | None] = mapped_column(ForeignKey("payroll_records.id"))
     employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), nullable=False, index=True)
     adjustment_type: Mapped[str] = mapped_column(String(16), default="bonus", nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
