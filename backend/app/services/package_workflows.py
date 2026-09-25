@@ -329,14 +329,17 @@ def receive_run(db, current, payload):
             raise HTTPException(409, f"Package {pkg.package_no} stock evidence is inconsistent")
     if payload.warehouse_id and not db.get(Warehouse, payload.warehouse_id):
         raise HTTPException(404, "Warehouse not found")
+    cell, shelf = validate_storage_location(
+        payload.storage_cell, payload.storage_shelf, require_cell=False,
+    )
     for pkg in packages:
         receive_at_storage(db, pkg, payload.warehouse_id, current.id,
-                           storage_cell=payload.storage_cell, storage_shelf=payload.storage_shelf,
+                           storage_cell=cell, storage_shelf=shelf,
                            print_run_id=run.id, receive_gate=receive_gate, sync_production=False)
     sync_package_production_orders(db, (pkg.production_order_id for pkg in packages))
     run.received_at = datetime.now(timezone.utc)
     run.received_by = current.id
-    run.receipt_location = payload.model_dump(exclude={"code"})
+    run.receipt_location = {"warehouse_id": payload.warehouse_id, "storage_cell": cell, "storage_shelf": shelf}
     log_action(db, current, "receive_print_run", "PackagePrintRun", run.id,
                new_value={"run_no": run.run_no, "package_ids": ids, **run.receipt_location})
     return run, packages, members

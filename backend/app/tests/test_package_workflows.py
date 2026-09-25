@@ -212,6 +212,41 @@ def test_six_then_four_receive_by_actual_package_qr_and_alias(client, auth_heade
     assert before == stock_fingerprint()
 
 
+def test_print_run_receipt_stores_canonical_bounded_location(client, auth_headers, warehouse, packaging_order):
+    run = create_run(client, auth_headers, packaging_order, 1)
+    code = package_qr(run["package_ids"][0])
+    before_stock = stock_fingerprint()
+    with SessionLocal() as db:
+        before_audits = db.query(AuditLog).filter(AuditLog.action == "receive_print_run").count()
+
+    invalid = client.post(
+        BASE + "/print-runs/receive",
+        headers=warehouse,
+        json={"code": code, "storage_cell": " " * 20_000 + "A-99"},
+    )
+    assert invalid.status_code == 400, invalid.text
+    with SessionLocal() as db:
+        saved = db.get(PackagePrintRun, run["id"])
+        assert saved.received_at is None and saved.receipt_location is None
+        assert db.get(Package, run["package_ids"][0]).status == "packed"
+        assert db.query(PackageScanLog).filter(PackageScanLog.scan_type == "received_storage").count() == 0
+        assert db.query(AuditLog).filter(AuditLog.action == "receive_print_run").count() == before_audits
+    assert stock_fingerprint() == before_stock
+
+    received = client.post(
+        BASE + "/print-runs/receive",
+        headers=warehouse,
+        json={"code": code, "storage_cell": " " * 20_000 + "a-01  ", "storage_shelf": " s1 "},
+    )
+    assert received.status_code == 200, received.text
+    with SessionLocal() as db:
+        saved = db.get(PackagePrintRun, run["id"])
+        assert saved.receipt_location == {"warehouse_id": None, "storage_cell": "A-01", "storage_shelf": "S1"}
+        assert db.get(Package, run["package_ids"][0]).storage_cell == "A-01"
+        audit = db.query(AuditLog).filter(AuditLog.action == "receive_print_run").one()
+        assert audit.new_value_json["storage_cell"] == "A-01"
+
+
 def test_group_member_cannot_receive_individually_or_regroup(client, auth_headers, warehouse, packaging_order):
     run = create_run(client, auth_headers, packaging_order, 6)
     pid = run["package_ids"][0]
