@@ -944,6 +944,40 @@ def test_batchless_outgoing_respects_item_only_reservation_and_source_ledger(
         assert current_stock_for_item(db, movement_stock["item_id"], movement_stock["source_id"]) == 13
 
 
+@pytest.mark.parametrize("movement_type", ["issue", "consume", "transfer"])
+def test_batch_outgoing_preserves_item_only_reservation_without_writes(
+    client, auth_headers, movement_stock, movement_type,
+):
+    with session_module.SessionLocal() as db:
+        order = ProductionOrder(
+            production_no=f"BATCH-{movement_type.upper()}-ITEM-CLAIM",
+            production_type="branded_stock", model_id=db.query(Model.id).first()[0], planned_quantity=1,
+        )
+        db.add(order)
+        db.flush()
+        reservation = MaterialReservation(
+            reservation_no=f"BATCH-{movement_type.upper()}-ITEM-CLAIM",
+            production_order_id=order.id, item_id=movement_stock["item_id"],
+            warehouse_id=movement_stock["source_id"], reserved_quantity=8, unit="pcs",
+        )
+        db.add(reservation)
+        db.commit()
+        reservation_id = reservation.id
+
+    before = stock_state(movement_stock)
+    response = client.post(
+        "/api/inventory/transfer", headers=auth_headers,
+        json=movement_payload(movement_stock, movement_type),
+    )
+    assert response.status_code == 409, response.text
+    assert stock_state(movement_stock) == before
+    with session_module.SessionLocal() as db:
+        claim = db.get(MaterialReservation, reservation_id)
+        assert claim.reserved_quantity == 8
+        assert claim.consumed_quantity == 0
+        assert claim.released_quantity == 0
+
+
 @pytest.mark.parametrize(("movement_type", "expected"), [("return", 14), ("adjustment", 14)])
 def test_batchless_incoming_keeps_existing_ledger_behavior(client, auth_headers, movement_stock, movement_type, expected):
     response = client.post("/api/inventory/transfer", headers=auth_headers,

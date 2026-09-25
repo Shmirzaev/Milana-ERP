@@ -1622,9 +1622,19 @@ def transfer_stock(
             movement_data["cost_currency_at_movement"] = batch.cost_currency
 
         if outgoing:
+            # Match reservation creation's batch -> item -> reservation lock order.
+            # Batch-specific availability alone cannot protect an item-only claim.
+            lock_stock_item_availability(db, int(item.id))
             reserved = Decimal(str(reserved_stock_for_batch(db, batch.id)))
             if quantity > batch.quantity - reserved:
                 raise HTTPException(409, "Movement quantity exceeds available batch stock")
+            source_available = Decimal(str(available_stock_for_item(db, int(item.id), batch.warehouse_id)))
+            if quantity > source_available:
+                raise HTTPException(409, "Movement quantity exceeds available warehouse stock")
+            if payload.movement_type != "transfer":
+                global_available = Decimal(str(available_stock_for_item(db, int(item.id))))
+                if quantity > global_available:
+                    raise HTTPException(409, "Movement quantity exceeds available item stock")
             if payload.movement_type == "transfer":
                 if payload.to_warehouse_id is None:
                     raise HTTPException(400, "Destination warehouse is required")
