@@ -10,6 +10,7 @@ import { modelOptionsByIdsFetcher, modelOptionsByIdsKey } from "@/lib/useModelOp
 import { can, useMe } from "@/lib/auth";
 import PageHeader from "@/components/PageHeader";
 import PaginationControls from "@/components/PaginationControls";
+import SupplierAsyncSelect from "@/components/SupplierAsyncSelect";
 import { useT } from "@/lib/i18n";
 import { compositionTotal, type MaterialComposition } from "@/lib/materialComposition";
 import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
@@ -381,6 +382,7 @@ export default function InventoryPage() {
   const [searchDraft, setSearchDraft] = useState(q);
   const searchTimerRef = useRef<number | null>(null);
   const [supplierFilter, setSupplierFilter] = useState(initialSupplierFilter);
+  const [supplierFilterName, setSupplierFilterName] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [inventoryRenderLimit, setInventoryRenderLimit] = useState(INVENTORY_RENDER_PAGE_SIZE);
@@ -395,6 +397,7 @@ export default function InventoryPage() {
   const [editingStock, setEditingStock] = useState<{ quantity: number; reservedQuantity: number; unit: string } | null>(null);
   const [itemForm, setItemForm] = useState<ItemForm>(EMPTY_MATERIAL_FORM);
   const [batchForm, setBatchForm] = useState<BatchForm>(EMPTY_BATCH_FORM);
+  const [batchSupplierName, setBatchSupplierName] = useState<string | null>(null);
   const [savingItem, setSavingItem] = useState(false);
   const [uploadingItemImage, setUploadingItemImage] = useState(false);
   const [editMessage, setEditMessage] = useState("");
@@ -433,10 +436,6 @@ export default function InventoryPage() {
   );
   const { data: warehouses } = useSWR<any[]>(
     canEditItems && editingBatch ? "/api/inventory/warehouses" : null,
-    fetcher,
-  );
-  const { data: suppliers } = useSWR<any[]>(
-    group === "materials" || (canEditItems && editingBatch) ? "/api/suppliers" : null,
     fetcher,
   );
   const { data: productionOrders } = useSWR<any[]>(group === "accessories" ? "/api/production-orders?page_size=500" : null, fetcher);
@@ -615,6 +614,7 @@ export default function InventoryPage() {
 
   useEffect(() => {
     setSupplierFilter(initialSupplierFilter);
+    setSupplierFilterName(null);
   }, [initialSupplierFilter]);
 
   useEffect(() => {
@@ -818,6 +818,7 @@ export default function InventoryPage() {
     });
     setItemForm(itemToForm(item, rowQuantity(row, batch)));
     setBatchForm(batch ? batchToForm(batch) : EMPTY_BATCH_FORM);
+    setBatchSupplierName(batch?.supplier_name ?? null);
     setEditMessage("");
   }
 
@@ -1266,24 +1267,19 @@ export default function InventoryPage() {
           />
         </label>
         {group === "materials" && (
-          <label className="block">
-            <span className="label">{t("field.supplier")}</span>
-            <select
-              id="inventory-supplier-filter"
-              className="input"
-              value={supplierFilter || ""}
-              onChange={(event) => {
-                const nextSupplierId = Number(event.currentTarget.value) || 0;
-                setSupplierFilter(nextSupplierId);
+          <div>
+            <label htmlFor="inventory-supplier-filter" className="label">{t("field.supplier")}</label>
+            <SupplierAsyncSelect
+              inputId="inventory-supplier-filter"
+              value={supplierFilter || null}
+              selectedName={supplierFilterName}
+              onChange={(id, supplier) => {
+                setSupplierFilter(id);
+                setSupplierFilterName(supplier?.name ?? null);
                 setPage(1);
               }}
-            >
-              <option value="">-</option>
-              {(suppliers || []).map((supplier) => (
-                <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
-              ))}
-            </select>
-          </label>
+            />
+          </div>
         )}
       </div>
       <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
@@ -1534,11 +1530,16 @@ export default function InventoryPage() {
                 </select>
               </div>
               <div>
-                <label className="label">{t("field.supplier")}</label>
-                <select className="input" value={batchForm.supplier_id} onChange={(event) => setBatchForm({ ...batchForm, supplier_id: event.target.value })}>
-                  <option value="">{t("ph.supplier")}</option>
-                  {(suppliers || []).map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
-                </select>
+                <label htmlFor="inventory-batch-supplier" className="label">{t("field.supplier")}</label>
+                <SupplierAsyncSelect
+                  inputId="inventory-batch-supplier"
+                  value={Number(batchForm.supplier_id) || null}
+                  selectedName={batchSupplierName}
+                  onChange={(id, supplier) => {
+                    setBatchForm({ ...batchForm, supplier_id: id ? String(id) : "" });
+                    setBatchSupplierName(supplier?.name ?? null);
+                  }}
+                />
               </div>
             </div>
           ) : (

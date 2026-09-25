@@ -14,11 +14,8 @@ assert.equal(
   3,
   "warehouses must remain limited to the SWR binding, endpoint, and batch-editor selector",
 );
-assert.match(
-  source,
-  /group === "materials" \|\| \(canEditItems && editingBatch\) \? "\/api\/suppliers" : null/,
-  "accessory suppliers must stay dormant until their batch editor opens",
-);
+assert.doesNotMatch(source, /useSWR<any\[\]>\(\s*group === "materials" \|\| \(canEditItems && editingBatch\) \? "\/api\/suppliers"/,
+  "inventory must not request the entire supplier directory");
 
 const compiled = ts.transpileModule(source, {
   compilerOptions: {
@@ -64,6 +61,8 @@ const batch = {
   warehouse_id: 5,
   warehouse_name: "Stored Warehouse",
   qc_status: "pending",
+  supplier_id: 8,
+  supplier_name: "Selected Supplier",
 };
 
 function createHarness(withBatch, group = "materials") {
@@ -115,7 +114,6 @@ function createHarness(withBatch, group = "materials") {
     if (typeof key === "string" && key.startsWith("/api/inventory/batches?")) {
       return { ...base, data: { rows: withBatch ? [batch] : [], total: withBatch ? 1 : 0 } };
     }
-    if (key === "/api/suppliers") return { ...base, data: [{ id: 8, name: "Directory Supplier" }] };
     if (key === warehouseKey) return { ...base, data: [{ id: 5, name: "Directory Warehouse" }] };
     return { ...base, data: undefined };
   }
@@ -138,6 +136,7 @@ function createHarness(withBatch, group = "materials") {
     "@/lib/auth": { can: () => true, useMe: () => ({ me: { id: 7 } }) },
     "@/components/PageHeader": { default: "page-header" },
     "@/components/PaginationControls": { default: "pagination" },
+    "@/components/SupplierAsyncSelect": { default: "supplier-select" },
     "@/lib/i18n": { useT: () => ({ lang: "en", t: (key) => key }) },
     "@/lib/materialComposition": { compositionTotal: () => 0 },
     "@/lib/modelImages": { imagePreviewHref: (value) => value, storageThumbnailUrl: (value) => value },
@@ -231,15 +230,25 @@ assert.equal(
 assert.match(textContent(batchEditor.tree), /Directory Warehouse/);
 
 const accessoryClosed = createHarness(true, "accessories").renderUntilStable();
-assert.equal(
-  accessoryClosed.requests.filter((key) => key === "/api/suppliers").length,
-  0,
-  "closed accessory inventory must not request a supplier directory used only by its batch editor",
-);
-assert.doesNotMatch(textContent(accessoryClosed.tree), /Directory Supplier/);
+assert.equal(find(accessoryClosed.tree, (node) => node.type === "supplier-select"), null,
+  "closed accessory inventory must not render a supplier picker");
 
 const accessoryBatchEditor = openEditor(true, "accessories");
-assert.equal(accessoryBatchEditor.requests.filter((key) => key === "/api/suppliers").length, 1);
-assert.match(textContent(accessoryBatchEditor.tree), /Directory Supplier/);
+const accessorySupplierPicker = find(accessoryBatchEditor.tree, (node) => node.type === "supplier-select");
+assert.ok(accessorySupplierPicker, "batch editor must render a paged supplier picker");
+assert.equal(accessorySupplierPicker.props.value, 8);
+assert.equal(accessorySupplierPicker.props.selectedName, "Selected Supplier");
+
+const materialHarness = createHarness(true, "materials");
+const materialScreen = materialHarness.renderUntilStable();
+const materialFilter = find(materialScreen.tree, (node) => node.type === "supplier-select" && node.props.inputId === "inventory-supplier-filter");
+assert.ok(materialFilter, "material inventory must render a paged supplier filter");
+materialFilter.props.onChange(777, { id: 777, name: "Off-page supplier" });
+const filteredScreen = materialHarness.renderUntilStable();
+const selectedFilter = find(filteredScreen.tree, (node) => node.type === "supplier-select" && node.props.inputId === "inventory-supplier-filter");
+assert.equal(selectedFilter.props.value, 777);
+assert.equal(selectedFilter.props.selectedName, "Off-page supplier");
+assert.ok(filteredScreen.requests.some((key) => typeof key === "string" && key.startsWith("/api/inventory/stock?") && key.includes("supplier_id=777")),
+  "selected off-page supplier must reach the stock query");
 
 console.log("Inventory directories: warehouses and accessory suppliers stay dormant until batch editing.");
