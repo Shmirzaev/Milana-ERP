@@ -292,6 +292,9 @@ def _validate_cutting_usage_details_bounds(details: object, *, existing: object 
     if _same_json_value(details, existing):
         return
 
+    if isinstance(details, dict) and isinstance(details.get("cut_pieces"), int) and details["cut_pieces"] > 2_147_483_647:
+        raise HTTPException(422, "cutting material details cut_pieces exceeds the integer storage limit")
+
     pending = [(details, 1)]
     while pending:
         value, depth = pending.pop()
@@ -3838,6 +3841,8 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
     detailed_materials = [row for row in cutting_materials if row.get("details") is not None]
     if detailed_materials and len(detailed_materials) != len(cutting_materials):
         raise HTTPException(400, "Enter cutting details for every fabric")
+    for material in detailed_materials:
+        _validate_cutting_usage_details_bounds(material["details"])
     primary_material = cutting_materials[0] if cutting_materials else None
     if detailed_materials:
         details = detailed_materials[0]["details"]
