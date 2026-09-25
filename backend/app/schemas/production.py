@@ -147,14 +147,14 @@ class ProductionOrderIn(SchemaModel):
     estimated_material_code: Optional[str] = None
     estimated_material_amount: Optional[float] = None
     estimated_material_unit: Optional[str] = None
-    materials: list[ProductionOrderMaterialIn] = Field(default_factory=list)
+    materials: list[ProductionOrderMaterialIn] = Field(default_factory=list, max_length=1000)
     printing_instructions: Optional[str] = None
     printing_attachments: list[ProductionOrderPrintingAttachment] = Field(default_factory=list)
     destination_warehouse_id: Optional[int] = None
     cutting_department_code: str = "CUT"
     sewing_factory_code: Optional[str] = None
-    items: list[ProductionOrderItemIn] = []
-    batches: list[ProductionBatchIn] = []
+    items: list[ProductionOrderItemIn] = Field(default_factory=list, max_length=1000)
+    batches: list[ProductionBatchIn] = Field(default_factory=list, max_length=1000)
 
 
 class ProductionOrderOut(ORMModel):
