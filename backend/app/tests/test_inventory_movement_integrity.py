@@ -434,6 +434,28 @@ def test_batchless_transfer_rejects_wrong_destination_category_without_writes(
     assert stock_state(movement_stock) == before
 
 
+@pytest.mark.parametrize("movement_type", ["issue", "consume", "return", "adjustment"])
+def test_batchless_movement_rejects_wrong_category_warehouse_without_writes(
+    client, auth_headers, movement_stock, movement_type,
+):
+    with session_module.SessionLocal() as db:
+        wrong_warehouse = Warehouse(name="Batchless wrong category warehouse", type="fabric_storage")
+        db.add(wrong_warehouse)
+        db.commit()
+        wrong_warehouse_id = wrong_warehouse.id
+    location_field = "to_warehouse_id" if movement_type in {"return", "adjustment"} else "from_warehouse_id"
+    before = stock_state(movement_stock)
+
+    response = client.post(
+        "/api/inventory/transfer", headers={**auth_headers, "Idempotency-Key": f"wrong-{movement_type}"},
+        json=movement_payload(movement_stock, movement_type, batch_id=None, **{location_field: wrong_warehouse_id}),
+    )
+
+    assert response.status_code == 400, response.text
+    assert "Accessory Storage" in response.text
+    assert stock_state(movement_stock) == before
+
+
 def test_batchless_transfer_cannot_move_reserved_item_stock(
     client, auth_headers, movement_stock,
 ):

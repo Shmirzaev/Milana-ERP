@@ -1532,8 +1532,12 @@ def transfer_stock(
     if payload.unit != item.unit:
         raise HTTPException(409, "Movement unit must match the item unit")
     for warehouse_id in (payload.from_warehouse_id, payload.to_warehouse_id):
-        if warehouse_id is not None and not db.get(Warehouse, warehouse_id):
-            raise HTTPException(404, "Warehouse not found")
+        if warehouse_id is not None:
+            warehouse = db.get(Warehouse, warehouse_id)
+            if not warehouse:
+                raise HTTPException(404, "Warehouse not found")
+            if payload.batch_id is None and payload.movement_type != "transfer":
+                validate_stock_batch_warehouse(item, warehouse)
 
     if payload.batch_id is None:
         lock_stock_item_availability(db, int(item.id))
