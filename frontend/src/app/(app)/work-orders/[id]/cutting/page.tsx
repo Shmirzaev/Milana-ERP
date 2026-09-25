@@ -542,7 +542,8 @@ export default function CuttingPage() {
   );
   const hasPlannedMaterials = plannedMaterials.length > 0;
   const [passportId, setPassportId] = useState<number>(0);
-  const selectedPassportId = cuttingPassports?.some((row) => row.id === passportId) ? passportId : cuttingPassports?.[0]?.id || 0;
+  const selectedPassportId = cuttingPassports.some((row) => row.id === passportId) ? passportId : 0;
+  const usePassportMaterials = hasPlannedMaterials && selectedPassportId > 0;
   const materialPassports = useMemo(() => (Array.isArray(cuttingPassports) ? cuttingPassports : []).filter((passport) => passport.id === selectedPassportId).flatMap((passport: any) =>
     passport.materials?.length ? passport.materials.map((material: any) => ({ ...passport, ...material, operator_name: material.operator_name_manual || passport.operator_name })) : [passport]
   ), [cuttingPassports, selectedPassportId]);
@@ -1088,8 +1089,8 @@ export default function CuttingPage() {
       setErr(t("batch.selectBeforeSaving", { operation: operationLabel("cutting", t).toLowerCase() }));
       return;
     }
-    if (hasPlannedMaterials && !selectedPassportId) {
-      setErr(t("passportBatch.select"));
+    if (hasPlannedMaterials && !usePassportMaterials && cuttingMaterials.some((row) => numberOrZero(row.quantity) <= 0)) {
+      setErr(t("page.cutting.enterEveryMaterialAmount"));
       return;
     }
     setSubmitting(true);
@@ -1120,7 +1121,7 @@ export default function CuttingPage() {
         work_order_id: id,
         ...form,
         cutting_passport_id: selectedPassportId || null,
-        use_passport_materials: hasPlannedMaterials,
+        use_passport_materials: usePassportMaterials,
         input_quantity: primaryMaterial?.quantity ?? numberOrZero(form.input_quantity),
         input_unit: primaryMaterial?.unit ?? form.input_unit,
         layer_material_kg: numberOrZero(form.layer_material_kg),
@@ -1134,7 +1135,7 @@ export default function CuttingPage() {
         production_batch_id: form.production_batch_id || null,
         fabric_batch_id: isUsluga ? null : (primaryMaterial?.stock_batch_id ?? (form.fabric_batch_id || null)),
         model_bom_id: isUsluga ? (form.model_bom_id || null) : null,
-        materials: hasPlannedMaterials ? [] : normalizedMaterials,
+        materials: usePassportMaterials ? [] : normalizedMaterials,
         bundles: normalizedBundles,
       }, 120_000);
       const created = Array.isArray(r?.bundles) ? r.bundles : [];
@@ -2057,14 +2058,15 @@ export default function CuttingPage() {
       )}
 
       <form id={isUsluga ? "usluga-cutting-entry" : undefined} onSubmit={submit} className="card space-y-5 p-6">
-        {(cuttingPassports || []).length > 1 && <div>
-          <label className="label">{t("passportBatch.select")}</label>
+        {(hasPlannedMaterials || cuttingPassports.length > 0) && <div>
+          <label className="label">{t("passportBatch.optional")}</label>
           <select className="input" value={selectedPassportId} onChange={(event) => {
             setPassportId(Number(event.target.value));
             passportAutofillDirtyFields.current.clear();
             setForm((current) => ({ ...current, input_quantity: "", layer_material_kg: "", material_rolls_used: "", layup_operator_name: "", cut_pieces: "", notes: "", beika_kg: "", waste_quantity: "" }));
-            setCuttingMaterials((rows) => rows.map((row) => ({ ...row, details: emptyMaterialDetails() })));
+            setCuttingMaterials((rows) => rows.map((row) => ({ ...row, quantity: "", details: emptyMaterialDetails() })));
           }}>
+            <option value={0}>{t("passportBatch.withoutPassport")}</option>
             {(cuttingPassports || []).map((passport) => <option key={passport.id} value={passport.id}>{passport.passport_no}</option>)}
           </select>
         </div>}
@@ -2086,9 +2088,101 @@ export default function CuttingPage() {
               </select>
             </div>
           )}
-          {hasPlannedMaterials ? <div className="md:col-span-4">
-            <Link className="btn" href={`/cutting-passports?production_order_id=${po?.id}`}>{t("nav.cuttingPassports")}</Link>
-          </div> : !isUsluga ? <div className="md:col-span-2">
+          {hasPlannedMaterials ? (
+            <div className="md:col-span-4">
+              <Link className="btn mb-3" href={`/cutting-passports?production_order_id=${po?.id}`}>{t("nav.cuttingPassports")}</Link>
+              {!usePassportMaterials && <>
+              <div className="mb-3">
+                <h2 className="text-sm font-semibold text-[#393528]">{t("page.cutting.materialUsage")}</h2>
+                <p className="mt-0.5 text-xs text-[#8a8472]">{t("page.cutting.materialUsageHelp")}</p>
+              </div>
+              <div className="divide-y divide-[#ecebe3] rounded-md border border-[#e3e0d5]">
+                {cuttingMaterials.map((material, index) => {
+                  const batch = plannedMaterialBatchLookup.get(material.stock_batch_id);
+                  const reservation = reservationForOrder(batch, po?.id);
+                  return (
+                    <div
+                      key={material.stock_batch_id}
+                      className="grid grid-cols-1 gap-3 p-3 md:grid-cols-[minmax(0,1fr)_150px_150px] md:items-end"
+                    >
+                      <div>
+                        <div className="text-sm font-medium text-[#14110b]">
+                          {batch
+                            ? compactParts([batch.item_sku, batch.item_name]) || t("page.cutting.itemId", { id: batch.item_id })
+                            : `${t("field.fabricBatch")} #${material.stock_batch_id}`}
+                        </div>
+                        <div className="mt-1 text-xs text-[#6f684f]">
+                          {batch?.batch_no ? `${t("field.batch")} ${batch.batch_no}` : `${t("field.batch")} #${material.stock_batch_id}`}
+                          {" · "}
+                          {t("page.cutting.plannedAmount")}: {fmtQty(material.planned_quantity)} {material.unit}
+                        </div>
+                        {batch && (
+                          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-[#8a8472]">
+                            <span>{t("field.available")}: {fmtQty(batchAvailableQty(batch))} {batch.unit}</span>
+                            <span>{t("field.reserved")}: {fmtQty(batch.reserved_quantity)} {batch.unit}</span>
+                            {reservation && (
+                              <span>{t("page.cutting.forThisOrder")}: {fmtQty(reservation.remaining_quantity)} {reservation.unit || batch.unit}</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <label className="label" htmlFor={`cutting-material-${material.stock_batch_id}`}>
+                          {t("page.cutting.actualAmountUsed")}
+                        </label>
+                        <input
+                          id={`cutting-material-${material.stock_batch_id}`}
+                          className="input"
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={material.quantity}
+                          onChange={(e) => {
+                            const quantity = parseDecimalInput(e.target.value);
+                            setCuttingMaterials((current) => current.map((row, rowIndex) => (
+                              rowIndex === index ? { ...row, quantity } : row
+                            )));
+                            if (index === 0) {
+                              setPassportAutofillField("input_quantity", quantity);
+                            }
+                          }}
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="label">{t("field.inputUnit")}</label>
+                        <input className="input" value={material.unit} readOnly />
+                      </div>
+                      {cuttingMaterials.length > 1 && <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 md:col-span-3">
+                        <label className="block"><span className="label">{t("field.layerMaterialKg")}</span>
+                          <input className="input" type="number" min={0} step="0.01" value={material.details.layer_material_kg} onChange={(e) => { const value = parseDecimalInput(e.target.value); setCuttingMaterials((rows) => rows.map((row, i) => i === index ? { ...row, details: { ...row.details, layer_material_kg: value } } : row)); }} />
+                        </label>
+                        <label className="block"><span className="label">{t("field.beikaKg")}</span>
+                          <input className="input" type="number" min={0} step="0.01" value={material.details.beika_kg} onChange={(e) => { const value = parseDecimalInput(e.target.value); setCuttingMaterials((rows) => rows.map((row, i) => i === index ? { ...row, details: { ...row.details, beika_kg: value } } : row)); }} />
+                        </label>
+                        <label className="block"><span className="label">{t("field.materialRollsUsed")}</span>
+                          <input className="input" type="number" min={0} step="0.01" value={material.details.material_rolls_used} onChange={(e) => { const value = parseDecimalInput(e.target.value); setCuttingMaterials((rows) => rows.map((row, i) => i === index ? { ...row, details: { ...row.details, material_rolls_used: value } } : row)); }} />
+                        </label>
+                        <label className="block"><span className="label">{t("field.layupOperator")}</span>
+                          <input className="input" type="text" maxLength={128} value={material.details.layup_operator_name} onChange={(e) => { const value = e.target.value; setCuttingMaterials((rows) => rows.map((row, i) => i === index ? { ...row, details: { ...row.details, layup_operator_name: value } } : row)); }} />
+                        </label>
+                        <label className="block"><span className="label">{t("field.cutPieces")}</span>
+                          <input className="input" type="number" min={0} step={1} value={material.details.cut_pieces} onChange={(e) => { const value = parseWholeInput(e.target.value); setCuttingMaterials((rows) => rows.map((row, i) => i === index ? { ...row, details: { ...row.details, cut_pieces: value } } : row)); }} />
+                        </label>
+                        <label className="block"><span className="label">{t("field.wasteQty")}</span>
+                          <input className="input" type="number" min={0} step="0.01" value={material.details.waste_quantity} onChange={(e) => { const value = parseDecimalInput(e.target.value); setCuttingMaterials((rows) => rows.map((row, i) => i === index ? { ...row, details: { ...row.details, waste_quantity: value } } : row)); }} />
+                        </label>
+                        <label className="block"><span className="label">{t("field.wasteUnit")}</span>
+                          <input className="input" type="text" maxLength={32} value={material.details.waste_unit} onChange={(e) => { const value = e.target.value; setCuttingMaterials((rows) => rows.map((row, i) => i === index ? { ...row, details: { ...row.details, waste_unit: value } } : row)); }} />
+                        </label>
+                      </div>}
+                    </div>
+                  );
+                })}
+              </div>
+              </>}
+            </div>
+          ) : !isUsluga ? <div className="md:col-span-2">
             <label className="label">{t("field.fabricBatch")}</label>
             <div
               className="relative"
@@ -2231,7 +2325,7 @@ export default function CuttingPage() {
             <label className="label">{t("field.inputUnit")}</label>
             <input className="input" value={form.input_unit} onChange={(e) => setForm({ ...form, input_unit: e.target.value })} />
           </div>}
-          {!hasPlannedMaterials && cuttingMaterials.length <= 1 && <>
+          {!usePassportMaterials && cuttingMaterials.length <= 1 && <>
           <div>
             <label className="label">{t("field.layerMaterialKg")}</label>
             <input className="input" type="number" step="0.01" value={form.layer_material_kg} onChange={(e) => setPassportAutofillField("layer_material_kg", parseDecimalInput(e.target.value))} />

@@ -13,6 +13,8 @@ export default {
     "passportBatch.add": "Добавить партию",
     "passportBatch.help": "У каждой партии кроя свой номер паспорта и отдельные параметры.",
     "passportBatch.select": "Паспорт партии кроя",
+    "passportBatch.optional": "Паспорт партии кроя (необязательно)",
+    "passportBatch.withoutPassport": "Без паспорта — указать расход ткани вручную",
     "sewingReport.deleteConfirm": "Удалить эту сохранённую запись ежедневного отчёта по шитью?",
     "sewingReport.deleted": "Запись ежедневного отчёта удалена.",
     "sewingReport.limit": "Количество в отчёте превышает остаток по заказу.",
