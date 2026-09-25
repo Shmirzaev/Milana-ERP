@@ -166,6 +166,14 @@ def _branded_demand_groups(
             SalesOrderItem.model_id,
             FinishedGoodsStock.model_id,
         )
+        sales_brand_id = func.coalesce(
+            SalesOrderItem.brand_id,
+            FinishedGoodsStock.brand_id,
+        )
+        sales_collection_id = func.coalesce(
+            SalesOrderItem.collection_id,
+            FinishedGoodsStock.collection_id,
+        )
         sales_query = (
             sales_query.outerjoin(
                 FinishedGoodsStock,
@@ -183,19 +191,25 @@ def _branded_demand_groups(
                     SalesOrderItem.model_id == FinishedGoodsStock.model_id,
                 ),
             )
-            .add_columns(sales_model_id.label("forecast_model_id"))
+            .add_columns(
+                sales_model_id.label("forecast_model_id"),
+                sales_brand_id.label("forecast_brand_id"),
+                sales_collection_id.label("forecast_collection_id"),
+            )
         )
     sales_rows = sales_query.order_by(SalesOrder.created_at.asc(), SalesOrderItem.id.asc()).all()
     sales_groups: dict[BrandedKey, dict[str, Any]] = {}
     for row in sales_rows:
         item, order = row[:2]
         model_id = row[2] if factory_codes is not None else item.model_id
+        brand_id = row[3] if factory_codes is not None else item.brand_id
+        collection_id = row[4] if factory_codes is not None else item.collection_id
         _add_demand_event(
             sales_groups,
             key=(
                 int(model_id),
-                int(item.brand_id) if item.brand_id else None,
-                int(item.collection_id) if item.collection_id else None,
+                int(brand_id) if brand_id else None,
+                int(collection_id) if collection_id else None,
                 str(item.color or ""),
                 str(item.size or ""),
             ),

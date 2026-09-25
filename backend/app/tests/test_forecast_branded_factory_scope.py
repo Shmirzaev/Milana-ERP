@@ -7,6 +7,8 @@ from sqlalchemy import event
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
 from app.models import (
+    Brand,
+    Collection,
     FinishedGoodsStock,
     Item,
     Model,
@@ -316,6 +318,72 @@ def test_scoped_branded_sales_can_resolve_factory_through_finished_stock_referen
         assert next(iter(groups))[0] == model.id
     finally:
         db.close()
+
+
+def test_scoped_branded_sales_inherit_missing_brand_and_collection_from_stock(client):
+    db = TestSessionLocal()
+    try:
+        marker = uuid4().hex[:8].upper()
+        brand = Brand(name=f"FC-FORECAST-BRAND-{marker}")
+        model = Model(
+            code=f"FC-FORECAST-METADATA-{marker}",
+            name=f"Forecast metadata {marker}",
+            factory_code="ECO",
+            status="approved",
+        )
+        db.add_all([brand, model])
+        db.flush()
+        collection = Collection(brand_id=brand.id, name=f"Forecast metadata {marker}", year=2026)
+        db.add(collection)
+        db.flush()
+        stock = FinishedGoodsStock(
+            model_id=model.id,
+            brand_id=brand.id,
+            collection_id=collection.id,
+            color=f"METADATA-{marker}",
+            size="L",
+            quantity=100,
+            available_qty=100,
+            reserved_qty=0,
+            sold_qty=0,
+            cost_per_piece=0,
+            selling_price=0,
+            status="available",
+        )
+        order = SalesOrder(
+            order_no=f"FC-FORECAST-METADATA-{marker}",
+            order_type="branded_stock_sale",
+            status="ready",
+            total_amount=75,
+        )
+        db.add_all([stock, order])
+        db.flush()
+        db.add(SalesOrderItem(
+            sales_order_id=order.id,
+            model_id=None,
+            finished_goods_stock_id=stock.id,
+            brand_id=None,
+            collection_id=None,
+            color=stock.color,
+            size=stock.size,
+            quantity=75,
+            unit_price=1,
+            source_type="from_stock",
+        ))
+        db.commit()
+        model_id, brand_id, collection_id = model.id, brand.id, collection.id
+    finally:
+        db.close()
+
+    headers = _forecast_view_headers(extra_permissions=["factory:ECO:forecasting.view"])
+    response = client.get("/api/forecasting/branded-stock-suggestions", headers=headers)
+
+    assert response.status_code == 200, response.text
+    row = next(row for row in response.json() if row["model_id"] == model_id)
+    assert row["brand_id"] == brand_id
+    assert row["collection_id"] == collection_id
+    assert row["available_quantity"] == 100
+    assert row["suggested_quantity"] == row["projected_demand"] - 100
 
 
 def test_scoped_branded_sales_skip_conflicting_item_and_stock_models():
