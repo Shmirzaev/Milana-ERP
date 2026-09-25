@@ -47,3 +47,36 @@ def test_waste_list_reports_partial_sale_balance_without_writes(client, auth_hea
     api_row = next(row for row in response.json() if row["id"] == record_id)
     assert api_row["quantity"] == 10
     assert api_row["remaining_quantity"] == 6
+
+
+def test_waste_list_does_not_inflate_balance_from_corrupt_negative_sale(client, auth_headers):
+    marker = uuid4().hex[:12]
+    with SessionLocal() as db:
+        record = WasteRecord(
+            waste_type=f"Corrupt remaining balance {marker}",
+            quantity=10,
+            unit="kg",
+            sellable=True,
+            estimated_value=20,
+            status="received_by_waste_department",
+        )
+        db.add(record)
+        db.flush()
+        db.add(WasteSale(
+            waste_record_id=record.id,
+            buyer_name="Corrupt historical sale",
+            quantity=-2,
+            unit_price=1,
+            total_amount=-2,
+        ))
+        db.commit()
+        record_id = int(record.id)
+
+    response = client.get(
+        "/api/waste?status=received_by_waste_department&sellable=true",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200, response.text
+    api_row = next(row for row in response.json() if row["id"] == record_id)
+    assert api_row["quantity"] == 10
+    assert api_row["remaining_quantity"] == 0

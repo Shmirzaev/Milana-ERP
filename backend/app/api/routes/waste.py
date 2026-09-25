@@ -153,12 +153,19 @@ def list_waste(
         qry = qry.offset((page - 1) * page_size).limit(page_size)
     rows = qry.all()
     row_ids = [int(row.id) for row in rows]
-    sold_by_waste_id = dict(
-        db.query(WasteSale.waste_record_id, func.coalesce(func.sum(WasteSale.quantity), 0))
-        .filter(WasteSale.waste_record_id.in_(row_ids))
-        .group_by(WasteSale.waste_record_id)
-        .all()
-    ) if row_ids else {}
+    sales_by_waste_id = {
+        waste_record_id: (sold_quantity, smallest_sale_quantity)
+        for waste_record_id, sold_quantity, smallest_sale_quantity in (
+            db.query(
+                WasteSale.waste_record_id,
+                func.sum(WasteSale.quantity),
+                func.min(WasteSale.quantity),
+            )
+            .filter(WasteSale.waste_record_id.in_(row_ids))
+            .group_by(WasteSale.waste_record_id)
+            .all()
+        )
+    } if row_ids else {}
     estimated_values = _estimated_values_for_waste_page(db, rows)
     # Preserve the existing live-estimate response without rewriting the
     # valuation snapshot stored with the historical waste record.
@@ -166,9 +173,9 @@ def list_waste(
         WasteOut.model_validate(row).model_copy(
             update={
                 "estimated_value": estimated_values[row.id],
-                "remaining_quantity": float(max(
-                    Decimal("0"),
-                    Decimal(str(row.quantity or 0)) - Decimal(sold_by_waste_id.get(row.id, 0) or 0),
+                "remaining_quantity": float(_listed_remaining_quantity(
+                    row.quantity,
+                    sales_by_waste_id.get(row.id),
                 )),
             },
         )
@@ -417,6 +424,27 @@ def _remaining_sale_quantity(db: DbSession, waste_record: WasteRecord) -> Decima
     if remaining_quantity <= 0:
         raise HTTPException(400, "Waste has no remaining sellable quantity")
     return remaining_quantity
+
+
+def _listed_remaining_quantity(original_value, sales_summary) -> Decimal:
+    """Project usable balance, failing closed when persisted history is invalid."""
+    try:
+        original_quantity = Decimal(str(original_value or 0))
+        if not original_quantity.is_finite() or original_quantity <= 0:
+            return Decimal("0")
+        if sales_summary is None:
+            return original_quantity
+        sold_quantity = Decimal(str(sales_summary[0]))
+        smallest_sale_quantity = Decimal(str(sales_summary[1]))
+        if (
+            not sold_quantity.is_finite()
+            or not smallest_sale_quantity.is_finite()
+            or smallest_sale_quantity <= 0
+        ):
+            return Decimal("0")
+        return max(Decimal("0"), original_quantity - sold_quantity)
+    except (InvalidOperation, ValueError, TypeError):
+        return Decimal("0")
 
 
 @router.post("/{wid}/request-disposal", response_model=WasteDisposalOut)
