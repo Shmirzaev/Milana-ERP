@@ -54,6 +54,15 @@ def _purchase_quantity(value) -> Decimal:
     return quantity
 
 
+def _purchase_dimension(value, *, places: int) -> Decimal | None:
+    if value is None:
+        return None
+    dimension = Decimal(str(value))
+    if not dimension.is_finite() or dimension % Decimal(1).scaleb(-places):
+        raise HTTPException(422, f"Purchase dimension supports at most {places} decimal places")
+    return dimension
+
+
 def _validate_purchase_line_varchar_lengths(line_inputs: list[dict]) -> None:
     for index, line in enumerate(line_inputs):
         for field, limit in PURCHASE_LINE_VARCHAR_LIMITS.items():
@@ -620,6 +629,8 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
             unit,
             detail="Purchase order line unit must match the item unit",
         )
+        width = _purchase_dimension(raw.get("width"), places=2)
+        gsm = _purchase_dimension(raw.get("gsm"), places=6)
         piece_count = raw.get("piece_count")
         if piece_count is not None and not 0 <= piece_count <= MAX_STOCK_BATCH_PIECE_COUNT:
             raise HTTPException(422, "piece_count must be between 0 and 2147483647")
@@ -645,8 +656,8 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
             color_code=raw.get("color_code"),
             color_status=raw.get("color_status"),
             order_no=canonical_business_order_reference(db, raw.get("order_no"), lookup=reference_lookup) or order.po_no,
-            width=raw.get("width"),
-            gsm=raw.get("gsm"),
+            width=width,
+            gsm=gsm,
             quantity=quantity,
             piece_count=piece_count,
             roll_weights_kg=roll_weights,

@@ -804,6 +804,8 @@ def set_stock_quantity(
             409,
             "Stock has batches whose unit differs from the item; reconcile before adjusting stock",
         )
+    if Decimal(str(payload.quantity)) % Decimal("0.0001"):
+        raise HTTPException(422, "Stock quantity supports at most four decimal places")
     target_quantity = float(payload.quantity or 0)
     previous_quantity = current_stock_for_item(db, item_id)
     reserved_quantity = reserved_stock_for_item(db, item_id)

@@ -48,12 +48,14 @@ def test_stock_adjustment_rejects_non_finite_and_storage_overflow(value):
 
 def test_stock_adjustment_preserves_zero_ordinary_and_exact_storage_maximum():
     assert StockQuantityAdjustmentIn(quantity=0).quantity == 0
+    assert StockQuantityAdjustmentIn(quantity="12.3456").quantity == pytest.approx(12.3456)
+    assert StockQuantityAdjustmentIn(quantity="12.345600").quantity == pytest.approx(12.3456)
     assert StockQuantityAdjustmentIn(quantity="12.34567").quantity == pytest.approx(12.34567)
     maximum = StockQuantityAdjustmentIn(quantity=str(MAX_STOCK_QUANTITY))
     assert maximum.quantity == pytest.approx(float(MAX_STOCK_QUANTITY))
 
 
-@pytest.mark.parametrize("value", ["Infinity", "10000000000"])
+@pytest.mark.parametrize("value", ["Infinity", "10000000000", "12.34567"])
 def test_invalid_stock_adjustment_has_no_movement_or_audit_side_effects(
     client,
     auth_headers,
@@ -214,6 +216,15 @@ def test_nontracked_adjustment_rejects_legacy_batch_unit_drift_without_writes(
         assert (batch.quantity, batch.unit) == (Decimal("10"), "kg")
 
 
+def test_stock_adjustment_unknown_item_precedes_precision_error(client, auth_headers):
+    response = client.patch(
+        "/api/inventory/stock/2147483647",
+        headers=auth_headers,
+        json={"quantity": "12.34567", "unit": "pcs"},
+    )
+    assert response.status_code == 404, response.text
+
+
 def test_stock_adjustment_rejects_derived_delta_overflow_without_writes(client, auth_headers):
     item_id = _create_item(client, auth_headers)
     with SessionLocal() as db:
@@ -248,4 +259,11 @@ def test_invalid_stock_adjustment_preserves_authentication_precedence(client, au
     )
 
     assert response.status_code == 401, response.text
+    assert _write_counts(item_id) == before
+
+    precision = client.patch(
+        f"/api/inventory/stock/{item_id}",
+        json={"quantity": "12.34567", "unit": "pcs"},
+    )
+    assert precision.status_code == 401, precision.text
     assert _write_counts(item_id) == before
