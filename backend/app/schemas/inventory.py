@@ -33,6 +33,11 @@ class ItemIn(BaseModel):
     image_url: Optional[str] = None
     composition: list[ItemComposition] = Field(default_factory=list)
 
+    @field_validator("default_cost", mode="before")
+    @classmethod
+    def validate_default_cost_precision(cls, value):
+        return reject_cost_fractional_precision(value, minimum=Decimal("0"))
+
 
 class ItemImageIn(BaseModel):
     image_url: Optional[str] = None
