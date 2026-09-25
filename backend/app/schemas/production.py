@@ -249,6 +249,7 @@ class CuttingMaterialUsageOut(ORMModel):
 
 
 class CuttingRecordIn(BaseModel):
+    defer_material_usage: bool = False
     use_passport_materials: bool = False
     cutting_passport_id: Optional[int] = Field(default=None, gt=0)
     model_config = {"protected_namespaces": ()}
