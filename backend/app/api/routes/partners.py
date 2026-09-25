@@ -499,7 +499,7 @@ def _serialize_customer_order(
             return "no_invoice"
         if invoice_total <= 0 or paid_total >= invoice_total:
             return "paid"
-        if paid_total > Decimal("0.01"):
+        if paid_total > 0:
             return "partial"
         if any(str(inv.status or "").lower() in {"partial", "partially_paid"} for inv in invoices):
             return "partial"

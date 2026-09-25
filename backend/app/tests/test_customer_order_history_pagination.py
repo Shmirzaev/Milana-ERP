@@ -6,7 +6,7 @@ from sqlalchemy import event
 
 from app.api.routes.partners import get_customer_orders
 from app.db.session import SessionLocal
-from app.models import Customer, Invoice, Payment, SalesOrder
+from app.models import AuditLog, Customer, Invoice, Payment, SalesOrder
 
 
 def _seed_orders(count, *, status="confirmed"):
@@ -194,3 +194,79 @@ def test_customer_order_history_status_uses_exact_invoice_cents(
     row = result["rows"][0]
     assert row["payment_status"] == expected_status
     assert row["balance_due"] == balance_due
+
+
+def test_customer_order_history_one_cent_is_partial_without_writing_invoice_state(
+    client, auth_headers,
+):
+    stored_status = "unpaid"
+    marker = uuid4().hex[:8].upper()
+    with SessionLocal() as db:
+        customer = Customer(name=f"One cent history {marker}")
+        db.add(customer)
+        db.flush()
+        order = SalesOrder(
+            order_no=f"CENT-STATUS-{marker}", customer_id=customer.id,
+            status="confirmed", total_amount=100,
+        )
+        db.add(order)
+        db.flush()
+        invoice = Invoice(
+            sales_order_id=order.id, invoice_no=f"CENT-STATE-{marker}",
+            amount=100, status=stored_status,
+        )
+        db.add(invoice)
+        db.flush()
+        db.add(Payment(invoice_id=invoice.id, customer_id=customer.id, amount=Decimal("0.01")))
+        db.commit()
+        customer_id = int(customer.id)
+        order_id = int(order.id)
+        invoice_id = int(invoice.id)
+        before = (db.query(Payment).count(), db.query(AuditLog).count())
+
+    response = client.get(
+        f"/api/customers/{customer_id}/orders",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200, response.text
+    row = next(row for row in response.json() if row["id"] == order_id)
+    assert row["payment_status"] == "partial"
+    assert row["paid_total"] == 0.01
+    assert row["balance_due"] == 99.99
+    assert row["invoices"][0]["status"] == stored_status
+    with SessionLocal() as db:
+        assert db.get(Invoice, invoice_id).status == stored_status
+        assert (db.query(Payment).count(), db.query(AuditLog).count()) == before
+
+
+@pytest.mark.parametrize("stored_status", ["void", "cancelled"])
+def test_customer_order_history_does_not_rewrite_terminal_invoice_state(
+    client, auth_headers, stored_status,
+):
+    marker = uuid4().hex[:8].upper()
+    with SessionLocal() as db:
+        customer = Customer(name=f"Terminal history {marker}")
+        db.add(customer)
+        db.flush()
+        order = SalesOrder(
+            order_no=f"TERM-STATUS-{marker}", customer_id=customer.id,
+            status="confirmed", total_amount=100,
+        )
+        db.add(order)
+        db.flush()
+        invoice = Invoice(
+            sales_order_id=order.id, invoice_no=f"TERM-INV-{marker}",
+            amount=100, status=stored_status,
+        )
+        db.add(invoice)
+        db.commit()
+        customer_id = int(customer.id)
+        invoice_id = int(invoice.id)
+        before = (db.query(Payment).count(), db.query(AuditLog).count())
+
+    response = client.get(f"/api/customers/{customer_id}/orders", headers=auth_headers)
+    assert response.status_code == 200, response.text
+    assert response.json()[0]["invoices"][0]["status"] == stored_status
+    with SessionLocal() as db:
+        assert db.get(Invoice, invoice_id).status == stored_status
+        assert (db.query(Payment).count(), db.query(AuditLog).count()) == before
