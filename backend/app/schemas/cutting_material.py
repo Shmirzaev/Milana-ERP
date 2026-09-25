@@ -4,12 +4,12 @@ from pydantic import BaseModel, ConfigDict, Field
 class CuttingMaterialDetails(BaseModel):
     model_config = ConfigDict(allow_inf_nan=False)
 
-    layer_material_kg: float = Field(default=0, ge=0)
-    beika_kg: float = Field(default=0, ge=0)
-    material_rolls_used: float = Field(default=0, ge=0)
+    layer_material_kg: float = Field(default=0, ge=0, le=9_999_999_999.9999)
+    beika_kg: float = Field(default=0, ge=0, le=9_999_999_999.9999)
+    material_rolls_used: float = Field(default=0, ge=0, le=9_999_999_999.9999)
     layup_operator_name: str = Field(default="", max_length=128)
     cut_pieces: int = Field(default=0, ge=0)
-    waste_quantity: float = Field(default=0, ge=0)
+    waste_quantity: float = Field(default=0, ge=0, le=9_999_999_999.9999)
     waste_unit: str = Field(default="kg", min_length=1, max_length=32)
 
 
