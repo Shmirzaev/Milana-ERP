@@ -203,7 +203,10 @@ def _to_money_decimal(value: Any) -> Decimal:
         amount = Decimal(str(value))
         if not amount.is_finite():
             raise HTTPException(400, f"Invalid numeric value: {value}")
-        return amount.quantize(Decimal("0.01"))
+        cents = amount.quantize(Decimal("0.01"))
+        if amount != cents:
+            raise HTTPException(400, "Adjustment amount supports at most 2 decimal places")
+        return cents
     except (InvalidOperation, ValueError, TypeError):
         raise HTTPException(400, f"Invalid numeric value: {value}")
 
