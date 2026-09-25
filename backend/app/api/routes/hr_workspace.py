@@ -4,6 +4,7 @@ import re
 import secrets
 import json
 from datetime import date, datetime, time, timedelta, timezone
+from decimal import Decimal
 from functools import partial
 from math import isfinite
 from pathlib import Path
@@ -389,6 +390,21 @@ def _validate_position_approved_count(payload: PositionIn) -> None:
         raise HTTPException(422, "Approved count must fit a 32-bit database integer")
 
 
+def _validate_position_salary_precision(payload: PositionIn, *, existing: HrPosition | None = None) -> None:
+    for field in ("salary_min", "salary_max"):
+        value = getattr(payload, field)
+        if value is None:
+            continue
+        amount = Decimal(str(value))
+        if amount == amount.quantize(Decimal("0.01")):
+            continue
+        if existing is not None:
+            previous = getattr(existing, field)
+            if previous is not None and amount == Decimal(str(previous)):
+                continue
+        raise HTTPException(422, f"{field} cannot have more than 2 decimal places")
+
+
 def _validate_position_required_skills(
     required_skills: list[str],
     *,
@@ -661,6 +677,7 @@ def create_position(payload: PositionIn, db: DbSession, current: User = HrUser):
     _validate_position_links(payload, db, factory)
     _validate_position_approved_count(payload)
     _validate_position_required_skills(payload.required_skills)
+    _validate_position_salary_precision(payload)
     values = payload.model_dump(); values["required_skills_json"] = values.pop("required_skills")
     row = HrPosition(factory_code=factory, **values)
     db.add(row); db.flush(); log_action(db, current, "create", "HrPosition", row.id, new_value={"name": row.name}); db.commit(); db.refresh(row)
@@ -675,6 +692,7 @@ def update_position(position_id: int, payload: PositionIn, db: DbSession, curren
     _validate_position_links(payload, db, factory, existing_department_id=row.department_id)
     _validate_position_approved_count(payload)
     _validate_position_required_skills(payload.required_skills, existing=row.required_skills_json)
+    _validate_position_salary_precision(payload, existing=row)
     values = payload.model_dump(); values["required_skills_json"] = values.pop("required_skills")
     for key, value in values.items(): setattr(row, key, value)
     log_action(db, current, "update", "HrPosition", row.id, new_value=values); db.commit(); db.refresh(row)

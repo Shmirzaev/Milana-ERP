@@ -5,7 +5,7 @@ import pytest
 
 from app.db.session import SessionLocal
 from app.core.config import settings
-from app.models import Department, HrOrgUnit, HrPosition
+from app.models import AuditLog, Department, HrOrgUnit, HrPosition
 
 
 def _department_id(code: str) -> int:
@@ -241,6 +241,58 @@ def test_position_accepts_numeric_database_salary_boundary(client, auth_headers)
     assert response.status_code == 201, response.text
     assert response.json()["salary_min"] == 999_999_999_999.99
     assert response.json()["salary_max"] == 999_999_999_999.99
+
+
+@pytest.mark.parametrize("field", ["salary_min", "salary_max"])
+def test_position_create_rejects_fractional_salary_rounding_without_writes(client, auth_headers, field):
+    with SessionLocal() as db:
+        before = (db.query(HrPosition).count(), db.query(AuditLog).count())
+
+    response = client.post(
+        "/api/hr/positions",
+        headers=auth_headers,
+        json={"name": "Unstoreable salary", field: 100.005},
+    )
+
+    assert response.status_code == 422, response.text
+    with SessionLocal() as db:
+        assert (db.query(HrPosition).count(), db.query(AuditLog).count()) == before
+
+
+@pytest.mark.parametrize("field", ["salary_min", "salary_max"])
+def test_position_update_rejects_fractional_salary_rounding_without_writes(client, auth_headers, field):
+    created = client.post(
+        "/api/hr/positions",
+        headers=auth_headers,
+        json={"name": "Stored salary", "salary_min": 100.01, "salary_max": 200.02},
+    )
+    assert created.status_code == 201, created.text
+    position_id = created.json()["id"]
+    with SessionLocal() as db:
+        before_audits = db.query(AuditLog).count()
+
+    response = client.patch(
+        f"/api/hr/positions/{position_id}",
+        headers=auth_headers,
+        json={"name": "Changed name", "salary_min": 100.01, "salary_max": 200.02, field: 100.005},
+    )
+
+    assert response.status_code == 422, response.text
+    with SessionLocal() as db:
+        position = db.get(HrPosition, position_id)
+        assert position is not None
+        assert position.name == "Stored salary"
+        assert float(position.salary_min) == 100.01
+        assert float(position.salary_max) == 200.02
+        assert db.query(AuditLog).count() == before_audits
+
+
+def test_position_salary_precision_preserves_authentication_precedence(client):
+    response = client.post(
+        "/api/hr/positions",
+        json={"name": "Anonymous salary", "salary_min": 100.005},
+    )
+    assert response.status_code == 401, response.text
 
 
 @pytest.mark.parametrize(
