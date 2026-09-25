@@ -279,8 +279,8 @@ def test_postgres_cutting_material_consumption_has_constant_locked_reads(
     assert sum(" from material_reservations " in statement for statement in statements) == 1
     assert sum(" from stock_batches " in statement for statement in statements) == 1
     assert sum(" from items " in statement for statement in statements) == 1
-    assert "for update of material_reservations" in statements[0]
-    assert "for update of stock_batches" in statements[1]
+    assert "for update of stock_batches" in statements[0]
+    assert "for update of material_reservations" in statements[2]
 
 
 def test_postgres_cutting_material_locks_serialize_reverse_input_order(

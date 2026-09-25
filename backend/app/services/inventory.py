@@ -1064,8 +1064,10 @@ def _consume_loaded_material_reservation(
     return reservation
 
 
-def release_material_reservation(db: Session, reservation_id: int) -> MaterialReservation:
-    reservation = (
+def _locked_material_reservation(db: Session, reservation_id: int) -> MaterialReservation | None:
+    # populate_existing must not overwrite a caller's pending correction.
+    db.flush()
+    return (
         db.query(MaterialReservation)
         .options(
             lazyload(MaterialReservation.item),
@@ -1077,6 +1079,10 @@ def release_material_reservation(db: Session, reservation_id: int) -> MaterialRe
         .with_for_update(of=MaterialReservation)
         .first()
     )
+
+
+def release_material_reservation(db: Session, reservation_id: int) -> MaterialReservation:
+    reservation = _locked_material_reservation(db, reservation_id)
     if not reservation:
         raise HTTPException(404, "Material reservation not found")
     if reservation.status in ("cancelled", "released", "consumed"):
@@ -1101,9 +1107,22 @@ def consume_material_reservation(
     reference_type: str = "MaterialReservation",
     reference_id: int | None = None,
 ) -> MaterialReservation:
-    reservation = db.get(MaterialReservation, reservation_id)
-    if not reservation:
+    # All batch-backed reservation writers take the stock batch lock before
+    # the reservation row; a plain get here permits stale remaining quantity.
+    initial = db.query(MaterialReservation.stock_batch_id).filter(
+        MaterialReservation.id == reservation_id,
+    ).first()
+    if initial is None:
         raise HTTPException(404, "Material reservation not found")
+    batch_id = int(initial.stock_batch_id) if initial.stock_batch_id is not None else None
+    stock_batch_cache, item_cache = _locked_stock_batches_for_consumption(
+        db, [batch_id] if batch_id is not None else [],
+    )
+    reservation = _locked_material_reservation(db, reservation_id)
+    if reservation is None:
+        raise HTTPException(404, "Material reservation not found")
+    if reservation.stock_batch_id != batch_id:
+        raise HTTPException(409, "Material reservation batch changed; reload before consuming")
     return _consume_loaded_material_reservation(
         db,
         reservation,
@@ -1111,6 +1130,8 @@ def consume_material_reservation(
         user_id=user_id,
         reference_type=reference_type,
         reference_id=reference_id,
+        stock_batch_cache=stock_batch_cache,
+        item_cache=item_cache,
     )
 
 
@@ -1239,6 +1260,7 @@ def consume_material_reservations_for_stock_batch(
     quantity = float(quantity or 0)
     if quantity <= 0:
         return 0.0
+    stock_batch_cache, item_cache = _locked_stock_batches_for_consumption(db, [stock_batch_id])
     reservations = _locked_reservations_by_stock_batch(
         db,
         production_order_id=production_order_id,
@@ -1248,7 +1270,6 @@ def consume_material_reservations_for_stock_batch(
         _require_full_reservation(reservations, quantity=quantity)
     if not reservations:
         return 0.0
-    stock_batch_cache, item_cache = _locked_stock_batches_for_consumption(db, [stock_batch_id])
     return _consume_loaded_stock_batch_reservations(
         db,
         reservations,
@@ -1277,6 +1298,7 @@ def consume_cutting_materials(
         return
     db.flush()
     stock_batch_ids = sorted({int(line["stock_batch_id"]) for line in lines})
+    stock_batch_cache, item_cache = _locked_stock_batches_for_consumption(db, stock_batch_ids)
     reservations_by_batch = _locked_reservations_by_stock_batch(
         db,
         production_order_id=production_order_id,
@@ -1302,7 +1324,6 @@ def consume_cutting_materials(
                 )
             remaining_reserved[batch_id] = max(0.0, available - quantity)
 
-    stock_batch_cache, item_cache = _locked_stock_batches_for_consumption(db, stock_batch_ids)
     for line in lines:
         batch_id = int(line["stock_batch_id"])
         input_quantity = float(line["quantity"])

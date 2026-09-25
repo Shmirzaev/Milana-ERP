@@ -415,6 +415,79 @@ def test_postgres_concurrent_release_checks_refreshed_reservation_state(reservat
         assert row.consumed_quantity == 0
 
 
+@pytest.mark.parametrize("batch_bound", [False, True])
+def test_postgres_concurrent_direct_consumes_cannot_exceed_reservation(
+    reservation_postgres_engine, batch_bound,
+):
+    sessions = sessionmaker(bind=reservation_postgres_engine, autoflush=False, expire_on_commit=False)
+    ids = _stock(sessions)
+    with sessions() as db:
+        reservation = inventory.create_material_reservations(
+            db, production_order_id=ids["orders"][0],
+            lines=[_line(ids, 5, batch=0 if batch_bound else None)], user_id=None,
+        )[0]
+        db.commit()
+        reservation_id = reservation.id
+
+    first_consumed = Event()
+    release_first = Event()
+    second_pid = Queue()
+
+    def first_worker():
+        with sessions() as db:
+            consumed = inventory.consume_material_reservation(
+                db, reservation_id, quantity=4, user_id=None,
+            )
+            first_consumed.set()
+            assert release_first.wait(10), "Coordinator did not release the first transaction"
+            db.commit()
+            return float(consumed.consumed_quantity)
+
+    def second_worker():
+        with sessions() as db:
+            second_pid.put(db.execute(text("SELECT pg_backend_pid()")).scalar_one())
+            try:
+                inventory.consume_material_reservation(db, reservation_id, quantity=4, user_id=None)
+                db.commit()
+                return 200
+            except HTTPException as rejected:
+                db.rollback()
+                return rejected.status_code
+
+    with sessions() as observer, ThreadPoolExecutor(max_workers=2) as workers:
+        first = workers.submit(first_worker)
+        try:
+            assert first_consumed.wait(10), "First consume did not hold its locks"
+            second = workers.submit(second_worker)
+            pid = second_pid.get(timeout=10)
+            deadline = monotonic() + 10
+            while monotonic() < deadline:
+                if observer.execute(text("SELECT pg_blocking_pids(:pid)"), {"pid": pid}).scalar_one():
+                    break
+                if second.done():
+                    pytest.fail(f"Second consume completed before the first committed: {second.result()}")
+                sleep(0.02)
+            else:
+                pytest.fail("Second consume must wait on a locked stock batch or reservation row")
+        finally:
+            release_first.set()
+        assert first.result(timeout=10) == 4
+        assert second.result(timeout=10) == 409
+
+    with sessions() as db:
+        row = db.get(MaterialReservation, reservation_id)
+        batch = db.get(StockBatch, ids["batches"][0])
+        movements = db.query(StockMovement).filter_by(
+            item_id=ids["items"][0], movement_type="consume",
+        ).all()
+        assert row.status == "partially_consumed"
+        assert float(row.consumed_quantity) == 4
+        assert float(row.released_quantity) == 0
+        assert float(batch.quantity) == 6
+        assert len(movements) == 1
+        assert float(movements[0].quantity) == 4
+
+
 @pytest.mark.parametrize("case", [
     "same_warehouse", "global", "separate_warehouses", "mixed", "reverse_batches", "reverse_items",
 ])

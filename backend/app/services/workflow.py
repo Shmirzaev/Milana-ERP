@@ -598,10 +598,13 @@ def consume_item_from_batches(
         if warehouse_id is not None:
             batch_query = batch_query.filter(StockBatch.warehouse_id == warehouse_id)
 
-        locked_batch_query = batch_query.order_by(StockBatch.received_date.asc(), StockBatch.id.asc())
+        # Reservation creation locks batches by ID. Acquire those row locks in
+        # the same order, then choose FIFO consumption from the locked rows.
+        locked_batch_query = batch_query.order_by(StockBatch.id.asc())
         if db.bind and db.bind.dialect.name == "postgresql":
             locked_batch_query = locked_batch_query.options(lazyload(StockBatch.item)).with_for_update(of=StockBatch)
         batches = locked_batch_query.all()
+        batches.sort(key=lambda batch: (batch.received_date, batch.id))
     else:
         batches = [
             batch
@@ -715,16 +718,14 @@ def consume_packaging_materials_from_bom(
                 StockBatch.item_id.in_(packaging_item_ids),
                 StockBatch.quantity > 0,
             )
-            .order_by(
-                StockBatch.item_id.asc(),
-                StockBatch.received_date.asc(),
-                StockBatch.id.asc(),
-            )
+            .order_by(StockBatch.id.asc())
         )
         if db.bind and db.bind.dialect.name == "postgresql":
             batch_query = batch_query.options(lazyload(StockBatch.item)).with_for_update(of=StockBatch)
         for batch in batch_query.all():
             batch_cache[batch.item_id].append(batch)
+        for batches in batch_cache.values():
+            batches.sort(key=lambda batch: (batch.received_date, batch.id))
 
     for row, item in packaging_rows:
         qty = float(row.quantity_per_piece) * packed_qty * (1.0 + float(row.waste_percent or 0) / 100.0)

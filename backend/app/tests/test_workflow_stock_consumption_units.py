@@ -1,4 +1,5 @@
 from uuid import uuid4
+from datetime import datetime, timezone
 
 import pytest
 from fastapi import HTTPException
@@ -232,6 +233,45 @@ def test_item_consumption_prevalidates_all_batches_before_mutating_any():
         assert float(first.quantity) == 1
         assert float(second.quantity) == 5
         assert db.query(StockMovement).filter(StockMovement.batch_id.in_([first.id, second.id])).count() == 0
+
+
+@pytest.mark.parametrize("packaging", [False, True])
+def test_batch_id_lock_order_keeps_oldest_batch_first_for_consumption(packaging):
+    with TestSessionLocal() as db:
+        item, warehouse, later, model, order = _stock_case(db, name="FIFO-LOCK", quantity=2)
+        later.received_date = datetime(2026, 2, 1, tzinfo=timezone.utc)
+        earlier = StockBatch(
+            item_id=item.id,
+            batch_no=f"FIFO-EARLIER-{uuid4().hex[:8]}",
+            warehouse_id=warehouse.id,
+            quantity=2,
+            unit=item.unit,
+            qc_status="passed",
+            received_date=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+        db.add(earlier)
+        db.flush()
+        assert later.id < earlier.id
+
+        if packaging:
+            db.add(ModelBOM(model_id=model.id, item_id=item.id, quantity_per_piece=1, unit=item.unit))
+            db.flush()
+            consume_packaging_materials_from_bom(
+                db, production_order_id=order.id, packed_qty=1,
+                reference_type="PackagingRecord", reference_id=1, user_id=None,
+            )
+        else:
+            consume_item_from_batches(
+                db, item_id=item.id, quantity=1, unit=item.unit,
+                reference_type="ProductionOrder", reference_id=order.id,
+                user_id=None, require_available=True,
+            )
+        db.flush()
+
+        movement = db.query(StockMovement).filter_by(item_id=item.id).one()
+        assert movement.batch_id == earlier.id
+        assert float(earlier.quantity) == 1
+        assert float(later.quantity) == 2
 
 
 def test_batchless_item_consumption_uses_catalog_unit_and_rejects_mismatch_without_writes():
