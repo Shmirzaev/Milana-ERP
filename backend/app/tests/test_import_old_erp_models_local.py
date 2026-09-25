@@ -548,3 +548,53 @@ def test_apply_details_accepts_bounded_new_document() -> None:
     migration.apply_details(model, {"legacy_product": "Tunic"}, _details_provenance(), created=True)
 
     assert model.details_json["general"]["legacy_product"] == "Tunic"
+
+
+@pytest.mark.parametrize("invalid_kind", ["oversized", "deep", "nonfinite"])
+def test_plan_details_preflight_rejects_invalid_final_document_without_database(
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_kind: str,
+) -> None:
+    monkeypatch.setattr(migration, "SessionLocal", lambda: pytest.fail("database session opened"))
+    invalid_value: object = "ж" * (70 * 1024)
+    if invalid_kind == "deep":
+        invalid_value = {"leaf": True}
+        for _ in range(20):
+            invalid_value = {"next": invalid_value}
+    elif invalid_kind == "nonfinite":
+        invalid_value = float("nan")
+    action = {
+        "action": "update_existing",
+        "target_model_id": 7,
+        "details_patch": {"legacy_product": invalid_value},
+        "provenance": _details_provenance(),
+    }
+    model = Model(id=7, code="TEST", name="Test", details_json={"general": {}})
+
+    with pytest.raises(migration.MigrationError, match="Imported Model.details_json is invalid"):
+        migration.validate_planned_details_bounds([action], [model])
+
+    assert model.details_json == {"general": {}}
+
+
+def test_plan_details_preflight_preserves_unchanged_legacy_and_ignored_patch_without_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(migration, "SessionLocal", lambda: pytest.fail("database session opened"))
+    provenance = _details_provenance()
+    existing = {
+        "general": {"legacy_product": "Original"},
+        "old_erp_migration": deepcopy(provenance),
+        "future_extension": "ж" * (70 * 1024),
+    }
+    model = Model(id=7, code="TEST", name="Test", details_json=deepcopy(existing))
+    action = {
+        "action": "update_existing",
+        "target_model_id": 7,
+        "details_patch": {"legacy_product": "x" * (70 * 1024)},
+        "provenance": provenance,
+    }
+
+    migration.validate_planned_details_bounds([action], [model])
+
+    assert model.details_json == existing

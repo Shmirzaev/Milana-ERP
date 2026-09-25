@@ -2039,6 +2039,7 @@ def compile_plan(
         "planned_provenance_merges": planned_provenance_merges,
         "metadata_classification": classification["counts"],
     }
+    validate_planned_details_bounds(actions, db_models)
     plan = {
         "schema_version": SCHEMA_VERSION,
         "source_key": SOURCE_KEY,
@@ -2421,8 +2422,14 @@ def validate_imported_details_bounds(details: object, *, existing_details: objec
         raise MigrationError(f"Imported Model.details_json is invalid: {exc.detail}") from exc
 
 
-def apply_details(model: Model, patch: dict[str, Any], provenance: dict[str, Any], *, created: bool) -> None:
-    existing_details = model.details_json if isinstance(model.details_json, dict) else None
+def merged_imported_details(
+    existing_details: object,
+    patch: dict[str, Any],
+    provenance: dict[str, Any],
+    *,
+    created: bool,
+) -> dict[str, Any]:
+    """Build and validate the exact document an importer action would persist."""
     details = copy.deepcopy(existing_details) if existing_details is not None else {}
     general = details.get("general")
     if not isinstance(general, dict):
@@ -2439,6 +2446,29 @@ def apply_details(model: Model, patch: dict[str, Any], provenance: dict[str, Any
     details["general"] = general
     merge_provenance(details, provenance)
     validate_imported_details_bounds(details, existing_details=existing_details)
+    return details
+
+
+def validate_planned_details_bounds(actions: list[dict[str, Any]], models: Iterable[Model]) -> None:
+    """Reject an invalid reviewed plan before media files or output are written."""
+    existing_by_id = {int(model.id): model for model in models}
+    for action in actions:
+        created = action["action"] != "update_existing"
+        model = None if created else existing_by_id.get(int(action["target_model_id"]))
+        if not created and model is None:
+            raise MigrationError(f"Existing target {action['target_model_id']} disappeared")
+        existing_details = model.details_json if model and isinstance(model.details_json, dict) else None
+        merged_imported_details(
+            existing_details,
+            action["details_patch"],
+            action["provenance"],
+            created=created,
+        )
+
+
+def apply_details(model: Model, patch: dict[str, Any], provenance: dict[str, Any], *, created: bool) -> None:
+    existing_details = model.details_json if isinstance(model.details_json, dict) else None
+    details = merged_imported_details(existing_details, patch, provenance, created=created)
     model.details_json = details
     flag_modified(model, "details_json")
 
