@@ -44,6 +44,7 @@ _MAX_ESTIMATED_MATERIAL_AMOUNT = 9_999_999_999.9999
 _PRODUCTION_ATTACHMENT_STORAGE_PREFIX = "/storage/sales-order-files/"
 _PRODUCTION_ATTACHMENT_FILENAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _PRODUCTION_ATTACHMENT_LIMIT = 50
+_PRODUCTION_ORDER_ITEM_LIMIT = 1000
 _PRODUCTION_ATTACHMENT_URL_MAX_LENGTH = 512
 _PRODUCTION_ATTACHMENT_NAME_MAX_LENGTH = 255
 _PRODUCTION_ATTACHMENT_CONTENT_TYPE_MAX_LENGTH = 128
@@ -59,18 +60,27 @@ def expand_production_size_range_items(items: list[dict] | None) -> list[dict]:
         match = _NUMERIC_SIZE_RANGE.fullmatch(size)
         if not match:
             expanded.append(item)
+            if len(expanded) > _PRODUCTION_ORDER_ITEM_LIMIT:
+                raise HTTPException(422, "Production order items cannot exceed 1000 after size expansion")
             continue
 
         first, last = (int(value) for value in match.groups())
         if first > last or (last - first) % 2 or (last - first) // 2 > 50:
             expanded.append(item)
+            if len(expanded) > _PRODUCTION_ORDER_ITEM_LIMIT:
+                raise HTTPException(422, "Production order items cannot exceed 1000 after size expansion")
             continue
 
         sizes = [str(value) for value in range(first, last + 1, 2)]
         quantity = max(0, int(item.get("planned_quantity") or 0))
         if len(sizes) <= 1 or quantity < len(sizes):
             expanded.append(item)
+            if len(expanded) > _PRODUCTION_ORDER_ITEM_LIMIT:
+                raise HTTPException(422, "Production order items cannot exceed 1000 after size expansion")
             continue
+
+        if len(expanded) + len(sizes) > _PRODUCTION_ORDER_ITEM_LIMIT:
+            raise HTTPException(422, "Production order items cannot exceed 1000 after size expansion")
 
         per_size, remainder = divmod(quantity, len(sizes))
         for index, value in enumerate(sizes):
@@ -202,16 +212,6 @@ def create_production_order(
     if (production_type == "service_order") != (source_type == "usluga"):
         raise HTTPException(400, "service_order and usluga source_type must be used together")
 
-    # Usluga model labels such as "40-42" represent one paired garment size,
-    # not shorthand for multiple independent sizes. Keep them byte-for-byte
-    # aligned with the model so Cutting and its bundle passports use the same
-    # size identity. Standard production retains its established range split.
-    normalized_items = (
-        [raw.model_dump() if hasattr(raw, "model_dump") else dict(raw) for raw in (items or [])]
-        if source_type == "usluga"
-        else expand_production_size_range_items(items)
-    )
-
     model = db.get(Model, model_id)
     if not model:
         raise HTTPException(404, "Model not found")
@@ -331,6 +331,14 @@ def create_production_order(
     for row in normalized_materials:
         if Decimal(str(row["estimated_quantity"])) % Decimal("0.0001"):
             raise HTTPException(422, "Material estimated quantity supports at most four decimal places")
+
+    # Usluga labels such as "40-42" name one paired size. Standard production
+    # splits ranges only after reference checks and before numbering or writes.
+    normalized_items = (
+        [raw.model_dump() if hasattr(raw, "model_dump") else dict(raw) for raw in (items or [])]
+        if source_type == "usluga"
+        else expand_production_size_range_items(items)
+    )
 
     production_no = (
         next_usluga_order_no(db)
