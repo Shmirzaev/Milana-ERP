@@ -88,10 +88,13 @@ def client_ip(request: Request) -> str:
     if not is_trusted_proxy_peer(request):
         return peer
 
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
+    forwarded_fields = request.headers.getlist("x-forwarded-for")
+    if forwarded_fields:
         try:
-            values = [value.strip() for value in forwarded.split(",")]
+            # A proxy may append a new header field instead of extending the
+            # client's existing one. Keep the wire order so the nearest hop
+            # remains last even when the client supplied an earlier field.
+            values = [value.strip() for field in forwarded_fields for value in field.split(",")]
             if any(not value for value in values):
                 return peer
             hops = [ipaddress.ip_address(value) for value in values]
@@ -118,10 +121,10 @@ def forwarded_scheme(request: Request) -> str | None:
     """Return a proxy-provided scheme only for an explicitly trusted peer."""
     if not is_trusted_proxy_peer(request):
         return None
-    forwarded = request.headers.get("x-forwarded-proto", "")
-    if forwarded:
+    forwarded_fields = request.headers.getlist("x-forwarded-proto")
+    if forwarded_fields:
         # The immediate proxy is the right-most hop when intermediaries append.
-        scheme = forwarded.rsplit(",", 1)[-1].strip().lower()
+        scheme = forwarded_fields[-1].rsplit(",", 1)[-1].strip().lower()
         if scheme in {"http", "https"}:
             return scheme
     forwarded_ssl = request.headers.get("x-forwarded-ssl", "").strip().lower()

@@ -21,10 +21,12 @@ REPLACEMENT_PASSWORD = "BoundaryReplacement!2026"
 WEAK_PASSWORD = "short1"
 
 
-def _request(*, peer: str, headers: dict[str, str] | None = None, scheme: str = "http") -> Request:
+def _request(
+    *, peer: str, headers: dict[str, str] | list[tuple[str, str]] | None = None, scheme: str = "http",
+) -> Request:
     raw_headers = [
         (name.lower().encode("latin-1"), value.encode("latin-1"))
-        for name, value in (headers or {}).items()
+        for name, value in (headers.items() if isinstance(headers, dict) else headers or [])
     ]
     return Request({
         "type": "http",
@@ -93,6 +95,30 @@ def test_forwarding_chain_strips_only_explicit_trusted_hops(monkeypatch):
         headers={"x-forwarded-for": "198.51.100.10,,10.20.30.40"},
     )
     assert proxy_trust.client_ip(empty_hop) == "127.0.0.1"
+
+
+def test_duplicate_forwarding_fields_use_the_proxy_appended_hop(monkeypatch):
+    monkeypatch.setenv("TRUSTED_PROXY_CIDRS", "127.0.0.1/32")
+    fields = [
+        ("x-forwarded-for", "203.0.113.66"),  # untrusted client input
+        ("x-forwarded-proto", "http"),
+        ("x-forwarded-for", "198.51.100.10"),  # trusted proxy appends this field
+        ("x-forwarded-proto", "https"),
+    ]
+    trusted = _request(peer="127.0.0.1", headers=fields)
+    assert proxy_trust.client_ip(trusted) == "198.51.100.10"
+    assert proxy_trust.effective_request_scheme(trusted) == "https"
+
+    direct = _request(peer="192.0.2.7", headers=fields)
+    assert proxy_trust.client_ip(direct) == "192.0.2.7"
+    assert proxy_trust.effective_request_scheme(direct) == "http"
+
+    for last_hop in ("", "not-an-ip"):
+        malformed = _request(peer="127.0.0.1", headers=[
+            ("x-forwarded-for", "203.0.113.66"),
+            ("x-forwarded-for", last_hop),
+        ])
+        assert proxy_trust.client_ip(malformed) == "127.0.0.1"
 
 
 def test_untrusted_forwarded_https_cannot_mark_login_cookie_secure(monkeypatch):
