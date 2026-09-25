@@ -448,6 +448,168 @@ def test_packaging_does_not_forgive_unconsumed_own_item_only_claim():
         assert db.query(StockMovement).filter_by(reference_type="PackagingRecord", reference_id=82).count() == 0
 
 
+def test_direct_item_only_reservation_rejects_legacy_global_underbacking():
+    with TestSessionLocal() as db:
+        item, warehouse, batch, _model, order = _stock_case(db, name="DIRECT-LEGACY", quantity=5)
+        own = MaterialReservation(
+            reservation_no=f"DIRECT-OWN-{uuid4().hex[:8]}",
+            production_order_id=order.id, item_id=item.id,
+            stock_batch_id=None, warehouse_id=warehouse.id,
+            reserved_quantity=5, consumed_quantity=0, released_quantity=0,
+            unit=item.unit, status="reserved", reservation_type="packaging", source="manual",
+        )
+        other = MaterialReservation(
+            reservation_no=f"DIRECT-OTHER-{uuid4().hex[:8]}",
+            production_order_id=order.id, item_id=item.id,
+            stock_batch_id=None, warehouse_id=warehouse.id,
+            reserved_quantity=5, consumed_quantity=0, released_quantity=0,
+            unit=item.unit, status="reserved", reservation_type="packaging", source="manual",
+        )
+        db.add_all([own, other])
+        db.flush()
+
+        with pytest.raises(HTTPException) as rejected:
+            consume_material_reservation(db, own.id, quantity=1, user_id=None)
+        db.flush()
+
+        assert rejected.value.status_code == 409
+        assert float(batch.quantity) == 5
+        assert float(own.consumed_quantity) == 0
+        assert float(other.consumed_quantity) == 0
+        assert db.query(StockMovement).filter_by(item_id=item.id).count() == 0
+
+
+def test_direct_global_item_only_reservation_avoids_other_scoped_claim():
+    with TestSessionLocal() as db:
+        item, reserved_warehouse, reserved_batch, model, order = _stock_case(
+            db, name="DIRECT-SCOPED", quantity=5,
+        )
+        free_warehouse = Warehouse(name=f"DIRECT-FREE-{uuid4().hex[:8]}", type="accessory_storage")
+        db.add(free_warehouse)
+        db.flush()
+        free_batch = StockBatch(
+            item_id=item.id, batch_no=f"DIRECT-FREE-BATCH-{uuid4().hex[:8]}",
+            warehouse_id=free_warehouse.id, quantity=5, unit=item.unit, qc_status="passed",
+        )
+        other_order = ProductionOrder(
+            production_no=f"DIRECT-SCOPED-OTHER-{uuid4().hex[:8]}",
+            production_type="branded_stock", model_id=model.id, planned_quantity=10,
+        )
+        db.add_all([free_batch, other_order])
+        db.flush()
+        own = MaterialReservation(
+            reservation_no=f"DIRECT-GLOBAL-{uuid4().hex[:8]}",
+            production_order_id=order.id, item_id=item.id,
+            stock_batch_id=None, warehouse_id=None,
+            reserved_quantity=5, consumed_quantity=0, released_quantity=0,
+            unit=item.unit, status="reserved", reservation_type="packaging", source="manual",
+        )
+        other = MaterialReservation(
+            reservation_no=f"DIRECT-SCOPED-RES-{uuid4().hex[:8]}",
+            production_order_id=other_order.id, item_id=item.id,
+            stock_batch_id=None, warehouse_id=reserved_warehouse.id,
+            reserved_quantity=5, consumed_quantity=0, released_quantity=0,
+            unit=item.unit, status="reserved", reservation_type="packaging", source="manual",
+        )
+        db.add_all([own, other])
+        db.flush()
+
+        consume_material_reservation(db, own.id, quantity=5, user_id=None)
+        db.flush()
+
+        movement = db.query(StockMovement).filter_by(item_id=item.id).one()
+        assert movement.batch_id == free_batch.id
+        assert float(reserved_batch.quantity) == 5
+        assert float(free_batch.quantity) == 0
+        assert float(own.consumed_quantity) == 5
+        assert own.status == "consumed"
+        assert float(other.consumed_quantity) == 0
+        assert other.status == "reserved"
+
+
+def test_direct_global_item_only_rejects_unscoped_batchless_fallback():
+    with TestSessionLocal() as db:
+        item, warehouse, batch, model, order = _stock_case(db, name="DIRECT-BATCHLESS", quantity=0)
+        other_order = ProductionOrder(
+            production_no=f"DIRECT-BATCHLESS-OTHER-{uuid4().hex[:8]}",
+            production_type="branded_stock", model_id=model.id, planned_quantity=10,
+        )
+        db.add(other_order)
+        db.flush()
+        own = MaterialReservation(
+            reservation_no=f"DIRECT-BATCHLESS-OWN-{uuid4().hex[:8]}",
+            production_order_id=order.id, item_id=item.id,
+            stock_batch_id=None, warehouse_id=None,
+            reserved_quantity=5, consumed_quantity=0, released_quantity=0,
+            unit=item.unit, status="reserved", reservation_type="packaging", source="manual",
+        )
+        other = MaterialReservation(
+            reservation_no=f"DIRECT-BATCHLESS-OTHER-RES-{uuid4().hex[:8]}",
+            production_order_id=other_order.id, item_id=item.id,
+            stock_batch_id=None, warehouse_id=warehouse.id,
+            reserved_quantity=5, consumed_quantity=0, released_quantity=0,
+            unit=item.unit, status="reserved", reservation_type="packaging", source="manual",
+        )
+        db.add_all([
+            own, other,
+            StockMovement(
+                movement_type="adjustment", item_id=item.id, batch_id=None,
+                to_warehouse_id=warehouse.id, quantity=10, unit=item.unit,
+            ),
+        ])
+        db.flush()
+
+        with pytest.raises(HTTPException) as rejected:
+            consume_material_reservation(db, own.id, quantity=5, user_id=None)
+        db.flush()
+
+        assert rejected.value.status_code == 409
+        assert float(batch.quantity) == 0
+        assert float(own.consumed_quantity) == 0
+        assert float(other.consumed_quantity) == 0
+        assert db.query(StockMovement).filter_by(movement_type="consume", item_id=item.id).count() == 0
+
+
+@pytest.mark.parametrize("warehouse_attributed", [False, True])
+def test_direct_global_item_only_batchless_requires_unscoped_credit(warehouse_attributed):
+    with TestSessionLocal() as db:
+        item, warehouse, batch, _model, order = _stock_case(
+            db, name="DIRECT-BATCHLESS-CREDIT", quantity=0,
+        )
+        own = MaterialReservation(
+            reservation_no=f"DIRECT-BATCHLESS-CREDIT-{uuid4().hex[:8]}",
+            production_order_id=order.id, item_id=item.id,
+            stock_batch_id=None, warehouse_id=None,
+            reserved_quantity=5, consumed_quantity=0, released_quantity=0,
+            unit=item.unit, status="reserved", reservation_type="packaging", source="manual",
+        )
+        db.add_all([
+            own,
+            StockMovement(
+                movement_type="adjustment", item_id=item.id, batch_id=None,
+                to_warehouse_id=warehouse.id if warehouse_attributed else None,
+                quantity=5, unit=item.unit,
+            ),
+        ])
+        db.flush()
+
+        if warehouse_attributed:
+            with pytest.raises(HTTPException) as rejected:
+                consume_material_reservation(db, own.id, quantity=5, user_id=None)
+            assert rejected.value.status_code == 409
+            assert float(own.consumed_quantity) == 0
+            assert db.query(StockMovement).filter_by(movement_type="consume", item_id=item.id).count() == 0
+        else:
+            consume_material_reservation(db, own.id, quantity=5, user_id=None)
+            movement = db.query(StockMovement).filter_by(movement_type="consume", item_id=item.id).one()
+            assert movement.batch_id is None
+            assert movement.from_warehouse_id is None
+            assert float(movement.quantity) == 5
+            assert float(own.consumed_quantity) == 5
+            assert own.status == "consumed"
+        assert float(batch.quantity) == 0
+
+
 def test_packaging_item_only_reservation_uses_its_warehouse_and_preserves_other_order():
     with TestSessionLocal() as db:
         item, reserved_warehouse, other_batch, model, order = _stock_case(

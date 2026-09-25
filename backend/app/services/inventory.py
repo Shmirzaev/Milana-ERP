@@ -1017,6 +1017,7 @@ def _consume_loaded_material_reservation(
     reference_id: int | None,
     stock_batch_cache: dict[int, StockBatch] | None = None,
     item_batch_cache: dict[int, list[StockBatch]] | None = None,
+    item_reserved_by_batch: dict[int, Decimal] | None = None,
     item_cache: dict[int, Item] | None = None,
 ) -> MaterialReservation:
     if reservation.status not in ACTIVE_RESERVATION_STATUSES:
@@ -1058,6 +1059,7 @@ def _consume_loaded_material_reservation(
             warehouse_id=int(reservation.warehouse_id) if reservation.warehouse_id else None,
             require_available=True,
             batch_cache=item_batch_cache,
+            reserved_by_batch=item_reserved_by_batch,
             item_cache=item_cache,
         )
 
@@ -1099,6 +1101,94 @@ def release_material_reservation(db: Session, reservation_id: int) -> MaterialRe
     _set_reservation_status(reservation)
     db.flush()
     return reservation
+
+
+def _item_only_reservation_protected_batches(
+    db: Session,
+    reservation: MaterialReservation,
+    *,
+    quantity: float,
+    locked_batches: list[StockBatch],
+) -> dict[int, Decimal]:
+    item_id = int(reservation.item_id)
+    own_warehouse_id = int(reservation.warehouse_id) if reservation.warehouse_id is not None else None
+    rows = db.query(
+        MaterialReservation.id,
+        MaterialReservation.warehouse_id,
+        MaterialReservation.stock_batch_id,
+        MaterialReservation.reserved_quantity,
+        MaterialReservation.consumed_quantity,
+        MaterialReservation.released_quantity,
+    ).filter(
+        MaterialReservation.item_id == item_id,
+        MaterialReservation.status.in_(ACTIVE_RESERVATION_STATUSES),
+    ).all()
+    total_claim = Decimal(0)
+    scoped_claims: dict[int, Decimal] = {}
+    scoped_item_only_claims: dict[int, Decimal] = {}
+    protected_by_batch: dict[int, Decimal] = {}
+    locked_ids = {int(batch.id) for batch in locked_batches}
+    for row in rows:
+        open_quantity = max(
+            Decimal(0), Decimal(str(row.reserved_quantity or 0))
+            - Decimal(str(row.consumed_quantity or 0))
+            - Decimal(str(row.released_quantity or 0)),
+        )
+        total_claim += open_quantity
+        if row.warehouse_id is not None:
+            warehouse_id = int(row.warehouse_id)
+            scoped_claims[warehouse_id] = scoped_claims.get(warehouse_id, Decimal(0)) + open_quantity
+            if row.stock_batch_id is None:
+                scoped_item_only_claims[warehouse_id] = (
+                    scoped_item_only_claims.get(warehouse_id, Decimal(0)) + open_quantity
+                )
+        if row.stock_batch_id is not None and int(row.stock_batch_id) in locked_ids:
+            batch_id = int(row.stock_batch_id)
+            protected_by_batch[batch_id] = protected_by_batch.get(batch_id, Decimal(0)) + open_quantity
+
+    if Decimal(str(current_stock_for_item(db, item_id))) + Decimal("0.000000001") < total_claim:
+        raise HTTPException(409, "Item stock cannot preserve active reservations")
+    affected_warehouses = (
+        [own_warehouse_id] if own_warehouse_id is not None else sorted(scoped_claims)
+    )
+    for warehouse_id in affected_warehouses:
+        if Decimal(str(current_stock_for_item(db, item_id, warehouse_id))) + Decimal("0.000000001") < scoped_claims.get(
+            warehouse_id, Decimal(0),
+        ):
+            raise HTTPException(409, "Warehouse stock cannot preserve active reservations")
+        remaining = scoped_item_only_claims.get(warehouse_id, Decimal(0))
+        if own_warehouse_id == warehouse_id:
+            remaining = max(Decimal(0), remaining - Decimal(str(quantity)))
+        for batch in reversed(locked_batches):
+            if int(batch.warehouse_id) != warehouse_id or remaining <= 0:
+                continue
+            batch_id = int(batch.id)
+            free = max(Decimal(0), Decimal(str(batch.quantity or 0)) - protected_by_batch.get(batch_id, Decimal(0)))
+            protected = min(free, remaining)
+            protected_by_batch[batch_id] = protected_by_batch.get(batch_id, Decimal(0)) + protected
+            remaining -= protected
+    if own_warehouse_id is None:
+        physical_free = sum((
+            max(Decimal(0), Decimal(str(batch.quantity or 0)) - protected_by_batch.get(int(batch.id), Decimal(0)))
+            for batch in locked_batches
+        ), Decimal(0))
+        unscoped_remainder = Decimal(str(quantity)) - physical_free
+        if unscoped_remainder > Decimal("0.000000001"):
+            incoming = StockMovement.movement_type.in_(("produce", "return", "adjustment"))
+            outgoing = StockMovement.movement_type.in_(("issue", "consume", "waste", "shipment"))
+            received, spent = db.query(
+                func.coalesce(func.sum(case((incoming, StockMovement.quantity), else_=0)), 0),
+                func.coalesce(func.sum(case((outgoing, StockMovement.quantity), else_=0)), 0),
+            ).filter(
+                StockMovement.item_id == item_id,
+                StockMovement.batch_id.is_(None),
+                StockMovement.to_warehouse_id.is_(None),
+                StockMovement.from_warehouse_id.is_(None),
+            ).one()
+            unscoped_credit = Decimal(str(received or 0)) - Decimal(str(spent or 0))
+            if unscoped_remainder > unscoped_credit + Decimal("0.000000001"):
+                raise HTTPException(409, "Unscoped consumption needs unscoped stock credit")
+    return protected_by_batch
 
 
 def consume_material_reservation(
@@ -1152,6 +1242,11 @@ def consume_material_reservation(
         or (int(reservation.warehouse_id) if reservation.warehouse_id is not None else None) != warehouse_id
     ):
         raise HTTPException(409, "Material reservation scope changed; reload before consuming")
+    item_reserved_by_batch = None
+    if batch_id is None:
+        item_reserved_by_batch = _item_only_reservation_protected_batches(
+            db, reservation, quantity=quantity, locked_batches=item_batch_cache[item_id],
+        )
     return _consume_loaded_material_reservation(
         db,
         reservation,
@@ -1161,6 +1256,7 @@ def consume_material_reservation(
         reference_id=reference_id,
         stock_batch_cache=stock_batch_cache,
         item_batch_cache=item_batch_cache,
+        item_reserved_by_batch=item_reserved_by_batch,
         item_cache=item_cache,
     )
 
