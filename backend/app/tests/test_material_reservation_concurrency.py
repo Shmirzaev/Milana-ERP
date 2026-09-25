@@ -359,6 +359,74 @@ def test_postgres_batchless_movement_waits_for_item_only_reservation(
         assert db.query(StockMovement).filter_by(item_id=item_id, movement_type=movement_type).count() == 0
 
 
+def test_postgres_batch_issue_waits_for_item_only_reservation(reservation_postgres_engine):
+    sessions = sessionmaker(bind=reservation_postgres_engine, autoflush=False, expire_on_commit=False)
+    ids = _stock(sessions)
+    with sessions() as db:
+        user = User(
+            name="Batch issue tester", email=f"batch-issue-{uuid4().hex[:10]}@example.test",
+            password_hash="test", extra_permissions=["admin.super"],
+        )
+        db.add(user)
+        db.commit()
+        user_id = user.id
+
+    reservation_ready = Event()
+    release_reservation = Event()
+    movement_pid = Queue()
+
+    def reserve():
+        with sessions() as db:
+            inventory.create_material_reservations(
+                db, production_order_id=ids["orders"][0],
+                lines=[_line(ids, 8, batch=None)], user_id=None,
+            )
+            reservation_ready.set()
+            assert release_reservation.wait(10), "Coordinator did not release reservation transaction"
+            db.commit()
+
+    def issue():
+        with sessions() as db:
+            movement_pid.put(db.execute(text("SELECT pg_backend_pid()")).scalar_one())
+            try:
+                inventory_routes.transfer_stock(
+                    StockMovementIn(
+                        movement_type="issue", item_id=ids["items"][0], batch_id=ids["batches"][0],
+                        from_warehouse_id=ids["warehouses"][0], quantity=4, unit="kg",
+                    ),
+                    db, db.get(User, user_id), idempotency_key=None,
+                )
+                return 201
+            except HTTPException as rejected:
+                db.rollback()
+                return rejected.status_code
+
+    with sessions() as observer, ThreadPoolExecutor(max_workers=2) as workers:
+        reservation_future = workers.submit(reserve)
+        try:
+            assert reservation_ready.wait(10), "Reservation did not acquire stock locks"
+            issue_future = workers.submit(issue)
+            pid = movement_pid.get(timeout=10)
+            deadline = monotonic() + 10
+            while monotonic() < deadline:
+                if observer.execute(text("SELECT pg_blocking_pids(:pid)"), {"pid": pid}).scalar_one():
+                    break
+                if issue_future.done():
+                    pytest.fail(f"Issue completed before reservation commit: {issue_future.result()}")
+                sleep(0.02)
+            else:
+                pytest.fail("Batch issue must wait for the reservation stock locks")
+        finally:
+            release_reservation.set()
+        reservation_future.result(timeout=10)
+        assert issue_future.result(timeout=10) == 409
+
+    with sessions() as db:
+        assert db.get(StockBatch, ids["batches"][0]).quantity == 10
+        assert inventory.reserved_stock_for_item(db, ids["items"][0], ids["warehouses"][0]) == 8
+        assert db.query(StockMovement).filter_by(batch_id=ids["batches"][0], movement_type="issue").count() == 0
+
+
 @pytest.mark.parametrize("operation", ["delete", "edit", "adjustment"])
 def test_postgres_stock_write_waits_for_item_only_reservation(reservation_postgres_engine, operation):
     sessions = sessionmaker(bind=reservation_postgres_engine, autoflush=False, expire_on_commit=False)
