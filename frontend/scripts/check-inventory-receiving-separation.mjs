@@ -9,8 +9,8 @@ const runtimeLocales = ["en", "ru", "uz"].map((language) => (
 ));
 
 assert.match(receivePage, /searchParams\.get\("group"\) === "accessories"/);
-assert.match(receivePage, /`\/api\/inventory\/items\?group=\$\{receiveGroup\}`/);
-assert.match(receivePage, /`\/api\/inventory\/batches\?group=\$\{receiveGroup\}`/);
+assert.match(receivePage, /`\/api\/inventory\/items\?group=\$\{receiveGroup\}&page=\$\{index \+ 1\}&page_size=50&include_total=true&q=/);
+assert.match(receivePage, /`\/api\/inventory\/batches\?group=\$\{receiveGroup\}&page=\$\{batchPage\}&page_size=30&include_total=true&q=/);
 assert.match(receivePage, /"fabric_storage" : "accessory_storage"/);
 assert.match(receivePage, /showFabricDetails=\{isFabricReceiving\}/);
 assert.match(receivePage, /\{isAccessoryReceiving && \(\s*<StockForm/);

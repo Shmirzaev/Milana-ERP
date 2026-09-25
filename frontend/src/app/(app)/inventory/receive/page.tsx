@@ -44,9 +44,11 @@ type ReceiveFormState = {
 type ReceiveItem = {
   id: number;
   name: string;
+  sku?: string | null;
   category?: string | null;
   unit?: string | null;
 };
+type ReceiveItemPage = { rows: ReceiveItem[]; total: number };
 
 type BatchRow = {
   id: number;
@@ -125,6 +127,7 @@ type StockFormProps = {
   onAsyncItemChange?: (value: string | number) => void;
   onAsyncItemSearchChange?: (query: string) => void;
   onAsyncItemLoadMore?: () => void;
+  onAsyncItemOpenChange?: (open: boolean) => void;
   asyncOrderOptions?: { value: number; label: string; searchText?: string }[];
   asyncOrderValue?: number | null;
   asyncOrderLoading?: boolean;
@@ -323,6 +326,7 @@ function StockForm({
   onAsyncItemChange,
   onAsyncItemSearchChange,
   onAsyncItemLoadMore,
+  onAsyncItemOpenChange,
   asyncOrderOptions,
   asyncOrderValue,
   asyncOrderLoading = false,
@@ -390,6 +394,7 @@ function StockForm({
             loadMoreText={`${t("common.loadMore")} (${asyncItemOptions.length} / ${asyncItemCount})`}
             onSearchChange={onAsyncItemSearchChange}
             onLoadMore={onAsyncItemLoadMore}
+            onOpenChange={onAsyncItemOpenChange}
           />
         ) : <select
           className="input"
@@ -663,7 +668,26 @@ export default function ReceiveStockPage() {
   const isFabricReceiving = receiveGroup === "materials";
   const isAccessoryReceiving = receiveGroup === "accessories";
   const preselectedIssueProductionOrderId = Number(searchParams.get("issue_production_order_id") || 0);
-  const { data: receiveItems } = useSWR<ReceiveItem[]>(`/api/inventory/items?group=${receiveGroup}`, fetcher);
+  const [receiveItemPickerOpen, setReceiveItemPickerOpen] = useState(false);
+  const [receiveItemSearchInput, setReceiveItemSearchInput] = useState("");
+  const [receiveItemSearch, setReceiveItemSearch] = useState("");
+  const [selectedReceiveItem, setSelectedReceiveItem] = useState<ReceiveItem | null>(null);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setReceiveItemSearch(receiveItemSearchInput.trim()), 180);
+    return () => window.clearTimeout(timer);
+  }, [receiveItemSearchInput]);
+  const {
+    data: receiveItemPages,
+    size: receiveItemPageCount,
+    setSize: setReceiveItemPageCount,
+    isLoading: receiveItemsLoading,
+    isValidating: receiveItemsValidating,
+  } = useSWRInfinite<ReceiveItemPage>(
+    (index, previous) => !receiveItemPickerOpen || (previous && index * 50 >= previous.total) ? null
+      : `/api/inventory/items?group=${receiveGroup}&page=${index + 1}&page_size=50&include_total=true&q=${encodeURIComponent(receiveItemSearch)}`,
+    fetcher,
+    { persistSize: false, revalidateFirstPage: false },
+  );
   const { data: warehouses } = useSWR<any[]>("/api/inventory/warehouses", fetcher);
   const [productionOrderSearchInput, setProductionOrderSearchInput] = useState("");
   const [productionOrderSearch, setProductionOrderSearch] = useState("");
@@ -764,13 +788,14 @@ export default function ReceiveStockPage() {
     fetcher,
   );
   const modelById = useMemo(() => new Map((models || []).map((m) => [Number(m.id), m])), [models]);
-  const sortedReceiveItems = useMemo<ReceiveItem[]>(() => {
-    return [...(receiveItems || [])].sort((a, b) => {
-      const left = `${a.category || ""} ${a.name || ""}`;
-      const right = `${b.category || ""} ${b.name || ""}`;
-      return left.localeCompare(right);
-    });
-  }, [receiveItems]);
+  const loadedReceiveItems = useMemo(() => receiveItemPages?.flatMap((itemPage) => itemPage.rows) || [], [receiveItemPages]);
+  const receiveItemOptions = useMemo(() => {
+    const byId = new Map<number, ReceiveItem>();
+    if (selectedReceiveItem?.id === receiveForm.item_id) byId.set(selectedReceiveItem.id, selectedReceiveItem);
+    for (const item of loadedReceiveItems) byId.set(item.id, item);
+    return Array.from(byId.values());
+  }, [loadedReceiveItems, receiveForm.item_id, selectedReceiveItem]);
+  const receiveItemTotal = receiveItemPages?.[0]?.total ?? 0;
   const receiveWarehouses = useMemo(
     () => (warehouses || []).filter((warehouse) => (
       String(warehouse.type || "") === (isFabricReceiving ? "fabric_storage" : "accessory_storage")
@@ -831,6 +856,8 @@ export default function ReceiveStockPage() {
 
   useEffect(() => {
     setReceiveForm({ ...DEFAULT_RECEIVE_FORM, unit: isFabricReceiving ? "kg" : "pcs", piece_count: isFabricReceiving ? 1 : "" });
+    setSelectedReceiveItem(null);
+    setReceiveItemSearchInput("");
     setReceiveMsg("");
   }, [isFabricReceiving]);
 
@@ -856,6 +883,10 @@ export default function ReceiveStockPage() {
   async function submitReceive(e: React.FormEvent) {
     e.preventDefault();
     setReceiveMsg("");
+    if (!receiveForm.item_id) {
+      setReceiveMsg(t("page.modelDetail.selectItem"));
+      return;
+    }
     const quantity = numberOrZero(receiveForm.quantity);
     const rollCount = numberOrZero(receiveForm.piece_count);
     if (isFabricReceiving && (quantity <= 0 || !Number.isInteger(rollCount) || rollCount <= 0)) {
@@ -870,6 +901,7 @@ export default function ReceiveStockPage() {
       await api.post("/api/inventory/receive", toReceivePayload(receiveForm, isFabricReceiving));
       setReceiveMsg(t("msg.recorded"));
       setReceiveForm({ ...DEFAULT_RECEIVE_FORM, unit: isFabricReceiving ? "kg" : "pcs", piece_count: isFabricReceiving ? 1 : "" });
+      setSelectedReceiveItem(null);
       setBatchPage(1);
       refreshBatches();
       refreshColors();
@@ -1002,7 +1034,21 @@ export default function ReceiveStockPage() {
           itemLabel={t(isFabricReceiving ? "field.materialName" : "field.accessory")}
           submitLabel={t("btn.receive")}
           form={receiveForm}
-          items={sortedReceiveItems}
+          asyncItemOptions={receiveItemOptions.map((item) => ({ value: item.id, label: item.name, searchText: item.sku || item.category || "" }))}
+          asyncItemValue={receiveForm.item_id || null}
+          asyncItemLoading={receiveItemsLoading || receiveItemsValidating}
+          asyncItemHasMore={loadedReceiveItems.length < receiveItemTotal}
+          asyncItemCount={receiveItemTotal}
+          onAsyncItemSearchChange={setReceiveItemSearchInput}
+          onAsyncItemLoadMore={() => void setReceiveItemPageCount(receiveItemPageCount + 1)}
+          onAsyncItemOpenChange={setReceiveItemPickerOpen}
+          onAsyncItemChange={(id) => {
+            const itemId = Number(id);
+            const item = receiveItemOptions.find((option) => option.id === itemId);
+            if (!item) return;
+            setSelectedReceiveItem(item);
+            setReceiveForm((current) => ({ ...current, item_id: itemId, unit: item.unit || current.unit, image_url: "" }));
+          }}
           warehouses={receiveWarehouses}
           message={receiveMsg}
           showOrder={false}
