@@ -326,6 +326,7 @@ const dependencies = {
   "next/link": { default: "a" },
   "lucide-react": Object.fromEntries(["ArrowLeft", "ChevronDown", "ChevronRight", "PackageCheck", "X"].map(name => [name, name])),
   "@/components/PageHeader": { default: "header" },
+  "@/components/SupplierAsyncSelect": { default: "supplier-select" },
   "@/components/DialogProvider": { useDialogs: () => ({ async ask() { confirmationCount++; return false; } }) },
   "@/components/StagePipeline": { statusLabel: value => value },
   "@/lib/api": { api: { async postWithIdempotency(...args) {

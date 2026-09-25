@@ -7,6 +7,7 @@ import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import { ArrowLeft, ChevronDown, ChevronRight, PackageCheck, X } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
+import SupplierAsyncSelect from "@/components/SupplierAsyncSelect";
 import { useDialogs } from "@/components/DialogProvider";
 import { api, fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
@@ -64,11 +65,6 @@ type Warehouse = {
   type?: string | null;
 };
 
-type Supplier = {
-  id: number;
-  name: string;
-};
-
 type ReceiveState = {
   order: PurchaseOrder;
   line: PurchaseOrderLine;
@@ -77,6 +73,7 @@ type ReceiveState = {
   batch_no: string;
   warehouse_id: number;
   supplier_id: number;
+  supplier_name: string | null;
   cost_per_unit: string;
   message: string;
   saving: boolean;
@@ -173,7 +170,6 @@ export default function PurchaseReceivingPage() {
   const pendingOrder = loadedPendingOrder || targetedPendingOrders?.[0];
   const pendingLine = pendingOrder?.lines.find((line) => line.id === pendingReceipt?.payload.lines[0].purchase_order_line_id);
   const { data: warehouses } = useSWR<Warehouse[]>(canReceive ? "/api/inventory/warehouses" : null, fetcher);
-  const { data: suppliers } = useSWR<Supplier[]>(canReceive ? "/api/suppliers" : null, fetcher);
 
   useEffect(() => {
     setReceiveState(null);
@@ -270,6 +266,7 @@ export default function PurchaseReceivingPage() {
       batch_no: "",
       warehouse_id: Number(line.warehouse_id || storageWarehouses[0]?.id || 0),
       supplier_id: Number(line.supplier_id || order.supplier_id || 0),
+      supplier_name: line.supplier_name || order.supplier_name || null,
       cost_per_unit: String(Number(line.unit_cost || 0)),
       message: "",
       saving: false,
@@ -279,6 +276,9 @@ export default function PurchaseReceivingPage() {
         batch_no: savedLine.batch_no,
         warehouse_id: savedLine.warehouse_id,
         supplier_id: Number(saved.payload.supplier_id || 0),
+        supplier_name: Number(saved.payload.supplier_id || 0) === Number(line.supplier_id || order.supplier_id || 0)
+          ? line.supplier_name || order.supplier_name || null
+          : null,
         cost_per_unit: String(savedLine.cost_per_unit),
       } : {}),
     });
@@ -634,13 +634,13 @@ export default function PurchaseReceivingPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="label">{t("field.supplier")}</label>
-                  <select className="input" value={receiveState.supplier_id} onChange={(event) => setReceiveState({ ...receiveState, supplier_id: Number(event.target.value) })}>
-                    <option value={0}>{t("ph.supplier")}</option>
-                    {suppliers?.map((supplier) => (
-                      <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
-                    ))}
-                  </select>
+                  <label htmlFor="purchase-receipt-supplier" className="label">{t("field.supplier")}</label>
+                  <SupplierAsyncSelect
+                    inputId="purchase-receipt-supplier"
+                    value={receiveState.supplier_id || null}
+                    selectedName={receiveState.supplier_name}
+                    onChange={(id, supplier) => setReceiveState({ ...receiveState, supplier_id: id, supplier_name: supplier?.name ?? null })}
+                  />
                 </div>
                 <div>
                   <label className="label">{`${t("field.cost")} / ${t("field.unit")}`}</label>
