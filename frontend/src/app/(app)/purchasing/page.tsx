@@ -8,13 +8,13 @@ import useSWRInfinite from "swr/infinite";
 import { Check, ChevronDown, Folder, ImagePlus, PackageCheck, Plus, ShoppingCart, X } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import SupplierAsyncSelect from "@/components/SupplierAsyncSelect";
+import PurchasingItemAsyncSelect, { type PurchasingItem } from "@/components/PurchasingItemAsyncSelect";
 import { statusLabel } from "@/components/StagePipeline";
 import { api, fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { prepareModelImageUpload } from "@/lib/imageUpload";
 
-type Item = { id: number; sku: string; name: string; unit: string; image_url?: string | null };
 type PurchaseRequestLine = {
   id: number; item_id: number; item_sku?: string | null; item_name?: string | null;
   material_name?: string | null; photo_url?: string | null; requested_quantity: number;
@@ -65,6 +65,7 @@ export default function PurchasingPage() {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
   const [manual, setManual] = useState({ item_id: 0, material_name: "", supplier_id: 0, photo_url: "", notes: "" });
+  const [selectedManualItem, setSelectedManualItem] = useState<PurchasingItem | null>(null);
   const [approvalDrafts, setApprovalDrafts] = useState<Record<number, ApprovalLineDraft>>({});
   const [orderDrafts, setOrderDrafts] = useState<Record<number, OrderDraft>>({});
 
@@ -83,9 +84,6 @@ export default function PurchasingPage() {
     canView ? "/api/purchasing/orders?page=1&page_size=1&receivable_only=true" : null,
     fetcher,
   );
-  const { data: materialItems } = useSWR<Item[]>(canRequest && showRequestForm ? "/api/inventory/items?group=materials&page_size=500" : null, fetcher);
-  const { data: accessoryItems } = useSWR<Item[]>(canRequest && showRequestForm ? "/api/inventory/items?group=accessories&page_size=500" : null, fetcher);
-  const items = useMemo(() => [...(materialItems || []), ...(accessoryItems || [])].sort((a, b) => a.name.localeCompare(b.name)), [materialItems, accessoryItems]);
   const requests = useMemo(() => requestPages?.flatMap((requestPage) => requestPage.rows) || [], [requestPages]);
   const lastRequestPage = requestPages?.[requestPages.length - 1];
   const hasMoreRequests = Boolean(lastRequestPage?.has_more);
@@ -135,7 +133,7 @@ export default function PurchasingPage() {
 
   async function submitManualRequest(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const item = items.find((row) => row.id === manual.item_id);
+    const item = selectedManualItem?.id === manual.item_id ? selectedManualItem : null;
     if (!item || !manual.material_name.trim() || !manual.supplier_id || !manual.photo_url) {
       setMessage(t("page.purchasing.approvalDetailsRequired"));
       return;
@@ -151,6 +149,7 @@ export default function PurchasingPage() {
         }],
       });
       setManual({ item_id: 0, material_name: "", supplier_id: 0, photo_url: "", notes: "" });
+      setSelectedManualItem(null);
       setShowRequestForm(false);
       setMessage(t("page.purchasing.requestSent", { requestNo: formatOrderReference(created.request_no) }));
       refreshRequests();
@@ -283,10 +282,10 @@ export default function PurchasingPage() {
               </label>
             </div>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div><label className="label">{t("field.item")}</label><select className="input" value={manual.item_id} onChange={(event) => {
-                const item = items.find((row) => row.id === Number(event.target.value));
-                setManual((row) => ({ ...row, item_id: Number(event.target.value), material_name: item?.name || row.material_name, photo_url: item?.image_url || row.photo_url }));
-              }} required><option value={0}>{t("page.purchasing.selectItem")}</option>{items.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
+              <div><label className="label">{t("field.item")}</label><PurchasingItemAsyncSelect inputId="purchasing-manual-item" value={manual.item_id} selectedItem={selectedManualItem} onChange={(item) => {
+                setSelectedManualItem(item);
+                setManual((row) => ({ ...row, item_id: item?.id || 0, material_name: item?.name || row.material_name, photo_url: item?.image_url || row.photo_url }));
+              }} /></div>
               <div><label className="label">{t("field.supplier")}</label><SupplierAsyncSelect inputId="purchasing-manual-supplier" value={manual.supplier_id || null} onChange={(supplierId) => setManual({ ...manual, supplier_id: supplierId })} /></div>
               <div><label className="label">{t("page.purchasing.materialName")}</label><input className="input" value={manual.material_name} onChange={(event) => setManual({ ...manual, material_name: event.target.value })} required /></div>
               <div><label className="label">{t("field.notes")}</label><input className="input" value={manual.notes} onChange={(event) => setManual({ ...manual, notes: event.target.value })} /></div>

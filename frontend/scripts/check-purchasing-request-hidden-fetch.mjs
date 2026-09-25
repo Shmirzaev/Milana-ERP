@@ -15,6 +15,7 @@ const output = ts.transpileModule(source, { compilerOptions: {
 const hookState = [];
 let hookIndex = 0;
 const keys = [];
+let pickerProps = null;
 let requestPageCount = 1;
 const permissions = ["purchasing.view", "purchasing.request"];
 const requestRow = (id, lineId) => ({
@@ -71,12 +72,6 @@ new Function("exports", "require", output)(exports, name => ({
   swr: { default: key => {
     keys.push(key);
     if (key === "/api/purchasing/orders?page=1&page_size=1&receivable_only=true") return { data: { rows: [], total: 401, page: 1, page_size: 1, has_more: true }, mutate: async () => {} };
-    if (key === "/api/inventory/items?group=materials&page_size=500") {
-      return { data: [{ id: 1, sku: "FAB-1", name: "Deferred Fabric", unit: "kg" }] };
-    }
-    if (key === "/api/inventory/items?group=accessories&page_size=500") {
-      return { data: [{ id: 2, sku: "ACC-1", name: "Deferred Button", unit: "pcs" }] };
-    }
     return { data: undefined, mutate: async () => {} };
   } },
   "lucide-react": Object.fromEntries([
@@ -84,6 +79,10 @@ new Function("exports", "require", output)(exports, name => ({
   ].map(icon => [icon, () => null])),
   "@/components/PageHeader": { default: ({ actions }) => React.createElement("header", null, actions) },
   "@/components/SupplierAsyncSelect": { default: ({ value, selectedName }) => React.createElement("span", { "data-supplier-picker": value ?? 0 }, selectedName || "supplier picker") },
+  "@/components/PurchasingItemAsyncSelect": { default: props => {
+    pickerProps = props;
+    return React.createElement("span", { "data-item-picker": props.value }, props.selectedItem?.name || "item picker");
+  } },
   "@/components/StagePipeline": { statusLabel: value => value },
   "@/lib/api": {
     api: { post: async () => ({}), postForm: async () => ({}), del: async () => ({}) },
@@ -118,9 +117,7 @@ const closed = render();
 assert.deepEqual(keys, [
   "/api/purchasing/requests?page=1&page_size=100",
   "/api/purchasing/orders?page=1&page_size=1&receivable_only=true",
-  null,
-  null,
-], "closed request form must not fetch either 500-item directory");
+], "closed request form must not fetch an item directory");
 const closedHtml = renderToStaticMarkup(closed);
 assert.ok(closedHtml.includes("Visible Supplier") === false);
 assert.ok(!closedHtml.includes("Deferred Fabric"));
@@ -139,8 +136,6 @@ assert.deepEqual(keys, [
   "/api/purchasing/requests?page=1&page_size=100",
   "/api/purchasing/requests?page=2&page_size=100",
   "/api/purchasing/orders?page=1&page_size=1&receivable_only=true",
-  null,
-  null,
 ], "load more must retain page one and request the next bounded page");
 assert.equal(find(expanded, node => node.type === "button" && node.props.children === "common.loadMore"), null);
 const expandedHtml = renderToStaticMarkup(expanded);
@@ -156,17 +151,20 @@ assert.deepEqual(keys, [
   "/api/purchasing/requests?page=1&page_size=100",
   "/api/purchasing/requests?page=2&page_size=100",
   "/api/purchasing/orders?page=1&page_size=1&receivable_only=true",
-  "/api/inventory/items?group=materials&page_size=500",
-  "/api/inventory/items?group=accessories&page_size=500",
-], "opening the request form must fetch the same authorized directories");
+], "opening the request form must delegate item queries to the paged picker");
 const openedHtml = renderToStaticMarkup(opened);
-assert.ok(openedHtml.includes("Deferred Fabric"));
-assert.ok(openedHtml.includes("Deferred Button"));
+assert.ok(openedHtml.includes("item picker"));
 assert.ok(openedHtml.includes("supplier picker"), "the manual form must mount the bounded supplier picker");
+assert.equal(pickerProps?.value, 0);
+pickerProps.onChange({ id: 725, sku: "FAB-725", name: "Off-page Fabric", unit: "kg" });
+const selectedHtml = renderToStaticMarkup(render());
+assert.ok(selectedHtml.includes("Off-page Fabric"), "the selected item must survive a later search or page change");
+assert.equal(pickerProps?.value, 725);
+assert.equal(pickerProps?.selectedItem?.unit, "kg", "submission must keep the selected item unit without a directory refetch");
 
 permissions.push("purchasing.approve");
 const approverHtml = renderToStaticMarkup(render());
 assert.ok(approverHtml.includes('data-supplier-picker="777"'), "approval lines must keep an off-page supplier ID");
 assert.ok(approverHtml.includes("Off-page supplier"), "approval lines must retain their supplied name without a directory request");
 
-console.log("Purchasing: request pagination and deferred item directories verified.");
+console.log("Purchasing: request pagination and deferred paged item picker verified.");
