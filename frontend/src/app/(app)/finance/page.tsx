@@ -2,6 +2,7 @@
 import { formatOrderReference } from "@/lib/orderRef";
 import { useMemo, useState } from "react";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
@@ -22,6 +23,7 @@ type InvoiceRow = {
   status: string;
   date?: string | null;
 };
+type InvoicePage = { rows: InvoiceRow[]; total: number; page: number; page_size: number; has_more: boolean };
 
 type CostBreakdown = {
   fabric_cost: number | null;
@@ -63,7 +65,13 @@ export default function FinancePage() {
   const { data, mutate: mutateDashboard } = useSWR<any>("/api/finance/dashboard", fetcher);
   const { data: branded } = useSWR<any>("/api/finance/branded-stock-value", fetcher);
   const { data: waste } = useSWR<any>("/api/finance/waste-report", fetcher);
-  const { data: invoices, mutate: mutateInvoices } = useSWR<InvoiceRow[]>("/api/finance/invoices?limit=50", fetcher);
+  const { data: invoicePages, size: invoicePageCount, setSize: setInvoicePageCount, mutate: mutateInvoices, isValidating: invoicesValidating } = useSWRInfinite<InvoicePage>(
+    (index, previous) => previous && !previous.has_more ? null
+      : `/api/finance/invoices?page=${index + 1}&page_size=50`,
+    fetcher,
+  );
+  const invoices = useMemo(() => invoicePages?.flatMap((invoicePage) => invoicePage.rows) || [], [invoicePages]);
+  const invoiceTotal = invoicePages?.[0]?.total ?? 0;
   const { data: revenue } = useSWR<RevenueRow[]>(revenueUrl, fetcher);
   const { data: cogs } = useSWR<CostBreakdown>("/api/finance/cost-breakdown", fetcher);
 
@@ -153,6 +161,11 @@ export default function FinancePage() {
             </tbody>
           </table>
         </div>
+        {invoices.length < invoiceTotal && (
+          <button type="button" className="btn mt-3" disabled={invoicesValidating} onClick={() => void setInvoicePageCount(invoicePageCount + 1)}>
+            {t("common.loadMore")} ({invoices.length} / {invoiceTotal})
+          </button>
+        )}
       </div>
 
       <Modal open={!!paying} onClose={() => setPaying(null)} title={t("page.finance.recordPayment")}>
