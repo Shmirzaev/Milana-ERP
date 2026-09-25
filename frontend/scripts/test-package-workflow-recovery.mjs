@@ -27,6 +27,8 @@ Object.defineProperty(globalThis, "navigator", { configurable: true, value: { lo
 } } });
 
 globalThis.window = {
+  setTimeout: () => 1,
+  clearTimeout() {},
   localStorage: storage(localValues),
   sessionStorage: storage(legacyValues),
   addEventListener(type, listener) {
@@ -186,9 +188,11 @@ const shipmentDependencies = {
   "next/link": { default: "a" },
   "next/navigation": { useSearchParams: () => ({ get: () => null }) },
   swr: { default: () => ({ data: [], mutate: async () => [] }) },
+  "swr/infinite": { default: () => ({ data: [], size: 1, setSize() {}, mutate: async () => [] }) },
   "@/components/ShipmentAddClient": { default: "ShipmentAddClient" },
   "@/components/SearchableSelect": { default: "SearchableSelect" },
   "@/components/PageHeader": { default: "PageHeader" },
+  "@/components/PaginationControls": { default: "PaginationControls" },
   "@/components/ShipmentPreparationWorkspace": { default: "ShipmentPreparationWorkspace" },
   "@/components/StagePipeline": { statusLabel: value => value },
   "@/components/DialogProvider": { useDialogs: () => ({ ask: async () => false }) },

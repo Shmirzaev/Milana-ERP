@@ -6,11 +6,13 @@ import ShipmentAddClient from "@/components/ShipmentAddClient";
 import SearchableSelect from "@/components/SearchableSelect";
 import { packageWorkflowChangedEvent, packageWorkflowCopy, pendingPackageWorkflow, postPackageWorkflow, reconcilePendingPackageWorkflow } from "@/lib/packageWorkflow";
 import { manualShipmentText } from "@/lib/manualShipmentText";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 
 import PageHeader from "@/components/PageHeader";
+import PaginationControls from "@/components/PaginationControls";
 import ShipmentPreparationWorkspace, {
   type ShipmentPreparation,
   type ShipmentSummary,
@@ -49,6 +51,16 @@ type ShipmentOrder = EligibleOrder & {
   is_scanned: boolean;
 };
 
+type ShipmentOrderPage = {
+  rows: ShipmentOrder[];
+  pinned: ShipmentOrder | null;
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+};
+type ShipmentPage = { rows: ShipmentRow[]; total: number; has_more: boolean };
+
 function errorMessage(error: unknown): string {
   if (error instanceof Error && error.message) return error.message;
   return "Action failed.";
@@ -66,7 +78,24 @@ function ShipmentOrderWorkspace({
   const { t, lang } = useT();
   const dialogs = useDialogs();
   const shipmentId = Number(order.shipment?.id || 0);
-  const preparationKey = shipmentId > 0
+  const articleRef = useRef<HTMLElement | null>(null);
+  const [preparationActive, setPreparationActive] = useState(false);
+  useEffect(() => {
+    if (preparationActive || !articleRef.current) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setPreparationActive(true);
+      return;
+    }
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setPreparationActive(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: "200px" });
+    observer.observe(articleRef.current);
+    return () => observer.disconnect();
+  }, [preparationActive]);
+  const preparationKey = !preparationActive ? null : shipmentId > 0
     ? `/api/shipments/${shipmentId}/preparation`
     : `/api/shipments/sales-order/${order.id}/preparation`;
   const { data: preparation, isLoading, mutate } = useSWR<ShipmentPreparation>(preparationKey, fetcher);
@@ -158,10 +187,10 @@ function ShipmentOrderWorkspace({
   }
 
   return (
-    <article id={order.id ? `shipment-order-${order.id}` : `shipment-${shipmentId}`} className="scroll-mt-4">
+    <article ref={articleRef} id={order.id ? `shipment-order-${order.id}` : `shipment-${shipmentId}`} className="scroll-mt-4">
       {message ? <div className="border-x border-t border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">{message}</div> : null}
       {error ? <div className="border-x border-t border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-800">{error}</div> : null}
-      <ShipmentPreparationWorkspace
+      {preparationActive ? <ShipmentPreparationWorkspace
         preparation={preparation}
         isLoading={isLoading}
         scanCode={scanCode}
@@ -174,7 +203,10 @@ function ShipmentOrderWorkspace({
         isCreating={isCreating}
         canTraceability={canTraceability}
         onReviewChanged={refresh}
-      />
+      /> : <button type="button" className="card flex w-full items-center justify-between gap-3 p-4 text-left" onClick={() => setPreparationActive(true)}>
+        <span className="font-medium">{order.shipment?.shipment_no || formatOrderReference(order.order_no)} · {order.customer_name || "-"}</span>
+        <span className="text-sm">{t("common.view")}</span>
+      </button>}
     </article>
   );
 }
@@ -184,9 +216,19 @@ export default function ShipmentsPage() {
   const { me } = useMe();
   const canTraceability = can(me, "traceability.view");
   const searchParams = useSearchParams();
-  const { data, mutate } = useSWR<ShipmentRow[]>("/api/shipments", fetcher);
-  const { data: orders, mutate: mutateOrders } = useSWR<EligibleOrder[]>("/api/shipments/eligible-orders", fetcher);
   const [orderQuery, setOrderQuery] = useState("");
+  const [orderSearch, setOrderSearch] = useState("");
+  const [orderPage, setOrderPage] = useState(1);
+  useEffect(() => {
+    const timer = window.setTimeout(() => { setOrderSearch(orderQuery.trim()); setOrderPage(1); }, 200);
+    return () => window.clearTimeout(timer);
+  }, [orderQuery]);
+  const targetOrderId = Number(searchParams.get("so_id") || 0);
+  const targetShipmentId = Number(searchParams.get("shipment_id") || 0);
+  const floorParams = new URLSearchParams({ page: String(orderPage), page_size: "50", q: orderSearch });
+  if (!orderSearch && targetOrderId) floorParams.set("target_sales_order_id", String(targetOrderId));
+  else if (!orderSearch && targetShipmentId) floorParams.set("target_shipment_id", String(targetShipmentId));
+  const { data: floorPage, mutate: mutateFloor } = useSWR<ShipmentOrderPage>(`/api/shipments/order-floor?${floorParams.toString()}`, fetcher);
   const manualText = manualShipmentText[lang];
   const canManualShipment = can(me, "storage.shipment");
   const { data: customers, mutate: mutateCustomers } = useSWR<Array<{ id: number; name: string }>>(canManualShipment ? "/api/shipments/customers" : null, fetcher);
@@ -217,48 +259,35 @@ export default function ShipmentsPage() {
   const [warehouseError, setWarehouseError] = useState("");
   const [historyQuery, setHistoryQuery] = useState("");
   const [historyStatus, setHistoryStatus] = useState("all");
+  const [historySearch, setHistorySearch] = useState("");
+  useEffect(() => {
+    const timer = window.setTimeout(() => setHistorySearch(historyQuery.trim()), 200);
+    return () => window.clearTimeout(timer);
+  }, [historyQuery]);
+  const { data: historyPages, size: historyPageCount, setSize: setHistoryPageCount, mutate: mutateHistory } = useSWRInfinite<ShipmentPage>(
+    (index, previous) => previous && !previous.has_more ? null
+      : `/api/shipments?page=${index + 1}&page_size=50&q=${encodeURIComponent(historySearch)}&status=${encodeURIComponent(historyStatus)}`,
+    fetcher,
+    { persistSize: false },
+  );
+  const { data: manualPages, size: manualPageCount, setSize: setManualPageCount, mutate: mutateManual } = useSWRInfinite<ShipmentPage>(
+    (index, previous) => previous && !previous.has_more ? null
+      : `/api/shipments?page=${index + 1}&page_size=50&manual_open=true`,
+    fetcher,
+  );
+  const filteredHistory = useMemo(() => historyPages?.flatMap((page) => page.rows) || [], [historyPages]);
+  const manualOpen = useMemo(() => manualPages?.flatMap((page) => page.rows) || [], [manualPages]);
+  const shipmentOrders = useMemo(() => [
+    ...(floorPage?.pinned ? [floorPage.pinned] : []),
+    ...(floorPage?.rows || []),
+  ], [floorPage]);
 
-  const shipmentOrders = useMemo<ShipmentOrder[]>(() => {
-    const byOrder = new Map<number, ShipmentOrder>();
-    for (const shipment of data || []) {
-      const orderId = Number(shipment.sales_order_id || 0);
-      if (!orderId || !["draft", "created"].includes(String(shipment.status || "")) || byOrder.has(orderId)) continue;
-      byOrder.set(orderId, {
-        id: orderId,
-        order_no: shipment.sales_order_no || `#${orderId}`,
-        customer_name: shipment.customer_name,
-        status: shipment.status,
-        ready_qty: shipment.total_qty,
-        shipment,
-        is_scanned: Boolean(shipment.is_complete),
-      });
-    }
-    for (const order of orders || []) {
-      if (byOrder.has(Number(order.id))) continue;
-      byOrder.set(Number(order.id), { ...order, shipment: null, is_scanned: false });
-    }
-    return Array.from(byOrder.values()).sort((a, b) => Number(b.id) - Number(a.id));
-  }, [data, orders]);
-
-  const filteredOrders = useMemo(() => {
-    const query = orderQuery.trim().toLocaleLowerCase();
-    if (!query) return shipmentOrders;
-    return shipmentOrders.filter((order) => [order.order_no, order.customer_name, order.shipment?.shipment_no]
-      .some((value) => String(value || "").toLocaleLowerCase().includes(query)));
-  }, [orderQuery, shipmentOrders]);
-
-  const filteredHistory = useMemo(() => {
-    const query = historyQuery.trim().toLocaleLowerCase();
-    return (data || []).filter((shipment) => {
-      if (historyStatus !== "all" && String(shipment.status || "") !== historyStatus) return false;
-      if (!query) return true;
-      return [shipment.shipment_no, shipment.sales_order_no, shipment.customer_name, shipment.notes]
-        .some((value) => String(value || "").toLocaleLowerCase().includes(query));
-    });
-  }, [data, historyQuery, historyStatus]);
+  async function mutate() {
+    await Promise.all([mutateHistory(), mutateManual()]);
+  }
 
   async function refreshOrders() {
-    await Promise.all([mutate(), mutateOrders()]);
+    await Promise.all([mutate(), mutateFloor()]);
   }
 
   async function createWarehouseExit() {
@@ -329,7 +358,7 @@ export default function ShipmentsPage() {
         <section className="card overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5">
             <div>
-              <h2 className="app-card-title">{t("page.shipments.orderFloorTitle", { count: shipmentOrders.length })}</h2>
+              <h2 className="app-card-title">{t("page.shipments.orderFloorTitle", { count: floorPage?.total || 0 })}</h2>
               <p className="mt-1 text-xs text-[#6f6a5b]">{t("page.shipments.orderFloorHint")}</p>
             </div>
             <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
@@ -337,16 +366,20 @@ export default function ShipmentsPage() {
                 <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 border border-[#ded9ca] bg-white" />{t("page.shipments.notScanned")}</span>
                 <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 border border-emerald-200 bg-emerald-50" />{t("page.shipments.scanned")}</span>
               </div>
-              <input className="input w-full sm:w-72" value={orderQuery} onChange={(event) => setOrderQuery(event.target.value)} placeholder={t("page.shipments.orderFloorSearch")} aria-label={t("page.shipments.orderFloorSearch")} />
+              <input className="input w-full sm:w-72" value={orderQuery} maxLength={200} onChange={(event) => setOrderQuery(event.target.value)} placeholder={t("page.shipments.orderFloorSearch")} aria-label={t("page.shipments.orderFloorSearch")} />
             </div>
           </div>
         </section>
 
-        {filteredOrders.length ? (
+        {shipmentOrders.length ? (
           <div className="space-y-4">
-            {filteredOrders.map((order) => <ShipmentOrderWorkspace key={order.id} order={order} canTraceability={canTraceability} onChanged={refreshOrders} />)}
+            {shipmentOrders.map((order) => <ShipmentOrderWorkspace key={order.id} order={order} canTraceability={canTraceability} onChanged={refreshOrders} />)}
           </div>
         ) : <section className="card px-4 py-10 text-center text-sm text-[#6f6a5b]">{t("page.shipments.noOrderMatches")}</section>}
+        <section className="card overflow-hidden">
+          <PaginationControls page={orderPage} pageSize={50} total={floorPage?.total || 0} count={floorPage?.rows?.length || 0}
+            onPageChange={setOrderPage} onPageSizeChange={() => setOrderPage(1)} pageSizeOptions={[50]} />
+        </section>
 
         {(canManualShipment || pendingManual || warehouseMessage || warehouseError) && <section id="warehouse-exit" className="card p-4 sm:p-5">
           <div className="mb-3"><h2 className="app-card-title">{manualText.title}</h2><p className="mt-1 text-xs text-[#6f6a5b]">{manualText.hint}</p></div>
@@ -369,15 +402,16 @@ export default function ShipmentsPage() {
           </details>}
         </section>}
 
-        {(data || []).filter(shipment => !shipment.sales_order_id && ["draft", "created"].includes(shipment.status)).map(shipment => (
+        {manualOpen.map(shipment => (
           <ShipmentOrderWorkspace key={shipment.id} order={{ id: 0, order_no: "", status: shipment.status, shipment, is_scanned: !!shipment.is_complete }} canTraceability={canTraceability} onChanged={refreshOrders} />
         ))}
+        {manualPages?.at(-1)?.has_more ? <button className="btn" type="button" onClick={() => void setManualPageCount(manualPageCount + 1)}>{t("common.loadMore")}</button> : null}
 
         <section className="card overflow-hidden">
           <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#ded9ca] px-4 py-3 sm:px-5">
             <div><h2 className="app-card-title">{t("page.shipments.history")}</h2><p className="mt-1 text-xs text-[#6f6a5b]">{t("page.shipments.historyHint")}</p></div>
             <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-              <input className="input w-full sm:w-72" value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder={t("page.shipments.historySearch")} aria-label={t("page.shipments.historySearch")} />
+              <input className="input w-full sm:w-72" value={historyQuery} maxLength={200} onChange={(event) => setHistoryQuery(event.target.value)} placeholder={t("page.shipments.historySearch")} aria-label={t("page.shipments.historySearch")} />
               <select className="input w-full sm:w-44" value={historyStatus} onChange={(event) => setHistoryStatus(event.target.value)} aria-label={t("field.status")}>
                 <option value="all">{t("page.shipments.allStatuses")}</option>
                 {["created", "shipped", "delivered", "cancelled"].map((status) => <option key={status} value={status}>{statusLabel(status, t)}</option>)}
@@ -405,6 +439,7 @@ export default function ShipmentsPage() {
               </tbody>
             </table>
           </div>
+          {historyPages?.at(-1)?.has_more ? <button className="btn m-4" type="button" onClick={() => void setHistoryPageCount(historyPageCount + 1)}>{t("common.loadMore")}</button> : null}
         </section>
       </div>
     </div>

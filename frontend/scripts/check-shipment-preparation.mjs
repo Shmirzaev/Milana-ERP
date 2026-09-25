@@ -7,7 +7,7 @@ for (const token of [
   "ShipmentPreparationWorkspace",
   "/api/shipments/${shipmentId}/preparation",
   "/api/shipments/sales-order/${order.id}/preparation",
-  "filteredOrders.map",
+  "shipmentOrders.map",
   "ShipmentOrderWorkspace",
   "orderFloorTitle",
   "orderFloorSearch",

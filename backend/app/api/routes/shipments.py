@@ -115,6 +115,26 @@ class EligibleOrderPageOut(BaseModel):
     has_more: bool
 
 
+class ShipmentOrderFloorRowOut(BaseModel):
+    id: int
+    order_no: str
+    customer_id: int | None = None
+    customer_name: str | None = None
+    status: str
+    ready_qty: int
+    shipment: ShipmentOut | None = None
+    is_scanned: bool
+
+
+class ShipmentOrderFloorPageOut(BaseModel):
+    rows: list[ShipmentOrderFloorRowOut]
+    pinned: ShipmentOrderFloorRowOut | None = None
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 def _shipment_payload(
     db: DbSession,
     sh: Shipment,
@@ -122,6 +142,8 @@ def _shipment_payload(
     scanned_count: int | None = None,
     sales_orders: dict[int, SalesOrder] | None = None,
     customers: dict[int, Customer] | None = None,
+    package_count: int | None = None,
+    package_quantity: int | None = None,
 ) -> dict:
     so = (
         sales_orders.get(sh.sales_order_id)
@@ -134,8 +156,8 @@ def _shipment_payload(
         if customers is not None
         else db.get(Customer, customer_id) if customer_id else None
     )
-    packages_count = len(sh.packages or [])
-    total_qty = sum(int(sp.quantity or 0) for sp in (sh.packages or []))
+    packages_count = package_count if package_count is not None else len(sh.packages or [])
+    total_qty = package_quantity if package_quantity is not None else sum(int(sp.quantity or 0) for sp in (sh.packages or []))
     if scanned_count is None:
         scanned_count = len(
             _matched_package_ids_for_shipment(db, int(sh.id))
@@ -931,6 +953,195 @@ def _ship_verified_packages(db: DbSession, shipment: Shipment, current: User) ->
     return required_count, scanned_count
 
 
+@router.get("/order-floor", response_model=ShipmentOrderFloorPageOut)
+def shipment_order_floor(
+    db: DbSession,
+    _: CurrentUser,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 50,
+    q: Annotated[str, Query(max_length=200)] = "",
+    target_sales_order_id: Annotated[int | None, Query(ge=1)] = None,
+    target_shipment_id: Annotated[int | None, Query(ge=1)] = None,
+):
+    """Page the exact union shown in the shipment order workspace."""
+    latest_open = (
+        db.query(
+            Shipment.sales_order_id.label("sales_order_id"),
+            func.max(Shipment.id).label("shipment_id"),
+        )
+        .filter(Shipment.sales_order_id.isnot(None), Shipment.status.in_(_OPEN_SHIPMENT_STATUSES))
+        .group_by(Shipment.sales_order_id)
+        .subquery()
+    )
+    ready_totals = (
+        db.query(
+            Package.sales_order_id.label("sales_order_id"),
+            func.coalesce(func.sum(Package.total_quantity), 0).label("ready_qty"),
+        )
+        .filter(Package.sales_order_id.isnot(None), Package.status.in_(_READY_FOR_SHIPMENT_STATUSES))
+        .group_by(Package.sales_order_id)
+        .subquery()
+    )
+    open_shipment = aliased(Shipment)
+    any_live_shipment = exists().where(and_(
+        Shipment.sales_order_id == SalesOrder.id,
+        Shipment.status != "cancelled",
+    ))
+    base = (
+        db.query(SalesOrder.id.label("order_id"), latest_open.c.shipment_id)
+        .outerjoin(latest_open, latest_open.c.sales_order_id == SalesOrder.id)
+        .outerjoin(open_shipment, open_shipment.id == latest_open.c.shipment_id)
+        .outerjoin(Customer, Customer.id == func.coalesce(
+            func.nullif(open_shipment.customer_id, 0), SalesOrder.customer_id,
+        ))
+        .outerjoin(ready_totals, ready_totals.c.sales_order_id == SalesOrder.id)
+        .filter(or_(
+            latest_open.c.shipment_id.isnot(None),
+            and_(
+                ~any_live_shipment,
+                or_(
+                    SalesOrder.status.in_(_SHIPMENT_ORDER_STATUSES),
+                    ready_totals.c.sales_order_id.isnot(None),
+                ),
+            ),
+        ))
+    )
+    search = q.strip()
+    filtered = base
+    if search:
+        escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like = f"%{escaped}%"
+        filtered = filtered.filter(or_(
+            SalesOrder.order_no.ilike(like, escape="\\"),
+            Customer.name.ilike(like, escape="\\"),
+            open_shipment.shipment_no.ilike(like, escape="\\"),
+        ))
+    total = filtered.order_by(None).count()
+    identity_rows = filtered.order_by(SalesOrder.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    page_ids = [int(row.order_id) for row in identity_rows]
+
+    pinned_id = None
+    if target_sales_order_id:
+        target = base.filter(SalesOrder.id == target_sales_order_id).first()
+        pinned_id = int(target.order_id) if target else None
+    elif target_shipment_id:
+        target = base.filter(latest_open.c.shipment_id == target_shipment_id).first()
+        pinned_id = int(target.order_id) if target else None
+    hydrate_ids = list(page_ids)
+    if pinned_id and pinned_id not in page_ids:
+        hydrate_ids.append(pinned_id)
+
+    payload_by_id: dict[int, dict] = {}
+    if hydrate_ids:
+        details = (
+            db.query(
+                SalesOrder.id,
+                SalesOrder.order_no,
+                SalesOrder.customer_id,
+                SalesOrder.status,
+                Customer.name,
+                latest_open.c.shipment_id,
+                ready_totals.c.ready_qty,
+            )
+            .outerjoin(latest_open, latest_open.c.sales_order_id == SalesOrder.id)
+            .outerjoin(open_shipment, open_shipment.id == latest_open.c.shipment_id)
+            .outerjoin(Customer, Customer.id == func.coalesce(
+                func.nullif(open_shipment.customer_id, 0), SalesOrder.customer_id,
+            ))
+            .outerjoin(ready_totals, ready_totals.c.sales_order_id == SalesOrder.id)
+            .filter(SalesOrder.id.in_(hydrate_ids))
+            .all()
+        )
+        shipment_ids = [int(row.shipment_id) for row in details if row.shipment_id is not None]
+        shipments = (
+            db.query(Shipment)
+            .options(
+                load_only(
+                    Shipment.id, Shipment.sales_order_id, Shipment.customer_id,
+                    Shipment.shipment_no, Shipment.status, Shipment.shipped_at,
+                    Shipment.delivered_at, Shipment.notes, Shipment.transport_details,
+                    Shipment.dispatch_snapshot, Shipment.created_at,
+                ),
+            )
+            .filter(Shipment.id.in_(shipment_ids))
+            .all()
+            if shipment_ids else []
+        )
+        shipments_by_id = {int(shipment.id): shipment for shipment in shipments}
+        package_totals = {
+            int(shipment_id): (int(count or 0), int(quantity or 0))
+            for shipment_id, count, quantity in (
+                db.query(
+                    ShipmentPackage.shipment_id,
+                    func.count(ShipmentPackage.id),
+                    func.coalesce(func.sum(ShipmentPackage.quantity), 0),
+                )
+                .filter(ShipmentPackage.shipment_id.in_(shipment_ids))
+                .group_by(ShipmentPackage.shipment_id)
+                .all()
+            )
+        } if shipment_ids else {}
+        scanned_by_shipment = {
+            int(shipment_id): int(count or 0)
+            for shipment_id, count in (
+                db.query(ShipmentScanLog.shipment_id, func.count(func.distinct(ShipmentScanLog.package_id)))
+                .join(ShipmentPackage, and_(
+                    ShipmentPackage.shipment_id == ShipmentScanLog.shipment_id,
+                    ShipmentPackage.package_id == ShipmentScanLog.package_id,
+                ))
+                .filter(ShipmentScanLog.shipment_id.in_(shipment_ids), _valid_matched_scan())
+                .group_by(ShipmentScanLog.shipment_id)
+                .all()
+            )
+        } if shipment_ids else {}
+        for row in details:
+            shipment = shipments_by_id.get(int(row.shipment_id)) if row.shipment_id is not None else None
+            shipment_payload = None
+            if shipment is not None:
+                packages_count, total_qty = package_totals.get(int(shipment.id), (0, 0))
+                scanned_count = scanned_by_shipment.get(int(shipment.id), 0)
+                remaining_count = max(0, packages_count - scanned_count)
+                shipment_payload = {
+                    "id": shipment.id,
+                    "sales_order_id": shipment.sales_order_id,
+                    "customer_id": shipment.customer_id,
+                    "shipment_no": shipment.shipment_no,
+                    "status": shipment.status,
+                    "shipped_at": shipment.shipped_at,
+                    "delivered_at": shipment.delivered_at,
+                    "notes": shipment.notes,
+                    "transport_details": shipment.transport_details or {},
+                    "created_at": shipment.created_at,
+                    "sales_order_no": row.order_no,
+                    "customer_name": row.name,
+                    "shipment_type": "manual" if (shipment.dispatch_snapshot or {}).get("manual") else "sales_order",
+                    "packages_count": packages_count,
+                    "total_qty": total_qty,
+                    "required_count": packages_count,
+                    "scanned_count": scanned_count,
+                    "remaining_count": remaining_count,
+                    "is_complete": packages_count > 0 and remaining_count == 0,
+                }
+            payload_by_id[int(row.id)] = {
+                "id": int(row.id),
+                "order_no": row.order_no,
+                "customer_id": row.customer_id,
+                "customer_name": row.name,
+                "status": shipment.status if shipment else row.status,
+                "ready_qty": shipment_payload["total_qty"] if shipment_payload else int(row.ready_qty or 0),
+                "shipment": shipment_payload,
+                "is_scanned": bool(shipment_payload and shipment_payload["is_complete"]),
+            }
+    return {
+        "rows": [payload_by_id[order_id] for order_id in page_ids],
+        "pinned": payload_by_id.get(pinned_id) if pinned_id and pinned_id not in page_ids else None,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
+
+
 @router.get("", response_model=list[ShipmentOut] | ShipmentPageOut)
 def list_shipments(
     db: DbSession,
@@ -938,6 +1149,9 @@ def list_shipments(
     sales_order_id: int | None = None,
     page: Annotated[int | None, Query(ge=1)] = None,
     page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+    q: Annotated[str, Query(max_length=200)] = "",
+    status: str | None = None,
+    manual_open: bool = False,
 ):
     qry = (
         db.query(Shipment, SalesOrder, Customer)
@@ -957,18 +1171,26 @@ def list_shipments(
             ),
             load_only(SalesOrder.id, SalesOrder.customer_id, SalesOrder.order_no),
             load_only(Customer.id, Customer.name),
-            selectinload(Shipment.packages).load_only(
-                ShipmentPackage.id,
-                ShipmentPackage.shipment_id,
-                ShipmentPackage.package_id,
-                ShipmentPackage.quantity,
-            ),
         )
         .outerjoin(SalesOrder, SalesOrder.id == Shipment.sales_order_id)
         .outerjoin(Customer, Customer.id == func.coalesce(func.nullif(Shipment.customer_id, 0), SalesOrder.customer_id))
     )
     if sales_order_id:
         qry = qry.filter(Shipment.sales_order_id == sales_order_id)
+    if manual_open:
+        qry = qry.filter(Shipment.sales_order_id.is_(None), Shipment.status.in_(_OPEN_SHIPMENT_STATUSES))
+    if status and status != "all":
+        qry = qry.filter(Shipment.status == status)
+    search = q.strip()
+    if search:
+        escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like = f"%{escaped}%"
+        qry = qry.filter(or_(
+            Shipment.shipment_no.ilike(like, escape="\\"),
+            SalesOrder.order_no.ilike(like, escape="\\"),
+            Customer.name.ilike(like, escape="\\"),
+            Shipment.notes.ilike(like, escape="\\"),
+        ))
     total = None
     if page is not None or page_size is not None:
         page = page or 1
@@ -977,11 +1199,31 @@ def list_shipments(
     qry = qry.order_by(Shipment.id.desc())
     if total is not None:
         qry = qry.offset((page - 1) * page_size).limit(page_size)
+    else:
+        qry = qry.options(selectinload(Shipment.packages).load_only(
+            ShipmentPackage.id,
+            ShipmentPackage.shipment_id,
+            ShipmentPackage.package_id,
+            ShipmentPackage.quantity,
+        ))
     joined_rows = qry.all()
     rows = [shipment for shipment, _, _ in joined_rows]
     sales_orders = {order.id: order for _, order, _ in joined_rows if order is not None}
     customers = {customer.id: customer for _, _, customer in joined_rows if customer is not None}
     shipment_ids = [int(sh.id) for sh in rows]
+    package_totals = {
+        int(shipment_id): (int(count or 0), int(quantity or 0))
+        for shipment_id, count, quantity in (
+            db.query(
+                ShipmentPackage.shipment_id,
+                func.count(ShipmentPackage.id),
+                func.coalesce(func.sum(ShipmentPackage.quantity), 0),
+            )
+            .filter(ShipmentPackage.shipment_id.in_(shipment_ids))
+            .group_by(ShipmentPackage.shipment_id)
+            .all()
+        )
+    } if total is not None and shipment_ids else {}
     scanned_by_shipment = (
         {
             int(shipment_id): int(count or 0)
@@ -1014,6 +1256,8 @@ def list_shipments(
             scanned_count=scanned_by_shipment.get(int(sh.id), 0),
             sales_orders=sales_orders,
             customers=customers,
+            package_count=package_totals.get(int(sh.id), (0, 0))[0] if total is not None else None,
+            package_quantity=package_totals.get(int(sh.id), (0, 0))[1] if total is not None else None,
         )
         for sh in rows
     ]
