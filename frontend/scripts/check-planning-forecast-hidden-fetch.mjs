@@ -3,7 +3,11 @@ import fs from "node:fs";
 import ts from "typescript";
 
 const forecastKey = "/api/forecasting/branded-stock-suggestions";
+const reservationPageKey = "/api/production-orders?page=1&page_size=50&include_total=true&q=";
 const source = fs.readFileSync(new URL("../src/app/(app)/planning/page.tsx", import.meta.url), "utf8");
+assert.match(source, /useSWRInfinite<ProductionOrderPage>/, "reservation orders must load bounded pages");
+assert.match(source, /setProductionOrderPageCount\(productionOrderPageCount \+ 1\)/, "Load more must request another order page");
+assert.match(source, /encodeURIComponent\(reservationOrderSearch\)/, "reservation search must escape query text");
 assert.match(
   source,
   /!brandedOnly && canViewForecasting \? "\/api\/forecasting\/branded-stock-suggestions" : null/,
@@ -42,9 +46,7 @@ function renderCase({ path, authorized }) {
       ? {}
       : key === "/api/sales-orders?order_type=client_order&page_size=200"
         ? []
-        : key === "/api/production-orders?page_size=100"
-          ? []
-          : key === "/api/inventory/batches?group=materials&hide_empty=true&page_size=1000"
+        : key === "/api/inventory/batches?group=materials&hide_empty=true&page_size=1000"
               ? []
               : key === "/api/planning/branded-orders"
                 ? []
@@ -52,6 +54,15 @@ function renderCase({ path, authorized }) {
                   ? [{ model_id: 4, model_code: "FORECAST-MODEL", color: "blue", size: "48", suggested_quantity: 120, unit: "pcs" }]
                   : undefined;
     return { data, mutate: async () => {} };
+  };
+  const useSWRInfinite = (getKey) => {
+    const key = getKey(0, null);
+    requests.push(key);
+    if (key === reservationPageKey) {
+      assert.equal(getKey(1, { has_more: true }), "/api/production-orders?page=2&page_size=50&include_total=true&q=");
+      assert.equal(getKey(1, { has_more: false }), null);
+    }
+    return { data: key ? [{ rows: [], total: 0, has_more: false }] : [], size: 1, setSize() {}, mutate: async () => {} };
   };
   const dependencies = {
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "fragment" },
@@ -64,6 +75,7 @@ function renderCase({ path, authorized }) {
     "next/link": { default: "link" },
     "next/navigation": { usePathname: () => path, useSearchParams: () => ({ get: () => null }) },
     swr: { default: useSWR },
+    "swr/infinite": { default: useSWRInfinite },
     "lucide-react": {
       PackageCheck: "package-check",
       Pencil: "pencil",
@@ -144,9 +156,7 @@ function createRetainedModelHarness() {
       ? {}
       : key === "/api/sales-orders?order_type=client_order&page_size=200"
         ? []
-        : key === "/api/production-orders?page_size=100"
-          ? []
-          : key === "/api/inventory/batches?group=materials&hide_empty=true&page_size=1000"
+        : key === "/api/inventory/batches?group=materials&hide_empty=true&page_size=1000"
               ? []
               : key === "/api/planning/branded-orders"
                 ? [{ id: 91, order_no: "BP-91" }]
@@ -154,6 +164,11 @@ function createRetainedModelHarness() {
                   ? { id: 44, code: "MODEL-44", sizes: [], fabric_bom: [] }
                   : undefined;
     return { data, mutate: async () => {} };
+  };
+  const useSWRInfinite = (getKey) => {
+    const key = getKey(0, null);
+    requests.push(key);
+    return { data: key ? [{ rows: [], total: 0, has_more: false }] : [], size: 1, setSize() {}, mutate: async () => {} };
   };
   const dependencies = {
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "fragment" },
@@ -165,6 +180,7 @@ function createRetainedModelHarness() {
       useSearchParams: () => ({ get: () => null, toString: () => "" }),
     },
     swr: { default: useSWR },
+    "swr/infinite": { default: useSWRInfinite },
     "lucide-react": {
       PackageCheck: "package-check",
       Pencil: "pencil",
@@ -212,6 +228,8 @@ assert.equal(
   "the branded-only route must not request its hidden standard-planning forecast card",
 );
 assert.doesNotMatch(textContent(branded.tree), /FORECAST-MODEL/);
+assert.equal(branded.requests.filter((key) => key === reservationPageKey).length, 0,
+  "branded-only route must not fetch the hidden reservation-order list");
 
 const standard = renderCase({ path: "/planning", authorized: true });
 assert.equal(standard.requests.filter((key) => key === "/api/brands").length, 0,
@@ -222,6 +240,8 @@ assert.equal(
   "authorized standard planning must request forecast suggestions exactly once",
 );
 assert.match(textContent(standard.tree), /FORECAST-MODEL/);
+assert.equal(standard.requests.filter((key) => key === reservationPageKey).length, 1,
+  "standard Planning must fetch one bounded reservation-order page");
 
 const denied = renderCase({ path: "/planning", authorized: false });
 assert.equal(denied.requests.filter((key) => key === forecastKey).length, 0);

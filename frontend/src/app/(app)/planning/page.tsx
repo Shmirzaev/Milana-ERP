@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import { PackageCheck, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
 import { useMe, can } from "@/lib/auth";
@@ -31,6 +32,12 @@ type FabricBatch = {
   warehouse_name?: string | null;
   qc_status?: string | null;
   image_url?: string | null;
+};
+
+type ProductionOrderPage = {
+  rows: any[];
+  total: number;
+  has_more: boolean;
 };
 
 type Brand = {
@@ -337,7 +344,17 @@ export default function PlanningDashboard() {
   const { me } = useMe();
   const { data: dash } = useSWR<any>("/api/dashboard/planning", fetcher);
   const { data: orders } = useSWR<any[]>("/api/sales-orders?order_type=client_order&page_size=200", fetcher);
-  const { data: productionOrders, mutate: mutateProductionOrders } = useSWR<any[]>("/api/production-orders?page_size=100", fetcher);
+  const [reservationOrderSearch, setReservationOrderSearch] = useState("");
+  const { data: productionOrderPages, size: productionOrderPageCount, setSize: setProductionOrderPageCount, mutate: mutateProductionOrders } = useSWRInfinite<ProductionOrderPage>(
+    (index, previous) => {
+      if (brandedOnly || (previous && !previous.has_more)) return null;
+      return `/api/production-orders?page=${index + 1}&page_size=50&include_total=true&q=${encodeURIComponent(reservationOrderSearch)}`;
+    },
+    fetcher,
+  );
+  const productionOrders = productionOrderPages?.flatMap((page) => page.rows) || [];
+  const productionOrderTotal = productionOrderPages?.[0]?.total || 0;
+  const hasMoreProductionOrders = Boolean(productionOrderPages?.at(-1)?.has_more);
   const [createdBrand, setCreatedBrand] = useState<Brand | null>(null);
   const { data: fabricBatches } = useSWR<FabricBatch[]>("/api/inventory/batches?group=materials&hide_empty=true&page_size=1000", fetcher);
   const { data: brandedOrders, mutate: mutateBrandedOrders } = useSWR<BrandedPlanningOrder[]>("/api/planning/branded-orders", fetcher, { refreshInterval: 10_000 });
@@ -1058,7 +1075,20 @@ export default function PlanningDashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)]">
           <div className="border-b border-[#ecebe3] lg:border-b-0 lg:border-r">
             <div className="max-h-[520px] overflow-y-auto p-3">
-              {(productionOrders || []).slice(0, 30).map((po) => {
+              <input
+                className="input mb-3"
+                value={reservationOrderSearch}
+                onChange={(event) => setReservationOrderSearch(event.target.value)}
+                maxLength={100}
+                placeholder={t("common.search")}
+                aria-label={t("common.search")}
+              />
+              {selectedReservationPoId && !productionOrders.some((po) => Number(po.id) === selectedReservationPoId) && (
+                <button type="button" className="mb-2 block w-full rounded-md bg-[#14110b] px-3 py-2 text-left text-sm text-[#fdfcf8]" onClick={() => setSelectedReservationPoId(selectedReservationPoId)}>
+                  {reservationStatus?.plan.order_no || reservationStatus?.plan.production_no || `#${selectedReservationPoId}`}
+                </button>
+              )}
+              {productionOrders.map((po) => {
                 const active = Number(po.id) === Number(activeReservationPoId);
                 return (
                   <button
@@ -1081,8 +1111,13 @@ export default function PlanningDashboard() {
                   </button>
                 );
               })}
-              {(productionOrders || []).length === 0 && (
+              {productionOrders.length === 0 && productionOrderTotal === 0 && (
                 <div className="px-2 py-4 text-sm text-[#8a8472]">{t("reservation.noProductionOrders")}</div>
+              )}
+              {hasMoreProductionOrders && (
+                <button type="button" className="mt-2 w-full text-sm underline" onClick={() => void setProductionOrderPageCount(productionOrderPageCount + 1)}>
+                  {t("common.loadMore")} ({productionOrders.length} / {productionOrderTotal})
+                </button>
               )}
             </div>
           </div>
