@@ -1,5 +1,6 @@
 """Production service: build production orders and work orders, manage flow."""
 from datetime import datetime, timezone
+from decimal import Decimal
 import math
 import re
 from fastapi import HTTPException
@@ -322,6 +323,14 @@ def create_production_order(
             ):
                 raise HTTPException(422, "Estimated material amount exceeds storage limits")
             material_unit = material_unit or "kg"
+
+    # Both the direct estimate and a primary material line feed the same
+    # NUMERIC(14,4) column. Reject extra places instead of silently rounding.
+    if material_amount is not None and Decimal(str(material_amount)) % Decimal("0.0001"):
+        raise HTTPException(422, "Estimated material amount supports at most four decimal places")
+    for row in normalized_materials:
+        if Decimal(str(row["estimated_quantity"])) % Decimal("0.0001"):
+            raise HTTPException(422, "Material estimated quantity supports at most four decimal places")
 
     production_no = (
         next_usluga_order_no(db)
