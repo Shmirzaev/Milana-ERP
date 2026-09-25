@@ -51,6 +51,7 @@ _PACKAGE_RECEIVE_CONTEXT_CHUNK_SIZE = 400
 _PACKAGE_BATCH_VALIDATION_CHUNK_SIZE = 400
 _PACKAGE_ROW_LIMIT = 200
 _PACKAGE_EDIT_NOTES_BYTES = 4096
+_PACKAGE_INTEGER_MAX = 2_147_483_647
 
 
 @dataclass
@@ -549,6 +550,8 @@ def create_package(
         raise HTTPException(400, f"Package cannot contain more than {_PACKAGE_ROW_LIMIT} size lines")
     if batch_allocations and len(batch_allocations) > _PACKAGE_ROW_LIMIT:
         raise HTTPException(400, f"Package cannot contain more than {_PACKAGE_ROW_LIMIT} batch allocations")
+    if capacity > _PACKAGE_INTEGER_MAX:
+        raise HTTPException(400, f"capacity must be at most {_PACKAGE_INTEGER_MAX}")
 
     total = 0
     for item in items:
@@ -568,6 +571,8 @@ def create_package(
         total += quantity
     if total <= 0:
         raise HTTPException(400, "Total package quantity must be > 0")
+    if total > _PACKAGE_INTEGER_MAX:
+        raise HTTPException(400, f"Total package quantity must be at most {_PACKAGE_INTEGER_MAX}")
     if total > capacity and not (override_capacity and is_admin):
         raise HTTPException(400, f"Package quantity {total} exceeds capacity {capacity}. Admin override required.")
     normalized_weight_kg = None
@@ -1062,6 +1067,8 @@ def normalize_package_edit_payload(db: Session, pkg: Package, payload: dict | No
         raise HTTPException(400, "capacity must be a number")
     if capacity <= 0:
         raise HTTPException(400, "capacity must be > 0")
+    if capacity > _PACKAGE_INTEGER_MAX and capacity != pkg.capacity:
+        raise HTTPException(400, f"capacity must be at most {_PACKAGE_INTEGER_MAX}")
 
     color = str(payload.get("color", pkg.color) or "").strip()
     if not color:
@@ -1082,6 +1089,8 @@ def normalize_package_edit_payload(db: Session, pkg: Package, payload: dict | No
     total = sum(int(row["quantity"] or 0) for row in items)
     if total <= 0:
         raise HTTPException(400, "Total package quantity must be > 0")
+    if total > _PACKAGE_INTEGER_MAX and "items" in payload:
+        raise HTTPException(400, f"Total package quantity must be at most {_PACKAGE_INTEGER_MAX}")
     if total > capacity:
         raise HTTPException(400, f"Package quantity {total} exceeds capacity {capacity}")
 

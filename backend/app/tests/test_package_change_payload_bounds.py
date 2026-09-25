@@ -12,6 +12,7 @@ from app.services.packages import (
     _normalize_package_items,
     _validate_batch_allocations,
     create_package,
+    create_packages_bulk,
     normalize_package_edit_payload,
 )
 
@@ -120,6 +121,8 @@ def test_package_edit_text_accepts_boundary_and_unchanged_legacy_values():
     assert normalized["color"] == "C" * 64
     assert normalized["notes"] == pkg.notes
     assert normalize_package_edit_payload(None, pkg, {"notes": "N" * 4096})["notes"] == "N" * 4096
+    pkg.capacity = 2_147_483_648
+    assert normalize_package_edit_payload(None, pkg, {"notes": "updated"})["capacity"] == pkg.capacity
 
 
 def _new_package_payload(**changes):
@@ -160,3 +163,41 @@ def test_oversized_initial_package_rows_have_no_package_or_audit_write(client, a
     assert rejected.status_code == 422, rejected.text
     with SessionLocal() as db:
         assert (db.query(Package).count(), db.query(PackageItem).count(), db.query(AuditLog).count()) == before
+
+
+@pytest.mark.parametrize("builder", [create_package, create_packages_bulk])
+@pytest.mark.parametrize("change", [
+    {"capacity": 2_147_483_648},
+    {"capacity": 2_147_483_647, "items": [{"model_id": 1, "color": "blue", "size": "M", "quantity": 2_147_483_648}]},
+])
+def test_new_package_integer_overflow_rejects_before_database_access(builder, change):
+    payload = _new_package_payload(**change)
+    if builder is create_packages_bulk:
+        payload["count"] = 1
+    with pytest.raises(HTTPException, match="must be at most 2147483647"):
+        builder(None, **payload)
+
+
+@pytest.mark.parametrize("change", [
+    {"capacity": 2_147_483_648},
+    {"items": [{"model_id": 1, "color": "blue", "size": "M", "quantity": 2_147_483_648}]},
+])
+def test_package_edit_integer_overflow_has_no_request_or_audit_write(client, auth_headers, change):
+    package_id = _editable_package()
+    if "items" in change:
+        # A legacy capacity can survive an unrelated edit, but newly submitted
+        # quantities must still fit the Package and PackageItem Integer columns.
+        with SessionLocal() as db:
+            db.get(Package, package_id).capacity = 2_147_483_648
+            db.commit()
+    with SessionLocal() as db:
+        before = (db.query(PackageChangeRequest).count(), db.query(AuditLog).count())
+
+    rejected = client.post(
+        f"/api/packages/{package_id}/change-requests", headers=auth_headers,
+        json={"request_type": "edit", "payload": change},
+    )
+
+    assert rejected.status_code == 400, rejected.text
+    with SessionLocal() as db:
+        assert (db.query(PackageChangeRequest).count(), db.query(AuditLog).count()) == before
