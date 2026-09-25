@@ -90,6 +90,20 @@ class PriceCalculationCuttingIn(BaseModel):
         default=None, ge=0, le=99_999_999.999999, allow_inf_nan=False,
     )
 
+    @field_validator(
+        "fabric_width_m", "lay_length_m", "gramage", "binding_kg_per_piece", mode="before",
+    )
+    @classmethod
+    def reject_fractional_precision(cls, value: object, info: ValidationInfo) -> object:
+        places, maximum = (
+            (4, Decimal("9999999999.9999"))
+            if info.field_name in {"fabric_width_m", "lay_length_m"}
+            else (6, Decimal("99999999.999999"))
+        )
+        return _reject_storage_fractional_precision(
+            value, places=places, maximum=maximum, field_name=info.field_name,
+        )
+
     @field_validator("kroy_no")
     @classmethod
     def clean_kroy_no(cls, value: str) -> str:

@@ -68,6 +68,10 @@ def _state(request_id: int) -> tuple[dict, int]:
         ("binding_kg_per_piece", "NaN"),
         ("binding_kg_per_piece", "Infinity"),
         ("binding_kg_per_piece", "100000000"),
+        ("fabric_width_m", "1.00001"),
+        ("lay_length_m", "1.00001"),
+        ("gramage", "1.0000001"),
+        ("binding_kg_per_piece", "0.0000001"),
     ],
 )
 def test_cutting_price_fields_reject_non_finite_and_storage_overflow(field, value):
@@ -90,6 +94,9 @@ def test_cutting_price_fields_preserve_existing_values_and_storage_boundaries():
     assert parsed.gramage == pytest.approx(99_999_999.999999)
     assert parsed.binding_kg_per_piece == pytest.approx(99_999_999.999999)
     assert PriceCalculationCuttingIn(**_payload()).model_dump() == _payload()
+    assert PriceCalculationCuttingIn(**_payload(
+        fabric_width_m="1.23000", gramage="0.1850000",
+    )).fabric_width_m == pytest.approx(1.23)
 
 
 @pytest.mark.parametrize(
@@ -100,6 +107,8 @@ def test_cutting_price_fields_preserve_existing_values_and_storage_boundaries():
         ("size_count", 2_147_483_648),
         ("gramage", "NaN"),
         ("binding_kg_per_piece", "100000000"),
+        ("fabric_width_m", "1.00001"),
+        ("gramage", "1.0000001"),
     ],
 )
 def test_invalid_cutting_price_update_has_no_request_or_audit_side_effects(
