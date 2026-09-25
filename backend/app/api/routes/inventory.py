@@ -1799,7 +1799,10 @@ def update_batch(
         values["image_url"] = _validate_item_image_url(values["image_url"])
 
     target_quantity = float(values.get("quantity", old_quantity))
-    if target_quantity + EPSILON < reserved_quantity and not force:
+    # Even an explicitly forced correction cannot leave an active batch claim
+    # larger than the physical stock. Unlike deleting a batch, this edit does
+    # not release its reservations, so preserve their backing quantity.
+    if target_quantity + EPSILON < reserved_quantity:
         raise HTTPException(
             409,
             f"Quantity cannot be lower than reserved stock ({reserved_quantity:g} {old_unit})",

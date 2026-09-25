@@ -1773,8 +1773,8 @@ def test_stock_batch_delete_preserves_other_order_item_only_reservation(
         assert db.get(MaterialReservation, reservation_id).status == "reserved"
 
 
-@pytest.mark.parametrize("change", ["quantity", "warehouse", "item"])
-def test_batch_edit_cannot_move_item_only_reserved_stock(client, auth_headers, change):
+@pytest.mark.parametrize("change", ["quantity", "warehouse", "item", "forced_batch_quantity"])
+def test_batch_edit_cannot_move_reserved_stock(client, auth_headers, change):
     from app.db import session as session_module
     from app.models import AuditLog, Item, MaterialReservation, Model, ProductionOrder, StockBatch, StockMovement, Warehouse
 
@@ -1811,7 +1811,9 @@ def test_batch_edit_cannot_move_item_only_reserved_stock(client, auth_headers, c
         db.flush()
         claim = MaterialReservation(
             reservation_no=f"MR-EDIT-CLAIM-{suffix}", production_order_id=order.id,
-            item_id=item_id, stock_batch_id=None, warehouse_id=warehouse_id,
+            item_id=item_id,
+            stock_batch_id=batch_id if change == "forced_batch_quantity" else None,
+            warehouse_id=warehouse_id,
             reserved_quantity=8, consumed_quantity=0, released_quantity=0,
             unit="kg", status="reserved", reservation_type="material", source="manual",
         )
@@ -1835,8 +1837,13 @@ def test_batch_edit_cannot_move_item_only_reserved_stock(client, auth_headers, c
         movement_count = db.query(StockMovement).count()
         audit_count = db.query(AuditLog).count()
 
-    denied = client.patch(f"/api/inventory/batches/{batch_id}", json=target, headers=auth_headers)
+    force_query = "?force=true" if change == "forced_batch_quantity" else ""
+    denied = client.patch(
+        f"/api/inventory/batches/{batch_id}{force_query}", json=target, headers=auth_headers,
+    )
     assert denied.status_code == 409, denied.text
+    if change == "forced_batch_quantity":
+        assert "reserved stock" in denied.json()["detail"]
     with session_module.SessionLocal() as db:
         batch = db.get(StockBatch, batch_id)
         claim = db.get(MaterialReservation, reservation_id)
