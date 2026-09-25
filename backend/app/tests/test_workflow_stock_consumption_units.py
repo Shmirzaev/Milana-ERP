@@ -309,6 +309,47 @@ def test_batchless_item_consumption_uses_catalog_unit_and_rejects_mismatch_witho
         assert movement.unit == item.unit
 
 
+@pytest.mark.parametrize(
+    ("credit_warehouse", "consume_warehouse", "should_reject"),
+    [(True, False, True), (False, False, False), (True, True, False)],
+)
+def test_strict_batchless_consumption_requires_matching_warehouse_attribution(
+    credit_warehouse, consume_warehouse, should_reject,
+):
+    with TestSessionLocal() as db:
+        item, warehouse, batch, _model, order = _stock_case(
+            db, name="BATCHLESS-SCOPE", quantity=0,
+        )
+        db.add(StockMovement(
+            movement_type="adjustment", item_id=item.id, batch_id=None,
+            to_warehouse_id=warehouse.id if credit_warehouse else None,
+            quantity=5, unit=item.unit,
+        ))
+        db.flush()
+
+        if should_reject:
+            with pytest.raises(HTTPException) as rejected:
+                consume_item_from_batches(
+                    db, item_id=item.id, quantity=5, unit=item.unit,
+                    reference_type="ProductionOrder", reference_id=order.id,
+                    user_id=None, warehouse_id=None, require_available=True,
+                )
+            assert rejected.value.status_code == 409
+            assert db.query(StockMovement).filter_by(movement_type="consume", item_id=item.id).count() == 0
+        else:
+            consume_item_from_batches(
+                db, item_id=item.id, quantity=5, unit=item.unit,
+                reference_type="ProductionOrder", reference_id=order.id,
+                user_id=None, warehouse_id=warehouse.id if consume_warehouse else None,
+                require_available=True,
+            )
+            db.flush()
+            movement = db.query(StockMovement).filter_by(movement_type="consume", item_id=item.id).one()
+            assert movement.from_warehouse_id == (warehouse.id if consume_warehouse else None)
+            assert float(movement.quantity) == 5
+        assert float(batch.quantity) == 0
+
+
 def test_packaging_consumption_accepts_matching_units():
     with TestSessionLocal() as db:
         item, _warehouse, batch, model, order = _stock_case(db, name="PKG-UNIT")

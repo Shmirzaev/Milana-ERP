@@ -498,7 +498,13 @@ def _require_batch_consumption_unit(batch: StockBatch, unit: str) -> None:
         raise HTTPException(409, f"Consumption unit must match stock batch unit ({batch_unit})")
 
 
-def batchless_stock_for_item(db: Session, item_id: int, warehouse_id: int | None = None) -> Decimal:
+def batchless_stock_for_item(
+    db: Session,
+    item_id: int,
+    warehouse_id: int | None = None,
+    *,
+    unscoped_only: bool = False,
+) -> Decimal:
     """Return stock represented only by unbatched movements, at ledger precision."""
     incoming_types = ("produce", "return", "adjustment")
     outgoing_types = ("issue", "consume", "waste", "shipment")
@@ -513,13 +519,19 @@ def batchless_stock_for_item(db: Session, item_id: int, warehouse_id: int | None
             and_(outgoing, StockMovement.from_warehouse_id == warehouse_id),
             and_(StockMovement.movement_type == "transfer", StockMovement.from_warehouse_id == warehouse_id),
         )
-    received, spent = db.query(
+    movement_query = db.query(
         func.coalesce(func.sum(case((incoming, StockMovement.quantity), else_=0)), 0),
         func.coalesce(func.sum(case((outgoing, StockMovement.quantity), else_=0)), 0),
     ).filter(
         StockMovement.item_id == item_id,
         StockMovement.batch_id.is_(None),
-    ).one()
+    )
+    if unscoped_only:
+        movement_query = movement_query.filter(
+            StockMovement.to_warehouse_id.is_(None),
+            StockMovement.from_warehouse_id.is_(None),
+        )
+    received, spent = movement_query.one()
     return Decimal(str(received or 0)) - Decimal(str(spent or 0))
 
 
@@ -638,7 +650,10 @@ def consume_item_from_batches(
                     MaterialReservation.status.in_(("reserved", "partially_consumed")),
                 ).group_by(MaterialReservation.stock_batch_id).all()
             }
-    batchless_available = batchless_stock_for_item(db, item_id, warehouse_id) if require_available else Decimal(0)
+    batchless_available = (
+        batchless_stock_for_item(db, item_id, warehouse_id, unscoped_only=warehouse_id is None)
+        if require_available else Decimal(0)
+    )
     if require_available:
         available = sum(
             max(Decimal(0), Decimal(str(row.quantity or 0)) - (reserved_by_batch or {}).get(int(row.id), Decimal(0)))
