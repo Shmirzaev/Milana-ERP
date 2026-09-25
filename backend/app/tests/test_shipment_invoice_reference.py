@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import LegacyStockReceipt, Model, Package, SalesOrderItem, Shipment
+from app.models import AuditLog, LegacyStockReceipt, Model, Package, SalesOrderItem, Shipment
 from app.services.shipment_invoice import build_invoice_rows, invoice_model_identity, render_shipment_invoice
 from app.tests.test_shipment_review import dispatch as dispatch, ship
 
@@ -26,6 +26,39 @@ def test_transport_metadata_create_update_clear_and_validation(client, auth_head
     assert client.patch(base, headers=auth_headers, json={"transport_details": None}).status_code == 200
     with SessionLocal() as db:
         assert db.get(Shipment, sid).transport_details is None
+
+
+def test_warehouse_exit_notes_bound_before_create_and_preserve_unchanged_legacy(client, auth_headers):
+    with SessionLocal() as db:
+        shipment_count = db.query(Shipment).count()
+
+    oversized = client.post("/api/shipments", headers=auth_headers, json={"notes": "x" * 4001})
+    assert oversized.status_code == 422, oversized.text
+    with SessionLocal() as db:
+        assert db.query(Shipment).count() == shipment_count
+
+    created = client.post("/api/shipments", headers=auth_headers, json={"notes": "x" * 4000})
+    assert created.status_code == 201, created.text
+    sid = created.json()["id"]
+    with SessionLocal() as db:
+        shipment = db.get(Shipment, sid)
+        shipment.notes = "L" * 4001
+        db.commit()
+
+    transport = {"driver_name": "Driver"}
+    updated = client.patch(f"/api/shipments/{sid}", headers=auth_headers, json={"transport_details": transport})
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["notes"] == "L" * 4001
+    with SessionLocal() as db:
+        audit_count = db.query(AuditLog).filter(AuditLog.entity_type == "Shipment", AuditLog.entity_id == sid).count()
+
+    rejected = client.patch(f"/api/shipments/{sid}", headers=auth_headers, json={"notes": "N" * 4001})
+    assert rejected.status_code == 422, rejected.text
+    with SessionLocal() as db:
+        shipment = db.get(Shipment, sid)
+        assert shipment.notes == "L" * 4001
+        assert shipment.transport_details["driver_name"] == "Driver"
+        assert db.query(AuditLog).filter(AuditLog.entity_type == "Shipment", AuditLog.entity_id == sid).count() == audit_count
 
 
 def test_dispatch_freezes_reference_fields_transport_weights_and_identity(client, auth_headers, dispatch):

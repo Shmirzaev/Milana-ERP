@@ -1651,7 +1651,7 @@ def update_shipment(
     if set(payload) - {"notes", "transport_details"}:
         raise HTTPException(422, "Only shipment notes and transport details may be edited; use validated workflow actions")
     notes = payload.get("notes", sh.notes)
-    if notes is not None and (not isinstance(notes, str) or len(notes) > 4000):
+    if notes is not None and (not isinstance(notes, str) or (len(notes) > 4000 and notes != sh.notes)):
         raise HTTPException(422, "Notes must be text up to 4000 characters")
     if not sh.sales_order_id and not (sh.dispatch_snapshot or {}).get("manual") and not str(notes or "").strip():
         raise HTTPException(422, "Warehouse exit reference is required")

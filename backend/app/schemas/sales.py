@@ -64,6 +64,7 @@ class SalesOrderPrintingAttachment(BaseModel):
 
 
 class SalesOrderIn(BaseModel):
+    currency: Optional[str] = Field(default=None, pattern=r"^[A-Z]{3}$")
     customer_id: Optional[int] = None
     order_type: str = "client_order"
     deadline: Optional[datetime] = None
@@ -91,6 +92,7 @@ class SalesOrderOut(ORMModel):
     status: str
     deadline: Optional[datetime] = None
     total_amount: float
+    currency: Optional[str] = None
     planning_estimated_material_cost: Optional[float] = None
     planning_estimated_labor_cost: Optional[float] = None
     planning_estimated_electricity_cost: Optional[float] = None
@@ -118,7 +120,7 @@ class ShipmentIn(BaseModel):
     request_key: UUID | None = None
     sales_order_id: Optional[int] = None
     customer_id: Optional[int] = None
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(default=None, max_length=4000)
     transport_details: ShipmentTransportDetails | None = None
 
 
@@ -208,6 +210,7 @@ class ShipmentScanOut(BaseModel):
 
 class InvoiceIn(BaseModel):
     sales_order_id: int = Field(gt=0, le=2_147_483_647)
+    currency: Optional[str] = Field(default=None, pattern=r"^[A-Z]{3}$")
     amount: Optional[Decimal] = Field(
         default=None, ge=0, le=Decimal("999999999999.99"), allow_inf_nan=False
     )
@@ -218,6 +221,7 @@ class InvoiceOut(ORMModel):
     sales_order_id: int
     invoice_no: str
     amount: float
+    currency: Optional[str] = None
     status: str
     issued_at: Optional[datetime] = None
     due_date: Optional[datetime] = None
@@ -225,6 +229,7 @@ class InvoiceOut(ORMModel):
 
 class PaymentIn(BaseModel):
     invoice_id: int = Field(gt=0, le=2_147_483_647)
+    currency: Optional[str] = Field(default=None, pattern=r"^[A-Z]{3}$")
     amount: Decimal = Field(
         ge=Decimal("0.01"),
         le=Decimal("999999999999.99"),
@@ -240,5 +245,6 @@ class PaymentOut(ORMModel):
     id: int
     invoice_id: int
     amount: float
+    currency: Optional[str] = None
     payment_method: Optional[str] = None
     paid_at: Optional[datetime] = None
