@@ -63,7 +63,8 @@ def test_ready_sales_reserves_exact_pack_count_and_real_mixed_size_totals(client
     order = response.json()
     assert order["items"][0]["requested_pack_count"] == 2
     assert order["items"][0]["quantity"] == 138
-    assert order["total_amount"] == 276
+    assert order["total_amount"] is None
+    assert order["currency"] is None
     assert order["status"] == "ready"
     with SessionLocal() as db:
         reservations = db.query(StockReservation).filter(StockReservation.sales_order_id == order["id"]).all()
@@ -290,7 +291,8 @@ def test_regular_production_sales_keep_piece_quantity(client, auth_headers):
     line = response.json()["items"][0]
     assert line["requested_pack_count"] is None
     assert (line["quantity"], line["color"], line["size"], line["printing_required"]) == (7, "black", "50", True)
-    assert response.json()["total_amount"] == 14
+    assert response.json()["total_amount"] is None
+    assert response.json()["currency"] is None
     with SessionLocal() as db:
         assert db.query(StockReservation).count() == 0
 

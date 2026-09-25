@@ -74,7 +74,7 @@ def test_create_sales_order_preserves_representable_boundary_values(client, auth
 
 def test_create_sales_order_preserves_normal_payload_and_response(client, auth_headers):
     model_id = _standard_model_id()
-    response = client.post("/api/sales-orders", headers=auth_headers, json={"items": [
+    response = client.post("/api/sales-orders", headers=auth_headers, json={"currency": "USD", "items": [
         _line(model_id, quantity=4, unit_price="1.25"),
         _line(model_id, quantity=2, unit_price="2.50"),
     ]})

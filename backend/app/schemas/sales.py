@@ -50,7 +50,7 @@ class SalesOrderItemOut(ORMModel):
     size: str
     quantity: int
     requested_pack_count: Optional[int] = None
-    unit_price: float
+    unit_price: Optional[float] = None
     printing_required: bool
     source_type: str
     notes: Optional[str] = None
@@ -91,7 +91,7 @@ class SalesOrderOut(ORMModel):
     order_type: str
     status: str
     deadline: Optional[datetime] = None
-    total_amount: float
+    total_amount: Optional[float] = None
     currency: Optional[str] = None
     planning_estimated_material_cost: Optional[float] = None
     planning_estimated_labor_cost: Optional[float] = None

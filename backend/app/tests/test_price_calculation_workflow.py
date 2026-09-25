@@ -226,6 +226,7 @@ def test_price_calculation_department_workflow_and_authorization(client):
     sales_order = client.post(
         "/api/sales-orders",
         json={
+            "currency": "USD",
             "items": [
                 {"model_id": data["model_id"], "color": "gray", "size": "S", "quantity": 10},
                 {"model_id": data["model_id"], "color": "gray", "size": "M", "quantity": 4, "unit_price": 1.25},

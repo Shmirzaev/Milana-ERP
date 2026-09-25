@@ -57,6 +57,15 @@ _STOCK_VARIANT_QUERY_CHUNK_SIZE = 200
 _MAX_SALES_ORDER_ITEM_PRICE = Decimal("9999999999.99")
 _SALES_ORDER_ITEM_PRICE_CENT = Decimal("0.01")
 _SALES_ORDER_ITEM_SOURCE_TYPES = frozenset({"produce_new", "from_stock"})
+_UNPROVENANCED_PLANNING_MONEY_FIELDS = (
+    "planning_estimated_material_cost",
+    "planning_estimated_labor_cost",
+    "planning_estimated_electricity_cost",
+    "planning_estimated_other_cost",
+    "planning_estimated_net_cost",
+    "planning_suggested_price_15",
+    "planning_suggested_price_20",
+)
 
 
 class SalesOrderPageContext(BaseModel):
@@ -107,6 +116,18 @@ def _serialize_sales_order(
     """Shape sales-order payloads with customer/model names for frontend display."""
     schema_cls = SalesOrderDetail if include_items else SalesOrderOut
     payload = schema_cls.model_validate(so).model_dump()
+
+    # Planning estimates have no persisted cost-currency provenance. Item.default_cost
+    # is currency-less, so neither those estimates nor derived suggested prices can
+    # safely inherit the sales order currency.
+    for field in _UNPROVENANCED_PLANNING_MONEY_FIELDS:
+        payload[field] = None
+    # A numeric order total and line prices are meaningful only with the currency
+    # recorded on the order. Keep these as stored internally for business logic.
+    if so.currency is None:
+        payload["total_amount"] = None
+        for item in payload.get("items", []):
+            item["unit_price"] = None
 
     customer = (
         customers.get(so.customer_id)

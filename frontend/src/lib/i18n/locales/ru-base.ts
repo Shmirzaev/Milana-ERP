@@ -1454,7 +1454,7 @@ export default {
     "home.live": "live",
     "sales.eyebrow": "Коммерция / Заказы",
     "sales.title": "Заказы",
-    "sales.subtitle": "{active} активных - ${value} в работе - показано {shown}",
+    "sales.subtitle": "{active} активных - {value} в работе - показано {shown}",
     "sales.filter": "Фильтр",
     "sales.export": "Экспорт",
     "sales.searchPlaceholder": "Поиск по номеру, клиенту, статусу...",

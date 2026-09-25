@@ -1454,7 +1454,7 @@ export default {
     "home.live": "live",
     "sales.eyebrow": "Savdo / Buyurtmalar",
     "sales.title": "Buyurtmalar",
-    "sales.subtitle": "{active} faol - ${value} jarayonda - {shown} ta ko‘rsatilgan",
+    "sales.subtitle": "{active} faol - {value} jarayonda - {shown} ta ko‘rsatilgan",
     "sales.filter": "Filtr",
     "sales.export": "Eksport",
     "sales.searchPlaceholder": "Buyurtma raqami, mijoz, status bo‘yicha qidirish...",

@@ -9,6 +9,7 @@ import StagePipeline, { operationLabel, productionTypeLabel, statusLabel } from 
 import { formatOrderReference, orderReference } from "@/lib/orderRef";
 import { formatComposition } from "@/lib/materialComposition";
 import { formatModelComposition } from "@/lib/modelComposition";
+import { recordedSalesOrderMoney } from "@/lib/salesOrderMoney";
 
 type PrintingAttachment = { file_url: string; file_name?: string | null; content_type?: string | null };
 type SalesOrderPageContext = { sales_order: any; material_requirements: any[] | null };
@@ -100,7 +101,7 @@ export default function SalesOrderDetail() {
           <dl className="text-sm space-y-1">
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.orderNo")}</dt><dd>{formatOrderReference(so.order_no)}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.customer")}</dt><dd>{so.customer?.name || so.customer_name || so.customer_id || "-"}</dd></div>
-            <div className="flex justify-between"><dt className="text-slate-500">{t("field.total")}</dt><dd>${Number(so.total_amount).toFixed(2)}</dd></div>
+            <div className="flex justify-between"><dt className="text-slate-500">{t("field.total")}</dt><dd>{recordedSalesOrderMoney(so.total_amount, so.currency)}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.deadline")}</dt><dd>{so.deadline ? new Date(so.deadline).toLocaleDateString() : "—"}</dd></div>
             {so.planning_estimated_material_cost !== null && so.planning_estimated_material_cost !== undefined && (
               <div className="flex justify-between"><dt className="text-slate-500">{t("page.soDetail.planningMaterialCost")}</dt><dd>${Number(so.planning_estimated_material_cost).toFixed(2)}</dd></div>
@@ -147,7 +148,7 @@ export default function SalesOrderDetail() {
                   <td>{i.color}</td>
                   <td>{i.size}</td>
                   <td>{i.quantity}</td>
-                  <td>${Number(i.unit_price).toFixed(2)}</td>
+                  <td>{recordedSalesOrderMoney(i.unit_price, so.currency)}</td>
                 </tr>
               ))}
             </tbody>

@@ -1578,7 +1578,7 @@ export default {
     "home.live": "live",
     "sales.eyebrow": "Commerce / Sales orders",
     "sales.title": "Sales orders",
-    "sales.subtitle": "{active} active - ${value} in flight - {shown} shown",
+    "sales.subtitle": "{active} active - {value} in flight - {shown} shown",
     "sales.filter": "Filter",
     "sales.export": "Export",
     "sales.searchPlaceholder": "Search order number, customer, status...",

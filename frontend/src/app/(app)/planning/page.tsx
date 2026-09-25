@@ -18,6 +18,7 @@ import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 import { GARMENT_SIZE_OPTIONS } from "@/lib/garmentSizes";
 import { numberOrFallback, numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
+import { recordedSalesOrderMoney } from "@/lib/salesOrderMoney";
 
 type FabricBatch = {
   id: number;
@@ -1268,7 +1269,7 @@ export default function PlanningDashboard() {
               <tr key={o.id}>
                 <td>{formatOrderReference(o.order_no)}</td>
                 <td>{o.customer?.name || o.customer_name || o.customer_id || "-"}</td>
-                <td>${Number(o.total_amount).toFixed(2)}</td>
+                <td>{recordedSalesOrderMoney(o.total_amount, o.currency)}</td>
                 <td>{statusLabel(o.status, t)}</td>
                 <td>
                   <div className="flex flex-wrap gap-2">
