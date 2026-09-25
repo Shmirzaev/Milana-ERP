@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.orm import lazyload, load_only
 from app.core.deps import DbSession, require_permissions
 from app.models import EcoFabricDispatch, EcoFabricRoll, Item, StockBatch, StockMovement, User
@@ -15,6 +15,7 @@ from app.services.factory_scope import selected_factory_code
 from app.services.inventory import reserved_stock_for_batch, available_stock_for_item
 from app.services.inventory_access import MATERIAL_CATEGORIES
 from app.services.stock_batch_policy import validate_stock_batch_unit
+from app.services.workflow import STOCK_ITEM_AVAILABILITY_LOCK_NAMESPACE
 
 router = APIRouter(prefix="/eco-fabric-transfers", tags=["eco_fabric_transfers"])
 
@@ -67,6 +68,16 @@ def batch_lock(db, batch_id):
     if not batch or not batch.item or batch.item.category not in MATERIAL_CATEGORIES:
         raise HTTPException(404, "fabricScans.fabric_not_found")
     return batch
+
+
+def _lock_dispatch_items(db, batches):
+    """Protect item-only reservations after all batch row locks are held."""
+    if db.bind and db.bind.dialect.name == "postgresql":
+        item_ids = sorted({int(batch.item_id) for batch in batches.values()})
+        db.execute(text(
+            "SELECT pg_advisory_xact_lock(:namespace, lock_id) "
+            "FROM unnest(CAST(:item_ids AS INTEGER[])) AS ordered_locks(lock_id) ORDER BY lock_id"
+        ), {"namespace": STOCK_ITEM_AVAILABILITY_LOCK_NAMESPACE, "item_ids": item_ids})
 
 
 def quantity(db, batch, roll):
@@ -132,6 +143,7 @@ def send(payload: SendIn, db: DbSession, user: User = Depends(access)):
         raise HTTPException(400, "ecoTransfers.duplicate")
     # Lock batches in stable order; all mutation paths share the inventory row locks.
     batches = {bid: batch_lock(db, bid) for bid in sorted({bid for bid, _ in identities})}
+    _lock_dispatch_items(db, batches)
     key = str(payload.request_key)
     previous = db.query(EcoFabricDispatch).filter_by(request_key=key).first()
     if previous:

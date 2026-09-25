@@ -7,6 +7,7 @@ from app.models import (StockBatch, StockMovement, EcoFabricDispatch, EcoFabricR
 from app.tests.conftest import TestSessionLocal, test_engine
 from app.core.deps import get_current_user
 from app.main import app
+from app.services.inventory import current_stock_for_item
 from app.tests.test_fabric_scans import fabric_batch  # noqa: F401
 
 
@@ -272,6 +273,34 @@ def test_reserved_stock_cannot_leave(client, auth_headers, fabric_batch):
     assert send(client, auth_headers, fabric_batch).status_code == 409
     with TestSessionLocal() as db:
         assert db.get(StockBatch, fabric_batch).quantity == 45
+
+
+def test_item_only_reservation_blocks_dispatch_without_partial_writes(client, auth_headers, fabric_batch):
+    with TestSessionLocal() as db:
+        batch = db.get(StockBatch, fabric_batch)
+        order = ProductionOrder(
+            production_no=f"PO-ECO-ITEM-{uuid4().hex[:8]}", model_id=1,
+            planned_quantity=50, production_type="branded_stock",
+        )
+        db.add(order)
+        db.flush()
+        db.add(MaterialReservation(
+            reservation_no=f"RES-ECO-ITEM-{uuid4().hex[:8]}", production_order_id=order.id,
+            item_id=batch.item_id, warehouse_id=batch.warehouse_id,
+            reserved_quantity=current_stock_for_item(db, batch.item_id, batch.warehouse_id) - 5,
+            unit="kg", status="reserved",
+        ))
+        db.commit()
+        before_movements = db.query(StockMovement).count()
+
+    response = send(client, auth_headers, fabric_batch, (1,))
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "ecoTransfers.unavailable"
+    with TestSessionLocal() as db:
+        assert db.get(StockBatch, fabric_batch).quantity == 45
+        assert db.query(StockMovement).count() == before_movements
+        assert db.query(EcoFabricDispatch).count() == 0
+        assert db.query(EcoFabricRoll).count() == 0
 
 
 def test_daily_history_uses_tashkent_date(client, auth_headers, fabric_batch):
