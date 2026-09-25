@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, load_only, noload, selectinload
 from app.core.dt import as_utc
 from app.models import (
     SalesOrder, SalesOrderItem, ProductionOrder, FinishedGoodsStock,
-    WasteRecord, Invoice, Payment, ModelBOM, StockBatch, Customer, Item,
+    WasteRecord, WasteSale, Invoice, Payment, ModelBOM, StockBatch, Customer, Item,
     StockMovement, CuttingRecord, PackagingRecord, WorkOrder, MaterialReservation,
 )
 
@@ -33,8 +33,7 @@ def waste_cost(db: Session) -> float:
 
 
 def waste_income(db: Session) -> float:
-    val = db.query(func.coalesce(func.sum(WasteRecord.estimated_value), 0)) \
-        .filter(WasteRecord.sellable.is_(True)).scalar()
+    val = db.query(func.coalesce(func.sum(WasteSale.total_amount), 0)).scalar()
     return float(val or 0)
 
 

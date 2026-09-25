@@ -90,6 +90,8 @@ Finance dashboard includes:
 
 Cost breakdown is a current estimate based on BOM quantities, the latest stock batch cost, and planning labor. Historical order profit instead uses the unit cost recorded when material was consumed. If an older or batchless consumption has no cost snapshot, the order's material cost and gross profit display as unavailable until Finance reconciles the source record; the report does not substitute today's price. Check source data before asking departments to change history.
 
+Waste income totals recorded waste sale amounts, including partial sales. Marking waste as sellable or entering an estimated value does not create income; unsold waste contributes zero. Waste cost continues to use the estimated value of waste marked non-sellable.
+
 ## Payroll Payment
 
 Finance marks payroll paid only after payroll is approved.
