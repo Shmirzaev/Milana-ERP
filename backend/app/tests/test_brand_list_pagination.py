@@ -87,3 +87,23 @@ def test_brand_page_contract_authentication_bounds_and_no_writes(client, auth_he
     with TestSessionLocal() as db:
         after = (db.query(Brand).count(), db.query(AuditLog).count())
     assert after == before
+
+
+def test_brand_search_filters_before_paging_and_escapes_like_wildcards():
+    with _brand_database(401) as db:
+        db.add(Brand(name="Brand %_ literal", description="Special marker"))
+        db.commit()
+
+        page, statements = _read(db, page=2, page_size=50, q="Brand 03")
+        assert page["total"] == 100
+        assert page["has_more"] is False
+        assert [row.name for row in page["rows"]] == [f"Brand {index:04d}" for index in range(350, 400)]
+        assert len(statements) == 2
+
+        description, _ = _read(db, page=1, page_size=50, q="Description 399")
+        assert description["total"] == 1
+        assert description["rows"][0].name == "Brand 0399"
+
+        literal, _ = _read(db, page=1, page_size=50, q="%_")
+        assert literal["total"] == 1
+        assert literal["rows"][0].name == "Brand %_ literal"
