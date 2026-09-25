@@ -43,9 +43,48 @@ def _unit_cost_for_waste(db: DbSession, item_id: int | None, batch_id: int | Non
     return Decimal("0")
 
 
-def _estimated_value_for_waste(db: DbSession, w: WasteRecord) -> float:
-    unit_cost = _unit_cost_for_waste(db, w.item_id, w.batch_id)
-    return float(round(Decimal(str(w.quantity or 0)) * unit_cost, 2))
+def _estimated_values_for_waste_page(db: DbSession, rows: list[WasteRecord]) -> dict[int, float]:
+    batch_ids = {row.batch_id for row in rows if row.batch_id is not None}
+    batch_costs = dict(
+        db.query(StockBatch.id, StockBatch.cost_per_unit)
+        .filter(StockBatch.id.in_(batch_ids))
+        .all()
+    ) if batch_ids else {}
+
+    fallback_item_ids = {
+        row.item_id for row in rows
+        if row.item_id is not None and row.batch_id not in batch_costs
+    }
+    latest_costs = {}
+    if fallback_item_ids:
+        latest_batch_ids = (
+            db.query(StockBatch.item_id, func.max(StockBatch.id).label("latest_id"))
+            .filter(StockBatch.item_id.in_(fallback_item_ids))
+            .group_by(StockBatch.item_id)
+            .subquery()
+        )
+        latest_costs = dict(
+            db.query(StockBatch.item_id, StockBatch.cost_per_unit)
+            .join(latest_batch_ids, StockBatch.id == latest_batch_ids.c.latest_id)
+            .all()
+        )
+    default_item_ids = fallback_item_ids - latest_costs.keys()
+    default_costs = dict(
+        db.query(Item.id, Item.default_cost)
+        .filter(Item.id.in_(default_item_ids))
+        .all()
+    ) if default_item_ids else {}
+
+    values = {}
+    for row in rows:
+        if row.batch_id in batch_costs:
+            unit_cost = batch_costs[row.batch_id]
+        elif row.item_id in latest_costs:
+            unit_cost = latest_costs[row.item_id]
+        else:
+            unit_cost = default_costs.get(row.item_id, 0)
+        values[row.id] = float(round(Decimal(str(row.quantity or 0)) * Decimal(str(unit_cost or 0)), 2))
+    return values
 
 
 def _validated_waste_values(quantity_value, unit_cost: Decimal) -> tuple[Decimal, Decimal]:
@@ -107,12 +146,13 @@ def list_waste(
         .group_by(WasteSale.waste_record_id)
         .all()
     ) if row_ids else {}
+    estimated_values = _estimated_values_for_waste_page(db, rows)
     # Preserve the existing live-estimate response without rewriting the
     # valuation snapshot stored with the historical waste record.
     payloads = [
         WasteOut.model_validate(row).model_copy(
             update={
-                "estimated_value": _estimated_value_for_waste(db, row),
+                "estimated_value": estimated_values[row.id],
                 "remaining_quantity": float(max(
                     Decimal("0"),
                     Decimal(str(row.quantity or 0)) - Decimal(sold_by_waste_id.get(row.id, 0) or 0),
