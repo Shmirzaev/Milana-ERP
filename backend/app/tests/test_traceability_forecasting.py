@@ -23,7 +23,7 @@ from app.models import (
     StockBatch,
     Warehouse,
 )
-from app.services.forecasting import _planned_bom_demand
+from app.services.forecasting import _planned_bom_demand, item_reorder_suggestions
 from app.tests.conftest import TestSessionLocal
 
 
@@ -675,13 +675,16 @@ def test_forecasting_matches_unbranded_finished_stock_through_production_order(c
 def test_forecasting_item_reorder_suggestions_when_below_level(client, auth_headers):
     item_id, sku = _create_reorder_item(reorder_level=50)
 
-    r = client.get("/api/forecasting/item-reorder-suggestions", headers=auth_headers)
-    assert r.status_code == 200, r.text
-    row = next((item for item in r.json() if int(item["item_id"]) == item_id), None)
+    with TestSessionLocal() as db:
+        row = next((item for item in item_reorder_suggestions(db) if int(item["item_id"]) == item_id), None)
     assert row is not None
     assert row["item_sku"] == sku
     assert float(row["suggested_quantity"]) >= 50
     assert "reorder level" in row["reason"]
+
+    r = client.get("/api/forecasting/item-reorder-suggestions", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert r.json() == []
 
 
 def test_forecasting_item_reorder_uses_planned_bom_demand_without_reorder_level(client, auth_headers):
@@ -743,18 +746,22 @@ def test_forecasting_item_reorder_uses_planned_bom_demand_without_reorder_level(
     finally:
         db.close()
 
-    r = client.get("/api/forecasting/item-reorder-suggestions", headers=auth_headers)
-    assert r.status_code == 200, r.text
-    row = next((entry for entry in r.json() if int(entry["item_id"]) == item_id), None)
+    with TestSessionLocal() as db:
+        row = next((entry for entry in item_reorder_suggestions(db) if int(entry["item_id"]) == item_id), None)
     assert row is not None
     assert row["item_sku"] == sku
     assert float(row["reorder_level"]) == 0
     assert float(row["planned_bom_demand"]) == 10
     assert float(row["suggested_quantity"]) >= 10
     assert "planned BOM demand" in row["reason"]
+    r = client.get("/api/forecasting/item-reorder-suggestions", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert r.json() == []
     dashboard = client.get("/api/forecasting/dashboard", headers=auth_headers)
     assert dashboard.status_code == 200, dashboard.text
     assert dashboard.json()["unlinked_bom_count"] >= 1
+    assert dashboard.json()["item_reorder_suggestions"] == []
+    assert dashboard.json()["cards"]["reorder_alert_count"] == 0
 
 
 

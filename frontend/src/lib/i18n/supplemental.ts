@@ -5,6 +5,7 @@ import type { Lang } from "./types";
 export const supplemental: Record<Lang, Record<string, string>> = {
   en: {
     "common.error": "Something went wrong.",
+    "page.forecasting.sharedInventoryExcluded": "Shared inventory is excluded until its factory ownership is recorded.",
     "page.inventory.arrivalDate": "Arrival date",
     "qrOrders.none": "No QR codes scanned",
     "qrOrders.partial": "Partially scanned",
@@ -1122,6 +1123,7 @@ export const supplemental: Record<Lang, Record<string, string>> = {
   },
   ru: {
     "common.error": "Произошла ошибка.",
+    "page.forecasting.sharedInventoryExcluded": "Общие складские запасы исключены, пока не указана их принадлежность фабрике.",
     "page.inventory.arrivalDate": "Дата поступления",
     "qrOrders.none": "QR-коды не отсканированы",
     "qrOrders.partial": "Частично отсканировано",
@@ -2356,6 +2358,7 @@ export const supplemental: Record<Lang, Record<string, string>> = {
   },
   uz: {
     "common.error": "Xatolik yuz berdi.",
+    "page.forecasting.sharedInventoryExcluded": "Umumiy ombor zaxiralari qaysi fabrikaga tegishli ekani qayd etilmaguncha ko‘rsatilmaydi.",
     "page.inventory.arrivalDate": "Kelgan sana",
     "qrOrders.none": "QR kodlar skanerlanmagan",
     "qrOrders.partial": "Qisman skanerlangan",

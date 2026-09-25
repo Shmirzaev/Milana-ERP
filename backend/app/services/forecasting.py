@@ -517,7 +517,16 @@ def _recent_usage_by_item(db: Session, *, days: int = 90) -> dict[tuple[int, str
     return {(int(item_id), str(unit or "")): float(qty or 0) for item_id, unit, qty in rows}
 
 
-def item_reorder_suggestions(db: Session) -> list[dict]:
+def item_reorder_suggestions(
+    db: Session,
+    *,
+    factory_codes: Sequence[str] | None = None,
+) -> list[dict]:
+    # Item, stock and movement rows have no factory ownership. Factory-scoped
+    # forecasting excludes them until ownership is recorded, even if a BOM
+    # for one factory happens to reference the shared item.
+    if factory_codes is not None:
+        return []
     item_rows = db.query(
         Item.id,
         Item.sku,
@@ -627,7 +636,7 @@ def forecasting_dashboard(
         factory_codes=factory_codes,
     )
     branded = [row for row in branded_analysis if row["suggested_quantity"] > 0]
-    reorder = item_reorder_suggestions(db)
+    reorder = item_reorder_suggestions(db, factory_codes=factory_codes)
     low_stock_fg = sum(1 for row in branded_analysis if row["is_low_stock"])
     trend = demand_trend(db, groups=branded_groups)
     unlinked_bom_query = db.query(ModelBOM.id).filter(

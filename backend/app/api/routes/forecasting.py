@@ -166,9 +166,12 @@ def get_branded_stock_suggestions(
 @router.get("/item-reorder-suggestions")
 def get_item_reorder_suggestions(
     db: DbSession,
-    _: object = Depends(require_permissions("forecasting.view", "*")),
+    current: User = Depends(require_permissions("forecasting.view", "*")),
 ):
-    return item_reorder_suggestions(db)
+    return item_reorder_suggestions(
+        db,
+        factory_codes=factory_codes_with_permission(current, "forecasting.view"),
+    )
 
 
 @router.post("/recommendations", response_model=ForecastRecommendationOut, status_code=201)

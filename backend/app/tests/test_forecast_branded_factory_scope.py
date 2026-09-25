@@ -8,6 +8,7 @@ from app.core.security import create_access_token
 from app.db.session import SessionLocal
 from app.models import (
     FinishedGoodsStock,
+    Item,
     Model,
     ModelBOM,
     ProductionOrder,
@@ -152,6 +153,37 @@ def test_dashboard_branded_data_and_unlinked_bom_count_follow_factory_grants(cli
     assert model_ids["BST"] not in visible_model_ids
     assert model_ids["UNASSIGNED"] not in visible_model_ids
     assert payload["unlinked_bom_count"] == before.json()["unlinked_bom_count"] + 2
+
+
+def test_factory_scoped_forecasting_excludes_shared_inventory_but_keeps_branded_models(client):
+    model_ids = _insert_factory_demand_rows()
+    headers = _forecast_view_headers(extra_permissions=["factory:ECO:forecasting.view"])
+    marker = uuid4().hex[:8].upper()
+    with TestSessionLocal() as db:
+        db.add(Item(
+            sku=f"FC-SHARED-ITEM-{marker}",
+            name=f"Shared reorder item {marker}",
+            category="fabric",
+            unit="kg",
+            reorder_level=50,
+            is_active=True,
+        ))
+        db.commit()
+
+    reorder = client.get("/api/forecasting/item-reorder-suggestions", headers=headers)
+    dashboard = client.get("/api/forecasting/dashboard", headers=headers)
+
+    assert reorder.status_code == 200, reorder.text
+    assert reorder.json() == []
+    assert dashboard.status_code == 200, dashboard.text
+    payload = dashboard.json()
+    assert payload["item_reorder_suggestions"] == []
+    assert payload["cards"]["reorder_alert_count"] == 0
+    visible = {row["model_id"] for row in payload["branded_stock_suggestions"]}
+    assert model_ids["MIL"] in visible
+    assert model_ids["ECO"] in visible
+    assert model_ids["BST"] not in visible
+    assert model_ids["UNASSIGNED"] not in visible
 
 
 def test_branded_suggestions_api_super_admin_sees_all_attributed_factories(client):

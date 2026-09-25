@@ -42,7 +42,7 @@ export default function ForecastingPage() {
     }
   }
   const branded = data?.branded_stock_suggestions || [];
-  const reorder = data?.item_reorder_suggestions || [];
+  const reorder = (data?.item_reorder_suggestions || []).filter((row: any) => Boolean(row.model_id));
   const demandTrend = data?.demand_trend || [];
   const cards = data?.cards || {};
   const locale = lang === "ru" ? "ru-RU" : lang === "uz" ? "uz-UZ" : "en-US";
@@ -104,7 +104,7 @@ export default function ForecastingPage() {
       {data.unlinked_bom_count > 0 && <p className="mb-4 text-sm text-amber-800">{t("page.forecasting.unlinkedBom", { count: data.unlinked_bom_count })}</p>}
       <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="kpi-card"><div className="label">{t("page.forecasting.productionSuggestions")}</div><div className="mt-1 text-2xl font-semibold">{cards.suggested_production_count ?? branded.length}</div></div>
-        <div className="kpi-card"><div className="label">{t("page.forecasting.reorderAlerts")}</div><div className="mt-1 text-2xl font-semibold">{cards.reorder_alert_count ?? reorder.length}</div></div>
+        <div className="kpi-card"><div className="label">{t("page.forecasting.reorderAlerts")}</div><div className="mt-1 text-2xl font-semibold">{reorder.length || "—"}</div>{reorder.length === 0 && <div className="mt-1 text-xs text-slate-500">{t("page.forecasting.sharedInventoryExcluded")}</div>}</div>
         <div className="kpi-card"><div className="label">{t("page.forecasting.lowStockFinished")}</div><div className="mt-1 text-2xl font-semibold">{cards.low_stock_finished_goods ?? 0}</div></div>
         <div className="kpi-card"><div className="label">{t("page.forecasting.demandTrend")}</div><div className="mt-1 text-2xl font-semibold">{qty(cards.demand_trend_quantity)}</div></div>
       </div>
@@ -217,7 +217,7 @@ export default function ForecastingPage() {
                 </td>
               </tr>
             ))}
-            {reorder.length === 0 && <tr><td colSpan={9} className="text-sm text-slate-400">{t("page.forecasting.noReorderSuggestions")}</td></tr>}
+            {reorder.length === 0 && <tr><td colSpan={9} className="text-sm text-slate-500">{t("page.forecasting.sharedInventoryExcluded")}</td></tr>}
           </tbody>
         </table>
       </section>

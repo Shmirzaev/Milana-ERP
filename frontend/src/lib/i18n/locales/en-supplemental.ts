@@ -1,6 +1,7 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
     "common.error": "Something went wrong.",
+    "page.forecasting.sharedInventoryExcluded": "Shared inventory is excluded until its factory ownership is recorded.",
     "page.inventory.arrivalDate": "Arrival date",
     "qrOrders.none": "No QR codes scanned",
     "qrOrders.partial": "Partially scanned",

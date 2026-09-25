@@ -1,6 +1,7 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
     "common.error": "Произошла ошибка.",
+    "page.forecasting.sharedInventoryExcluded": "Общие складские запасы исключены, пока не указана их принадлежность фабрике.",
     "page.inventory.arrivalDate": "Дата поступления",
     "qrOrders.none": "QR-коды не отсканированы",
     "qrOrders.partial": "Частично отсканировано",
