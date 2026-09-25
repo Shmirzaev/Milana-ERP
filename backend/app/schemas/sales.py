@@ -1,7 +1,7 @@
 from uuid import UUID
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.common import ORMModel, SchemaModel
@@ -66,7 +66,7 @@ class SalesOrderPrintingAttachment(BaseModel):
 class SalesOrderIn(BaseModel):
     currency: Optional[str] = Field(default=None, pattern=r"^[A-Z]{3}$")
     customer_id: Optional[int] = None
-    order_type: str = "client_order"
+    order_type: Literal["client_order", "branded_stock_sale"] = "client_order"
     deadline: Optional[datetime] = None
     printing_instructions: Optional[str] = None
     printing_attachments: list[SalesOrderPrintingAttachment] = Field(default_factory=list, max_length=50)
