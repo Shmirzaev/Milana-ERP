@@ -1827,6 +1827,28 @@ def update_batch(
         if db.query(WasteRecord.id).filter(WasteRecord.batch_id == batch_id).first():
             raise HTTPException(409, "Cannot change batch unit while linked waste records exist")
 
+    # Quantity reduction, relocation and item relinking can each withdraw
+    # stock pledged by an item-only reservation. Check the source balance
+    # while holding the same batch-before-item lock order as reservation writes.
+    source_changed = target_item.id != item.id
+    source_warehouse_changed = target_warehouse_id != old_warehouse_id
+    source_global_debit = old_quantity if source_changed else max(0.0, -delta)
+    source_local_debit = old_quantity if source_changed or source_warehouse_changed else max(0.0, -delta)
+    if source_global_debit > EPSILON or source_local_debit > EPSILON:
+        lock_stock_item_availability(db, int(item.id))
+        item_only_claim_exists = db.query(MaterialReservation.id).filter(
+            MaterialReservation.item_id == item.id,
+            MaterialReservation.stock_batch_id.is_(None),
+            MaterialReservation.status.in_(ACTIVE_RESERVATION_STATUSES),
+        ).first() is not None
+        if item_only_claim_exists and (
+            source_global_debit > available_stock_for_item(db, int(item.id)) + EPSILON
+            or source_local_debit > available_stock_for_item(
+                db, int(item.id), old_warehouse_id,
+            ) + EPSILON
+        ):
+            raise HTTPException(409, "Cannot remove stock reserved for another order")
+
     old_value = {
         "item_id": batch.item_id,
         "batch_no": batch.batch_no,

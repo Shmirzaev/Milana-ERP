@@ -1773,6 +1773,80 @@ def test_stock_batch_delete_preserves_other_order_item_only_reservation(
         assert db.get(MaterialReservation, reservation_id).status == "reserved"
 
 
+@pytest.mark.parametrize("change", ["quantity", "warehouse", "item"])
+def test_batch_edit_cannot_move_item_only_reserved_stock(client, auth_headers, change):
+    from app.db import session as session_module
+    from app.models import AuditLog, Item, MaterialReservation, Model, ProductionOrder, StockBatch, StockMovement, Warehouse
+
+    suffix = uuid4().hex[:8].upper()
+    item_response = client.post(
+        "/api/inventory/items",
+        json={"sku": f"FAB-EDIT-CLAIM-{suffix}", "name": f"Edit claim {suffix}",
+              "category": "fabric", "unit": "kg", "default_cost": 1,
+              "reorder_level": 0, "track_batch": True, "is_active": True},
+        headers=auth_headers,
+    )
+    assert item_response.status_code == 201, item_response.text
+    item_id = item_response.json()["id"]
+    warehouses = client.get("/api/inventory/warehouses", headers=auth_headers)
+    assert warehouses.status_code == 200, warehouses.text
+    warehouse_id = next(row["id"] for row in warehouses.json() if row["type"] == "fabric_storage")
+    receive = client.post(
+        "/api/inventory/receive",
+        json={"item_id": item_id, "batch_no": f"EDIT-CLAIM-{suffix}",
+              "quantity": 10, "unit": "kg", "cost_per_unit": 1,
+              "warehouse_id": warehouse_id, "qc_status": "passed"},
+        headers=auth_headers,
+    )
+    assert receive.status_code == 201, receive.text
+    batch_id = receive.json()["id"]
+
+    with session_module.SessionLocal() as db:
+        model = Model(code=f"EDIT-CLAIM-{suffix}", name=f"Edit claim {suffix}", status="approved")
+        db.add(model)
+        db.flush()
+        order = ProductionOrder(production_no=f"PO-EDIT-CLAIM-{suffix}",
+                                production_type="branded_stock", model_id=model.id, planned_quantity=1)
+        db.add(order)
+        db.flush()
+        claim = MaterialReservation(
+            reservation_no=f"MR-EDIT-CLAIM-{suffix}", production_order_id=order.id,
+            item_id=item_id, stock_batch_id=None, warehouse_id=warehouse_id,
+            reserved_quantity=8, consumed_quantity=0, released_quantity=0,
+            unit="kg", status="reserved", reservation_type="material", source="manual",
+        )
+        db.add(claim)
+        target = {}
+        if change == "warehouse":
+            other = Warehouse(name=f"Other fabric {suffix}", type="fabric_storage")
+            db.add(other)
+            db.flush()
+            target = {"warehouse_id": other.id}
+        elif change == "item":
+            other = Item(sku=f"FAB-EDIT-TARGET-{suffix}", name=f"Target {suffix}",
+                         category="fabric", unit="kg")
+            db.add(other)
+            db.flush()
+            target = {"item_id": other.id}
+        else:
+            target = {"quantity": 0}
+        db.commit()
+        reservation_id = claim.id
+        movement_count = db.query(StockMovement).count()
+        audit_count = db.query(AuditLog).count()
+
+    denied = client.patch(f"/api/inventory/batches/{batch_id}", json=target, headers=auth_headers)
+    assert denied.status_code == 409, denied.text
+    with session_module.SessionLocal() as db:
+        batch = db.get(StockBatch, batch_id)
+        claim = db.get(MaterialReservation, reservation_id)
+        assert float(batch.quantity) == 10
+        assert batch.item_id == item_id and batch.warehouse_id == warehouse_id
+        assert claim.status == "reserved" and float(claim.released_quantity) == 0
+        assert db.query(StockMovement).count() == movement_count
+        assert db.query(AuditLog).count() == audit_count
+
+
 def test_stock_batch_delete_treats_legacy_null_reference_type_as_downstream(client, auth_headers):
     from app.db import session as session_module
     from app.models import StockBatch, StockMovement
