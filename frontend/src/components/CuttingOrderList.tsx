@@ -73,12 +73,14 @@ function sewingFactoryLabel(code: string | null | undefined, t: CtxT) {
 
 export default function CuttingOrderList({
   rows,
+  total,
   startingWorkOrderId,
   startError,
   onMoveToInProgress,
   t,
 }: {
   rows: CuttingOrder[];
+  total?: number;
   startingWorkOrderId: number | null;
   startError: string;
   onMoveToInProgress: (workOrderId: number) => void;
@@ -111,7 +113,7 @@ export default function CuttingOrderList({
   return (
     <section className="card">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e3dfd3] px-4 py-3">
-        <h2 className="app-card-title">{t("cuttingInbox.orders", { count: rows.length })}</h2>
+        <h2 className="app-card-title">{t("cuttingInbox.orders", { count: total ?? rows.length })}</h2>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-[#56503f]" aria-label={t("cuttingInbox.colorMeaning")}>
           <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 border border-[#ded9ca] bg-white" />{t("cuttingInbox.untouched")}</span>
           <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 border border-amber-200 bg-yellow-50" />{t("cuttingInbox.cutWaitingShort")}</span>

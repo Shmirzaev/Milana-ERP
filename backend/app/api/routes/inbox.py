@@ -1233,6 +1233,50 @@ def department_order_page(
     }
 
 
+@router.get("/cutting-orders")
+def cutting_order_page(
+    db: DbSession,
+    current: CurrentUser,
+    dept: Annotated[str, Query()],
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+):
+    """Page cutting inbox cards while retaining the legacy inbox response."""
+    department = _resolve_department(db, current, dept)
+    if department.code not in {"CUT", DEPT_ECO_COTTON_CUTTING}:
+        raise HTTPException(404, "Cutting order queue not found")
+    _require_inbox_department_permission(department, current)
+    query = (
+        db.query(WorkOrder)
+        .join(ProductionOrder, ProductionOrder.id == WorkOrder.production_order_id)
+        .filter(
+            WorkOrder.department_id == department.id,
+            WorkOrder.operation == "cutting",
+            WorkOrder.status.notin_(("rejected", "cancelled")),
+            ProductionOrder.status.notin_(_CANCELLED_PRODUCTION_STATUSES),
+        )
+    )
+    total = query.count()
+    work_orders = query.order_by(WorkOrder.id.desc()).offset(offset).limit(limit).all()
+    po_ids = sorted({int(work_order.production_order_id) for work_order in work_orders})
+    received_by_po = _received_bundle_totals_by_po(db, po_ids)
+    material_by_po = _material_payload_by_production_order(db, po_ids)
+    production_context_by_po = _production_context_by_production_order(db, po_ids)
+    rows = [
+        _work_order_card_payload(
+            work_order, received_by_po, None, material_by_po, production_context_by_po,
+        )
+        for work_order in work_orders
+    ]
+    return {
+        "rows": rows,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + len(rows) < total,
+    }
+
+
 def _received_bundle_totals_by_po(db: DbSession, po_ids: list[int]) -> dict[int, dict[str, int]]:
     ids = sorted({int(po_id) for po_id in po_ids if po_id})
     if not ids:

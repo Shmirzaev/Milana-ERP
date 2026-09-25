@@ -64,6 +64,8 @@ type DepartmentOrderPage = {
   has_more: boolean;
 };
 
+type CuttingOrderPage = DepartmentOrderPage;
+
 function MaterialThumb({ row }: { row: any }) {
   const imageUrl = row?.material_image_url || row?.model_image_url;
   const src = storageThumbnailUrl(imageUrl, 160);
@@ -142,7 +144,7 @@ export default function DepartmentInboxPage() {
       code === "CUT" || code === "ECT"
         ? "&replacement_cutting_limit=50&replacement_cutting_offset=0"
         : ""
-    }${isPackagingDepartment ? "&include_awaiting_packaging=false" : ""}${isSewingDepartment ? "&include_replacement_sewing=false" : ""}${code === "FGS" ? "&ready_to_ship_limit=50&ready_to_ship_offset=0" : ""}${code !== "CUT" && code !== "ECT" ? "&include_core_orders=false" : ""}`
+    }${isPackagingDepartment ? "&include_awaiting_packaging=false" : ""}${isSewingDepartment ? "&include_replacement_sewing=false" : ""}${code === "FGS" ? "&ready_to_ship_limit=50&ready_to_ship_offset=0" : ""}&include_core_orders=false`
     : null;
   const { data, isLoading, mutate } = useSWR<any>(inboxUrl, fetcher, { refreshInterval: 10_000 });
   const {
@@ -171,6 +173,20 @@ export default function DepartmentInboxPage() {
   } = useSWRInfinite<DepartmentOrderPage>(
     (index, previous) => code && code !== "CUT" && code !== "ECT" && !(previous && !previous.has_more)
       ? `/api/inbox/department-orders?dept=${code}&tz=${encodeURIComponent(clientTz)}&limit=50&offset=${index * 50}`
+      : null,
+    fetcher,
+    { refreshInterval: 10_000 },
+  );
+  const {
+    data: cuttingOrderPages,
+    mutate: mutateCuttingOrderPages,
+    setSize: setCuttingOrderPageCount,
+    isValidating: cuttingOrdersValidating,
+    isLoading: cuttingOrdersLoading,
+    error: cuttingOrdersError,
+  } = useSWRInfinite<CuttingOrderPage>(
+    (index, previous) => (code === "CUT" || code === "ECT") && !(previous && !previous.has_more)
+      ? `/api/inbox/cutting-orders?dept=${code}&limit=50&offset=${index * 50}`
       : null,
     fetcher,
     { refreshInterval: 10_000 },
@@ -242,7 +258,12 @@ export default function DepartmentInboxPage() {
   );
   const replacementSewingTotal = replacementSewingPages?.[0]?.total ?? 0;
   const replacementSewingHasMore = replacementSewingPages?.[replacementSewingPages.length - 1]?.has_more ?? false;
-  const cuttingWorkOrders = Array.isArray(data?.cutting_work_orders) ? data.cutting_work_orders : [];
+  const cuttingWorkOrders = useMemo(
+    () => cuttingOrderPages?.flatMap((page) => page.rows) || [],
+    [cuttingOrderPages],
+  );
+  const cuttingOrdersTotal = cuttingOrderPages?.[0]?.total ?? 0;
+  const cuttingOrdersHasMore = cuttingOrderPages?.at(-1)?.has_more ?? false;
   const departmentOrders = useMemo(
     () => departmentOrderPages?.flatMap((page) => page.rows.map((row) => ({ ...row, queueKind: row.queue_kind }))) || [],
     [departmentOrderPages],
@@ -365,7 +386,7 @@ export default function DepartmentInboxPage() {
     setStartError("");
     try {
       await api.post(`/api/work-orders/${workOrderId}/start`, {});
-      await Promise.all([mutate(), mutateDepartmentOrderPages()]);
+      await Promise.all([mutate(), mutateDepartmentOrderPages(), mutateCuttingOrderPages()]);
     } catch (e: any) {
       setStartError(e?.message || "Failed to move work order to in progress");
     } finally {
@@ -527,14 +548,23 @@ export default function DepartmentInboxPage() {
           ) : null}
         </section>
       )}
-      {!isLoading && (code === "CUT" || code === "ECT") ? (
-        <CuttingOrderList
-          rows={cuttingWorkOrders}
-          startingWorkOrderId={startingWoId}
-          startError={startError}
-          onMoveToInProgress={movePendingToInProgress}
-          t={t}
-        />
+      {(code === "CUT" || code === "ECT") ? (
+        !cuttingOrdersLoading && <div className="min-w-0 space-y-2">
+          {cuttingOrdersError ? <div role="alert" className="text-sm text-red-700">{String(cuttingOrdersError.message || cuttingOrdersError)}</div> : null}
+          <CuttingOrderList
+            rows={cuttingWorkOrders}
+            total={cuttingOrdersTotal}
+            startingWorkOrderId={startingWoId}
+            startError={startError}
+            onMoveToInProgress={movePendingToInProgress}
+            t={t}
+          />
+          {cuttingOrdersHasMore ? (
+            <button type="button" className="btn mt-3 h-9 px-3 text-xs" disabled={cuttingOrdersValidating} onClick={() => void setCuttingOrderPageCount((size) => size + 1)}>
+              {cuttingOrdersValidating ? t("common.loading") : t("common.loadMore")}
+            </button>
+          ) : null}
+        </div>
       ) : !isLoading && !departmentOrdersLoading ? (
         <div className="min-w-0 space-y-2">
           {startError ? <div role="alert" className="text-sm text-red-700">{startError}</div> : null}
