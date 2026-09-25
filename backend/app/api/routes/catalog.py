@@ -14,7 +14,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi import UploadFile, File, Form
 from pydantic import ValidationError
-from sqlalchemy import and_, case, func, literal_column, or_, select
+from sqlalchemy import String, and_, case, cast, func, literal_column, or_, select
 from sqlalchemy.orm import Session, lazyload, load_only, selectinload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions, user_permissions
@@ -1542,6 +1542,7 @@ def list_collections(
     page: int | None = None,
     page_size: int | None = None,
     include_total: bool = False,
+    q: str | None = None,
 ):
     qry = db.query(Collection).options(
         lazyload("*"),
@@ -1557,6 +1558,17 @@ def list_collections(
     )
     if brand_id:
         qry = qry.filter(Collection.brand_id == brand_id)
+    search = (q or "").strip()
+    if search:
+        escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        qry = qry.outerjoin(Brand, Brand.id == Collection.brand_id).filter(or_(
+            Collection.name.ilike(pattern, escape="\\"),
+            Collection.season.ilike(pattern, escape="\\"),
+            cast(Collection.year, String).ilike(pattern, escape="\\"),
+            Collection.status.ilike(pattern, escape="\\"),
+            Brand.name.ilike(pattern, escape="\\"),
+        ))
     paginated = include_total or page is not None or page_size is not None
     if include_total:
         # Preserve the historical include_total contract, which clamps page

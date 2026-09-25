@@ -167,3 +167,34 @@ def test_collection_page_contract_auth_filter_and_no_writes(client, auth_headers
     with TestSessionLocal() as db:
         after = (db.query(Collection).count(), db.query(AuditLog).count())
     assert after == before
+
+
+def test_collection_search_filters_all_visible_fields_before_paging():
+    with _collection_database(401) as (db, brand_id):
+        db.add(Collection(
+            brand_id=brand_id,
+            name="Literal %_ collection",
+            season="Spring",
+            year=2088,
+            status="approved",
+        ))
+        db.commit()
+
+        page, statements = _read(db, page=2, page_size=50, q="Collection 03")
+        assert page["total"] == 100
+        assert [row["name"] for row in page["rows"]] == [
+            f"Collection {index:04d}" for index in range(349, 299, -1)
+        ]
+        assert len([statement for statement in statements if statement.startswith("select")]) == 2
+
+        for query, total, expected in (
+            ("Season 0399", 1, "Collection 0399"),
+            ("2090", 401, None),
+            ("draft", 401, None),
+            ("Paged collections", 402, None),
+            ("%_", 1, "Literal %_ collection"),
+        ):
+            result, _ = _read(db, page=1, page_size=50, q=query)
+            assert result["total"] == total
+            if expected:
+                assert result["rows"][0]["name"] == expected

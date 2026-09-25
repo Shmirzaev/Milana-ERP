@@ -1,9 +1,10 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
+import PaginationControls from "@/components/PaginationControls";
 import Modal from "@/components/Modal";
 import { statusLabel } from "@/components/StagePipeline";
 import { useMe, can } from "@/lib/auth";
@@ -14,6 +15,7 @@ type Collection = {
   id: number; brand_id: number; name: string;
   season?: string | null; year?: number | null; description?: string | null; status: string;
 };
+type CollectionPage = { rows: Collection[]; total: number; page: number; page_size: number };
 
 export default function CollectionsPage() {
   const searchParams = useSearchParams();
@@ -21,7 +23,13 @@ export default function CollectionsPage() {
   const { me } = useMe();
   const { t } = useT();
   const isAdmin = can(me, "*");
-  const { data, mutate } = useSWR<Collection[]>("/api/collections", fetcher);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  useEffect(() => { setPage(1); }, [q]);
+  const { data, mutate } = useSWR<CollectionPage>(
+    `/api/collections?page=${page}&page_size=${pageSize}&q=${encodeURIComponent(q)}`,
+    fetcher,
+  );
   const { data: brands } = useSWR<any[]>("/api/brands", fetcher);
   const [form, setForm] = useState<{ brand_id: number; name: string; season: string; year: NumberInputValue }>({ brand_id: 0, name: "", season: "", year: 2025 });
 
@@ -52,20 +60,7 @@ export default function CollectionsPage() {
     catch (e: any) { setEditMsg(e.message); }
   }
 
-  const rows = useMemo(() => {
-    if (!data) return [];
-    if (!q) return data;
-    return data.filter((c) => {
-      const brand = (brands?.find((b) => b.id === c.brand_id)?.name ?? "").toLowerCase();
-      return (
-        (c.name ?? "").toLowerCase().includes(q) ||
-        (c.season ?? "").toLowerCase().includes(q) ||
-        String(c.year ?? "").toLowerCase().includes(q) ||
-        (c.status ?? "").toLowerCase().includes(q) ||
-        brand.includes(q)
-      );
-    });
-  }, [data, brands, q]);
+  const rows = data?.rows ?? [];
 
   return (
     <div>
@@ -102,6 +97,15 @@ export default function CollectionsPage() {
             ))}
           </tbody>
         </table>
+        <PaginationControls
+          page={page}
+          pageSize={pageSize}
+          total={data?.total ?? 0}
+          count={rows.length}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          pageSizeOptions={[25, 50, 100]}
+        />
       </div>
 
       <Modal open={!!editing} onClose={() => setEditing(null)} title={t("page.collections.editTitle", { name: editing?.name ?? "" })} wide>
