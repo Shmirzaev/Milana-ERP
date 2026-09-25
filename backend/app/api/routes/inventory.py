@@ -83,7 +83,11 @@ from app.services.inventory_reports import (
     build_material_inventory_xlsx,
     material_inventory_report_rows,
 )
-from app.services.workflow import archive_depleted_material_batch, batchless_stock_for_item
+from app.services.workflow import (
+    archive_depleted_material_batch,
+    batchless_stock_for_item,
+    lock_stock_item_availability,
+)
 from app.services.cutting_fabric_usage import cutting_fabric_usage
 from app.core.pagination import clamp_pagination
 from app.core.config import settings
@@ -1531,8 +1535,10 @@ def transfer_stock(
         if warehouse_id is not None and not db.get(Warehouse, warehouse_id):
             raise HTTPException(404, "Warehouse not found")
 
-    if payload.batch_id is None and db.bind and db.bind.dialect.name == "postgresql":
-        db.query(Item.id).filter(Item.id == item.id).with_for_update().one()
+    if payload.batch_id is None:
+        lock_stock_item_availability(db, int(item.id))
+        if db.bind and db.bind.dialect.name == "postgresql":
+            db.query(Item.id).filter(Item.id == item.id).with_for_update().one()
 
     if payload.movement_type == "transfer" and payload.batch_id is None:
         source_id = payload.from_warehouse_id

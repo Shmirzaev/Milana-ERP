@@ -14,11 +14,13 @@ from sqlalchemy import create_engine, event, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
-from app.api.routes import cutting_passports
+from app.api.routes import cutting_passports, inventory as inventory_routes
 from app.db.base import Base
 from app.models import (
-    AuditLog, Item, MaterialReservation, Model, ProductionOrder, ProductionOrderMaterial, StockBatch, StockMovement, Warehouse,
+    AuditLog, Item, MaterialReservation, Model, ProductionOrder, ProductionOrderMaterial,
+    StockBatch, StockMovement, User, Warehouse,
 )
+from app.schemas.inventory import StockMovementIn
 from app.schemas.cutting_passport import CuttingPassportIn
 from app.services import inventory, numbering
 from app.tests.conftest import TestSessionLocal
@@ -259,6 +261,95 @@ def reservation_postgres_engine():
         with engine.begin() as connection:
             connection.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
         engine.dispose()
+
+
+def test_postgres_batchless_transfer_waits_for_item_only_reservation(
+    reservation_postgres_engine,
+):
+    sessions = sessionmaker(bind=reservation_postgres_engine, autoflush=False, expire_on_commit=False)
+    marker = uuid4().hex[:10]
+    with sessions() as db:
+        model = Model(code=f"TRANSFER-{marker}", name="Transfer reservation test")
+        source = Warehouse(name=f"Transfer source {marker}", type="accessory_storage")
+        destination = Warehouse(name=f"Transfer destination {marker}", type="accessory_storage")
+        item = Item(sku=f"TRANSFER-{marker}", name="Transfer item", category="accessory", unit="pcs")
+        user = User(
+            name="Transfer tester", email=f"transfer-{marker}@example.test", password_hash="test",
+            extra_permissions=["admin.super"],
+        )
+        db.add_all([model, source, destination, item, user])
+        db.flush()
+        order = ProductionOrder(
+            production_no=f"TRANSFER-{marker}", production_type="branded_stock",
+            model_id=model.id, planned_quantity=5,
+        )
+        db.add(order)
+        db.add(StockMovement(
+            movement_type="adjustment", item_id=item.id, batch_id=None,
+            to_warehouse_id=source.id, quantity=5, unit="pcs",
+        ))
+        db.commit()
+        item_id, source_id, destination_id, order_id, user_id = (
+            item.id, source.id, destination.id, order.id, user.id,
+        )
+
+    reservation_ready = Event()
+    release_reservation = Event()
+    transfer_pid = Queue()
+
+    def reserve():
+        with sessions() as db:
+            inventory.create_material_reservations(
+                db, production_order_id=order_id,
+                lines=[{"item_id": item_id, "warehouse_id": source_id, "reserved_quantity": 4, "unit": "pcs"}],
+                user_id=None,
+            )
+            reservation_ready.set()
+            assert release_reservation.wait(10), "Coordinator did not release reservation transaction"
+            db.commit()
+
+    def transfer():
+        with sessions() as db:
+            transfer_pid.put(db.execute(text("SELECT pg_backend_pid()")).scalar_one())
+            try:
+                inventory_routes.transfer_stock(
+                    StockMovementIn(
+                        movement_type="transfer", item_id=item_id, batch_id=None,
+                        from_warehouse_id=source_id, to_warehouse_id=destination_id,
+                        quantity=2, unit="pcs",
+                    ),
+                    db, db.get(User, user_id), idempotency_key=None,
+                )
+                return 201
+            except HTTPException as rejected:
+                db.rollback()
+                return rejected.status_code
+
+    with sessions() as observer, ThreadPoolExecutor(max_workers=2) as workers:
+        reservation_future = workers.submit(reserve)
+        try:
+            assert reservation_ready.wait(10), "Reservation did not acquire its item lock"
+            transfer_future = workers.submit(transfer)
+            pid = transfer_pid.get(timeout=10)
+            deadline = monotonic() + 10
+            while monotonic() < deadline:
+                if observer.execute(text("SELECT pg_blocking_pids(:pid)"), {"pid": pid}).scalar_one():
+                    break
+                if transfer_future.done():
+                    pytest.fail(f"Transfer completed before reservation commit: {transfer_future.result()}")
+                sleep(0.02)
+            else:
+                pytest.fail("Transfer must wait on the reservation's item availability lock")
+        finally:
+            release_reservation.set()
+        reservation_future.result(timeout=10)
+        assert transfer_future.result(timeout=10) == 409
+
+    with sessions() as db:
+        assert inventory.current_stock_for_item(db, item_id, source_id) == 5
+        assert inventory.current_stock_for_item(db, item_id, destination_id) == 0
+        assert inventory.reserved_stock_for_item(db, item_id, source_id) == 4
+        assert db.query(StockMovement).filter_by(item_id=item_id, movement_type="transfer").count() == 0
 
 
 @pytest.mark.parametrize("case", [

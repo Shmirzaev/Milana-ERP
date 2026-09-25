@@ -29,7 +29,12 @@ from app.models import (
     public_production_order_no,
 )
 from app.services.numbering import next_material_reservation_nos
-from app.services.workflow import consume_item_from_batches, consume_stock_batch, notify_department
+from app.services.workflow import (
+    STOCK_ITEM_AVAILABILITY_LOCK_NAMESPACE,
+    consume_item_from_batches,
+    consume_stock_batch,
+    notify_department,
+)
 
 MATERIAL_CATEGORIES = ("fabric", "semi_finished")
 ACCESSORY_CATEGORIES = ("accessory", "packaging")
@@ -45,7 +50,7 @@ REQUIRE_RESERVATION_SETTING = "require_material_reservation_before_cutting"
 ACCESSORY_SEWING_BLOCK_REASON = "Accessories must be issued before sewing."
 EPSILON = 1e-9
 _ACCESSORY_QUANTITY_QUANTUM = Decimal("0.0001")
-_RESERVATION_LOCK_NAMESPACE = 1_297_047_633
+_RESERVATION_LOCK_NAMESPACE = STOCK_ITEM_AVAILABILITY_LOCK_NAMESPACE
 _ACCESSORY_RETURN_LOCK_NAMESPACE = 1_297_047_634
 
 

@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import HTTPException
-from sqlalchemy import and_, case, func, or_
+from sqlalchemy import and_, case, func, or_, text
 from sqlalchemy.orm import Session, lazyload
 
 from app.models import (
@@ -35,6 +35,16 @@ _OP_INDEX = {op: idx for idx, op in enumerate(WORKFLOW_SEQUENCE)}
 _STARTED_WORK_ORDER_STATUSES = {"in_progress", "pending", "collected", "ready"}
 _MATERIAL_BATCH_CATEGORIES = {"fabric", "semi_finished"}
 _STOCK_EPSILON = 1e-9
+STOCK_ITEM_AVAILABILITY_LOCK_NAMESPACE = 1_297_047_633
+
+
+def lock_stock_item_availability(db: Session, item_id: int) -> None:
+    """Serialize writes competing with item-level reservation availability."""
+    if db.bind and db.bind.dialect.name == "postgresql":
+        db.execute(
+            text("SELECT pg_advisory_xact_lock(:namespace, :item_id)"),
+            {"namespace": STOCK_ITEM_AVAILABILITY_LOCK_NAMESPACE, "item_id": item_id},
+        )
 
 
 def archive_depleted_material_batch(
@@ -602,6 +612,10 @@ def consume_item_from_batches(
         db, item_id=int(item_id), unit=unit, item_cache=item_cache,
     )
 
+    if require_available:
+        # Batch locks were acquired above; match reservation creation's
+        # batch-before-item lock order before reading the shared ledger.
+        lock_stock_item_availability(db, int(item_id))
     batchless_available = batchless_stock_for_item(db, item_id, warehouse_id) if require_available else Decimal(0)
     if require_available:
         available = sum(Decimal(str(row.quantity or 0)) for row in batches) + batchless_available
