@@ -179,6 +179,41 @@ def test_batch_tracked_adjustment_rejects_legacy_unit_drift_without_writes(
     assert after == before
 
 
+@pytest.mark.parametrize("target_quantity", [10, 12])
+def test_nontracked_adjustment_rejects_legacy_batch_unit_drift_without_writes(
+    client, auth_headers, target_quantity,
+):
+    item_id = _create_item(client, auth_headers)
+    with SessionLocal() as db:
+        warehouse = db.query(Warehouse).filter_by(type="accessory_storage").first()
+        assert warehouse is not None
+        warehouse_id = warehouse.id
+    receipt = client.post("/api/inventory/receive", headers=auth_headers, json={
+        "item_id": item_id, "batch_no": f"NONTRACKED-DRIFT-{uuid4().hex[:8]}",
+        "quantity": 10, "unit": "pcs", "warehouse_id": warehouse_id,
+        "qc_status": "passed",
+    })
+    assert receipt.status_code == 201, receipt.text
+    batch_id = receipt.json()["id"]
+    with SessionLocal() as db:
+        batch = db.get(StockBatch, batch_id)
+        batch.unit = "kg"
+        db.commit()
+    before = _write_counts(item_id)
+
+    response = client.patch(
+        f"/api/inventory/stock/{item_id}", headers=auth_headers,
+        json={"quantity": target_quantity, "unit": "pcs"},
+    )
+
+    assert response.status_code == 409, response.text
+    assert "unit differs from the item" in response.text
+    assert _write_counts(item_id) == before
+    with SessionLocal() as db:
+        batch = db.get(StockBatch, batch_id)
+        assert (batch.quantity, batch.unit) == (Decimal("10"), "kg")
+
+
 def test_stock_adjustment_rejects_derived_delta_overflow_without_writes(client, auth_headers):
     item_id = _create_item(client, auth_headers)
     with SessionLocal() as db:

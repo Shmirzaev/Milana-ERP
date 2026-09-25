@@ -787,6 +787,23 @@ def set_stock_quantity(
         raise HTTPException(400, "Unit is required")
     if unit != item.unit:
         raise HTTPException(400, f"Stock unit must match item unit ({item.unit})")
+    # Current stock sums every positive batch, even for items whose tracking
+    # flag is off. Reject unlike units before calculating or returning a total.
+    mismatched_batch = (
+        db.query(StockBatch.id)
+        .filter(
+            StockBatch.item_id == item.id,
+            StockBatch.quantity > EPSILON,
+            StockBatch.unit != item.unit,
+        )
+        .order_by(StockBatch.id.asc())
+        .first()
+    )
+    if mismatched_batch:
+        raise HTTPException(
+            409,
+            "Stock has batches whose unit differs from the item; reconcile before adjusting stock",
+        )
     target_quantity = float(payload.quantity or 0)
     previous_quantity = current_stock_for_item(db, item_id)
     reserved_quantity = reserved_stock_for_item(db, item_id)
@@ -795,25 +812,6 @@ def set_stock_quantity(
     delta = target_quantity - previous_quantity
     if abs(delta) > EPSILON and Decimal(str(abs(delta))) > MAX_STORED_STOCK_QUANTITY:
         raise HTTPException(422, "Stock adjustment delta exceeds the supported maximum")
-    if item.track_batch:
-        # current_stock_for_item includes every batch row, including archived
-        # legacy rows. Guard the same population before both mutations and
-        # no-op responses so unlike units are never treated as additive.
-        mismatched_batch = (
-            db.query(StockBatch.id)
-            .filter(
-                StockBatch.item_id == item.id,
-                StockBatch.quantity > EPSILON,
-                StockBatch.unit != item.unit,
-            )
-            .order_by(StockBatch.id.asc())
-            .first()
-        )
-        if mismatched_batch:
-            raise HTTPException(
-                409,
-                "Batch-tracked stock has batches whose unit differs from the item; reconcile before adjusting stock",
-            )
     if abs(delta) <= EPSILON:
         return StockQuantityAdjustmentOut(
             item_id=item_id,
