@@ -734,7 +734,11 @@ def consume_packaging_materials_from_bom(
     ]
     packaging_item_ids = sorted({item.id for _row, item in packaging_rows})
     batch_cache: dict[int, list[StockBatch]] = {item_id: [] for item_id in packaging_item_ids}
+    batches_by_id: dict[int, StockBatch] = {}
+    reserved_by_batch: dict[int, Decimal] = {}
+    own_reservations_by_item: dict[int, list[MaterialReservation]] = {}
     if packaging_item_ids:
+        db.flush()
         batch_query = (
             db.query(StockBatch)
             .filter(
@@ -747,22 +751,250 @@ def consume_packaging_materials_from_bom(
             batch_query = batch_query.options(lazyload(StockBatch.item)).with_for_update(of=StockBatch)
         for batch in batch_query.all():
             batch_cache[batch.item_id].append(batch)
+            batches_by_id[int(batch.id)] = batch
         for batches in batch_cache.values():
             batches.sort(key=lambda batch: (batch.received_date, batch.id))
+        if db.bind and db.bind.dialect.name == "postgresql":
+            db.execute(
+                text(
+                    "SELECT pg_advisory_xact_lock(:namespace, lock_id) "
+                    "FROM unnest(CAST(:item_ids AS INTEGER[])) AS ordered_locks(lock_id) "
+                    "ORDER BY lock_id"
+                ),
+                {"namespace": STOCK_ITEM_AVAILABILITY_LOCK_NAMESPACE, "item_ids": packaging_item_ids},
+            )
+        if batches_by_id:
+            # Reservation consumers lock batches before reservation rows. Read
+            # all active batch claims in one locked set so a BOM debit cannot
+            # take stock promised to another production order.
+            db.flush()
+            reservations = db.query(MaterialReservation).options(
+                lazyload(MaterialReservation.item),
+                lazyload(MaterialReservation.stock_batch),
+                lazyload(MaterialReservation.warehouse),
+            ).filter(
+                MaterialReservation.stock_batch_id.in_(sorted(batches_by_id)),
+                MaterialReservation.status.in_(("reserved", "partially_consumed")),
+            ).order_by(
+                MaterialReservation.stock_batch_id,
+                MaterialReservation.created_at,
+                MaterialReservation.id,
+            ).populate_existing()
+            if db.bind and db.bind.dialect.name == "postgresql":
+                reservations = reservations.with_for_update(of=MaterialReservation)
+            for reservation in reservations.all():
+                remaining = max(
+                    Decimal(0),
+                    Decimal(str(reservation.reserved_quantity or 0))
+                    - Decimal(str(reservation.consumed_quantity or 0))
+                    - Decimal(str(reservation.released_quantity or 0)),
+                )
+                if remaining <= 0:
+                    continue
+                batch_id = int(reservation.stock_batch_id)
+                reserved_by_batch[batch_id] = reserved_by_batch.get(batch_id, Decimal(0)) + remaining
+                if int(reservation.production_order_id) == production_order_id:
+                    own_reservations_by_item.setdefault(int(reservation.item_id), []).append(reservation)
+            for reservations_for_item in own_reservations_by_item.values():
+                reservations_for_item.sort(key=lambda reservation: (
+                    batches_by_id[int(reservation.stock_batch_id)].received_date,
+                    int(reservation.stock_batch_id),
+                    reservation.created_at,
+                    int(reservation.id),
+                ))
+
+    demand_by_item: dict[int, Decimal] = {}
+    for row, item in packaging_rows:
+        demand_by_item[int(item.id)] = demand_by_item.get(int(item.id), Decimal(0)) + Decimal(str(
+            float(row.quantity_per_piece) * packed_qty * (1.0 + float(row.waste_percent or 0) / 100.0)
+        ))
+    # Packaging may record a non-strict shortage only when no active claim is
+    # reduced. Preflight every item before the first movement so a later BOM
+    # line cannot leave an earlier line staged on a reservation conflict.
+    active_totals = {
+        int(item_id): Decimal(str(quantity or 0))
+        for item_id, quantity in db.query(
+            MaterialReservation.item_id,
+            func.sum(
+                MaterialReservation.reserved_quantity
+                - MaterialReservation.consumed_quantity
+                - MaterialReservation.released_quantity
+            ),
+        ).filter(
+            MaterialReservation.item_id.in_(packaging_item_ids),
+            MaterialReservation.status.in_(("reserved", "partially_consumed")),
+        ).group_by(MaterialReservation.item_id).all()
+    } if packaging_item_ids else {}
+    reserved_items = sorted(item_id for item_id, total in active_totals.items() if total > 0)
+    batchless_by_item: dict[int, Decimal] = {}
+    if reserved_items:
+        incoming = StockMovement.movement_type.in_(("produce", "return", "adjustment"))
+        outgoing = StockMovement.movement_type.in_(("issue", "consume", "waste", "shipment"))
+        batchless_by_item = {
+            int(item_id): Decimal(str(received or 0)) - Decimal(str(spent or 0))
+            for item_id, received, spent in db.query(
+                StockMovement.item_id,
+                func.coalesce(func.sum(case((incoming, StockMovement.quantity), else_=0)), 0),
+                func.coalesce(func.sum(case((outgoing, StockMovement.quantity), else_=0)), 0),
+            ).filter(
+                StockMovement.item_id.in_(reserved_items),
+                StockMovement.batch_id.is_(None),
+            ).group_by(StockMovement.item_id).all()
+        }
+    own_claim_by_item: dict[int, Decimal] = {}
+    for item_id in reserved_items:
+        batches = batch_cache[item_id]
+        cached_reserved = sum(
+            (reserved_by_batch.get(int(batch.id), Decimal(0)) for batch in batches), Decimal(0),
+        )
+        if any(
+            reserved_by_batch.get(int(batch.id), Decimal(0)) > Decimal(str(batch.quantity or 0))
+            for batch in batches
+        ):
+            raise HTTPException(409, f"Packaging stock for item #{item_id} cannot preserve active reservations")
+        own_claim = sum(
+            (
+                max(
+                    Decimal(0),
+                    Decimal(str(reservation.reserved_quantity or 0))
+                    - Decimal(str(reservation.consumed_quantity or 0))
+                    - Decimal(str(reservation.released_quantity or 0)),
+                )
+                for reservation in own_reservations_by_item.get(item_id, [])
+            ), Decimal(0),
+        )
+        own_claim_by_item[item_id] = own_claim
+        free_batches = sum((
+            max(Decimal(0), Decimal(str(batch.quantity or 0)) - reserved_by_batch.get(int(batch.id), Decimal(0)))
+            for batch in batches
+        ), Decimal(0))
+        unbacked_claims = max(Decimal(0), active_totals[item_id] - cached_reserved)
+        batchless = batchless_by_item.get(item_id, Decimal(0))
+        # Batch-bound claims remain backed by their locked batches even when
+        # an older batchless shortage already exists. Item-only claims rely on
+        # the global ledger and must account for that existing debt.
+        usable_batchless = batchless if unbacked_claims > 0 else max(Decimal(0), batchless)
+        safe_capacity = own_claim + free_batches + usable_batchless - unbacked_claims
+        if demand_by_item.get(item_id, Decimal(0)) > safe_capacity + Decimal("0.000000001"):
+            raise HTTPException(409, f"Packaging stock for item #{item_id} cannot preserve active reservations")
+
+    protected_by_batch = dict(reserved_by_batch)
+    if reserved_items:
+        scoped_item_only_claims = db.query(
+            MaterialReservation.item_id,
+            MaterialReservation.warehouse_id,
+            func.sum(
+                MaterialReservation.reserved_quantity
+                - MaterialReservation.consumed_quantity
+                - MaterialReservation.released_quantity
+            ),
+        ).filter(
+            MaterialReservation.item_id.in_(reserved_items),
+            MaterialReservation.stock_batch_id.is_(None),
+            MaterialReservation.warehouse_id.is_not(None),
+            MaterialReservation.status.in_(("reserved", "partially_consumed")),
+        ).group_by(MaterialReservation.item_id, MaterialReservation.warehouse_id).all()
+        scoped_item_ids = sorted({int(item_id) for item_id, _warehouse_id, _claim in scoped_item_only_claims})
+        scoped_warehouse_ids = sorted({int(warehouse_id) for _item_id, warehouse_id, _claim in scoped_item_only_claims})
+        batchless_in: dict[tuple[int, int], Decimal] = {}
+        batchless_out: dict[tuple[int, int], Decimal] = {}
+        if scoped_item_ids:
+            batchless_in = {
+                (int(item_id), int(warehouse_id)): Decimal(str(quantity or 0))
+                for item_id, warehouse_id, quantity in db.query(
+                    StockMovement.item_id,
+                    StockMovement.to_warehouse_id,
+                    func.sum(StockMovement.quantity),
+                ).filter(
+                    StockMovement.item_id.in_(scoped_item_ids),
+                    StockMovement.batch_id.is_(None),
+                    StockMovement.to_warehouse_id.in_(scoped_warehouse_ids),
+                    StockMovement.movement_type.in_(("produce", "return", "adjustment", "transfer")),
+                ).group_by(StockMovement.item_id, StockMovement.to_warehouse_id).all()
+            }
+            batchless_out = {
+                (int(item_id), int(warehouse_id)): Decimal(str(quantity or 0))
+                for item_id, warehouse_id, quantity in db.query(
+                    StockMovement.item_id,
+                    StockMovement.from_warehouse_id,
+                    func.sum(StockMovement.quantity),
+                ).filter(
+                    StockMovement.item_id.in_(scoped_item_ids),
+                    StockMovement.batch_id.is_(None),
+                    StockMovement.from_warehouse_id.in_(scoped_warehouse_ids),
+                    StockMovement.movement_type.in_(("issue", "consume", "waste", "shipment", "transfer")),
+                ).group_by(StockMovement.item_id, StockMovement.from_warehouse_id).all()
+            }
+        for item_id, warehouse_id, claim in scoped_item_only_claims:
+            remaining = max(Decimal(0), Decimal(str(claim or 0)))
+            # Keep newest batches as backing so free older batches retain FIFO
+            # consumption order. The rest may already be backed by the scoped
+            # batchless ledger, which this operation leaves in that warehouse.
+            for batch in reversed(batch_cache[int(item_id)]):
+                if int(batch.warehouse_id) != int(warehouse_id) or remaining <= 0:
+                    continue
+                batch_id = int(batch.id)
+                free = max(Decimal(0), Decimal(str(batch.quantity or 0)) - protected_by_batch.get(batch_id, Decimal(0)))
+                protected = min(free, remaining)
+                protected_by_batch[batch_id] = protected_by_batch.get(batch_id, Decimal(0)) + protected
+                remaining -= protected
+            scoped_key = (int(item_id), int(warehouse_id))
+            scoped_batchless = batchless_in.get(scoped_key, Decimal(0)) - batchless_out.get(scoped_key, Decimal(0))
+            if remaining > scoped_batchless + Decimal("0.000000001"):
+                raise HTTPException(
+                    409, f"Packaging stock for item #{item_id} cannot preserve warehouse reservations",
+                )
+        for item_id in scoped_item_ids:
+            physical_capacity = own_claim_by_item[item_id] + sum((
+                max(Decimal(0), Decimal(str(batch.quantity or 0)) - protected_by_batch.get(int(batch.id), Decimal(0)))
+                for batch in batch_cache[item_id]
+            ), Decimal(0))
+            if demand_by_item.get(item_id, Decimal(0)) > physical_capacity + Decimal("0.000000001"):
+                raise HTTPException(
+                    409, f"Packaging stock for item #{item_id} cannot preserve warehouse reservations",
+                )
 
     for row, item in packaging_rows:
         qty = float(row.quantity_per_piece) * packed_qty * (1.0 + float(row.waste_percent or 0) / 100.0)
-        consume_item_from_batches(
-            db,
-            item_id=item.id,
-            quantity=qty,
-            unit=row.unit or item.unit,
-            reference_type=reference_type,
-            reference_id=reference_id,
-            user_id=user_id,
-            batch_cache=batch_cache,
-            item_cache=items,
-        )
+        if qty <= 0:
+            continue
+        unit = _stock_consumption_unit(db, item_id=int(item.id), unit=row.unit or item.unit, item_cache=items)
+        left = qty
+        if own_reservations_by_item.get(int(item.id)):
+            from app.services.inventory import _consume_loaded_material_reservation, _open_reservation_quantity
+
+            for reservation in own_reservations_by_item[int(item.id)]:
+                if left <= _STOCK_EPSILON:
+                    break
+                take = min(left, _open_reservation_quantity(reservation))
+                if take <= _STOCK_EPSILON:
+                    continue
+                batch_id = int(reservation.stock_batch_id)
+                _consume_loaded_material_reservation(
+                    db, reservation, quantity=take, user_id=user_id,
+                    reference_type=reference_type, reference_id=reference_id,
+                    stock_batch_cache={batch_id: batches_by_id[batch_id]}, item_cache=items,
+                )
+                reserved_by_batch[batch_id] = max(
+                    Decimal(0), reserved_by_batch[batch_id] - Decimal(str(take)),
+                )
+                protected_by_batch[batch_id] = max(
+                    Decimal(0), protected_by_batch[batch_id] - Decimal(str(take)),
+                )
+                left -= take
+        if left > _STOCK_EPSILON:
+            consume_item_from_batches(
+                db,
+                item_id=item.id,
+                quantity=left,
+                unit=unit,
+                reference_type=reference_type,
+                reference_id=reference_id,
+                user_id=user_id,
+                batch_cache=batch_cache,
+                reserved_by_batch=protected_by_batch,
+                item_cache=items,
+            )
 
 
 def create_waste_record(

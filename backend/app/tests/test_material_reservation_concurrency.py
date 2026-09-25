@@ -24,6 +24,7 @@ from app.models import (
 from app.schemas.inventory import StockMovementIn
 from app.schemas.cutting_passport import CuttingPassportIn
 from app.services import inventory, numbering
+from app.services.workflow import consume_packaging_materials_from_bom
 from app.tests.conftest import TestSessionLocal
 
 
@@ -817,6 +818,92 @@ def test_postgres_reversed_accessory_issue_lines_lock_all_items_before_consuming
             StockMovement.reference_id.in_(ids["orders"]),
         ).all()
         assert len(movements) == 4
+
+
+def test_postgres_packaging_waits_for_item_only_reservation_before_shortage(
+    reservation_postgres_engine,
+):
+    sessions = sessionmaker(bind=reservation_postgres_engine, autoflush=False, expire_on_commit=False)
+    ids = _stock(sessions)
+    with sessions() as db:
+        item = db.get(Item, ids["items"][0])
+        item.category = "packaging"
+        warehouse = db.get(Warehouse, ids["warehouses"][0])
+        warehouse.type = "accessory_storage"
+        db.get(StockBatch, ids["batches"][0]).quantity = 0
+        db.add_all([
+            StockMovement(
+                movement_type="adjustment", item_id=item.id, batch_id=None,
+                to_warehouse_id=warehouse.id, quantity=5, unit=item.unit,
+            ),
+            ModelBOM(
+                model_id=db.get(ProductionOrder, ids["orders"][0]).model_id,
+                item_id=item.id, quantity_per_piece=1, unit=item.unit,
+            ),
+        ])
+        db.commit()
+
+    reserved = Event()
+    release_reservation = Event()
+    pids = Queue()
+
+    def reserve():
+        with sessions() as db:
+            pids.put(("reserve", db.execute(text("SELECT pg_backend_pid()")).scalar_one()))
+            inventory.create_material_reservations(
+                db, production_order_id=ids["orders"][1],
+                lines=[_line(ids, 5)], user_id=None,
+            )
+            reserved.set()
+            assert release_reservation.wait(10), "Coordinator did not release the reservation"
+            db.commit()
+
+    def package():
+        with sessions() as db:
+            pids.put(("package", db.execute(text("SELECT pg_backend_pid()")).scalar_one()))
+            try:
+                consume_packaging_materials_from_bom(
+                    db, production_order_id=ids["orders"][0], packed_qty=1,
+                    reference_type="PackagingRecord", reference_id=88, user_id=None,
+                )
+                db.commit()
+                return 200
+            except HTTPException as rejected:
+                db.rollback()
+                return rejected.status_code
+
+    with sessions() as observer, ThreadPoolExecutor(max_workers=2) as workers:
+        first = workers.submit(reserve)
+        try:
+            reserve_worker, reserve_pid = pids.get(timeout=10)
+            assert reserve_worker == "reserve"
+            assert reserved.wait(10), "Reservation did not acquire its item lock"
+            second = workers.submit(package)
+            package_worker, package_pid = pids.get(timeout=10)
+            assert package_worker == "package"
+            deadline = monotonic() + 10
+            while monotonic() < deadline:
+                if reserve_pid in observer.execute(
+                    text("SELECT pg_blocking_pids(:pid)"), {"pid": package_pid},
+                ).scalar_one():
+                    break
+                if second.done():
+                    pytest.fail(f"Packaging ended before reservation commit: {second.result()}")
+                sleep(0.02)
+            else:
+                pytest.fail("Packaging must wait for the item-only availability lock")
+        finally:
+            release_reservation.set()
+        first.result(timeout=10)
+        assert second.result(timeout=10) == 409
+
+    with sessions() as db:
+        assert float(db.get(StockBatch, ids["batches"][0]).quantity) == 0
+        assert inventory.current_stock_for_item(db, ids["items"][0]) == 5
+        assert inventory.reserved_stock_for_item(db, ids["items"][0]) == 5
+        assert db.query(StockMovement).filter_by(
+            reference_type="PackagingRecord", reference_id=88,
+        ).count() == 0
 
 
 @pytest.mark.parametrize("line_count", [1, 50, 401])
