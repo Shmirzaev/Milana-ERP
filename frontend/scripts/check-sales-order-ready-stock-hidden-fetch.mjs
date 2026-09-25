@@ -47,7 +47,6 @@ function useEffect(effect, deps) {
 
 function useSWR(key) {
   requests.push(key);
-  if (key === "/api/customers") return { data: [], mutate() {} };
   if (key === "/api/brands") return { data: [] };
   if (key === readyStockKey) {
     return {
@@ -79,6 +78,7 @@ const dependencies = {
   "@/components/Modal": { default: "modal" },
   "@/components/ModelAsyncSelect": { default: "model-select" },
   "@/components/SearchableSelect": { default: "searchable-select" },
+  "@/components/CustomerAsyncSelect": { default: "customer-select" },
   "@/lib/auth": { can: () => true, useMe: () => ({ me: { id: 1 } }) },
   "@/lib/i18n": { useT: () => ({ lang: "en", t: (key) => key }) },
   "@/lib/readySalesLocale": {

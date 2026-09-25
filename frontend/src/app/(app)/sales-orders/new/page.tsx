@@ -8,6 +8,7 @@ import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import ModelAsyncSelect from "@/components/ModelAsyncSelect";
 import SearchableSelect from "@/components/SearchableSelect";
+import CustomerAsyncSelect from "@/components/CustomerAsyncSelect";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { readySalesText } from "@/lib/readySalesLocale";
@@ -88,7 +89,6 @@ export default function NewSalesOrderPage() {
   const { t, lang } = useT();
   const packText = readySalesText(lang);
   const { me } = useMe();
-  const { data: customers, mutate: mutateCustomers } = useSWR<Customer[]>("/api/customers", fetcher);
   const { data: brands } = useSWR<any[]>("/api/brands", fetcher);
   const [orderType, setOrderType] = useState("client_order");
   const isBrandedOrder = orderType === "branded_stock_sale";
@@ -97,6 +97,7 @@ export default function NewSalesOrderPage() {
     fetcher,
   );
   const [customerId, setCustomerId] = useState<number | "">("");
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerModalOpen, setCustomerModalOpen] = useState(false);
   const [customerDraft, setCustomerDraft] = useState<CustomerDraft>(EMPTY_CUSTOMER);
   const [customerSaving, setCustomerSaving] = useState(false);
@@ -337,11 +338,8 @@ export default function NewSalesOrderPage() {
     setCustomerSaving(true);
     try {
       const created = await api.post<Customer>("/api/customers", customerDraft);
-      await mutateCustomers(
-        (current) => [created, ...(current || []).filter((customer) => customer.id !== created.id)],
-        { revalidate: false },
-      );
       setCustomerId(created.id);
+      setSelectedCustomer(created);
       setCustomerDraft(EMPTY_CUSTOMER);
       setCustomerModalOpen(false);
     } catch (e: any) {
@@ -474,10 +472,14 @@ export default function NewSalesOrderPage() {
                     </button>
                   )}
                 </div>
-                <select className="input" value={customerId} onChange={(e) => setCustomerId(Number(e.target.value) || "")}>
-                  <option value="">{t("newso.customerSelect")}</option>
-                  {customers?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+                <CustomerAsyncSelect
+                  value={customerId || null}
+                  selectedCustomer={selectedCustomer}
+                  onChange={(id, customer) => {
+                    setCustomerId(id || "");
+                    setSelectedCustomer(customer ?? null);
+                  }}
+                />
               </div>
               <div>
                 <label className="label">{t("field.deadline")}</label>
