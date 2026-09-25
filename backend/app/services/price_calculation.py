@@ -399,6 +399,9 @@ def update_cutting_details(db: Session, request: PriceCalculationRequest, data: 
     before = cutting_status(request)
     kroy_no = str(data.get("kroy_no") or "").strip()
     passport = _passport_for_kroy(db, request, kroy_no)
+    passport_size_count = _size_count_from_range(passport.size_range) if passport else 0
+    if passport_size_count > 2_147_483_647:
+        raise HTTPException(422, "Passport size range exceeds price calculation storage limits")
     request.kroy_no = kroy_no
     request.cutting_passport_id = passport.id if passport else None
 
@@ -416,7 +419,6 @@ def update_cutting_details(db: Session, request: PriceCalculationRequest, data: 
             raise HTTPException(422, "Passport binding weight exceeds price calculation storage limits")
     request.fabric_width_m = passport.fabric_width_m if passport and passport.fabric_width_m is not None else data.get("fabric_width_m")
     request.lay_length_m = passport.lay_length_m if passport and passport.lay_length_m is not None else data.get("lay_length_m")
-    passport_size_count = _size_count_from_range(passport.size_range) if passport else 0
     request.size_count = passport_size_count or data.get("size_count")
     request.gramage = passport.gramage if passport and passport.gramage is not None else data.get("gramage")
     request.binding_kg_per_piece = passport_binding if passport_binding is not None else data.get("binding_kg_per_piece")

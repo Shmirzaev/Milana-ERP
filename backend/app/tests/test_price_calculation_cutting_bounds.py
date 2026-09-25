@@ -196,6 +196,43 @@ def test_passport_binding_sum_overflow_rejects_before_price_request_writes(clien
         assert db.get(PriceCalculationRequest, request_id).binding_kg_per_piece == Decimal("99999999.999999")
 
 
+def test_passport_size_range_overflow_rejects_before_price_request_writes(client, auth_headers):
+    request_id = _create_request(client, auth_headers)
+    passport_no = f"PC-SIZE-{uuid4().hex[:12]}"
+    with SessionLocal() as db:
+        request = db.get(PriceCalculationRequest, request_id)
+        db.add(CuttingPassport(
+            passport_no=passport_no,
+            date=datetime.now(timezone.utc),
+            model_code=request.model.code,
+            size_range="0-4294967296",
+        ))
+        db.commit()
+    before = _state(request_id)
+
+    rejected = client.patch(
+        f"/api/price-calculation/requests/{request_id}/cutting",
+        headers=auth_headers,
+        json={"kroy_no": passport_no},
+    )
+    assert rejected.status_code == 422, rejected.text
+    assert _state(request_id) == before
+
+    with SessionLocal() as db:
+        passport = db.query(CuttingPassport).filter_by(passport_no=passport_no).one()
+        passport.size_range = "0-4294967292"
+        db.commit()
+
+    accepted = client.patch(
+        f"/api/price-calculation/requests/{request_id}/cutting",
+        headers=auth_headers,
+        json={"kroy_no": passport_no},
+    )
+    assert accepted.status_code == 200, accepted.text
+    with SessionLocal() as db:
+        assert db.get(PriceCalculationRequest, request_id).size_count == 2_147_483_647
+
+
 def test_invalid_cutting_price_input_preserves_authentication_precedence(client):
     before = _state(1) if _request_exists(1) else None
 
