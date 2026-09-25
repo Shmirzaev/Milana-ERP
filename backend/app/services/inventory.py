@@ -1016,6 +1016,7 @@ def _consume_loaded_material_reservation(
     reference_type: str,
     reference_id: int | None,
     stock_batch_cache: dict[int, StockBatch] | None = None,
+    item_batch_cache: dict[int, list[StockBatch]] | None = None,
     item_cache: dict[int, Item] | None = None,
 ) -> MaterialReservation:
     if reservation.status not in ACTIVE_RESERVATION_STATUSES:
@@ -1056,6 +1057,7 @@ def _consume_loaded_material_reservation(
             user_id=user_id,
             warehouse_id=int(reservation.warehouse_id) if reservation.warehouse_id else None,
             require_available=True,
+            batch_cache=item_batch_cache,
             item_cache=item_cache,
         )
 
@@ -1110,7 +1112,11 @@ def consume_material_reservation(
 ) -> MaterialReservation:
     # All batch-backed reservation writers take the stock batch lock before
     # the reservation row; a plain get here permits stale remaining quantity.
-    initial = db.query(MaterialReservation.stock_batch_id).filter(
+    initial = db.query(
+        MaterialReservation.stock_batch_id,
+        MaterialReservation.item_id,
+        MaterialReservation.warehouse_id,
+    ).filter(
         MaterialReservation.id == reservation_id,
     ).first()
     if initial is None:
@@ -1119,11 +1125,33 @@ def consume_material_reservation(
     stock_batch_cache, item_cache = _locked_stock_batches_for_consumption(
         db, [batch_id] if batch_id is not None else [],
     )
+    item_batch_cache = None
+    if batch_id is None:
+        item_id = int(initial.item_id)
+        warehouse_id = int(initial.warehouse_id) if initial.warehouse_id is not None else None
+        db.flush()
+        batches = db.query(StockBatch).options(lazyload(StockBatch.item)).filter(
+            StockBatch.item_id == item_id, StockBatch.quantity > 0,
+        )
+        if warehouse_id is not None:
+            batches = batches.filter(StockBatch.warehouse_id == warehouse_id)
+        batches = batches.order_by(StockBatch.id).populate_existing()
+        if db.bind and db.bind.dialect.name == "postgresql":
+            batches = batches.with_for_update(of=StockBatch)
+        locked_item_batches = batches.all()
+        locked_item_batches.sort(key=lambda batch: (batch.received_date, batch.id))
+        item_batch_cache = {item_id: locked_item_batches}
+        lock_stock_item_availability(db, item_id)
     reservation = _locked_material_reservation(db, reservation_id)
     if reservation is None:
         raise HTTPException(404, "Material reservation not found")
     if reservation.stock_batch_id != batch_id:
         raise HTTPException(409, "Material reservation batch changed; reload before consuming")
+    if batch_id is None and (
+        int(reservation.item_id) != item_id
+        or (int(reservation.warehouse_id) if reservation.warehouse_id is not None else None) != warehouse_id
+    ):
+        raise HTTPException(409, "Material reservation scope changed; reload before consuming")
     return _consume_loaded_material_reservation(
         db,
         reservation,
@@ -1132,6 +1160,7 @@ def consume_material_reservation(
         reference_type=reference_type,
         reference_id=reference_id,
         stock_batch_cache=stock_batch_cache,
+        item_batch_cache=item_batch_cache,
         item_cache=item_cache,
     )
 

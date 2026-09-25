@@ -389,6 +389,119 @@ def test_packaging_consumes_own_batch_reservation_and_preserves_other_orders(sam
         assert sum(float(row.quantity) for row in movements) == (7 if same_order else 5)
 
 
+def test_packaging_consumes_own_item_only_reservation_once():
+    with TestSessionLocal() as db:
+        item, warehouse, batch, model, order = _stock_case(db, name="PKG-OWN-ITEM", quantity=5)
+        reservation = MaterialReservation(
+            reservation_no=f"PKG-OWN-ITEM-{uuid4().hex[:8]}",
+            production_order_id=order.id, item_id=item.id,
+            stock_batch_id=None, warehouse_id=warehouse.id,
+            reserved_quantity=5, consumed_quantity=0, released_quantity=0,
+            unit=item.unit, status="reserved", reservation_type="packaging", source="manual",
+        )
+        db.add_all([
+            reservation,
+            ModelBOM(model_id=model.id, item_id=item.id, quantity_per_piece=5, unit=item.unit),
+        ])
+        db.flush()
+
+        consume_packaging_materials_from_bom(
+            db, production_order_id=order.id, packed_qty=1,
+            reference_type="PackagingRecord", reference_id=80, user_id=None,
+        )
+        db.flush()
+
+        movement = db.query(StockMovement).filter_by(reference_type="PackagingRecord", reference_id=80).one()
+        assert movement.batch_id == batch.id
+        assert float(movement.quantity) == 5
+        assert float(batch.quantity) == 0
+        assert float(reservation.consumed_quantity) == 5
+        assert reservation.status == "consumed"
+
+
+def test_packaging_does_not_forgive_unconsumed_own_item_only_claim():
+    with TestSessionLocal() as db:
+        item, _warehouse, batch, model, order = _stock_case(db, name="PKG-OWN-LEGACY", quantity=1)
+        reservation = MaterialReservation(
+            reservation_no=f"PKG-OWN-LEGACY-{uuid4().hex[:8]}",
+            production_order_id=order.id, item_id=item.id,
+            stock_batch_id=None, warehouse_id=None,
+            reserved_quantity=10, consumed_quantity=0, released_quantity=0,
+            unit=item.unit, status="reserved", reservation_type="packaging", source="manual",
+        )
+        db.add_all([
+            reservation,
+            ModelBOM(model_id=model.id, item_id=item.id, quantity_per_piece=1, unit=item.unit),
+        ])
+        db.flush()
+
+        with pytest.raises(HTTPException) as rejected:
+            consume_packaging_materials_from_bom(
+                db, production_order_id=order.id, packed_qty=1,
+                reference_type="PackagingRecord", reference_id=82, user_id=None,
+            )
+        db.flush()
+
+        assert rejected.value.status_code == 409
+        assert float(batch.quantity) == 1
+        assert float(reservation.consumed_quantity) == 0
+        assert db.query(StockMovement).filter_by(reference_type="PackagingRecord", reference_id=82).count() == 0
+
+
+def test_packaging_item_only_reservation_uses_its_warehouse_and_preserves_other_order():
+    with TestSessionLocal() as db:
+        item, reserved_warehouse, other_batch, model, order = _stock_case(
+            db, name="PKG-OWN-SCOPED", quantity=5,
+        )
+        own_warehouse = Warehouse(name=f"PKG-OWN-WH-{uuid4().hex[:8]}", type="accessory_storage")
+        db.add(own_warehouse)
+        db.flush()
+        own_batch = StockBatch(
+            item_id=item.id, batch_no=f"PKG-OWN-BATCH-{uuid4().hex[:8]}",
+            warehouse_id=own_warehouse.id, quantity=5, unit=item.unit, qc_status="passed",
+        )
+        other_order = ProductionOrder(
+            production_no=f"PKG-OWN-OTHER-{uuid4().hex[:8]}",
+            production_type="branded_stock", model_id=model.id, planned_quantity=10,
+        )
+        db.add_all([own_batch, other_order])
+        db.flush()
+        other_reservation = MaterialReservation(
+            reservation_no=f"PKG-OTHER-ITEM-{uuid4().hex[:8]}",
+            production_order_id=other_order.id, item_id=item.id,
+            stock_batch_id=None, warehouse_id=reserved_warehouse.id,
+            reserved_quantity=5, consumed_quantity=0, released_quantity=0,
+            unit=item.unit, status="reserved", reservation_type="packaging", source="manual",
+        )
+        own_reservation = MaterialReservation(
+            reservation_no=f"PKG-OWN-SCOPED-{uuid4().hex[:8]}",
+            production_order_id=order.id, item_id=item.id,
+            stock_batch_id=None, warehouse_id=own_warehouse.id,
+            reserved_quantity=5, consumed_quantity=0, released_quantity=0,
+            unit=item.unit, status="reserved", reservation_type="packaging", source="manual",
+        )
+        db.add_all([
+            other_reservation, own_reservation,
+            ModelBOM(model_id=model.id, item_id=item.id, quantity_per_piece=5, unit=item.unit),
+        ])
+        db.flush()
+
+        consume_packaging_materials_from_bom(
+            db, production_order_id=order.id, packed_qty=1,
+            reference_type="PackagingRecord", reference_id=81, user_id=None,
+        )
+        db.flush()
+
+        movement = db.query(StockMovement).filter_by(reference_type="PackagingRecord", reference_id=81).one()
+        assert movement.batch_id == own_batch.id
+        assert float(own_batch.quantity) == 0
+        assert float(other_batch.quantity) == 5
+        assert float(own_reservation.consumed_quantity) == 5
+        assert own_reservation.status == "consumed"
+        assert float(other_reservation.consumed_quantity) == 0
+        assert other_reservation.status == "reserved"
+
+
 def test_packaging_reserved_batch_shortage_rejects_without_writes():
     with TestSessionLocal() as db:
         item, warehouse, batch, model, order = _stock_case(db, name="PKG-RES-SHORT", quantity=5)

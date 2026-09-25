@@ -468,10 +468,10 @@ def test_packaging_record_complete_bom_query_growth(
 
     assert response.status_code == 201, response.text
     counts = _table_select_counts(statements)
-    assert len(statements) == 29
+    assert len(statements) == 30
     assert counts["model_bom"] == 1
     assert counts["stock_batches"] == 2
-    assert counts["material_reservations"] == 2
+    assert counts["material_reservations"] == 3
     with TestSessionLocal() as db:
         quantities = {
             int(batch.id): float(batch.quantity)

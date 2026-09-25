@@ -737,6 +737,7 @@ def consume_packaging_materials_from_bom(
     batches_by_id: dict[int, StockBatch] = {}
     reserved_by_batch: dict[int, Decimal] = {}
     own_reservations_by_item: dict[int, list[MaterialReservation]] = {}
+    own_item_only_by_item: dict[int, list[MaterialReservation]] = {}
     if packaging_item_ids:
         db.flush()
         batch_query = (
@@ -802,12 +803,54 @@ def consume_packaging_materials_from_bom(
                     reservation.created_at,
                     int(reservation.id),
                 ))
+        item_only_rows = db.query(MaterialReservation).options(
+            lazyload(MaterialReservation.item),
+            lazyload(MaterialReservation.stock_batch),
+            lazyload(MaterialReservation.warehouse),
+        ).filter(
+            MaterialReservation.production_order_id == production_order_id,
+            MaterialReservation.item_id.in_(packaging_item_ids),
+            MaterialReservation.stock_batch_id.is_(None),
+            MaterialReservation.status.in_(("reserved", "partially_consumed")),
+        ).order_by(
+            MaterialReservation.item_id,
+            MaterialReservation.created_at,
+            MaterialReservation.id,
+        ).populate_existing()
+        if db.bind and db.bind.dialect.name == "postgresql":
+            item_only_rows = item_only_rows.with_for_update(of=MaterialReservation)
+        for reservation in item_only_rows.all():
+            own_item_only_by_item.setdefault(int(reservation.item_id), []).append(reservation)
 
     demand_by_item: dict[int, Decimal] = {}
     for row, item in packaging_rows:
         demand_by_item[int(item.id)] = demand_by_item.get(int(item.id), Decimal(0)) + Decimal(str(
             float(row.quantity_per_piece) * packed_qty * (1.0 + float(row.waste_percent or 0) / 100.0)
         ))
+    own_item_only_planned_by_scope: dict[tuple[int, int], Decimal] = {}
+    own_item_only_claim_by_item: dict[int, Decimal] = {}
+    for item_id, own_rows in own_item_only_by_item.items():
+        own_bound = sum((
+            max(
+                Decimal(0), Decimal(str(reservation.reserved_quantity or 0))
+                - Decimal(str(reservation.consumed_quantity or 0))
+                - Decimal(str(reservation.released_quantity or 0)),
+            )
+            for reservation in own_reservations_by_item.get(item_id, [])
+        ), Decimal(0))
+        left = max(Decimal(0), demand_by_item.get(item_id, Decimal(0)) - own_bound)
+        for reservation in own_rows:
+            open_quantity = max(
+                Decimal(0), Decimal(str(reservation.reserved_quantity or 0))
+                - Decimal(str(reservation.consumed_quantity or 0))
+                - Decimal(str(reservation.released_quantity or 0)),
+            )
+            planned = min(left, open_quantity)
+            own_item_only_claim_by_item[item_id] = own_item_only_claim_by_item.get(item_id, Decimal(0)) + planned
+            if planned > 0 and reservation.warehouse_id is not None:
+                key = (item_id, int(reservation.warehouse_id))
+                own_item_only_planned_by_scope[key] = own_item_only_planned_by_scope.get(key, Decimal(0)) + planned
+            left -= planned
     # Packaging may record a non-strict shortage only when no active claim is
     # reduced. Preflight every item before the first movement so a later BOM
     # line cannot leave an earlier line staged on a reservation conflict.
@@ -863,6 +906,7 @@ def consume_packaging_materials_from_bom(
                 for reservation in own_reservations_by_item.get(item_id, [])
             ), Decimal(0),
         )
+        own_claim += own_item_only_claim_by_item.get(item_id, Decimal(0))
         own_claim_by_item[item_id] = own_claim
         free_batches = sum((
             max(Decimal(0), Decimal(str(batch.quantity or 0)) - reserved_by_batch.get(int(batch.id), Decimal(0)))
@@ -926,7 +970,11 @@ def consume_packaging_materials_from_bom(
                 ).group_by(StockMovement.item_id, StockMovement.from_warehouse_id).all()
             }
         for item_id, warehouse_id, claim in scoped_item_only_claims:
-            remaining = max(Decimal(0), Decimal(str(claim or 0)))
+            scoped_key = (int(item_id), int(warehouse_id))
+            remaining = max(
+                Decimal(0),
+                Decimal(str(claim or 0)) - own_item_only_planned_by_scope.get(scoped_key, Decimal(0)),
+            )
             # Keep newest batches as backing so free older batches retain FIFO
             # consumption order. The rest may already be backed by the scoped
             # batchless ledger, which this operation leaves in that warehouse.
@@ -938,7 +986,6 @@ def consume_packaging_materials_from_bom(
                 protected = min(free, remaining)
                 protected_by_batch[batch_id] = protected_by_batch.get(batch_id, Decimal(0)) + protected
                 remaining -= protected
-            scoped_key = (int(item_id), int(warehouse_id))
             scoped_batchless = batchless_in.get(scoped_key, Decimal(0)) - batchless_out.get(scoped_key, Decimal(0))
             if remaining > scoped_batchless + Decimal("0.000000001"):
                 raise HTTPException(
@@ -981,6 +1028,35 @@ def consume_packaging_materials_from_bom(
                 protected_by_batch[batch_id] = max(
                     Decimal(0), protected_by_batch[batch_id] - Decimal(str(take)),
                 )
+                left -= take
+        if left > _STOCK_EPSILON and own_item_only_by_item.get(int(item.id)):
+            from app.services.inventory import _open_reservation_quantity, _set_reservation_status
+
+            for reservation in own_item_only_by_item[int(item.id)]:
+                if left <= _STOCK_EPSILON:
+                    break
+                take = min(left, _open_reservation_quantity(reservation))
+                if take <= _STOCK_EPSILON:
+                    continue
+                if str(reservation.unit or "").strip() != unit:
+                    raise HTTPException(409, "Packaging reservation unit must match item unit")
+                consume_item_from_batches(
+                    db,
+                    item_id=item.id,
+                    quantity=take,
+                    unit=unit,
+                    reference_type=reference_type,
+                    reference_id=reference_id,
+                    user_id=user_id,
+                    warehouse_id=int(reservation.warehouse_id) if reservation.warehouse_id is not None else None,
+                    require_available=True,
+                    batch_cache=batch_cache,
+                    reserved_by_batch=protected_by_batch,
+                    item_cache=items,
+                )
+                reservation.consumed_quantity = float(reservation.consumed_quantity or 0) + take
+                _set_reservation_status(reservation)
+                db.flush()
                 left -= take
         if left > _STOCK_EPSILON:
             consume_item_from_batches(

@@ -906,6 +906,86 @@ def test_postgres_packaging_waits_for_item_only_reservation_before_shortage(
         ).count() == 0
 
 
+def test_postgres_direct_item_only_consume_and_packaging_share_lock_order(
+    reservation_postgres_engine,
+):
+    sessions = sessionmaker(bind=reservation_postgres_engine, autoflush=False, expire_on_commit=False)
+    ids = _stock(sessions)
+    with sessions() as db:
+        item = db.get(Item, ids["items"][0])
+        item.category = "packaging"
+        db.get(Warehouse, ids["warehouses"][0]).type = "accessory_storage"
+        db.add(ModelBOM(
+            model_id=db.get(ProductionOrder, ids["orders"][0]).model_id,
+            item_id=item.id, quantity_per_piece=5, unit=item.unit,
+        ))
+        db.commit()
+    with sessions() as db:
+        reservation = inventory.create_material_reservations(
+            db, production_order_id=ids["orders"][0],
+            lines=[_line(ids, 5)], user_id=None,
+        )[0]
+        db.commit()
+        reservation_id = reservation.id
+
+    direct_consumed = Event()
+    release_direct = Event()
+    pids = Queue()
+
+    def direct_consume():
+        with sessions() as db:
+            pids.put(("direct", db.execute(text("SELECT pg_backend_pid()")).scalar_one()))
+            inventory.consume_material_reservation(db, reservation_id, quantity=3, user_id=None)
+            direct_consumed.set()
+            assert release_direct.wait(10), "Coordinator did not release direct consumption"
+            db.commit()
+
+    def package():
+        with sessions() as db:
+            pids.put(("package", db.execute(text("SELECT pg_backend_pid()")).scalar_one()))
+            consume_packaging_materials_from_bom(
+                db, production_order_id=ids["orders"][0], packed_qty=1,
+                reference_type="PackagingRecord", reference_id=89, user_id=None,
+            )
+            db.commit()
+
+    with sessions() as observer, ThreadPoolExecutor(max_workers=2) as workers:
+        first = workers.submit(direct_consume)
+        try:
+            direct_worker, direct_pid = pids.get(timeout=10)
+            assert direct_worker == "direct"
+            assert direct_consumed.wait(10), "Direct consume did not acquire its locks"
+            second = workers.submit(package)
+            package_worker, package_pid = pids.get(timeout=10)
+            assert package_worker == "package"
+            deadline = monotonic() + 10
+            while monotonic() < deadline:
+                if direct_pid in observer.execute(
+                    text("SELECT pg_blocking_pids(:pid)"), {"pid": package_pid},
+                ).scalar_one():
+                    break
+                if second.done():
+                    pytest.fail("Packaging finished before the direct consumer committed")
+                sleep(0.02)
+            else:
+                pytest.fail("Packaging must wait for the direct consumer's batch lock")
+        finally:
+            release_direct.set()
+        first.result(timeout=10)
+        second.result(timeout=10)
+
+    with sessions() as db:
+        row = db.get(MaterialReservation, reservation_id)
+        package_movements = db.query(StockMovement).filter_by(
+            reference_type="PackagingRecord", reference_id=89,
+        ).all()
+        assert row.status == "consumed"
+        assert float(row.consumed_quantity) == 5
+        assert float(db.get(StockBatch, ids["batches"][0]).quantity) == 2
+        assert sum(float(movement.quantity) for movement in package_movements) == 5
+        assert len(package_movements) == 2
+
+
 @pytest.mark.parametrize("line_count", [1, 50, 401])
 def test_postgres_reservation_locks_numbering_and_insert_transfers_are_batched(
     reservation_postgres_engine, line_count,
