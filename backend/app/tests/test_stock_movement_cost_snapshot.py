@@ -2,14 +2,24 @@
 
 from decimal import Decimal
 import importlib.util
+import os
 from pathlib import Path
+from uuid import uuid4
 
+import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.engine import make_url
+from sqlalchemy.orm import sessionmaker
 
 from app.db import session as session_module
-from app.models import Item, StockBatch, StockMovement, Warehouse
+from app.db.base import Base
+from app.models import (
+    Customer, Item, Model, ProductionOrder, SalesOrder, SalesOrderItem,
+    StockBatch, StockMovement, Warehouse,
+)
+from app.services.finance import order_profit
 from app.services.workflow import consume_item_from_batches, consume_stock_batch
 
 
@@ -129,3 +139,73 @@ def test_cost_snapshot_migration_preserves_legacy_unknown_and_reverses():
         assert connection.execute(text("SELECT id, quantity FROM stock_movements ORDER BY id")).all() == [
             (1, 2), (2, 1), (3, 1),
         ]
+
+
+@pytest.fixture
+def postgres_cost_sessions():
+    raw_url = os.environ.get("STABILIZATION_POSTGRES_URL")
+    if not raw_url:
+        pytest.skip("Set STABILIZATION_POSTGRES_URL through the disposable PostgreSQL launcher")
+    url = make_url(raw_url)
+    if url.get_backend_name() != "postgresql" or url.host not in {"127.0.0.1", "localhost", "::1"} or url.query:
+        pytest.fail("Cost snapshot test requires a loopback PostgreSQL URL without overrides")
+    schema = f"cost_snapshot_{uuid4().hex}"
+    engine = create_engine(
+        url,
+        connect_args={"options": f"-csearch_path={schema} -clock_timeout=15000 -cstatement_timeout=20000"},
+    )
+    with engine.begin() as connection:
+        connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
+    try:
+        Base.metadata.create_all(engine)
+        yield sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    finally:
+        with engine.begin() as connection:
+            connection.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
+        engine.dispose()
+
+
+def test_postgres_zero_cost_consumption_remains_known_after_repricing(postgres_cost_sessions):
+    marker = uuid4().hex
+    with postgres_cost_sessions() as db:
+        customer = Customer(name=f"Snapshot customer {marker}")
+        model = Model(code=f"SNAPSHOT-{marker}", name="Snapshot model")
+        item = Item(sku=f"SNAPSHOT-{marker}", name="Free material", category="accessory", unit="pcs")
+        warehouse = Warehouse(name=f"Snapshot warehouse {marker}", type="accessory_storage")
+        db.add_all([customer, model, item, warehouse])
+        db.flush()
+        order = SalesOrder(order_no=f"SNAPSHOT-{marker}", customer_id=customer.id, total_amount=10)
+        db.add(order)
+        db.flush()
+        db.add(SalesOrderItem(
+            sales_order_id=order.id, model_id=model.id, quantity=1, unit_price=10,
+            color="black", size="M",
+        ))
+        production = ProductionOrder(
+            production_no=f"SNAPSHOT-{marker}", production_type="client_order",
+            sales_order_id=order.id, model_id=model.id, planned_quantity=1,
+        )
+        batch = StockBatch(
+            item_id=item.id, batch_no=f"SNAPSHOT-{marker}", quantity=2,
+            cost_per_unit=0, unit="pcs", warehouse_id=warehouse.id, qc_status="passed",
+        )
+        db.add_all([production, batch])
+        db.flush()
+
+        consume_stock_batch(
+            db, batch_id=batch.id, quantity=1, unit="pcs",
+            reference_type="ProductionOrder", reference_id=production.id, user_id=None,
+        )
+        db.commit()
+        movement = db.query(StockMovement).filter_by(
+            reference_type="ProductionOrder", reference_id=production.id,
+        ).one()
+        assert movement.unit_cost_at_movement == Decimal("0.0000")
+        before = order_profit(db, order.id)
+        assert before["material_cost"] == 0
+        assert before["gross_profit"] == 10
+        assert before["material_cost_basis"] == "transaction_snapshot"
+
+        batch.cost_per_unit = 7
+        db.commit()
+        assert order_profit(db, order.id) == before

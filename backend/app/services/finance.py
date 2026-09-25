@@ -101,7 +101,7 @@ def _recorded_material_cost(db: Session, production_order_ids: set[int]) -> Deci
     )
     # Older and batchless movements have no cost snapshot. Never price them
     # from a mutable batch or today's BOM and call the result historical profit.
-    if not rows or any(cost is None or Decimal(str(cost)) <= 0 for _, cost in rows):
+    if not rows or any(cost is None or Decimal(str(cost)) < 0 for _, cost in rows):
         return None
     return sum(
         (Decimal(str(quantity)) * Decimal(str(cost)) for quantity, cost in rows),

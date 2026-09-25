@@ -142,6 +142,13 @@ def test_order_profit_uses_decimal_for_fractional_revenue():
         repriced = order_profit(db, order.id)
         db.add(StockMovement(
             movement_type="consume", item_id=item.id, batch_id=latest_batch.id,
+            quantity="1.00", unit="kg", reference_type="ProductionOrder",
+            reference_id=production.id, unit_cost_at_movement="0.0000",
+        ))
+        db.commit()
+        with_free_material = order_profit(db, order.id)
+        db.add(StockMovement(
+            movement_type="consume", item_id=item.id, batch_id=latest_batch.id,
             quantity="0.10", unit="kg", reference_type="ProductionOrder",
             reference_id=production.id,
         ))
@@ -154,6 +161,7 @@ def test_order_profit_uses_decimal_for_fractional_revenue():
     assert result["gross_profit"] == 1.134
     assert result["material_cost_basis"] == "transaction_snapshot"
     assert repriced == result
+    assert with_free_material == result
     assert incomplete_history["material_cost"] is None
     assert incomplete_history["gross_profit"] is None
     assert incomplete_history["material_cost_basis"] == "unavailable"
