@@ -12,6 +12,7 @@ from app.models import (
     FinishedGoodsStock,
     Invoice,
     Item,
+    MaterialReservation,
     ModelBOM,
     Notification,
     Package,
@@ -586,6 +587,7 @@ def consume_item_from_batches(
     warehouse_id: int | None = None,
     require_available: bool = False,
     batch_cache: dict[int, list[StockBatch]] | None = None,
+    reserved_by_batch: dict[int, Decimal] | None = None,
     item_cache: dict[int, Item] | None = None,
 ) -> float:
     if quantity <= 0:
@@ -620,9 +622,27 @@ def consume_item_from_batches(
         # Batch locks were acquired above; match reservation creation's
         # batch-before-item lock order before reading the shared ledger.
         lock_stock_item_availability(db, int(item_id))
+        if reserved_by_batch is None and batches:
+            reserved_by_batch = {
+                int(batch_id): max(Decimal(0), Decimal(str(quantity or 0)))
+                for batch_id, quantity in db.query(
+                    MaterialReservation.stock_batch_id,
+                    func.sum(
+                        MaterialReservation.reserved_quantity
+                        - MaterialReservation.consumed_quantity
+                        - MaterialReservation.released_quantity
+                    ),
+                ).filter(
+                    MaterialReservation.stock_batch_id.in_(int(batch.id) for batch in batches),
+                    MaterialReservation.status.in_(("reserved", "partially_consumed")),
+                ).group_by(MaterialReservation.stock_batch_id).all()
+            }
     batchless_available = batchless_stock_for_item(db, item_id, warehouse_id) if require_available else Decimal(0)
     if require_available:
-        available = sum(Decimal(str(row.quantity or 0)) for row in batches) + batchless_available
+        available = sum(
+            max(Decimal(0), Decimal(str(row.quantity or 0)) - (reserved_by_batch or {}).get(int(row.id), Decimal(0)))
+            for row in batches
+        ) + batchless_available
         if available + Decimal("0.000000001") < Decimal(str(quantity)):
             raise HTTPException(
                 409,
@@ -633,7 +653,10 @@ def consume_item_from_batches(
     for batch in batches:
         if planned_left <= 0:
             break
-        take = min(planned_left, float(batch.quantity or 0))
+        unreserved = max(
+            Decimal(0), Decimal(str(batch.quantity or 0)) - (reserved_by_batch or {}).get(int(batch.id), Decimal(0)),
+        )
+        take = min(planned_left, float(unreserved))
         if take <= 0:
             continue
         _require_batch_consumption_unit(batch, effective_unit)

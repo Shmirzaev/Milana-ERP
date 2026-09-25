@@ -17,8 +17,9 @@ from sqlalchemy.orm import sessionmaker
 from app.api.routes import cutting_passports, inventory as inventory_routes
 from app.db.base import Base
 from app.models import (
-    AuditLog, Item, MaterialReservation, Model, ProductionOrder, ProductionOrderMaterial,
-    StockBatch, StockMovement, User, Warehouse,
+    AuditLog, CuttingRecord, Item, ManualAccessoryIssue, MaterialReservation, Model, ModelBOM,
+    PackagingRecord, PrintingRecord, ProductionOrder, ProductionOrderItem, ProductionOrderMaterial,
+    SewingRecord, StockBatch, StockMovement, User, Warehouse, WorkOrder,
 )
 from app.schemas.inventory import StockMovementIn
 from app.schemas.cutting_passport import CuttingPassportIn
@@ -246,7 +247,9 @@ def reservation_postgres_engine():
     try:
         tables = {
             MaterialReservation.__table__, StockBatch.__table__, StockMovement.__table__, ProductionOrderMaterial.__table__,
-            AuditLog.__table__,
+            AuditLog.__table__, ModelBOM.__table__, ProductionOrderItem.__table__, ManualAccessoryIssue.__table__,
+            WorkOrder.__table__, CuttingRecord.__table__, PrintingRecord.__table__, SewingRecord.__table__,
+            PackagingRecord.__table__,
         }
         pending = list(tables)
         while pending:
@@ -633,6 +636,187 @@ def test_postgres_cutting_additions_and_batchless_reservation_do_not_deadlock(
         assert [row.stock_batch_id for row in materials] == [row.stock_batch_id for row in payload.additional_materials]
         assert [row.position for row in materials] == [1, 2]
         assert db.query(AuditLog).filter_by(action="add_cutting_passport_material", entity_id=ids["orders"][0]).count() == 2
+
+
+def test_accessory_issue_preserves_line_order_and_rechecks_repeated_item():
+    ids = _stock(TestSessionLocal, item_count=2)
+    with TestSessionLocal() as db:
+        for item_id in ids["items"]:
+            db.get(Item, item_id).category = "accessory"
+        db.commit()
+    with TestSessionLocal() as db:
+        result = inventory.issue_accessories_to_production_order(
+            db, production_order_id=ids["orders"][0],
+            lines=[
+                {"item_id": ids["items"][1], "quantity": 2},
+                {"item_id": ids["items"][0], "quantity": 3},
+                {"item_id": ids["items"][1], "quantity": 1},
+            ], user_id=None,
+        )
+        db.commit()
+        assert [row["item_id"] for row in result["issued"]] == [ids["items"][1], ids["items"][0], ids["items"][1]]
+        assert [row["quantity"] for row in result["issued"]] == [2, 3, 1]
+        assert [float(db.get(StockBatch, batch_id).quantity) for batch_id in ids["batches"]] == [7, 7]
+
+
+def test_accessory_issue_rejects_duplicate_lines_above_remaining_requirement_without_writes():
+    ids = _stock(TestSessionLocal)
+    with TestSessionLocal() as db:
+        item = db.get(Item, ids["items"][0])
+        item.category = "accessory"
+        order = db.get(ProductionOrder, ids["orders"][0])
+        order.planned_quantity = 1
+        db.add(ModelBOM(model_id=order.model_id, item_id=item.id, quantity_per_piece=1, unit="kg"))
+        db.commit()
+
+    with TestSessionLocal() as db, pytest.raises(HTTPException) as rejected:
+        inventory.issue_accessories_to_production_order(
+            db, production_order_id=ids["orders"][0],
+            lines=[{"item_id": ids["items"][0], "quantity": 1}] * 2, user_id=None,
+        )
+    assert rejected.value.status_code == 409
+    with TestSessionLocal() as db:
+        assert float(db.get(StockBatch, ids["batches"][0]).quantity) == 10
+        assert db.query(StockMovement.id).filter(
+            StockMovement.reference_type == "ProductionOrder",
+            StockMovement.reference_id == ids["orders"][0],
+        ).count() == 0
+
+
+@pytest.mark.parametrize("via_accessory_issue", [False, True])
+@pytest.mark.parametrize("same_order", [False, True])
+def test_accessory_issue_consumes_only_unreserved_batches(via_accessory_issue, same_order):
+    ids = _stock(TestSessionLocal)
+    item_id = ids["items"][0]
+    reserved_batch_id = ids["batches"][0]
+    with TestSessionLocal() as db:
+        db.get(Item, item_id).category = "accessory"
+        reserved_batch = db.get(StockBatch, reserved_batch_id)
+        reserved_batch.quantity = 5
+        free_batch = StockBatch(
+            item_id=item_id, warehouse_id=reserved_batch.warehouse_id,
+            batch_no=f"FREE-ACCESSORY-{uuid4().hex}", quantity=5, unit="kg", qc_status="passed",
+        )
+        db.add(free_batch)
+        db.flush()
+        inventory.create_material_reservations(
+            db, production_order_id=ids["orders"][0],
+            lines=[{"item_id": item_id, "stock_batch_id": reserved_batch_id, "reserved_quantity": 5, "unit": "kg"}],
+            user_id=None,
+        )
+        free_batch_id = free_batch.id
+        db.commit()
+
+    with TestSessionLocal() as db:
+        issue_order_id = ids["orders"][0 if same_order else 1]
+        if via_accessory_issue:
+            result = inventory.issue_accessories_to_production_order(
+                db, production_order_id=issue_order_id,
+                lines=[{"item_id": item_id, "quantity": 5}], user_id=None,
+            )
+            assert result["issued"][0]["quantity"] == 5
+        else:
+            inventory.consume_item_from_batches(
+                db, item_id=item_id, quantity=5, unit="kg", require_available=True,
+                reference_type="ProductionOrder", reference_id=issue_order_id, user_id=None,
+            )
+        db.commit()
+        assert float(db.get(StockBatch, reserved_batch_id).quantity) == 5
+        assert float(db.get(StockBatch, free_batch_id).quantity) == 0
+        movement = db.query(StockMovement).filter(
+            StockMovement.reference_type == "ProductionOrder",
+            StockMovement.reference_id == issue_order_id,
+        ).one()
+        assert movement.batch_id == free_batch_id
+        reservation = db.query(MaterialReservation).filter(
+            MaterialReservation.stock_batch_id == reserved_batch_id,
+        ).one()
+        assert reservation.status == "reserved"
+        assert float(reservation.consumed_quantity or 0) == 0
+
+
+def test_postgres_reversed_accessory_issue_lines_lock_all_items_before_consuming(
+    reservation_postgres_engine, monkeypatch,
+):
+    sessions = sessionmaker(bind=reservation_postgres_engine, autoflush=False, expire_on_commit=False)
+    ids = _stock(sessions, item_count=2)
+    with sessions() as db:
+        for item_id in ids["items"]:
+            db.get(Item, item_id).category = "accessory"
+        db.commit()
+
+    forward_consumed = Event()
+    release_forward = Event()
+    reverse_started_consuming = Event()
+    pids = Queue()
+    original_consume = inventory.consume_item_from_batches
+
+    def track_consume(db, **kwargs):
+        worker = db.info.get("accessory_worker")
+        if worker == "reverse":
+            reverse_started_consuming.set()
+        result = original_consume(db, **kwargs)
+        if worker == "forward" and not forward_consumed.is_set():
+            forward_consumed.set()
+            assert release_forward.wait(10), "Coordinator did not release the first accessory issue"
+        return result
+
+    monkeypatch.setattr(inventory, "consume_item_from_batches", track_consume)
+
+    def issue(worker):
+        with sessions() as db:
+            db.info["accessory_worker"] = worker
+            pid = db.execute(text("SELECT pg_backend_pid()")).scalar_one()
+            pids.put((worker, pid))
+            item_ids = ids["items"] if worker == "forward" else list(reversed(ids["items"]))
+            order_id = ids["orders"][0 if worker == "forward" else 1]
+            result = inventory.issue_accessories_to_production_order(
+                db, production_order_id=order_id,
+                lines=[{"item_id": item_id, "quantity": 1} for item_id in item_ids], user_id=None,
+            )
+            db.commit()
+            return pid, result
+
+    with sessions() as observer, ThreadPoolExecutor(max_workers=2) as workers:
+        forward = workers.submit(issue, "forward")
+        try:
+            forward_worker, forward_pid = pids.get(timeout=10)
+            assert forward_worker == "forward"
+            if not forward_consumed.wait(15):
+                if forward.done():
+                    forward.result()
+                pytest.fail("Forward issue did not consume its first item")
+            reverse = workers.submit(issue, "reverse")
+            reverse_worker, reverse_pid = pids.get(timeout=10)
+            assert reverse_worker == "reverse"
+            deadline = monotonic() + 10
+            while monotonic() < deadline:
+                assert not reverse_started_consuming.is_set(), "Reverse issue consumed before acquiring all item locks"
+                blockers = observer.execute(
+                    text("SELECT pg_blocking_pids(:pid)"), {"pid": reverse_pid},
+                ).scalar_one()
+                if forward_pid in blockers:
+                    break
+                if reverse.done():
+                    pytest.fail(f"Reverse issue ended before lock contention: {reverse.result()}")
+                sleep(0.02)
+            else:
+                pytest.fail("Reversed accessory issue did not wait for the globally first batch lock")
+        finally:
+            release_forward.set()
+        forward_pid, forward_result = forward.result(timeout=10)
+        reverse_pid, reverse_result = reverse.result(timeout=10)
+        assert forward_pid != reverse_pid
+        assert [row["item_id"] for row in forward_result["issued"]] == ids["items"]
+        assert [row["item_id"] for row in reverse_result["issued"]] == list(reversed(ids["items"]))
+
+    with sessions() as db:
+        assert [float(db.get(StockBatch, batch_id).quantity) for batch_id in ids["batches"]] == [8, 8]
+        movements = db.query(StockMovement).filter(
+            StockMovement.reference_type == "ProductionOrder",
+            StockMovement.reference_id.in_(ids["orders"]),
+        ).all()
+        assert len(movements) == 4
 
 
 @pytest.mark.parametrize("line_count", [1, 50, 401])

@@ -33,6 +33,7 @@ from app.services.workflow import (
     STOCK_ITEM_AVAILABILITY_LOCK_NAMESPACE,
     consume_item_from_batches,
     consume_stock_batch,
+    lock_stock_item_availability,
     notify_department,
 )
 
@@ -3546,12 +3547,51 @@ def issue_accessories_to_production_order(
     lines: list[dict],
     user_id: int | None,
 ) -> dict:
-    plan = accessory_issue_plan(db, production_order_id)
     po = db.get(ProductionOrder, production_order_id)
     if not po:
         raise HTTPException(404, "Production order not found")
 
+    # Reserve one global lock order for the whole request. Reversed item lines
+    # must not hold one item's batch/advisory locks while waiting for another's.
+    item_ids = sorted({
+        int(raw.get("item_id") or 0)
+        for raw in lines
+        if int(raw.get("item_id") or 0) > 0
+        and Decimal(str(raw.get("quantity") or 0)) > 0
+    })
+    locked_batches: dict[int, list[StockBatch]] = {item_id: [] for item_id in item_ids}
+    reserved_by_batch: dict[int, Decimal] = {}
+    if item_ids:
+        db.flush()
+        batch_query = db.query(StockBatch).filter(
+            StockBatch.item_id.in_(item_ids), StockBatch.quantity > 0,
+        ).order_by(StockBatch.id).populate_existing()
+        if db.bind and db.bind.dialect.name == "postgresql":
+            batch_query = batch_query.options(lazyload(StockBatch.item)).with_for_update(of=StockBatch)
+        for batch in batch_query.all():
+            locked_batches[int(batch.item_id)].append(batch)
+        for item_id in item_ids:
+            lock_stock_item_availability(db, item_id)
+        for batches in locked_batches.values():
+            batches.sort(key=lambda batch: (batch.received_date, batch.id))
+        batch_ids = [int(batch.id) for batches in locked_batches.values() for batch in batches]
+        if batch_ids:
+            reserved_by_batch = {
+                int(batch_id): Decimal(str(quantity or 0))
+                for batch_id, quantity in db.query(
+                    MaterialReservation.stock_batch_id, _active_reserved_sum_query(db),
+                ).filter(
+                    MaterialReservation.stock_batch_id.in_(batch_ids),
+                    MaterialReservation.status.in_(ACTIVE_RESERVATION_STATUSES),
+                ).group_by(MaterialReservation.stock_batch_id).all()
+            }
+
+    plan = accessory_issue_plan(db, production_order_id)
     plan_by_item_id = {int(row["item_id"]): row for row in plan["rows"]}
+    remaining_by_item_id = {
+        item_id: float(row.get("remaining_quantity") or 0)
+        for item_id, row in plan_by_item_id.items()
+    }
     issued = []
     for raw in lines:
         item_id = int(raw.get("item_id") or 0)
@@ -3578,6 +3618,10 @@ def issue_accessories_to_production_order(
                 created_by=user_id,
             )
             db.add(issue)
+            if item is not None and int(item.id) in remaining_by_item_id:
+                remaining_by_item_id[int(item.id)] = max(
+                    0.0, remaining_by_item_id[int(item.id)] - float(quantity),
+                )
             issued.append({
                 "item_id": int(item.id) if item else 0,
                 "item_sku": item_sku or item_name,
@@ -3596,13 +3640,16 @@ def issue_accessories_to_production_order(
 
         plan_row = plan_by_item_id.get(item_id)
         if plan_row:
-            remaining = float(plan_row.get("remaining_quantity") or 0)
+            remaining = remaining_by_item_id[item_id]
             if quantity > remaining + 1e-9:
                 raise HTTPException(
                     409,
                     f"Issue quantity for {plan_row['item_sku']} exceeds remaining accessory requirement",
                 )
 
+        # SessionLocal disables autoflush. Later lines for the same item must
+        # see earlier debits in this transaction before checking availability.
+        db.flush()
         available = available_stock_for_item(db, int(item.id))
         if quantity > available + 1e-9:
             raise HTTPException(
@@ -3622,8 +3669,12 @@ def issue_accessories_to_production_order(
             reference_id=po.id,
             user_id=user_id,
             require_available=True,
+            batch_cache=locked_batches,
+            reserved_by_batch=reserved_by_batch,
             item_cache={int(item.id): item},
         )
+        if plan_row:
+            remaining_by_item_id[item_id] -= consumed
         issued.append({
             "item_id": int(item.id),
             "item_sku": item.sku,
@@ -3635,6 +3686,7 @@ def issue_accessories_to_production_order(
 
     if not issued:
         raise HTTPException(400, "No accessory issue quantities provided")
+    db.flush()
     sync_sewing_accessory_block(db, production_order_id)
 
     return {
