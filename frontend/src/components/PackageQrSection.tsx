@@ -36,11 +36,12 @@ export default function PackageQrSection({
   const { t, lang } = useT();
   const copy = packageWorkflowCopy[lang];
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [packagePage, setPackagePage] = useState(1);
   const [runRefresh, setRunRefresh] = useState(0);
   const { me } = useMe();
   const canApprovePackageChange = can(me, "management.approve");
   const packagesKey = productionOrderId
-    ? `/api/packages?production_order_id=${productionOrderId}&include_total=true&page=1&page_size=500`
+    ? `/api/packages?production_order_id=${productionOrderId}&include_total=true&page=${packagePage}&page_size=50`
     : null;
   const { data: pageData, mutate } = useSWR<any>(packagesKey, fetcher);
   const { data: pendingRequests, mutate: mutatePendingRequests } = useSWR<any[]>(
@@ -66,7 +67,7 @@ export default function PackageQrSection({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  const totalPackages = Number(pageData?.total || packages.length);
+  const totalPackages = Number(pageData?.total ?? packages.length);
   const totalQuantity = packages.reduce((sum, row) => sum + Number(row.total_quantity || 0), 0);
   const packageIds = packages.map((p) => p.id).filter(Boolean).join(",");
   const editTotal = useMemo(
@@ -250,7 +251,7 @@ export default function PackageQrSection({
           <h3 className="font-medium">{t("page.packaging.savedQrTitle")}</h3>
           <div className="mt-1 text-sm text-slate-500">{t("page.packaging.savedQrHint")}</div>
           <div className="mt-2 text-xs text-slate-500">
-            {t("page.packaging.savedQrSummary", { count: totalPackages, qty: totalQuantity })}
+            {t("page.packaging.savedQrSummary", { count: packages.length, qty: totalQuantity })}
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -271,7 +272,7 @@ export default function PackageQrSection({
             disabled={!packageIds}
             onClick={() => api.openLabel(`/api/packages/label-sheet/by-ids?ids=${encodeURIComponent(packageIds)}`)}
           >
-            {t("page.packaging.printAllLabels")}
+            {t("page.packaging.printPageLabels")}
           </button>
         </div>
       </div>
@@ -359,6 +360,18 @@ export default function PackageQrSection({
           </tbody>
         </table>
       </div>
+
+      {totalPackages > 50 && (
+        <div className="mt-3 flex items-center justify-end gap-3 text-sm">
+          <button type="button" className="btn" disabled={packagePage <= 1} onClick={() => setPackagePage((page) => Math.max(1, page - 1))}>
+            {t("common.previous")}
+          </button>
+          <span>{packagePage} / {Math.ceil(totalPackages / 50)}</span>
+          <button type="button" className="btn" disabled={packagePage * 50 >= totalPackages} onClick={() => setPackagePage((page) => page + 1)}>
+            {t("common.next")}
+          </button>
+        </div>
+      )}
 
       <PackagePrintRuns productionOrderId={productionOrderId} refreshKey={runRefresh + totalPackages} />
       <PendingPackageWorkflow path="/api/packages/print-runs/create-packages" onResolved={refreshPackages} />

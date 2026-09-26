@@ -1650,6 +1650,7 @@ export default {
     "page.packaging.qrSaved": "QR сохранён",
     "page.packaging.qrMissing": "QR отсутствует",
     "page.packaging.printAllLabels": "Печать всех этикеток",
+    "page.packaging.printPageLabels": "Печать этикеток на этой странице",
     "page.packaging.downloadQr": "Скачать QR",
     "page.planning.accessoryUsageCost": "Расход и стоимость аксессуаров",
     "page.planning.estimateFor": "Смета планирования для {orderNo}",

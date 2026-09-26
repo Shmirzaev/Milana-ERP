@@ -1650,6 +1650,7 @@ export default {
     "page.packaging.qrSaved": "QR saqlandi",
     "page.packaging.qrMissing": "QR yo'q",
     "page.packaging.printAllLabels": "Barcha yorliqlarni chop etish",
+    "page.packaging.printPageLabels": "Ushbu sahifadagi yorliqlarni chop etish",
     "page.packaging.downloadQr": "QR yuklab olish",
     "page.planning.accessoryUsageCost": "Aksessuarlar sarfi va qiymati",
     "page.planning.estimateFor": "{orderNo} uchun reja smetasi",

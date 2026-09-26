@@ -174,6 +174,21 @@ def test_package_list_preserves_pagination_filters_and_empty_page(client, auth_h
     assert client.get("/api/packages?status=shipped", headers=auth_headers).json() == []
 
 
+def test_package_list_pages_past_500_rows(client, auth_headers):
+    ids = _seed_packages(501)
+    first = client.get("/api/packages?include_total=true&page=1&page_size=50", headers=auth_headers)
+    last = client.get("/api/packages?include_total=true&page=11&page_size=50", headers=auth_headers)
+
+    assert first.status_code == last.status_code == 200
+    first_page = first.json()
+    last_page = last.json()
+    assert (first_page["total"], first_page["page"], first_page["page_size"]) == (501, 1, 50)
+    assert (last_page["total"], last_page["page"], last_page["page_size"]) == (501, 11, 50)
+    assert len(first_page["rows"]) == 50
+    assert len(last_page["rows"]) == 1
+    assert last_page["rows"][0]["id"] == min(ids)
+
+
 def test_package_list_preserves_session_and_factory_boundaries(client):
     mil_ids = _seed_packages(2)
     eco_ids = _seed_packages(1, department="ECP")

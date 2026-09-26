@@ -1785,6 +1785,7 @@ export default {
     "page.packaging.qrSaved": "QR saved",
     "page.packaging.qrMissing": "QR missing",
     "page.packaging.printAllLabels": "Print all labels",
+    "page.packaging.printPageLabels": "Print labels on this page",
     "page.packaging.downloadQr": "Download QR",
     "page.planning.accessoryUsageCost": "Accessories Usage and Cost",
     "page.planning.estimateFor": "Planning Estimate for {orderNo}",
