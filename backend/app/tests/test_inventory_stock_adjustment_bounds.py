@@ -97,6 +97,60 @@ def test_stock_adjustment_storage_maximum_persists_exactly(client, auth_headers)
         assert movement.quantity == MAX_STOCK_QUANTITY
 
 
+def test_forced_stock_adjustment_cannot_leave_active_reservations_unbacked(client, auth_headers):
+    from app.db.session import SessionLocal
+    from app.models import MaterialReservation, Model, ProductionOrder
+
+    item_id = _create_item(client, auth_headers)
+    received = client.patch(
+        f"/api/inventory/stock/{item_id}",
+        headers=auth_headers,
+        json={"quantity": 10, "unit": "pcs"},
+    )
+    assert received.status_code == 200, received.text
+
+    with SessionLocal() as db:
+        model = db.query(Model).first()
+        assert model is not None
+        order = ProductionOrder(
+            production_no=f"ADJ-RESERVE-{uuid4().hex[:12]}",
+            production_type="branded_stock",
+            model_id=model.id,
+            planned_quantity=1,
+        )
+        db.add(order)
+        db.flush()
+        db.add(MaterialReservation(
+            reservation_no=f"MR-ADJ-{uuid4().hex[:12]}",
+            production_order_id=order.id,
+            item_id=item_id,
+            reserved_quantity=8,
+            consumed_quantity=0,
+            released_quantity=0,
+            unit="pcs",
+            status="reserved",
+            reservation_type="accessory",
+            source="manual",
+        ))
+        db.commit()
+        before_movement_count = db.query(StockMovement).filter_by(item_id=item_id).count()
+        before_audit_count = db.query(AuditLog).count()
+
+    response = client.patch(
+        f"/api/inventory/stock/{item_id}?force=true",
+        headers=auth_headers,
+        json={"quantity": 5, "unit": "pcs"},
+    )
+
+    assert response.status_code == 409, response.text
+    assert "cannot be lower than reserved quantity" in response.json()["detail"]
+    with SessionLocal() as db:
+        assert db.query(MaterialReservation).filter_by(item_id=item_id).one().status == "reserved"
+        assert db.query(StockMovement).filter_by(item_id=item_id).count() == before_movement_count
+        assert db.query(AuditLog).count() == before_audit_count
+        assert db.query(StockBatch).filter_by(item_id=item_id).count() == 0
+
+
 def test_batch_tracked_adjustment_uses_matching_category_storage(client, auth_headers):
     suffix = uuid4().hex[:10].upper()
     item_response = client.post("/api/inventory/items", headers=auth_headers, json={

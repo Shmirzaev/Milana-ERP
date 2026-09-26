@@ -836,7 +836,9 @@ def set_stock_quantity(
     target_quantity = float(payload.quantity or 0)
     previous_quantity = current_stock_for_item(db, item_id)
     reserved_quantity = reserved_stock_for_item(db, item_id)
-    if target_quantity + EPSILON < reserved_quantity and not force:
+    # Force permits legacy batch selection behavior, but a correction must
+    # never leave active reservations backed by less physical stock.
+    if target_quantity + EPSILON < reserved_quantity:
         raise HTTPException(409, f"Stock quantity cannot be lower than reserved quantity ({reserved_quantity:g} {item.unit})")
     delta = target_quantity - previous_quantity
     if abs(delta) > EPSILON and Decimal(str(abs(delta))) > MAX_STORED_STOCK_QUANTITY:
