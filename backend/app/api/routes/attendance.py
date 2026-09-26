@@ -645,6 +645,7 @@ def import_events(
 def _write_new_attendance_photo(destination: Path, content: bytes) -> bool:
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary_path: Path | None = None
+    linked_destination = False
     try:
         with NamedTemporaryFile(
             prefix=".attendance_",
@@ -655,11 +656,24 @@ def _write_new_attendance_photo(destination: Path, content: bytes) -> bool:
             stream.write(content)
             temporary_path = Path(stream.name)
         os.link(temporary_path, destination)
+        linked_destination = True
     except FileExistsError:
         return False
     finally:
         if temporary_path is not None:
-            temporary_path.unlink(missing_ok=True)
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError:
+                # If staging cleanup fails after the hard link succeeded,
+                # the caller has not yet recorded ownership of destination.
+                # Roll it back here so an exception cannot strand an orphan.
+                if linked_destination:
+                    destination.unlink(missing_ok=True)
+                try:
+                    temporary_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                raise
     return True
 
 

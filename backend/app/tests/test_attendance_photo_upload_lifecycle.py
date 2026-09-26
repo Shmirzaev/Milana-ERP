@@ -76,6 +76,27 @@ def _stored_files(root: Path) -> set[Path]:
     return {path.relative_to(root) for path in root.rglob("*") if path.is_file()}
 
 
+def test_attendance_photo_staging_cleanup_failure_does_not_orphan_linked_file(tmp_path, monkeypatch):
+    destination = tmp_path / "person.webp"
+    original_unlink = Path.unlink
+    failed_once = False
+
+    def fail_first_temporary_unlink(path, *args, **kwargs):
+        nonlocal failed_once
+        if path.suffix == ".tmp" and not failed_once:
+            failed_once = True
+            raise OSError("synthetic temporary cleanup failure")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", fail_first_temporary_unlink)
+
+    with pytest.raises(OSError, match="synthetic temporary cleanup failure"):
+        attendance._write_new_attendance_photo(destination, b"synthetic photo")
+
+    assert not destination.exists()
+    assert _stored_files(tmp_path) == set()
+
+
 def test_attendance_person_photo_read_projects_only_photo_fields(client, auth_headers, tmp_path, monkeypatch):
     _device_id, person_id = _seed_person(client)
     monkeypatch.setattr(attendance.settings, "ATTENDANCE_PHOTOS_DIR", str(tmp_path))
