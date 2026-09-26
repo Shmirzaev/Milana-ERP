@@ -6347,3 +6347,11 @@ concise source of truth, not a transcript.
 - Latest combined inventory master-data and forecast legacy-shape regression run passes 36 tests.
 - Final bounded scans found no additional unsafe DB02 vocabulary mutation or unguarded FN07 numeric writer; reviewed candidates are already schema/route guarded. Manual-vs-1C one-cent settlement status policy remains owner-dependent.
 - Ledger counts remain 106 fixed, 15 partial and 6 open. Historical evidence, production schema/query plans, deployment and infrastructure/credential/restore validation remain outside local code fixes. No production write, migration, push, merge or deployment occurred.
+
+
+## 2026-09-26 - Audit fix pass cycle 11
+
+- Commit `1f13f27f` fixes attendance photo cleanup when temporary-file unlink fails after linking; commit `fddd73ae` removes the 500-row cap from saved package QR labels; commit `69ceef4e` prevents forced stock-level reductions from consuming stock reserved by another order.
+- Commit `6118771b` adds read-only migration 0090 assignment preview and predecessor gating. Focused preflight tests pass 2 cases; the PostgreSQL parity case is skipped because no disposable PostgreSQL URL is configured. No real migration was run.
+- Package QR query-growth tests pass 10 cases with frontend TypeScript and targeted ESLint. Inventory and attendance lifecycle focused tests pass 29 cases.
+- Ledger counts remain 106 fixed, 15 partial, 6 open; these fixes add evidence to partial findings and do not resolve the remaining broad/operational criteria. No production write, push, merge or deployment occurred.
