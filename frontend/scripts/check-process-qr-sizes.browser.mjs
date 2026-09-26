@@ -13,7 +13,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const files = [
   ...['en', 'ru', 'uz'].flatMap(lang => [`lib/i18n/locales/${lang}-base.ts`, `lib/i18n/locales/${lang}-supplemental.ts`]),
   'lib/numberInput.ts', 'lib/batchSerial.ts', 'lib/orderRef.ts', 'lib/modelCode.ts', 'lib/materialComposition.ts', 'lib/modelComposition.ts',
-  'lib/modelVariants.ts', 'lib/modelPaidOperations.ts', 'lib/processQrLabelIdentity.ts', 'app/(app)/process-qr/page.tsx',
+  'lib/modelVariants.ts', 'lib/modelPaidOperations.ts', 'lib/processQrLabelIdentity.ts', 'lib/garmentSizes.ts',
+  'components/ManualModelSizes.tsx', 'components/ProcessQrSizeEditor.tsx', 'app/(app)/process-qr/page.tsx',
 ];
 const code = files.map(file => {
   const js = ts.transpileModule(fs.readFileSync(path.join(root, 'src', file), 'utf8'), {
@@ -54,10 +55,12 @@ const icon=p=>React.createElement('svg',{...p,width:16,height:16});
 const modules={react:React,swr:{default:useFixtureSWR},qrcode:{default:{toDataURL:async()=>''}},
  'next/link':{default:({children,...p})=>React.createElement('a',p,children)},
  'lucide-react':new Proxy({},{get:()=>icon}),
+ '@/components/PaidProcessPicker':{default:()=>null},
+ '@/lib/paidProcessSections':{paidSectionLabel:(section)=>section},
  '@/components/PageHeader':{default:p=>React.createElement('header',null,React.createElement('h1',null,p.title),p.actions)},
- '@/components/Modal':{default:()=>null},
+ '@/components/Modal':{default:({open,title,children})=>open?React.createElement('div',{role:'dialog','aria-label':title},children):null},
  '@/components/DialogProvider':{useDialogs:()=>({confirm:async()=>true})},
- '@/lib/auth':{useMe:()=>({me:{id:1,factory_code:'MIL'}})},
+ '@/lib/auth':{can:()=>true,useMe:()=>({me:{id:1,factory_code:'MIL'}})},
  '@/lib/api':{fetcher:fixture,api:{post:async(url,body)=>{window.calls.push({url,body});return {items:[]}},patch:async()=>{throw Error('Unexpected write')}}},
  '@/lib/i18n':{useT:()=>({lang,t:(key,args)=>{let s=modules['@/lib/i18n/locales/'+lang+'-supplemental']?.default[key]||modules['@/lib/i18n/locales/'+lang+'-base']?.default[key]||key;for(const[k,v]of Object.entries(args||{}))s=s.replaceAll('{'+k+'}',v);return s}})},
 };
@@ -92,6 +95,24 @@ try{
   await page.screenshot({path:path.join(out,'inherited-desktop.png'),fullPage:true});
   await variant.selectOption('6921');await page.getByText('XS',{exact:true}).waitFor();
   assert.equal(await page.getByText('58',{exact:true}).count(),0,'Own sizes replace inherited sizes');
+  const sizePanel=page.locator('section').filter({has:page.getByRole('button',{name:'Edit sizes',exact:true})});
+  await sizePanel.locator('input[type=number]').first().fill('25');
+  await page.getByRole('button',{name:'Edit sizes',exact:true}).click();
+  let editor=page.getByRole('dialog',{name:'Edit sizes',exact:true});
+  await editor.locator('input').first().fill('44');
+  await editor.getByRole('button',{name:'Add size',exact:true}).click();
+  await editor.locator('input').last().fill('44');
+  assert(await editor.getByRole('button',{name:'Save',exact:true}).isDisabled(),'Duplicate size must block apply');
+  await editor.locator('input').last().fill('60');
+  await editor.getByRole('button',{name:'Save',exact:true}).click();
+  await page.getByText('60',{exact:true}).waitFor();
+  assert.equal(await sizePanel.locator('input[type=number]').first().inputValue(),'25','Rename preserves quantity');
+  await page.getByRole('button',{name:'Edit sizes',exact:true}).click();
+  editor=page.getByRole('dialog',{name:'Edit sizes',exact:true});
+  await editor.getByRole('button',{name:'Delete',exact:true}).nth(1).click();
+  await editor.getByRole('button',{name:'Save',exact:true}).click();
+  assert.equal(await page.getByText('60',{exact:true}).count(),0,'Remove updates active sizes');
+  assert.equal(await sizePanel.locator('input[type=number]').first().inputValue(),'25','Remove preserves retained quantity');
   await variant.selectOption('27');await page.waitForFunction(()=>!!window.release.slow);
   await variant.selectOption('6921');await page.getByText('XS',{exact:true}).waitFor();
   await page.evaluate(()=>window.release.slow());assert.equal(await page.getByText('58',{exact:true}).count(),0,'Late family response cannot leak across variants');
@@ -107,7 +128,7 @@ try{
     await page.setViewportSize({width:390,height:844});await page.goto(url+'?lang='+lang);
     await page.getByRole('button',{name:lang==='ru'?'Ручной заказ':"Qo‘lda buyurtma",exact:true}).first().click();
     await page.locator('input').first().fill('3152');
-    await page.getByText('58',{exact:true}).waitFor();
+    await page.locator('label').filter({hasText:/^58$/}).waitFor();
     await page.screenshot({path:path.join(out,lang+'-mobile.png'),fullPage:true});
   }
   assert.deepEqual(errors,[]);console.log('Process QR size resolution browser checks passed.');

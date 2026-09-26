@@ -43,6 +43,7 @@ import {
 } from "@/lib/modelPaidOperations";
 import PaidProcessPicker from "@/components/PaidProcessPicker";
 import ManualModelSizes from "@/components/ManualModelSizes";
+import ProcessQrSizeEditor, { type ProcessQrSizeEdit } from "@/components/ProcessQrSizeEditor";
 import { paidSectionLabel } from "@/lib/paidProcessSections";
 import PageHeader from "@/components/PageHeader";
 import { useDialogs } from "@/components/DialogProvider";
@@ -734,6 +735,7 @@ export default function ProcessQrPage() {
   const [sameSizeQuantity, setSameSizeQuantity] = useState<NumberInputValue>(0);
   const [customSizeQuantities, setCustomSizeQuantities] = useState<Record<string, NumberInputValue>>({});
   const initializedSizeSourceKey = useRef("");
+  const [manualSizeOverride, setManualSizeOverride] = useState<{ modelId: number; sizes: string[] } | null>(null);
   const [operations, setOperations] = useState<PaidOperation[]>(() => clonePaidOperations());
   const [loadedOperationsModelId, setLoadedOperationsModelId] = useState<number | null>(null);
   const [loadedOperationsSignature, setLoadedOperationsSignature] = useState("");
@@ -808,6 +810,7 @@ export default function ProcessQrPage() {
   const { data: familySizes, error: familySizesError, mutate: mutateFamilySizes } = useSWR<{
     model_id: number; sizes: string[]; resolution: "own" | "inherited" | "missing" | "conflict";
   }>(needsFamilySizes ? `/api/models/${selectedModelId}/process-qr-sizes` : null, fetcher);
+  const hasManualSizeOverride = sourceMode === "manual" && manualSizeOverride?.modelId === selectedModelId;
   const resolvedFamilySizes = needsFamilySizes && familySizes?.model_id === selectedModelId ? familySizes : undefined;
   const manualProcess = useMemo<Process | undefined>(() => {
     if (!selectedModelId || selectedModel?.id !== selectedModelId) return undefined;
@@ -815,7 +818,7 @@ export default function ProcessQrPage() {
     const ownSizes = (selectedModel.sizes || [])
       .map((row) => String(row.size || "").trim())
       .filter(Boolean);
-    const sizes = (ownSizes.length ? ownSizes : resolvedFamilySizes?.sizes || [])
+    const sizes = (hasManualSizeOverride ? manualSizeOverride.sizes : ownSizes.length ? ownSizes : resolvedFamilySizes?.sizes || [])
       .map((size) => ({ size, planned_quantity: 0, completed_quantity: 0 }));
     return {
       production_order_id: 0,
@@ -839,7 +842,7 @@ export default function ProcessQrPage() {
       is_manual: true,
       manual_kroy_no: kroyNo,
     };
-  }, [manualKroyNo, selectedModel, selectedModelId, resolvedFamilySizes]);
+  }, [manualKroyNo, selectedModel, selectedModelId, resolvedFamilySizes, hasManualSizeOverride, manualSizeOverride]);
   const selectedProcess = sourceMode === "manual" ? manualProcess : selectedTrackedProcess;
   const issuedLabelsUrl = selectedProcess?.is_manual
     ? selectedProcess.production_no
@@ -901,6 +904,18 @@ export default function ProcessQrPage() {
       sewing_completed_quantity: numberOrZero(selectedProcess?.sewing_completed_quantity),
     }];
   }, [batchMode, selectedBatchOption, selectedProcess]);
+  function applyManualSizes(rows: ProcessQrSizeEdit[]) {
+    if (!selectedProcess?.is_manual || !selectedModelId) return;
+    const sizes = rows.map((row) => row.size).sort(compareGarmentSizes);
+    const quantities = Object.fromEntries(rows.map((row) => [row.size,
+      row.originalSize === null ? 0 : customSizeQuantities[row.originalSize] ?? 0,
+    ]));
+    // Preserve quantities on rename/add/remove; only a different source resets them.
+    initializedSizeSourceKey.current = `manual:${selectedModelId}:${JSON.stringify(sizes)}`;
+    setCustomSizeQuantities(quantities);
+    setManualSizeOverride({ modelId: selectedModelId, sizes });
+  }
+  useEffect(() => { setManualSizeOverride(null); }, [sourceMode, selectedModelId]);
   const departmentById = useMemo(
     () => new Map(departments.map((department) => [Number(department.id), department])),
     [departments],
@@ -1895,12 +1910,16 @@ export default function ProcessQrPage() {
               </div>
             )}
 
-            {needsFamilySizes && selectedModelId && <div className="mb-4"><ManualModelSizes modelId={selectedModelId} onSaved={() => { void mutateSelectedModel(); void mutateFamilySizes(); }} /></div>}
-            {needsFamilySizes && !resolvedFamilySizes && !familySizesError && <p role="status">{t("common.loading")}</p>}
-            {needsFamilySizes && familySizesError && (
+            {selectedProcess?.is_manual && selectedModelId && <ProcessQrSizeEditor
+              key={selectedModelId} sizes={sizeOptions.map((row) => row.size)}
+              sizeToken={(size) => compactQrValue(size).slice(0, 12)} onApply={applyManualSizes}
+            />}
+            {needsFamilySizes && !hasManualSizeOverride && selectedModelId && <div className="mb-4"><ManualModelSizes modelId={selectedModelId} onSaved={() => { void mutateSelectedModel(); void mutateFamilySizes(); }} /></div>}
+            {needsFamilySizes && !hasManualSizeOverride && !resolvedFamilySizes && !familySizesError && <p role="status">{t("common.loading")}</p>}
+            {needsFamilySizes && !hasManualSizeOverride && familySizesError && (
               <p role="alert" className="text-sm text-red-700">{t("page.processQr.sizesLoadFailed")}</p>
             )}
-            {resolvedFamilySizes?.resolution === "inherited" && (
+            {!hasManualSizeOverride && resolvedFamilySizes?.resolution === "inherited" && (
               <p className="mb-3 text-sm text-[#8a8472]">{t("page.processQr.inheritedModelSizes")}</p>
             )}
             {selectedProcess?.is_manual && sizeOptions.length === 0 && resolvedFamilySizes && !familySizesError && (
