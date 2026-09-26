@@ -13,7 +13,7 @@ assert.match(page, /order_no=\$\{encodeURIComponent\(selectedProcess\.production
 assert.match(page, /production_order_id: label\.process\.is_manual \? null/, "Manual labels must not invent a production-order foreign key");
 assert.match(page, /production_batch_id: label\.process\.is_manual \? null/, "Manual labels must not invent a production-batch foreign key");
 assert.match(page, /if \(process\.is_manual\)/, "Manual label identifiers must use a dedicated deterministic branch");
-assert.match(page, /buildOperationLabelTokens\(factoryOperations\)/, "Duplicate checked operation codes must receive distinct label identities");
+assert.match(page, /buildOperationLabelTokens\(factoryOperations, issuedLabels\)/, "Duplicate checked operation codes must receive distinct label identities");
 assert.match(page, /label_uid: label\.labelUid/, "Issued manual labels must use the collision-safe identity computed for the preview");
 
 for (const key of [
