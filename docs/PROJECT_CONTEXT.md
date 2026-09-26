@@ -1,7 +1,18 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-25
+Last updated: 2026-09-26
 
+
+## Editable process QR sizes and decimal precision deployed (2026-09-26)
+
+- LIVE: backend/frontend blue release `20260926_094041`, exact application commit `1d9f2a68648863878b506eca8564ab0a955799e2`, merged through PR #216. Both manifests, images, symlinks and slot states agree. Green `20260925_081526` remains running for rollback. Frontend activated `2026-09-26T10:14:04.695065+00:00`.
+- Manual process QR labels now offer Edit sizes in EN/RU/UZ. Operators can rename, add and remove sizes for the current label form. Renamed/retained rows keep quantities; new rows start at zero. Empty sizes and colliding normalized/truncated QR size tokens are rejected. Switching models/source clears overrides. Preview, issuance and printing use the edited sizes. Saved model sizes, ERP-order size rules and previously issued labels remain unchanged.
+- The release includes the already-merged Decimal money/inventory fixes from main, explicitly authorized by the user after the undeployed changes were identified. Branded-stock valuation and stock-summary quantity/reservation/delta arithmetic retain Decimal precision. No schema/model changes or data conversion.
+- Focused size browser regression, manual-order contract, TypeScript, scoped ESLint, whitespace review and Decimal money regression passed. Browser fixture covered rename quantity retention, add/remove, duplicate rejection, variant resets, inherited/missing/conflicting sizes and EN/RU/UZ mobile layouts with zero console errors and zero business writes. Immutable release CI [36233504665](https://github.com/Shmirzaev/Milana-ERP/actions/runs/36233504665) passed. Verified backup, candidate startup/runtime and four immediate health/login checks passed. Extra suites, production browser/performance exercises and extended monitoring omitted per explicit user request.
+- Deployment changed no operational business record; no production payroll labels or stock were created for verification. No migration; database `0133_storage_customers` and startup seeding disabled. Two workers per backend slot, zero restarts/OOM/error markers; PostgreSQL 24/100 connections and zero invalid indexes. Disk 78% backend / 70% frontend. Historical unrelated audit/security risks remain.
+- Manifest `def073f0125d614bb65172bf0f76a93ad8f08dd7edd5f42f883bfdfbdc53bf3a`, archive SHA-256 `5cd78baf82f852afe18ec68eae3cf2eb0796e4067f73c549eb5a6316c91df604`, 902 source files matched the exact commit. Backend `ghcr.io/shmirzaev/milana-erp-backend@sha256:a1684117d2d77f1e5028a31da673154ea40ff3bf067ec0f3b8e2cf8d1d609f9c`; frontend `ghcr.io/shmirzaev/milana-erp-frontend@sha256:a7dc6b0704747cf15bfcb1b3122a804c38035c01173c55ded73afccf9eefcafe`.
+- Verified backup `/opt/milana-erp/shared/backups/milana_erp_pre_20260926_094041.dump`: mode 0600, 54610098 bytes, 1203 restore objects, SHA-256 `c40259aecca9db4d31be377f87258b156e9f142efb3db12204daa1e15b4d0e58`, restore-list SHA-256 `3141ae67e89d913e8fbdfb7cfe8f0ba49b78321c167892bbd9f7882b850b3b0f`. Retained rollback uses the same database revision.
+- Worktree `C:/ERP/.codex-work/process-qr-edit-sizes-20260926`; application branch `codex/process-qr-edit-sizes-20260926` pushed/merged/deployed. Evidence `outputs/deployment/evidence.json`. Deployment record committed separately and mirrored to Obsidian; legacy checkout preserved.
 
 ## Print cutting sheets before actual fabric usage deployed (2026-09-25)
 
