@@ -32,6 +32,7 @@ def test_waste_batch_cost_reads_project_only_cost_columns():
             roll_lengths_m=[10, 12],
             unit="kg",
             cost_per_unit=Decimal("2.75"),
+            cost_currency="USD",
             warehouse_id=warehouse.id,
             qc_status="passed",
         )
@@ -50,6 +51,7 @@ def test_waste_batch_cost_reads_project_only_cost_columns():
             cost = waste._unit_cost_for_waste(db, int(item.id), int(batch.id))
         finally:
             event.remove(db.bind, "before_cursor_execute", capture)
+        item_id, batch_id = int(item.id), int(batch.id)
 
     assert cost == Decimal("2.7500")
     assert len(statements) == 1
@@ -58,6 +60,14 @@ def test_waste_batch_cost_reads_project_only_cost_columns():
     assert "stock_batches.cost_per_unit" in selected_columns
     assert "stock_batches.roll_weights_kg" not in selected_columns
     assert "stock_batches.roll_lengths_m" not in selected_columns
+
+    with TestSessionLocal() as db:
+        assert waste._unit_cost_details_for_waste(db, item_id, batch_id) == (
+            Decimal("2.7500"), "USD", batch_id,
+        )
+        assert waste._unit_cost_details_for_waste(db, item_id, None) == (
+            Decimal("2.7500"), None, None,
+        )
 
 
 def test_waste_item_default_cost_fallback_is_preserved():

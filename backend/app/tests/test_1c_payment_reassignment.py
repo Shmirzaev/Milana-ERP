@@ -58,6 +58,28 @@ def _assert_invoices(session_factory, ids, totals, statuses):
         assert payments[0].id == ids["payment_id"]
 
 
+def test_1c_payment_rejects_conflicting_invoice_references_without_reassignment(client):
+    ids = _invoices(TestSessionLocal, count=2)
+    response = client.post(
+        "/api/finance/integrations/1c/sync",
+        headers={"X-1C-Token": "test-1c-token"},
+        json={"payments": [{
+            "external_id": ids["external_id"],
+            "invoice_id": ids["invoices"][1],
+            "invoice_external_id": ids["invoice_external_ids"][0],
+            "amount": "75.00",
+        }]},
+    )
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["payments_updated"] == 0
+    assert len(result["errors"]) == 1
+    assert "invoice references disagree" in result["errors"][0]["error"]
+    _assert_invoices(TestSessionLocal, ids, [100, 0], ["paid", "unpaid"])
+    with TestSessionLocal() as db:
+        assert db.get(Payment, ids["payment_id"]).amount == 100
+
+
 def test_1c_sales_order_lookup_projects_invoice_reference_fields():
     ids = _invoices(TestSessionLocal, count=1)
     with TestSessionLocal() as db:

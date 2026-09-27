@@ -34,6 +34,8 @@ class WasteOut(ORMModel):
     reason: Optional[str] = None
     sellable: bool
     estimated_value: Optional[float] = None
+    cost_currency_at_recording: Optional[str] = None
+    cost_source_batch_id: Optional[int] = None
     status: str
     created_at: datetime
 

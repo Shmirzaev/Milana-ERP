@@ -1237,11 +1237,24 @@ def consume_material_reservation(
         raise HTTPException(404, "Material reservation not found")
     if reservation.stock_batch_id != batch_id:
         raise HTTPException(409, "Material reservation batch changed; reload before consuming")
-    if batch_id is None and (
-        int(reservation.item_id) != item_id
-        or (int(reservation.warehouse_id) if reservation.warehouse_id is not None else None) != warehouse_id
-    ):
-        raise HTTPException(409, "Material reservation scope changed; reload before consuming")
+    if batch_id is None:
+        if (
+            int(reservation.item_id) != item_id
+            or (int(reservation.warehouse_id) if reservation.warehouse_id is not None else None) != warehouse_id
+        ):
+            raise HTTPException(409, "Material reservation scope changed; reload before consuming")
+    else:
+        batch = stock_batch_cache.get(batch_id)
+        if batch is None:
+            raise HTTPException(404, f"Stock batch {batch_id} not found")
+        if (
+            int(reservation.item_id) != int(batch.item_id)
+            or (
+                reservation.warehouse_id is not None
+                and int(reservation.warehouse_id) != int(batch.warehouse_id)
+            )
+        ):
+            raise HTTPException(409, "Material reservation scope does not match its stock batch; reconcile before consuming")
     item_reserved_by_batch = None
     if batch_id is None:
         item_reserved_by_batch = _item_only_reservation_protected_batches(

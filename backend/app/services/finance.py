@@ -167,9 +167,24 @@ def order_profit(db: Session, sales_order_id: int) -> dict:
         .all()
     )
     cost, cost_currency = _recorded_material_cost_details(db, {int(po.id) for po in pos})
-    waste = Decimal(str(db.query(func.coalesce(func.sum(WasteRecord.estimated_value), 0)).filter(
-        WasteRecord.production_order_id.in_([p.id for p in pos]) if pos else False
-    ).scalar() or 0))
+    waste_count, sourced_count, currency_count, lowest_currency, highest_currency, waste_amount = db.query(
+        func.count(WasteRecord.id),
+        func.count(WasteRecord.cost_source_batch_id),
+        func.count(WasteRecord.cost_currency_at_recording),
+        func.min(WasteRecord.cost_currency_at_recording),
+        func.max(WasteRecord.cost_currency_at_recording),
+        func.coalesce(func.sum(WasteRecord.estimated_value), 0),
+    ).filter(WasteRecord.production_order_id.in_([p.id for p in pos]) if pos else False).one()
+    # Legacy records have no source/currency snapshot. A zero stored amount
+    # does not prove zero historical cost, so it must also fail closed.
+    waste_available = (
+        not waste_count or (
+            sourced_count == waste_count
+            and currency_count == waste_count
+            and lowest_currency == highest_currency == so.currency
+        )
+    )
+    waste = Decimal(str(waste_amount)) if waste_available else None
     money_available = (
         so.currency is not None and cost_currency == so.currency and cost is not None and waste == 0
     )
@@ -179,7 +194,7 @@ def order_profit(db: Session, sales_order_id: int) -> dict:
         "currency": so.currency,
         "revenue": float(revenue) if so.currency else None,
         "material_cost": float(cost) if cost is not None and cost_currency == so.currency else None,
-        "waste_cost": float(waste) if waste == 0 and so.currency else None,
+        "waste_cost": float(waste) if waste is not None and so.currency else None,
         "gross_profit": float(revenue - cost) if money_available else None,
         "material_cost_basis": "transaction_snapshot" if cost is not None and cost_currency == so.currency else "unavailable",
     }

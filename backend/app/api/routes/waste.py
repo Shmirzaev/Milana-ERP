@@ -34,24 +34,34 @@ def _verified_sale_replay(db: DbSession, wid: int, replay: dict) -> dict:
     return replay
 
 
-def _unit_cost_for_waste(db: DbSession, item_id: int | None, batch_id: int | None) -> Decimal:
+def _unit_cost_details_for_waste(
+    db: DbSession, item_id: int | None, batch_id: int | None,
+) -> tuple[Decimal, str | None, int | None]:
     if batch_id:
-        batch = db.query(StockBatch.id, StockBatch.cost_per_unit).filter(StockBatch.id == batch_id).one_or_none()
+        batch = db.query(
+            StockBatch.id, StockBatch.cost_per_unit, StockBatch.cost_currency,
+        ).filter(StockBatch.id == batch_id).one_or_none()
         if batch:
-            return Decimal(str(batch.cost_per_unit or 0))
+            return Decimal(str(batch.cost_per_unit or 0)), batch.cost_currency, int(batch.id)
     if item_id:
         latest = (
-            db.query(StockBatch.id, StockBatch.cost_per_unit)
+            db.query(StockBatch.id, StockBatch.cost_per_unit, StockBatch.cost_currency)
             .filter(StockBatch.item_id == item_id)
             .order_by(StockBatch.id.desc())
             .first()
         )
         if latest:
-            return Decimal(str(latest.cost_per_unit or 0))
+            # A batchless record did not consume this batch. Its current price
+            # can seed an estimate, but cannot establish cost provenance.
+            return Decimal(str(latest.cost_per_unit or 0)), None, None
         item = db.query(Item.id, Item.default_cost).filter(Item.id == item_id).one_or_none()
         if item:
-            return Decimal(str(item.default_cost or 0))
-    return Decimal("0")
+            return Decimal(str(item.default_cost or 0)), None, None
+    return Decimal("0"), None, None
+
+
+def _unit_cost_for_waste(db: DbSession, item_id: int | None, batch_id: int | None) -> Decimal:
+    return _unit_cost_details_for_waste(db, item_id, batch_id)[0]
 
 
 def _recorded_estimated_value(record: WasteRecord) -> float | None:
@@ -65,8 +75,11 @@ def _recorded_estimated_value(record: WasteRecord) -> float | None:
         not quantity.is_finite()
         or quantity <= 0
         or not value.is_finite()
-        or value <= 0
+        or value < 0
         or value > MAX_WASTE_ESTIMATED_VALUE
+        or (value == 0 and (
+            not record.cost_currency_at_recording or record.cost_source_batch_id is None
+        ))
     ):
         return None
     return float(value)
@@ -112,6 +125,8 @@ def list_waste(
         WasteRecord.reason,
         WasteRecord.sellable,
         WasteRecord.estimated_value,
+        WasteRecord.cost_currency_at_recording,
+        WasteRecord.cost_source_batch_id,
         WasteRecord.status,
         WasteRecord.created_at,
     ))
@@ -178,8 +193,12 @@ def create_waste(payload: WasteIn, db: DbSession, current: User = Depends(requir
             raise HTTPException(404, "Stock batch not found")
         if data.get("item_id") is not None and batch_item_id != data["item_id"]:
             raise HTTPException(400, "Stock batch does not belong to item")
-    unit_cost = _unit_cost_for_waste(db, data.get("item_id"), data.get("batch_id"))
+    unit_cost, cost_currency, source_batch_id = _unit_cost_details_for_waste(
+        db, data.get("item_id"), data.get("batch_id"),
+    )
     data["quantity"], data["estimated_value"] = _validated_waste_values(data.get("quantity"), unit_cost)
+    data["cost_currency_at_recording"] = cost_currency
+    data["cost_source_batch_id"] = source_batch_id
     w = WasteRecord(**data, created_by=current.id, status="recorded")
     db.add(w); db.flush()
     log_action(db, current, "create", "WasteRecord", w.id, new_value={"type": w.waste_type, "qty": float(w.quantity)})

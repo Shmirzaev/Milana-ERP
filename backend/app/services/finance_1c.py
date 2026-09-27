@@ -292,6 +292,14 @@ def sync_from_1c(db: Session, payload: OneCSyncIn) -> dict[str, Any]:
     for i, row in enumerate(payload.payments):
         try:
             with db.begin_nested():
+                referenced_invoices = (
+                    invoices_by_id.get(int(row.invoice_id)) if row.invoice_id is not None else None,
+                    invoices_by_no.get(row.invoice_no) if row.invoice_no else None,
+                    invoices_by_external_id.get(row.invoice_external_id)
+                    if row.invoice_external_id else None,
+                )
+                if len({invoice.id for invoice in referenced_invoices if invoice is not None}) > 1:
+                    raise ValueError("invoice references disagree")
                 invoice = _resolve_invoice(
                     db, row.invoice_id, row.invoice_no, row.invoice_external_id,
                     by_id=invoices_by_id,

@@ -191,6 +191,98 @@ def test_order_profit_uses_decimal_for_fractional_revenue():
     assert not any("from model_bom" in sql for sql in statements)
 
 
+def test_order_profit_uses_waste_cost_and_currency_saved_at_recording(client, auth_headers):
+    with SessionLocal() as db:
+        customer = Customer(name=f"Waste profit {uuid4().hex}")
+        model = Model(code=f"WASTE-PROFIT-{uuid4().hex}", name="Waste profit model")
+        item = Item(
+            sku=f"WASTE-PROFIT-{uuid4().hex}", name="Waste profit fabric",
+            category="fabric", unit="kg", composition_json=[],
+        )
+        warehouse = Warehouse(name=f"Waste profit {uuid4().hex}", type="fabric_storage")
+        db.add_all([customer, model, item, warehouse])
+        db.flush()
+        order = SalesOrder(
+            order_no=f"WASTE-PROFIT-{uuid4().hex}", customer_id=customer.id,
+            total_amount=10, currency="USD",
+        )
+        db.add(order)
+        db.flush()
+        db.add(SalesOrderItem(
+            sales_order_id=order.id, model_id=model.id, quantity=1,
+            unit_price="10.00", color="black", size="M",
+        ))
+        production = ProductionOrder(
+            production_no=f"PO-WASTE-PROFIT-{uuid4().hex}",
+            production_type="client_order", sales_order_id=order.id,
+            model_id=model.id, planned_quantity=1,
+        )
+        db.add(production)
+        db.flush()
+        batch = StockBatch(
+            item_id=item.id, batch_no=f"WASTE-PROFIT-BATCH-{uuid4().hex}",
+            quantity=10, unit="kg", cost_per_unit="3.00",
+            cost_currency="USD", warehouse_id=warehouse.id,
+        )
+        db.add(batch)
+        db.flush()
+        db.add(StockMovement(
+            movement_type="consume", item_id=item.id, batch_id=batch.id,
+            quantity=1, unit="kg", reference_type="ProductionOrder",
+            reference_id=production.id, unit_cost_at_movement="2.00",
+            cost_currency_at_movement="USD",
+        ))
+        order_id, production_id, item_id, batch_id = order.id, production.id, item.id, batch.id
+        db.commit()
+
+    created = client.post("/api/waste", headers=auth_headers, json={
+        "production_order_id": production_id, "item_id": item_id,
+        "batch_id": batch_id, "waste_type": "fabric_scrap",
+        "quantity": "0.5000", "unit": "kg",
+    })
+    assert created.status_code == 201, created.text
+    assert created.json()["estimated_value"] == 1.5
+    assert created.json()["cost_currency_at_recording"] == "USD"
+    assert created.json()["cost_source_batch_id"] == batch_id
+
+    with SessionLocal() as db:
+        initially_recorded = order_profit(db, order_id)
+        assert initially_recorded["waste_cost"] == 1.5
+        assert initially_recorded["gross_profit"] is None
+        batch = db.get(StockBatch, batch_id)
+        batch.cost_per_unit = "9.00"
+        batch.cost_currency = "UZS"
+        db.commit()
+        repriced = order_profit(db, order_id)
+        assert repriced["waste_cost"] == 1.5
+        assert repriced["gross_profit"] is None
+        batch.cost_per_unit = "0.00"
+        batch.cost_currency = "USD"
+        db.commit()
+
+    free_waste = client.post("/api/waste", headers=auth_headers, json={
+        "production_order_id": production_id, "item_id": item_id,
+        "batch_id": batch_id, "waste_type": "free fabric scrap",
+        "quantity": "0.1000", "unit": "kg",
+    })
+    assert free_waste.status_code == 201, free_waste.text
+    assert free_waste.json()["estimated_value"] == 0
+    assert free_waste.json()["cost_currency_at_recording"] == "USD"
+
+    with SessionLocal() as db:
+        known_zero_and_positive = order_profit(db, order_id)
+        assert known_zero_and_positive["waste_cost"] == 1.5
+        assert known_zero_and_positive["gross_profit"] is None
+        db.add(WasteRecord(
+            production_order_id=production_id, waste_type="legacy unknown",
+            quantity=1, unit="kg", estimated_value=0,
+        ))
+        db.commit()
+        unknown_history = order_profit(db, order_id)
+        assert unknown_history["waste_cost"] is None
+        assert unknown_history["gross_profit"] is None
+
+
 def test_branded_stock_value_uses_decimal_intermediates():
     with SessionLocal() as db:
         model = Model(code=f"STOCK-PRECISION-{uuid4().hex}", name="Stock precision model")

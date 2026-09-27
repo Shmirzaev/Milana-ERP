@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import useSWR from "swr";
+import { useEffect, useMemo, useState } from "react";
+import useSWRInfinite from "swr/infinite";
 import PageHeader from "@/components/PageHeader";
 import { fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
@@ -14,23 +14,30 @@ import ShipmentTransportDetails from "@/components/ShipmentTransportDetails";
 import type { ShipmentSummary } from "@/components/ShipmentPreparationWorkspace";
 
 type HistoryRow = ShipmentSummary & { shipped_at?: string | null; delivered_at?: string | null };
+type HistoryPage = { rows: HistoryRow[]; total: number; page: number; page_size: number; has_more: boolean };
 export default function ShipmentHistoryPage() {
   const { t, lang } = useT();
   const { me } = useMe();
   const canTraceability = can(me, "traceability.view");
   const manualText = manualShipmentText[lang];
-  const { data, mutate, error, isLoading } = useSWR<HistoryRow[]>("/api/shipments", fetcher);
   const [historyQuery, setHistoryQuery] = useState("");
   const [historyStatus, setHistoryStatus] = useState("all");
-  const filteredHistory = useMemo(() => {
-    const query = historyQuery.trim().toLocaleLowerCase();
-    return (data || []).filter((shipment) => {
-      if (historyStatus !== "all" && String(shipment.status || "") !== historyStatus) return false;
-      if (!query) return true;
-      return [shipment.shipment_no, shipment.sales_order_no, shipment.customer_name, shipment.notes]
-        .some((value) => String(value || "").toLocaleLowerCase().includes(query));
-    });
-  }, [data, historyQuery, historyStatus]);
+  const [historySearch, setHistorySearch] = useState("");
+  useEffect(() => {
+    const timer = window.setTimeout(() => setHistorySearch(historyQuery.trim()), 200);
+    return () => window.clearTimeout(timer);
+  }, [historyQuery]);
+  const {
+    data: historyPages, mutate, error, isLoading, isValidating, size, setSize,
+  } = useSWRInfinite<HistoryPage>(
+    (index, previous) => previous && !previous.has_more ? null
+      : `/api/shipments?page=${index + 1}&page_size=50&q=${encodeURIComponent(historySearch)}&status=${encodeURIComponent(historyStatus)}`,
+    fetcher,
+    { persistSize: false },
+  );
+  const filteredHistory = useMemo(() => historyPages?.flatMap((page) => page.rows) || [], [historyPages]);
+  const historyTotal = historyPages?.[0]?.total || 0;
+  const historyHasMore = Boolean(historyPages?.at(-1)?.has_more);
 
   return <div><PageHeader title={t("page.shipments.history")} actions={<Link className="btn" href="/shipments">{t("nav.shipments")}</Link>} />
     {error && <p role="alert">{error.message}</p>}
@@ -38,7 +45,7 @@ export default function ShipmentHistoryPage() {
           <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#ded9ca] px-4 py-3 sm:px-5">
             <div><h2 className="app-card-title">{t("page.shipments.history")}</h2><p className="mt-1 text-xs text-[#6f6a5b]">{t("page.shipments.historyHint")}</p></div>
             <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-              <input className="input w-full sm:w-72" value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder={t("page.shipments.historySearch")} aria-label={t("page.shipments.historySearch")} />
+              <input className="input w-full sm:w-72" value={historyQuery} maxLength={200} onChange={(event) => setHistoryQuery(event.target.value)} placeholder={t("page.shipments.historySearch")} aria-label={t("page.shipments.historySearch")} />
               <select className="input w-full sm:w-44" value={historyStatus} onChange={(event) => setHistoryStatus(event.target.value)} aria-label={t("field.status")}>
                 <option value="all">{t("page.shipments.allStatuses")}</option>
                 {["created", "shipped", "delivered", "cancelled"].map((status) => <option key={status} value={status}>{statusLabel(status, t)}</option>)}
@@ -66,6 +73,10 @@ export default function ShipmentHistoryPage() {
               </tbody>
             </table>
           </div>
+          {historyTotal > 0 && <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#ded9ca] p-4">
+            <span className="text-sm text-[#6f6a5b]">{t("common.showingRange", { start: 1, end: filteredHistory.length, total: historyTotal })}</span>
+            {historyHasMore && <button className="btn" type="button" disabled={isValidating} onClick={() => void setSize(size + 1)}>{t("common.loadMore")}</button>}
+          </div>}
         </section></>}
   </div>;
 }
