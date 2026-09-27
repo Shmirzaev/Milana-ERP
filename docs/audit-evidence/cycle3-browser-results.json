@@ -1,0 +1,426 @@
+{
+  "browser_api": [
+    {
+      "scenario": "MIL same-session passport boundary",
+      "authorized": {
+        "status": 200,
+        "body": {
+          "id": 1,
+          "materials": [],
+          "passport_no": "C3-PASS-MIL",
+          "date": "2026-09-17T23:48:43.737091",
+          "created_at": "2026-09-17T23:48:43",
+          "updated_at": "2026-09-17T23:48:43",
+          "production_order_id": 1,
+          "operator_id": null,
+          "model_code": "C3-MIL",
+          "variant": null,
+          "mold_no": null,
+          "image_ref": null,
+          "operator_name_manual": "Synthetic MIL operator",
+          "fabric_type": "Synthetic cotton",
+          "has_print": false,
+          "order_no": "C3-PO-MIL",
+          "lot_no": null,
+          "size_range": "44-48",
+          "rolls_count": null,
+          "layer_weight_kg": 2,
+          "total_layers": 5,
+          "planned_kg": 16,
+          "pieces": 20,
+          "fabric_width_m": null,
+          "lay_length_m": null,
+          "gramage": null,
+          "waste_pct": null,
+          "beka_per_piece_kg": 0.1,
+          "other_beka_per_piece_kg": null,
+          "scrap_kg": 1,
+          "ribana_per_piece_kg": null,
+          "notes": "MIL synthetic private cutting notes",
+          "total_beka_kg": 2,
+          "other_beka_kg": 0,
+          "total_ribana_kg": 0,
+          "actual_kg": 13,
+          "pieces_per_layer": 4,
+          "size_count": 3,
+          "per_piece_weight_kg": 0.1,
+          "theoretical_kg": 3,
+          "actual_kg_per_piece": 0.65,
+          "gross_kg_per_piece": 0.8,
+          "production_order_no": "C3-PO-MIL",
+          "model_name": "Cycle3 MIL cotton model",
+          "model_image_url": null,
+          "operator_name": "Synthetic MIL operator"
+        }
+      },
+      "denied": {
+        "status": 403,
+        "body": {
+          "detail": "Log in to Eco Cotton to access this operation"
+        }
+      },
+      "unchanged": true
+    },
+    {
+      "scenario": "MIL same-session flow boundary",
+      "authorized": {
+        "status": 200,
+        "body": {
+          "flow_id": 1,
+          "code": "SEW-01",
+          "capacity_per_day": 200,
+          "committed_today": 80,
+          "utilization_pct": 40
+        }
+      },
+      "denied": {
+        "status": 403,
+        "body": {
+          "detail": "Log in to Eco Cotton to access this operation"
+        }
+      },
+      "unchanged": true
+    },
+    {
+      "scenario": "ECO same-session passport boundary",
+      "authorized": {
+        "status": 200,
+        "body": {
+          "id": 2,
+          "materials": [],
+          "passport_no": "C3-PASS-ECO",
+          "date": "2026-09-17T23:48:43.763437",
+          "created_at": "2026-09-17T23:48:43",
+          "updated_at": "2026-09-17T23:48:43",
+          "production_order_id": 2,
+          "operator_id": null,
+          "model_code": "C3-ECO",
+          "variant": null,
+          "mold_no": null,
+          "image_ref": null,
+          "operator_name_manual": "Synthetic ECO operator",
+          "fabric_type": "Synthetic cotton",
+          "has_print": false,
+          "order_no": "C3-PO-ECO",
+          "lot_no": null,
+          "size_range": "44-48",
+          "rolls_count": null,
+          "layer_weight_kg": 2,
+          "total_layers": 5,
+          "planned_kg": 16,
+          "pieces": 20,
+          "fabric_width_m": null,
+          "lay_length_m": null,
+          "gramage": null,
+          "waste_pct": null,
+          "beka_per_piece_kg": 0.1,
+          "other_beka_per_piece_kg": null,
+          "scrap_kg": 1,
+          "ribana_per_piece_kg": null,
+          "notes": "ECO synthetic private cutting notes",
+          "total_beka_kg": 2,
+          "other_beka_kg": 0,
+          "total_ribana_kg": 0,
+          "actual_kg": 13,
+          "pieces_per_layer": 4,
+          "size_count": 3,
+          "per_piece_weight_kg": 0.1,
+          "theoretical_kg": 3,
+          "actual_kg_per_piece": 0.65,
+          "gross_kg_per_piece": 0.8,
+          "production_order_no": "C3-PO-ECO",
+          "model_name": "Cycle3 ECO cotton model",
+          "model_image_url": null,
+          "operator_name": "Synthetic ECO operator"
+        }
+      },
+      "denied": {
+        "status": 403,
+        "body": {
+          "detail": "Log in to Milana to access this operation"
+        }
+      },
+      "unchanged": true
+    },
+    {
+      "scenario": "ECO same-session flow boundary",
+      "authorized": {
+        "status": 200,
+        "body": {
+          "flow_id": 8,
+          "code": "ECO-BAND-01",
+          "capacity_per_day": 200,
+          "committed_today": 80,
+          "utilization_pct": 40
+        }
+      },
+      "denied": {
+        "status": 403,
+        "body": {
+          "detail": "Log in to Milana to access this operation"
+        }
+      },
+      "unchanged": true
+    },
+    {
+      "scenario": "SEC01 limited POST /users factory:MIL:*",
+      "status": 403,
+      "body": {
+        "detail": "Only a super admin can grant administrator access"
+      }
+    },
+    {
+      "scenario": "SEC01 limited PATCH /users/5 factory:MIL:*",
+      "status": 403,
+      "body": {
+        "detail": "Only a super admin can grant administrator access"
+      }
+    },
+    {
+      "scenario": "SEC01 limited POST /roles factory:MIL:*",
+      "status": 403,
+      "body": {
+        "detail": "Only a super admin can grant administrator access"
+      }
+    },
+    {
+      "scenario": "SEC01 limited POST /users factory:ECO:*",
+      "status": 403,
+      "body": {
+        "detail": "Only Super Admin can configure another factory"
+      }
+    },
+    {
+      "scenario": "SEC01 limited PATCH /users/5 factory:ECO:*",
+      "status": 403,
+      "body": {
+        "detail": "Only Super Admin can configure another factory"
+      }
+    },
+    {
+      "scenario": "SEC01 limited POST /roles factory:ECO:*",
+      "status": 403,
+      "body": {
+        "detail": "Only Super Admin can configure another factory"
+      }
+    },
+    {
+      "scenario": "SEC01 limited POST /users factory:MIL:admin.super",
+      "status": 403,
+      "body": {
+        "detail": "Only a super admin can grant administrator access"
+      }
+    },
+    {
+      "scenario": "SEC01 limited PATCH /users/5 factory:MIL:admin.super",
+      "status": 403,
+      "body": {
+        "detail": "Only a super admin can grant administrator access"
+      }
+    },
+    {
+      "scenario": "SEC01 limited POST /roles factory:MIL:admin.super",
+      "status": 403,
+      "body": {
+        "detail": "Only a super admin can grant administrator access"
+      }
+    },
+    {
+      "scenario": "SEC01 limited POST /users factory:ECO:admin.super",
+      "status": 403,
+      "body": {
+        "detail": "Only Super Admin can configure another factory"
+      }
+    },
+    {
+      "scenario": "SEC01 limited PATCH /users/5 factory:ECO:admin.super",
+      "status": 403,
+      "body": {
+        "detail": "Only Super Admin can configure another factory"
+      }
+    },
+    {
+      "scenario": "SEC01 limited POST /roles factory:ECO:admin.super",
+      "status": 403,
+      "body": {
+        "detail": "Only Super Admin can configure another factory"
+      }
+    },
+    {
+      "scenario": "SEC01 legacy scoped role assignment",
+      "status": 403,
+      "body": {
+        "detail": "Only a super admin can grant administrator access"
+      }
+    },
+    {
+      "scenario": "SEC01 legitimate selected-factory finance grant",
+      "status": 200,
+      "permissions": [
+        "factory:MIL:finance.view"
+      ]
+    }
+  ],
+  "visual": [],
+  "page_errors": [],
+  "console_errors": [
+    {
+      "account": "mil",
+      "error": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "account": "mil",
+      "error": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "account": "eco",
+      "error": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "account": "eco",
+      "error": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "account": "limited",
+      "error": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "account": "limited",
+      "error": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "account": "limited",
+      "error": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "account": "limited",
+      "error": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "account": "limited",
+      "error": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "account": "limited",
+      "error": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "account": "limited",
+      "error": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "account": "limited",
+      "error": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "account": "limited",
+      "error": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "account": "limited",
+      "error": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "account": "limited",
+      "error": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "account": "limited",
+      "error": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    },
+    {
+      "account": "limited",
+      "error": "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+    }
+  ],
+  "http_errors": [
+    {
+      "account": "mil",
+      "url": "http://127.0.0.1:8011/api/cutting-passports/2",
+      "status": 403
+    },
+    {
+      "account": "mil",
+      "url": "http://127.0.0.1:8011/api/sewing-flows/8/utilization",
+      "status": 403
+    },
+    {
+      "account": "eco",
+      "url": "http://127.0.0.1:8011/api/cutting-passports/1",
+      "status": 403
+    },
+    {
+      "account": "eco",
+      "url": "http://127.0.0.1:8011/api/sewing-flows/1/utilization",
+      "status": 403
+    },
+    {
+      "account": "limited",
+      "url": "http://127.0.0.1:8011/api/users",
+      "status": 403
+    },
+    {
+      "account": "limited",
+      "url": "http://127.0.0.1:8011/api/users/5",
+      "status": 403
+    },
+    {
+      "account": "limited",
+      "url": "http://127.0.0.1:8011/api/roles",
+      "status": 403
+    },
+    {
+      "account": "limited",
+      "url": "http://127.0.0.1:8011/api/users",
+      "status": 403
+    },
+    {
+      "account": "limited",
+      "url": "http://127.0.0.1:8011/api/users/5",
+      "status": 403
+    },
+    {
+      "account": "limited",
+      "url": "http://127.0.0.1:8011/api/roles",
+      "status": 403
+    },
+    {
+      "account": "limited",
+      "url": "http://127.0.0.1:8011/api/users",
+      "status": 403
+    },
+    {
+      "account": "limited",
+      "url": "http://127.0.0.1:8011/api/users/5",
+      "status": 403
+    },
+    {
+      "account": "limited",
+      "url": "http://127.0.0.1:8011/api/roles",
+      "status": 403
+    },
+    {
+      "account": "limited",
+      "url": "http://127.0.0.1:8011/api/users",
+      "status": 403
+    },
+    {
+      "account": "limited",
+      "url": "http://127.0.0.1:8011/api/users/5",
+      "status": 403
+    },
+    {
+      "account": "limited",
+      "url": "http://127.0.0.1:8011/api/roles",
+      "status": 403
+    },
+    {
+      "account": "limited",
+      "url": "http://127.0.0.1:8011/api/users/5",
+      "status": 403
+    }
+  ],
+  "blocked_external": [],
+  "visual_not_run": "Frontend launch rejected by execution policy; browser API proof only against loopback8011",
+  "passed": true
+}

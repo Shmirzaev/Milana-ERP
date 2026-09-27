@@ -2,16 +2,32 @@ from __future__ import annotations
 
 import re
 import secrets
-from datetime import date, datetime, timedelta, timezone
+import json
+from datetime import date, datetime, time, timedelta, timezone
+from decimal import Decimal
+from functools import partial
+from math import isfinite
 from pathlib import Path
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from anyio import CancelScope, to_thread
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
-from sqlalchemy import func
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from sqlalchemy import case, func, or_
+from sqlalchemy.orm import Session, load_only
 
 from app.core.config import settings
 from app.core.deps import DbSession, require_permissions
+from app.core.uploads import (
+    UploadCommitState,
+    UploadFileWriteState,
+    read_bounded_upload_content,
+    run_upload_db_work,
+    run_upload_file_write,
+    upload_processing_slot,
+    upload_session_factory,
+)
 from app.models import (
     AttendanceEvent,
     Department,
@@ -24,41 +40,74 @@ from app.models import (
     SystemSetting,
     User,
 )
+from app.schemas.hr_workspace import HrPositionOut, HrPositionPageOut
 from app.services.audit import log_action
-from app.services.factory_scope import selected_factory_code
+from app.services.attendance_event_policy import accepted_attendance_result
+from app.services.attendance_reports import TASHKENT
+from app.services.factory_scope import factory_for_department, selected_factory_code
 
 
 router = APIRouter(prefix="/hr", tags=["hr-workspace"])
 HrUser = Depends(require_permissions("hr.employees", "*"))
+MAX_INT4 = 2_147_483_647
+MAX_POSITION_SALARY = 999_999_999_999.99
+MAX_POSITION_REQUIRED_SKILLS = 50
+MAX_POSITION_REQUIRED_SKILL_LENGTH = 160
+_MAX_HR_SETTINGS_JSON_BYTES = 16 * 1024
+_MAX_HR_SETTINGS_JSON_DEPTH = 16
+_UNSET_POSITION_SKILLS = object()
 
 
 class OrgUnitIn(BaseModel):
-    parent_id: int | None = None
-    department_id: int | None = None
-    manager_employee_id: int | None = None
+    parent_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
+    department_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
+    manager_employee_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
     unit_type: str = Field(pattern="^(company|factory|department|section|team)$")
     name: str = Field(min_length=1, max_length=160)
     code: str | None = Field(default=None, max_length=48)
     sort_order: int = 0
 
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        return _required_text(value, "Organization unit name")
+
 
 class PositionIn(BaseModel):
-    org_unit_id: int | None = None
-    department_id: int | None = None
+    org_unit_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
+    department_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
     name: str = Field(min_length=1, max_length=160)
     job_description: str | None = None
     required_skills: list[str] = Field(default_factory=list)
     qualification_level: str | None = None
     grade_level: str | None = None
-    salary_min: float | None = Field(default=None, ge=0)
-    salary_max: float | None = Field(default=None, ge=0)
+    salary_min: float | None = Field(default=None, ge=0, le=MAX_POSITION_SALARY, allow_inf_nan=False)
+    salary_max: float | None = Field(default=None, ge=0, le=MAX_POSITION_SALARY, allow_inf_nan=False)
     approved_count: int = Field(default=0, ge=0)
     is_active: bool = True
 
+    @field_validator("salary_min", "salary_max", mode="before")
+    @classmethod
+    def validate_finite_salary(cls, value):
+        if isinstance(value, float) and not isfinite(value):
+            raise HTTPException(422, "Salary must be a finite number")
+        return value
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        return _required_text(value, "Position name")
+
+    @model_validator(mode="after")
+    def validate_salary_range(self):
+        if self.salary_min is not None and self.salary_max is not None and self.salary_min > self.salary_max:
+            raise ValueError("Minimum salary cannot exceed maximum salary")
+        return self
+
 
 class CandidateIn(BaseModel):
-    position_id: int | None = None
-    department_id: int | None = None
+    position_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
+    department_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
     full_name: str = Field(min_length=1, max_length=255)
     first_name: str | None = Field(default=None, max_length=100)
     last_name: str | None = Field(default=None, max_length=100)
@@ -75,7 +124,7 @@ class CandidateIn(BaseModel):
     passport_issue_date: date | None = None
     passport_expiry_date: date | None = None
     pinfl: str | None = Field(default=None, pattern="^[0-9]{14}$")
-    phone: str | None = None
+    phone: str | None = Field(default=None, max_length=64)
     email: str | None = None
     source: str | None = None
     stage: str = Field(default="applied", pattern="^(applied|screening|interview|offer|hired|rejected)$")
@@ -83,9 +132,24 @@ class CandidateIn(BaseModel):
     interview_at: datetime | None = None
     notes: str | None = None
 
+    @field_validator("full_name")
+    @classmethod
+    def validate_full_name(cls, value: str) -> str:
+        return _required_text(value, "Candidate name")
+
+    @model_validator(mode="after")
+    def validate_passport_dates(self):
+        if (
+            self.passport_issue_date is not None
+            and self.passport_expiry_date is not None
+            and self.passport_expiry_date < self.passport_issue_date
+        ):
+            raise ValueError("Passport expiry date cannot precede its issue date")
+        return self
+
 
 class CalendarEventIn(BaseModel):
-    employee_id: int | None = None
+    employee_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
     event_type: str = Field(pattern="^(birthday|contract_expiry|probation_end|leave|training|interview|medical_check|certification|performance_review|other)$")
     title: str = Field(min_length=1, max_length=255)
     starts_at: datetime
@@ -93,18 +157,173 @@ class CalendarEventIn(BaseModel):
     notes: str | None = None
     status: str = Field(default="scheduled", pattern="^(scheduled|completed|cancelled)$")
 
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value: str) -> str:
+        return _required_text(value, "Calendar event title")
+
+    @model_validator(mode="after")
+    def validate_date_range(self):
+        if self.ends_at is None:
+            return self
+        starts_aware = self.starts_at.tzinfo is not None and self.starts_at.utcoffset() is not None
+        ends_aware = self.ends_at.tzinfo is not None and self.ends_at.utcoffset() is not None
+        if starts_aware != ends_aware:
+            raise ValueError("Calendar start and end must use matching timezone formats")
+        if self.ends_at < self.starts_at:
+            raise ValueError("Calendar end cannot precede its start")
+        return self
+
 
 class HrSettingsIn(BaseModel):
     company_name: str = "Milana Premium"
-    default_workday_hours: float = Field(default=8, gt=0, le=24)
-    default_monthly_hours: float = Field(default=176, ge=0, le=744)
+    default_workday_hours: float = Field(default=8, gt=0, le=24, allow_inf_nan=False)
+    default_monthly_hours: float = Field(default=176, ge=0, le=744, allow_inf_nan=False)
     probation_days: int = Field(default=90, ge=0, le=730)
     contract_warning_days: int = Field(default=30, ge=0, le=365)
     weekend_days: list[int] = Field(default_factory=lambda: [6, 7])
 
+    @field_validator("default_workday_hours", "default_monthly_hours", mode="before")
+    @classmethod
+    def validate_finite_hours(cls, value):
+        if isinstance(value, float) and not isfinite(value):
+            raise HTTPException(422, "Scheduled hours must be finite")
+        return value
+
+
+class HrSettingsWriteIn(HrSettingsIn):
+    # Keep the raw JSON types here so the route can grandfather an unchanged
+    # legacy list returned by GET while validating any new value strictly.
+    weekend_days: list[Any] = Field(default_factory=lambda: [6, 7])
+
+
+def _valid_weekend_days(value: object) -> bool:
+    return (
+        isinstance(value, list)
+        and len(value) <= 7
+        and all(type(day) is int and 1 <= day <= 7 for day in value)
+        and len(value) == len(set(value))
+    )
+
+
+def _same_legacy_weekend_days(submitted: object, stored: object) -> bool:
+    return (
+        isinstance(submitted, list)
+        and isinstance(stored, list)
+        and len(submitted) == len(stored)
+        and all(type(new) is type(old) and new == old for new, old in zip(submitted, stored))
+    )
+
+
+def _json_values_equal(left: object, right: object) -> bool:
+    pending = [(left, right)]
+    while pending:
+        current_left, current_right = pending.pop()
+        if type(current_left) is not type(current_right):
+            return False
+        if isinstance(current_left, dict):
+            if current_left.keys() != current_right.keys():
+                return False
+            pending.extend((current_left[key], current_right[key]) for key in current_left)
+        elif isinstance(current_left, list):
+            if len(current_left) != len(current_right):
+                return False
+            pending.extend(zip(current_left, current_right))
+        elif current_left != current_right:
+            return False
+    return True
+
+
+def _hr_settings_fields_unchanged(value: dict, previous: object) -> bool:
+    previous = previous if isinstance(previous, dict) else {}
+    for name, current in value.items():
+        field = HrSettingsWriteIn.model_fields[name]
+        old = previous[name] if name in previous else field.get_default(call_default_factory=True)
+        if not _json_values_equal(current, old):
+            return False
+    return True
+
+
+def _validate_hr_settings_json_bounds(value: dict, *, previous: object) -> None:
+    """Limit changed HR settings while preserving semantically unchanged legacy values."""
+    if _hr_settings_fields_unchanged(value, previous):
+        return
+
+    pending = [(value, 0)]
+    while pending:
+        current, parent_depth = pending.pop()
+        if isinstance(current, dict):
+            depth = parent_depth + 1
+            if depth > _MAX_HR_SETTINGS_JSON_DEPTH:
+                raise HTTPException(
+                    422,
+                    f"HR settings JSON cannot exceed {_MAX_HR_SETTINGS_JSON_DEPTH} nested container levels",
+                )
+            if any(not isinstance(key, str) for key in current):
+                raise HTTPException(422, "HR settings must contain JSON-compatible values")
+            pending.extend((child, depth) for child in current.values())
+        elif isinstance(current, list):
+            depth = parent_depth + 1
+            if depth > _MAX_HR_SETTINGS_JSON_DEPTH:
+                raise HTTPException(
+                    422,
+                    f"HR settings JSON cannot exceed {_MAX_HR_SETTINGS_JSON_DEPTH} nested container levels",
+                )
+            pending.extend((child, depth) for child in current)
+        elif current is not None and type(current) not in (str, bool, int, float):
+            raise HTTPException(422, "HR settings must contain JSON-compatible values")
+
+    try:
+        encoded = json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError):
+        raise HTTPException(422, "HR settings must contain finite JSON-compatible values") from None
+    if len(encoded) > _MAX_HR_SETTINGS_JSON_BYTES:
+        raise HTTPException(422, f"HR settings JSON cannot exceed {_MAX_HR_SETTINGS_JSON_BYTES} UTF-8 bytes")
+
+
+def _required_text(value: str, label: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"{label} is required")
+    return normalized
+
 
 def _factory(current: User) -> str:
     return selected_factory_code(current)
+
+
+def _attendance_day_bounds(day: date) -> tuple[datetime, datetime]:
+    start_local = datetime.combine(day, time.min, tzinfo=TASHKENT)
+    end_local = start_local + timedelta(days=1)
+    return start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc)
+
+
+def _safe_hr_settings(value) -> HrSettingsIn:
+    if not isinstance(value, dict):
+        return HrSettingsIn()
+    try:
+        return HrSettingsIn.model_validate(value)
+    except (HTTPException, ValidationError):
+        return HrSettingsIn()
+
+
+def _load_hr_settings(db: DbSession, factory: str) -> HrSettingsIn:
+    row = db.query(SystemSetting).filter(SystemSetting.key == _settings_key(factory)).first()
+    return _safe_hr_settings(row.value_json if row else {})
+
+
+def _scheduled_minutes(profile, default_hours: float) -> int:
+    raw_hours = profile.get("scheduled_daily_hours") if isinstance(profile, dict) else None
+    if raw_hours in (None, "") or isinstance(raw_hours, bool):
+        hours = default_hours
+    else:
+        try:
+            hours = float(raw_hours)
+        except (OverflowError, TypeError, ValueError):
+            hours = default_hours
+    if not isfinite(hours) or hours <= 0 or hours > 24:
+        hours = default_hours
+    return int(hours * 60)
 
 
 def _employee(db: DbSession, factory: str, employee_id: int) -> Employee:
@@ -114,11 +333,98 @@ def _employee(db: DbSession, factory: str, employee_id: int) -> Employee:
     return row
 
 
-def _position_dict(row: HrPosition, occupied: int = 0) -> dict:
+def _department(
+    db: DbSession,
+    factory: str,
+    department_id: int,
+    *,
+    allow_inactive: bool = False,
+) -> Department:
+    row = db.get(Department, department_id)
+    if not row:
+        raise HTTPException(404, "Department not found")
+    if not row.is_active and not allow_inactive:
+        raise HTTPException(422, "Inactive departments cannot be newly assigned")
+    department_factory = factory_for_department(row.code)
+    if department_factory and department_factory != factory:
+        raise HTTPException(409, "Department belongs to another factory")
+    return row
+
+
+def _org_unit(db: DbSession, factory: str, unit_id: int) -> HrOrgUnit:
+    row = db.query(HrOrgUnit).filter(HrOrgUnit.id == unit_id, HrOrgUnit.factory_code == factory).first()
+    if not row:
+        raise HTTPException(404, "Organization unit not found")
+    return row
+
+
+def _validate_org_unit_links(payload: OrgUnitIn, db: DbSession, factory: str) -> None:
+    if payload.parent_id is not None:
+        _org_unit(db, factory, payload.parent_id)
+    if payload.department_id is not None:
+        _department(db, factory, payload.department_id)
+    if payload.manager_employee_id is not None:
+        _employee(db, factory, payload.manager_employee_id)
+
+
+def _validate_position_links(
+    payload: PositionIn,
+    db: DbSession,
+    factory: str,
+    *,
+    existing_department_id: int | None = None,
+) -> None:
+    if payload.org_unit_id is not None:
+        _org_unit(db, factory, payload.org_unit_id)
+    if payload.department_id is not None:
+        _department(
+            db,
+            factory,
+            payload.department_id,
+            allow_inactive=payload.department_id == existing_department_id,
+        )
+
+
+def _validate_position_approved_count(payload: PositionIn) -> None:
+    if payload.approved_count > MAX_INT4:
+        raise HTTPException(422, "Approved count must fit a 32-bit database integer")
+
+
+def _validate_position_salary_precision(payload: PositionIn, *, existing: HrPosition | None = None) -> None:
+    for field in ("salary_min", "salary_max"):
+        value = getattr(payload, field)
+        if value is None:
+            continue
+        amount = Decimal(str(value))
+        if amount == amount.quantize(Decimal("0.01")):
+            continue
+        if existing is not None:
+            previous = getattr(existing, field)
+            if previous is not None and amount == Decimal(str(previous)):
+                continue
+        raise HTTPException(422, f"{field} cannot have more than 2 decimal places")
+
+
+def _validate_position_required_skills(
+    required_skills: list[str],
+    *,
+    existing=_UNSET_POSITION_SKILLS,
+) -> None:
+    if existing is not _UNSET_POSITION_SKILLS and isinstance(existing, list) and required_skills == existing:
+        return
+    if len(required_skills) > MAX_POSITION_REQUIRED_SKILLS:
+        raise HTTPException(422, "Required skills cannot exceed 50 entries")
+    for index, skill in enumerate(required_skills):
+        if len(skill) > MAX_POSITION_REQUIRED_SKILL_LENGTH:
+            raise HTTPException(422, f"Required skill #{index + 1} cannot exceed 160 characters")
+
+
+def _position_dict(row: HrPosition, occupied: int = 0, department_name: str | None = None) -> dict:
     return {
         "id": row.id,
         "org_unit_id": row.org_unit_id,
         "department_id": row.department_id,
+        "department_name": department_name,
         "name": row.name,
         "job_description": row.job_description,
         "required_skills": row.required_skills_json or [],
@@ -136,57 +442,139 @@ def _position_dict(row: HrPosition, occupied: int = 0) -> dict:
 @router.get("/dashboard")
 def dashboard(db: DbSession, current: User = HrUser):
     factory = _factory(current)
-    employees = db.query(Employee).filter(Employee.factory_code == factory).all()
-    active = [row for row in employees if row.status == "active"]
-    positions = db.query(HrPosition).filter(HrPosition.factory_code == factory, HrPosition.is_active.is_(True)).all()
-    approved = sum(row.approved_count for row in positions)
+    department_name = func.coalesce(Department.name, "Unassigned")
+    employee_counts = (
+        db.query(
+            department_name.label("department_name"),
+            func.count(Employee.id).label("employee_count"),
+            func.sum(case((Employee.status == "active", 1), else_=0)).label("active_count"),
+        )
+        .outerjoin(Department, Department.id == Employee.department_id)
+        .filter(Employee.factory_code == factory)
+        .group_by(department_name)
+        .all()
+    )
+    headcount = sum(int(row.active_count or 0) for row in employee_counts)
+    inactive = sum(int(row.employee_count or 0) - int(row.active_count or 0) for row in employee_counts)
+    approved = int(
+        db.query(func.coalesce(func.sum(HrPosition.approved_count), 0))
+        .filter(HrPosition.factory_code == factory, HrPosition.is_active.is_(True))
+        .scalar()
+        or 0
+    )
     candidates = db.query(HrRecruitmentCandidate).filter(HrRecruitmentCandidate.factory_code == factory).count()
     upcoming = db.query(HrCalendarEvent).filter(
         HrCalendarEvent.factory_code == factory,
         HrCalendarEvent.starts_at >= datetime.now(timezone.utc),
     ).count()
-    by_department: dict[str, int] = {}
-    department_names = {row.id: row.name for row in db.query(Department).all()}
-    for employee in active:
-        name = department_names.get(employee.department_id, "Unassigned")
-        by_department[name] = by_department.get(name, 0) + 1
     return {
-        "headcount": len(active),
-        "inactive": len(employees) - len(active),
+        "headcount": headcount,
+        "inactive": inactive,
         "approved_positions": approved,
-        "vacancies": max(0, approved - len(active)),
+        "vacancies": max(0, approved - headcount),
         "candidates": candidates,
         "upcoming_events": upcoming,
-        "by_department": [{"name": name, "count": count} for name, count in sorted(by_department.items())],
+        "by_department": [
+            {"name": row.department_name, "count": int(row.active_count)}
+            for row in sorted(employee_counts, key=lambda item: item.department_name)
+            if row.active_count
+        ],
     }
 
 
 @router.get("/organization")
-def list_organization(db: DbSession, current: User = HrUser):
+def list_organization(
+    db: DbSession,
+    current: User = HrUser,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 50,
+    search: Annotated[str | None, Query(max_length=100)] = None,
+):
     factory = _factory(current)
-    units = db.query(HrOrgUnit).filter(HrOrgUnit.factory_code == factory).order_by(HrOrgUnit.sort_order, HrOrgUnit.name).all()
-    employees = db.query(Employee).filter(Employee.factory_code == factory).all()
+    search = search.strip() if search else ""
+    escaped_search = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    pattern = f"%{escaped_search}%"
+
+    unit_query = db.query(HrOrgUnit).filter(HrOrgUnit.factory_code == factory)
+    employee_query = db.query(Employee).filter(Employee.factory_code == factory)
+    if search:
+        unit_query = unit_query.filter(or_(
+            HrOrgUnit.name.ilike(pattern, escape="\\"),
+            HrOrgUnit.code.ilike(pattern, escape="\\"),
+            HrOrgUnit.unit_type.ilike(pattern, escape="\\"),
+        ))
+        employee_query = employee_query.filter(or_(
+            Employee.full_name.ilike(pattern, escape="\\"),
+            Employee.employee_no.ilike(pattern, escape="\\"),
+            Employee.position.ilike(pattern, escape="\\"),
+        ))
+
+    unit_total = unit_query.count()
+    employee_total = employee_query.count()
+    offset = (page - 1) * page_size
+    selected_units = unit_query.order_by(HrOrgUnit.sort_order, HrOrgUnit.name, HrOrgUnit.id).offset(offset).limit(page_size + 1).all()
+    units_have_more = len(selected_units) > page_size
+    selected_units = selected_units[:page_size]
+
+    employees = employee_query.order_by(Employee.id).offset(offset).limit(page_size + 1).all()
+    employees_have_more = len(employees) > page_size
+    employees = employees[:page_size]
+
+    metric_row = db.query(
+        func.count(Employee.id).label("employee_total"),
+        func.sum(case((Employee.status == "active", 1), else_=0)).label("active_total"),
+        func.sum(case((Employee.status == "active", case((Employee.hr_position_id.is_(None), 1), else_=0)), else_=0)).label("vacant_total"),
+    ).filter(Employee.factory_code == factory).one()
+    manager_unit_total = db.query(func.count(HrOrgUnit.id)).filter(
+        HrOrgUnit.factory_code == factory,
+        HrOrgUnit.manager_employee_id.is_not(None),
+    ).scalar() or 0
+    manager_ids = {row.manager_employee_id for row in selected_units if row.manager_employee_id is not None}
+    manager_names = {
+        row.id: row.full_name
+        for row in db.query(Employee.id, Employee.full_name).filter(
+            Employee.factory_code == factory,
+            Employee.id.in_(manager_ids),
+        ).all()
+    } if manager_ids else {}
+    parent_ids = {row.parent_id for row in selected_units if row.parent_id is not None}
+    parent_names = {
+        row.id: row.name
+        for row in db.query(HrOrgUnit.id, HrOrgUnit.name).filter(
+            HrOrgUnit.factory_code == factory,
+            HrOrgUnit.id.in_(parent_ids),
+        ).all()
+    } if parent_ids else {}
     return {
         "units": [{
             "id": row.id, "parent_id": row.parent_id, "department_id": row.department_id,
             "manager_employee_id": row.manager_employee_id, "unit_type": row.unit_type,
             "name": row.name, "code": row.code, "sort_order": row.sort_order,
-        } for row in units],
+            "manager_name": manager_names.get(row.manager_employee_id),
+            "parent_name": parent_names.get(row.parent_id),
+        } for row in selected_units],
         "employees": [{
             "id": row.id, "employee_no": row.employee_no, "full_name": row.full_name,
             "department_id": row.department_id, "manager_employee_id": row.manager_employee_id,
             "hr_position_id": row.hr_position_id, "position": row.position, "status": row.status,
         } for row in employees],
+        "page": page,
+        "page_size": page_size,
+        "search": search,
+        "unit_total": unit_total,
+        "employee_total": employee_total,
+        "units_have_more": units_have_more,
+        "employees_have_more": employees_have_more,
+        "active_employee_total": int(metric_row.active_total or 0),
+        "vacant_employee_total": int(metric_row.vacant_total or 0),
+        "manager_unit_total": int(manager_unit_total),
     }
 
 
 @router.post("/organization", status_code=201)
 def create_org_unit(payload: OrgUnitIn, db: DbSession, current: User = HrUser):
     factory = _factory(current)
-    if payload.parent_id and not db.query(HrOrgUnit).filter(HrOrgUnit.id == payload.parent_id, HrOrgUnit.factory_code == factory).first():
-        raise HTTPException(404, "Parent organization unit not found")
-    if payload.manager_employee_id:
-        _employee(db, factory, payload.manager_employee_id)
+    _validate_org_unit_links(payload, db, factory)
     row = HrOrgUnit(factory_code=factory, **payload.model_dump())
     db.add(row); db.flush()
     log_action(db, current, "create", "HrOrgUnit", row.id, new_value={"name": row.name, "unit_type": row.unit_type})
@@ -202,21 +590,94 @@ def delete_org_unit(unit_id: int, db: DbSession, current: User = HrUser):
     db.delete(row); log_action(db, current, "delete", "HrOrgUnit", unit_id); db.commit()
 
 
-@router.get("/positions")
-def list_positions(db: DbSession, current: User = HrUser):
+@router.get("/positions", response_model=list[HrPositionOut] | HrPositionPageOut)
+def list_positions(
+    db: DbSession,
+    current: User = HrUser,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
     factory = _factory(current)
-    occupied = dict(db.query(Employee.hr_position_id, func.count(Employee.id)).filter(
-        Employee.factory_code == factory, Employee.status == "active", Employee.hr_position_id.isnot(None),
-    ).group_by(Employee.hr_position_id).all())
-    rows = db.query(HrPosition).filter(HrPosition.factory_code == factory).order_by(HrPosition.name).all()
-    return [_position_dict(row, occupied.get(row.id, 0)) for row in rows]
+    query = db.query(HrPosition).filter(HrPosition.factory_code == factory)
+    total = None
+    summary = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = query.count()
+        active_by_position = db.query(
+            Employee.hr_position_id.label("position_id"),
+            func.count(Employee.id).label("occupied_count"),
+        ).filter(
+            Employee.factory_code == factory,
+            Employee.status == "active",
+            Employee.hr_position_id.isnot(None),
+        ).group_by(Employee.hr_position_id).subquery()
+        occupied_count = func.coalesce(active_by_position.c.occupied_count, 0)
+        summary_row = db.query(
+            func.coalesce(func.sum(HrPosition.approved_count), 0),
+            func.coalesce(func.sum(occupied_count), 0),
+            func.coalesce(func.sum(case(
+                (HrPosition.approved_count > occupied_count, HrPosition.approved_count - occupied_count),
+                else_=0,
+            )), 0),
+        ).outerjoin(
+            active_by_position, active_by_position.c.position_id == HrPosition.id,
+        ).filter(HrPosition.factory_code == factory).one()
+        summary = {"plan": int(summary_row[0]), "actual": int(summary_row[1]), "vacant": int(summary_row[2])}
+    query = query.options(load_only(
+        HrPosition.id,
+        HrPosition.org_unit_id,
+        HrPosition.department_id,
+        HrPosition.name,
+        HrPosition.job_description,
+        HrPosition.required_skills_json,
+        HrPosition.qualification_level,
+        HrPosition.grade_level,
+        HrPosition.salary_min,
+        HrPosition.salary_max,
+        HrPosition.approved_count,
+        HrPosition.is_active,
+    )).order_by(HrPosition.name)
+    if total is not None:
+        query = query.offset((page - 1) * page_size).limit(page_size)
+    rows = query.all()
+    position_ids = {int(row.id) for row in rows}
+    occupied = dict(
+        db.query(Employee.hr_position_id, func.count(Employee.id)).filter(
+            Employee.factory_code == factory,
+            Employee.status == "active",
+            Employee.hr_position_id.in_(position_ids),
+        ).group_by(Employee.hr_position_id).all()
+    ) if position_ids else {}
+    department_ids = {int(row.department_id) for row in rows if row.department_id is not None}
+    department_names = {
+        int(department.id): department.name
+        for department in db.query(Department).filter(Department.id.in_(department_ids)).all()
+    } if department_ids else {}
+    payloads = [
+        _position_dict(row, occupied.get(row.id, 0), department_names.get(int(row.department_id)) if row.department_id else None)
+        for row in rows
+    ]
+    if total is None:
+        return payloads
+    return {
+        "rows": payloads,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+        "summary": summary,
+    }
 
 
 @router.post("/positions", status_code=201)
 def create_position(payload: PositionIn, db: DbSession, current: User = HrUser):
     factory = _factory(current)
-    if payload.salary_min is not None and payload.salary_max is not None and payload.salary_min > payload.salary_max:
-        raise HTTPException(422, "Minimum salary cannot exceed maximum salary")
+    _validate_position_links(payload, db, factory)
+    _validate_position_approved_count(payload)
+    _validate_position_required_skills(payload.required_skills)
+    _validate_position_salary_precision(payload)
     values = payload.model_dump(); values["required_skills_json"] = values.pop("required_skills")
     row = HrPosition(factory_code=factory, **values)
     db.add(row); db.flush(); log_action(db, current, "create", "HrPosition", row.id, new_value={"name": row.name}); db.commit(); db.refresh(row)
@@ -228,6 +689,10 @@ def update_position(position_id: int, payload: PositionIn, db: DbSession, curren
     factory = _factory(current)
     row = db.query(HrPosition).filter(HrPosition.id == position_id, HrPosition.factory_code == factory).first()
     if not row: raise HTTPException(404, "Position not found")
+    _validate_position_links(payload, db, factory, existing_department_id=row.department_id)
+    _validate_position_approved_count(payload)
+    _validate_position_required_skills(payload.required_skills, existing=row.required_skills_json)
+    _validate_position_salary_precision(payload, existing=row)
     values = payload.model_dump(); values["required_skills_json"] = values.pop("required_skills")
     for key, value in values.items(): setattr(row, key, value)
     log_action(db, current, "update", "HrPosition", row.id, new_value=values); db.commit(); db.refresh(row)
@@ -235,24 +700,92 @@ def update_position(position_id: int, payload: PositionIn, db: DbSession, curren
 
 
 @router.get("/recruitment")
-def list_candidates(db: DbSession, current: User = HrUser):
-    rows = db.query(HrRecruitmentCandidate).filter(HrRecruitmentCandidate.factory_code == _factory(current)).order_by(HrRecruitmentCandidate.id.desc()).all()
+def list_candidates(
+    db: DbSession,
+    current: User = HrUser,
+    limit: Annotated[int, Query(ge=1, le=500)] = 500,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+    q: Annotated[str | None, Query(max_length=200)] = None,
+    stage: str | None = None,
+    position_id: Annotated[int | None, Query(gt=0)] = None,
+):
+    factory = _factory(current)
     fields = (
         "id", "position_id", "department_id", "full_name", "first_name", "last_name", "middle_name",
         "date_of_birth", "gender", "nationality", "country", "region", "district", "address",
         "passport_number", "passport_issued_by", "passport_issue_date", "passport_expiry_date", "pinfl",
         "phone", "email", "source", "stage", "applied_on", "interview_at", "notes",
     )
-    return [{key: getattr(row, key) for key in fields} for row in rows]
+    base = db.query(HrRecruitmentCandidate).filter(
+        HrRecruitmentCandidate.factory_code == factory,
+    )
+    query = base.options(load_only(*(
+        getattr(HrRecruitmentCandidate, field)
+        for field in fields
+    )))
+    needle = str(q or "").strip()
+    if needle:
+        escaped = needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        search = f"%{escaped}%"
+        query = query.filter(or_(
+            HrRecruitmentCandidate.full_name.ilike(search, escape="\\"),
+            HrRecruitmentCandidate.phone.ilike(search, escape="\\"),
+            HrRecruitmentCandidate.pinfl.ilike(search, escape="\\"),
+            HrRecruitmentCandidate.passport_number.ilike(search, escape="\\"),
+        ))
+    if stage:
+        query = query.filter(HrRecruitmentCandidate.stage == stage)
+    if position_id is not None:
+        query = query.filter(HrRecruitmentCandidate.position_id == position_id)
+
+    paginated = page is not None or page_size is not None
+    safe_page = page or 1
+    safe_page_size = page_size or 100
+    if paginated:
+        total = query.count()
+        rows = (
+            query.order_by(HrRecruitmentCandidate.id.desc())
+            .offset((safe_page - 1) * safe_page_size)
+            .limit(safe_page_size)
+            .all()
+        )
+    else:
+        rows = query.order_by(HrRecruitmentCandidate.id.desc()).limit(limit).all()
+    payload = [{key: getattr(row, key) for key in fields} for row in rows]
+    if not paginated:
+        return payload
+    stage_counts = {
+        str(candidate_stage): int(count or 0)
+        for candidate_stage, count in base.with_entities(
+            HrRecruitmentCandidate.stage,
+            func.count(HrRecruitmentCandidate.id),
+        ).group_by(HrRecruitmentCandidate.stage).all()
+    }
+    return {
+        "rows": payload,
+        "total": int(total),
+        "page": safe_page,
+        "page_size": safe_page_size,
+        "has_more": safe_page * safe_page_size < int(total),
+        "stage_counts": stage_counts,
+    }
 
 
-def _validate_candidate_links(payload: CandidateIn, db: DbSession, factory: str, candidate_id: int | None = None) -> None:
-    if payload.position_id and not db.query(HrPosition).filter(
+def _validate_candidate_links(
+    payload: CandidateIn,
+    db: DbSession,
+    factory: str,
+    candidate_id: int | None = None,
+    *,
+    existing_department_id: int | None = None,
+) -> None:
+    if payload.position_id is not None and not db.query(HrPosition).filter(
         HrPosition.id == payload.position_id, HrPosition.factory_code == factory,
     ).first():
         raise HTTPException(404, "Staffing position not found")
-    if payload.department_id and not db.query(Department).filter(Department.id == payload.department_id).first():
-        raise HTTPException(404, "Department not found")
+    if payload.department_id is not None:
+        _department(db, factory, payload.department_id, allow_inactive=payload.department_id == existing_department_id)
     if payload.pinfl:
         duplicate = db.query(HrRecruitmentCandidate).filter(
             HrRecruitmentCandidate.factory_code == factory,
@@ -278,7 +811,7 @@ def update_candidate(candidate_id: int, payload: CandidateIn, db: DbSession, cur
     factory = _factory(current)
     row = db.query(HrRecruitmentCandidate).filter(HrRecruitmentCandidate.id == candidate_id, HrRecruitmentCandidate.factory_code == factory).first()
     if not row: raise HTTPException(404, "Candidate not found")
-    _validate_candidate_links(payload, db, factory, candidate_id)
+    _validate_candidate_links(payload, db, factory, candidate_id, existing_department_id=row.department_id)
     for key, value in payload.model_dump().items(): setattr(row, key, value)
     log_action(db, current, "update", "HrRecruitmentCandidate", row.id, new_value={"stage": row.stage}); db.commit()
     return {"id": row.id}
@@ -295,11 +828,131 @@ def _document_dict(row: HrEmployeeDocument, employee_name: str | None = None) ->
 
 
 @router.get("/documents")
-def list_documents(db: DbSession, current: User = HrUser):
+def list_documents(
+    db: DbSession,
+    current: User = HrUser,
+    page: int | None = Query(default=None, ge=1),
+    page_size: int | None = Query(default=None, ge=1, le=500),
+):
     factory = _factory(current)
-    names = {row.id: row.full_name for row in db.query(Employee).filter(Employee.factory_code == factory).all()}
-    rows = db.query(HrEmployeeDocument).filter(HrEmployeeDocument.factory_code == factory).order_by(HrEmployeeDocument.id.desc()).all()
-    return [_document_dict(row, names.get(row.employee_id)) for row in rows]
+    query = db.query(HrEmployeeDocument).options(
+        load_only(
+            HrEmployeeDocument.id,
+            HrEmployeeDocument.employee_id,
+            HrEmployeeDocument.category,
+            HrEmployeeDocument.title,
+            HrEmployeeDocument.original_name,
+            HrEmployeeDocument.content_type,
+            HrEmployeeDocument.size_bytes,
+            HrEmployeeDocument.expires_on,
+            HrEmployeeDocument.created_at,
+        )
+    ).filter(HrEmployeeDocument.factory_code == factory)
+    paginated = page is not None or page_size is not None
+    safe_page = page or 1
+    safe_page_size = page_size or 100
+    total = query.count() if paginated else None
+    if paginated:
+        rows = query.order_by(HrEmployeeDocument.id.desc()).offset((safe_page - 1) * safe_page_size).limit(safe_page_size).all()
+    else:
+        rows = query.order_by(HrEmployeeDocument.id.desc()).all()
+    employee_ids = {int(row.employee_id) for row in rows if row.employee_id}
+    names = {
+        int(row.id): row.full_name
+        for row in db.query(Employee.id, Employee.full_name).filter(
+            Employee.factory_code == factory, Employee.id.in_(employee_ids)
+        ).all()
+    } if employee_ids else {}
+    payload = [_document_dict(row, names.get(int(row.employee_id))) for row in rows]
+    if not paginated:
+        return payload
+    aggregate = db.query(
+        func.coalesce(func.sum(HrEmployeeDocument.size_bytes), 0),
+        func.count(func.distinct(HrEmployeeDocument.employee_id)),
+    ).filter(HrEmployeeDocument.factory_code == factory).one()
+    expiry_cutoff = datetime.now(timezone.utc) + timedelta(days=30)
+    expiring = query.filter(
+        HrEmployeeDocument.expires_on.isnot(None),
+        HrEmployeeDocument.expires_on < expiry_cutoff.date(),
+    ).count()
+    return {
+        "rows": payload,
+        "total": int(total or 0),
+        "page": safe_page,
+        "page_size": safe_page_size,
+        "has_more": safe_page * safe_page_size < int(total or 0),
+        "metrics": {
+            "employee_folders": int(aggregate[1] or 0),
+            "archive_size_bytes": int(aggregate[0] or 0),
+            "expiring_in_30_days": int(expiring),
+        },
+    }
+
+
+def _write_new_hr_document(target: Path, content: bytes) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    created = False
+    try:
+        with target.open("xb") as stream:
+            created = True
+            stream.write(content)
+    except BaseException:
+        if created:
+            target.unlink(missing_ok=True)
+        raise
+
+
+async def _discard_hr_document(target: Path) -> None:
+    with CancelScope(shield=True):
+        await to_thread.run_sync(target.unlink, True, abandon_on_cancel=False)
+
+
+def _require_hr_upload_employee(db: Session, factory: str, employee_id: int) -> None:
+    _employee(db, factory, employee_id)
+
+
+def _create_hr_upload_document(
+    db: Session,
+    *,
+    factory: str,
+    employee_id: int,
+    category: str,
+    title: str,
+    original_name: str,
+    stored_name: str,
+    content_type: str | None,
+    size_bytes: int,
+    expires_on: date | None,
+    actor_id: int,
+) -> dict:
+    _employee(db, factory, employee_id)
+    actor = db.get(User, actor_id)
+    if not actor:
+        raise HTTPException(401, "Inactive or unknown user")
+    row = HrEmployeeDocument(
+        factory_code=factory,
+        employee_id=employee_id,
+        category=category,
+        title=title,
+        original_name=original_name,
+        stored_name=stored_name,
+        content_type=content_type,
+        size_bytes=size_bytes,
+        expires_on=expires_on,
+        uploaded_by=actor_id,
+    )
+    db.add(row)
+    db.flush()
+    log_action(
+        db,
+        actor,
+        "create",
+        "HrEmployeeDocument",
+        row.id,
+        new_value={"employee_id": employee_id, "category": category, "title": title},
+    )
+    db.refresh(row)
+    return _document_dict(row)
 
 
 @router.post("/documents", status_code=201)
@@ -312,19 +965,61 @@ async def upload_document(
     expires_on: date | None = Form(default=None),
     file: UploadFile = File(...),
 ):
-    factory = _factory(current); _employee(db, factory, employee_id)
+    factory = _factory(current)
+    actor_id = int(current.id)
+    worker_sessions = upload_session_factory(db)
+    await run_upload_db_work(
+        worker_sessions,
+        partial(_require_hr_upload_employee, factory=factory, employee_id=employee_id),
+    )
     allowed_categories = {"employment_contract", "passport_id", "diploma", "certificate", "employment_order", "salary_amendment", "leave", "disciplinary", "training", "resignation", "other"}
     if category not in allowed_categories: raise HTTPException(422, "Unsupported HR document category")
-    content = await file.read(settings.HR_DOCUMENT_MAX_BYTES + 1)
-    if not content or len(content) > settings.HR_DOCUMENT_MAX_BYTES: raise HTTPException(413, "Document is empty or too large")
+    title = title.strip()
+    if not title: raise HTTPException(422, "Document title is required")
+    if len(title) > 255: raise HTTPException(422, "Document title is too long")
     safe_original = re.sub(r"[^A-Za-z0-9._ -]", "_", Path(file.filename or "document").name)[:255]
     stored = f"{factory.lower()}_{employee_id}_{secrets.token_hex(16)}{Path(safe_original).suffix.lower()[:12]}"
-    root = Path(settings.HR_DOCUMENTS_DIR); root.mkdir(parents=True, exist_ok=True)
-    target = root / stored
-    with target.open("xb") as stream: stream.write(content)
-    row = HrEmployeeDocument(factory_code=factory, employee_id=employee_id, category=category, title=title.strip(), original_name=safe_original, stored_name=stored, content_type=file.content_type, size_bytes=len(content), expires_on=expires_on, uploaded_by=current.id)
-    db.add(row); db.flush(); log_action(db, current, "create", "HrEmployeeDocument", row.id, new_value={"employee_id": employee_id, "category": category, "title": title}); db.commit(); db.refresh(row)
-    return _document_dict(row)
+    target = Path(settings.HR_DOCUMENTS_DIR) / stored
+    write_state = UploadFileWriteState()
+    commit_state = UploadCommitState()
+    try:
+        async with upload_processing_slot():
+            try:
+                content = await read_bounded_upload_content(file, settings.HR_DOCUMENT_MAX_BYTES)
+            except HTTPException as exc:
+                if exc.status_code == 400 and exc.detail in {
+                    "Empty file",
+                    f"File too large (max {settings.HR_DOCUMENT_MAX_BYTES // (1024 * 1024)}MB)",
+                }:
+                    raise HTTPException(413, "Document is empty or too large") from exc
+                raise
+            await run_upload_file_write(
+                partial(_write_new_hr_document, target, content),
+                write_state,
+            )
+        document = await run_upload_db_work(
+            worker_sessions,
+            partial(
+                _create_hr_upload_document,
+                factory=factory,
+                employee_id=employee_id,
+                category=category,
+                title=title,
+                original_name=safe_original,
+                stored_name=stored,
+                content_type=file.content_type,
+                size_bytes=len(content),
+                expires_on=expires_on,
+                actor_id=actor_id,
+            ),
+            commit=True,
+            commit_state=commit_state,
+        )
+    except BaseException:
+        if write_state.created and not commit_state.committed:
+            await _discard_hr_document(target)
+        raise
+    return document
 
 
 @router.get("/documents/{document_id}/download")
@@ -346,33 +1041,184 @@ def delete_document(document_id: int, db: DbSession, current: User = HrUser):
     except OSError: pass
 
 
+def _attendance_scan_summary_query(db: Session, factory: str, start: datetime, end: datetime):
+    return (
+        db.query(
+            AttendanceEvent.external_person_id.label("external_person_id"),
+            func.min(AttendanceEvent.occurred_at).label("first_scan"),
+            func.max(AttendanceEvent.occurred_at).label("last_scan"),
+            func.count(AttendanceEvent.id).label("scan_count"),
+        )
+        .filter(
+            AttendanceEvent.factory_code == factory,
+            AttendanceEvent.occurred_at >= start,
+            AttendanceEvent.occurred_at < end,
+            accepted_attendance_result(AttendanceEvent.result),
+        )
+        .group_by(AttendanceEvent.external_person_id)
+    )
+
+
+def _attendance_worked_minutes(first: datetime | None, last: datetime | None) -> int:
+    return max(0, int((last - first).total_seconds() // 60)) if first and last else 0
+
+
 @router.get("/attendance")
-def hr_attendance(db: DbSession, current: User = HrUser, day: date | None = None):
-    factory = _factory(current); selected = day or datetime.now(timezone.utc).date()
-    start = datetime.combine(selected, datetime.min.time(), tzinfo=timezone.utc); end = start + timedelta(days=1)
-    employees = db.query(Employee).filter(Employee.factory_code == factory, Employee.status == "active").all()
-    events = db.query(AttendanceEvent).filter(AttendanceEvent.factory_code == factory, AttendanceEvent.occurred_at >= start, AttendanceEvent.occurred_at < end).order_by(AttendanceEvent.occurred_at).all()
-    grouped: dict[str, list[AttendanceEvent]] = {}
-    for event in events:
-        if event.external_person_id: grouped.setdefault(event.external_person_id, []).append(event)
+def hr_attendance(
+    db: DbSession,
+    current: User = HrUser,
+    day: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 50,
+    search: Annotated[str | None, Query(max_length=100)] = None,
+):
+    factory = _factory(current)
+    selected = day or datetime.now(TASHKENT).date()
+    start, end = _attendance_day_bounds(selected)
+    default_hours = _load_hr_settings(db, factory).default_workday_hours
+
+    active_employees = db.query(Employee).filter(
+        Employee.factory_code == factory,
+        Employee.status == "active",
+    )
+    summary_employee_count = int(
+        active_employees.with_entities(func.count(Employee.id)).scalar() or 0
+    )
+
+    # Attendance cards describe the whole factory/day, independent of the
+    # visible search or current page. Only employees with an accepted scan
+    # need per-person math for present/overtime; absent is count - present.
+    present_rows = (
+        db.query(
+            Employee.id,
+            Employee.hr_profile_json,
+            func.min(AttendanceEvent.occurred_at).label("first_scan"),
+            func.max(AttendanceEvent.occurred_at).label("last_scan"),
+            func.count(AttendanceEvent.id).label("scan_count"),
+        )
+        .join(AttendanceEvent, Employee.employee_no == AttendanceEvent.external_person_id)
+        .filter(
+            Employee.factory_code == factory,
+            Employee.status == "active",
+            AttendanceEvent.factory_code == factory,
+            AttendanceEvent.occurred_at >= start,
+            AttendanceEvent.occurred_at < end,
+            accepted_attendance_result(AttendanceEvent.result),
+        )
+        .group_by(Employee.id)
+        .yield_per(1000)
+    )
+    present_count = 0
+    overtime_minutes = 0
+    for _employee_id, profile, first, last, scan_count in present_rows:
+        present_count += 1
+        departure = last if scan_count > 1 else None
+        worked = _attendance_worked_minutes(first, departure)
+        scheduled = _scheduled_minutes(profile, default_hours)
+        overtime_minutes += max(0, worked - scheduled)
+
+    employee_query = active_employees
+    normalized_search = search.strip() if search else ""
+    if normalized_search:
+        escaped_search = normalized_search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped_search}%"
+        employee_query = employee_query.filter(or_(
+            Employee.full_name.ilike(pattern, escape="\\"),
+            Employee.employee_no.ilike(pattern, escape="\\"),
+        ))
+    total = int(employee_query.with_entities(func.count(Employee.id)).scalar() or 0)
+    employees = (
+        employee_query
+        .options(load_only(
+            Employee.id,
+            Employee.employee_no,
+            Employee.full_name,
+            Employee.hr_profile_json,
+        ))
+        .order_by(Employee.full_name, Employee.id)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    employee_numbers = {str(employee.employee_no) for employee in employees if employee.employee_no}
+    scans_by_employee: dict[str, tuple[datetime, datetime | None]] = {}
+    if employee_numbers:
+        scan_summaries = _attendance_scan_summary_query(db, factory, start, end).filter(
+            AttendanceEvent.external_person_id.in_(employee_numbers),
+        ).all()
+        scans_by_employee = {
+            row.external_person_id: (
+                row.first_scan,
+                row.last_scan if row.scan_count > 1 else None,
+            )
+            for row in scan_summaries
+        }
+
     rows = []
     for employee in employees:
-        scans = grouped.get(str(employee.employee_no or ""), [])
-        first = scans[0].occurred_at if scans else None; last = scans[-1].occurred_at if len(scans) > 1 else None
-        worked = max(0, int((last - first).total_seconds() // 60)) if first and last else 0
-        scheduled = float((employee.hr_profile_json or {}).get("scheduled_daily_hours") or 8) * 60
-        rows.append({"employee_id": employee.id, "employee_no": employee.employee_no, "full_name": employee.full_name, "arrival_at": first, "departure_at": last, "worked_minutes": worked, "scheduled_minutes": int(scheduled), "variance_minutes": worked - int(scheduled), "status": "present" if scans else "absent"})
-    return {"day": selected, "summary": {"employees": len(rows), "present": sum(1 for row in rows if row["status"] == "present"), "absent": sum(1 for row in rows if row["status"] == "absent"), "overtime_minutes": sum(max(0, row["variance_minutes"]) for row in rows)}, "rows": rows}
+        first, last = scans_by_employee.get(str(employee.employee_no or ""), (None, None))
+        worked = _attendance_worked_minutes(first, last)
+        scheduled = _scheduled_minutes(employee.hr_profile_json, default_hours)
+        rows.append({
+            "employee_id": employee.id,
+            "employee_no": employee.employee_no,
+            "full_name": employee.full_name,
+            "arrival_at": first,
+            "departure_at": last,
+            "worked_minutes": worked,
+            "scheduled_minutes": scheduled,
+            "variance_minutes": worked - scheduled,
+            "status": "present" if first else "absent",
+        })
+    return {
+        "day": selected,
+        "summary": {
+            "employees": summary_employee_count,
+            "present": present_count,
+            "absent": summary_employee_count - present_count,
+            "overtime_minutes": overtime_minutes,
+        },
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+        "search": normalized_search,
+    }
 
 
 @router.get("/analytics")
 def analytics(db: DbSession, current: User = HrUser):
-    factory = _factory(current); employees = db.query(Employee).filter(Employee.factory_code == factory).all()
-    active = [row for row in employees if row.status == "active"]
-    salaries = [float(row.salary) for row in active if row.salary is not None]
-    today = date.today(); tenures = [max(0, (today - row.joined_at.date()).days) for row in active if row.joined_at]
+    factory = _factory(current); employees = (
+        db.query(Employee)
+        .options(load_only(
+            Employee.status,
+            Employee.salary,
+            Employee.joined_at,
+            Employee.hr_profile_json,
+        ))
+        .filter(Employee.factory_code == factory)
+        .yield_per(50)
+    )
+    employee_count = 0
+    active_count = 0
+    salary_total = 0.0
+    salary_count = 0
+    tenure_days_total = 0
+    tenure_count = 0
+    today = date.today()
     gender: dict[str, int] = {}; ages: dict[str, int] = {"under_25": 0, "25_34": 0, "35_44": 0, "45_plus": 0}
-    for row in active:
+    for row in employees:
+        employee_count += 1
+        if row.status != "active":
+            continue
+        active_count += 1
+        if row.salary is not None:
+            salary_total += float(row.salary)
+            salary_count += 1
+        if row.joined_at:
+            tenure_days_total += max(0, (today - row.joined_at.date()).days)
+            tenure_count += 1
         profile = row.hr_profile_json or {}; label = str(profile.get("gender") or "not_specified"); gender[label] = gender.get(label, 0) + 1
         dob = profile.get("date_of_birth")
         if dob:
@@ -380,19 +1226,82 @@ def analytics(db: DbSession, current: User = HrUser):
                 age = (today - date.fromisoformat(str(dob))).days // 365
                 ages["under_25" if age < 25 else "25_34" if age < 35 else "35_44" if age < 45 else "45_plus"] += 1
             except ValueError: pass
-    return {"total_headcount": len(active), "inactive_headcount": len(employees) - len(active), "retention_rate": round((len(active) / len(employees) * 100), 1) if employees else 0, "average_tenure_years": round(sum(tenures) / len(tenures) / 365, 1) if tenures else 0, "average_salary": round(sum(salaries) / len(salaries), 2) if salaries else 0, "gender_distribution": gender, "age_distribution": ages}
+    return {
+        "total_headcount": active_count,
+        "inactive_headcount": employee_count - active_count,
+        "retention_rate": round(active_count / employee_count * 100, 1) if employee_count else 0,
+        "average_tenure_years": round(tenure_days_total / tenure_count / 365, 1) if tenure_count else 0,
+        "average_salary": round(salary_total / salary_count, 2) if salary_count else 0,
+        "gender_distribution": gender,
+        "age_distribution": ages,
+    }
 
 
 @router.get("/calendar")
-def list_calendar(db: DbSession, current: User = HrUser):
-    rows = db.query(HrCalendarEvent).filter(HrCalendarEvent.factory_code == _factory(current)).order_by(HrCalendarEvent.starts_at).all()
-    return [{key: getattr(row, key) for key in ("id", "employee_id", "event_type", "title", "starts_at", "ends_at", "notes", "status")} for row in rows]
+def list_calendar(
+    db: DbSession,
+    current: User = HrUser,
+    page: int | None = Query(default=None, ge=1),
+    page_size: int | None = Query(default=None, ge=1, le=500),
+):
+    query = db.query(HrCalendarEvent).filter(
+        HrCalendarEvent.factory_code == _factory(current)
+    )
+
+    def serialize(row: HrCalendarEvent) -> dict:
+        return {
+            key: getattr(row, key)
+            for key in (
+                "id", "employee_id", "event_type", "title", "starts_at",
+                "ends_at", "notes", "status",
+            )
+        }
+
+    if page is None and page_size is None:
+        rows = query.order_by(HrCalendarEvent.starts_at, HrCalendarEvent.id).all()
+        return [serialize(row) for row in rows]
+    size = page_size or 100
+    current_page = page or 1
+    offset = (current_page - 1) * size
+    total = query.count()
+    rows = (
+        query.order_by(HrCalendarEvent.starts_at, HrCalendarEvent.id)
+        .offset(offset)
+        .limit(size)
+        .all()
+    )
+    now = datetime.now(timezone.utc)
+    metric_rows = (
+        db.query(HrCalendarEvent.event_type, func.count(HrCalendarEvent.id))
+        .filter(
+            HrCalendarEvent.factory_code == _factory(current),
+            HrCalendarEvent.status == "scheduled",
+            HrCalendarEvent.starts_at >= now,
+        )
+        .group_by(HrCalendarEvent.event_type)
+        .all()
+    )
+    by_type = {event_type: int(count) for event_type, count in metric_rows}
+    upcoming = sum(by_type.values())
+    return {
+        "rows": [serialize(row) for row in rows],
+        "total": total,
+        "page": current_page,
+        "page_size": size,
+        "has_more": offset + size < total,
+        "metrics": {
+            "upcoming": upcoming,
+            "contracts_expiring": by_type.get("contract_expiry", 0),
+            "probation_ending": by_type.get("probation_end", 0),
+            "training": by_type.get("training", 0),
+        },
+    }
 
 
 @router.post("/calendar", status_code=201)
 def create_calendar_event(payload: CalendarEventIn, db: DbSession, current: User = HrUser):
     factory = _factory(current)
-    if payload.employee_id: _employee(db, factory, payload.employee_id)
+    if payload.employee_id is not None: _employee(db, factory, payload.employee_id)
     row = HrCalendarEvent(factory_code=factory, **payload.model_dump())
     db.add(row); db.flush(); log_action(db, current, "create", "HrCalendarEvent", row.id, new_value={"title": row.title, "event_type": row.event_type}); db.commit(); db.refresh(row)
     return {"id": row.id}
@@ -404,13 +1313,25 @@ def _settings_key(factory: str) -> str:
 
 @router.get("/settings")
 def get_hr_settings(db: DbSession, current: User = HrUser):
-    row = db.query(SystemSetting).filter(SystemSetting.key == _settings_key(_factory(current))).first()
-    return HrSettingsIn(**(row.value_json if row else {}))
+    return _load_hr_settings(db, _factory(current))
 
 
 @router.put("/settings")
-def put_hr_settings(payload: HrSettingsIn, db: DbSession, current: User = HrUser):
+def put_hr_settings(payload: HrSettingsWriteIn, db: DbSession, current: User = HrUser):
     key = _settings_key(_factory(current)); row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
-    if not row: row = SystemSetting(key=key, value_json={}); db.add(row)
-    row.value_json = payload.model_dump(); log_action(db, current, "update", "HrSettings", row.id, new_value=row.value_json); db.commit()
+    stored_value = row.value_json if row and isinstance(row.value_json, dict) else {}
+    weekend_days = payload.weekend_days
+    stored_weekend_days = stored_value.get("weekend_days")
+    if not _valid_weekend_days(weekend_days) and not _same_legacy_weekend_days(
+        weekend_days,
+        stored_weekend_days,
+    ):
+        raise HTTPException(422, "Weekend days must be unique ISO weekdays from 1 through 7")
+
+    values = payload.model_dump()
+    _validate_hr_settings_json_bounds(values, previous=stored_value)
+    if not row:
+        row = SystemSetting(key=key, value_json={}); db.add(row)
+    row.value_json = values
+    log_action(db, current, "update", "HrSettings", row.id, new_value=row.value_json); db.commit()
     return row.value_json

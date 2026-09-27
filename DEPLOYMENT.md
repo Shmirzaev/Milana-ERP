@@ -128,6 +128,39 @@ Create a unique PostgreSQL custom-format backup without printing `DATABASE_URL`.
 - more than 100 restore objects;
 - recorded dump/restore-list sizes and SHA-256 values.
 
+Uploads are stored under the persistent backend-host `/app/storage` mount and
+their URLs/metadata are stored in PostgreSQL. A database dump alone cannot
+recover those file bytes, and an additional backend host must mount the same
+storage or a verified replica. Before taking a coordinated recovery point,
+quiesce upload and database writes, take the PostgreSQL dump and a storage
+snapshot/copy using the approved host backup mechanism, then create and retain
+a pairing manifest alongside the backups (outside both artifact trees):
+
+```sh
+python /opt/milana-erp/releases/<release_id>/scripts/storage_recovery_manifest.py create \
+  --database-dump <path-to-postgres.dump> \
+  --storage-root <path-to-storage-snapshot> \
+  --output <path-to-backup-pairing.json>
+```
+
+The command reads and hashes every regular storage file and the non-empty dump;
+it rejects links and special files. At recovery time, after restoring the
+storage snapshot to an isolated target, verify the paired artifacts before
+putting the recovered service into use:
+
+```sh
+python /opt/milana-erp/releases/<release_id>/scripts/storage_recovery_manifest.py verify \
+  --manifest <path-to-backup-pairing.json> \
+  --database-dump <path-to-postgres.dump> \
+  --storage-root <path-to-restored-storage>
+```
+
+Verification is read-only and fails on a changed dump or any missing, added,
+or changed file. Keep the manifest with its exact dump and storage backup; do
+not resume writes between the two snapshots. This hash pairing does not perform
+or certify a PostgreSQL restore, establish backup retention, prove off-host
+durability, or replace a witnessed isolated restore drill and measured RTO/RPO.
+
 Run candidate migrations before traffic switch:
 
 ```sh
@@ -222,8 +255,10 @@ ln -sfn /opt/milana-erp/releases/<release_id> /opt/milana-erp/current
 ## Required postflight
 
 ```sh
+curl --fail http://172.16.10.4:8000/ready
 curl --fail http://172.16.10.4:8000/health
 curl --fail --head http://172.16.10.5:3000/login
+curl --fail https://erp.milanapremium.uz/ready
 curl --fail https://erp.milanapremium.uz/health
 curl --fail --head https://erp.milanapremium.uz/login
 ```
@@ -269,8 +304,10 @@ verify that the supplied identity matches both active slot states and the review
 artifact. The observer records this identity; HTTP health checks alone do not
 independently prove which release is serving traffic.
 
-The observer automatically checks all four required endpoints every 30 seconds
-using GET/HEAD only, records evidence, and reports start, failures and finish.
+The observer automatically checks all six required endpoints every 30 seconds
+using GET/HEAD only: internal and public backend liveness and readiness, plus
+internal and public frontend login. It records evidence and reports start,
+failures and finish.
 Run it as a tracked background process during the deployment task so the user
 does not need to poll. Continue following that process through closing checks;
 do not abandon it when reporting Live. A failed probe stays a failure even if

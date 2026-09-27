@@ -1,7 +1,11 @@
-from fastapi import APIRouter, HTTPException
-from sqlalchemy.orm import joinedload
+from typing import Annotated
+
+from fastapi import APIRouter, HTTPException, Query
+from sqlalchemy.orm import joinedload, lazyload, selectinload
 
 from app.core.deps import CurrentUser, DbSession
+from app.models import CuttingPassport, Item, ModelBOM, StockBatch
+from app.models.catalog import Model, ModelImage, ModelSize
 from app.models.price_calculation import PriceCalculationRequest
 from app.schemas.price_calculation import (
     PriceCalculationAccessoriesIn,
@@ -10,6 +14,7 @@ from app.schemas.price_calculation import (
     PriceCalculationFinanceIn,
     PriceCalculationPurchasingIn,
     PriceCalculationRequestOut,
+    PriceCalculationRequestPageOut,
 )
 from app.services.audit import log_action
 from app.services.price_calculation import (
@@ -34,13 +39,59 @@ from app.services.price_calculation import (
 router = APIRouter(prefix="/price-calculation", tags=["price_calculation"])
 
 
+def _list_request_load_options():
+    return (
+        joinedload(PriceCalculationRequest.model)
+        .load_only(
+            Model.id,
+            Model.code,
+            Model.name,
+            Model.category,
+            Model.product_type,
+            Model.details_json,
+            Model.selling_price,
+            Model.selling_price_currency,
+            Model.selling_price_source,
+            Model.selling_price_request_id,
+            raiseload=True,
+        )
+        .options(
+            selectinload(Model.sizes).load_only(ModelSize.id, ModelSize.model_id, ModelSize.size),
+            selectinload(Model.images).load_only(
+                ModelImage.id,
+                ModelImage.model_id,
+                ModelImage.file_url,
+                ModelImage.file_name,
+                ModelImage.content_type,
+                ModelImage.image_type,
+                ModelImage.is_primary,
+            ),
+            selectinload(Model.bom)
+            .load_only(
+                ModelBOM.id,
+                ModelBOM.model_id,
+                ModelBOM.item_id,
+                ModelBOM.stock_batch_id,
+                ModelBOM.photo_url,
+            )
+            .options(
+                joinedload(ModelBOM.item).load_only(Item.id, Item.category, Item.image_url),
+                joinedload(ModelBOM.stock_batch).load_only(StockBatch.id, StockBatch.image_url),
+            ),
+        ),
+        joinedload(PriceCalculationRequest.cutting_passport)
+        .load_only(CuttingPassport.id, CuttingPassport.date)
+        .options(
+            lazyload(CuttingPassport.production_order),
+            lazyload(CuttingPassport.operator),
+        ),
+    )
+
+
 def _request_or_404(db: DbSession, request_id: int) -> PriceCalculationRequest:
     request = (
         db.query(PriceCalculationRequest)
-        .options(
-            joinedload(PriceCalculationRequest.model),
-            joinedload(PriceCalculationRequest.cutting_passport),
-        )
+        .options(*_list_request_load_options())
         .filter(PriceCalculationRequest.id == request_id)
         .first()
     )
@@ -49,20 +100,37 @@ def _request_or_404(db: DbSession, request_id: int) -> PriceCalculationRequest:
     return request
 
 
-@router.get("/requests", response_model=list[PriceCalculationRequestOut])
-def list_requests(db: DbSession, current: CurrentUser):
+@router.get("/requests", response_model=list[PriceCalculationRequestOut] | PriceCalculationRequestPageOut)
+def list_requests(
+    db: DbSession,
+    current: CurrentUser,
+    limit: Annotated[
+        int,
+        Query(ge=1, le=500, description="Maximum newest requests to return"),
+    ] = 500,
+    page: Annotated[int | None, Query(ge=1, description="Page number for paginated pricing queues")] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500, description="Rows per pricing queue page")] = None,
+):
     if not can_view_price_requests(current):
         raise HTTPException(403, "Price calculation access required")
-    requests = (
+    query = (
         db.query(PriceCalculationRequest)
-        .options(
-            joinedload(PriceCalculationRequest.model),
-            joinedload(PriceCalculationRequest.cutting_passport),
-        )
+        .options(*_list_request_load_options())
         .order_by(PriceCalculationRequest.id.desc())
-        .all()
     )
-    return [serialize_price_request(request) for request in requests]
+    if page is None and page_size is None:
+        return [serialize_price_request(request) for request in query.limit(limit).all()]
+    effective_page = page or 1
+    effective_page_size = page_size or limit
+    total = db.query(PriceCalculationRequest.id).count()
+    requests = query.offset((effective_page - 1) * effective_page_size).limit(effective_page_size).all()
+    return {
+        "items": [serialize_price_request(request) for request in requests],
+        "total": total,
+        "page": effective_page,
+        "page_size": effective_page_size,
+        "has_more": effective_page * effective_page_size < total,
+    }
 
 
 @router.post("/requests", response_model=PriceCalculationRequestOut, status_code=201)

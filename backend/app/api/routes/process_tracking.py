@@ -6,16 +6,17 @@ work order — which department is working on it, how many units are done vs
 planned, deadlines, sewing-flow assignment, overdue and block flags.
 """
 from datetime import date, datetime, timezone
-from fastapi import APIRouter
+from typing import Annotated
+from fastapi import APIRouter, Query
 from sqlalchemy import and_, func, or_
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, load_only, selectinload
 
 from app.core.deps import DbSession, CurrentUser
 from app.core.pagination import clamp_pagination
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
 from app.models import (
-    SalesOrder, ProductionOrder, WorkOrder, Customer, Model, ModelBOM, SewingFlow, SewingAssignment,
-    CuttingPassport, CuttingRecord, PrintingRecord, SewingRecord,
+    SalesOrder, ProductionOrder, WorkOrder, Customer, Model, ModelBOM, Item, SewingFlow, SewingAssignment,
+    ProductionOrderItem, CuttingPassport, CuttingRecord, PrintingRecord, SewingRecord, ModelImage,
     PackagingRecord, Package, PackageBatchAllocation, StockBatch, Department, Bundle,
 )
 from app.core.dt import as_utc, date_filter_bounds
@@ -760,6 +761,17 @@ def _process_summary(stages: list[dict], po_status: str) -> dict:
     }
 
 
+def _fabric_batch_images(db: DbSession, batch_ids: set[int]) -> dict[int, str | None]:
+    if not batch_ids:
+        return {}
+    return {
+        int(batch_id): image_url
+        for batch_id, image_url in db.query(StockBatch.id, StockBatch.image_url)
+        .filter(StockBatch.id.in_(batch_ids))
+        .all()
+    }
+
+
 @router.get("")
 def list_processes(
     db: DbSession, current: CurrentUser,
@@ -771,6 +783,7 @@ def list_processes(
     sort: str = "created_desc",
     only_active: bool = True,
     sewing_completed_only: bool = False,
+    production_order_ids: Annotated[list[int] | None, Query(max_length=100)] = None,
     page: int = 1,
     page_size: int = 100,
     include_total: bool = False,
@@ -783,7 +796,11 @@ def list_processes(
     qry = db.query(ProductionOrder).options(
         selectinload(ProductionOrder.batches),
         selectinload(ProductionOrder.work_orders),
-        selectinload(ProductionOrder.items),
+        selectinload(ProductionOrder.items).load_only(
+            ProductionOrderItem.size,
+            ProductionOrderItem.planned_quantity,
+            ProductionOrderItem.completed_quantity,
+        ),
     ).outerjoin(
         SalesOrder, SalesOrder.id == ProductionOrder.sales_order_id,
     ).outerjoin(
@@ -802,6 +819,8 @@ def list_processes(
         # Existing unscoped consumers are the ordinary production workspace.
         # Usluga joins the dedicated Eco view only and must not leak globally.
         qry = qry.filter(ProductionOrder.source_type == "standard")
+    if production_order_ids is not None:
+        qry = qry.filter(ProductionOrder.id.in_(production_order_ids))
     if status:
         qry = qry.filter(ProductionOrder.status == status)
     if only_active:
@@ -941,9 +960,27 @@ def list_processes(
         for m in (
             db.query(Model)
             .options(
-                selectinload(Model.images),
-                selectinload(Model.bom).joinedload(ModelBOM.item),
-                selectinload(Model.bom).joinedload(ModelBOM.stock_batch),
+                load_only(Model.id, Model.code, Model.name),
+                selectinload(Model.images).load_only(
+                    ModelImage.id,
+                    ModelImage.model_id,
+                    ModelImage.file_url,
+                    ModelImage.file_name,
+                    ModelImage.content_type,
+                    ModelImage.image_type,
+                    ModelImage.is_primary,
+                ),
+                selectinload(Model.bom).options(
+                    load_only(
+                        ModelBOM.id,
+                        ModelBOM.model_id,
+                        ModelBOM.item_id,
+                        ModelBOM.stock_batch_id,
+                        ModelBOM.photo_url,
+                    ),
+                    joinedload(ModelBOM.item).load_only(Item.id, Item.category, Item.image_url),
+                    joinedload(ModelBOM.stock_batch).load_only(StockBatch.id, StockBatch.image_url),
+                ),
             )
             .filter(Model.id.in_(model_ids))
             .all()
@@ -951,21 +988,31 @@ def list_processes(
             else []
         )
     }
-    fabric_batches = {
-        batch.id: batch
-        for batch in (
-            db.query(StockBatch).filter(StockBatch.id.in_(fabric_batch_ids)).all()
-            if fabric_batch_ids
+    fabric_batch_images = _fabric_batch_images(db, fabric_batch_ids)
+    sos = {
+        s.id: s
+        for s in (
+            db.query(SalesOrder)
+            .options(load_only(SalesOrder.id, SalesOrder.customer_id, SalesOrder.order_no))
+            .filter(SalesOrder.id.in_(so_ids))
+            .all()
+            if so_ids
             else []
         )
     }
-    sos = {s.id: s for s in (db.query(SalesOrder).filter(SalesOrder.id.in_(so_ids)).all() if so_ids else [])}
     customer_ids = {s.customer_id for s in sos.values() if s.customer_id}
     customers = {c.id: c for c in (db.query(Customer).filter(Customer.id.in_(customer_ids)).all() if customer_ids else [])}
     flows = {f.id: f for f in (db.query(SewingFlow).filter(SewingFlow.id.in_(flow_ids)).all() if flow_ids else [])}
     passports_by_order: dict[int, list[CuttingPassport]] = {}
     passport_rows = (
         db.query(CuttingPassport)
+        .options(load_only(
+            CuttingPassport.id,
+            CuttingPassport.production_order_id,
+            CuttingPassport.passport_no,
+            CuttingPassport.lot_no,
+            CuttingPassport.date,
+        ))
         .filter(CuttingPassport.production_order_id.in_(production_order_ids))
         .order_by(CuttingPassport.date.desc(), CuttingPassport.id.desc())
         .all()
@@ -1028,7 +1075,7 @@ def list_processes(
     out: list[dict] = []
     for po in pos:
         model = models.get(po.model_id)
-        fabric_batch = fabric_batches.get(po.fabric_batch_id)
+        fabric_batch_image = fabric_batch_images.get(po.fabric_batch_id)
         so = sos.get(po.sales_order_id) if po.sales_order_id else None
         customer = customers.get(so.customer_id) if so and so.customer_id else None
         cutting_passports = passports_by_order.get(int(po.id), [])
@@ -1208,9 +1255,7 @@ def list_processes(
                 for size, quantities in size_totals.items()
             ],
             "model_image_url": model_display_image_url(model),
-            "material_image_url": (
-                fabric_batch.image_url if fabric_batch else None
-            ) or material_preview_image_url(model),
+            "material_image_url": fabric_batch_image or material_preview_image_url(model),
             "cutting_passport_id": cutting_passports[0].id if cutting_passports else None,
             "cutting_passport_no": cutting_passports[0].passport_no if cutting_passports else None,
             "cutting_passports": [

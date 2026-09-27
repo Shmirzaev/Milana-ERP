@@ -4,12 +4,13 @@ from decimal import Decimal
 
 from fastapi import HTTPException
 from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from app.models import (
     FinishedGoodsStock, Model, Package, PackageItem, SalesOrder, SalesOrderItem,
     Shipment, ShipmentPackage, StockReservation,
 )
+from app.services.sales_order_amounts import validate_sales_order_total
 
 
 def ready_pack_candidates(
@@ -39,11 +40,35 @@ def ready_pack_candidates(
     # Exclude attached/reserved packages before locking, then recheck evidence.
     if lock and db.bind and db.bind.dialect.name == "postgresql":
         package_query = package_query.with_for_update(of=Package)
-    packages = package_query.order_by(Package.id).all()
+    packages = package_query.options(load_only(
+        Package.id,
+        Package.production_order_id,
+        Package.legacy_receipt_id,
+        Package.manual_receipt_id,
+        Package.model_id,
+        Package.total_quantity,
+        Package.status,
+        Package.sales_order_id,
+    )).order_by(Package.id).all()
     package_ids = [package.id for package in packages]
     if not package_ids:
         return []
-    stock_query = db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id.in_(package_ids))
+    stock_query = db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id.in_(package_ids)).options(
+        load_only(
+            FinishedGoodsStock.id,
+            FinishedGoodsStock.package_id,
+            FinishedGoodsStock.model_id,
+            FinishedGoodsStock.brand_id,
+            FinishedGoodsStock.color,
+            FinishedGoodsStock.size,
+            FinishedGoodsStock.quantity,
+            FinishedGoodsStock.available_qty,
+            FinishedGoodsStock.reserved_qty,
+            FinishedGoodsStock.sold_qty,
+            FinishedGoodsStock.status,
+            FinishedGoodsStock.sales_order_id,
+        ),
+    )
     if lock and db.bind and db.bind.dialect.name == "postgresql":
         stock_query = stock_query.with_for_update(of=FinishedGoodsStock)
     stocks = stock_query.order_by(FinishedGoodsStock.id).all()
@@ -51,7 +76,14 @@ def ready_pack_candidates(
     for stock in stocks:
         stock_groups[stock.package_id].append(stock)
     item_groups = defaultdict(list)
-    for item in db.query(PackageItem).filter(PackageItem.package_id.in_(package_ids)).all():
+    for item in db.query(PackageItem).options(load_only(
+        PackageItem.id,
+        PackageItem.package_id,
+        PackageItem.model_id,
+        PackageItem.color,
+        PackageItem.size,
+        PackageItem.quantity,
+    )).filter(PackageItem.package_id.in_(package_ids)).all():
         item_groups[item.package_id].append(item)
     reserved_rows = db.query(StockReservation.finished_goods_stock_id, StockReservation.package_id).filter(
         or_(StockReservation.package_id.in_(package_ids),
@@ -101,16 +133,20 @@ def reserve_ready_packs(
         raise HTTPException(409, "Stock has already been reserved for this sales order")
     candidates = ready_pack_candidates(db, model_ids={line.model_id for line in lines}, lock=True)
     allocations = []
+    allocated_package_ids: set[int] = set()
     for line in lines:
         matching = [
             (package, rows) for package, rows in candidates
-            if package.model_id == line.model_id
+            if package.id not in allocated_package_ids
+            and package.model_id == line.model_id
             and (line.brand_id is None or all(row.brand_id == line.brand_id for row in rows))
         ]
         count = int(line.requested_pack_count or 0)
         if len(matching) < count:
             raise HTTPException(409, f"Not enough complete packs: requested {count}, available {len(matching)}")
-        allocations.append((line, matching[:count]))
+        selected = matching[:count]
+        allocated_package_ids.update(package.id for package, _rows in selected)
+        allocations.append((line, selected))
 
     reservations = []
     for line, selected in allocations:
@@ -126,6 +162,7 @@ def reserve_ready_packs(
                     package_id=package.id, quantity=quantity, reserved_by=user_id,
                 ))
                 reservations.append({"stock_id": stock.id, "package_id": package.id, "qty": quantity})
-    so.total_amount = sum(Decimal(str(line.unit_price)) * line.quantity for line in lines)
+    total = sum(Decimal(str(line.unit_price)) * line.quantity for line in lines)
+    so.total_amount = validate_sales_order_total(total)
     so.status = "ready"
     return reservations

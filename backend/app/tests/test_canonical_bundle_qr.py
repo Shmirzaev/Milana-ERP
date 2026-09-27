@@ -4,11 +4,12 @@ from urllib.parse import quote
 
 from PIL import Image
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.main import app
-from app.models import Bundle, CuttingRecord, ProductionOrder, WorkOrder
+from app.models import BusinessOrderAlias, Bundle, CuttingRecord, ProductionBatch, ProductionOrder, WorkOrder
 from app.services import barcode
 from app.services.bundles import bundle_qr_payload
 from app.services.cutting_sheet import render_cutting_sheet_html
@@ -82,6 +83,103 @@ def test_bundle_image_works_with_browser_cookie_and_requires_auth(client, auth_h
         browser.cookies.set(settings.AUTH_COOKIE_NAME, token)
         assert browser.get(image_url).status_code == 200
         assert browser.get("/api/barcode/bundle-image/2147483647").status_code == 404
+        assert browser.get("/api/barcode/bundle-image/2147483648").status_code == 404
+
+
+def test_five_digit_bundle_and_order_references_keep_qr_and_alias_lookup(client, auth_headers):
+    bundle = _create_bundle_for_scan(client, auth_headers)
+    historical = f"BND-2026-{bundle['id']:06d}"
+    with SessionLocal() as db:
+        saved = db.get(Bundle, bundle["id"])
+        order = db.get(ProductionOrder, saved.production_order_id)
+        saved.bundle_no = "BND-10000"
+        order.production_no = "PO-10000"
+        db.add(BusinessOrderAlias(
+            namespace="BND",
+            entity_id=saved.id,
+            reference=historical,
+            canonical_reference="BND-10000",
+        ))
+        db.commit()
+        payload = bundle_qr_payload(db, saved)
+
+    assert payload == f"BUNDLE:BND-10000|{bundle['barcode']}|PO:PO-10000"
+    for code in ("BND-10000", historical, payload):
+        response = client.get("/api/bundles/lookup", params={"code": code}, headers=auth_headers)
+        assert response.status_code == 200, response.text
+        assert response.json()["bundle_no"] == "BND-10000"
+
+
+def test_bundle_qr_payload_projects_live_order_and_batch_columns(client, auth_headers):
+    bundle_payload = _create_bundle_for_scan(client, auth_headers)
+    statements = []
+    with SessionLocal() as db:
+        saved = db.get(Bundle, bundle_payload["id"])
+        order = db.get(ProductionOrder, saved.production_order_id)
+        batch = ProductionBatch(
+            production_order_id=order.id,
+            batch_no="BT-QR-PROJECTION",
+            batch_index=3,
+            planned_quantity=1,
+        )
+        db.add(batch)
+        db.flush()
+        saved.production_batch_id = batch.id
+        db.commit()
+
+    with SessionLocal() as db:
+        saved = db.get(Bundle, bundle_payload["id"])
+
+        def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT"):
+                statements.append(" ".join(statement.lower().split()))
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            payload = bundle_qr_payload(db, saved)
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+    assert payload == (
+        f"BUNDLE:{saved.bundle_no}|{saved.barcode}|PO:{order.production_no}|"
+        f"BATCH:QR-PROJECTION|BATCH_ID:{batch.id}"
+    )
+    context_reads = [statement for statement in statements if " from production_orders " in statement]
+    assert len(context_reads) == 1
+    assert "production_orders.production_no" in context_reads[0]
+    assert "production_batches.batch_no" in context_reads[0]
+    assert "production_batches.batch_index" in context_reads[0]
+    assert "production_orders.planning_estimate_comment" not in context_reads[0]
+    assert "production_batches.notes" not in context_reads[0]
+
+
+def test_bundle_image_loads_only_fields_used_for_canonical_qr_payload(client, auth_headers):
+    bundle = _create_bundle_for_scan(client, auth_headers)
+    with SessionLocal() as db:
+        engine = db.bind
+    statements = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(" ".join(statement.lower().split()))
+
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        response = client.get(f"/api/barcode/bundle-image/{bundle['id']}", headers=auth_headers)
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    bundle_reads = [statement for statement in statements if " from bundles " in statement]
+    assert len(bundle_reads) == 1, statements
+    selected_columns = bundle_reads[0].split(" from ", 1)[0]
+    assert "bundles.bundle_no" in selected_columns
+    assert "bundles.barcode" in selected_columns
+    assert "bundles.production_order_id" in selected_columns
+    assert "bundles.production_batch_id" in selected_columns
+    assert "bundles.notes" not in selected_columns
+    assert "bundles.status" not in selected_columns
 
 
 def test_cutting_sheet_renders_current_canonical_reference(client, auth_headers):

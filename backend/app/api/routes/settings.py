@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+import json
+import logging
+import re
+from functools import partial
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from fastapi.exceptions import RequestValidationError
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, ValidationError
+from sqlalchemy import text
+from sqlalchemy.orm import Session, load_only
 
 from app.core.config import settings as app_settings
 from app.core.deps import CurrentUser, DbSession, require_permissions
+from app.core.uploads import UploadCommitState, run_upload_db_work, upload_session_factory
 from app.models import SystemSetting, User
 from app.services.audit import log_action
 
@@ -39,22 +48,129 @@ _SCHEMAS = {
     "financial": FinancialSettings,
     "preferences": SystemPreferences,
 }
+_SETTING_LOCK_KEYS = {"company_info": 1, "financial": 2, "preferences": 3}
+SYSTEM_LANGUAGES = frozenset({"en", "ru", "uz"})
+_logger = logging.getLogger(__name__)
+_MANAGED_COMPANY_LOGO_URL = re.compile(
+    r"^/storage/model-files/(company_logo_[0-9a-f]{32}\.webp)$"
+)
+_MAX_SETTING_VALUE_JSON_BYTES = 16 * 1024
+_MAX_SETTING_VALUE_JSON_DEPTH = 16
+
+
+def _json_values_equal(left: object, right: object) -> bool:
+    pending = [(left, right)]
+    while pending:
+        current_left, current_right = pending.pop()
+        if type(current_left) is not type(current_right):
+            return False
+        if isinstance(current_left, dict):
+            if current_left.keys() != current_right.keys():
+                return False
+            pending.extend((current_left[key], current_right[key]) for key in current_left)
+        elif isinstance(current_left, list):
+            if len(current_left) != len(current_right):
+                return False
+            pending.extend(zip(current_left, current_right))
+        elif current_left != current_right:
+            return False
+    return True
+
+
+def _settings_fields_unchanged(value: dict, previous: object, schema: type[BaseModel]) -> bool:
+    previous = previous if isinstance(previous, dict) else {}
+    for name, current in value.items():
+        field = schema.model_fields[name]
+        old = previous[name] if name in previous else field.get_default(call_default_factory=True)
+        if not _json_values_equal(current, old):
+            return False
+    return True
+
+
+def _validate_settings_value_json_bounds(
+    value: dict,
+    *,
+    previous: object,
+    schema: type[BaseModel],
+) -> None:
+    """Bound changed settings JSON while leaving semantically unchanged legacy values editable."""
+    if _settings_fields_unchanged(value, previous, schema):
+        return
+
+    pending = [(value, 0)]
+    while pending:
+        current, parent_depth = pending.pop()
+        if isinstance(current, dict):
+            depth = parent_depth + 1
+            if depth > _MAX_SETTING_VALUE_JSON_DEPTH:
+                raise HTTPException(
+                    422,
+                    f"Settings JSON cannot exceed {_MAX_SETTING_VALUE_JSON_DEPTH} nested container levels",
+                )
+            if any(not isinstance(key, str) for key in current):
+                raise HTTPException(422, "Settings must contain JSON-compatible values")
+            pending.extend((child, depth) for child in current.values())
+        elif isinstance(current, list):
+            depth = parent_depth + 1
+            if depth > _MAX_SETTING_VALUE_JSON_DEPTH:
+                raise HTTPException(
+                    422,
+                    f"Settings JSON cannot exceed {_MAX_SETTING_VALUE_JSON_DEPTH} nested container levels",
+                )
+            pending.extend((child, depth) for child in current)
+        elif current is not None and type(current) not in (str, bool, int, float):
+            raise HTTPException(422, "Settings must contain JSON-compatible values")
+
+    try:
+        serialized = json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+        encoded = serialized.encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError):
+        raise HTTPException(422, "Settings must contain finite JSON-compatible values") from None
+    if len(encoded) > _MAX_SETTING_VALUE_JSON_BYTES:
+        raise HTTPException(
+            422,
+            f"Settings JSON cannot exceed {_MAX_SETTING_VALUE_JSON_BYTES} UTF-8 bytes",
+        )
+
+
+def _validate_settings_types(section: str, payload: dict) -> None:
+    if section == "preferences" and payload.get("default_language") not in SYSTEM_LANGUAGES:
+        raise HTTPException(400, "Invalid default_language")
+
+
+def _setting_for_update(db: DbSession, section: str) -> SystemSetting | None:
+    # A row lock alone cannot serialize the first two writes to an absent row.
+    # Both PATCH and logo updates use this section-scoped transaction lock.
+    if db.bind and db.bind.dialect.name == "postgresql":
+        db.execute(text("SELECT pg_advisory_xact_lock(:namespace, :section)"),
+                   {"namespace": 1_297_047_635, "section": _SETTING_LOCK_KEYS[section]})
+    return (
+        db.query(SystemSetting)
+        .options(load_only(SystemSetting.id, SystemSetting.key, SystemSetting.value_json))
+        .filter(SystemSetting.key == section)
+        .with_for_update()
+        .populate_existing()
+        .first()
+    )
 
 
 def _default_payload() -> dict:
     return {key: schema().model_dump() for key, schema in _SCHEMAS.items()}
 
 
-def _get_or_default(db: DbSession, key: str) -> dict:
-    row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
-    if row and isinstance(row.value_json, dict):
-        return _SCHEMAS[key](**row.value_json).model_dump()
+def _payload_or_default(key: str, value: object) -> dict:
+    if isinstance(value, dict):
+        return _SCHEMAS[key](**value).model_dump()
     return _SCHEMAS[key]().model_dump()
 
 
 @router.get("")
 def get_settings(db: DbSession, _: CurrentUser):
-    return {key: _get_or_default(db, key) for key in _SCHEMAS}
+    rows = db.query(SystemSetting.key, SystemSetting.value_json).filter(
+        SystemSetting.key.in_(_SCHEMAS)
+    ).all()
+    values = {key: value for key, value in rows}
+    return {key: _payload_or_default(key, values.get(key)) for key in _SCHEMAS}
 
 
 @router.patch("/{section}")
@@ -67,9 +183,27 @@ def save_settings_section(
     if section not in _SCHEMAS:
         raise HTTPException(404, "Settings section not found")
     schema = _SCHEMAS[section]
-    validated = schema(**payload).model_dump()
-    row = db.query(SystemSetting).filter(SystemSetting.key == section).first()
+    unknown = sorted(set(payload) - schema.model_fields.keys())
+    if unknown:
+        raise RequestValidationError([
+            {"type": "extra_forbidden", "loc": ("body", field), "msg": "Extra inputs are not permitted", "input": payload[field]}
+            for field in unknown
+        ])
+    row = _setting_for_update(db, section)
     old_value = row.value_json if row else None
+    previous = old_value if isinstance(old_value, dict) else {}
+    try:
+        validated = schema(**{**previous, **payload}).model_dump()
+    except ValidationError as exc:
+        raise RequestValidationError([
+            {**error, "loc": ("body", *error["loc"])} for error in exc.errors()
+        ]) from exc
+    _validate_settings_types(section, validated)
+    _validate_settings_value_json_bounds(
+        validated,
+        previous=old_value,
+        schema=schema,
+    )
     if row:
         row.value_json = validated
     else:
@@ -87,8 +221,10 @@ async def upload_company_logo(
     file: UploadFile = File(...),
     current: User = Depends(require_permissions("*")),
 ):
-    from app.services.image_storage import store_uploaded_image
+    from app.services.image_storage import discard_stored_image, store_uploaded_image
 
+    actor_id = int(current.id)
+    worker_sessions = upload_session_factory(db)
     stored = await store_uploaded_image(
         file,
         target_dir=app_settings.MODEL_FILES_DIR,
@@ -98,16 +234,108 @@ async def upload_company_logo(
         prebuild_thumbnails=True,
     )
     logo_url = stored.file_url
+    commit_state = UploadCommitState()
 
-    company = _get_or_default(db, "company_info")
+    try:
+        replaced_logo_url = await run_upload_db_work(
+            worker_sessions,
+            partial(_save_uploaded_company_logo, actor_id=actor_id, logo_url=logo_url),
+            commit=True,
+            commit_state=commit_state,
+        )
+    except BaseException:
+        if not commit_state.committed:
+            await discard_stored_image(stored)
+        raise
+
+    try:
+        await run_upload_db_work(
+            worker_sessions,
+            partial(_discard_replaced_company_logo, replaced_logo_url=replaced_logo_url),
+        )
+    except Exception:
+        # The new logo is already committed. Cleanup is best effort and must
+        # not make the successful update appear to have failed.
+        _logger.warning("Unable to clean up replaced company logo", exc_info=True)
+    return {"logo_url": logo_url}
+
+
+def _save_uploaded_company_logo(
+    db: Session,
+    *,
+    actor_id: int,
+    logo_url: str,
+) -> str | None:
+    actor = db.get(User, actor_id)
+    if not actor:
+        raise HTTPException(401, "Inactive or unknown user")
+    row = _setting_for_update(db, "company_info")
+    company = CompanyInfo(
+        **(row.value_json if row and isinstance(row.value_json, dict) else {})
+    ).model_dump()
+    previous_company = row.value_json if row else None
+    previous_logo_url = company.get("logo_url")
     company["logo_url"] = logo_url
-    row = db.query(SystemSetting).filter(SystemSetting.key == "company_info").first()
+    validated_company = CompanyInfo(**company).model_dump()
+    _validate_settings_value_json_bounds(
+        validated_company,
+        previous=previous_company,
+        schema=CompanyInfo,
+    )
     if row:
-        row.value_json = CompanyInfo(**company).model_dump()
+        row.value_json = validated_company
     else:
-        row = SystemSetting(key="company_info", value_json=CompanyInfo(**company).model_dump())
+        row = SystemSetting(
+            key="company_info",
+            value_json=validated_company,
+        )
         db.add(row)
         db.flush()
-    log_action(db, current, "upload_logo", "SystemSetting", row.id, new_value={"logo_url": logo_url})
-    db.commit()
-    return {"logo_url": logo_url}
+    log_action(
+        db,
+        actor,
+        "upload_logo",
+        "SystemSetting",
+        row.id,
+        new_value={"logo_url": logo_url},
+    )
+    return previous_logo_url
+
+
+def _discard_replaced_company_logo(
+    db: Session,
+    *,
+    replaced_logo_url: str | None,
+) -> None:
+    if not replaced_logo_url:
+        return
+    match = _MANAGED_COMPANY_LOGO_URL.fullmatch(replaced_logo_url)
+    if match is None:
+        return
+
+    file_name = match.group(1)
+    storage_root = Path(app_settings.MODEL_FILES_DIR).resolve()
+    image_path = (storage_root / file_name).resolve()
+    if image_path.parent != storage_root:
+        return
+
+    # Serialize with logo uploads and company-info PATCHes, then verify the
+    # previous path was not made current again before removing it.
+    row = _setting_for_update(db, "company_info")
+    company = CompanyInfo(
+        **(row.value_json if row and isinstance(row.value_json, dict) else {})
+    ).model_dump()
+    if company.get("logo_url") == replaced_logo_url:
+        return
+
+    from app.services.image_storage import PREBUILT_THUMBNAIL_SIZES
+
+    thumbnail_root = storage_root / "_thumbs"
+    resolved_thumbnail_root = thumbnail_root.resolve()
+    if resolved_thumbnail_root.parent != storage_root:
+        return
+    for size in PREBUILT_THUMBNAIL_SIZES:
+        thumbnail = thumbnail_root / f"{size}_{file_name}.webp"
+        if thumbnail.resolve().parent == resolved_thumbnail_root:
+            thumbnail.unlink(missing_ok=True)
+    image_path.unlink(missing_ok=True)

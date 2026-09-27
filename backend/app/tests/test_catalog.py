@@ -502,6 +502,27 @@ def test_planning_user_can_create_brand_and_duplicate_is_rejected(client):
     assert duplicate.json()["detail"] == "Brand already exists"
 
 
+def test_brand_names_fit_varchar_storage_without_changing_auth_or_resource_precedence(client, auth_headers):
+    overlong_name = "B" * 129
+
+    unauthenticated = client.post("/api/brands", json={"name": overlong_name})
+    assert unauthenticated.status_code == 401
+
+    too_long = client.post("/api/brands", json={"name": overlong_name}, headers=auth_headers)
+    assert too_long.status_code == 422
+
+    maximum = client.post("/api/brands", json={"name": "B" * 128}, headers=auth_headers)
+    assert maximum.status_code == 201, maximum.text
+    assert len(maximum.json()["name"]) == 128
+
+    missing_brand = client.patch(
+        "/api/brands/2147483647",
+        json={"name": overlong_name},
+        headers=auth_headers,
+    )
+    assert missing_brand.status_code == 404
+
+
 def test_create_model_and_approve(client, auth_headers):
     r = client.post("/api/models", json={
         "code": "HOODIE-001", "name": "Pullover Hoodie", "category": "hoodie", "status": "draft",
@@ -565,6 +586,7 @@ def test_clone_model_copies_full_plm_details(client, auth_headers):
     items = client.get("/api/inventory/items", headers=auth_headers).json()
     assert items
     item_id = items[0]["id"]
+    item_unit = items[0]["unit"]
 
     create = client.post(
         "/api/models",
@@ -599,7 +621,7 @@ def test_clone_model_copies_full_plm_details(client, auth_headers):
     ).status_code == 201
     assert client.post(
         f"/api/models/{model_id}/bom",
-        json={"item_id": item_id, "size": "M", "color": "Black", "quantity_per_piece": 1.25, "unit": "m", "waste_percent": 3},
+        json={"item_id": item_id, "size": "M", "color": "Black", "quantity_per_piece": 1.25, "unit": item_unit, "waste_percent": 3},
         headers=auth_headers,
     ).status_code == 201
     assert client.post(
@@ -630,12 +652,289 @@ def test_clone_model_copies_full_plm_details(client, auth_headers):
     assert data["colors"][0]["color_name"] == "Black"
     assert len(data["bom"]) == 1
     assert data["bom"][0]["item_id"] == item_id
+    assert data["bom"][0]["unit"] == item_unit
     assert len(data["images"]) == 1
     assert data["images"][0]["file_url"] == "https://example.com/model.png"
 
     second_clone = client.post(f"/api/models/{model_id}/clone", headers=auth_headers)
     assert second_clone.status_code == 201, second_clone.text
     assert second_clone.json()["code"] == "CLONE-BASE-1001-COPY-2"
+
+
+def test_clone_model_rejects_legacy_bom_unit_mismatch_without_writes(client, auth_headers):
+    from app.models import AuditLog, Model, ModelBOM
+    from app.tests.conftest import TestSessionLocal
+
+    item = client.get("/api/inventory/items", headers=auth_headers).json()[0]
+    created = client.post(
+        "/api/models",
+        json={"code": "CLONE-UNIT-BASE", "name": "Clone unit base", "category": "dress"},
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+    model_id = created.json()["id"]
+    bom = client.post(
+        f"/api/models/{model_id}/bom",
+        json={"item_id": item["id"], "quantity_per_piece": 1, "unit": item["unit"]},
+        headers=auth_headers,
+    )
+    assert bom.status_code == 201, bom.text
+
+    with TestSessionLocal() as db:
+        db.query(ModelBOM).filter(ModelBOM.id == bom.json()["id"]).update(
+            {ModelBOM.unit: "legacy-unit-mismatch"}
+        )
+        db.commit()
+        before = (
+            db.query(Model).count(),
+            db.query(ModelBOM).count(),
+            db.query(AuditLog).count(),
+        )
+
+    response = client.post(f"/api/models/{model_id}/clone", headers=auth_headers)
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "BOM unit must match inventory item unit"
+
+    with TestSessionLocal() as db:
+        after = (
+            db.query(Model).count(),
+            db.query(ModelBOM).count(),
+            db.query(AuditLog).count(),
+        )
+        persisted_bom = db.query(ModelBOM).filter(ModelBOM.id == bom.json()["id"]).one()
+        assert persisted_bom.unit == "legacy-unit-mismatch"
+    assert after == before
+
+
+def test_clone_model_rejects_batch_only_bom_unit_mismatch_without_writes(client, auth_headers):
+    from uuid import uuid4
+
+    from app.models import AuditLog, Item, Model, ModelBOM, StockBatch, Warehouse
+    from app.tests.conftest import TestSessionLocal
+
+    marker = uuid4().hex[:10]
+    with TestSessionLocal() as db:
+        item = Item(sku=f"CLONE-BATCH-{marker}", name="Clone batch item", category="accessory", unit="pcs")
+        warehouse = Warehouse(name=f"Clone batch warehouse {marker}", type="accessory_storage")
+        source = Model(
+            code=f"CLONE-BATCH-{marker}",
+            name="Clone batch source",
+            catalog_scope="standard",
+        )
+        db.add_all([item, warehouse, source])
+        db.flush()
+        batch = StockBatch(
+            item_id=item.id,
+            batch_no=f"CLONE-BATCH-{marker}",
+            quantity=10,
+            unit="pcs",
+            warehouse_id=warehouse.id,
+            qc_status="passed",
+        )
+        db.add(batch)
+        db.flush()
+        bom = ModelBOM(
+            model_id=source.id,
+            item_id=None,
+            stock_batch_id=batch.id,
+            material_name="Legacy batch-only row",
+            quantity_per_piece=1,
+            unit="kg",
+        )
+        db.add(bom)
+        db.commit()
+        source_id = int(source.id)
+        bom_id = int(bom.id)
+        before = (
+            db.query(Model).count(),
+            db.query(ModelBOM).count(),
+            db.query(AuditLog).count(),
+        )
+
+    response = client.post(f"/api/models/{source_id}/clone", headers=auth_headers)
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "BOM unit must match inventory item unit"
+
+    with TestSessionLocal() as db:
+        after = (
+            db.query(Model).count(),
+            db.query(ModelBOM).count(),
+            db.query(AuditLog).count(),
+        )
+        row = db.query(ModelBOM).filter(ModelBOM.id == bom_id).one()
+        assert row.item_id is None
+        assert row.unit == "kg"
+    assert after == before
+
+
+def _seed_standard_variant_source(marker: str, *, main_unit: str = "m") -> tuple[int, int]:
+    from app.models import Item, Model, ModelBOM
+    from app.tests.conftest import TestSessionLocal
+
+    with TestSessionLocal() as db:
+        fabric = Item(
+            sku=f"VARIANT-FAB-{marker}", name="Variant fabric", category="fabric", unit=main_unit,
+        )
+        source = Model(
+            code=f"VARIANT-UNIT-{marker}-01",
+            name="Variant unit source",
+            catalog_scope="standard",
+            details_json={"general": {"model_no": f"VARIANT-UNIT-{marker}", "variant_no": "01"}},
+        )
+        db.add_all([fabric, source])
+        db.flush()
+        primary = ModelBOM(
+            model_id=source.id,
+            item_id=fabric.id,
+            material_role="main",
+            quantity_per_piece=1,
+            unit=main_unit,
+        )
+        db.add(primary)
+        db.commit()
+        return int(source.id), int(fabric.id)
+
+
+def test_create_variant_rejects_mismatched_non_primary_bom_without_writes(client, auth_headers):
+    from uuid import uuid4
+
+    from app.models import AuditLog, Item, Model, ModelBOM
+    from app.tests.conftest import TestSessionLocal
+
+    marker = uuid4().hex[:10].upper()
+    source_id, fabric_id = _seed_standard_variant_source(marker)
+    with TestSessionLocal() as db:
+        accessory = Item(
+            sku=f"VARIANT-ACC-{marker}", name="Variant accessory", category="accessory", unit="pcs",
+        )
+        db.add(accessory)
+        db.flush()
+        secondary = ModelBOM(
+            model_id=source_id,
+            item_id=accessory.id,
+            material_role="secondary",
+            quantity_per_piece=1,
+            unit="pcs",
+        )
+        db.add(secondary)
+        db.flush()
+        secondary_id = int(secondary.id)
+        secondary.unit = "legacy-mismatch"
+        db.commit()
+        before = (
+            db.query(Model).count(),
+            db.query(ModelBOM).count(),
+            db.query(AuditLog).count(),
+        )
+
+    response = client.post(
+        f"/api/models/{source_id}/variants",
+        json={"variant_no": "V-02", "fabric_item_id": fabric_id},
+        headers=auth_headers,
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "BOM unit must match inventory item unit"
+
+    with TestSessionLocal() as db:
+        after = (
+            db.query(Model).count(),
+            db.query(ModelBOM).count(),
+            db.query(AuditLog).count(),
+        )
+        assert db.get(ModelBOM, secondary_id).unit == "legacy-mismatch"
+    assert after == before
+
+
+def test_create_variant_rejects_batch_only_non_primary_bom_without_writes(client, auth_headers):
+    from uuid import uuid4
+
+    from app.models import AuditLog, Item, Model, ModelBOM, StockBatch, Warehouse
+    from app.tests.conftest import TestSessionLocal
+
+    marker = uuid4().hex[:10].upper()
+    source_id, _fabric_id = _seed_standard_variant_source(marker)
+    with TestSessionLocal() as db:
+        item = Item(
+            sku=f"VARIANT-BATCH-ITEM-{marker}",
+            name="Variant batch item",
+            category="accessory",
+            unit="pcs",
+        )
+        warehouse = Warehouse(name=f"Variant batch warehouse {marker}", type="accessory_storage")
+        db.add_all([item, warehouse])
+        db.flush()
+        batch = StockBatch(
+            item_id=item.id,
+            batch_no=f"VARIANT-BATCH-{marker}",
+            quantity=10,
+            unit="pcs",
+            warehouse_id=warehouse.id,
+            qc_status="passed",
+        )
+        db.add(batch)
+        db.flush()
+        bom = ModelBOM(
+            model_id=source_id,
+            item_id=None,
+            stock_batch_id=batch.id,
+            material_role="secondary",
+            quantity_per_piece=1,
+            unit="kg",
+        )
+        db.add(bom)
+        db.commit()
+        bom_id = int(bom.id)
+        before = (
+            db.query(Model).count(),
+            db.query(ModelBOM).count(),
+            db.query(AuditLog).count(),
+        )
+
+    response = client.post(
+        f"/api/models/{source_id}/variants",
+        json={"variant_no": "V-03"},
+        headers=auth_headers,
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "BOM unit must match inventory item unit"
+
+    with TestSessionLocal() as db:
+        after = (
+            db.query(Model).count(),
+            db.query(ModelBOM).count(),
+            db.query(AuditLog).count(),
+        )
+        source_row = db.get(ModelBOM, bom_id)
+        assert source_row.item_id is None
+        assert source_row.unit == "kg"
+    assert after == before
+
+
+def test_create_variant_replaces_legacy_mismatched_primary_unit_with_catalog_unit(client, auth_headers):
+    from uuid import uuid4
+
+    from app.models import ModelBOM
+    from app.tests.conftest import TestSessionLocal
+
+    marker = uuid4().hex[:10].upper()
+    source_id, fabric_id = _seed_standard_variant_source(marker, main_unit="m")
+    with TestSessionLocal() as db:
+        primary = db.query(ModelBOM).filter_by(model_id=source_id).one()
+        primary.unit = "legacy-mismatch"
+        db.commit()
+
+    response = client.post(
+        f"/api/models/{source_id}/variants",
+        json={"variant_no": "V-02", "fabric_item_id": fabric_id},
+        headers=auth_headers,
+    )
+    assert response.status_code == 201, response.text
+    variant_detail = client.get(f"/api/models/{response.json()['id']}", headers=auth_headers)
+    assert variant_detail.status_code == 200, variant_detail.text
+    copied_row = variant_detail.json()["bom"][0]
+    assert copied_row["item_id"] == fabric_id
+    assert copied_row["unit"] == "m"
+    assert copied_row["stock_batch_id"] is None
 
 
 def test_model_payloads_include_material_composition(client, auth_headers):
@@ -1432,3 +1731,256 @@ def test_brands_collections(client, auth_headers):
     assert len(r.json()) >= 1
     r2 = client.get("/api/collections", headers=auth_headers)
     assert r2.status_code == 200
+
+
+def test_brands_list_is_bounded(client, auth_headers):
+    from uuid import uuid4
+
+    from app.models import Brand
+    from app.tests.conftest import TestSessionLocal
+
+    marker = uuid4().hex[:8]
+    with TestSessionLocal() as db:
+        db.add_all([Brand(name=f"Bounded brand {marker}-{index:03d}") for index in range(501)])
+        db.commit()
+
+    response = client.get("/api/brands?limit=500", headers=auth_headers)
+    assert response.status_code == 200, response.text
+    assert len(response.json()) == 500
+
+
+def test_rename_model_group_uses_bounded_family_queries_without_code_prefix_assumptions():
+    from uuid import uuid4
+
+    from sqlalchemy import event
+
+    from app.api.routes.catalog import _rename_model_group
+    from app.models import Model
+    from app.tests.conftest import TestSessionLocal
+
+    marker = uuid4().hex[:8]
+    model_no = f"PERF%_{marker}"
+    with TestSessionLocal() as db:
+        source = Model(
+            code=f"SOURCE-{marker}",
+            name="source",
+            details_json={"general": {"model_no": model_no}},
+        )
+        variant = Model(
+            code=f"LEGACY-{marker}-V-2",
+            name="variant",
+            details_json={"general": {"model_no": model_no, "variant_no": "V-2"}},
+        )
+        legacy_import = Model(
+            code=f"IMPORT-{marker}",
+            name="legacy import",
+            details_json={"legacy_import": True, "general": {"model_no": model_no}},
+        )
+        unrelated = [Model(code=f"UNRELATED-{marker}-{n}", name="unrelated") for n in range(50)]
+        db.add_all([source, variant, legacy_import, *unrelated])
+        db.flush()
+        statements = []
+
+        def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT") and "model" in statement.lower():
+                statements.append(statement)
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            renamed = _rename_model_group(db, source, f"RENAMED-{marker}")
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+    assert {row.code for row, _ in renamed} == {f"RENAMED-{marker}", f"RENAMED-{marker}-V-2"}
+    assert legacy_import.code == f"IMPORT-{marker}"
+    assert len(statements) == 2
+    normalized_statements = [" ".join(sql.lower().split()) for sql in statements]
+    assert all(" where " in f" {sql} " for sql in normalized_statements)
+    assert "json_extract" in statements[0].lower()
+    group_read = normalized_statements[0]
+    for field in ("id", "code", "name", "details_json"):
+        assert f"models.{field}" in group_read
+    for field in ("description", "image_url", "created_at", "updated_at"):
+        assert f"models.{field}" not in group_read
+    assert " in " in f" {normalized_statements[1]} "
+    assert "models.name" not in normalized_statements[1]
+    assert "models.details_json" not in normalized_statements[1]
+
+
+def test_clone_code_allocation_uses_one_bounded_exact_query():
+    from uuid import uuid4
+
+    from sqlalchemy import event
+
+    from app.api.routes.catalog import _unique_model_copy_code
+    from app.models import Model
+    from app.tests.conftest import TestSessionLocal
+
+    marker = uuid4().hex
+    source_code = f"CLONE-{marker}-{'X' * 40}"[:64]
+
+    def expected_code(index: int) -> str:
+        suffix = "-COPY" if index == 1 else f"-COPY-{index}"
+        return f"{source_code[: max(1, 64 - len(suffix))]}{suffix}"
+
+    with TestSessionLocal() as db:
+        db.add_all(
+            [
+                Model(code=source_code, name="source"),
+                *[Model(code=expected_code(n), name="copy") for n in range(1, 25)],
+            ]
+        )
+        db.flush()
+        statements = []
+
+        def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT") and "model" in statement.lower():
+                statements.append(statement)
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            candidate = _unique_model_copy_code(db, source_code)
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
+    assert candidate == expected_code(25)
+    assert len(statements) == 1
+    normalized = " ".join(statements[0].lower().split())
+    assert " in " in f" {normalized} "
+    assert " like " not in f" {normalized} "
+
+
+def test_model_translation_write_requires_string_values_and_has_no_create_side_effect(client, auth_headers):
+    from uuid import uuid4
+
+    from app.models import Model
+    from app.tests.conftest import TestSessionLocal
+
+    code = f"TRANSLATION-INVALID-{uuid4().hex[:10]}"
+    response = client.post(
+        "/api/models",
+        json={
+            "code": code,
+            "name": "Invalid translation model",
+            "details_json": {"translation": {"ru": "Русский", "uz": 17}},
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "details_json.translation must be a string-to-string object"
+    with TestSessionLocal() as db:
+        assert db.query(Model).filter(Model.code == code).first() is None
+
+
+def test_model_translation_accepts_unknown_language_keys(client, auth_headers):
+    from uuid import uuid4
+
+    code = f"TRANSLATION-VALID-{uuid4().hex[:10]}"
+    translations = {"ru": "Русский", "uz": "Oʻzbekcha", "en": "English", "tg": "Тоҷикӣ"}
+    response = client.post(
+        "/api/models",
+        json={"code": code, "name": "Valid translation model", "details_json": {"translation": translations}},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["details_json"]["translation"] == translations
+
+
+def test_model_translation_update_rejects_changed_invalid_legacy_shape_without_write(client, auth_headers):
+    from uuid import uuid4
+
+    from app.models import Model
+    from app.tests.conftest import TestSessionLocal
+
+    code = f"TRANSLATION-LEGACY-{uuid4().hex[:10]}"
+    legacy_translation = ["legacy", 8]
+    with TestSessionLocal() as db:
+        model = Model(code=code, name="Legacy translation model", details_json={"translation": legacy_translation})
+        db.add(model)
+        db.commit()
+        model_id = model.id
+
+    response = client.patch(
+        f"/api/models/{model_id}",
+        json={"code": code, "name": "Must not be saved", "details_json": {"translation": {"ru": 8}}},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+    with TestSessionLocal() as db:
+        saved = db.get(Model, model_id)
+        assert saved.name == "Legacy translation model"
+        assert saved.details_json == {"translation": legacy_translation}
+
+
+def test_model_translation_allows_unchanged_legacy_value_on_unrelated_edit(client, auth_headers):
+    from uuid import uuid4
+
+    from app.models import Model
+    from app.tests.conftest import TestSessionLocal
+
+    code = f"TRANSLATION-LEGACY-EDIT-{uuid4().hex[:8]}"
+    legacy_translation = ["legacy", 8]
+    with TestSessionLocal() as db:
+        model = Model(code=code, name="Before edit", details_json={"translation": legacy_translation})
+        db.add(model)
+        db.commit()
+        model_id = model.id
+
+    response = client.patch(
+        f"/api/models/{model_id}",
+        json={"code": code, "name": "After edit", "details_json": {"translation": legacy_translation}},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["details_json"]["translation"] == legacy_translation
+    with TestSessionLocal() as db:
+        saved = db.get(Model, model_id)
+        assert saved.name == "After edit"
+        assert saved.details_json == {"translation": legacy_translation}
+
+
+def test_model_translation_rejects_bool_substituted_for_legacy_number(client, auth_headers):
+    from uuid import uuid4
+
+    from app.models import Model
+    from app.tests.conftest import TestSessionLocal
+
+    code = f"TRANSLATION-LEGACY-TYPE-{uuid4().hex[:8]}"
+    with TestSessionLocal() as db:
+        model = Model(code=code, name="Before edit", details_json={"translation": [1]})
+        db.add(model)
+        db.commit()
+        model_id = model.id
+
+    response = client.patch(
+        f"/api/models/{model_id}",
+        json={"code": code, "name": "After edit", "details_json": {"translation": [True]}},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+    with TestSessionLocal() as db:
+        saved = db.get(Model, model_id)
+        assert saved.name == "Before edit"
+        assert saved.details_json == {"translation": [1]}
+
+
+def test_model_translation_validation_keeps_auth_error_precedence(client):
+    from uuid import uuid4
+
+    from app.models import Model
+    from app.tests.conftest import TestSessionLocal
+
+    code = f"TRANSLATION-UNAUTH-{uuid4().hex[:10]}"
+    response = client.post(
+        "/api/models",
+        json={"code": code, "name": "Unauthenticated", "details_json": {"translation": {"ru": None}}},
+    )
+
+    assert response.status_code == 401
+    with TestSessionLocal() as db:
+        assert db.query(Model).filter(Model.code == code).first() is None

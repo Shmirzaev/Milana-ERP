@@ -2,26 +2,81 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from uuid import uuid4
+from sqlalchemy import event
 
 from app.db.session import SessionLocal
 from app.models import (
+    Brand,
+    Collection,
     FinishedGoodsStock,
     Item,
     ManualAccessoryIssue,
     ModelBOM,
     Package,
+    PackagingRecord,
     ProductionOrder,
     ProductionOrderItem,
     SalesOrder,
     SalesOrderItem,
     StockMovement,
+    Model,
+    StockBatch,
+    Warehouse,
 )
+from app.services.forecasting import _planned_bom_demand, item_reorder_suggestions
+from app.tests.conftest import TestSessionLocal
 
 
 def _token_headers(client, email: str, password: str = "demo12345") -> dict[str, str]:
     r = client.post("/api/auth/token", data={"username": email, "password": password})
     assert r.status_code == 200, r.text
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+
+def test_planned_bom_demand_loads_narrow_stock_batch_reference_map_once():
+    marker = uuid4().hex[:8]
+    with TestSessionLocal() as db:
+        model = Model(code=f"FORECAST-BOM-{marker}", name="Forecast BOM", status="approved")
+        item = Item(sku=f"FORECAST-ITEM-{marker}", name="Fabric", category="fabric", unit="kg")
+        warehouse = db.query(Warehouse).first()
+        db.add_all([model, item])
+        db.flush()
+        batch = StockBatch(item_id=item.id, warehouse_id=warehouse.id, batch_no=f"FORECAST-{marker}", quantity=10, unit="kg", qc_status="passed")
+        order = ProductionOrder(
+            production_no=f"FORECAST-PO-{marker}",
+            production_type="client_order",
+            model_id=model.id,
+            planned_quantity=4,
+            status="planning",
+        )
+        db.add_all([batch, order])
+        db.flush()
+        db.add(ModelBOM(model_id=model.id, item_id=None, stock_batch_id=batch.id, quantity_per_piece=2, unit="kg"))
+        db.flush()
+        statements = []
+
+        def capture(_conn, _cursor, statement, _params, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT"):
+                statements.append(statement)
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            demand = _planned_bom_demand(db)
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+        assert demand[(item.id, "kg")] == 8
+        bom_queries = [statement.lower() for statement in statements if "model_bom" in statement.lower()]
+        batch_queries = [
+            statement.lower()
+            for statement in statements
+            if " from stock_batches " in f" {statement.lower().replace(chr(10), ' ')} "
+        ]
+        assert len(bom_queries) == 1
+        assert "join stock_batches" not in bom_queries[0]
+        assert len(batch_queries) == 1
+        assert "stock_batches.id" in batch_queries[0]
+        assert "stock_batches.item_id" in batch_queries[0]
+        assert "stock_batches.image_url" not in batch_queries[0]
 
 
 def _warehouse(client, headers, warehouse_type: str) -> dict:
@@ -50,6 +105,7 @@ def _create_traceable_package(client, headers, *, with_cutting_batch: bool = Tru
     r = client.get(f"/api/work-orders?production_order_id={po_id}", headers=headers)
     assert r.status_code == 200, r.text
     cutting_wo = next(row for row in r.json() if row["operation"] == "cutting")
+    packaging_wo = next(row for row in r.json() if row["operation"] == "packaging")
 
     fabric_batch_id = None
     if with_cutting_batch:
@@ -87,6 +143,14 @@ def _create_traceable_package(client, headers, *, with_cutting_batch: bool = Tru
         headers=headers,
     )
     assert r.status_code == 201, r.text
+    with SessionLocal() as db:
+        db.add(PackagingRecord(
+            work_order_id=packaging_wo["id"],
+            input_qty=30,
+            packed_qty=30,
+            damaged_qty=0,
+        ))
+        db.commit()
 
     r = client.post(
         "/api/packages",
@@ -111,6 +175,15 @@ def _create_traceable_package(client, headers, *, with_cutting_batch: bool = Tru
 def _insert_branded_history(*, color: str, size: str, quantities: list[int], available_qty: int) -> None:
     db = SessionLocal()
     try:
+        marker = uuid4().hex[:10]
+        model = Model(
+            code=f"SO-FC-MODEL-{marker}",
+            name=f"Forecast model {marker}",
+            factory_code="MIL",
+            status="approved",
+        )
+        db.add(model)
+        db.flush()
         for qty in quantities:
             so = SalesOrder(
                 order_no=f"SO-FC-{uuid4().hex[:10]}",
@@ -124,7 +197,7 @@ def _insert_branded_history(*, color: str, size: str, quantities: list[int], ava
             db.add(
                 SalesOrderItem(
                     sales_order_id=so.id,
-                    model_id=1,
+                    model_id=model.id,
                     color=color,
                     size=size,
                     quantity=qty,
@@ -135,7 +208,7 @@ def _insert_branded_history(*, color: str, size: str, quantities: list[int], ava
         if available_qty > 0:
             db.add(
                 FinishedGoodsStock(
-                    model_id=1,
+                    model_id=model.id,
                     color=color,
                     size=size,
                     quantity=available_qty,
@@ -192,15 +265,27 @@ def _insert_branded_production_history(
     status: str = "finished_storage",
     brand_id: int | None = None,
     available_qty: int = 0,
+    model_id: int | None = None,
 ) -> list[int]:
     db = SessionLocal()
     try:
+        if model_id is None:
+            marker = uuid4().hex[:10]
+            model = Model(
+                code=f"PO-FC-MODEL-{marker}",
+                name=f"Forecast production model {marker}",
+                factory_code="MIL",
+                status="approved",
+            )
+            db.add(model)
+            db.flush()
+            model_id = int(model.id)
         production_order_ids: list[int] = []
         for qty in quantities:
             po = ProductionOrder(
                 production_no=f"PO-FC-{uuid4().hex[:10]}",
                 production_type="branded_stock",
-                model_id=1,
+                model_id=model_id,
                 brand_id=brand_id,
                 status=status,
                 planned_quantity=qty,
@@ -212,7 +297,7 @@ def _insert_branded_production_history(
             db.add(
                 ProductionOrderItem(
                     production_order_id=po.id,
-                    model_id=1,
+                    model_id=model_id,
                     color=color,
                     size=size,
                     planned_quantity=qty,
@@ -222,7 +307,7 @@ def _insert_branded_production_history(
             db.add(
                 FinishedGoodsStock(
                     production_order_id=production_order_ids[-1],
-                    model_id=1,
+                    model_id=model_id,
                     color=color,
                     size=size,
                     quantity=available_qty,
@@ -533,8 +618,31 @@ def test_forecasting_uses_branded_production_history_when_variant_has_no_sales(c
 def test_forecasting_subtracts_active_pipeline_from_production_suggestion(client, auth_headers):
     color = f"forecast-pipeline-{uuid4().hex[:8]}"
     size = "XXL"
-    _insert_branded_production_history(color=color, size=size, quantities=[25], status="finished_storage")
-    _insert_branded_production_history(color=color, size=size, quantities=[30], status="planning")
+    with SessionLocal() as db:
+        marker = uuid4().hex[:10]
+        model = Model(
+            code=f"PO-FC-PIPELINE-{marker}",
+            name=f"Forecast pipeline model {marker}",
+            factory_code="MIL",
+            status="approved",
+        )
+        db.add(model)
+        db.commit()
+        model_id = int(model.id)
+    _insert_branded_production_history(
+        color=color,
+        size=size,
+        quantities=[25],
+        status="finished_storage",
+        model_id=model_id,
+    )
+    _insert_branded_production_history(
+        color=color,
+        size=size,
+        quantities=[30],
+        status="planning",
+        model_id=model_id,
+    )
 
     r = client.get("/api/forecasting/branded-stock-suggestions", headers=auth_headers)
     assert r.status_code == 200, r.text
@@ -567,13 +675,16 @@ def test_forecasting_matches_unbranded_finished_stock_through_production_order(c
 def test_forecasting_item_reorder_suggestions_when_below_level(client, auth_headers):
     item_id, sku = _create_reorder_item(reorder_level=50)
 
-    r = client.get("/api/forecasting/item-reorder-suggestions", headers=auth_headers)
-    assert r.status_code == 200, r.text
-    row = next((item for item in r.json() if int(item["item_id"]) == item_id), None)
+    with TestSessionLocal() as db:
+        row = next((item for item in item_reorder_suggestions(db) if int(item["item_id"]) == item_id), None)
     assert row is not None
     assert row["item_sku"] == sku
     assert float(row["suggested_quantity"]) >= 50
     assert "reorder level" in row["reason"]
+
+    r = client.get("/api/forecasting/item-reorder-suggestions", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert r.json() == []
 
 
 def test_forecasting_item_reorder_uses_planned_bom_demand_without_reorder_level(client, auth_headers):
@@ -581,6 +692,12 @@ def test_forecasting_item_reorder_uses_planned_bom_demand_without_reorder_level(
     try:
         suffix = uuid4().hex[:8].upper()
         color = f"bom-forecast-{suffix}"
+        model = Model(
+            code=f"FC-BOM-MODEL-{suffix}",
+            name=f"Forecast BOM model {suffix}",
+            factory_code="MIL",
+            status="approved",
+        )
         item = Item(
             sku=f"FC-BOM-{suffix}",
             name=f"Forecast BOM {suffix}",
@@ -591,13 +708,13 @@ def test_forecasting_item_reorder_uses_planned_bom_demand_without_reorder_level(
             track_batch=True,
             is_active=True,
         )
-        db.add(item)
+        db.add_all([model, item])
         db.flush()
-        db.add(ModelBOM(model_id=1, item_id=None, material_name="Unlinked fabric",
+        db.add(ModelBOM(model_id=model.id, item_id=None, material_name="Unlinked fabric",
                         color=color, quantity_per_piece=0.3, unit="kg", waste_percent=0))
         db.add(
             ModelBOM(
-                model_id=1,
+                model_id=model.id,
                 item_id=item.id,
                 color=color,
                 quantity_per_piece=0.5,
@@ -608,7 +725,7 @@ def test_forecasting_item_reorder_uses_planned_bom_demand_without_reorder_level(
         po = ProductionOrder(
             production_no=f"PO-FC-BOM-{suffix}",
             production_type="branded_stock",
-            model_id=1,
+            model_id=model.id,
             status="planning",
             planned_quantity=20,
         )
@@ -617,7 +734,7 @@ def test_forecasting_item_reorder_uses_planned_bom_demand_without_reorder_level(
         db.add(
             ProductionOrderItem(
                 production_order_id=po.id,
-                model_id=1,
+                model_id=model.id,
                 color=color,
                 size="M",
                 planned_quantity=20,
@@ -629,26 +746,42 @@ def test_forecasting_item_reorder_uses_planned_bom_demand_without_reorder_level(
     finally:
         db.close()
 
-    r = client.get("/api/forecasting/item-reorder-suggestions", headers=auth_headers)
-    assert r.status_code == 200, r.text
-    row = next((entry for entry in r.json() if int(entry["item_id"]) == item_id), None)
+    with TestSessionLocal() as db:
+        row = next((entry for entry in item_reorder_suggestions(db) if int(entry["item_id"]) == item_id), None)
     assert row is not None
     assert row["item_sku"] == sku
     assert float(row["reorder_level"]) == 0
     assert float(row["planned_bom_demand"]) == 10
     assert float(row["suggested_quantity"]) >= 10
     assert "planned BOM demand" in row["reason"]
+    r = client.get("/api/forecasting/item-reorder-suggestions", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert r.json() == []
     dashboard = client.get("/api/forecasting/dashboard", headers=auth_headers)
     assert dashboard.status_code == 200, dashboard.text
     assert dashboard.json()["unlinked_bom_count"] >= 1
+    assert dashboard.json()["item_reorder_suggestions"] == []
+    assert dashboard.json()["cards"]["reorder_alert_count"] == 0
 
 
 
 def test_forecast_recommendation_accept_and_dismiss_state_changes(client, auth_headers):
+    with TestSessionLocal() as db:
+        marker = uuid4().hex[:10]
+        model = Model(
+            code=f"REC-STATE-{marker}",
+            name=f"Recommendation state {marker}",
+            factory_code="MIL",
+            status="approved",
+        )
+        db.add(model)
+        db.commit()
+        model_id = int(model.id)
     r = client.post(
         "/api/forecasting/recommendations",
         json={
             "recommendation_type": "item_reorder",
+            "model_id": model_id,
             "item_id": 1,
             "suggested_quantity": 12,
             "unit": "kg",
@@ -668,6 +801,60 @@ def test_forecast_recommendation_accept_and_dismiss_state_changes(client, auth_h
     r = client.patch(f"/api/forecasting/recommendations/{rec_id}", json={"status": "dismissed"}, headers=auth_headers)
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "dismissed"
+
+
+def test_forecast_recommendation_rejects_dangling_reference_without_write(client, auth_headers):
+    before = client.get("/api/forecasting/recommendations", headers=auth_headers)
+    assert before.status_code == 200, before.text
+    for field in ("model_id", "item_id", "brand_id", "collection_id"):
+        payload = {
+            "recommendation_type": "item_reorder",
+            field: 2_147_483_647,
+            "suggested_quantity": 1,
+        }
+        response = client.post("/api/forecasting/recommendations", json=payload, headers=auth_headers)
+        assert response.status_code == 400, (field, response.text)
+    after = client.get("/api/forecasting/recommendations", headers=auth_headers)
+    assert after.status_code == 200, after.text
+    assert after.json() == before.json()
+
+
+def test_forecast_recommendation_rejects_mismatched_collection_brand_without_write(
+    client, auth_headers,
+):
+    marker = uuid4().hex
+    with TestSessionLocal() as db:
+        brand = Brand(name=f"Forecast API brand {marker}")
+        other_brand = Brand(name=f"Forecast API other brand {marker}")
+        db.add_all([brand, other_brand])
+        db.flush()
+        collection = Collection(
+            brand_id=brand.id,
+            name=f"Forecast API collection {marker}",
+            year=2026,
+        )
+        db.add(collection)
+        db.commit()
+        other_brand_id = int(other_brand.id)
+        collection_id = int(collection.id)
+
+    before = client.get("/api/forecasting/recommendations", headers=auth_headers)
+    assert before.status_code == 200, before.text
+    response = client.post(
+        "/api/forecasting/recommendations",
+        json={
+            "recommendation_type": "branded_stock_production",
+            "brand_id": other_brand_id,
+            "collection_id": collection_id,
+            "suggested_quantity": 1,
+        },
+        headers=auth_headers,
+    )
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"] == "collection_id does not belong to brand_id"
+    after = client.get("/api/forecasting/recommendations", headers=auth_headers)
+    assert after.status_code == 200, after.text
+    assert after.json() == before.json()
 
 
 def test_forecasting_permission_denied_for_manage(client):

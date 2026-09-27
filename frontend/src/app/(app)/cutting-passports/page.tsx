@@ -3,15 +3,18 @@ import { useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR, { useSWRConfig } from "swr";
 import SearchableSelect from "@/components/SearchableSelect";
+import CuttingProductionOrderSelect, { type CuttingProductionOrder } from "@/components/CuttingProductionOrderSelect";
 import { Plus, Search, Pencil, Trash2, BookOpen } from "lucide-react";
 import { fetcher, api } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
-import { formatOrderReference, orderReference, rawOrderReference } from "@/lib/orderRef";
+import { formatOrderReference, rawOrderReference } from "@/lib/orderRef";
 import { modelCodeParts } from "@/lib/modelCode";
 import { useDialogs } from "@/components/DialogProvider";
 import { storageThumbnailUrl } from "@/lib/modelImages";
 import { useT } from "@/lib/i18n";
+import { useCuttingPassportDirectoryKeys } from "@/lib/cuttingPassportDirectories";
+import { useCuttingPassportPages } from "@/lib/useCuttingPassportPages";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -265,17 +268,21 @@ export default function CuttingPassportsPage() {
   const cuttingDepartment = searchParams.get("cutting_department") === "ECT" ? "ECT" : "CUT";
   const factoryName = cuttingDepartment === "ECT" ? t("factory.ecoCotton") : t("factory.milana");
   const [q, setQ] = useState("");
-  const passportSearch = q.trim();
-  const passportUrl = `/api/cutting-passports?formula_version=20260706_ishlangan_kg&limit=500&cutting_department_code=${cuttingDepartment}${
-    passportSearch ? `&q=${encodeURIComponent(passportSearch)}` : ""
-  }`;
-  const { data: passports = [], mutate } = useSWR<Passport[]>(passportUrl, fetcher, { keepPreviousData: true });
-  const { data: prodOrders = [] } = useSWR<any[]>("/api/production-orders?page_size=500", fetcher);
-  const { data: users = [] } = useSWR<any[]>("/api/cutting-passports/operators", fetcher);
-
   const [showForm, setShowForm] = useState(false);
+  const [selectedProductionOrder, setSelectedProductionOrder] = useState<CuttingProductionOrder | null>(null);
+  const { rows: passports, total: passportTotal, hasMore: hasMorePassports, loading: passportsLoading, size: passportPageCount, setSize: setPassportPageCount, mutate } = useCuttingPassportPages<Passport>(cuttingDepartment, q);
+  const directoryKeys = useCuttingPassportDirectoryKeys(showForm);
+  const { data: users = [] } = useSWR<any[]>(directoryKeys.operators, fetcher);
+
   const [editing, setEditing] = useState<Passport | null>(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
+  const { data: selectedProductionOrderDetail } = useSWR<CuttingProductionOrder>(
+    showForm && form.production_order_id && selectedProductionOrder?.id !== Number(form.production_order_id)
+      ? `/api/production-orders/${form.production_order_id}` : null,
+    fetcher,
+  );
+  const currentProductionOrder = selectedProductionOrder?.id === Number(form.production_order_id)
+    ? selectedProductionOrder : selectedProductionOrderDetail || null;
   const [materialForms, setMaterialForms] = useState<Array<typeof EMPTY_FORM & { stock_batch_id: number }>>([]);
   const orderRequest = useRef(0);
   const { mutate: refreshCache } = useSWRConfig();
@@ -334,6 +341,7 @@ export default function CuttingPassportsPage() {
     setMaterialForms([]);
     setForm({ ...EMPTY_FORM, date: new Date().toISOString().slice(0, 10) });
     setSizeChoices([]);
+    setSelectedProductionOrder(null);
     setEditing(null);
     setErr("");
     setShowForm(true);
@@ -344,6 +352,7 @@ export default function CuttingPassportsPage() {
     resetMaterialPicker();
     setMaterialForms((p.materials || []).map((row) => ({ ...EMPTY_FORM, ...Object.fromEntries(Object.entries(row).map(([key, value]) => [key, value ?? ""])), stock_batch_id: row.stock_batch_id })));
     setSizeChoices(expandSizeSelection(p.size_range));
+    setSelectedProductionOrder(null);
     setForm({
       passport_no: p.passport_no,
       date: p.date.slice(0, 10),
@@ -466,24 +475,18 @@ export default function CuttingPassportsPage() {
     mutate();
   }
 
-  const allProdOrders: any[] = Array.isArray(prodOrders) ? prodOrders : (prodOrders as any)?.rows ?? [];
-  const prodOrdersArr = allProdOrders.filter((row: any) => (
-    cuttingDepartment === "ECT"
-      ? row.cutting_department_code === "ECT"
-      : row.cutting_department_code !== "ECT"
-  ));
   const usersArr: any[] = Array.isArray(users) ? users : [];
   const f = form;
   const sf = (k: keyof typeof EMPTY_FORM) => (e: React.ChangeEvent<any>) =>
     setForm((prev) => ({ ...prev, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value }));
 
-  async function selectProductionOrder(e: React.ChangeEvent<HTMLSelectElement>) {
-    const value = e.target.value;
+  async function selectProductionOrder(po: CuttingProductionOrder | null) {
+    const value = po ? String(po.id) : "";
+    setSelectedProductionOrder(po);
     resetMaterialPicker();
     const request = ++orderRequest.current;
     setMaterialForms([]);
     setSizeChoices([]);
-    const po = prodOrdersArr.find((row: any) => String(row.id) === value);
     setForm((prev) => ({
       ...prev,
       production_order_id: value,
@@ -744,6 +747,12 @@ export default function CuttingPassportsPage() {
         </div>
       </div>
 
+      {hasMorePassports && <div className="mt-3 flex justify-center">
+        <button type="button" className="btn" disabled={passportsLoading} onClick={() => void setPassportPageCount(passportPageCount + 1)}>
+          {t("common.loadMore")} ({passports.length} / {passportTotal})
+        </button>
+      </div>}
+
       {/* Form modal */}
       <Modal
         open={showForm}
@@ -779,16 +788,7 @@ export default function CuttingPassportsPage() {
           <Sec label={t("page.cuttingPassports.section.modelIdentification")}>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
               <Field label={t("page.cuttingPassports.field.erpOrderModel")}>
-                <select className="input" value={f.production_order_id} onChange={selectProductionOrder}>
-                  <option value="">{t("page.cuttingPassports.placeholder.chooseNone")}</option>
-                  {prodOrdersArr.map((po: any) => {
-                    return (
-                      <option key={po.id} value={po.id}>
-                        {orderReference(po, po.production_no)}{po.model_code ? ` · ${po.model_code}` : ""}
-                      </option>
-                    );
-                  })}
-                </select>
+                <CuttingProductionOrderSelect inputId="cutting-passport-production-order" value={f.production_order_id} selectedOrder={currentProductionOrder} cuttingDepartment={cuttingDepartment} onChange={(po) => void selectProductionOrder(po)} />
               </Field>
               <Field label={t("page.cuttingPassports.field.model")}>
                 <input className="input" placeholder={t("page.cuttingPassports.placeholder.exampleModel")} value={f.model_code} onChange={sf("model_code")} />
@@ -826,7 +826,7 @@ export default function CuttingPassportsPage() {
                   ))}
                 </select>
               </Field>
-          {form.production_order_id && prodOrdersArr.find((order) => String(order.id) === String(form.production_order_id))?.source_type !== "usluga" && (
+          {form.production_order_id && currentProductionOrder?.source_type !== "usluga" && (
             <div className="space-y-3 border-t border-[#e3e0d5] pt-4">
               <button type="button" className="btn" disabled={saving || materialPickerBusy} onClick={openMaterialPicker}><Plus className="mr-1 h-4 w-4" />{t("passportMaterial.add")}</button>
               <p className="text-sm text-[#6f684f]">{t("passportMaterial.help")}</p>

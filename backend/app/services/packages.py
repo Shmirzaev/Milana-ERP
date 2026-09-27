@@ -1,19 +1,22 @@
 """Package service: build packages of finished goods with QR/barcode."""
+from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import datetime, timezone
+import math
 from fastapi import HTTPException
-from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy import func, text
+from sqlalchemy.orm import Session, object_session
 
 from app.models import (
     Package, PackageItem, PackageBatchAllocation, PackageScanLog, PackageChangeRequest,
     ProductionOrder, FinishedGoodsStock, Warehouse, ModelBOM, StockBatch,
     ProductionBatch, StockReservation, ShipmentPackage, User, Notification,
-    PackagingRecord, WorkOrder,
+    PackagingRecord, WorkOrder, PackagePrintRunMember,
 )
 from app.core.deps import user_permissions
 from app.services.barcode import generate_barcode_value, save_qr_image, save_barcode_image
 from app.services.finished_goods import infer_brand_and_collection
-from app.services.numbering import next_package_no
+from app.services.numbering import next_package_no, next_package_nos
 from app.services.workflow import (
     decrement_finished_goods_for_package,
     notify_department,
@@ -44,6 +47,132 @@ VALID_STORAGE_CELLS = {
 VALID_STORAGE_SHELVES = {"S1", "S2"}
 PACKAGE_CHANGE_ALLOWED_STATUSES = {"packed", "received_in_storage"}
 PACKAGE_CHANGE_PENDING_STATUS = "pending"
+PACKAGE_TYPES = frozenset({"bag", "box", "legacy_stock"})
+_PACKAGE_RECEIVE_CONTEXT_CHUNK_SIZE = 400
+_PACKAGE_BATCH_VALIDATION_CHUNK_SIZE = 400
+_PACKAGE_ROW_LIMIT = 200
+_PACKAGE_EDIT_NOTES_BYTES = 4096
+_PACKAGE_INTEGER_MAX = 2_147_483_647
+_FINISHED_GOODS_COST_MAX = 99_999_999.9999  # finished_goods_stock.cost_per_piece NUMERIC(12,4)
+
+
+@dataclass
+class PackageWriteContext:
+    """Transaction-local reads reused while creating a package group."""
+
+    cost_by_model_id: dict[int, float]
+    has_batches_by_order_id: dict[int, bool]
+    reference_metadata: dict
+    locked_orders: dict[int, ProductionOrder]
+    batch_membership: dict[tuple[int, int], bool]
+    remaining_quantity_by_order_id: dict[int, dict[int | None, int]]
+    notification_recipients: dict[str, tuple[int, ...]]
+    package_number_count: int
+    package_numbers: list[str]
+    next_package_number_index: int
+
+    @classmethod
+    def empty(cls) -> "PackageWriteContext":
+        return cls({}, {}, {}, {}, {}, {}, {}, 0, [], 0)
+
+    def take_package_number(self, db: Session) -> str:
+        if not self.package_numbers:
+            self.package_numbers = next_package_nos(db, self.package_number_count)
+        package_number = self.package_numbers[self.next_package_number_index]
+        self.next_package_number_index += 1
+        return package_number
+
+
+def _active_package_receive_transaction(db: Session):
+    return db.get_nested_transaction() or db.get_transaction()
+
+
+def _validate_package_type(value: str) -> str:
+    if value not in PACKAGE_TYPES:
+        raise HTTPException(400, "Invalid package_type")
+    return value
+
+
+@dataclass(frozen=True)
+class LockedPackageReceiveGate:
+    session: Session
+    transaction: object
+    packages_by_id: dict[int, Package]
+    member_run_ids: dict[int, int]
+    source_types_by_order_id: dict[int, str]
+    print_run_id: int | None
+
+
+def prepare_locked_package_receive(
+    db: Session,
+    package_ids,
+    *,
+    print_run_id: int | None = None,
+) -> LockedPackageReceiveGate:
+    ordered_ids = sorted({int(package_id) for package_id in package_ids})
+    packages = (
+        db.query(Package)
+        .filter(Package.id.in_(ordered_ids))
+        .order_by(Package.id)
+        .with_for_update()
+        .populate_existing()
+        .all()
+    )
+    packages_by_id = {int(pkg.id): pkg for pkg in packages}
+    if any(object_session(pkg) is not db for pkg in packages):  # pragma: no cover - ORM invariant
+        raise RuntimeError("Locked packages must belong to the receiving session")
+
+    member_run_ids: dict[int, int] = {}
+    for offset in range(0, len(ordered_ids), _PACKAGE_RECEIVE_CONTEXT_CHUNK_SIZE):
+        chunk = ordered_ids[offset:offset + _PACKAGE_RECEIVE_CONTEXT_CHUNK_SIZE]
+        member_run_ids.update({
+            int(package_id): int(run_id)
+            for package_id, run_id in db.query(
+                PackagePrintRunMember.package_id,
+                PackagePrintRunMember.run_id,
+            ).filter(PackagePrintRunMember.package_id.in_(chunk)).all()
+        })
+
+    order_ids = sorted({int(pkg.production_order_id) for pkg in packages if pkg.production_order_id})
+    source_types_by_order_id: dict[int, str] = {}
+    for offset in range(0, len(order_ids), _PACKAGE_RECEIVE_CONTEXT_CHUNK_SIZE):
+        chunk = order_ids[offset:offset + _PACKAGE_RECEIVE_CONTEXT_CHUNK_SIZE]
+        source_types_by_order_id.update({
+            int(order_id): str(source_type)
+            for order_id, source_type in db.query(
+                ProductionOrder.id,
+                ProductionOrder.source_type,
+            ).filter(ProductionOrder.id.in_(chunk)).all()
+        })
+
+    transaction = _active_package_receive_transaction(db)
+    if transaction is None:  # pragma: no cover - locking query always starts a transaction
+        raise RuntimeError("Package receiving requires an active transaction")
+    return LockedPackageReceiveGate(
+        session=db,
+        transaction=transaction,
+        packages_by_id=packages_by_id,
+        member_run_ids=member_run_ids,
+        source_types_by_order_id=source_types_by_order_id,
+        print_run_id=print_run_id,
+    )
+
+
+def _validate_locked_package_receive_gate(
+    db: Session,
+    pkg: Package,
+    gate: LockedPackageReceiveGate,
+    *,
+    print_run_id: int | None,
+) -> None:
+    if (
+        gate.session is not db
+        or gate.transaction is not _active_package_receive_transaction(db)
+        or gate.packages_by_id.get(int(pkg.id)) is not pkg
+        or object_session(pkg) is not db
+        or gate.print_run_id != print_run_id
+    ):
+        raise HTTPException(409, "Invalid locked package context for receiving")
 
 
 def _sync_package_production(db: Session, production_order_id: int | None) -> None:
@@ -54,12 +183,38 @@ def _sync_package_production(db: Session, production_order_id: int | None) -> No
     sync_production_order_status(db, production_order_id)
 
 
+def sync_package_production_orders(
+    db: Session,
+    production_order_ids: Iterable[int | None],
+) -> None:
+    """Sync each affected production order once after a batch package write."""
+    for production_order_id in sorted({int(value) for value in production_order_ids if value}):
+        _sync_package_production(db, production_order_id)
+
+
 def _require_warehouse_package(db: Session, pkg: Package) -> None:
     if not pkg.production_order_id:
         return
     source_type = db.query(ProductionOrder.source_type).filter(ProductionOrder.id == pkg.production_order_id).scalar()
     if source_type == "usluga":
         raise HTTPException(400, "Usluga packages are handed directly to the customer and cannot enter warehouse flow")
+
+
+def _warehouse_source_types(db: Session, packages: list[Package]) -> dict[int, str]:
+    # SessionLocal disables autoflush; validate the transaction's current state.
+    db.flush()
+    order_ids = sorted({int(pkg.production_order_id) for pkg in packages if pkg.production_order_id})
+    source_types = {}
+    for offset in range(0, len(order_ids), _PACKAGE_BATCH_VALIDATION_CHUNK_SIZE):
+        chunk = order_ids[offset:offset + _PACKAGE_BATCH_VALIDATION_CHUNK_SIZE]
+        source_types.update({
+            int(order_id): str(source_type)
+            for order_id, source_type in db.query(
+                ProductionOrder.id,
+                ProductionOrder.source_type,
+            ).filter(ProductionOrder.id.in_(chunk)).all()
+        })
+    return source_types
 
 
 def normalize_storage_cell(cell: str | None) -> str | None:
@@ -158,11 +313,35 @@ def _compute_cost(db: Session, model_id: int) -> float:
     """Estimate cost-per-piece from BOM × avg batch cost. Used for finished goods valuation."""
     cost = 0.0
     bom = db.query(ModelBOM).filter(ModelBOM.model_id == model_id).all()
+    item_ids = sorted({int(row.item_id) for row in bom if row.item_id is not None})
+    latest_cost_by_item_id = {}
+    if item_ids:
+        latest_batch_ids = (
+            db.query(
+                StockBatch.item_id.label("item_id"),
+                func.max(StockBatch.id).label("batch_id"),
+            )
+            .filter(StockBatch.item_id.in_(item_ids))
+            .group_by(StockBatch.item_id)
+            .subquery()
+        )
+        latest_cost_by_item_id = {
+            int(item_id): cost_per_unit
+            for item_id, cost_per_unit in (
+                db.query(StockBatch.item_id, StockBatch.cost_per_unit)
+                .join(latest_batch_ids, latest_batch_ids.c.batch_id == StockBatch.id)
+                .all()
+            )
+        }
     for b in bom:
-        avg_cost_row = db.query(StockBatch).filter(StockBatch.item_id == b.item_id).order_by(StockBatch.id.desc()).first()
-        unit_cost = float(avg_cost_row.cost_per_unit) if avg_cost_row else 0.0
+        item_id = int(b.item_id) if b.item_id is not None else None
+        cost_per_unit = latest_cost_by_item_id.get(item_id) if item_id is not None else None
+        unit_cost = float(cost_per_unit) if item_id in latest_cost_by_item_id else 0.0
         cost += float(b.quantity_per_piece) * unit_cost * (1.0 + float(b.waste_percent) / 100.0)
-    return round(cost, 4)
+    stored_cost = round(cost, 4) if math.isfinite(cost) else cost
+    if not math.isfinite(stored_cost) or stored_cost < 0 or stored_cost > _FINISHED_GOODS_COST_MAX:
+        raise HTTPException(409, "Computed finished-goods cost exceeds supported precision")
+    return stored_cost
 
 
 def _packaging_record_totals_by_batch(db: Session, production_order_id: int) -> dict[int | None, int]:
@@ -218,6 +397,58 @@ def _existing_package_totals_by_batch(
     return totals
 
 
+def prime_package_batch_memberships(
+    db: Session,
+    context: PackageWriteContext,
+    *,
+    production_order_id: int,
+    production_batch_ids: Iterable[int],
+) -> None:
+    """Cache membership for the requested batches, including missing IDs."""
+    order_id = int(production_order_id)
+    requested_ids = sorted({int(batch_id) for batch_id in production_batch_ids})
+    missing_ids = [
+        batch_id
+        for batch_id in requested_ids
+        if (order_id, batch_id) not in context.batch_membership
+    ]
+    for offset in range(0, len(missing_ids), _PACKAGE_BATCH_VALIDATION_CHUNK_SIZE):
+        chunk = missing_ids[offset:offset + _PACKAGE_BATCH_VALIDATION_CHUNK_SIZE]
+        existing_ids = {
+            int(batch_id)
+            for (batch_id,) in db.query(ProductionBatch.id).filter(
+                ProductionBatch.id.in_(chunk),
+                ProductionBatch.production_order_id == order_id,
+            ).all()
+        }
+        for batch_id in chunk:
+            context.batch_membership[(order_id, batch_id)] = batch_id in existing_ids
+
+
+def prime_packaged_quantity_availability(
+    db: Session,
+    context: PackageWriteContext,
+    *,
+    production_order_id: int,
+    packed_by_batch: dict[int | None, int] | None = None,
+) -> None:
+    order_id = int(production_order_id)
+    if order_id in context.remaining_quantity_by_order_id:
+        return
+    packed = (
+        packed_by_batch
+        if packed_by_batch is not None
+        else _packaging_record_totals_by_batch(db, order_id)
+    )
+    if not packed:
+        raise HTTPException(409, "Save Packaging output before creating packages")
+    existing = _existing_package_totals_by_batch(db, order_id)
+    context.remaining_quantity_by_order_id[order_id] = {
+        batch_id: max(0, int(quantity) - int(existing.get(batch_id, 0)))
+        for batch_id, quantity in packed.items()
+    }
+
+
 def _enforce_packaged_quantity_available(
     db: Session,
     *,
@@ -225,16 +456,32 @@ def _enforce_packaged_quantity_available(
     allocations: list[dict[str, int]],
     total: int,
     exclude_package_id: int | None = None,
+    require_evidence: bool = False,
+    remaining_cache: dict[int, dict[int | None, int]] | None = None,
 ) -> None:
-    packed_by_batch = _packaging_record_totals_by_batch(db, production_order_id)
-    if not packed_by_batch:
-        return
-
-    existing_by_batch = _existing_package_totals_by_batch(
-        db,
-        production_order_id,
-        exclude_package_id=exclude_package_id,
+    remaining_by_batch = (
+        remaining_cache.get(int(production_order_id))
+        if remaining_cache is not None and exclude_package_id is None
+        else None
     )
+    if remaining_by_batch is None:
+        packed_by_batch = _packaging_record_totals_by_batch(db, production_order_id)
+        if not packed_by_batch:
+            if require_evidence:
+                raise HTTPException(409, "Save Packaging output before creating packages")
+            return
+
+        existing_by_batch = _existing_package_totals_by_batch(
+            db,
+            production_order_id,
+            exclude_package_id=exclude_package_id,
+        )
+        remaining_by_batch = {
+            batch_id: max(0, int(packed) - int(existing_by_batch.get(batch_id, 0)))
+            for batch_id, packed in packed_by_batch.items()
+        }
+        if remaining_cache is not None and exclude_package_id is None:
+            remaining_cache[int(production_order_id)] = remaining_by_batch
     requested_by_batch: dict[int | None, int] = {}
     if allocations:
         for alloc in allocations:
@@ -244,15 +491,16 @@ def _enforce_packaged_quantity_available(
         requested_by_batch[None] = int(total)
 
     for batch_id, requested in requested_by_batch.items():
-        packed = int(packed_by_batch.get(batch_id, 0))
-        existing = int(existing_by_batch.get(batch_id, 0))
-        available = max(0, packed - existing)
+        available = int(remaining_by_batch.get(batch_id, 0))
         if requested > available:
             label = f"batch #{batch_id}" if batch_id is not None else "this production order"
             raise HTTPException(
                 400,
                 f"Package quantity {requested} exceeds available packed quantity {available} for {label}",
             )
+    if remaining_cache is not None and exclude_package_id is None:
+        for batch_id, requested in requested_by_batch.items():
+            remaining_by_batch[batch_id] = int(remaining_by_batch.get(batch_id, 0)) - requested
 
 
 def create_package(
@@ -277,11 +525,41 @@ def create_package(
     user_id: int | None = None,
     notes: str | None = None,
     packaging_department_code: str | None = None,
+    _cost_cache: dict[int, float] | None = None,
+    _batch_presence_cache: dict[int, bool] | None = None,
+    _reference_metadata_cache: dict | None = None,
+    _locked_order_cache: dict[int, ProductionOrder] | None = None,
+    _write_context: PackageWriteContext | None = None,
+    _package_no: str | None = None,
+    _sync_production: bool = True,
 ) -> Package:
     if stock_kind not in {"standard", "first_grade"}:
         raise HTTPException(400, "Invalid stock classification")
+    if _write_context is not None:
+        _cost_cache = _cost_cache if _cost_cache is not None else _write_context.cost_by_model_id
+        _batch_presence_cache = (
+            _batch_presence_cache
+            if _batch_presence_cache is not None
+            else _write_context.has_batches_by_order_id
+        )
+        _reference_metadata_cache = (
+            _reference_metadata_cache
+            if _reference_metadata_cache is not None
+            else _write_context.reference_metadata
+        )
+        _locked_order_cache = (
+            _locked_order_cache
+            if _locked_order_cache is not None
+            else _write_context.locked_orders
+        )
     if not items:
         raise HTTPException(400, "Package must contain at least one size line")
+    if len(items) > _PACKAGE_ROW_LIMIT:
+        raise HTTPException(400, f"Package cannot contain more than {_PACKAGE_ROW_LIMIT} size lines")
+    if batch_allocations and len(batch_allocations) > _PACKAGE_ROW_LIMIT:
+        raise HTTPException(400, f"Package cannot contain more than {_PACKAGE_ROW_LIMIT} batch allocations")
+    if capacity > _PACKAGE_INTEGER_MAX:
+        raise HTTPException(400, f"capacity must be at most {_PACKAGE_INTEGER_MAX}")
 
     total = 0
     for item in items:
@@ -301,6 +579,8 @@ def create_package(
         total += quantity
     if total <= 0:
         raise HTTPException(400, "Total package quantity must be > 0")
+    if total > _PACKAGE_INTEGER_MAX:
+        raise HTTPException(400, f"Total package quantity must be at most {_PACKAGE_INTEGER_MAX}")
     if total > capacity and not (override_capacity and is_admin):
         raise HTTPException(400, f"Package quantity {total} exceeds capacity {capacity}. Admin override required.")
     normalized_weight_kg = None
@@ -309,7 +589,7 @@ def create_package(
         if normalized_weight_kg < 0:
             raise HTTPException(400, "Package weight must be >= 0")
 
-    # All items must share the same model unless admin override
+    # Reject mixed models early; the locked order check below also applies to admin overrides.
     distinct_models = {int(it.get("model_id", model_id)) for it in items}
     if len(distinct_models) > 1 and not (override_capacity and is_admin):
         raise HTTPException(400, "Package contains different models — admin override required")
@@ -318,9 +598,21 @@ def create_package(
     if len(distinct_colors) > 1 and not (override_capacity and is_admin):
         raise HTTPException(400, "Package contains different colors — admin override required")
 
-    po = db.query(ProductionOrder).filter(ProductionOrder.id == production_order_id).with_for_update().populate_existing().first()
+    po = _locked_order_cache.get(int(production_order_id)) if _locked_order_cache is not None else None
+    if po is None:
+        po = (
+            db.query(ProductionOrder)
+            .filter(ProductionOrder.id == production_order_id)
+            .with_for_update()
+            .populate_existing()
+            .first()
+        )
+        if po is not None and _locked_order_cache is not None:
+            _locked_order_cache[int(production_order_id)] = po
     if not po:
         raise HTTPException(404, "Production order not found")
+    if int(model_id) != int(po.model_id) or distinct_models != {int(po.model_id)}:
+        raise HTTPException(400, "Package model must match the production order")
 
     if packaging_department_code is None:
         from app.services.packaging_scope import packaging_department_for_order
@@ -332,27 +624,49 @@ def create_package(
         )
 
     batch_id = int(production_batch_id) if production_batch_id else None
-    has_batches = db.query(ProductionBatch.id).filter(ProductionBatch.production_order_id == po.id).first()
+    has_batches = _batch_presence_cache.get(int(po.id)) if _batch_presence_cache is not None else None
+    if has_batches is None:
+        has_batches = bool(
+            db.query(ProductionBatch.id)
+            .filter(ProductionBatch.production_order_id == po.id)
+            .first()
+        )
+        if _batch_presence_cache is not None:
+            _batch_presence_cache[int(po.id)] = has_batches
     normalized_allocations: list[dict[str, int]] = []
     if batch_allocations:
         if not has_batches:
             raise HTTPException(400, "Batch allocations require a batched production order")
-        batch_totals: dict[int, int] = {}
+        parsed_allocations: list[tuple[int, int]] = []
+        validation_error: HTTPException | None = None
         for raw in batch_allocations:
             try:
                 alloc_batch_id = int(raw.get("production_batch_id") or 0)
                 qty = int(raw.get("quantity") or 0)
             except (TypeError, ValueError):
-                raise HTTPException(400, "Invalid batch allocation")
+                validation_error = HTTPException(400, "Invalid batch allocation")
+                break
             if alloc_batch_id <= 0 or qty <= 0:
-                raise HTTPException(400, "Batch allocation quantities must be > 0")
-            batch_exists = db.query(ProductionBatch.id).filter(
-                ProductionBatch.id == alloc_batch_id,
-                ProductionBatch.production_order_id == po.id,
-            ).first()
-            if not batch_exists:
+                validation_error = HTTPException(400, "Batch allocation quantities must be > 0")
+                break
+            parsed_allocations.append((alloc_batch_id, qty))
+
+        requested_batch_ids = sorted({batch_id for batch_id, _qty in parsed_allocations})
+        membership_context = _write_context or PackageWriteContext.empty()
+        prime_package_batch_memberships(
+            db,
+            membership_context,
+            production_order_id=int(po.id),
+            production_batch_ids=requested_batch_ids,
+        )
+
+        batch_totals: dict[int, int] = {}
+        for alloc_batch_id, qty in parsed_allocations:
+            if not membership_context.batch_membership[(int(po.id), alloc_batch_id)]:
                 raise HTTPException(404, "Production batch not found for this production order")
             batch_totals[alloc_batch_id] = batch_totals.get(alloc_batch_id, 0) + qty
+        if validation_error is not None:
+            raise validation_error
         if sum(batch_totals.values()) != total:
             raise HTTPException(400, "Batch allocation quantity must equal package total quantity")
         normalized_allocations = [
@@ -361,11 +675,14 @@ def create_package(
         ]
         batch_id = normalized_allocations[0]["production_batch_id"] if len(normalized_allocations) == 1 else None
     elif batch_id is not None:
-        batch_exists = db.query(ProductionBatch.id).filter(
-            ProductionBatch.id == batch_id,
-            ProductionBatch.production_order_id == po.id,
-        ).first()
-        if not batch_exists:
+        membership_context = _write_context or PackageWriteContext.empty()
+        prime_package_batch_memberships(
+            db,
+            membership_context,
+            production_order_id=int(po.id),
+            production_batch_ids=[batch_id],
+        )
+        if not membership_context.batch_membership[(int(po.id), batch_id)]:
             raise HTTPException(404, "Production batch not found for this production order")
         normalized_allocations = [{"production_batch_id": batch_id, "quantity": total}]
     elif has_batches:
@@ -376,6 +693,12 @@ def create_package(
         production_order_id=production_order_id,
         allocations=normalized_allocations,
         total=total,
+        require_evidence=True,
+        remaining_cache=(
+            _write_context.remaining_quantity_by_order_id
+            if _write_context is not None
+            else None
+        ),
     )
 
     if stock_kind == "first_grade":
@@ -397,9 +720,39 @@ def create_package(
         package_id=None,
         brand_id=brand_id,
         collection_id=collection_id if collection_id is not None else po.collection_id,
+        reference_cache=_reference_metadata_cache,
     )
+    package_type = _validate_package_type(package_type)
+    if len(str(color)) > 64:
+        raise HTTPException(422, "color must be at most 64 characters")
+    for item in items:
+        if len(str(item["color"])) > 64:
+            raise HTTPException(422, "item color must be at most 64 characters")
+        if len(str(item["size"])) > 32:
+            raise HTTPException(422, "item size must be at most 32 characters")
 
-    pkg_no = next_package_no(db)
+    # Cost validation must precede package-number allocation and QR/barcode
+    # writes, which are not rolled back with the database transaction.
+    cost = None
+    if po.source_type != "usluga":
+        if _cost_cache is not None and model_id in _cost_cache:
+            cost = _cost_cache[model_id]
+            if not math.isfinite(cost) or cost < 0 or cost > _FINISHED_GOODS_COST_MAX:
+                raise HTTPException(409, "Computed finished-goods cost exceeds supported precision")
+        else:
+            cost = _compute_cost(db, model_id)
+            if _cost_cache is not None:
+                _cost_cache[model_id] = cost
+
+    if _package_no is not None:
+        pkg_no = _package_no
+    elif _write_context is not None and _write_context.package_number_count:
+        # The production-order row is locked above. Reserve the shared range
+        # only now so scalar and bulk creation use the same row -> advisory
+        # lock hierarchy on PostgreSQL.
+        pkg_no = _write_context.take_package_number(db)
+    else:
+        pkg_no = next_package_no(db)
     barcode_value = generate_barcode_value("PKG")
     pkg = Package(
         package_no=pkg_no,
@@ -454,7 +807,6 @@ def create_package(
     # Milana finished-goods stock. Standard production retains its existing
     # stock behavior unchanged.
     if po.source_type != "usluga":
-        cost = _compute_cost(db, model_id)
         for it in items:
             db.add(FinishedGoodsStock(
                 production_order_id=production_order_id,
@@ -474,7 +826,8 @@ def create_package(
 
     db.flush()
     # Storage transfer stage becomes actionable as soon as a package exists.
-    sync_production_order_status(db, production_order_id)
+    if _sync_production:
+        sync_production_order_status(db, production_order_id)
     if po.source_type != "usluga":
         notify_department(
             db,
@@ -483,6 +836,11 @@ def create_package(
             message=f"Package {pkg.package_no} is ready for storage receive.",
             link="/packages/scan",
             exclude_user_id=user_id,
+            recipient_cache=(
+                _write_context.notification_recipients
+                if _write_context is not None
+                else None
+            ),
         )
     return pkg
 
@@ -532,6 +890,10 @@ def create_packages_bulk(
                 raise HTTPException(400, "Package weight must be >= 0")
             normalized_weights.append(value)
     created: list[Package] = []
+    write_context = PackageWriteContext.empty()
+    # The first create_package call locks/caches the order before lazily
+    # reserving this range; later packages reuse both without more reads.
+    write_context.package_number_count = count
     for index in range(count):
         package_weight = normalized_weights[index] if normalized_weights else weight_kg
         created.append(
@@ -556,8 +918,11 @@ def create_packages_bulk(
                 user_id=user_id,
                 notes=notes,
                 packaging_department_code=packaging_department_code,
+                _write_context=write_context,
+                _sync_production=False,
             )
         )
+    sync_production_order_status(db, production_order_id)
     return created
 
 
@@ -606,6 +971,8 @@ def _normalize_package_items(pkg: Package, payload: dict, target_color: str) -> 
     raw_items = payload.get("items") or []
     if not isinstance(raw_items, list) or not raw_items:
         raise HTTPException(400, "Package must contain at least one size line")
+    if len(raw_items) > _PACKAGE_ROW_LIMIT:
+        raise HTTPException(400, f"Package edit cannot contain more than {_PACKAGE_ROW_LIMIT} size lines")
 
     merged: dict[tuple[int, str, str], int] = {}
     for raw in raw_items:
@@ -643,6 +1010,8 @@ def _validate_batch_allocations(
 ) -> list[dict]:
     if not raw_allocations:
         raise HTTPException(400, "Batch allocation is required for this production order")
+    if len(raw_allocations) > _PACKAGE_ROW_LIMIT:
+        raise HTTPException(400, f"Package edit cannot contain more than {_PACKAGE_ROW_LIMIT} batch allocations")
 
     batch_totals: dict[int, int] = {}
     for raw in raw_allocations:
@@ -726,10 +1095,14 @@ def normalize_package_edit_payload(db: Session, pkg: Package, payload: dict | No
         raise HTTPException(400, "capacity must be a number")
     if capacity <= 0:
         raise HTTPException(400, "capacity must be > 0")
+    if capacity > _PACKAGE_INTEGER_MAX and capacity != pkg.capacity:
+        raise HTTPException(400, f"capacity must be at most {_PACKAGE_INTEGER_MAX}")
 
     color = str(payload.get("color", pkg.color) or "").strip()
     if not color:
         raise HTTPException(400, "color is required")
+    if len(color) > 64 and color != pkg.color:
+        raise HTTPException(400, "color must be at most 64 characters")
 
     weight_kg = _normalize_optional_weight(payload.get("weight_kg", pkg.weight_kg))
     warehouse_id = _normalize_optional_int(payload.get("warehouse_id", pkg.warehouse_id), "warehouse_id")
@@ -744,6 +1117,8 @@ def normalize_package_edit_payload(db: Session, pkg: Package, payload: dict | No
     total = sum(int(row["quantity"] or 0) for row in items)
     if total <= 0:
         raise HTTPException(400, "Total package quantity must be > 0")
+    if total > _PACKAGE_INTEGER_MAX and "items" in payload:
+        raise HTTPException(400, f"Total package quantity must be at most {_PACKAGE_INTEGER_MAX}")
     if total > capacity:
         raise HTTPException(400, f"Package quantity {total} exceeds capacity {capacity}")
 
@@ -757,8 +1132,13 @@ def normalize_package_edit_payload(db: Session, pkg: Package, payload: dict | No
             total=total,
             exclude_package_id=int(pkg.id),
         )
+    package_type = _validate_package_type(package_type)
 
     notes = payload.get("notes", pkg.notes)
+    if notes is not None and not isinstance(notes, str):
+        raise HTTPException(400, "notes must be text")
+    if notes != pkg.notes and notes is not None and len(notes.encode("utf-8")) > _PACKAGE_EDIT_NOTES_BYTES:
+        raise HTTPException(400, f"notes must be at most {_PACKAGE_EDIT_NOTES_BYTES} UTF-8 bytes")
     return {
         "color": color,
         "package_type": package_type,
@@ -898,11 +1278,11 @@ def _replace_finished_goods_for_package(
     pkg: Package,
     items: list[dict],
 ) -> None:
+    cost = _compute_cost(db, pkg.model_id)
     for row in db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id == pkg.id).all():
         db.delete(row)
     db.flush()
 
-    cost = _compute_cost(db, pkg.model_id)
     for item in items:
         qty = int(item["quantity"])
         db.add(
@@ -1098,13 +1478,28 @@ def receive_at_storage(
     storage_cell: str | None = None,
     storage_shelf: str | None = None,
     print_run_id: int | None = None,
+    receive_gate: LockedPackageReceiveGate | None = None,
+    sync_production: bool = True,
 ):
-    from app.models.package_workflows import PackagePrintRunMember
-    pkg = db.query(Package).filter(Package.id == pkg.id).with_for_update().populate_existing().one()
-    member = db.query(PackagePrintRunMember).filter(PackagePrintRunMember.package_id == pkg.id).first()
-    if member and member.run_id != print_run_id:
+    if receive_gate is None:
+        pkg = db.query(Package).filter(Package.id == pkg.id).with_for_update().populate_existing().one()
+        member = db.query(PackagePrintRunMember).filter(PackagePrintRunMember.package_id == pkg.id).first()
+        member_run_id = int(member.run_id) if member else None
+    else:
+        _validate_locked_package_receive_gate(
+            db,
+            pkg,
+            receive_gate,
+            print_run_id=print_run_id,
+        )
+        member_run_id = receive_gate.member_run_ids.get(int(pkg.id))
+        source_type = receive_gate.source_types_by_order_id.get(int(pkg.production_order_id or 0))
+    if member_run_id is not None and member_run_id != print_run_id:
         raise HTTPException(409, "Scan a package in this print run to receive the complete run together")
-    _require_warehouse_package(db, pkg)
+    if receive_gate is None:
+        _require_warehouse_package(db, pkg)
+    elif source_type == "usluga":
+        raise HTTPException(400, "Usluga packages are handed directly to the customer and cannot enter warehouse flow")
     if pkg.status not in ("packed",):
         raise HTTPException(400, f"Package in status '{pkg.status}' cannot be received at storage")
     cell, shelf = validate_storage_location(storage_cell, storage_shelf, require_cell=False)
@@ -1125,7 +1520,8 @@ def receive_at_storage(
             location=format_storage_location(cell, shelf),
         )
     )
-    _sync_package_production(db, pkg.production_order_id)
+    if sync_production:
+        _sync_package_production(db, pkg.production_order_id)
     db.flush()
 
 
@@ -1136,8 +1532,34 @@ def place_on_storage_map(
     storage_cell: str,
     storage_shelf: str | None,
     user_id: int | None,
+    allow_mixed_models: bool = False,
+    enforce_model_guard: bool = False,
 ):
     _require_warehouse_package(db, pkg)
+    packages = _prepare_storage_map_placement(
+        db,
+        [pkg],
+        storage_cell=storage_cell,
+        allow_mixed_models=allow_mixed_models,
+        enforce_model_guard=enforce_model_guard,
+    )
+    _place_on_storage_map(
+        db,
+        packages[0],
+        storage_cell=storage_cell,
+        storage_shelf=storage_shelf,
+        user_id=user_id,
+    )
+
+
+def _place_on_storage_map(
+    db: Session,
+    pkg: Package,
+    *,
+    storage_cell: str,
+    storage_shelf: str | None,
+    user_id: int | None,
+):
     if pkg.status in ("shipped", "delivered", "damaged"):
         raise HTTPException(400, f"Package in status '{pkg.status}' cannot be moved on storage map")
     cell, shelf = validate_storage_location(storage_cell, storage_shelf, require_cell=True)
@@ -1160,8 +1582,117 @@ def place_on_storage_map(
     db.flush()
 
 
+def place_packages_on_storage_map(
+    db: Session,
+    packages: list[Package],
+    *,
+    storage_cell: str,
+    storage_shelf: str | None,
+    user_id: int | None,
+    allow_mixed_models: bool = False,
+    enforce_model_guard: bool = False,
+) -> None:
+    packages = _prepare_storage_map_placement(
+        db,
+        packages,
+        storage_cell=storage_cell,
+        allow_mixed_models=allow_mixed_models,
+        enforce_model_guard=enforce_model_guard,
+    )
+    source_types = _warehouse_source_types(db, packages)
+    for pkg in packages:
+        source_type = source_types.get(int(pkg.production_order_id or 0))
+        if source_type == "usluga":
+            raise HTTPException(400, "Usluga packages are handed directly to the customer and cannot enter warehouse flow")
+        _place_on_storage_map(
+            db,
+            pkg,
+            storage_cell=storage_cell,
+            storage_shelf=storage_shelf,
+            user_id=user_id,
+        )
+
+
+def _prepare_storage_map_placement(
+    db: Session,
+    packages: list[Package],
+    *,
+    storage_cell: str,
+    allow_mixed_models: bool,
+    enforce_model_guard: bool,
+) -> list[Package]:
+    # Preserve the historical placement path for API clients that have not
+    # opted into the warehouse-map mixed-model guard. In particular, do not
+    # add map-only locking/query overhead to those clients.
+    if not enforce_model_guard:
+        return packages
+
+    cell, _shelf = validate_storage_location(storage_cell, "S1", require_cell=True)
+    requested_order = [int(package.id) for package in packages]
+    package_ids = sorted({int(package.id) for package in packages})
+    source_cells = {
+        str(package.storage_cell).strip().upper()
+        for package in packages
+        if package.storage_cell
+    }
+    lock_cells = sorted(source_cells | {cell})
+
+    # Placement uses cell-scoped locks in sorted order so two moves in opposite
+    # directions cannot race the mixed-model check or deadlock each other.
+    if db.bind is not None and db.bind.dialect.name == "postgresql":
+        for lock_cell in lock_cells:
+            db.execute(
+                text("SELECT pg_advisory_xact_lock(60129, hashtext(:cell))"),
+                {"cell": lock_cell},
+            )
+
+    locked_packages = (
+        db.query(Package)
+        .filter(Package.id.in_(package_ids))
+        .order_by(Package.id.asc())
+        .with_for_update()
+        .populate_existing()
+        .all()
+    )
+    if len(locked_packages) != len(package_ids):
+        raise HTTPException(404, "Package not found")
+    locked_by_id = {int(package.id): package for package in locked_packages}
+
+    if enforce_model_guard and not allow_mixed_models:
+        occupied_models = {
+            int(model_id)
+            for (model_id,) in (
+                db.query(Package.model_id)
+                .filter(
+                    Package.storage_cell == cell,
+                    Package.status.in_(("packed", "received_in_storage", "reserved")),
+                    Package.id.notin_(package_ids),
+                    Package.model_id.isnot(None),
+                )
+                .with_for_update()
+                .all()
+            )
+        }
+        occupied_models.update(
+            int(package.model_id)
+            for package in locked_packages
+            if package.model_id is not None
+            and package.status in ("packed", "received_in_storage", "reserved")
+        )
+        if len(occupied_models) > 1:
+            raise HTTPException(400, "Cell already contains a different model")
+
+    return [locked_by_id[package_id] for package_id in requested_order]
+
+
 def reserve_package(db: Session, pkg: Package, user_id: int | None):
+    pkg = (
+        db.query(Package).filter(Package.id == pkg.id)
+        .with_for_update(of=Package).populate_existing().one()
+    )
     _require_warehouse_package(db, pkg)
+    if pkg.status == "damaged":
+        raise HTTPException(409, "Damaged package cannot be reserved")
     if pkg.status not in ("received_in_storage", "packed"):
         raise HTTPException(400, f"Package cannot be reserved from status '{pkg.status}'")
     pkg.status = "reserved"
@@ -1170,7 +1701,13 @@ def reserve_package(db: Session, pkg: Package, user_id: int | None):
     db.flush()
 
 
-def ship_package(db: Session, pkg: Package, user_id: int | None):
+def ship_package(
+    db: Session,
+    pkg: Package,
+    user_id: int | None,
+    *,
+    sync_production: bool = True,
+):
     _require_warehouse_package(db, pkg)
     if pkg.status not in ("received_in_storage", "reserved"):
         raise HTTPException(400, f"Package cannot be shipped from status '{pkg.status}'")
@@ -1181,7 +1718,8 @@ def ship_package(db: Session, pkg: Package, user_id: int | None):
     pkg.storage_placed_at = None
     decrement_finished_goods_for_package(db, pkg)
     db.add(PackageScanLog(package_id=pkg.id, scanned_by=user_id, scan_type="shipped"))
-    _sync_package_production(db, pkg.production_order_id)
+    if sync_production:
+        _sync_package_production(db, pkg.production_order_id)
     db.flush()
 
 
@@ -1195,6 +1733,18 @@ def mark_delivered(db: Session, pkg: Package, user_id: int | None):
 
 
 def mark_damaged(db: Session, pkg: Package, user_id: int | None):
+    # Match reservation lock order so neither transition can use stale state.
+    pkg = (
+        db.query(Package).filter(Package.id == pkg.id)
+        .with_for_update(of=Package).populate_existing().one()
+    )
+    stocks = (
+        db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id == pkg.id)
+        .order_by(FinishedGoodsStock.id)
+        .with_for_update(of=FinishedGoodsStock).populate_existing().all()
+    )
+    if pkg.status == "reserved" or any(int(stock.reserved_qty or 0) > 0 for stock in stocks):
+        raise HTTPException(409, "Release package reservations before marking it damaged")
     pkg.status = "damaged"
     pkg.storage_cell = None
     pkg.storage_shelf = None

@@ -1,23 +1,59 @@
-import hmac
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
+from typing import Annotated
 from fastapi import APIRouter, HTTPException, Depends, Header, Query
+from pydantic import BaseModel
 
 from app.core.config import settings
 from app.core.deps import DbSession, require_permissions
+from app.core.integration_auth import authenticate_onec_integration
 from app.models import Invoice, SalesOrder, User
 from app.schemas.integrations import OneCSyncIn
+from app.schemas.finance import FinanceInvoiceOut, FinanceInvoicePageOut
 from app.schemas.sales import InvoiceIn, InvoiceOut, PaymentIn, PaymentOut
 from app.services.audit import log_action
 from app.services.finance_1c import sync_from_1c
+from app.services.integration_idempotency import replay_integration_response, store_integration_response
 from app.services.numbering import next_invoice_no
 from app.services.payments import create_invoice_payment
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 from app.services.finance import (
-    dashboard_summary, order_profit, branded_stock_value, waste_cost, waste_income,
-    list_recent_invoices, revenue_by_period, cost_breakdown,
+    dashboard_summary, order_profit,
+    count_invoices, count_revenue_periods, list_recent_invoices, revenue_by_period,
 )
 
 router = APIRouter(prefix="/finance", tags=["finance"])
+_INVOICE_AMOUNT_MAX = Decimal("999999999999.99")
+_INVOICE_AMOUNT_CENT = Decimal("0.01")
+
+
+def _validated_invoice_amount(value: object) -> Decimal:
+    try:
+        amount = Decimal(str(value))
+        if (
+            not amount.is_finite()
+            or amount < 0
+            or amount > _INVOICE_AMOUNT_MAX
+            or amount != amount.quantize(_INVOICE_AMOUNT_CENT)
+        ):
+            raise ValueError
+    except (InvalidOperation, ValueError):
+        raise HTTPException(422, "Invoice amount must be finite and representable in cents") from None
+    return amount
+
+
+class RevenuePeriodOut(BaseModel):
+    period: str
+    amount: float | None
+    currency: str | None = None
+
+
+class RevenuePeriodPageOut(BaseModel):
+    rows: list[RevenuePeriodOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
 
 
 @router.get("/dashboard")
@@ -32,50 +68,102 @@ def get_profit(sales_order_id: int, db: DbSession, _: User = Depends(require_per
 
 @router.get("/branded-stock-value")
 def get_branded_value(db: DbSession, _: User = Depends(require_permissions("finance.view", "*"))):
-    return {"value": branded_stock_value(db)}
+    return {"value": None, "currency": None}
 
 
 @router.get("/waste-report")
 def get_waste(db: DbSession, _: User = Depends(require_permissions("finance.view", "*"))):
-    return {"cost": waste_cost(db), "income": waste_income(db)}
+    return {"cost": None, "income": None, "currency": None}
 
 
-@router.get("/invoices")
+@router.get("/invoices", response_model=list[FinanceInvoiceOut] | FinanceInvoicePageOut)
 def list_invoices(
     db: DbSession,
     _: User = Depends(require_permissions("finance.view", "*")),
-    limit: int = 50,
+    limit: Annotated[int, Query(ge=1, le=500)] = 50,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
-    return list_recent_invoices(db, limit=limit)
+    if page is None and page_size is None:
+        return list_recent_invoices(db, limit=limit)
+    effective_page = page or 1
+    effective_page_size = page_size or limit
+    total = count_invoices(db)
+    rows = list_recent_invoices(
+        db,
+        limit=effective_page_size,
+        offset=(effective_page - 1) * effective_page_size,
+    )
+    return {
+        "rows": rows,
+        "total": total,
+        "page": effective_page,
+        "page_size": effective_page_size,
+        "has_more": effective_page * effective_page_size < total,
+    }
 
 
-@router.get("/revenue-by-period")
+@router.get("/revenue-by-period", response_model=list[RevenuePeriodOut] | RevenuePeriodPageOut)
 def get_revenue_by_period(
     db: DbSession,
     _: User = Depends(require_permissions("finance.view", "*")),
     from_dt: datetime | None = Query(default=None, alias="from"),
     to_dt: datetime | None = Query(default=None, alias="to"),
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
-    return revenue_by_period(db, from_dt=from_dt, to_dt=to_dt)
+    if page is None and page_size is None:
+        return revenue_by_period(db, from_dt=from_dt, to_dt=to_dt)
+    effective_page = page or 1
+    effective_page_size = page_size or 50
+    total = count_revenue_periods(db, from_dt=from_dt, to_dt=to_dt)
+    rows = revenue_by_period(
+        db,
+        from_dt=from_dt,
+        to_dt=to_dt,
+        limit=effective_page_size,
+        offset=(effective_page - 1) * effective_page_size,
+    )
+    return {
+        "rows": rows,
+        "total": total,
+        "page": effective_page,
+        "page_size": effective_page_size,
+        "has_more": effective_page * effective_page_size < total,
+    }
 
 
 @router.get("/cost-breakdown")
 def get_cost_breakdown(db: DbSession, _: User = Depends(require_permissions("finance.view", "*"))):
-    return cost_breakdown(db)
+    return {"fabric_cost": None, "labor_cost": None, "accessories_cost": None, "total_cogs": None, "currency": None}
 
 
 @router.post("/invoices", response_model=InvoiceOut, status_code=201)
 def create_invoice(payload: InvoiceIn, db: DbSession, current: User = Depends(require_permissions("finance.invoice", "*"))):
-    so = db.get(SalesOrder, payload.sales_order_id)
+    # Serialize the existence check even when there is no invoice row to lock.
+    # NO KEY UPDATE stays compatible with invoice-insert foreign-key checks.
+    so = (
+        db.query(SalesOrder)
+        .filter(SalesOrder.id == payload.sales_order_id)
+        .populate_existing()
+        .with_for_update(of=SalesOrder, key_share=True)
+        .first()
+    )
     if not so:
         raise HTTPException(404, "Sales order not found")
     existing = db.query(Invoice).filter(Invoice.sales_order_id == payload.sales_order_id).order_by(Invoice.id.desc()).first()
     if existing:
+        if payload.currency is not None and payload.currency != existing.currency:
+            raise HTTPException(409, "Cannot change existing invoice currency")
         return existing
+    amount = _validated_invoice_amount(payload.amount if payload.amount is not None else so.total_amount or 0)
+    if payload.currency and so.currency and payload.currency != so.currency:
+        raise HTTPException(409, "Invoice currency differs from sales order currency")
     inv = Invoice(
         sales_order_id=payload.sales_order_id,
         invoice_no=next_invoice_no(db),
-        amount=float(payload.amount if payload.amount is not None else so.total_amount or 0),
+        amount=amount,
+        currency=payload.currency or so.currency,
         status="unpaid",
         issued_at=datetime.now(timezone.utc),
     )
@@ -93,7 +181,12 @@ def create_payment(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     fingerprint_payload = payload.model_dump(mode="json")
-    replay = replay_idempotent_response(db, scope="finance.payments", key=idempotency_key, payload=fingerprint_payload)
+    if payload.currency is None:
+        fingerprint_payload.pop("currency", None)
+    # Keep the historical JSON-number shape used by existing idempotency
+    # records while retaining Decimal for the stored payment amount.
+    fingerprint_payload["amount"] = float(payload.amount)
+    replay = replay_idempotent_response(db, user=current, scope="finance.payments", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
     inv = db.get(Invoice, payload.invoice_id)
@@ -102,6 +195,7 @@ def create_payment(
         db,
         inv,
         amount=payload.amount,
+        currency=payload.currency,
         payment_method=payload.payment_method,
         paid_at=payload.paid_at,
         notes=payload.notes,
@@ -126,12 +220,39 @@ def sync_1c_finance(
     payload: OneCSyncIn,
     db: DbSession,
     x_1c_token: str | None = Header(default=None, alias="X-1C-Token"),
+    x_1c_client: str | None = Header(default=None, alias="X-1C-Client"),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    expected = settings.INTEGRATION_1C_TOKEN.strip()
-    if not expected:
-        raise HTTPException(503, "1C integration token is not configured")
-    if not hmac.compare_digest(str(x_1c_token or ""), expected):
-        raise HTTPException(401, "Invalid 1C token")
+    identity = authenticate_onec_integration(
+        supplied_client_id=x_1c_client,
+        supplied_token=x_1c_token,
+        clients_json=settings.INTEGRATION_1C_CLIENTS_JSON,
+        legacy_shared_token=settings.INTEGRATION_1C_TOKEN,
+        strict_security_required=settings.strict_security_required,
+    )
+    fingerprint_payload = payload.model_dump(mode="json")
+    for model_rows, raw_rows in ((payload.invoices, fingerprint_payload["invoices"]),
+                                 (payload.payments, fingerprint_payload["payments"])):
+        for model_row, raw_row in zip(model_rows, raw_rows):
+            if model_row.currency is None:
+                raw_row.pop("currency", None)
+    replay = replay_integration_response(
+        db,
+        identity=identity,
+        key=idempotency_key,
+        payload=fingerprint_payload,
+        required=settings.strict_security_required,
+    )
+    if replay is not None:
+        db.commit()
+        return replay
     result = sync_from_1c(db, payload)
+    store_integration_response(
+        db,
+        identity=identity,
+        key=idempotency_key,
+        payload=fingerprint_payload,
+        response=result,
+    )
     db.commit()
     return result

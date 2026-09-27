@@ -5,11 +5,11 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, load_only
 
 from app.core.deps import user_permissions
 from app.services.user_access import access_configured, permission_denied
-from app.models import CuttingPassport, Notification, User
+from app.models import CuttingPassport, Department, Notification, Role, User
 from app.models.catalog import Model
 from app.models.price_calculation import PriceCalculationRequest
 from app.services.audit import log_action
@@ -17,6 +17,8 @@ from app.services.model_images import model_preview_image_url, model_variant_pic
 
 
 FIXED_PACKAGING_COST = Decimal("0.1")
+MAX_ACCESSORY_PRICE = Decimal("9999999999.9999")
+MAX_BINDING_KG_PER_PIECE = Decimal("99999999.999999")
 PURCHASING_PERMISSION = "price_calculation.purchasing"
 ACCESSORIES_PERMISSION = "price_calculation.accessories"
 CUTTING_PERMISSION = "price_calculation.cutting"
@@ -30,13 +32,7 @@ def is_price_purchaser(user: User) -> bool:
     if permission_denied(user, PURCHASING_PERMISSION):
         return False
     granted = user_permissions(user)
-    if "*" in granted or PURCHASING_PERMISSION in granted:
-        return True
-    if access_configured(user):
-        return False
-    name = _normalized(user.name)
-    email_local = _normalized(user.email).split("@", 1)[0]
-    return name == "abbosbek" or name.startswith("abbosbek ") or email_local == "abbosbek"
+    return "*" in granted or PURCHASING_PERMISSION in granted
 
 
 def is_accessory_pricing_user(user: User) -> bool:
@@ -90,9 +86,17 @@ def _decimal(value: object) -> Decimal | None:
     if value is None or value == "":
         return None
     try:
-        return Decimal(str(value))
+        parsed = Decimal(str(value))
+        return parsed if parsed.is_finite() else None
     except Exception:
         return None
+
+
+def _accessory_price(value: object) -> Decimal | None:
+    parsed = _decimal(value)
+    if parsed is None or parsed < 0 or parsed > MAX_ACCESSORY_PRICE:
+        return None
+    return parsed
 
 
 def _positive(value: object) -> bool:
@@ -145,6 +149,27 @@ def _stage_status(required_values: list[bool]) -> str:
     return "in_progress"
 
 
+def _active_pricing_users(db: Session) -> list[User]:
+    return (
+        db.query(User)
+        .options(
+            load_only(
+                User.id,
+                User.is_active,
+                User.factory_code,
+                User.extra_permissions,
+                User.access_policy,
+                User.role_id,
+                User.department_id,
+            ),
+            joinedload(User.role).load_only(Role.id, Role.name, Role.permissions),
+            joinedload(User.department).load_only(Department.id, Department.code),
+        )
+        .filter(User.is_active.is_(True))
+        .all()
+    )
+
+
 def cutting_status(request: PriceCalculationRequest) -> str:
     return _stage_status([
         bool(str(request.kroy_no or "").strip()),
@@ -168,7 +193,12 @@ def accessories_status(request: PriceCalculationRequest) -> str:
     rows = [row for row in rows if isinstance(row, dict) and (str(row.get("name") or "").strip() or row.get("price") is not None)]
     if not rows:
         return "new"
-    if all(str(row.get("name") or "").strip() and _positive(row.get("price")) for row in rows):
+    if all(
+        str(row.get("name") or "").strip()
+        and (price := _accessory_price(row.get("price"))) is not None
+        and price > 0
+        for row in rows
+    ):
         return "complete"
     return "in_progress"
 
@@ -260,7 +290,7 @@ def _calculation(request: PriceCalculationRequest) -> dict:
     consumption_cost = consumption * fabric_price
     binding_price = binding * fabric_price
     accessory_total = sum(
-        (_decimal(row.get("price")) or Decimal(0))
+        (_accessory_price(row.get("price")) or Decimal(0))
         for row in (request.accessories_json or [])
         if isinstance(row, dict)
     )
@@ -280,11 +310,16 @@ def serialize_price_request(request: PriceCalculationRequest) -> dict:
     model_no, variant_no = _model_parts(model)
     sizes = list(dict.fromkeys(str(row.size or "").strip() for row in (model.sizes or []) if str(row.size or "").strip()))
     passport = request.cutting_passport
-    accessories = [
-        {"name": str(row.get("name") or "").strip() or None, "price": float(row["price"]) if row.get("price") is not None else None}
-        for row in (request.accessories_json or [])
-        if isinstance(row, dict)
-    ]
+    accessories = []
+    accessory_rows = request.accessories_json if isinstance(request.accessories_json, list) else []
+    for row in accessory_rows:
+        if not isinstance(row, dict):
+            continue
+        price = _accessory_price(row.get("price"))
+        accessories.append({
+            "name": str(row.get("name") or "").strip() or None,
+            "price": float(price) if price is not None else None,
+        })
     payload = {
         "id": request.id,
         "model_id": request.model_id,
@@ -352,7 +387,16 @@ def create_price_request(db: Session, model_id: int, current: User) -> PriceCalc
         raise HTTPException(404, "Model not found")
     details = model.details_json if isinstance(model.details_json, dict) else {}
     costing = details.get("costing") if isinstance(details.get("costing"), dict) else {}
-    margin = _decimal(costing.get("target_margin_pct"))
+    raw_margin = costing.get("target_margin_pct")
+    margin = _decimal(raw_margin)
+    if raw_margin is not None and raw_margin != "" and margin is None:
+        raise HTTPException(422, "Model target margin must be a finite number")
+    if margin is not None and (
+        not margin.is_finite()
+        or abs(margin) > Decimal("999999.99")
+        or margin != margin.quantize(Decimal("0.01"))
+    ):
+        raise HTTPException(422, "Model target margin exceeds supported price calculation precision")
     request = PriceCalculationRequest(
         model_id=model.id,
         created_by_id=current.id,
@@ -377,6 +421,9 @@ def update_cutting_details(db: Session, request: PriceCalculationRequest, data: 
     before = cutting_status(request)
     kroy_no = str(data.get("kroy_no") or "").strip()
     passport = _passport_for_kroy(db, request, kroy_no)
+    passport_size_count = _size_count_from_range(passport.size_range) if passport else 0
+    if passport_size_count > 2_147_483_647:
+        raise HTTPException(422, "Passport size range exceeds price calculation storage limits")
     request.kroy_no = kroy_no
     request.cutting_passport_id = passport.id if passport else None
 
@@ -386,9 +433,14 @@ def update_cutting_details(db: Session, request: PriceCalculationRequest, data: 
             (_decimal(passport.beka_per_piece_kg) or Decimal(0))
             + (_decimal(passport.other_beka_per_piece_kg) or Decimal(0))
         )
+        if (
+            not passport_binding.is_finite()
+            or passport_binding < 0
+            or passport_binding > MAX_BINDING_KG_PER_PIECE
+        ):
+            raise HTTPException(422, "Passport binding weight exceeds price calculation storage limits")
     request.fabric_width_m = passport.fabric_width_m if passport and passport.fabric_width_m is not None else data.get("fabric_width_m")
     request.lay_length_m = passport.lay_length_m if passport and passport.lay_length_m is not None else data.get("lay_length_m")
-    passport_size_count = _size_count_from_range(passport.size_range) if passport else 0
     request.size_count = passport_size_count or data.get("size_count")
     request.gramage = passport.gramage if passport and passport.gramage is not None else data.get("gramage")
     request.binding_kg_per_piece = passport_binding if passport_binding is not None else data.get("binding_kg_per_piece")
@@ -443,7 +495,7 @@ def update_accessories(db: Session, request: PriceCalculationRequest, rows: list
 
 def _notify_new_request(db: Session, request: PriceCalculationRequest) -> None:
     recipients = [
-        user for user in db.query(User).filter(User.is_active.is_(True)).all()
+        user for user in _active_pricing_users(db)
         if is_finance_pricing_user(user) or is_cutting_pricing_user(user) or is_price_purchaser(user) or is_accessory_pricing_user(user)
     ]
     seen: set[int] = set()
@@ -463,7 +515,7 @@ def _notify_new_request(db: Session, request: PriceCalculationRequest) -> None:
 
 
 def _notify_finance(db: Session, request: PriceCalculationRequest, title: str) -> None:
-    for recipient in db.query(User).filter(User.is_active.is_(True)).all():
+    for recipient in _active_pricing_users(db):
         if not is_finance_pricing_user(recipient) or "*" in user_permissions(recipient):
             continue
         db.add(Notification(user_id=recipient.id, title=title, message=f"Model {request.model.code} price request was updated.", link="/finance/price-calculation"))

@@ -43,15 +43,18 @@ export default function PrintingPage() {
   const [msg, setMsg] = useState("");
   const [collectBusy, setCollectBusy] = useState(false);
   const [collect, setCollect] = useState({ deadline: "", notes: "" });
-  const { data: wo, mutate: mutateWo } = useSWR<any>(Number.isFinite(id) ? `/api/work-orders/${id}` : null, fetcher);
-  const { data: po } = useSWR<any>(wo ? `/api/production-orders/${wo.production_order_id}` : null, fetcher);
-  const { data: model } = useSWR<any>(po?.model_id ? `/api/models/${po.model_id}` : null, fetcher);
+  const { data: pageContext, mutate: mutateWo } = useSWR<any>(
+    Number.isFinite(id) ? `/api/work-orders/${id}/page-context` : null,
+    fetcher,
+  );
+  const wo = pageContext?.work_order;
+  const po = pageContext?.production_order;
+  const so = pageContext?.sales_order;
+  const model = pageContext?.model;
   const { data: batchProgress, mutate: mutateBatchProgress } = useSWR<any>(
     wo ? `/api/work-orders/${id}/printing-batch-progress` : null,
     fetcher,
   );
-  const { data: so } = useSWR<any>(po?.sales_order_id ? `/api/sales-orders/${po.sales_order_id}` : null, fetcher);
-  const { data: customers } = useSWR<any[]>(so?.customer_id ? "/api/customers" : null, fetcher);
   const soItems = Array.isArray(so?.items) ? so.items : [];
   const poItems = Array.isArray(po?.items)
     ? po.items.map((item: any) => ({ ...item, quantity: item.quantity ?? item.planned_quantity }))
@@ -61,7 +64,7 @@ export default function PrintingPage() {
   const { data: models } = useSWR<any[]>(printingModelOptionsKey, modelOptionsByIdsFetcher);
   const printSource = so || po;
   const printFiles: PrintingAttachment[] = Array.isArray(printSource?.printing_attachments) ? printSource.printing_attachments : [];
-  const customerName = customers?.find((c) => Number(c.id) === Number(so?.customer_id))?.name;
+  const customerName = so?.customer?.name || so?.customer_name;
   const printingItems = orderItems.filter((item: any) => Boolean(item?.printing_required));
   const orderItemsForPrint = printingItems.length > 0 ? printingItems : orderItems;
   const woStatus = String(wo?.status || "").toLowerCase();

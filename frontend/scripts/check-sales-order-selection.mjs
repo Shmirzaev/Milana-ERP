@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import ts from "typescript";
 
 const page = readFileSync(
   new URL("../src/app/(app)/sales-orders/new/page.tsx", import.meta.url),
@@ -47,9 +48,18 @@ assert.match(
 );
 assert.match(
   page,
-  /unit_price: line\.unit_price === "" \? null : numberOrZero\(line\.unit_price\)/,
-  "A blank Sales Order price must reach the backend as missing so its variant-price fallback is authoritative.",
+  /unit_price: submittedUnitPrice\(line\)/,
+  "Sales Order submission must preserve whether the user explicitly edited the price.",
 );
+const priceSource = readFileSync(new URL("../src/lib/salesOrderPriceProvenance.ts", import.meta.url), "utf8");
+const priceExports = {};
+new Function("exports", ts.transpileModule(priceSource, {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+}).outputText)(priceExports);
+assert.equal(priceExports.submittedUnitPrice({ unit_price: "", price_edited: false }), null);
+assert.equal(priceExports.submittedUnitPrice({ unit_price: "12.5", price_edited: false }), null);
+assert.equal(priceExports.submittedUnitPrice({ unit_price: "12.5", price_edited: true }), 12.5);
+assert.equal(priceExports.submittedUnitPrice({ unit_price: 0, price_edited: true }), 0);
 for (const localeSource of localeSources) {
   assert.match(
     localeSource,

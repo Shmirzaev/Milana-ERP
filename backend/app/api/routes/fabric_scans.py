@@ -9,9 +9,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import case, func
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import joinedload, load_only
 
 from app.core.deps import DbSession, require_permissions
-from app.models import StockBatch, User
+from app.models import Item, StockBatch, User
 from app.models.fabric_scan import FabricScan
 from app.services.factory_scope import cutting_department_scope
 from app.services.inventory_access import MATERIAL_CATEGORIES
@@ -64,6 +65,20 @@ def row_data(row):
     }
 
 
+def _row_data_load_options():
+    return load_only(
+        FabricScan.id,
+        FabricScan.report_date,
+        FabricScan.direction,
+        FabricScan.fabric_name,
+        FabricScan.batch_no,
+        FabricScan.color,
+        FabricScan.roll_number,
+        FabricScan.operator_name,
+        FabricScan.scanned_at,
+    )
+
+
 @router.post("")
 def scan(payload: ScanInput, db: DbSession, user: User = Depends(scan_access)):
     department = cutting_department_scope(user, None)
@@ -71,10 +86,20 @@ def scan(payload: ScanInput, db: DbSession, user: User = Depends(scan_access)):
     timestamp = now_utc()
     identity = dict(department=department, report_date=timestamp.astimezone(TASHKENT).date(),
                     batch_id=batch_id, roll_number=roll, direction=payload.direction)
-    existing = db.query(FabricScan).filter_by(**identity).first()
+    existing = db.query(FabricScan).options(_row_data_load_options()).filter_by(**identity).first()
     if existing:
         return {"duplicate": True, "row": row_data(existing)}
-    batch = db.get(StockBatch, batch_id)
+    batch = db.query(StockBatch).options(
+        load_only(
+            StockBatch.id,
+            StockBatch.item_id,
+            StockBatch.batch_no,
+            StockBatch.color,
+            StockBatch.piece_count,
+            StockBatch.roll_weights_kg,
+        ),
+        joinedload(StockBatch.item).load_only(Item.id, Item.name, Item.category),
+    ).filter(StockBatch.id == batch_id).first()
     if not batch or not batch.item or batch.item.category not in MATERIAL_CATEGORIES:
         raise HTTPException(404, "fabric_not_found")
     # Do not trust roll_total, weight, fabric names or other data inside the QR.
@@ -90,7 +115,7 @@ def scan(payload: ScanInput, db: DbSession, user: User = Depends(scan_access)):
         db.commit()
     except IntegrityError:
         db.rollback()
-        existing = db.query(FabricScan).filter_by(**identity).first()
+        existing = db.query(FabricScan).options(_row_data_load_options()).filter_by(**identity).first()
         if existing:
             return {"duplicate": True, "row": row_data(existing)}
         raise
@@ -100,22 +125,51 @@ def scan(payload: ScanInput, db: DbSession, user: User = Depends(scan_access)):
 @router.get("")
 def report(db: DbSession, user: User = Depends(report_access),
            report_date: date | None = None, page: int = Query(1, ge=1),
-           page_size: int = Query(50, ge=1, le=200)):
+           page_size: int = Query(50, ge=1, le=200),
+           summary_page: int | None = Query(None, ge=1),
+           summary_page_size: int | None = Query(None, ge=1, le=500)):
     department = cutting_department_scope(user, None)
     day = report_date or now_utc().astimezone(TASHKENT).date()
     query = db.query(FabricScan).filter_by(department=department, report_date=day)
     received = func.sum(case((FabricScan.direction == "received", 1), else_=0))
     returned = func.sum(case((FabricScan.direction == "returned", 1), else_=0))
     totals = query.with_entities(func.count(FabricScan.id), received, returned).one()
-    groups = query.with_entities(FabricScan.batch_id, FabricScan.fabric_name, FabricScan.batch_no,
-                                FabricScan.color, received, returned).group_by(
+    summary_query = query.with_entities(FabricScan.batch_id, FabricScan.fabric_name, FabricScan.batch_no,
+                                       FabricScan.color, received, returned).group_by(
         FabricScan.batch_id, FabricScan.fabric_name, FabricScan.batch_no, FabricScan.color,
-    ).order_by(FabricScan.fabric_name, FabricScan.batch_no).all()
-    rows = query.order_by(FabricScan.scanned_at.desc(), FabricScan.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
-    return {
+    ).order_by(FabricScan.fabric_name, FabricScan.batch_no)
+    summary_pagination = None
+    if summary_page is not None or summary_page_size is not None:
+        summary_page = summary_page or 1
+        summary_page_size = summary_page_size or 100
+        summary_total = summary_query.order_by(None).count()
+        groups = summary_query.offset((summary_page - 1) * summary_page_size).limit(summary_page_size).all()
+        summary_pagination = {
+            "page": summary_page,
+            "page_size": summary_page_size,
+            "total": summary_total,
+            "pages": max((summary_total + summary_page_size - 1) // summary_page_size, 1),
+        }
+    else:
+        groups = summary_query.all()
+    rows = query.options(load_only(
+        FabricScan.id,
+        FabricScan.report_date,
+        FabricScan.direction,
+        FabricScan.fabric_name,
+        FabricScan.batch_no,
+        FabricScan.color,
+        FabricScan.roll_number,
+        FabricScan.operator_name,
+        FabricScan.scanned_at,
+    )).order_by(FabricScan.scanned_at.desc(), FabricScan.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    result = {
         "report_date": day, "department": department, "total": totals[0],
         "received": totals[1] or 0, "returned": totals[2] or 0,
         "summary": [{"fabric_name": r[1], "batch_no": r[2], "color": r[3],
                      "received": r[4], "returned": r[5]} for r in groups],
         "rows": [row_data(row) for row in rows], "page": page, "page_size": page_size,
     }
+    if summary_pagination is not None:
+        result["summary_pagination"] = summary_pagination
+    return result

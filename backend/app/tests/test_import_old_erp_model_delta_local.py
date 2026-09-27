@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.models import Model
 from scripts import import_old_erp_model_delta_local as delta
 from scripts import import_old_erp_models_local as original
 
@@ -442,6 +443,98 @@ def test_existing_paid_operations_list_is_preserved_exactly(field: str) -> None:
     assert details[field] == existing
     if field == "paidOperations":
         assert "paid_operations" not in details
+
+
+@pytest.mark.parametrize("invalid_kind", ["oversized", "deep"])
+def test_delta_details_rejects_changed_unbounded_legacy_without_mutation(invalid_kind: str) -> None:
+    extension: object = "x" * (70 * 1024)
+    if invalid_kind == "deep":
+        extension = {"leaf": True}
+        for _ in range(20):
+            extension = {"next": extension}
+    current = {"legacy_extension": extension}
+    before = copy.deepcopy(current)
+
+    with pytest.raises(delta.MigrationError, match="Imported Model.details_json is invalid"):
+        delta.details_after(
+            current,
+            patch={"legacy_product": "Tunic"},
+            provenance={"source_key": delta.SOURCE_KEY},
+            paid_operations=[],
+        )
+
+    assert current == before
+
+
+def test_delta_details_preserves_exact_unchanged_oversized_legacy() -> None:
+    provenance = {"source_key": delta.SOURCE_KEY}
+    current = {
+        "general": {},
+        "paid_operations": [],
+        delta.DETAILS_KEY: copy.deepcopy(provenance),
+        "legacy_extension": "x" * (70 * 1024),
+    }
+
+    assert delta.details_after(
+        current,
+        patch={},
+        provenance=provenance,
+        paid_operations=[],
+    ) == current
+
+
+@pytest.mark.parametrize("invalid_kind", ["oversized", "deep", "nonfinite"])
+def test_delta_plan_rejects_invalid_quarantine_details_without_database(
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_kind: str,
+) -> None:
+    monkeypatch.setattr(delta, "SessionLocal", lambda: pytest.fail("database session opened"))
+    invalid_value: object = "ж" * (70 * 1024)
+    if invalid_kind == "deep":
+        invalid_value = {"leaf": True}
+        for _ in range(20):
+            invalid_value = {"next": invalid_value}
+    elif invalid_kind == "nonfinite":
+        invalid_value = float("inf")
+    existing = {"general": {}}
+    model = Model(id=7, code="TEST", name="Test", details_json=copy.deepcopy(existing))
+    action = {
+        "action": "update_existing",
+        "action_scope": "quarantine_reconciliation",
+        "target_model_id": 7,
+        "details_after": {"general": {"extension": invalid_value}},
+    }
+
+    with pytest.raises(delta.MigrationError, match="Imported Model.details_json is invalid"):
+        delta.validate_planned_details_bounds([action], [model])
+
+    assert model.details_json == existing
+
+
+def test_delta_plan_keeps_unchanged_oversized_legacy_document_without_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(delta, "SessionLocal", lambda: pytest.fail("database session opened"))
+    provenance = {"source_key": delta.SOURCE_KEY}
+    existing = {
+        "general": {"legacy_product": "Original"},
+        "paid_operations": [],
+        delta.DETAILS_KEY: copy.deepcopy(provenance),
+        "future_extension": "ж" * (70 * 1024),
+    }
+    model = Model(id=7, code="TEST", name="Test", details_json=copy.deepcopy(existing))
+    final = delta.details_after(
+        existing,
+        patch={"legacy_product": "x" * (70 * 1024)},
+        provenance=provenance,
+        paid_operations=[],
+    )
+    action = {"action": "update_existing", "target_model_id": 7, "details_after": final}
+
+    delta.validate_planned_details_bounds([action], [model])
+
+    assert final == existing
+    assert model.details_json == existing
 
 
 def applied_delta_model(name: str) -> tuple[SimpleNamespace, dict, dict, dict, dict]:

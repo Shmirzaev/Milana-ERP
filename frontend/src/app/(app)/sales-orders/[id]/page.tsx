@@ -9,17 +9,24 @@ import StagePipeline, { operationLabel, productionTypeLabel, statusLabel } from 
 import { formatOrderReference, orderReference } from "@/lib/orderRef";
 import { formatComposition } from "@/lib/materialComposition";
 import { formatModelComposition } from "@/lib/modelComposition";
+import { recordedSalesOrderMoney } from "@/lib/salesOrderMoney";
 
 type PrintingAttachment = { file_url: string; file_name?: string | null; content_type?: string | null };
+type SalesOrderPageContext = { sales_order: any; material_requirements: any[] | null };
 
 export default function SalesOrderDetail() {
   const params = useParams<{ id: string }>();
   const { t, lang } = useT();
   const id = params.id;
   const isNumericId = /^\d+$/.test(String(id || ""));
-  const { data: so, error: orderError, isLoading: orderLoading, mutate } = useSWR<any>(isNumericId ? `/api/sales-orders/${id}` : null, fetcher);
-  const { data: mr } = useSWR<any[]>(so ? `/api/planning/material-requirements/${id}` : null, fetcher);
-  const { data: processes } = useSWR<any[]>(so ? "/api/process-tracking" : null, fetcher);
+  const { data: pageContext, error: orderError, isLoading: orderLoading, mutate } = useSWR<SalesOrderPageContext>(
+    isNumericId ? `/api/sales-orders/${id}/page-context` : null,
+    fetcher,
+  );
+  const so = pageContext?.sales_order;
+  const mr = pageContext?.material_requirements;
+  const processesKey = so && so.status !== "draft" ? "/api/process-tracking" : null;
+  const { data: processes } = useSWR<any[]>(processesKey, fetcher);
   const [msg, setMsg] = useState("");
   const linkedProcesses = (processes || []).filter((p) => String(p.sales_order_id) === String(id));
   const activeProcess = linkedProcesses.find((p) => p.current_stage !== "completed") || linkedProcesses[0];
@@ -94,7 +101,7 @@ export default function SalesOrderDetail() {
           <dl className="text-sm space-y-1">
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.orderNo")}</dt><dd>{formatOrderReference(so.order_no)}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.customer")}</dt><dd>{so.customer?.name || so.customer_name || so.customer_id || "-"}</dd></div>
-            <div className="flex justify-between"><dt className="text-slate-500">{t("field.total")}</dt><dd>${Number(so.total_amount).toFixed(2)}</dd></div>
+            <div className="flex justify-between"><dt className="text-slate-500">{t("field.total")}</dt><dd>{recordedSalesOrderMoney(so.total_amount, so.currency)}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.deadline")}</dt><dd>{so.deadline ? new Date(so.deadline).toLocaleDateString() : "—"}</dd></div>
             {so.planning_estimated_material_cost !== null && so.planning_estimated_material_cost !== undefined && (
               <div className="flex justify-between"><dt className="text-slate-500">{t("page.soDetail.planningMaterialCost")}</dt><dd>${Number(so.planning_estimated_material_cost).toFixed(2)}</dd></div>
@@ -141,7 +148,7 @@ export default function SalesOrderDetail() {
                   <td>{i.color}</td>
                   <td>{i.size}</td>
                   <td>{i.quantity}</td>
-                  <td>${Number(i.unit_price).toFixed(2)}</td>
+                  <td>{recordedSalesOrderMoney(i.unit_price, so.currency)}</td>
                 </tr>
               ))}
             </tbody>

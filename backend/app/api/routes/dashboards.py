@@ -1,8 +1,10 @@
 from datetime import date, datetime, timezone, timedelta, time
 from zoneinfo import ZoneInfo
-from typing import Literal
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func
+from typing import Annotated, Literal
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+from sqlalchemy import case, func
+from sqlalchemy.orm import load_only
 
 from app.core.deps import (
     DASHBOARD_PLANNING_READ_PERMISSIONS,
@@ -18,7 +20,7 @@ from app.models import (
     CuttingRecord, SewingRecord, PrintingRecord, PackagingRecord, Customer, User,
     SalesOrderItem,
 )
-from app.services.finance import dashboard_summary, branded_stock_value
+from app.services.finance import dashboard_summary
 from app.services.inventory import stock_summary
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -52,18 +54,68 @@ _ACTIVE_ORDER_STATUSES = (
 )
 
 
-@router.get("/active-production")
-def active_production(db: DbSession, _: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS))):
+class ActiveProductionOut(BaseModel):
+    id: int
+    order_no: str
+    customer_id: int | None = None
+    customer: str
+    qty: int
+    progress: int
+    status: str
+    deadline: str | None = None
+    deadline_label: str
+    value: float | None
+    currency: str | None = None
+    type: str
+    order_type: str
+
+
+class ActiveProductionPageOut(BaseModel):
+    rows: list[ActiveProductionOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
+@router.get(
+    "/active-production",
+    response_model=list[ActiveProductionOut] | ActiveProductionPageOut,
+)
+def active_production(
+    db: DbSession,
+    _: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS)),
+    limit: Annotated[int, Query(ge=1, le=500)] = 500,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
     """Return active sales orders with production progress for the dashboard table."""
-    orders = (
-        db.query(SalesOrder)
-        .filter(SalesOrder.status.in_(("planning", "confirmed", "in_production")))
-        .order_by(SalesOrder.deadline.asc(), SalesOrder.id.asc())
-        .all()
-    )
+    query = db.query(SalesOrder).options(load_only(
+        SalesOrder.id,
+        SalesOrder.order_no,
+        SalesOrder.customer_id,
+        SalesOrder.order_type,
+        SalesOrder.status,
+        SalesOrder.deadline,
+        SalesOrder.total_amount,
+        SalesOrder.currency,
+    )).filter(SalesOrder.status.in_(("planning", "confirmed", "in_production")))
+    ordered_query = query.order_by(SalesOrder.deadline.asc(), SalesOrder.id.asc())
+    paginated = page is not None or page_size is not None
+    if paginated:
+        page = page or 1
+        page_size = page_size or limit
+        total = query.order_by(None).with_entities(func.count(SalesOrder.id)).scalar()
+        orders = ordered_query.offset((page - 1) * page_size).limit(page_size).all()
+    else:
+        orders = ordered_query.limit(limit).all()
     order_ids = {int(order.id) for order in orders}
     production_orders = (
-        db.query(ProductionOrder)
+        db.query(ProductionOrder).options(load_only(
+            ProductionOrder.id,
+            ProductionOrder.sales_order_id,
+            ProductionOrder.planned_quantity,
+        ))
         .filter(ProductionOrder.sales_order_id.in_(order_ids))
         .all()
         if order_ids
@@ -74,7 +126,11 @@ def active_production(db: DbSession, _: User = Depends(require_permissions(*PROD
         production_orders_by_sales_order.setdefault(int(production_order.sales_order_id), []).append(production_order)
     production_order_ids = {int(production_order.id) for production_order in production_orders}
     packaging_work_orders = (
-        db.query(WorkOrder)
+        db.query(WorkOrder).options(load_only(
+            WorkOrder.production_order_id,
+            WorkOrder.passed_qty,
+            WorkOrder.actual_output_qty,
+        ))
         .filter(
             WorkOrder.production_order_id.in_(production_order_ids),
             WorkOrder.operation == "packaging",
@@ -101,7 +157,9 @@ def active_production(db: DbSession, _: User = Depends(require_permissions(*PROD
     customers_by_id = {
         int(customer.id): customer
         for customer in (
-            db.query(Customer).filter(Customer.id.in_(customer_ids)).all()
+            db.query(Customer).options(load_only(Customer.id, Customer.name)).filter(
+                Customer.id.in_(customer_ids),
+            ).all()
             if customer_ids
             else []
         )
@@ -131,12 +189,21 @@ def active_production(db: DbSession, _: User = Depends(require_permissions(*PROD
                 "status": order.status,
                 "deadline": order.deadline.isoformat() if order.deadline else None,
                 "deadline_label": order.deadline.strftime("%b %d") if order.deadline else "-",
-                "value": float(order.total_amount or 0),
+                "value": float(order.total_amount or 0) if order.currency else None,
+                "currency": order.currency,
                 "type": order.order_type,
                 "order_type": order.order_type,
             }
         )
-    return result
+    if not paginated:
+        return result
+    return {
+        "rows": result,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.get("/management")
@@ -153,13 +220,25 @@ def management(db: DbSession, _: User = Depends(require_permissions("management.
     end_utc = end_local.astimezone(timezone.utc)
 
     # "Active orders" means commercially active demand: confirmed, in planning, or already in production.
-    active_orders = (
-        db.query(func.count(SalesOrder.id))
-        .filter(SalesOrder.status.in_(_ACTIVE_ORDER_STATUSES))
-        .scalar()
-        or 0
-    )
-    late_orders = db.query(func.count(SalesOrder.id)).filter(SalesOrder.deadline < now, SalesOrder.status.not_in(["delivered", "closed", "cancelled"])).scalar() or 0
+    active_orders, late_orders = db.query(
+        func.coalesce(
+            func.sum(case((SalesOrder.status.in_(_ACTIVE_ORDER_STATUSES), 1), else_=0)),
+            0,
+        ),
+        func.coalesce(
+            func.sum(
+                case(
+                    (
+                        (SalesOrder.deadline < now)
+                        & SalesOrder.status.not_in(["delivered", "closed", "cancelled"]),
+                        1,
+                    ),
+                    else_=0,
+                )
+            ),
+            0,
+        ),
+    ).one()
     todays_defects = (
         db.query(func.coalesce(func.sum(SewingRecord.failed_qty + SewingRecord.rejected_qty), 0))
         .filter(SewingRecord.created_at >= start_utc, SewingRecord.created_at < end_utc)
@@ -177,7 +256,8 @@ def management(db: DbSession, _: User = Depends(require_permissions("management.
         "late_orders": int(late_orders),
         "todays_defects": float(todays_defects),
         "todays_waste": float(todays_waste),
-        "branded_stock_value": branded_stock_value(db),
+        "branded_stock_value": None,
+        "branded_stock_currency": None,
     }
 
 
@@ -248,5 +328,6 @@ def inventory(db: DbSession, _: User = Depends(require_permissions(*INVENTORY_RE
     return {
         "items": summary[:50],
         "finished_goods_total": fg_total,
-        "branded_stock_value": branded_stock_value(db),
+        "branded_stock_value": None,
+        "branded_stock_currency": None,
     }

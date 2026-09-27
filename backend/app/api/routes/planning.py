@@ -1,10 +1,28 @@
-from fastapi import APIRouter, HTTPException, Depends
-from sqlalchemy.orm import joinedload, selectinload
+from typing import Annotated
+
+from fastapi import APIRouter, HTTPException, Depends, Query
+from sqlalchemy.orm import joinedload, load_only, selectinload
 
 from app.core.deps import DbSession, require_permissions
-from app.models import BrandedPlanningOrder, Customer, Department, Model, User, SalesOrder, WorkOrder
+from app.models import (
+    BrandedPlanningOrder,
+    Customer,
+    Department,
+    Item,
+    Model,
+    ModelBOM,
+    ModelImage,
+    SalesOrder,
+    StockBatch,
+    User,
+    WorkOrder,
+)
 from app.schemas.production import (
+    BrandedOrderPartiesOut,
+    BrandedOrderPartiesPageOut,
     BrandedPlanningOrderIn,
+    BrandedPlanningOrderListOut,
+    BrandedPlanningOrderPageOut,
     MaterialRequirement,
     ProductionOrderIn,
     ProductionOrderOut,
@@ -14,7 +32,7 @@ from app.services.production import (
     create_production_order,
     create_production_batches,
     create_work_orders,
-    printing_attachments_for_storage,
+    production_order_printing_attachments_for_storage,
 )
 from app.services.audit import log_action
 from app.services.model_images import material_preview_image_url, model_display_image_url
@@ -102,28 +120,65 @@ def _branded_order_payload(
     }
 
 
-@router.get("/branded-order-parties")
+@router.get(
+    "/branded-order-parties",
+    response_model=BrandedOrderPartiesPageOut | BrandedOrderPartiesOut,
+)
 def branded_order_parties(
     db: DbSession,
     _: User = Depends(require_permissions("planning.production", "*")),
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
-    customers = db.query(Customer).order_by(Customer.name.asc()).all()
-    return {
+    ordered_query = db.query(Customer).options(
+        load_only(Customer.id, Customer.name),
+    ).order_by(Customer.name.asc())
+    payload = {
         "companies": [{"type": key, "name": name} for key, name in BRANDED_ORDER_PARTIES.items()],
+    }
+    if page is None and page_size is None:
+        customers = ordered_query.all()
+        return {
+            **payload,
+            "customers": [{"id": row.id, "name": row.name} for row in customers],
+        }
+    page = page or 1
+    page_size = page_size or 100
+    total = ordered_query.order_by(None).count()
+    customers = ordered_query.offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        **payload,
         "customers": [{"id": row.id, "name": row.name} for row in customers],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
     }
 
 
-@router.get("/branded-orders")
+@router.get(
+    "/branded-orders",
+    response_model=list[BrandedPlanningOrderListOut] | BrandedPlanningOrderPageOut,
+)
 def list_branded_orders(
     db: DbSession,
     _: User = Depends(require_permissions("planning.production", "*")),
     status: str | None = "open",
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     query = db.query(BrandedPlanningOrder).options(joinedload(BrandedPlanningOrder.production_orders))
     if status:
         query = query.filter(BrandedPlanningOrder.status == status)
-    rows = query.order_by(BrandedPlanningOrder.id.desc()).all()
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = query.order_by(None).count()
+    query = query.order_by(BrandedPlanningOrder.id.desc())
+    if total is not None:
+        query = query.offset((page - 1) * page_size).limit(page_size)
+    rows = query.all()
     model_ids = {
         int(production.model_id)
         for order in rows
@@ -132,7 +187,37 @@ def list_branded_orders(
     }
     models = (
         db.query(Model)
-        .options(selectinload(Model.images), selectinload(Model.bom))
+        .options(
+            load_only(Model.id, Model.code, Model.name, Model.details_json),
+            selectinload(Model.images).load_only(
+                ModelImage.id,
+                ModelImage.model_id,
+                ModelImage.file_url,
+                ModelImage.file_name,
+                ModelImage.content_type,
+                ModelImage.image_type,
+                ModelImage.is_primary,
+            ),
+            selectinload(Model.bom)
+            .load_only(
+                ModelBOM.id,
+                ModelBOM.model_id,
+                ModelBOM.item_id,
+                ModelBOM.stock_batch_id,
+                ModelBOM.color,
+                ModelBOM.photo_url,
+            )
+            .options(
+                joinedload(ModelBOM.item).load_only(
+                    Item.id,
+                    Item.category,
+                    Item.name,
+                    Item.sku,
+                    Item.image_url,
+                ),
+                joinedload(ModelBOM.stock_batch).load_only(StockBatch.id, StockBatch.image_url),
+            ),
+        )
         .filter(Model.id.in_(model_ids))
         .all()
         if model_ids
@@ -170,7 +255,16 @@ def list_branded_orders(
         }
         for production_id, works in cutting_by_production.items()
     }
-    return [_branded_order_payload(row, model_by_id, cutting_by_id, cutting_details_by_id) for row in rows]
+    payloads = [_branded_order_payload(row, model_by_id, cutting_by_id, cutting_details_by_id) for row in rows]
+    if total is None:
+        return payloads
+    return {
+        "rows": payloads,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.post("/branded-orders", status_code=201)
@@ -232,7 +326,7 @@ def create_for_client_order(payload: ProductionOrderIn, db: DbSession, current: 
     allowed_statuses = {"confirmed", "pending_sales_approval", "planning_approved"}
     if so.status not in allowed_statuses:
         raise HTTPException(400, f"Sales order must be confirmed before creating production (current: '{so.status}')")
-    printing_attachments = printing_attachments_for_storage(payload.printing_attachments)
+    printing_attachments = production_order_printing_attachments_for_storage(payload.printing_attachments)
     po = create_production_order(
         db,
         production_type="client_order",
@@ -281,6 +375,9 @@ def create_for_branded(payload: ProductionOrderIn, db: DbSession, current: User 
     planning_order = db.get(BrandedPlanningOrder, payload.planning_order_id) if payload.planning_order_id else None
     if payload.planning_order_id and not planning_order:
         raise HTTPException(404, "Branded planning order not found")
+    if planning_order and planning_order.status != "open":
+        raise HTTPException(400, "Branded planning order is not open")
+    printing_attachments = production_order_printing_attachments_for_storage(payload.printing_attachments)
     if not planning_order:
         planning_order = BrandedPlanningOrder(
             order_no=next_branded_planning_order_no(db),
@@ -291,9 +388,6 @@ def create_for_branded(payload: ProductionOrderIn, db: DbSession, current: User 
         )
         db.add(planning_order)
         db.flush()
-    if planning_order.status != "open":
-        raise HTTPException(400, "Branded planning order is not open")
-    printing_attachments = printing_attachments_for_storage(payload.printing_attachments)
     po = create_production_order(
         db,
         production_type="branded_stock",

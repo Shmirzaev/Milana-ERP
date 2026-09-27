@@ -5,6 +5,17 @@ const receivingPage = readFileSync(new URL("../src/app/(app)/purchasing/receivin
 const combinedDictionary = readFileSync(new URL("../src/lib/i18n/dict.ts", import.meta.url), "utf8");
 
 assert.match(receivingPage, /const supplierOrderGroups = useMemo/);
+assert.match(receivingPage, /useSWRInfinite<PurchaseOrderPage>/, "receiving orders must use bounded pages");
+assert.match(receivingPage, /page_size=50&receivable_only=true&q=/, "receiver pages must keep eligible-order filters and server search");
+assert.match(receivingPage, /\/api\/purchasing\/orders\?order_id=\$\{pendingReceipt\.orderId\}/,
+  "pending receipt labels must fetch the selected order directly outside loaded pages");
+assert.match(receivingPage, /setSize\(size \+ 1\)/, "receiver must expose Load more for eligible orders");
+assert.match(receivingPage, /orders\.length\} \/ \{totalOrders/, "receiver must display loaded and exact matched order totals");
+assert.match(receivingPage, /supplier_totals: \{ key: string; total_ordered_kg: number \}\[\]/,
+  "server pages must carry exact supplier totals across unloaded orders");
+assert.match(receivingPage, /supplierTotals\.get\(group\.key\)/,
+  "visible supplier groups must use totals for all matching eligible orders");
+assert.match(receivingPage, /setSearch\(event\.target\.value\)/, "receiver search input must be connected");
 assert.match(receivingPage, /line\.supplier_id \|\| order\.supplier_id/);
 assert.match(receivingPage, /line\.supplier_name \|\| order\.supplier_name/);
 assert.match(receivingPage, /isKilogramUnit\(line\.unit\)/);

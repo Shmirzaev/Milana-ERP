@@ -55,6 +55,18 @@ def report_data():
                 ),
             )
         )
+        db.add_all([
+            ModelImage(
+                model_id=model.id,
+                file_url=f"/storage/model-files/report-extra-{number}.png",
+                file_name=f"report-extra-{number}.png",
+                content_type="image/png",
+                image_type="material",
+                is_primary=False,
+                file_data=b"large image blob not used by this workbook",
+            )
+            for number in range(3)
+        ])
         order = ProductionOrder(
             production_no="PO-REPORT",
             production_type="branded_stock",
@@ -178,6 +190,18 @@ def test_report_counts_actual_packages_once_and_uses_tashkent_creation_date(clie
     assert closed["packed_quantity"] == 175 and closed["damaged_quantity"] == 3 and closed["balance"] == -2
     assert closed["shortage"] is None and closed["first_sort"] is None
     assert len(selects) <= 13
+    package_reads = [
+        statement.lower()
+        for statement in selects
+        if "packages.packed_at" in statement.lower() and "limit ?" in statement.lower()
+    ]
+    order_reads = [
+        statement.lower() for statement in selects if "production_orders.production_no" in statement.lower()
+    ]
+    assert len(package_reads) == 1
+    assert len(order_reads) == 1
+    assert "packages.notes" not in package_reads[0]
+    assert "production_orders.planning_estimate_comment" not in order_reads[0]
     with TestSessionLocal() as db:
         after = (db.query(func.count(Package.id)).scalar(), db.query(func.count(AuditLog.id)).scalar())
         assert before == after
@@ -200,6 +224,63 @@ def test_excel_matches_report_and_preserves_unknowns_and_literal_text(client, au
     closed = workbook.worksheets[1]
     assert closed["Q4"].value == "=Do not execute" and closed["Q4"].data_type == "s"
     assert daily.freeze_panes == "C4" and daily.auto_filter.ref == "A3:H4"
+
+
+def test_excel_reads_only_selected_model_image_blobs(client, auth_headers, report_data):
+    statements = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("select"):
+            statements.append(normalized)
+
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        response = client.get(
+            "/api/packaging/reports/export.xlsx",
+            params={**PARAMS, "lang": "en"},
+            headers=auth_headers,
+        )
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    image_queries = [statement for statement in statements if " from model_images " in statement]
+    metadata_queries = [statement for statement in image_queries if "file_data" not in statement]
+    blob_queries = [statement for statement in image_queries if "file_data" in statement]
+    assert len(metadata_queries) == 1, image_queries
+    assert len(blob_queries) == 1, image_queries
+    assert "model_images.id in (?)" in blob_queries[0], blob_queries
+    workbook = load_workbook(BytesIO(response.content))
+    assert len(workbook.worksheets[0]._images) == 2
+
+
+def test_excel_export_tracks_numeric_totals_during_row_write():
+    from app.services.packaging_report_exports import ENTRY_COLUMNS, export_packaging_report
+
+    class CountingRow(dict):
+        reads = {}
+
+        def get(self, key, default=None):
+            self.reads[key] = self.reads.get(key, 0) + 1
+            return super().get(key, default)
+
+    entry = CountingRow({key: None for key in ENTRY_COLUMNS if key != "date"})
+    entry.update({"date": "2026-09-03", "package_count": 0})
+    report = {
+        "packaging_department_code": "PKG",
+        "from_date": "2026-09-03",
+        "to_date": "2026-09-03",
+        "entries": [entry],
+        "completed": [],
+        "daily": [],
+    }
+
+    content = export_packaging_report(report, "en")
+
+    workbook = load_workbook(BytesIO(content))
+    assert workbook.worksheets[0]["M5"].value == "=SUM(M4:M4)"
+    assert entry.reads["package_count"] == 1
 
 
 @pytest.mark.parametrize("endpoint", ["", "/export.xlsx"])

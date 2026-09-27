@@ -39,6 +39,17 @@ export type SewingProductionReportOptions = {
   sizes: ReportOption[];
 };
 
+export type SewingProductionReportOrderOptionPage = {
+  items: ReportOption[];
+  total: number;
+  offset: number;
+  limit: number;
+  factory_code: string;
+  search: string;
+  selected_value: string;
+  selected_option?: ReportOption | null;
+};
+
 export type SewingSalarySummaryRow = {
   daily_amounts: Record<string, number | string>;
   employee_id: number;

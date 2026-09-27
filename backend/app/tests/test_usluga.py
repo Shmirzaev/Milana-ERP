@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+from sqlalchemy import event
+
 from app.models import (
     AuditLog,
     Department,
@@ -23,7 +25,7 @@ from app.models import (
 )
 from app.core.security import hash_password
 from app.services.production import expand_production_size_range_items
-from app.tests.conftest import TestSessionLocal
+from app.tests.conftest import TestSessionLocal, test_engine
 
 
 def _login_eco(client) -> None:
@@ -99,6 +101,21 @@ def _create_usluga_order(client, *, quantity: int = 12, size: str = "M") -> tupl
     return model, order_response.json()
 
 
+def test_create_usluga_order_rejects_unrepresentable_model_id_as_missing(client):
+    _login_eco(client)
+    response = client.post(
+        "/api/usluga/orders",
+        json={
+            "customer_name": "Outside Customer LLC",
+            "model_id": 2_147_483_648,
+            "color": "Natural",
+            "sizes": [{"size": "M", "quantity": 1}],
+        },
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Usluga model not found"
+
+
 def test_usluga_combined_model_size_remains_one_cutting_size(client):
     _login_eco(client)
     _, order = _create_usluga_order(client, quantity=360, size="40-42")
@@ -117,6 +134,40 @@ def test_usluga_combined_model_size_remains_one_cutting_size(client):
         {"color": "Natural", "size": "40", "planned_quantity": 180},
         {"color": "Natural", "size": "42", "planned_quantity": 180},
     ]
+
+
+def test_usluga_order_list_projects_response_columns_without_material_prefetch(client):
+    _login_eco(client)
+    _create_usluga_order(client, quantity=12, size="M")
+    statements: list[str] = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(" ".join(statement.lower().split()))
+
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        response = client.get("/api/usluga/orders")
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    page = response.json()
+    assert page["total"] == 1
+    assert page["page"] == 1
+    assert page["page_size"] == 100
+    assert len(page["rows"]) == 1
+    order_reads = [
+        statement for statement in statements
+        if " from production_orders " in statement and " limit " in statement
+    ]
+    assert len(order_reads) == 1
+    assert "production_orders.service_customer_name" in order_reads[0]
+    assert "production_orders.handed_over_at" in order_reads[0]
+    assert "production_orders.printing_attachments" not in order_reads[0]
+    assert "production_orders.estimated_material_amount" not in order_reads[0]
+    assert not any(" from production_order_materials " in statement for statement in statements)
+    assert client.get("/api/usluga/orders?page_size=101").status_code == 422
 
 
 def test_usluga_main_batch_size_counts_update_existing_bundles_only(client):
@@ -284,10 +335,24 @@ def test_reject_usluga_cutting_batch_permanently_deletes_unused_record_and_bundl
     bundle_ids = [int(row["id"]) for row in created.json()["bundles"]]
     assert len(bundle_ids) == 2
 
-    rejected = client.post(
-        f"/api/cutting/records/{record_id}/reject-usluga-batch",
-        json={"reason": "Wrong Cutting attempt"},
-    )
+    # Rejection inspects every bundle's scan history. The relationship must
+    # be loaded once for the batch rather than issuing one SELECT per bundle.
+    with TestSessionLocal() as db:
+        statements = []
+
+        def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().lower().startswith("select") and "bundle_scan_logs" in statement.lower():
+                statements.append(statement)
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            rejected = client.post(
+                f"/api/cutting/records/{record_id}/reject-usluga-batch",
+                json={"reason": "Wrong Cutting attempt"},
+            )
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+    assert len(statements) == 1
     assert rejected.status_code == 200, rejected.text
     assert rejected.json() == {
         "id": record_id,
@@ -432,7 +497,8 @@ def test_usluga_cutting_batch_name_remains_editable_while_quantity_locks_after_b
         f"/api/work-orders/{cutting['id']}/batches/{batch_id}",
         json={"name": "Still initial", "planned_quantity": 0},
     )
-    assert invalid_quantity.status_code == 400, invalid_quantity.text
+    # The bounded request schema rejects zero before the route's business checks.
+    assert invalid_quantity.status_code == 422, invalid_quantity.text
 
     # A report-only secondary fabric entry creates no product bundles and must
     # not lock correction of the production-batch name or piece count.
@@ -704,6 +770,42 @@ def test_usluga_model_fabric_name_is_manual_and_inventory_independent(client):
     assert accessory_response.status_code == 201, accessory_response.text
 
 
+def test_usluga_model_clone_preserves_itemless_descriptive_bom(client):
+    _login_eco(client)
+    suffix = uuid4().hex[:8].upper()
+    model_response = client.post(
+        "/api/usluga/models",
+        json={
+            "code": f"USL-CLONE-MANUAL-{suffix}",
+            "name": "Manual fabric clone source",
+            "category": "hoodie",
+            "status": "draft",
+        },
+    )
+    assert model_response.status_code == 201, model_response.text
+    source_id = model_response.json()["id"]
+    bom_response = client.post(
+        f"/api/usluga/models/{source_id}/bom",
+        json={
+            "material_name": "Customer-owned rib knit",
+            "material_role": "main",
+            "quantity_per_piece": 0.42,
+            "unit": "kg",
+        },
+    )
+    assert bom_response.status_code == 201, bom_response.text
+
+    clone_response = client.post(f"/api/usluga/models/{source_id}/clone")
+    assert clone_response.status_code == 201, clone_response.text
+    cloned = client.get(f"/api/usluga/models/{clone_response.json()['id']}")
+    assert cloned.status_code == 200, cloned.text
+    row = cloned.json()["bom"][0]
+    assert row["item_id"] is None
+    assert row["stock_batch_id"] is None
+    assert row["material_name"] == "Customer-owned rib knit"
+    assert row["unit"] == "kg"
+
+
 def test_usluga_variant_uses_main_fabric_for_color_and_variant_summary(client):
     _login_eco(client)
     suffix = uuid4().hex[:8].upper()
@@ -772,6 +874,45 @@ def test_usluga_variant_uses_main_fabric_for_color_and_variant_summary(client):
     edited_by_role = {row["material_role"]: row for row in edited_detail["bom"]}
     assert edited_by_role["main"]["color"] == "Silver"
     assert edited_by_role["secondary"]["color"] == "Red"
+
+
+def test_usluga_variant_preserves_itemless_descriptive_bom(client):
+    _login_eco(client)
+    suffix = uuid4().hex[:8].upper()
+    model = client.post(
+        "/api/usluga/models",
+        json={
+            "code": f"USL-VARIANT-MANUAL-{suffix}",
+            "name": "Manual fabric variant source",
+            "category": "hoodie",
+            "status": "draft",
+        },
+    )
+    assert model.status_code == 201, model.text
+    model_id = model.json()["id"]
+    bom = client.post(
+        f"/api/usluga/models/{model_id}/bom",
+        json={
+            "material_name": "Customer-provided waffle knit",
+            "material_role": "main",
+            "quantity_per_piece": 0.45,
+            "unit": "kg",
+        },
+    )
+    assert bom.status_code == 201, bom.text
+
+    variant = client.post(
+        f"/api/usluga/models/{model_id}/variants",
+        json={"variant_no": f"V{suffix[:4]}", "color": "Moss"},
+    )
+    assert variant.status_code == 201, variant.text
+    detail = client.get(f"/api/usluga/models/{variant.json()['id']}")
+    assert detail.status_code == 200, detail.text
+    copied = detail.json()["bom"][0]
+    assert copied["item_id"] is None
+    assert copied["stock_batch_id"] is None
+    assert copied["material_name"] == "Customer-provided waffle knit"
+    assert copied["unit"] == "kg"
 
 
 def test_usluga_order_is_eco_only_and_has_no_inventory_or_storage_stage(client):

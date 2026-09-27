@@ -369,9 +369,17 @@ def _validate_sizes(raw: object, label: str) -> list[dict[str, Any]]:
             raise MigrationError(f"{label}.sizes[{position}] is blank")
         if len(size) > 32:
             raise MigrationError(f"{label}.sizes[{position}] exceeds the database limit")
+        measurement_json = row.get("measurement_json")
+        try:
+            local_import.validate_size_measurements(
+                measurement_json,
+                f"{label}.sizes[{position}].measurement_json",
+            )
+        except local_import.MigrationError as exc:
+            raise MigrationError(str(exc)) from exc
         value = {
             "size": size,
-            "measurement_json": copy.deepcopy(row.get("measurement_json")),
+            "measurement_json": copy.deepcopy(measurement_json),
         }
         if key in result and result[key] != value:
             raise MigrationError(f"{label} has conflicting duplicate size {size!r}")
@@ -1562,6 +1570,7 @@ def compile_plan(
         },
     }
     plan["plan_sha256"] = object_sha256(plan)
+    preflight_planned_details_receipts(plan, models)
     return plan
 
 
@@ -1572,6 +1581,7 @@ def _append_receipt(
     identity: str,
     action: str,
     action_index: int,
+    existing_details: object = None,
 ) -> dict[str, Any]:
     result = copy.deepcopy(details)
     current = result.get(RECEIPTS_KEY)
@@ -1599,7 +1609,42 @@ def _append_receipt(
     ):
         receipts.append(receipt)
     result[RECEIPTS_KEY] = receipts
+    try:
+        local_import.validate_imported_details_bounds(
+            result,
+            existing_details=details if existing_details is None else existing_details,
+        )
+    except local_import.MigrationError as exc:
+        raise MigrationError(str(exc)) from exc
     return result
+
+
+def preflight_planned_details_receipts(plan: dict[str, Any], models: list[Model]) -> None:
+    """Check receipt-augmented documents before output or media mutations."""
+    existing_by_id = {int(model.id): model for model in models}
+    for action_index, action in enumerate(plan["actions"], start=1):
+        if action["action"] == "update_existing":
+            model = existing_by_id.get(int(action["target_model_id"]))
+            if model is None:
+                raise MigrationError(f"Existing target {action['target_model_id']} disappeared")
+            _append_receipt(
+                action["details_after"],
+                plan=plan,
+                identity=action["identity"],
+                action="update_existing",
+                action_index=action_index,
+                existing_details=model.details_json,
+            )
+        elif action["action"] == "create_model":
+            _append_receipt(
+                action["record"]["details_json"],
+                plan=plan,
+                identity=action["identity"],
+                action="create_model",
+                action_index=action_index,
+            )
+        else:
+            raise MigrationError(f"Unsupported production action {action['action']!r}")
 
 
 def _add_sizes(db, model: Model, rows: list[dict[str, Any]]) -> int:
@@ -1776,6 +1821,7 @@ def apply_plan(
                     identity=action["identity"],
                     action="update_existing",
                     action_index=action_index,
+                    existing_details=model.details_json,
                 )
                 flag_modified(model, "details_json")
                 result["added_sizes"] += _add_sizes(db, model, action["add_sizes"])

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, lazyload
 
-from app.core.order_reference import canonical_business_order_reference
+from app.core.order_reference import BusinessOrderReferenceLookup, canonical_business_order_reference
 
 from app.models import (
     Item,
@@ -25,6 +26,11 @@ from app.services.audit import log_action
 from app.services.material_rolls import normalize_material_roll_weights
 from app.services.numbering import next_purchase_order_no, next_purchase_request_no
 from app.services.planning import material_requirements_for_sales_order
+from app.services.stock_batch_policy import (
+    normalize_stock_batch_qc_status,
+    validate_stock_batch_unit,
+    validate_stock_batch_warehouse,
+)
 from app.services.workflow import notify_department
 
 REQUEST_CREATE_STATUSES = {"draft", "pending_approval"}
@@ -32,10 +38,41 @@ REQUEST_APPROVABLE_STATUSES = {"draft", "pending_approval"}
 REQUEST_REJECTABLE_STATUSES = {"draft", "pending_approval", "approved"}
 ORDER_CREATE_STATUSES = {"draft", "sent"}
 ORDER_RECEIVABLE_STATUSES = {"sent", "approved", "partially_received"}
+MAX_PURCHASE_QUANTITY = Decimal("9999999999.9999")
+MAX_PURCHASE_REQUEST_ACTION_LINES = 1000
+MAX_STOCK_BATCH_PIECE_COUNT = 2_147_483_647
+PURCHASE_LINE_VARCHAR_LIMITS = {"unit": 32, "material_name": 255, "photo_url": 500}
 
 
 def _num(value) -> float:
     return float(value or 0)
+
+
+def _purchase_quantity(value) -> Decimal:
+    quantity = Decimal(str(value or 0))
+    if not quantity.is_finite() or quantity % Decimal("0.0001"):
+        raise HTTPException(422, "Purchase quantity supports at most four decimal places")
+    return quantity
+
+
+def _purchase_dimension(value, *, places: int) -> Decimal | None:
+    if value is None:
+        return None
+    dimension = Decimal(str(value))
+    if not dimension.is_finite() or dimension % Decimal(1).scaleb(-places):
+        raise HTTPException(422, f"Purchase dimension supports at most {places} decimal places")
+    return dimension
+
+
+def _validate_purchase_line_varchar_lengths(line_inputs: list[dict]) -> None:
+    for index, line in enumerate(line_inputs):
+        for field, limit in PURCHASE_LINE_VARCHAR_LIMITS.items():
+            value = line.get(field)
+            if isinstance(value, str) and len(value) > limit:
+                raise HTTPException(
+                    422,
+                    f"lines[{index}].{field} must be at most {limit} characters",
+                )
 
 
 def _require_item(db: Session, item_id: int) -> Item:
@@ -45,22 +82,40 @@ def _require_item(db: Session, item_id: int) -> Item:
     return item
 
 
-def _require_supplier(db: Session, supplier_id: int | None) -> Supplier | None:
+def _require_supplier(db: Session, supplier_id: int | None) -> None:
     if supplier_id is None:
-        return None
-    supplier = db.get(Supplier, supplier_id)
-    if not supplier:
+        return
+    supplier_exists = db.query(Supplier.id).filter(Supplier.id == supplier_id).first()
+    if not supplier_exists:
         raise HTTPException(404, f"Supplier {supplier_id} not found")
-    return supplier
 
 
-def _require_warehouse(db: Session, warehouse_id: int | None) -> Warehouse:
+def _require_warehouse(db: Session, warehouse_id: int | None) -> None:
     if not warehouse_id:
         raise HTTPException(400, "warehouse_id is required")
-    warehouse = db.get(Warehouse, warehouse_id)
-    if not warehouse:
+    warehouse_exists = db.query(Warehouse.id).filter(Warehouse.id == warehouse_id).first()
+    if not warehouse_exists:
         raise HTTPException(404, f"Warehouse {warehouse_id} not found")
-    return warehouse
+
+
+def _bulk_by_id(db: Session, model, ids, *, chunk_size=400):
+    rows = {}
+    ordered = sorted(set(ids))
+    for start in range(0, len(ordered), chunk_size):
+        for row in db.query(model).filter(model.id.in_(ordered[start:start + chunk_size])).all():
+            rows[int(row.id)] = row
+    return rows
+
+
+def _existing_ids_by_id(db: Session, model, ids, *, chunk_size=400) -> set[int]:
+    existing = set()
+    ordered = sorted(set(ids))
+    for start in range(0, len(ordered), chunk_size):
+        existing.update(
+            int(row_id)
+            for (row_id,) in db.query(model.id).filter(model.id.in_(ordered[start:start + chunk_size])).all()
+        )
+    return existing
 
 
 def create_purchase_request(db: Session, *, data: dict, current: User) -> PurchaseRequest:
@@ -79,6 +134,67 @@ def create_purchase_request(db: Session, *, data: dict, current: User) -> Purcha
     if not line_inputs:
         raise HTTPException(400, "At least one purchase request line is required")
 
+    items = _bulk_by_id(db, Item, (int(raw.get("item_id") or 0) for raw in line_inputs))
+    suppliers = _bulk_by_id(
+        db,
+        Supplier,
+        (
+            int(raw["preferred_supplier_id"])
+            for raw in line_inputs
+            if raw.get("preferred_supplier_id")
+        ),
+    )
+    line_values = []
+    for raw in line_inputs:
+        item_id = int(raw.get("item_id") or 0)
+        item = items.get(item_id)
+        if not item:
+            raise HTTPException(404, f"Item {item_id} not found")
+        preferred_supplier_id = raw.get("preferred_supplier_id")
+        if preferred_supplier_id and int(preferred_supplier_id) not in suppliers:
+            raise HTTPException(404, f"Supplier {int(preferred_supplier_id)} not found")
+
+        required_quantity = _purchase_quantity(raw.get("required_quantity"))
+        available_quantity = _purchase_quantity(raw.get("available_quantity"))
+        shortage_quantity = (
+            _purchase_quantity(raw.get("shortage_quantity"))
+            if raw.get("shortage_quantity") is not None
+            else max(Decimal("0"), required_quantity - available_quantity)
+        )
+        requested_quantity = (
+            _purchase_quantity(raw.get("requested_quantity"))
+            if raw.get("requested_quantity") is not None
+            else (shortage_quantity if shortage_quantity > 0 else required_quantity)
+        )
+        if abs(shortage_quantity) > MAX_PURCHASE_QUANTITY:
+            raise HTTPException(400, "Shortage quantity exceeds the supported database range")
+        if abs(requested_quantity) > MAX_PURCHASE_QUANTITY:
+            raise HTTPException(400, "Requested quantity exceeds the supported database range")
+        if requested_quantity < 0:
+            raise HTTPException(400, "Requested quantity cannot be negative")
+
+        unit = str(raw.get("unit") or item.unit or "").strip() or item.unit
+        line_values.append({
+            "item_id": item.id,
+            "required_quantity": required_quantity,
+            "requested_quantity": requested_quantity,
+            "unit": unit,
+            "available_quantity": available_quantity,
+            "shortage_quantity": shortage_quantity,
+            "preferred_supplier_id": preferred_supplier_id,
+            "material_name": str(raw.get("material_name") or item.name or "").strip() or item.name,
+            "photo_url": str(raw.get("photo_url") or item.image_url or "").strip() or None,
+            "notes": raw.get("notes"),
+        })
+
+    _validate_purchase_line_varchar_lengths(line_inputs)
+    _validate_purchase_line_varchar_lengths(line_values)
+    for values in line_values:
+        validate_stock_batch_unit(
+            items[int(values["item_id"])],
+            values["unit"],
+            detail="Purchase request line unit must match the item unit",
+        )
     request = PurchaseRequest(
         request_no=next_purchase_request_no(db),
         status=status,
@@ -89,43 +205,10 @@ def create_purchase_request(db: Session, *, data: dict, current: User) -> Purcha
     )
     db.add(request)
     db.flush()
-
-    for raw in line_inputs:
-        item = _require_item(db, int(raw.get("item_id") or 0))
-        preferred_supplier_id = raw.get("preferred_supplier_id")
-        _require_supplier(db, int(preferred_supplier_id) if preferred_supplier_id else None)
-
-        required_quantity = _num(raw.get("required_quantity"))
-        available_quantity = _num(raw.get("available_quantity"))
-        shortage_quantity = (
-            _num(raw.get("shortage_quantity"))
-            if raw.get("shortage_quantity") is not None
-            else max(0.0, required_quantity - available_quantity)
-        )
-        requested_quantity = (
-            _num(raw.get("requested_quantity"))
-            if raw.get("requested_quantity") is not None
-            else (shortage_quantity if shortage_quantity > 0 else required_quantity)
-        )
-        if requested_quantity < 0:
-            raise HTTPException(400, "Requested quantity cannot be negative")
-
-        unit = str(raw.get("unit") or item.unit or "").strip() or item.unit
-        db.add(
-            PurchaseRequestLine(
-                purchase_request_id=request.id,
-                item_id=item.id,
-                required_quantity=required_quantity,
-                requested_quantity=requested_quantity,
-                unit=unit,
-                available_quantity=available_quantity,
-                shortage_quantity=shortage_quantity,
-                preferred_supplier_id=preferred_supplier_id,
-                material_name=str(raw.get("material_name") or item.name or "").strip() or item.name,
-                photo_url=str(raw.get("photo_url") or item.image_url or "").strip() or None,
-                notes=raw.get("notes"),
-            )
-        )
+    db.add_all(
+        PurchaseRequestLine(purchase_request_id=request.id, **values)
+        for values in line_values
+    )
 
     db.flush()
     log_action(
@@ -184,19 +267,38 @@ def create_purchase_request_from_sales_order(db: Session, *, sales_order_id: int
     )
 
 
+def _locked_purchase_request(db: Session, request_id: int) -> PurchaseRequest | None:
+    return (
+        db.query(PurchaseRequest).filter(PurchaseRequest.id == request_id)
+        .with_for_update(of=PurchaseRequest).populate_existing().first()
+    )
+
+
 def approve_purchase_request(db: Session, *, request_id: int, data: dict, current: User) -> PurchaseRequest:
-    request = db.get(PurchaseRequest, request_id)
+    request = _locked_purchase_request(db, request_id)
     if not request:
         raise HTTPException(404, "Purchase request not found")
     if request.status == "approved":
         return request
     if request.status not in REQUEST_APPROVABLE_STATUSES:
         raise HTTPException(409, f"Cannot approve purchase request in status '{request.status}'")
+    if len(request.lines) > MAX_PURCHASE_REQUEST_ACTION_LINES:
+        raise HTTPException(409, "Purchase request exceeds the supported line limit; reconcile it before approval")
 
     approval_lines = data.get("lines") or []
     lines_by_id = {int(line.id): line for line in request.lines}
     if len(approval_lines) != len(lines_by_id):
         raise HTTPException(400, "Photo, material name, and supplier are required for every request line")
+    supplier_ids = set()
+    for raw in approval_lines:
+        supplier_value = raw.get("preferred_supplier_id")
+        if supplier_value:
+            try:
+                supplier_ids.add(int(supplier_value))
+            except (TypeError, ValueError):
+                # Preserve the original line-order conversion/error boundary.
+                continue
+    existing_supplier_ids = _existing_ids_by_id(db, Supplier, supplier_ids)
     seen: set[int] = set()
     for raw in approval_lines:
         line_id = int(raw.get("purchase_request_line_id") or 0)
@@ -209,7 +311,8 @@ def approve_purchase_request(db: Session, *, request_id: int, data: dict, curren
         supplier_id = int(raw.get("preferred_supplier_id") or 0)
         if not material_name or not photo_url or not supplier_id:
             raise HTTPException(400, "Photo, material name, and supplier are required for every request line")
-        _require_supplier(db, supplier_id)
+        if supplier_id not in existing_supplier_ids:
+            raise HTTPException(404, f"Supplier {supplier_id} not found")
         line.material_name = material_name
         line.photo_url = photo_url
         line.preferred_supplier_id = supplier_id
@@ -239,7 +342,7 @@ def approve_purchase_request(db: Session, *, request_id: int, data: dict, curren
 
 
 def reject_purchase_request(db: Session, *, request_id: int, current: User) -> PurchaseRequest:
-    request = db.get(PurchaseRequest, request_id)
+    request = _locked_purchase_request(db, request_id)
     if not request:
         raise HTTPException(404, "Purchase request not found")
     if request.status not in REQUEST_REJECTABLE_STATUSES:
@@ -272,46 +375,89 @@ def create_purchase_order(db: Session, *, data: dict, current: User) -> Purchase
     if not line_inputs:
         raise HTTPException(400, "At least one purchase order line is required")
 
-    order = PurchaseOrder(
-        po_no=next_purchase_order_no(db),
-        purchase_request_id=purchase_request_id,
-        supplier_id=supplier_id,
-        status=str(data.get("status") or "draft"),
-        ordered_by=current.id,
-        expected_date=data.get("expected_date"),
-        notes=data.get("notes"),
-    )
-    if order.status not in ORDER_CREATE_STATUSES:
+    status = str(data.get("status") or "draft")
+    if status not in ORDER_CREATE_STATUSES:
         raise HTTPException(400, "Purchase order status must be draft or sent")
-    db.add(order)
-    db.flush()
 
+    def valid_ids(values):
+        for value in values:
+            try:
+                yield int(value)
+            except (TypeError, ValueError):
+                # Leave malformed identifiers for the original line-by-line
+                # conversions below so validation/error precedence is stable.
+                continue
+
+    items = _bulk_by_id(db, Item, valid_ids(raw.get("item_id") or 0 for raw in line_inputs))
+    warehouses = _bulk_by_id(
+        db,
+        Warehouse,
+        valid_ids(raw["warehouse_id"] for raw in line_inputs if raw.get("warehouse_id")),
+    )
+    suppliers = _bulk_by_id(
+        db,
+        Supplier,
+        valid_ids(
+            raw.get("supplier_id") or supplier_id
+            for raw in line_inputs
+            if raw.get("supplier_id") or supplier_id
+        ),
+    )
+
+    line_values = []
     for raw in line_inputs:
-        item = _require_item(db, int(raw.get("item_id") or 0))
-        ordered_quantity = _num(raw.get("ordered_quantity"))
+        item_id = int(raw.get("item_id") or 0)
+        item = items.get(item_id)
+        if not item:
+            raise HTTPException(404, f"Item {item_id} not found")
+        ordered_quantity = _purchase_quantity(raw.get("ordered_quantity"))
         if ordered_quantity <= 0:
             raise HTTPException(400, "Ordered quantity must be greater than zero")
         warehouse_id = raw.get("warehouse_id")
         if warehouse_id:
-            _require_warehouse(db, int(warehouse_id))
+            normalized_warehouse_id = int(warehouse_id)
+            if normalized_warehouse_id not in warehouses:
+                raise HTTPException(404, f"Warehouse {normalized_warehouse_id} not found")
         unit = str(raw.get("unit") or item.unit or "").strip() or item.unit
         line_supplier_id = raw.get("supplier_id") or supplier_id
-        _require_supplier(db, int(line_supplier_id) if line_supplier_id else None)
-        db.add(
-            PurchaseOrderLine(
-                purchase_order_id=order.id,
-                item_id=item.id,
-                ordered_quantity=ordered_quantity,
-                received_quantity=0,
-                unit=unit,
-                unit_cost=_num(raw.get("unit_cost")),
-                warehouse_id=warehouse_id,
-                supplier_id=line_supplier_id,
-                material_name=str(raw.get("material_name") or item.name or "").strip() or item.name,
-                photo_url=str(raw.get("photo_url") or item.image_url or "").strip() or None,
-                notes=raw.get("notes"),
-            )
+        if line_supplier_id and int(line_supplier_id) not in suppliers:
+            raise HTTPException(404, f"Supplier {int(line_supplier_id)} not found")
+        line_values.append({
+            "item_id": item.id,
+            "ordered_quantity": ordered_quantity,
+            "received_quantity": 0,
+            "unit": unit,
+            "unit_cost": _num(raw.get("unit_cost")),
+            "warehouse_id": warehouse_id,
+            "supplier_id": line_supplier_id,
+            "material_name": str(raw.get("material_name") or item.name or "").strip() or item.name,
+            "photo_url": str(raw.get("photo_url") or item.image_url or "").strip() or None,
+            "notes": raw.get("notes"),
+        })
+
+    _validate_purchase_line_varchar_lengths(line_inputs)
+    _validate_purchase_line_varchar_lengths(line_values)
+    for values in line_values:
+        validate_stock_batch_unit(
+            items[int(values["item_id"])],
+            values["unit"],
+            detail="Purchase order line unit must match the item unit",
         )
+    order = PurchaseOrder(
+        po_no=next_purchase_order_no(db),
+        purchase_request_id=purchase_request_id,
+        supplier_id=supplier_id,
+        status=status,
+        ordered_by=current.id,
+        expected_date=data.get("expected_date"),
+        notes=data.get("notes"),
+    )
+    db.add(order)
+    db.flush()
+    db.add_all(
+        PurchaseOrderLine(purchase_order_id=order.id, **values)
+        for values in line_values
+    )
 
     db.flush()
     log_action(
@@ -334,7 +480,7 @@ def create_purchase_order(db: Session, *, data: dict, current: User) -> Purchase
 
 
 def convert_purchase_request_to_order(db: Session, *, request_id: int, data: dict, current: User) -> PurchaseOrder:
-    request = db.get(PurchaseRequest, request_id)
+    request = _locked_purchase_request(db, request_id)
     if not request:
         raise HTTPException(404, "Purchase request not found")
     if request.status != "approved":
@@ -345,16 +491,18 @@ def convert_purchase_request_to_order(db: Session, *, request_id: int, data: dic
     expected_date = data.get("expected_date")
     if not expected_date:
         raise HTTPException(400, "Expected date is required")
+    if len(request.lines) > MAX_PURCHASE_REQUEST_ACTION_LINES:
+        raise HTTPException(409, "Purchase request exceeds the supported line limit; reconcile it before conversion")
     quantity_inputs = data.get("lines") or []
     request_lines_by_id = {int(line.id): line for line in request.lines}
     if len(quantity_inputs) != len(request_lines_by_id):
         raise HTTPException(400, "Order quantity is required for every request line")
-    ordered_by_line_id: dict[int, float] = {}
+    ordered_by_line_id: dict[int, Decimal] = {}
     for raw in quantity_inputs:
         line_id = int(raw.get("purchase_request_line_id") or 0)
         if line_id not in request_lines_by_id or line_id in ordered_by_line_id:
             raise HTTPException(400, "Order lines must match the approved purchase request")
-        quantity = _num(raw.get("ordered_quantity"))
+        quantity = _purchase_quantity(raw.get("ordered_quantity"))
         if quantity <= 0:
             raise HTTPException(400, "Ordered quantity must be greater than zero")
         ordered_by_line_id[line_id] = quantity
@@ -415,7 +563,15 @@ def _purchase_order_status(order: PurchaseOrder) -> str:
 
 
 def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: User) -> PurchaseOrder:
-    order = db.get(PurchaseOrder, order_id)
+    order_query = db.query(PurchaseOrder).options(
+        lazyload(PurchaseOrder.purchase_request), lazyload(PurchaseOrder.supplier),
+    ).filter(PurchaseOrder.id == order_id).populate_existing()
+    if db.bind and db.bind.dialect.name == "postgresql":
+        # Serialize every receipt for an order before reading its cumulative
+        # line quantities or status; otherwise concurrent batches can both be
+        # received while the line keeps only one of their increments.
+        order_query = order_query.with_for_update(of=PurchaseOrder)
+    order = order_query.one_or_none()
     if not order:
         raise HTTPException(404, "Purchase order not found")
     if order.status not in ORDER_RECEIVABLE_STATUSES:
@@ -425,9 +581,31 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
     if not line_inputs:
         raise HTTPException(400, "At least one receive line is required")
 
+    # The relationship may have been loaded earlier in this session, before
+    # the order lock waited for a different receiver to commit.
+    db.expire(order, ["lines"])
     order_lines_by_id = {int(line.id): line for line in order.lines}
     default_supplier_id = data.get("supplier_id") or order.supplier_id
-    _require_supplier(db, int(default_supplier_id) if default_supplier_id else None)
+    selected_lines = [order_lines_by_id.get(int(raw.get("purchase_order_line_id") or 0)) for raw in line_inputs]
+    item_ids = {int(line.item_id) for line in selected_lines if line is not None}
+    warehouse_ids = {
+        int(raw.get("warehouse_id") or order_lines_by_id.get(int(raw.get("purchase_order_line_id") or 0)).warehouse_id)
+        for raw in line_inputs
+        if order_lines_by_id.get(int(raw.get("purchase_order_line_id") or 0)) and
+        (raw.get("warehouse_id") or order_lines_by_id[int(raw.get("purchase_order_line_id") or 0)].warehouse_id)
+    }
+    supplier_ids = {int(default_supplier_id)} if default_supplier_id else set()
+    for raw in line_inputs:
+        line = order_lines_by_id.get(int(raw.get("purchase_order_line_id") or 0))
+        supplier_id = raw.get("supplier_id") or (line.supplier_id if line else None) or default_supplier_id
+        if supplier_id:
+            supplier_ids.add(int(supplier_id))
+    items = _bulk_by_id(db, Item, item_ids)
+    warehouses = _bulk_by_id(db, Warehouse, warehouse_ids)
+    suppliers = _bulk_by_id(db, Supplier, supplier_ids)
+    if default_supplier_id and int(default_supplier_id) not in suppliers:
+        raise HTTPException(404, f"Supplier {int(default_supplier_id)} not found")
+    reference_lookup = BusinessOrderReferenceLookup(db, (raw.get("order_no") for raw in line_inputs))
     old_status = order.status
 
     for raw in line_inputs:
@@ -436,22 +614,45 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
         if not line:
             raise HTTPException(404, f"Purchase order line {line_id} not found")
 
-        quantity = _num(raw.get("received_quantity"))
+        quantity = _purchase_quantity(raw.get("received_quantity"))
         if quantity <= 0:
             raise HTTPException(400, "Received quantity must be greater than zero")
+        total_received = _purchase_quantity(line.received_quantity) + quantity
+        if total_received > MAX_PURCHASE_QUANTITY:
+            raise HTTPException(400, "Total received quantity exceeds the supported maximum")
 
         batch_no = str(raw.get("batch_no") or "").strip()
         if not batch_no:
             raise HTTPException(400, "batch_no is required")
 
         warehouse_id = raw.get("warehouse_id") or line.warehouse_id
-        _require_warehouse(db, int(warehouse_id) if warehouse_id else None)
+        if not warehouse_id:
+            raise HTTPException(400, "warehouse_id is required")
+        if int(warehouse_id) not in warehouses:
+            raise HTTPException(404, f"Warehouse {int(warehouse_id)} not found")
         supplier_id = raw.get("supplier_id") or line.supplier_id or default_supplier_id
-        _require_supplier(db, int(supplier_id) if supplier_id else None)
+        if supplier_id and int(supplier_id) not in suppliers:
+            raise HTTPException(404, f"Supplier {int(supplier_id)} not found")
 
-        item = _require_item(db, int(line.item_id))
+        item = items.get(int(line.item_id))
+        if not item:
+            raise HTTPException(404, f"Item {int(line.item_id)} not found")
+        warehouse = warehouses[int(warehouse_id)]
+        validate_stock_batch_warehouse(item, warehouse)
         unit = str(line.unit or item.unit or "").strip() or item.unit
+        validate_stock_batch_unit(
+            item,
+            unit,
+            detail="Purchase order line unit must match the item unit",
+        )
+        width = _purchase_dimension(raw.get("width"), places=2)
+        gsm = _purchase_dimension(raw.get("gsm"), places=6)
+        piece_count = raw.get("piece_count")
+        if piece_count is not None and not 0 <= piece_count <= MAX_STOCK_BATCH_PIECE_COUNT:
+            raise HTTPException(422, "piece_count must be between 0 and 2147483647")
         cost_per_unit = _num(raw.get("cost_per_unit")) if raw.get("cost_per_unit") is not None else _num(line.unit_cost)
+        if cost_per_unit < 0:
+            raise HTTPException(422, "Received stock cost per unit must be nonnegative")
         roll_weights, piece_count = normalize_material_roll_weights(
             item_category=item.category,
             unit=unit,
@@ -459,6 +660,7 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
             roll_weights_kg=raw.get("roll_weights_kg"),
             piece_count=raw.get("piece_count"),
         )
+        qc_status = normalize_stock_batch_qc_status(raw.get("qc_status") or "passed")
 
         batch = StockBatch(
             item_id=item.id,
@@ -469,18 +671,19 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
             old_code=raw.get("old_code"),
             color_code=raw.get("color_code"),
             color_status=raw.get("color_status"),
-            order_no=canonical_business_order_reference(db, raw.get("order_no")) or order.po_no,
-            width=raw.get("width"),
-            gsm=raw.get("gsm"),
+            order_no=canonical_business_order_reference(db, raw.get("order_no"), lookup=reference_lookup) or order.po_no,
+            width=width,
+            gsm=gsm,
             quantity=quantity,
             piece_count=piece_count,
             roll_weights_kg=roll_weights,
             processes=raw.get("processes") or f"Purchase order {order.po_no}",
             unit=unit,
             cost_per_unit=cost_per_unit,
+            cost_currency=raw.get("cost_currency"),
             image_url=str(line.photo_url or item.image_url or "").strip() or None,
             warehouse_id=warehouse_id,
-            qc_status=raw.get("qc_status") or "passed",
+            qc_status=qc_status,
         )
         db.add(batch)
         db.flush()
@@ -497,7 +700,7 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
             created_by=current.id,
         )
         db.add(movement)
-        line.received_quantity = _num(line.received_quantity) + quantity
+        line.received_quantity = total_received
         if raw.get("cost_per_unit") is not None:
             line.unit_cost = cost_per_unit
         if not line.warehouse_id:
@@ -513,7 +716,7 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
                 "batch_no": batch.batch_no,
                 "internal_batch_no": batch.internal_batch_no,
                 "po_no": order.po_no,
-                "qty": quantity,
+                "qty": float(quantity),
             },
         )
         log_action(
@@ -527,7 +730,7 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
                 "batch_no": batch.batch_no,
                 "internal_batch_no": batch.internal_batch_no,
                 "item_id": item.id,
-                "received_quantity": quantity,
+                "received_quantity": float(quantity),
                 "total_received": float(line.received_quantity or 0),
             },
         )

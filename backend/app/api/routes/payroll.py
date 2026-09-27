@@ -3,17 +3,19 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 import hashlib
+import heapq
 import json
 import re
-from typing import Any, Literal
+from types import SimpleNamespace
+from typing import Annotated, Any, Callable, Literal
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
-from sqlalchemy import Date, case, cast, func, or_
-from sqlalchemy.orm import object_session
+from sqlalchemy import Date, String, and_, case, cast, func, literal, or_, union_all
+from sqlalchemy.orm import load_only, object_session
 
 from app.core.deps import DbSession, require_permissions, is_admin, user_permissions
 from app.core.dt import as_utc, utcnow
@@ -40,6 +42,7 @@ from app.models import (
 from app.schemas.payroll import (
     PayrollAdjustmentIn,
     PayrollAdjustmentOut,
+    PayrollAdjustmentPageOut,
     PayrollBulkOut,
     PayrollControlScanIn,
     PayrollControlConfirmIn,
@@ -47,6 +50,7 @@ from app.schemas.payroll import (
     PayrollNumericWorkScanOut,
     PayrollPeriodIn,
     PayrollPeriodOut,
+    PayrollPeriodPageOut,
     PayrollPeriodUpdate,
     PayrollQrControlOut,
     PayrollQrLabelBatchDeleteIn,
@@ -58,24 +62,38 @@ from app.schemas.payroll import (
     PayrollQrLabelsIssueIn,
     PayrollQrLabelsIssueOut,
     OrderQrStatusOrderOption,
+    OrderQrStatusOrderOptionPage,
     OrderQrStatusOut,
     PayrollRecordBulkIn,
     PayrollRecordIn,
     PayrollRecordOut,
+    PayrollRecordPageOut,
     PayrollRecordReversalIn,
     PayrollSummaryEmployeeOut,
     PayrollSummaryOperationOut,
     PayrollSummaryOut,
     SewingProductionReportOut,
+    SewingProductionReportOrderOptionPage,
     SewingProductionReportOptions,
 )
+from app.models.order_reference import BusinessOrderAlias
 from app.services.audit import log_action
 from app.services.factory_scope import require_factory_access, selected_factory_code
 from app.services.paid_operations import filter_operation_rows, paid_operations_from_details
-from app.services.payroll_factory_scope import require_production_order_factory, require_work_order_factory
+from app.services.payroll_factory_scope import (
+    production_order_factory_condition,
+    require_production_order_factory,
+    require_work_order_factory,
+)
 from app.services.payroll_reports import ReportLanguage, build_sewing_production_report_xlsx, build_sewing_salary_summary_xlsx, salary_report_days
 
 router = APIRouter(prefix="/payroll", tags=["payroll"])
+
+# Payroll raw snapshots are retained and returned as open JSON objects. Keep
+# legacy keys, but cap each persisted snapshot to 16 KiB of compact UTF-8 JSON
+# and 16 nested object/array levels (counting the root object as level 1).
+MAX_PAYROLL_SNAPSHOT_BYTES = 16 * 1024
+MAX_PAYROLL_SNAPSHOT_DEPTH = 16
 
 PERIOD_STATUSES = {"draft", "open", "locked", "approved", "paid", "cancelled"}
 PERIOD_CREATE_STATUSES = {"draft", "open"}
@@ -95,6 +113,10 @@ PAYROLL_QR_TOKEN_LENGTH = 9
 PAYROLL_EMPLOYEE_TOKEN_PREFIX = "1"
 PAYROLL_WORK_TOKEN_PREFIX = "2"
 PAYROLL_QR_TOKEN_ID_WIDTH = PAYROLL_QR_TOKEN_LENGTH - 1
+PAYROLL_ADJUSTMENT_MAX_AMOUNT = Decimal("999999999999.99")
+PAYROLL_RECORD_COMPONENT_MAX = Decimal("9999999999.9999")
+PAYROLL_RECORD_TOTAL_MAX = Decimal("999999999999.99")
+PAYROLL_PERIOD_NO_MAX_LENGTH = 64
 
 
 def _present(value: Any) -> bool:
@@ -124,9 +146,31 @@ def _to_decimal(value: Any, default: Decimal = Decimal("0")) -> Decimal:
         amount = Decimal(str(value))
     except (InvalidOperation, ValueError, TypeError):
         raise HTTPException(400, f"Invalid numeric value: {value}")
+    if not amount.is_finite():
+        raise HTTPException(400, "Payroll numeric values must be finite")
     if amount < 0:
         raise HTTPException(400, "Payroll quantity and rates must be non-negative")
     return amount
+
+
+def _assert_record_numeric_components(quantity: Decimal, rate: Decimal) -> None:
+    if quantity > PAYROLL_RECORD_COMPONENT_MAX:
+        raise HTTPException(400, "Payroll quantity exceeds the supported maximum of 9999999999.9999")
+    if rate > PAYROLL_RECORD_COMPONENT_MAX:
+        raise HTTPException(400, "Payroll rate exceeds the supported maximum of 9999999999.9999")
+
+
+def _assert_record_numeric_storage(quantity: Decimal, rate: Decimal, total: Decimal) -> None:
+    _assert_record_numeric_components(quantity, rate)
+    if total > PAYROLL_RECORD_TOTAL_MAX:
+        raise HTTPException(400, "Payroll total exceeds the supported maximum of 999999999999.99")
+
+
+def _validated_record_total_amount(quantity: Decimal, rate: Decimal) -> Decimal:
+    _assert_record_numeric_components(quantity, rate)
+    total = (quantity * rate).quantize(Decimal("0.01"))
+    _assert_record_numeric_storage(quantity, rate, total)
+    return total
 
 
 def _numeric_qr_token(prefix: str, record_id: int) -> str:
@@ -156,13 +200,21 @@ def _to_money_decimal(value: Any) -> Decimal:
     if not _present(value):
         raise HTTPException(400, "amount is required")
     try:
-        return Decimal(str(value)).quantize(Decimal("0.01"))
+        amount = Decimal(str(value))
+        if not amount.is_finite():
+            raise HTTPException(400, f"Invalid numeric value: {value}")
+        cents = amount.quantize(Decimal("0.01"))
+        if amount != cents:
+            raise HTTPException(400, "Adjustment amount supports at most 2 decimal places")
+        return cents
     except (InvalidOperation, ValueError, TypeError):
         raise HTTPException(400, f"Invalid numeric value: {value}")
 
 
 def _normalize_adjustment_amount(payload: PayrollAdjustmentIn) -> tuple[Decimal, str]:
     raw_amount = _to_money_decimal(payload.amount)
+    if abs(raw_amount) > PAYROLL_ADJUSTMENT_MAX_AMOUNT:
+        raise HTTPException(400, "Adjustment amount exceeds the supported maximum of 999999999999.99")
     adjustment_type = (payload.adjustment_type or "").strip().lower()
     if adjustment_type and adjustment_type not in ADJUSTMENT_TYPES:
         raise HTTPException(400, "adjustment_type must be bonus or deduction")
@@ -198,31 +250,39 @@ def _normalize_production_batch_no(value: Any) -> str | None:
     return text
 
 
-def _canonical_payroll_reference(db, namespace: str, reference: str | None, *, entity_id: int | None = None, production_order_id: int | None = None) -> str | None:
+def _canonical_payroll_reference(db, namespace: str, reference: str | None, *, entity_id: int | None = None, production_order_id: int | None = None, lookup=None) -> str | None:
     if db is None or (not reference and entity_id is None):
         return reference
     cache = db.info.setdefault("payroll_order_reference_cache", {})
     key = (namespace, reference, entity_id, production_order_id)
     if key not in cache:
-        cache[key] = canonical_order_reference(db, namespace, reference, entity_id=entity_id, production_order_id=production_order_id)
+        cache[key] = canonical_order_reference(db, namespace, reference, entity_id=entity_id, production_order_id=production_order_id, lookup=lookup)
     return cache[key]
 
 
-def _canonical_snapshot_reference(db, namespace: str, reference: str, *, entity_id: int | None = None, production_order_id: int | None = None) -> str:
-    canonical = _canonical_payroll_reference(db, namespace, reference, entity_id=entity_id, production_order_id=production_order_id)
+def _canonical_snapshot_reference(db, namespace: str, reference: str, *, entity_id: int | None = None, production_order_id: int | None = None, lookup=None) -> str:
+    canonical = _canonical_payroll_reference(db, namespace, reference, entity_id=entity_id, production_order_id=production_order_id, lookup=lookup)
     if canonical == reference or db is None:
         return reference
     cache = db.info.setdefault("payroll_order_variant_cache", {})
     key = (namespace, canonical, entity_id, production_order_id)
     if key not in cache:
-        cache[key] = order_reference_variants(db, namespace, canonical, entity_id=entity_id, production_order_id=production_order_id)
+        cache[key] = order_reference_variants(db, namespace, canonical, entity_id=entity_id, production_order_id=production_order_id, lookup=lookup)
     # An ID hint disambiguates real aliases; it must not conceal unrelated text
     # if this snapshot is later compared against the actual printed payload.
     return canonical if reference in cache[key] else reference
 
 
-def _canonical_payroll_snapshot(db, value: Any, *, production_order_id: int | None = None, sales_order_id: int | None = None) -> Any:
+def _canonical_payroll_snapshot(db, value: Any, *, production_order_id: int | None = None, sales_order_id: int | None = None, lookup=None) -> Any:
     """Only translate explicit order fields; never rewrite QR identities or money."""
+    def resolve(namespace, reference, **identities):
+        return _canonical_snapshot_reference(db, namespace, reference, lookup=lookup, **identities)
+
+    return _map_payroll_snapshot_references(value, resolve, production_order_id=production_order_id, sales_order_id=sales_order_id)
+
+
+def _map_payroll_snapshot_references(value, resolve, *, production_order_id=None, sales_order_id=None):
+    """Share the exact payload parsing path between batch preparation and output."""
     if isinstance(value, dict):
         updated = dict(value)
         production_order_id = production_order_id or _to_int(_dget(value, "production_order_id", "pid"))
@@ -233,7 +293,7 @@ def _canonical_payroll_snapshot(db, value: Any, *, production_order_id: int | No
         ):
             for key in keys:
                 if isinstance(value.get(key), str):
-                    updated[key] = _canonical_snapshot_reference(db, namespace, value[key], entity_id=production_order_id if namespace == "PO" else sales_order_id, production_order_id=production_order_id if namespace == "SO" else None)
+                    updated[key] = resolve(namespace, value[key], entity_id=production_order_id if namespace == "PO" else sales_order_id, production_order_id=production_order_id if namespace == "SO" else None)
         return updated
     if not isinstance(value, str):
         return value
@@ -243,25 +303,48 @@ def _canonical_payroll_snapshot(db, value: Any, *, production_order_id: int | No
         sales_order_id = sales_order_id or (_to_int(parts[14]) if len(parts) > 14 else None)
         for index, namespace in ((2, "PO"), (15, "SO")):
             if len(parts) > index and parts[index] != "-":
-                parts[index] = _canonical_snapshot_reference(db, namespace, parts[index], entity_id=production_order_id if namespace == "PO" else sales_order_id, production_order_id=production_order_id if namespace == "SO" else None)
+                parts[index] = resolve(namespace, parts[index], entity_id=production_order_id if namespace == "PO" else sales_order_id, production_order_id=production_order_id if namespace == "SO" else None)
         return "*".join(parts)
     try:
         parsed = json.loads(value)
     except (ValueError, TypeError):
         return value
-    canonical = _canonical_payroll_snapshot(db, parsed, production_order_id=production_order_id, sales_order_id=sales_order_id) if isinstance(parsed, dict) else parsed
+    canonical = _map_payroll_snapshot_references(parsed, resolve, production_order_id=production_order_id, sales_order_id=sales_order_id) if isinstance(parsed, dict) else parsed
     return json.dumps(canonical, ensure_ascii=False, separators=(",", ":")) if canonical != parsed else value
 
 
-def _canonicalize_payroll_input(db, data: dict[str, Any], factory_code: str) -> None:
+def _canonicalize_payroll_input(
+    db,
+    data: dict[str, Any],
+    factory_code: str,
+    *,
+    lookup=None,
+    factory_production_ids: set[int] | None = None,
+) -> None:
     for namespace, field in (("PO", "production_no"), ("SO", "sales_order_no")):
-        data[field] = _canonical_payroll_reference(db, namespace, data.get(field), entity_id=data.get("production_order_id") if namespace == "PO" else data.get("sales_order_id"), production_order_id=data.get("production_order_id") if namespace == "SO" else None)
+        data[field] = _canonical_payroll_reference(
+            db,
+            namespace,
+            data.get(field),
+            entity_id=data.get("production_order_id") if namespace == "PO" else data.get("sales_order_id"),
+            production_order_id=data.get("production_order_id") if namespace == "SO" else None,
+            lookup=lookup,
+        )
     # A reference-only legacy QR must undergo the same factory check as an ID QR.
     if not data.get("production_order_id") and data.get("production_no"):
-        referenced_id = resolve_order_id(db, "PO", data["production_no"])
+        referenced_id = resolve_order_id(db, "PO", data["production_no"], lookup=lookup)
         if referenced_id is not None:
-            require_production_order_factory(db, referenced_id, factory_code)
-    data["raw_work_json"] = _canonical_payroll_snapshot(db, data.get("raw_work_json"), production_order_id=data.get("production_order_id"), sales_order_id=data.get("sales_order_id"))
+            if factory_production_ids is None:
+                require_production_order_factory(db, referenced_id, factory_code)
+            elif referenced_id not in factory_production_ids:
+                raise HTTPException(404, "Production order was not found in this factory")
+    data["raw_work_json"] = _canonical_payroll_snapshot(
+        db,
+        data.get("raw_work_json"),
+        production_order_id=data.get("production_order_id"),
+        sales_order_id=data.get("sales_order_id"),
+        lookup=lookup,
+    )
 
 
 def _legacy_payroll_dedupe_keys(db, data: dict[str, Any]) -> set[str]:
@@ -353,6 +436,47 @@ def _payload_dict(value: Any) -> dict[str, Any]:
     return {}
 
 
+def _validate_payroll_snapshot(value: dict[str, Any], field: str) -> dict[str, Any]:
+    """Bound persisted raw JSON without closing its legacy/open key space."""
+    minimum_size = 2  # The root object braces.
+    pending = [(value, 1)]
+    while pending:
+        current, depth = pending.pop()
+        if isinstance(current, dict):
+            if depth > MAX_PAYROLL_SNAPSHOT_DEPTH:
+                raise HTTPException(422, f"{field} snapshot exceeds maximum nesting depth")
+            if len(current) > MAX_PAYROLL_SNAPSHOT_BYTES // 4:
+                raise HTTPException(422, f"{field} snapshot exceeds maximum size of {MAX_PAYROLL_SNAPSHOT_BYTES} bytes")
+            for index, (key, child) in enumerate(current.items()):
+                child_minimum = len(child) + 2 if isinstance(child, str) else 2 if isinstance(child, (dict, list)) else 1
+                minimum_size += (1 if index else 0) + len(key) + 3 + child_minimum
+                if minimum_size > MAX_PAYROLL_SNAPSHOT_BYTES:
+                    raise HTTPException(422, f"{field} snapshot exceeds maximum size of {MAX_PAYROLL_SNAPSHOT_BYTES} bytes")
+                if isinstance(child, (dict, list)):
+                    pending.append((child, depth + 1))
+        elif isinstance(current, list):
+            if depth > MAX_PAYROLL_SNAPSHOT_DEPTH:
+                raise HTTPException(422, f"{field} snapshot exceeds maximum nesting depth")
+            if len(current) > MAX_PAYROLL_SNAPSHOT_BYTES // 2:
+                raise HTTPException(422, f"{field} snapshot exceeds maximum size of {MAX_PAYROLL_SNAPSHOT_BYTES} bytes")
+            for index, child in enumerate(current):
+                child_minimum = len(child) + 2 if isinstance(child, str) else 2 if isinstance(child, (dict, list)) else 1
+                minimum_size += (1 if index else 0) + child_minimum
+                if minimum_size > MAX_PAYROLL_SNAPSHOT_BYTES:
+                    raise HTTPException(422, f"{field} snapshot exceeds maximum size of {MAX_PAYROLL_SNAPSHOT_BYTES} bytes")
+                if isinstance(child, (dict, list)):
+                    pending.append((child, depth + 1))
+
+    try:
+        encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        size_bytes = len(encoded.encode("utf-8"))
+    except (TypeError, ValueError, OverflowError, RecursionError) as exc:
+        raise HTTPException(422, f"{field} snapshot must contain finite JSON values") from exc
+    if size_bytes > MAX_PAYROLL_SNAPSHOT_BYTES:
+        raise HTTPException(422, f"{field} snapshot exceeds maximum size of {MAX_PAYROLL_SNAPSHOT_BYTES} bytes")
+    return value
+
+
 def _extra(payload: PayrollRecordIn, key: str) -> Any:
     return (payload.model_extra or {}).get(key)
 
@@ -385,7 +509,7 @@ def _normalize_scan_uid(payload: PayrollRecordIn, work_payload: dict[str, Any]) 
 
 
 def _normalize_record_payload(payload: PayrollRecordIn) -> dict[str, Any]:
-    employee_payload = _payload_dict(
+    employee_payload = _validate_payroll_snapshot(_payload_dict(
         _first(
             payload.employee,
             _extra(payload, "raw_employee"),
@@ -393,8 +517,8 @@ def _normalize_record_payload(payload: PayrollRecordIn) -> dict[str, Any]:
             _extra(payload, "employee_payload"),
             _extra(payload, "employeePayload"),
         )
-    )
-    work_payload = _payload_dict(
+    ), "employee")
+    work_payload = _validate_payroll_snapshot(_payload_dict(
         _first(
             payload.work,
             _extra(payload, "raw_work"),
@@ -402,7 +526,7 @@ def _normalize_record_payload(payload: PayrollRecordIn) -> dict[str, Any]:
             _extra(payload, "work_payload"),
             _extra(payload, "workPayload"),
         )
-    )
+    ), "work")
 
     employee_id = _to_int(_first(payload.employee_id, _extra(payload, "employeeId"), _dget(employee_payload, "employee_id", "e")))
     employee_user_id = _to_int(
@@ -472,7 +596,7 @@ def _normalize_record_payload(payload: PayrollRecordIn) -> dict[str, Any]:
         "quantity": quantity,
         "rate_per_piece": rate,
         "currency": currency,
-        "total_amount": (quantity * rate).quantize(Decimal("0.01")),
+        "total_amount": None,
         "scanned_at": scanned_at,
         "source": _to_text(payload.source) or "payroll_scan",
         "notes": _to_text(payload.notes),
@@ -513,22 +637,29 @@ def _can_period_override(user: User) -> bool:
     return is_admin(user) or "management.approve" in perms or "payroll.approve" in perms
 
 
-def _attach_period(
+def _can_set_payable_values(user: User) -> bool:
+    return is_admin(user) or "payroll.manage" in user_permissions(user)
+
+
+def _find_period(
     db: DbSession,
     period_id: int | None,
     scanned_at: datetime,
     factory_code: str,
+    *,
+    for_update: bool,
 ) -> PayrollPeriod | None:
-    if period_id:
-        period = db.query(PayrollPeriod).filter(
-            PayrollPeriod.id == period_id,
-            PayrollPeriod.factory_code == factory_code,
-        ).first()
-        if not period:
-            raise HTTPException(404, "Payroll period not found")
-        return period
+    def first(query):
+        if for_update:
+            query = query.populate_existing().with_for_update()
+        return query.first()
 
-    period = (
+    if period_id:
+        return first(db.query(PayrollPeriod).filter(
+            PayrollPeriod.id == period_id, PayrollPeriod.factory_code == factory_code,
+        ))
+
+    period = first(
         db.query(PayrollPeriod)
         .filter(
             PayrollPeriod.factory_code == factory_code,
@@ -537,16 +668,26 @@ def _attach_period(
             PayrollPeriod.end_date >= scanned_at,
         )
         .order_by(PayrollPeriod.id.desc())
-        .first()
     )
-    if period:
-        return period
-    return (
-        db.query(PayrollPeriod)
-        .filter(PayrollPeriod.factory_code == factory_code, PayrollPeriod.status == "open")
-        .order_by(PayrollPeriod.id.desc())
-        .first()
-    )
+    return period
+
+
+def _attach_period(
+    db: DbSession,
+    period_id: int | None,
+    scanned_at: datetime,
+    factory_code: str,
+) -> PayrollPeriod | None:
+    candidate = _find_period(db, period_id, scanned_at, factory_code, for_update=bool(period_id))
+    period = candidate
+    if candidate is not None and period_id is None:
+        # Pin automatic attachment to the candidate seen at request start. If it
+        # finalizes while this request waits, the refreshed status rejects the
+        # write instead of silently moving it to another period.
+        period = _find_period(db, int(candidate.id), scanned_at, factory_code, for_update=True)
+    if period_id and not period:
+        raise HTTPException(404, "Payroll period not found")
+    return period
 
 
 def _assert_period_accepts_records(period: PayrollPeriod | None, user: User) -> None:
@@ -592,32 +733,64 @@ def _dedupe_key(data: dict[str, Any]) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
-def _validate_and_enrich_record(db: DbSession, data: dict[str, Any], factory_code: str) -> dict[str, Any]:
-    _canonicalize_payroll_input(db, data, factory_code)
+def _validate_and_enrich_record(
+    db: DbSession,
+    data: dict[str, Any],
+    factory_code: str,
+    *,
+    allow_manual_payable_values: bool,
+    locked_labels: dict[str, PayrollQrLabel] | None = None,
+    issued_label_validator: Callable[[PayrollQrLabel], None] | None = None,
+    validation_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    context = validation_context or {}
+    _canonicalize_payroll_input(
+        db,
+        data,
+        factory_code,
+        lookup=context.get("order_lookup"),
+        factory_production_ids=context.get("factory_production_ids"),
+    )
     employee_id = data.get("employee_id")
     if not employee_id:
         raise HTTPException(400, "employee_id is required")
-    employee = db.query(Employee).filter(
-        Employee.id == int(employee_id),
-        Employee.factory_code == factory_code,
-    ).first()
+    employee = (
+        context["employees"].get(int(employee_id))
+        if validation_context is not None else
+        db.query(Employee).filter(
+            Employee.id == int(employee_id),
+            Employee.factory_code == factory_code,
+        ).first()
+    )
     if not employee:
         raise HTTPException(404, "Employee not found")
     if not data.get("employee_user_id") and employee.user_id:
         data["employee_user_id"] = employee.user_id
     if data.get("employee_user_id"):
-        employee_user = db.query(User).filter(
-            User.id == int(data["employee_user_id"]),
-            User.factory_code == factory_code,
-        ).first()
+        employee_user = (
+            context["users"].get(int(data["employee_user_id"]))
+            if validation_context is not None else
+            db.query(User).filter(
+                User.id == int(data["employee_user_id"]),
+                User.factory_code == factory_code,
+            ).first()
+        )
         if not employee_user:
             raise HTTPException(404, "Employee user not found")
 
-    wo = db.get(WorkOrder, int(data["work_order_id"])) if data.get("work_order_id") else None
+    wo = (
+        context["work_orders"].get(int(data["work_order_id"]))
+        if validation_context is not None and data.get("work_order_id") else
+        db.get(WorkOrder, int(data["work_order_id"])) if data.get("work_order_id") else None
+    )
     if data.get("work_order_id") and not wo:
         raise HTTPException(404, "Work order not found")
     if wo:
-        require_work_order_factory(db, wo, factory_code)
+        if validation_context is not None:
+            if int(wo.production_order_id) not in context["factory_production_ids"]:
+                raise HTTPException(404, "Work order was not found in this factory")
+        else:
+            require_work_order_factory(db, wo, factory_code)
         if data.get("production_order_id") and int(data["production_order_id"]) != int(wo.production_order_id):
             raise HTTPException(400, "work_order_id does not belong to production_order_id")
         if wo.production_batch_id and data.get("production_batch_id") and int(data["production_batch_id"]) != int(wo.production_batch_id):
@@ -626,22 +799,38 @@ def _validate_and_enrich_record(db: DbSession, data: dict[str, Any], factory_cod
         data["production_batch_id"] = data.get("production_batch_id") or wo.production_batch_id
         data["operation_section"] = data.get("operation_section") or wo.operation
 
-    po = db.get(ProductionOrder, int(data["production_order_id"])) if data.get("production_order_id") else None
+    po = (
+        context["production_orders"].get(int(data["production_order_id"]))
+        if validation_context is not None and data.get("production_order_id") else
+        db.get(ProductionOrder, int(data["production_order_id"])) if data.get("production_order_id") else None
+    )
     if data.get("production_order_id") and not po:
         raise HTTPException(404, "Production order not found")
     if po:
-        require_production_order_factory(db, int(po.id), factory_code)
+        if validation_context is not None:
+            if int(po.id) not in context["factory_production_ids"]:
+                raise HTTPException(404, "Production order was not found in this factory")
+        else:
+            require_production_order_factory(db, int(po.id), factory_code)
         data["production_no"] = po.production_no
         data["sales_order_id"] = data.get("sales_order_id") or po.sales_order_id
         data["model_id"] = data.get("model_id") or po.model_id
 
-    so = db.get(SalesOrder, int(data["sales_order_id"])) if data.get("sales_order_id") else None
+    so = (
+        context["sales_orders"].get(int(data["sales_order_id"]))
+        if validation_context is not None and data.get("sales_order_id") else
+        db.get(SalesOrder, int(data["sales_order_id"])) if data.get("sales_order_id") else None
+    )
     if data.get("sales_order_id") and not so:
         raise HTTPException(404, "Sales order not found")
     if so:
         data["sales_order_no"] = so.order_no
 
-    batch = db.get(ProductionBatch, int(data["production_batch_id"])) if data.get("production_batch_id") else None
+    batch = (
+        context["production_batches"].get(int(data["production_batch_id"]))
+        if validation_context is not None and data.get("production_batch_id") else
+        db.get(ProductionBatch, int(data["production_batch_id"])) if data.get("production_batch_id") else None
+    )
     if data.get("production_batch_id") and not batch:
         raise HTTPException(404, "Production batch not found")
     if batch:
@@ -650,7 +839,11 @@ def _validate_and_enrich_record(db: DbSession, data: dict[str, Any], factory_cod
         data["production_order_id"] = data.get("production_order_id") or batch.production_order_id
         data["batch_no"] = data.get("batch_no") or batch.batch_no
 
-    model = db.get(Model, int(data["model_id"])) if data.get("model_id") else None
+    model = (
+        context["models"].get(int(data["model_id"]))
+        if validation_context is not None and data.get("model_id") else
+        db.get(Model, int(data["model_id"])) if data.get("model_id") else None
+    )
     if data.get("model_id") and not model:
         raise HTTPException(404, "Model not found")
     if model:
@@ -658,28 +851,44 @@ def _validate_and_enrich_record(db: DbSession, data: dict[str, Any], factory_cod
 
     issued_label = None
     if data.get("scan_uid"):
-        issued_label = (
-            db.query(PayrollQrLabel)
-            .filter(
-                PayrollQrLabel.label_uid == data["scan_uid"],
-                PayrollQrLabel.factory_code == factory_code,
+        if locked_labels is not None:
+            issued_label = locked_labels.get(data["scan_uid"])
+        else:
+            issued_label = (
+                db.query(PayrollQrLabel)
+                .filter(
+                    PayrollQrLabel.label_uid == data["scan_uid"],
+                    PayrollQrLabel.factory_code == factory_code,
+                )
+                .populate_existing()
+                .with_for_update()
+                .one_or_none()
             )
-            .with_for_update()
-            .one_or_none()
-        )
+    if not issued_label and not allow_manual_payable_values:
+        raise HTTPException(403, "Payroll scan requires an issued payroll QR with server-approved pay values")
     if issued_label:
         if issued_label.status == "superseded":
             raise HTTPException(409, "This payroll QR was replaced by split labels and can no longer be scanned")
         if issued_label.status != "available":
             raise HTTPException(409, "This payroll QR is not available for scanning")
+        if issued_label_validator:
+            issued_label_validator(issued_label)
         data.update({
             "production_order_id": issued_label.production_order_id,
             "sales_order_id": issued_label.sales_order_id,
             "work_order_id": issued_label.work_order_id,
             "production_batch_id": issued_label.production_batch_id,
             "model_id": issued_label.model_id,
-            "production_no": _canonical_payroll_reference(db, "PO", issued_label.production_no, entity_id=issued_label.production_order_id),
-            "sales_order_no": _canonical_payroll_reference(db, "SO", issued_label.sales_order_no, entity_id=issued_label.sales_order_id, production_order_id=issued_label.production_order_id),
+            "production_no": _canonical_payroll_reference(
+                db, "PO", issued_label.production_no,
+                entity_id=issued_label.production_order_id, lookup=context.get("order_lookup"),
+            ),
+            "sales_order_no": _canonical_payroll_reference(
+                db, "SO", issued_label.sales_order_no,
+                entity_id=issued_label.sales_order_id,
+                production_order_id=issued_label.production_order_id,
+                lookup=context.get("order_lookup"),
+            ),
             "batch_no": _normalize_production_batch_no(issued_label.batch_no),
             "model_code": issued_label.model_code,
             "operation_section": issued_label.operation_section,
@@ -689,7 +898,6 @@ def _validate_and_enrich_record(db: DbSession, data: dict[str, Any], factory_cod
             "rate_per_piece": _to_decimal(issued_label.rate_per_piece),
             "currency": issued_label.currency,
         })
-        data["total_amount"] = (data["quantity"] * data["rate_per_piece"]).quantize(Decimal("0.01"))
         raw_work = dict(data.get("raw_work_json") or {})
         raw_work.update({
             "sewing_flow_id": issued_label.sewing_flow_id,
@@ -702,21 +910,54 @@ def _validate_and_enrich_record(db: DbSession, data: dict[str, Any], factory_cod
         })
         data["raw_work_json"] = raw_work
 
+    # Enrichment from the trusted issued label and reference canonicalization
+    # happen after request normalization; cap the exact snapshots that persist.
+    data["raw_employee_json"] = _validate_payroll_snapshot(data.get("raw_employee_json") or {}, "employee") or None
+    data["raw_work_json"] = _validate_payroll_snapshot(data.get("raw_work_json") or {}, "work") or None
+
+    data["total_amount"] = _validated_record_total_amount(
+        data["quantity"], data["rate_per_piece"],
+    )
+
     data["factory_code"] = factory_code
     data["operation_name"] = data.get("operation_name") or data.get("operation_code") or data.get("operation_section")
     data["dedupe_key"] = _dedupe_key(data)
     return data
 
 
-def _load_employee_maps(db: DbSession, employee_ids: set[int]) -> tuple[dict[int, Employee], dict[int, Department]]:
+def _load_employee_maps(
+    db: DbSession,
+    employee_ids: set[int],
+    *,
+    include_search_fields: bool = False,
+) -> tuple[dict[int, Employee], dict[int, Department]]:
+    employee_fields = [Employee.id, Employee.full_name, Employee.department_id]
+    department_fields = [Department.id, Department.name]
+    if include_search_fields:
+        employee_fields.append(Employee.employee_no)
+        department_fields.append(Department.code)
     employees = {
         int(e.id): e
-        for e in (db.query(Employee).filter(Employee.id.in_(employee_ids)).all() if employee_ids else [])
+        for e in (
+            db.query(Employee)
+            .options(load_only(*employee_fields))
+            .filter(Employee.id.in_(employee_ids))
+            .all()
+            if employee_ids
+            else []
+        )
     }
     department_ids = {int(e.department_id) for e in employees.values() if e.department_id}
     departments = {
         int(d.id): d
-        for d in (db.query(Department).filter(Department.id.in_(department_ids)).all() if department_ids else [])
+        for d in (
+            db.query(Department)
+            .options(load_only(*department_fields))
+            .filter(Department.id.in_(department_ids))
+            .all()
+            if department_ids
+            else []
+        )
     }
     return employees, departments
 
@@ -772,15 +1013,25 @@ def _serialize_record(
     }
 
 
-def _mark_qr_label_scanned(db: DbSession, record: PayrollRecord, data: dict[str, Any]) -> None:
+def _mark_qr_label_scanned(
+    db: DbSession,
+    record: PayrollRecord,
+    data: dict[str, Any],
+    *,
+    locked_labels: dict[str, PayrollQrLabel] | None = None,
+) -> None:
     label_uid = _to_text(record.scan_uid)
     if not label_uid:
         return
     raw_work = data.get("raw_work_json") if isinstance(data.get("raw_work_json"), dict) else {}
-    label = db.query(PayrollQrLabel).filter(
-        PayrollQrLabel.label_uid == label_uid,
-        PayrollQrLabel.factory_code == record.factory_code,
-    ).first()
+    label = (
+        locked_labels.get(label_uid)
+        if locked_labels is not None else
+        db.query(PayrollQrLabel).filter(
+            PayrollQrLabel.label_uid == label_uid,
+            PayrollQrLabel.factory_code == record.factory_code,
+        ).first()
+    )
     if not label:
         label = PayrollQrLabel(
             factory_code=record.factory_code,
@@ -820,6 +1071,19 @@ def _mark_qr_label_scanned(db: DbSession, record: PayrollRecord, data: dict[str,
     db.flush()
 
 
+_PERIOD_NOT_PRELOCKED = object()
+
+
+def _prepare_record_data(payload: PayrollRecordIn, period_id_override: int | None) -> dict[str, Any]:
+    data = _normalize_record_payload(payload)
+    payload_period_id = payload.payroll_period_id or _to_int(_extra(payload, "payrollPeriodId"))
+    if period_id_override is not None and data.get("payroll_period_id") is None:
+        data["payroll_period_id"] = period_id_override
+    else:
+        data["payroll_period_id"] = payload_period_id
+    return data
+
+
 def _create_record_from_payload(
     db: DbSession,
     payload: PayrollRecordIn,
@@ -828,20 +1092,27 @@ def _create_record_from_payload(
     period_id_override: int | None = None,
     audit_individual: bool = True,
     control_confirmed: bool = False,
+    prepared_data: dict[str, Any] | None = None,
+    prelocked_period: PayrollPeriod | None | object = _PERIOD_NOT_PRELOCKED,
+    locked_labels: dict[str, PayrollQrLabel] | None = None,
+    issued_label_validator: Callable[[PayrollQrLabel], None] | None = None,
+    validation_context: dict[str, Any] | None = None,
+    data_is_validated: bool = False,
+    known_scan_records: dict[str, PayrollRecord] | None = None,
+    known_dedupe_records: dict[str, PayrollRecord] | None = None,
 ) -> tuple[PayrollRecord, bool]:
     factory_code = selected_factory_code(current)
-    data = _normalize_record_payload(payload)
-    payload_period_id = payload.payroll_period_id or _to_int(_extra(payload, "payrollPeriodId"))
-    if period_id_override is not None and data.get("payroll_period_id") is None:
-        data["payroll_period_id"] = period_id_override
-    else:
-        data["payroll_period_id"] = payload_period_id
+    data = dict(prepared_data) if prepared_data is not None else _prepare_record_data(payload, period_id_override)
 
     if data.get("scan_uid"):
-        existing = db.query(PayrollRecord).filter(
-            PayrollRecord.factory_code == factory_code,
-            PayrollRecord.scan_uid == data["scan_uid"],
-        ).first()
+        existing = (
+            known_scan_records.get(data["scan_uid"])
+            if known_scan_records is not None else
+            db.query(PayrollRecord).filter(
+                PayrollRecord.factory_code == factory_code,
+                PayrollRecord.scan_uid == data["scan_uid"],
+            ).first()
+        )
         if existing:
             if data.get("employee_id") and int(existing.employee_id) != int(data["employee_id"]):
                 raise HTTPException(
@@ -850,13 +1121,33 @@ def _create_record_from_payload(
                 )
             return existing, False
 
-    data = _validate_and_enrich_record(db, data, factory_code)
+    if prelocked_period is _PERIOD_NOT_PRELOCKED:
+        period = _attach_period(db, data.get("payroll_period_id"), data["scanned_at"], factory_code)
+    else:
+        period = prelocked_period
+        if data.get("payroll_period_id") and period is None:
+            raise HTTPException(404, "Payroll period not found")
+
+    if not data_is_validated:
+        data = _validate_and_enrich_record(
+            db,
+            data,
+            factory_code,
+            allow_manual_payable_values=_can_set_payable_values(current),
+            locked_labels=locked_labels,
+            issued_label_validator=issued_label_validator,
+            validation_context=validation_context,
+        )
     if _is_control_operation(data) and not control_confirmed:
         raise HTTPException(409, "Control operation requires review and confirmation before payroll is recorded")
-    existing = db.query(PayrollRecord).filter(
-        PayrollRecord.dedupe_key == data["dedupe_key"],
-        PayrollRecord.factory_code == factory_code,
-    ).first()
+    existing = (
+        known_dedupe_records.get(data["dedupe_key"])
+        if known_dedupe_records is not None else
+        db.query(PayrollRecord).filter(
+            PayrollRecord.dedupe_key == data["dedupe_key"],
+            PayrollRecord.factory_code == factory_code,
+        ).first()
+    )
     if existing:
         return existing, False
 
@@ -869,7 +1160,6 @@ def _create_record_from_payload(
         if existing:
             return existing, False
 
-    period = _attach_period(db, data.get("payroll_period_id"), data["scanned_at"], factory_code)
     _assert_period_accepts_records(period, current)
     data["payroll_period_id"] = period.id if period else None
 
@@ -907,7 +1197,7 @@ def _create_record_from_payload(
     )
     db.add(record)
     db.flush()
-    _mark_qr_label_scanned(db, record, data)
+    _mark_qr_label_scanned(db, record, data, locked_labels=locked_labels)
     if audit_individual:
         log_action(
             db,
@@ -968,16 +1258,33 @@ def _filtered_adjustment_query(
     return qry
 
 
-@router.get("/periods", response_model=list[PayrollPeriodOut])
+@router.get("/periods", response_model=list[PayrollPeriodOut] | PayrollPeriodPageOut)
 def list_periods(
     db: DbSession,
     current: User = Depends(require_permissions("payroll.view", "payroll.manage", "payroll.approve", "payroll.pay", "*")),
     status: str | None = None,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     qry = db.query(PayrollPeriod).filter(PayrollPeriod.factory_code == selected_factory_code(current))
     if status:
         qry = qry.filter(PayrollPeriod.status == status)
-    return qry.order_by(PayrollPeriod.start_date.desc(), PayrollPeriod.id.desc()).all()
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = qry.order_by(None).count()
+    ordered_qry = qry.order_by(PayrollPeriod.start_date.desc(), PayrollPeriod.id.desc())
+    if total is None:
+        return ordered_qry.all()
+    rows = ordered_qry.offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.post("/periods", response_model=PayrollPeriodOut, status_code=201)
@@ -996,6 +1303,10 @@ def create_period(
         PayrollPeriod.period_no == period_no,
     ).first():
         raise HTTPException(400, "Payroll period number already exists")
+    if len(payload.name) > 128:
+        raise HTTPException(422, "Payroll period name exceeds the 128-character storage limit")
+    if len(period_no) > PAYROLL_PERIOD_NO_MAX_LENGTH:
+        raise HTTPException(422, "Payroll period number exceeds the 64-character storage limit")
     period = PayrollPeriod(
         factory_code=factory_code,
         period_no=period_no,
@@ -1025,7 +1336,7 @@ def update_period(
     period = db.query(PayrollPeriod).filter(
         PayrollPeriod.id == period_id,
         PayrollPeriod.factory_code == factory_code,
-    ).first()
+    ).populate_existing().with_for_update().first()
     if not period:
         raise HTTPException(404, "Payroll period not found")
     changes = payload.model_dump(exclude_unset=True)
@@ -1046,6 +1357,14 @@ def update_period(
         ).first()
         if exists:
             raise HTTPException(400, "Payroll period number already exists")
+    if "name" in changes and changes["name"] is not None and len(changes["name"]) > 128:
+        raise HTTPException(422, "Payroll period name exceeds the 128-character storage limit")
+    if (
+        "period_no" in changes
+        and changes["period_no"] is not None
+        and len(changes["period_no"]) > PAYROLL_PERIOD_NO_MAX_LENGTH
+    ):
+        raise HTTPException(422, "Payroll period number exceeds the 64-character storage limit")
     old = {key: getattr(period, key) for key in changes.keys() if hasattr(period, key)}
     for key, value in changes.items():
         setattr(period, key, value)
@@ -1065,7 +1384,7 @@ def lock_period(
     period = db.query(PayrollPeriod).filter(
         PayrollPeriod.id == period_id,
         PayrollPeriod.factory_code == factory_code,
-    ).first()
+    ).populate_existing().with_for_update().first()
     if not period:
         raise HTTPException(404, "Payroll period not found")
     if period.status in {"approved", "paid", "cancelled"}:
@@ -1088,7 +1407,7 @@ def approve_period(
     period = db.query(PayrollPeriod).filter(
         PayrollPeriod.id == period_id,
         PayrollPeriod.factory_code == factory_code,
-    ).first()
+    ).populate_existing().with_for_update().first()
     if not period:
         raise HTTPException(404, "Payroll period not found")
     if period.status != "locked":
@@ -1118,7 +1437,7 @@ def mark_period_paid(
     period = db.query(PayrollPeriod).filter(
         PayrollPeriod.id == period_id,
         PayrollPeriod.factory_code == factory_code,
-    ).first()
+    ).populate_existing().with_for_update().first()
     if not period:
         raise HTTPException(404, "Payroll period not found")
     if period.status != "approved":
@@ -1135,7 +1454,7 @@ def mark_period_paid(
     return period
 
 
-@router.get("/records", response_model=list[PayrollRecordOut])
+@router.get("/records", response_model=list[PayrollRecordOut] | PayrollRecordPageOut)
 def list_records(
     db: DbSession,
     current: User = Depends(require_permissions("payroll.view", "payroll.manage", "*")),
@@ -1146,6 +1465,8 @@ def list_records(
     date_to: datetime | None = None,
     status: str | None = None,
     limit: int = 200,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     qry = _filtered_record_query(
         db,
@@ -1162,9 +1483,28 @@ def list_records(
         qry = qry.filter(PayrollRecord.status == status)
     elif status:
         raise HTTPException(400, "Invalid payroll record status")
-    rows = qry.order_by(PayrollRecord.scanned_at.desc(), PayrollRecord.id.desc()).limit(max(1, min(limit, 1000))).all()
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 200
+        total = qry.order_by(None).count()
+    qry = qry.order_by(PayrollRecord.scanned_at.desc(), PayrollRecord.id.desc())
+    if total is None:
+        qry = qry.limit(max(1, min(limit, 1000)))
+    else:
+        qry = qry.offset((page - 1) * page_size).limit(page_size)
+    rows = qry.all()
     employees, departments = _load_employee_maps(db, {int(r.employee_id) for r in rows})
-    return [_serialize_record(r, employees=employees, departments=departments) for r in rows]
+    payloads = [_serialize_record(r, employees=employees, departments=departments) for r in rows]
+    if total is None:
+        return payloads
+    return {
+        "rows": payloads,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 def _serialize_qr_label(
@@ -1173,6 +1513,7 @@ def _serialize_qr_label(
     records: dict[int, PayrollRecord],
     employees: dict[int, Employee],
     departments: dict[int, Department],
+    order_lookup=None,
 ) -> dict[str, Any]:
     record = records.get(int(label.payroll_record_id)) if label.payroll_record_id else None
     employee = employees.get(int(record.employee_id)) if record else None
@@ -1182,14 +1523,14 @@ def _serialize_qr_label(
         "factory_code": label.factory_code,
         "label_uid": label.label_uid,
         "qr_token": _work_qr_token(int(label.id)),
-        "payload": _canonical_payroll_snapshot(object_session(label), label.payload, production_order_id=label.production_order_id, sales_order_id=label.sales_order_id),
+        "payload": _canonical_payroll_snapshot(object_session(label), label.payload, production_order_id=label.production_order_id, sales_order_id=label.sales_order_id, lookup=order_lookup),
         "production_order_id": label.production_order_id,
         "sales_order_id": label.sales_order_id,
         "work_order_id": label.work_order_id,
         "production_batch_id": label.production_batch_id,
         "model_id": label.model_id,
-        "production_no": _canonical_payroll_reference(object_session(label), "PO", label.production_no, entity_id=label.production_order_id),
-        "sales_order_no": _canonical_payroll_reference(object_session(label), "SO", label.sales_order_no, entity_id=label.sales_order_id, production_order_id=label.production_order_id),
+        "production_no": _canonical_payroll_reference(object_session(label), "PO", label.production_no, entity_id=label.production_order_id, lookup=order_lookup),
+        "sales_order_no": _canonical_payroll_reference(object_session(label), "SO", label.sales_order_no, entity_id=label.sales_order_id, production_order_id=label.production_order_id, lookup=order_lookup),
         "batch_no": _normalize_production_batch_no(label.batch_no),
         "model_code": label.model_code,
         "operation_section": label.operation_section,
@@ -1272,21 +1613,15 @@ def _qr_size_sort_key(value: str) -> tuple[int, int, str]:
     return (2, 0, normalized)
 
 
-@router.get("/reports/order-qr-status/orders", response_model=list[OrderQrStatusOrderOption])
-def order_qr_status_orders(
-    db: DbSession,
-    current: User = Depends(require_permissions("payroll.view", "payroll.manage", "payroll.pay", "*")),
-    search: str | None = None,
-    limit: int = 50,
-):
+def _order_qr_status_option_query(db: DbSession, factory_code: str, search: str | None):
     qry = db.query(
-        PayrollQrLabel.sales_order_no,
-        PayrollQrLabel.production_no,
-        PayrollQrLabel.model_code,
-        func.count(PayrollQrLabel.id),
-        func.max(PayrollQrLabel.issued_at),
+        PayrollQrLabel.sales_order_no.label("sales_order_no"),
+        PayrollQrLabel.production_no.label("production_no"),
+        PayrollQrLabel.model_code.label("model_code"),
+        func.count(PayrollQrLabel.id).label("label_count"),
+        func.max(PayrollQrLabel.issued_at).label("latest_at"),
     ).filter(
-        PayrollQrLabel.factory_code == selected_factory_code(current),
+        PayrollQrLabel.factory_code == factory_code,
         PayrollQrLabel.status != "superseded",
         or_(
             PayrollQrLabel.sales_order_no.isnot(None),
@@ -1300,16 +1635,14 @@ def order_qr_status_orders(
             _payroll_order_reference_match(db, PayrollQrLabel.sales_order_no, "SO", pattern),
             _payroll_order_reference_match(db, PayrollQrLabel.production_no, "PO", pattern),
         ))
-    rows = (
-        qry.group_by(
-            PayrollQrLabel.sales_order_no,
-            PayrollQrLabel.production_no,
-            PayrollQrLabel.model_code,
-        )
-        .order_by(func.max(PayrollQrLabel.issued_at).desc())
-        .limit(500)
-        .all()
-    )
+    return qry.group_by(
+        PayrollQrLabel.sales_order_no,
+        PayrollQrLabel.production_no,
+        PayrollQrLabel.model_code,
+    ).order_by(func.max(PayrollQrLabel.issued_at).desc())
+
+
+def _group_order_qr_status_options(rows) -> dict[str, dict[str, Any]]:
     grouped: dict[str, dict[str, Any]] = {}
     for sales_no, production_no, model_code, label_count, latest_at in rows:
         order_key = str(sales_no or production_no or "").strip()
@@ -1332,22 +1665,87 @@ def order_qr_status_orders(
         current["label_count"] += int(label_count or 0)
         if latest_at and (not current["latest_at"] or latest_at > current["latest_at"]):
             current["latest_at"] = latest_at
-    ordered = sorted(
-        grouped.values(),
-        key=lambda row: row["latest_at"].timestamp() if row["latest_at"] else 0,
-        reverse=True,
-    )
+    return grouped
+
+
+def _order_qr_status_option_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "order_no": row["order_no"],
+        "sales_order_nos": sorted(row["sales_order_nos"]),
+        "production_nos": sorted(row["production_nos"]),
+        "model_codes": sorted(row["model_codes"]),
+        "label_count": row["label_count"],
+    }
+
+
+@router.get(
+    "/reports/order-qr-status/orders",
+    response_model=list[OrderQrStatusOrderOption] | OrderQrStatusOrderOptionPage,
+)
+def order_qr_status_orders(
+    db: DbSession,
+    current: User = Depends(require_permissions("payroll.view", "payroll.manage", "payroll.pay", "*")),
+    search: str | None = None,
+    limit: int = 50,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=100)] = None,
+):
+    grouped_query = _order_qr_status_option_query(db, selected_factory_code(current), search)
     safe_limit = max(1, min(limit, 100))
-    return [
-        {
-            "order_no": row["order_no"],
-            "sales_order_nos": sorted(row["sales_order_nos"]),
-            "production_nos": sorted(row["production_nos"]),
-            "model_codes": sorted(row["model_codes"]),
-            "label_count": row["label_count"],
-        }
-        for row in ordered[:safe_limit]
-    ]
+    if page is None and page_size is None:
+        grouped = _group_order_qr_status_options(grouped_query.limit(500).all())
+        ordered = sorted(
+            grouped.values(),
+            key=lambda row: row["latest_at"].timestamp() if row["latest_at"] else 0,
+            reverse=True,
+        )
+        return [_order_qr_status_option_payload(row) for row in ordered[:safe_limit]]
+
+    effective_page = page or 1
+    effective_page_size = page_size or safe_limit
+    # The legacy unpaged response remains capped for compatibility, but paged
+    # callers need totals and rows from the complete factory-scoped directory.
+    option_rows = grouped_query.order_by(None).subquery()
+    raw_order_key = case(
+        (option_rows.c.sales_order_no != "", option_rows.c.sales_order_no),
+        else_=option_rows.c.production_no,
+    )
+    order_key = func.trim(raw_order_key)
+    latest_at = func.max(option_rows.c.latest_at)
+    directory = (
+        db.query(order_key.label("order_key"), latest_at.label("latest_at"))
+        .filter(order_key != "")
+        .group_by(order_key)
+    )
+    total = int(directory.count())
+    key_rows = (
+        directory.order_by(latest_at.desc(), order_key.asc())
+        .offset((effective_page - 1) * effective_page_size)
+        .limit(effective_page_size)
+        .all()
+    )
+    selected_keys = [str(row.order_key) for row in key_rows]
+    detail_rows = []
+    if selected_keys:
+        detail_rows = db.query(
+            option_rows.c.sales_order_no,
+            option_rows.c.production_no,
+            option_rows.c.model_code,
+            option_rows.c.label_count,
+            option_rows.c.latest_at,
+        ).filter(order_key.in_(selected_keys)).all()
+    grouped = _group_order_qr_status_options(detail_rows)
+    return {
+        "rows": [
+            _order_qr_status_option_payload(grouped[key])
+            for key in selected_keys
+            if key in grouped
+        ],
+        "total": total,
+        "page": effective_page,
+        "page_size": effective_page_size,
+        "has_more": effective_page * effective_page_size < total,
+    }
 
 
 @router.get("/reports/order-qr-status", response_model=OrderQrStatusOut)
@@ -1492,7 +1890,195 @@ def _sewing_report_factory_code(value: str | None) -> str | None:
     return normalized
 
 
-def _sewing_report_options(db: DbSession, factory_code: str) -> dict[str, list[dict[str, str]]]:
+def _sewing_report_order_option_page(
+    db: DbSession,
+    factory_code: str,
+    *,
+    search: str | None,
+    offset: int,
+    limit: int,
+    selected_value: str | None,
+) -> dict[str, Any]:
+    """Build an exact, factory-scoped directory page without hydrating history."""
+    factory_code = _sewing_report_factory_code(factory_code)
+    assert factory_code is not None
+
+    pattern = None
+    if search and search.strip():
+        escaped = (
+            search.strip()
+            .replace("\\", "\\\\")
+            .replace("%", "\\%")
+            .replace("_", "\\_")
+        )
+        pattern = f"%{escaped}%"
+
+    def order_label(first, second, model_code):
+        first_text = func.trim(cast(first, String))
+        second_text = func.trim(cast(second, String))
+        model_text = func.trim(cast(model_code, String))
+        return (
+            first_text
+            + case((second_text != "", literal(" | ") + second_text), else_=literal(""))
+            + case((model_text != "", literal(" | ") + model_text), else_=literal(""))
+        )
+
+    candidate_queries = []
+
+    def add_candidates(
+        source,
+        production_no,
+        sales_order_no,
+        model_code,
+        priority: int,
+        *,
+        queries=None,
+        search_pattern=pattern,
+        selected=None,
+    ):
+        target_queries = candidate_queries if queries is None else queries
+        match = None
+        if search_pattern:
+            match = or_(
+                production_no.ilike(search_pattern, escape="\\"),
+                sales_order_no.ilike(search_pattern, escape="\\"),
+                model_code.ilike(search_pattern, escape="\\"),
+            )
+        for value, other in (
+            (production_no, sales_order_no),
+            (sales_order_no, production_no),
+        ):
+            query = source.filter(value.isnot(None), func.trim(cast(value, String)) != "")
+            if value is sales_order_no:
+                query = query.filter(or_(other.is_(None), value != other))
+            if match is not None:
+                query = query.filter(match)
+            if selected is not None:
+                query = query.filter(value == selected)
+            target_queries.append(query.with_entities(
+                cast(value, String).label("value"),
+                order_label(value, other, model_code).label("label"),
+                literal(priority).label("priority"),
+                cast(production_no, String).label("production_no"),
+                cast(sales_order_no, String).label("sales_order_no"),
+            ))
+
+    payroll_source = db.query(PayrollRecord).filter(PayrollRecord.factory_code == factory_code)
+    add_candidates(
+        payroll_source,
+        PayrollRecord.production_no,
+        PayrollRecord.sales_order_no,
+        PayrollRecord.model_code,
+        0,
+    )
+
+    routed_order_ids = db.query(Bundle.production_order_id).distinct()
+    if factory_code == "MIL":
+        bundle_condition = or_(
+            Bundle.sewing_factory_code.in_(("MIL", "SEW")),
+            Bundle.sewing_factory_code.is_(None),
+        )
+    else:
+        bundle_condition = Bundle.sewing_factory_code == factory_code
+    routed_order_ids = routed_order_ids.filter(bundle_condition)
+    production_source = (
+        db.query(ProductionOrder)
+        .filter(ProductionOrder.id.in_(routed_order_ids))
+        .outerjoin(SalesOrder, SalesOrder.id == ProductionOrder.sales_order_id)
+        .join(Model, Model.id == ProductionOrder.model_id)
+    )
+    add_candidates(
+        production_source,
+        ProductionOrder.production_no,
+        SalesOrder.order_no,
+        Model.code,
+        1,
+    )
+
+    candidates = union_all(*candidate_queries).subquery("order_option_candidates")
+    ranked = db.query(
+        candidates.c.value,
+        candidates.c.label,
+        func.row_number().over(
+            partition_by=candidates.c.value,
+            order_by=(
+                candidates.c.priority.asc(),
+                candidates.c.production_no.asc(),
+                candidates.c.sales_order_no.asc(),
+            ),
+        ).label("option_rank"),
+    ).subquery("ranked_order_options")
+    directory = db.query(ranked.c.value, ranked.c.label).filter(ranked.c.option_rank == 1).subquery()
+
+    total = int(db.query(func.count()).select_from(directory).scalar() or 0)
+    page_rows = (
+        db.query(directory.c.value, directory.c.label)
+        .order_by(directory.c.value.asc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    selected_option = None
+    if selected_value:
+        selected_candidates = []
+        add_candidates(
+            payroll_source,
+            PayrollRecord.production_no,
+            PayrollRecord.sales_order_no,
+            PayrollRecord.model_code,
+            0,
+            queries=selected_candidates,
+            search_pattern=None,
+            selected=selected_value,
+        )
+        add_candidates(
+            production_source,
+            ProductionOrder.production_no,
+            SalesOrder.order_no,
+            Model.code,
+            1,
+            queries=selected_candidates,
+            search_pattern=None,
+            selected=selected_value,
+        )
+        selected_rows = union_all(*selected_candidates).subquery("selected_order_candidates")
+        selected_ranked = db.query(
+            selected_rows.c.value,
+            selected_rows.c.label,
+            func.row_number().over(
+                partition_by=selected_rows.c.value,
+                order_by=(
+                    selected_rows.c.priority.asc(),
+                    selected_rows.c.production_no.asc(),
+                    selected_rows.c.sales_order_no.asc(),
+                ),
+            ).label("option_rank"),
+        ).subquery("selected_ranked_order_options")
+        selected_row = db.query(
+            selected_ranked.c.value,
+            selected_ranked.c.label,
+        ).filter(selected_ranked.c.option_rank == 1).first()
+        if selected_row:
+            selected_option = {"value": str(selected_row.value), "label": str(selected_row.label)}
+
+    return {
+        "items": [{"value": str(value), "label": str(label)} for value, label in page_rows],
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "factory_code": factory_code,
+        "search": search.strip() if search else "",
+        "selected_value": selected_value or "",
+        "selected_option": selected_option,
+    }
+
+
+def _sewing_report_options(
+    db: DbSession,
+    factory_code: str,
+    *,
+    include_orders: bool = True,
+) -> dict[str, list[dict[str, str]]]:
     factory_code = _sewing_report_factory_code(factory_code)
 
     def bundle_factory_condition():
@@ -1613,30 +2199,30 @@ def _sewing_report_options(db: DbSession, factory_code: str) -> dict[str, list[d
         production_model_qry = production_model_qry.filter(ProductionOrder.id.in_(routed_order_ids))
     production_models = production_model_qry.distinct().order_by(Model.code.asc()).all()
 
-    order_qry = (
-        db.query(PayrollRecord.production_no, PayrollRecord.sales_order_no, PayrollRecord.model_code)
-        .select_from(PayrollRecord)
-        .outerjoin(PayrollQrLabel, PayrollQrLabel.payroll_record_id == PayrollRecord.id)
-        .outerjoin(SewingFlow, SewingFlow.id == PayrollQrLabel.sewing_flow_id)
-        .filter(
-            PayrollRecord.factory_code == factory_code,
-            or_(PayrollRecord.production_no.isnot(None), PayrollRecord.sales_order_no.isnot(None)),
+    orders = []
+    production_orders = []
+    if include_orders:
+        order_qry = (
+            db.query(PayrollRecord.production_no, PayrollRecord.sales_order_no, PayrollRecord.model_code)
+            .filter(
+                PayrollRecord.factory_code == factory_code,
+                or_(PayrollRecord.production_no.isnot(None), PayrollRecord.sales_order_no.isnot(None)),
+            )
         )
-    )
-    orders = order_qry.distinct().order_by(
-        PayrollRecord.production_no.asc(),
-        PayrollRecord.sales_order_no.asc(),
-    ).all()
+        orders = order_qry.distinct().order_by(
+            PayrollRecord.production_no.asc(),
+            PayrollRecord.sales_order_no.asc(),
+        ).all()
 
-    production_order_qry = (
-        db.query(ProductionOrder.production_no, SalesOrder.order_no, Model.code)
-        .select_from(ProductionOrder)
-        .outerjoin(SalesOrder, SalesOrder.id == ProductionOrder.sales_order_id)
-        .join(Model, Model.id == ProductionOrder.model_id)
-    )
-    if factory_code:
-        production_order_qry = production_order_qry.filter(ProductionOrder.id.in_(routed_order_ids))
-    production_orders = production_order_qry.order_by(ProductionOrder.production_no.asc()).all()
+        production_order_qry = (
+            db.query(ProductionOrder.production_no, SalesOrder.order_no, Model.code)
+            .select_from(ProductionOrder)
+            .outerjoin(SalesOrder, SalesOrder.id == ProductionOrder.sales_order_id)
+            .join(Model, Model.id == ProductionOrder.model_id)
+        )
+        if factory_code:
+            production_order_qry = production_order_qry.filter(ProductionOrder.id.in_(routed_order_ids))
+        production_orders = production_order_qry.order_by(ProductionOrder.production_no.asc()).all()
 
     cutting_qry = (
         db.query(
@@ -1771,11 +2357,40 @@ def sewing_production_report_options(
     db: DbSession,
     current: User = Depends(require_permissions("payroll.view", "payroll.manage", "payroll.pay", "*")),
     factory_code: str | None = None,
+    include_orders: Annotated[bool, Query()] = True,
 ):
     scoped_factory = selected_factory_code(current)
     if factory_code:
         require_factory_access(current, factory_code)
-    return _sewing_report_options(db, scoped_factory)
+        scoped_factory = _sewing_report_factory_code(factory_code)
+    return _sewing_report_options(db, scoped_factory, include_orders=include_orders)
+
+
+@router.get(
+    "/reports/sewing-production/orders",
+    response_model=SewingProductionReportOrderOptionPage,
+)
+def sewing_production_report_orders(
+    db: DbSession,
+    current: User = Depends(require_permissions("payroll.view", "payroll.manage", "payroll.pay", "*")),
+    factory_code: Annotated[str | None, Query()] = None,
+    search: Annotated[str | None, Query(max_length=120)] = None,
+    limit: Annotated[int, Query(ge=1, le=50)] = 50,
+    offset: Annotated[int, Query(ge=0, le=2_147_483_647)] = 0,
+    selected_value: Annotated[str | None, Query(max_length=255)] = None,
+):
+    scoped_factory = selected_factory_code(current)
+    if factory_code:
+        require_factory_access(current, factory_code)
+        scoped_factory = _sewing_report_factory_code(factory_code)
+    return _sewing_report_order_option_page(
+        db,
+        scoped_factory,
+        search=search,
+        offset=offset,
+        limit=limit,
+        selected_value=selected_value,
+    )
 
 
 def _filtered_sewing_production_report_query(
@@ -1932,10 +2547,12 @@ def sewing_production_report(
     report_view: Literal["details", "salary"] = "details",
     limit: int = 100,
     offset: int = 0,
+    include_options: Annotated[bool, Query()] = True,
 ):
     scoped_factory = selected_factory_code(current)
     if factory_code:
         require_factory_access(current, factory_code)
+        scoped_factory = _sewing_report_factory_code(factory_code)
     qry, factory_code = _filtered_sewing_production_report_query(
         db,
         date_from=date_from,
@@ -1985,7 +2602,7 @@ def sewing_production_report(
         "total_quantity": aggregate[0],
         "total_amount": aggregate[1],
         "currency": report_currency,
-        "options": _sewing_report_options(db, factory_code),
+        "options": _sewing_report_options(db, factory_code) if include_options else SewingProductionReportOptions(),
     }
 
 
@@ -2008,10 +2625,13 @@ def sewing_production_report_excel(
     factory_code: str | None = None,
     status: str = "active",
     report_view: Literal["details", "salary"] = "details",
+    page: int | None = Query(default=None, ge=1),
+    page_size: int | None = Query(default=None, ge=1, le=500),
 ):
     scoped_factory = selected_factory_code(current)
     if factory_code:
         require_factory_access(current, factory_code)
+        scoped_factory = _sewing_report_factory_code(factory_code)
     qry, _ = _filtered_sewing_production_report_query(
         db,
         date_from=date_from,
@@ -2028,10 +2648,22 @@ def sewing_production_report_excel(
         factory_code=scoped_factory,
         status=status,
     )
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
     if report_view == "salary":
         items = _sewing_salary_summary(qry)
+        if page is not None:
+            total = len(items)
+            start = (page - 1) * page_size
+            items = items[start:start + page_size]
     else:
-        rows = qry.order_by(PayrollRecord.scanned_at.desc(), PayrollRecord.id.desc()).all()
+        ordered_query = qry.order_by(PayrollRecord.scanned_at.desc(), PayrollRecord.id.desc())
+        if page is not None:
+            total = ordered_query.order_by(None).count()
+            ordered_query = ordered_query.offset((page - 1) * page_size).limit(page_size)
+        rows = ordered_query.all()
         items = _sewing_production_report_items(rows)
     currencies = {str(item["currency"]) for item in items if item.get("currency")}
     report_currency = next(iter(currencies)) if len(currencies) == 1 else ("MIXED" if currencies else "UZS")
@@ -2047,10 +2679,18 @@ def sewing_production_report_excel(
     )
     report_name = "sewing-salary-summary" if report_view == "salary" else "sewing-production-report"
     filename = f"{report_name}-{generated_at.strftime('%Y-%m-%d')}.xlsx"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    if total is not None:
+        headers.update({
+            "X-Total-Count": str(total),
+            "X-Page": str(page),
+            "X-Page-Size": str(page_size),
+            "X-Has-More": "true" if page * page_size < total else "false",
+        })
     return Response(
         content=workbook,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers=headers,
     )
 
 
@@ -2058,7 +2698,7 @@ def sewing_production_report_excel(
 def issue_qr_labels(
     payload: PayrollQrLabelsIssueIn,
     db: DbSession,
-    current: User = Depends(require_permissions("payroll.scan", "payroll.manage", "*")),
+    current: User = Depends(require_permissions("payroll.manage", "*")),
 ):
     if not payload.labels:
         raise HTTPException(400, "At least one payroll QR label is required")
@@ -2066,40 +2706,113 @@ def issue_qr_labels(
     factory_code = selected_factory_code(current)
     issued_ids: list[int] = []
     created_ids: list[int] = []
+    created_label_uids: set[str] = set()
     existing_count = 0
     issued_labels: list[dict[str, str]] = []
+
+    # Read request-scoped identities once.  Validation below still runs in the
+    # original row order, but does not turn a 50-label issue into 100+ SELECTs.
+    flow_ids = {int(row.sewing_flow_id) for row in payload.labels if row.sewing_flow_id is not None}
+    work_order_ids = {int(row.work_order_id) for row in payload.labels if row.work_order_id is not None}
+    production_order_ids = {
+        int(row.production_order_id) for row in payload.labels if row.production_order_id is not None
+    }
+    flow_by_id = (
+        {int(flow.id): flow for flow in db.query(SewingFlow).filter(
+            SewingFlow.id.in_(flow_ids), SewingFlow.factory_code == factory_code,
+        ).all()}
+        if flow_ids else {}
+    )
+    work_order_by_id = (
+        {int(work_order.id): work_order for work_order in db.query(WorkOrder).filter(
+            WorkOrder.id.in_(work_order_ids),
+        ).all()}
+        if work_order_ids else {}
+    )
+    referenced_production_ids = production_order_ids | {
+        int(work_order.production_order_id)
+        for work_order in work_order_by_id.values()
+    }
+    normalized_uids = [row.label_uid.strip() for row in payload.labels]
+    order_lookup = _issue_order_lookup(db, payload.labels)
+    uid_values = {uid for uid in normalized_uids if uid and len(uid) <= 128}
+    labels_by_uid = (
+        {label.label_uid: label for label in db.query(PayrollQrLabel).filter(
+            PayrollQrLabel.factory_code == factory_code,
+            PayrollQrLabel.label_uid.in_(uid_values),
+        ).all()}
+        if uid_values else {}
+    )
+    inferred_uids: set[str] = set()
+    for row in payload.labels:
+        label_uid = row.label_uid.strip()
+        if (
+            row.production_order_id is None
+            and row.production_no
+            and label_uid not in labels_by_uid
+            and label_uid not in inferred_uids
+        ):
+            inferred_uids.add(label_uid)
+            try:
+                referenced = resolve_order_id(db, "PO", row.production_no, lookup=order_lookup)
+            except HTTPException:
+                # Preserve the original row-order error from canonicalization.
+                continue
+            if referenced is not None:
+                referenced_production_ids.add(int(referenced))
+    factory_production_ids = (
+        {
+            int(production_id)
+            for (production_id,) in db.query(ProductionOrder.id).filter(
+                ProductionOrder.id.in_(referenced_production_ids),
+                production_order_factory_condition(factory_code),
+            ).all()
+        }
+        if referenced_production_ids else set()
+    )
+    new_label_uids: set[str] = set()
     for row in payload.labels:
         if row.sewing_flow_id is not None:
-            flow = db.query(SewingFlow).filter(
-                SewingFlow.id == row.sewing_flow_id,
-                SewingFlow.factory_code == factory_code,
-            ).first()
+            flow = flow_by_id.get(int(row.sewing_flow_id))
             if not flow:
                 raise HTTPException(404, "Sewing line was not found in this factory")
-        work_order = db.get(WorkOrder, row.work_order_id) if row.work_order_id is not None else None
+        work_order = work_order_by_id.get(int(row.work_order_id)) if row.work_order_id is not None else None
         if row.work_order_id is not None and not work_order:
             raise HTTPException(404, "Work order not found")
         if work_order:
-            require_work_order_factory(db, work_order, factory_code)
+            if int(work_order.production_order_id) not in factory_production_ids:
+                raise HTTPException(404, "Work order was not found in this factory")
             if row.production_order_id is not None and int(work_order.production_order_id) != int(row.production_order_id):
                 raise HTTPException(400, "Work order does not belong to the production order")
         if row.production_order_id is not None:
-            require_production_order_factory(db, int(row.production_order_id), factory_code)
+            if int(row.production_order_id) not in factory_production_ids:
+                raise HTTPException(404, "Production order was not found in this factory")
         label_uid = row.label_uid.strip()
         if not label_uid or len(label_uid) > 128:
             raise HTTPException(400, "Invalid payroll QR label identifier")
-        label = db.query(PayrollQrLabel).filter(
-            PayrollQrLabel.factory_code == factory_code,
-            PayrollQrLabel.label_uid == label_uid,
-        ).first()
+        label = labels_by_uid.get(label_uid)
         is_new = label is None
         if is_new:
             label = PayrollQrLabel(factory_code=factory_code, label_uid=label_uid)
             db.add(label)
+            labels_by_uid[label_uid] = label
+            new_label_uids.add(label_uid)
             values = row.model_dump(exclude={"label_uid"})
-            _canonicalize_payroll_input(db, values, factory_code)
+            _canonicalize_payroll_input(
+                db,
+                values,
+                factory_code,
+                lookup=order_lookup,
+                factory_production_ids=factory_production_ids,
+            )
             values.pop("raw_work_json", None)
-            values["payload"] = _canonical_payroll_snapshot(db, row.payload, production_order_id=row.production_order_id, sales_order_id=row.sales_order_id)
+            values["payload"] = _canonical_payroll_snapshot(
+                db,
+                row.payload,
+                production_order_id=row.production_order_id,
+                sales_order_id=row.sales_order_id,
+                lookup=order_lookup,
+            )
             for key, value in values.items():
                 setattr(label, key, value)
             label.batch_no = _normalize_production_batch_no(row.batch_no)
@@ -2121,10 +2834,26 @@ def issue_qr_labels(
             ):
                 raise HTTPException(409, "Payroll QR identifier already belongs to another paid operation; refresh the issued labels")
             existing_count += 1
-        active_record = db.query(PayrollRecord).filter(
+        if is_new:
+            label.status = "available"
+            label.payroll_record_id = None
+
+    # Flush identities, then re-read matching records after all label
+    # validation/creation.  This preserves the old same-request duplicate UID
+    # behavior and observes a record that appeared while preparation ran.
+    db.flush()
+    record_uids = set(labels_by_uid).intersection(uid_values)
+    records_by_uid = (
+        {record.scan_uid: record for record in db.query(PayrollRecord).filter(
             PayrollRecord.factory_code == factory_code,
-            PayrollRecord.scan_uid == label_uid,
-        ).first()
+            PayrollRecord.scan_uid.in_(record_uids),
+        ).all()}
+        if record_uids else {}
+    )
+    for row, label_uid in zip(payload.labels, normalized_uids):
+        label = labels_by_uid[label_uid]
+        active_record = records_by_uid.get(label_uid)
+        is_new = label_uid in new_label_uids
         if active_record:
             label.status = "scanned"
             label.payroll_record_id = active_record.id
@@ -2132,9 +2861,9 @@ def issue_qr_labels(
         elif is_new:
             label.status = "available"
             label.payroll_record_id = None
-        db.flush()
         issued_ids.append(int(label.id))
-        if is_new:
+        if is_new and label_uid not in created_label_uids:
+            created_label_uids.add(label_uid)
             created_ids.append(int(label.id))
         issued_labels.append({"label_uid": label.label_uid, "qr_token": _work_qr_token(int(label.id))})
     if created_ids:
@@ -2190,7 +2919,18 @@ def search_payroll_employees(
     terms = q.strip().split()
     if len(q.strip()) < 2:
         return {"items": [], "has_more": False}
-    query = db.query(Employee, Department).outerjoin(Department, Employee.department_id == Department.id).filter(
+    query = db.query(Employee, Department).options(
+        load_only(
+            Employee.id,
+            Employee.employee_no,
+            Employee.user_id,
+            Employee.full_name,
+            Employee.department_id,
+            Employee.position,
+            Employee.status,
+        ),
+        load_only(Department.id, Department.code, Department.name),
+    ).outerjoin(Department, Employee.department_id == Department.id).filter(
         Employee.factory_code == selected_factory_code(current),
         Employee.status == "active",
     )
@@ -2212,6 +2952,80 @@ def search_payroll_employees(
             for employee, _ in rows[:20]
         ],
         "has_more": len(rows) > 20,
+    }
+
+
+@router.get("/employees/options")
+def list_payroll_employee_options(
+    db: DbSession,
+    current: User = Depends(require_permissions("payroll.view", "payroll.manage", "payroll.approve", "payroll.pay", "*")),
+    search: Annotated[str, Query(max_length=100)] = "",
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=50)] = 50,
+    selected_id: Annotated[int | None, Query(ge=1)] = None,
+):
+    factory_code = selected_factory_code(current)
+    normalized_search = search.strip()
+    terms = normalized_search.split()
+    query = db.query(
+        Employee.id,
+        Employee.full_name,
+        Employee.employee_no,
+        Employee.position,
+        Employee.department_id,
+        Department.code.label("department_code"),
+        Department.name.label("department_name"),
+    ).outerjoin(Department, Employee.department_id == Department.id).filter(
+        Employee.factory_code == factory_code,
+    )
+    for term in terms:
+        escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        query = query.filter(or_(
+            Employee.full_name.ilike(pattern, escape="\\"),
+            Employee.employee_no.ilike(pattern, escape="\\"),
+            Employee.position.ilike(pattern, escape="\\"),
+            Department.code.ilike(pattern, escape="\\"),
+            Department.name.ilike(pattern, escape="\\"),
+            cast(Employee.id, String).ilike(pattern, escape="\\"),
+        ))
+    rows = query.order_by(func.lower(Employee.full_name), Employee.employee_no, Employee.id).offset(
+        (page - 1) * page_size,
+    ).limit(page_size + 1).all()
+
+    def serialize(row):
+        return {
+            "id": int(row.id),
+            "full_name": row.full_name,
+            "employee_no": row.employee_no,
+            "position": row.position,
+            "department_id": row.department_id,
+            "department_code": row.department_code,
+            "department_name": row.department_name,
+        }
+
+    selected = None
+    if selected_id:
+        selected_row = db.query(
+            Employee.id,
+            Employee.full_name,
+            Employee.employee_no,
+            Employee.position,
+            Employee.department_id,
+            Department.code.label("department_code"),
+            Department.name.label("department_name"),
+        ).outerjoin(Department, Employee.department_id == Department.id).filter(
+            Employee.factory_code == factory_code,
+            Employee.id == selected_id,
+        ).first()
+        selected = serialize(selected_row) if selected_row else None
+    return {
+        "items": [serialize(row) for row in rows[:page_size]],
+        "selected": selected,
+        "page": page,
+        "page_size": page_size,
+        "search": normalized_search,
+        "has_more": len(rows) > page_size,
     }
 
 
@@ -2348,12 +3162,19 @@ def _assert_control_not_voided(db: DbSession, label: PayrollQrLabel) -> None:
         raise HTTPException(409, "This Control payroll record was cancelled; return the QR before scanning it again")
 
 
-def _load_control_scan(db: DbSession, payload: PayrollControlScanIn, current: User) -> PayrollQrLabel:
+def _load_control_scan(
+    db: DbSession,
+    payload: PayrollControlScanIn,
+    current: User,
+    *,
+    for_update: bool = True,
+) -> PayrollQrLabel:
     factory_code = selected_factory_code(current)
-    label = db.query(PayrollQrLabel).filter(
+    query = db.query(PayrollQrLabel).filter(
         PayrollQrLabel.label_uid == payload.label_uid,
         PayrollQrLabel.factory_code == factory_code,
-    ).with_for_update().first()
+    )
+    label = (query.populate_existing().with_for_update() if for_update else query).first()
     if not label:
         raise HTTPException(404, "Issued payroll control QR was not found")
     if label.status == "superseded":
@@ -2383,16 +3204,23 @@ def confirm_control_scan(
     db: DbSession,
     current: User = Depends(require_permissions("payroll.scan", "payroll.manage", "*")),
 ):
-    label = _load_control_scan(db, payload, current)
+    label = _load_control_scan(db, payload, current, for_update=False)
     if payload.review_token != _control_review_token(label, payload.employee_id):
         raise HTTPException(409, "Control QR or employee changed since review; scan the QR again")
+
+    def validate_locked_label(locked_label: PayrollQrLabel) -> None:
+        if payload.review_token != _control_review_token(locked_label, payload.employee_id):
+            raise HTTPException(409, "Control QR or employee changed since review; scan the QR again")
+
     record, created = _create_record_from_payload(
         db,
         PayrollRecordIn(
             scan_uid=label.label_uid, employee_id=payload.employee_id,
             work=jsonable_encoder(_qr_label_scan_payload(label)), source="payroll_control_confirm",
         ),
-        current=current, control_confirmed=True,
+        current=current,
+        control_confirmed=True,
+        issued_label_validator=validate_locked_label,
     )
     db.commit()
     db.refresh(record)
@@ -2505,6 +3333,169 @@ def resolve_qr_token(
     raise HTTPException(400, "Unknown payroll QR token type")
 
 
+class _PayrollOrderLookup:
+    """Targeted scalar lookups; shared order_reference code owns resolution rules.
+
+    Bound IN lists to 400 values and never load unrelated order/alias history.
+    Preparing original and canonical snapshot references takes two batch passes;
+    subsequent canonical/variant resolution is entirely in memory.
+    """
+
+    def __init__(self, db, requests, snapshot_requests=()):
+        self.orders = {"PO": {}, "SO": {}}
+        self.references = {"PO": {}, "SO": {}}
+        self.aliases_by_reference = {}
+        self.aliases_by_entity = {}
+        self.loaded_references = set()
+        self.loaded_ids = {"PO": set(), "SO": set()}
+        self._load(db, requests)
+        variants = set()
+        for namespace, reference, entity_id, production_id in snapshot_requests:
+            try:
+                canonical = canonical_order_reference(db, namespace, reference, entity_id=entity_id,
+                                                      production_order_id=production_id, lookup=self)
+            except HTTPException:
+                # Defer errors to the original counts/serializer evaluation order.
+                continue
+            if canonical != reference:
+                variants.add((namespace, canonical, entity_id, production_id))
+        if variants:
+            self._load(db, variants)
+            variant_entities = {}
+
+            def collect_alias_entities(namespaces, entity_id):
+                variant_entities.setdefault(tuple(namespaces), set()).add(entity_id)
+                return ()
+
+            # Let the shared resolver choose the alias namespace/entity. Only
+            # page snapshots need complete variants, not every global group.
+            probe = SimpleNamespace(by_id=self.by_id, by_reference=self.by_reference,
+                                    aliases=self.aliases, alias_references=collect_alias_entities)
+            for namespace, reference, entity_id, production_id in variants:
+                try:
+                    order_reference_variants(db, namespace, reference, entity_id=entity_id,
+                                             production_order_id=production_id, lookup=probe)
+                except HTTPException:
+                    continue  # Preserve the original point at which this fails.
+            for namespaces, identities in variant_entities.items():
+                for ids in self._chunks(identities):
+                    self._add_aliases(db.query(BusinessOrderAlias).filter(
+                        BusinessOrderAlias.namespace.in_(namespaces), BusinessOrderAlias.entity_id.in_(ids),
+                    ).all())
+
+    @staticmethod
+    def _chunks(values):
+        ordered = sorted(values)
+        for start in range(0, len(ordered), 400):
+            yield ordered[start:start + 400]
+
+    def _add_aliases(self, rows):
+        for row in rows:
+            self.aliases_by_reference.setdefault((row.namespace, row.reference), {})[row.entity_id] = row
+            self.aliases_by_entity.setdefault((row.namespace, row.entity_id), set()).add(row.reference)
+
+    def _load(self, db, requests):
+        references, production_ids, sales_ids = set(), set(), set()
+        for namespace, reference, entity_id, production_id in requests:
+            if reference:
+                references.update((reference, reference.strip()))
+            if entity_id is not None:
+                (sales_ids if namespace == "SO" else production_ids).add(entity_id)
+            if production_id is not None:
+                production_ids.add(production_id)
+        references -= self.loaded_references
+        for chunk in self._chunks(references):
+            aliases = db.query(BusinessOrderAlias).filter(
+                BusinessOrderAlias.namespace.in_(["PO", "USL", "PUBLIC_PO", "SO"]),
+                BusinessOrderAlias.reference.in_(chunk),
+            ).all()
+            self._add_aliases(aliases)
+            for alias in aliases:
+                (sales_ids if alias.namespace == "SO" else production_ids).add(alias.entity_id)
+
+        self._load_orders(db, "PO", production_ids, references)
+        sales_ids.update(row.sales_order_id for row in self.orders["PO"].values() if row.sales_order_id is not None)
+        self._load_orders(db, "SO", sales_ids, references)
+        for row in self.orders["PO"].values():
+            row.sales_order = self.orders["SO"].get(row.sales_order_id)
+            row.sales_order_no = row.sales_order.order_no if row.sales_order is not None else None
+            row.order_no = ProductionOrder.order_no.fget(row)
+        self.loaded_references.update(references)
+
+    def _load_orders(self, db, namespace, ids, references):
+        model = SalesOrder if namespace == "SO" else ProductionOrder
+        column = model.order_no if namespace == "SO" else model.production_no
+        columns = [model.id, column] if namespace == "SO" else [model.id, column, model.sales_order_id, model.source_type]
+        missing_ids = ids - self.loaded_ids[namespace]
+        id_chunks, reference_chunks = list(self._chunks(missing_ids)), list(self._chunks(references))
+        for index in range(max(len(id_chunks), len(reference_chunks))):
+            filters = []
+            if index < len(id_chunks):
+                filters.append(model.id.in_(id_chunks[index]))
+            if index < len(reference_chunks):
+                filters.append(column.in_(reference_chunks[index]))
+            for result in db.query(*columns).filter(or_(*filters)).all():
+                row = SimpleNamespace(**result._mapping)
+                self.orders[namespace][row.id] = row
+                self.references[namespace][getattr(row, column.key)] = row
+        self.loaded_ids[namespace].update(missing_ids | self.orders[namespace].keys())
+
+    def by_id(self, namespace, entity_id):
+        row = self.orders["SO" if namespace == "SO" else "PO"].get(entity_id)
+        return None if namespace == "USL" and row is not None and row.source_type != "usluga" else row
+
+    def by_reference(self, namespace, reference):
+        row = self.references["SO" if namespace == "SO" else "PO"].get(reference)
+        return None if namespace == "USL" and row is not None and row.source_type != "usluga" else row
+
+    def aliases(self, namespaces, reference):
+        return [row for namespace in namespaces for row in self.aliases_by_reference.get((namespace, reference), {}).values()]
+
+    def alias_references(self, namespaces, entity_id):
+        return {reference for namespace in namespaces for reference in self.aliases_by_entity.get((namespace, entity_id), ())}
+
+
+def _qr_label_order_lookup(db, count_rows, labels):
+    requests, snapshots = set(), set()
+
+    def collect(namespace, reference, *, entity_id=None, production_order_id=None):
+        # Match the payroll wrapper's early return for empty, unlinked references.
+        if reference or entity_id is not None:
+            snapshots.add((namespace, reference, entity_id, production_order_id))
+        return reference
+
+    for row in count_rows:
+        sales_no, production_no, sales_id, production_id = row[:4]
+        requests.add(("SO", sales_no, sales_id, production_id))
+        requests.add(("PO", production_no, production_id, None))
+    for label in labels:
+        requests.add(("SO", label.sales_order_no, label.sales_order_id, label.production_order_id))
+        requests.add(("PO", label.production_no, label.production_order_id, None))
+        _map_payroll_snapshot_references(label.payload, collect, production_order_id=label.production_order_id,
+                                        sales_order_id=label.sales_order_id)
+    return _PayrollOrderLookup(db, requests | snapshots, snapshots)
+
+
+def _issue_order_lookup(db, rows):
+    requests, snapshots = set(), set()
+
+    def collect(namespace, reference, *, entity_id=None, production_order_id=None):
+        if reference or entity_id is not None:
+            snapshots.add((namespace, reference, entity_id, production_order_id))
+        return reference
+
+    for row in rows:
+        requests.add(("PO", row.production_no, row.production_order_id, None))
+        requests.add(("SO", row.sales_order_no, row.sales_order_id, row.production_order_id))
+        _map_payroll_snapshot_references(
+            row.payload,
+            collect,
+            production_order_id=row.production_order_id,
+            sales_order_id=row.sales_order_id,
+        )
+    return _PayrollOrderLookup(db, requests | snapshots, snapshots)
+
+
 @router.get("/qr-labels", response_model=PayrollQrControlOut)
 def list_qr_labels(
     db: DbSession,
@@ -2577,17 +3568,18 @@ def list_qr_labels(
         PayrollQrLabel.factory_code == selected_factory_code(current),
         PayrollQrLabel.status.in_(["available", "scanned"]),
     ).group_by(*count_columns).all()
+    order_lookup = _qr_label_order_lookup(db, count_rows, labels)
     counts = {}
     for sales_no, production_no, sales_id, production_id, count, scanned in count_rows:
-        key = (_canonical_payroll_reference(db, "SO", sales_no, entity_id=sales_id, production_order_id=production_id)
-               or _canonical_payroll_reference(db, "PO", production_no, entity_id=production_id) or "No order")
+        key = (_canonical_payroll_reference(db, "SO", sales_no, entity_id=sales_id, production_order_id=production_id, lookup=order_lookup)
+               or _canonical_payroll_reference(db, "PO", production_no, entity_id=production_id, lookup=order_lookup) or "No order")
         entry = counts.setdefault(key, {"order_no": key, "total": 0, "scanned": 0})
         entry["total"] += count
         entry["scanned"] += scanned
     return {
         "order_counts": list(counts.values()),
         "items": [
-            _serialize_qr_label(label, records=records, employees=employees, departments=departments)
+            _serialize_qr_label(label, records=records, employees=employees, departments=departments, order_lookup=order_lookup)
             for label in labels
         ],
         "total": total,
@@ -2872,31 +3864,77 @@ def return_qr_label(
     current: User = Depends(require_permissions("payroll.manage", "*")),
 ):
     factory_code = selected_factory_code(current)
-    label = db.query(PayrollQrLabel).filter(
+    label_snapshot = db.query(PayrollQrLabel).filter(
         PayrollQrLabel.id == label_id,
         PayrollQrLabel.factory_code == factory_code,
     ).first()
-    if not label:
+    if not label_snapshot:
         raise HTTPException(404, "Payroll QR label not found")
-    record = db.query(PayrollRecord).filter(
-        PayrollRecord.id == label.payroll_record_id,
-        PayrollRecord.factory_code == factory_code,
-    ).first() if label.payroll_record_id else None
-    if not record:
-        record = db.query(PayrollRecord).filter(
+
+    def find_record(label: PayrollQrLabel, *, for_update: bool) -> PayrollRecord | None:
+        def first(query):
+            if for_update:
+                query = query.populate_existing().with_for_update()
+            return query.first()
+
+        linked = first(db.query(PayrollRecord).filter(
+            PayrollRecord.id == label.payroll_record_id,
+            PayrollRecord.factory_code == factory_code,
+        )) if label.payroll_record_id else None
+        if linked:
+            return linked
+        return first(db.query(PayrollRecord).filter(
             PayrollRecord.factory_code == factory_code,
             PayrollRecord.scan_uid == label.label_uid,
-        ).first()
+        ))
+
+    record_snapshot = find_record(label_snapshot, for_update=False)
+    discovered_record_id = int(record_snapshot.id) if record_snapshot else None
+    discovered_period_id = (
+        int(record_snapshot.payroll_period_id)
+        if record_snapshot and record_snapshot.payroll_period_id is not None
+        else None
+    )
+
+    # Every period-bound payroll mutation uses period -> label -> record. An
+    # initially periodless return never acquires a period after locking its
+    # label; a concurrent new assignment must instead be retried.
+    period = None
+    if discovered_period_id is not None:
+        period = (
+            db.query(PayrollPeriod)
+            .filter(
+                PayrollPeriod.id == discovered_period_id,
+                PayrollPeriod.factory_code == factory_code,
+            )
+            .populate_existing()
+            .with_for_update()
+            .first()
+        )
+        if not period:
+            raise HTTPException(409, "Payroll QR assignment changed; retry the return")
+
+    label = (
+        db.query(PayrollQrLabel)
+        .filter(PayrollQrLabel.id == label_id, PayrollQrLabel.factory_code == factory_code)
+        .populate_existing()
+        .with_for_update()
+        .first()
+    )
+    if not label:
+        raise HTTPException(404, "Payroll QR label not found")
+    record = find_record(label, for_update=True)
     if not record:
         raise HTTPException(409, "This payroll QR is not assigned to an employee")
-    if record.status == "paid" and not is_admin(current):
-        raise HTTPException(409, "Paid payroll QR records can only be returned by an admin")
-    period = db.query(PayrollPeriod).filter(
-        PayrollPeriod.id == record.payroll_period_id,
-        PayrollPeriod.factory_code == factory_code,
-    ).first() if record.payroll_period_id else None
+    if discovered_record_id is None or int(record.id) != discovered_record_id:
+        raise HTTPException(409, "Payroll QR assignment changed; retry the return")
+    current_period_id = int(record.payroll_period_id) if record.payroll_period_id is not None else None
+    if current_period_id != discovered_period_id:
+        raise HTTPException(409, "Payroll QR assignment changed; retry the return")
     if period and period.status in MUTATION_LOCKED_PERIOD_STATUSES:
         raise HTTPException(409, f"Payroll period {period.period_no} is {period.status}")
+    if record.status == "paid" and not is_admin(current):
+        raise HTTPException(409, "Paid payroll QR records can only be returned by an admin")
 
     previous = {
         "payroll_record_id": record.id,
@@ -2940,29 +3978,271 @@ def create_record(
     return _serialize_record(record, duplicate=not created, employees=employees, departments=departments)
 
 
+def _bulk_chunks(values, size=400):
+    ordered = sorted(set(values))
+    for start in range(0, len(ordered), size):
+        yield ordered[start:start + size]
+
+
+def _bulk_id_map(db: DbSession, model, values, *filters) -> dict[int, Any]:
+    rows = []
+    for chunk in _bulk_chunks(values):
+        rows.extend(db.query(model).filter(model.id.in_(chunk), *filters).all())
+    return {int(row.id): row for row in rows}
+
+
+def _bulk_record_order_lookup(
+    db: DbSession,
+    prepared: list[dict[str, Any]],
+    labels: dict[str, PayrollQrLabel],
+):
+    requests, snapshots = set(), set()
+
+    def collect(namespace, reference, *, entity_id=None, production_order_id=None):
+        if reference or entity_id is not None:
+            snapshots.add((namespace, reference, entity_id, production_order_id))
+        return reference
+
+    for data in prepared:
+        requests.add(("PO", data.get("production_no"), data.get("production_order_id"), None))
+        requests.add((
+            "SO", data.get("sales_order_no"), data.get("sales_order_id"), data.get("production_order_id"),
+        ))
+        _map_payroll_snapshot_references(
+            data.get("raw_work_json"),
+            collect,
+            production_order_id=data.get("production_order_id"),
+            sales_order_id=data.get("sales_order_id"),
+        )
+    for label in labels.values():
+        requests.add(("PO", label.production_no, label.production_order_id, None))
+        requests.add(("SO", label.sales_order_no, label.sales_order_id, label.production_order_id))
+        _map_payroll_snapshot_references(
+            label.payload,
+            collect,
+            production_order_id=label.production_order_id,
+            sales_order_id=label.sales_order_id,
+        )
+    return _PayrollOrderLookup(db, requests | snapshots, snapshots)
+
+
+def _bulk_validation_context(
+    db: DbSession,
+    prepared: list[dict[str, Any]],
+    labels: dict[str, PayrollQrLabel],
+    factory_code: str,
+) -> dict[str, Any]:
+    employee_ids = {int(data["employee_id"]) for data in prepared if data.get("employee_id")}
+    employees = _bulk_id_map(db, Employee, employee_ids, Employee.factory_code == factory_code)
+    user_ids = {int(data["employee_user_id"]) for data in prepared if data.get("employee_user_id")}
+    user_ids.update(int(row.user_id) for row in employees.values() if row.user_id)
+    work_order_ids = {int(data["work_order_id"]) for data in prepared if data.get("work_order_id")}
+    work_orders = _bulk_id_map(db, WorkOrder, work_order_ids)
+    order_lookup = _bulk_record_order_lookup(db, prepared, labels)
+    production_ids = {int(data["production_order_id"]) for data in prepared if data.get("production_order_id")}
+    production_ids.update(int(row.production_order_id) for row in work_orders.values())
+    production_ids.update(int(identity) for identity in order_lookup.orders["PO"])
+    production_orders = _bulk_id_map(db, ProductionOrder, production_ids)
+    sales_order_ids = {int(data["sales_order_id"]) for data in prepared if data.get("sales_order_id")}
+    sales_order_ids.update(
+        int(row.sales_order_id) for row in production_orders.values() if row.sales_order_id is not None
+    )
+    batch_ids = {int(data["production_batch_id"]) for data in prepared if data.get("production_batch_id")}
+    batch_ids.update(
+        int(row.production_batch_id) for row in work_orders.values() if row.production_batch_id is not None
+    )
+    model_ids = {int(data["model_id"]) for data in prepared if data.get("model_id")}
+    model_ids.update(int(row.model_id) for row in production_orders.values() if row.model_id is not None)
+    factory_production_ids = set()
+    for chunk in _bulk_chunks(production_ids):
+        factory_production_ids.update(
+            int(row[0])
+            for row in db.query(ProductionOrder.id).filter(
+                ProductionOrder.id.in_(chunk),
+                production_order_factory_condition(factory_code),
+            ).all()
+        )
+    return {
+        "employees": employees,
+        "users": _bulk_id_map(db, User, user_ids, User.factory_code == factory_code),
+        "work_orders": work_orders,
+        "production_orders": production_orders,
+        "sales_orders": _bulk_id_map(db, SalesOrder, sales_order_ids),
+        "production_batches": _bulk_id_map(db, ProductionBatch, batch_ids),
+        "models": _bulk_id_map(db, Model, model_ids),
+        "factory_production_ids": factory_production_ids,
+        "order_lookup": order_lookup,
+    }
+
+
+def _prelock_bulk_record_resources(
+    db: DbSession,
+    payload: PayrollRecordBulkIn,
+    factory_code: str,
+) -> tuple[
+    list[dict[str, Any]],
+    list[PayrollPeriod | None],
+    dict[str, PayrollQrLabel],
+    dict[str, PayrollRecord],
+    dict[str, Any],
+]:
+    prepared = [_prepare_record_data(row, payload.payroll_period_id) for row in payload.records]
+    open_periods = (
+        db.query(PayrollPeriod)
+        .filter(PayrollPeriod.factory_code == factory_code, PayrollPeriod.status == "open")
+        .order_by(PayrollPeriod.id.desc())
+        .all()
+        if any(data.get("payroll_period_id") is None for data in prepared) else []
+    )
+    candidate_ids: list[int | None] = [
+        int(data["payroll_period_id"]) if data.get("payroll_period_id") is not None else None
+        for data in prepared
+    ]
+    pending = sorted(
+        ((as_utc(data["scanned_at"]), index) for index, data in enumerate(prepared) if candidate_ids[index] is None),
+        key=lambda row: row[0],
+    )
+    periods = sorted(
+        ((as_utc(period.start_date), as_utc(period.end_date), int(period.id), period) for period in open_periods),
+        key=lambda row: row[0],
+    )
+    active: list[tuple[int, datetime, Any]] = []
+    period_index = 0
+    for scanned_at, row_index in pending:
+        while period_index < len(periods) and periods[period_index][0] <= scanned_at:
+            start, end, period_id, period = periods[period_index]
+            heapq.heappush(active, (-period_id, end, period))
+            period_index += 1
+        while active and active[0][1] < scanned_at:
+            heapq.heappop(active)
+        candidate_ids[row_index] = int(active[0][2].id) if active else None
+
+    unique_period_ids = sorted({period_id for period_id in candidate_ids if period_id is not None})
+    locked_period_rows = []
+    for chunk in _bulk_chunks(unique_period_ids):
+        locked_period_rows.extend(
+            db.query(PayrollPeriod)
+            .filter(
+                PayrollPeriod.factory_code == factory_code,
+                PayrollPeriod.id.in_(chunk),
+            )
+            .order_by(PayrollPeriod.id)
+            .populate_existing()
+            .with_for_update()
+            .all()
+        )
+    locked_periods = {int(period.id): period for period in locked_period_rows}
+
+    scan_uids = sorted({data["scan_uid"] for data in prepared if data.get("scan_uid")})
+    label_rows = []
+    for chunk in _bulk_chunks(scan_uids):
+        label_rows.extend(
+            db.query(PayrollQrLabel)
+            .filter(
+                PayrollQrLabel.factory_code == factory_code,
+                PayrollQrLabel.label_uid.in_(chunk),
+            )
+            .order_by(PayrollQrLabel.label_uid)
+            .populate_existing()
+            .with_for_update()
+            .all()
+        )
+    labels = {label.label_uid: label for label in label_rows}
+    existing_scan_records = {}
+    for chunk in _bulk_chunks(scan_uids):
+        for record in db.query(PayrollRecord).filter(
+            PayrollRecord.factory_code == factory_code,
+            PayrollRecord.scan_uid.in_(chunk),
+        ).all():
+            existing_scan_records[record.scan_uid] = record
+    rows_to_validate = [
+        data for data in prepared
+        if not data.get("scan_uid") or data["scan_uid"] not in existing_scan_records
+    ]
+    return (
+        prepared,
+        [locked_periods.get(period_id) if period_id is not None else None for period_id in candidate_ids],
+        labels,
+        existing_scan_records,
+        _bulk_validation_context(db, rows_to_validate, labels, factory_code),
+    )
+
+
 @router.post("/records/bulk", response_model=PayrollBulkOut)
 def create_records_bulk(
     payload: PayrollRecordBulkIn,
     db: DbSession,
     current: User = Depends(require_permissions("payroll.scan", "payroll.manage", "*")),
 ):
+    factory_code = selected_factory_code(current)
+    prepared, periods, labels, scan_records, validation_context = _prelock_bulk_record_resources(
+        db, payload, factory_code,
+    )
+    dedupe_keys = set()
+    new_scan_uids = set()
+    for data, period in zip(prepared, periods):
+        if data.get("scan_uid") and data["scan_uid"] in scan_records:
+            existing = scan_records[data["scan_uid"]]
+            if data.get("employee_id") and int(existing.employee_id) != int(data["employee_id"]):
+                raise HTTPException(
+                    409,
+                    "This payroll work QR was already recorded for another employee; generate a separate payroll QR for another payable worker/unit",
+                )
+            continue
+        if data.get("scan_uid") and data["scan_uid"] in new_scan_uids:
+            # The first occurrence is validated and created before this row;
+            # the later row must keep the historical duplicate-replay path.
+            continue
+        if data.get("scan_uid"):
+            new_scan_uids.add(data["scan_uid"])
+        if data.get("payroll_period_id") is not None and period is None:
+            raise HTTPException(404, "Payroll period not found")
+        _validate_and_enrich_record(
+            db,
+            data,
+            factory_code,
+            allow_manual_payable_values=_can_set_payable_values(current),
+            locked_labels=labels,
+            validation_context=validation_context,
+        )
+        if _is_control_operation(data):
+            raise HTTPException(409, "Control operation requires review and confirmation before payroll is recorded")
+        dedupe_keys.add(data["dedupe_key"])
+    dedupe_records = {}
+    for chunk in _bulk_chunks(dedupe_keys):
+        for record in db.query(PayrollRecord).filter(
+            PayrollRecord.factory_code == factory_code,
+            PayrollRecord.dedupe_key.in_(chunk),
+        ).all():
+            dedupe_records[record.dedupe_key] = record
+
     records: list[PayrollRecord] = []
     created_count = 0
     duplicate_count = 0
     created_ids: list[int] = []
     duplicates: set[int] = set()
-    for row in payload.records:
+    for row, data, period in zip(payload.records, prepared, periods):
         record, created = _create_record_from_payload(
             db,
             row,
             current=current,
             period_id_override=payload.payroll_period_id,
             audit_individual=True,
+            prepared_data=data,
+            prelocked_period=period,
+            locked_labels=labels,
+            validation_context=validation_context,
+            data_is_validated=True,
+            known_scan_records=scan_records,
+            known_dedupe_records=dedupe_records,
         )
         records.append(record)
         if created:
             created_count += 1
             created_ids.append(int(record.id))
+            if record.scan_uid:
+                scan_records[record.scan_uid] = record
+            dedupe_records[record.dedupe_key] = record
         else:
             duplicate_count += 1
             duplicates.add(int(record.id))
@@ -2975,8 +4255,16 @@ def create_records_bulk(
         new_value={"created_count": created_count, "duplicate_count": duplicate_count, "record_ids": created_ids},
     )
     db.commit()
-    for record in records:
-        db.refresh(record)
+    refreshed_records = {}
+    for chunk in _bulk_chunks(int(record.id) for record in records):
+        for record in (
+            db.query(PayrollRecord)
+            .filter(PayrollRecord.id.in_(chunk), PayrollRecord.factory_code == factory_code)
+            .populate_existing()
+            .all()
+        ):
+            refreshed_records[int(record.id)] = record
+    records = [refreshed_records[int(record.id)] for record in records]
     employees, departments = _load_employee_maps(db, {int(r.employee_id) for r in records})
     return {
         "records": [
@@ -2998,15 +4286,24 @@ def void_record(
     record = db.query(PayrollRecord).filter(
         PayrollRecord.id == record_id,
         PayrollRecord.factory_code == factory_code,
-    ).with_for_update().first()
+    ).first()
+    if not record:
+        raise HTTPException(404, "Payroll record not found")
+    period = db.query(PayrollPeriod).filter(
+        PayrollPeriod.id == record.payroll_period_id,
+        PayrollPeriod.factory_code == factory_code,
+    ).populate_existing().with_for_update().first() if record.payroll_period_id else None
+    record = (
+        db.query(PayrollRecord)
+        .filter(PayrollRecord.id == record_id, PayrollRecord.factory_code == factory_code)
+        .populate_existing()
+        .with_for_update()
+        .first()
+    )
     if not record:
         raise HTTPException(404, "Payroll record not found")
     if record.status == "paid" and not is_admin(current):
         raise HTTPException(409, "Paid payroll records can only be voided by an admin")
-    period = db.query(PayrollPeriod).filter(
-        PayrollPeriod.id == record.payroll_period_id,
-        PayrollPeriod.factory_code == factory_code,
-    ).first() if record.payroll_period_id else None
     if period and period.status in MUTATION_LOCKED_PERIOD_STATUSES:
         raise HTTPException(409, f"Payroll period {period.period_no} is {period.status}")
     old_status = record.status
@@ -3029,7 +4326,7 @@ def reverse_record_as_adjustment(
     record = db.query(PayrollRecord).filter(
         PayrollRecord.id == record_id,
         PayrollRecord.factory_code == factory_code,
-    ).with_for_update().first()
+    ).first()
     if not record:
         raise HTTPException(404, "Payroll record not found")
     if record.status == "voided":
@@ -3044,6 +4341,8 @@ def reverse_record_as_adjustment(
     )
     if not source_finalized:
         raise HTTPException(409, "Use Void while the source payroll period is still editable")
+    if payload.target_period_id == record.payroll_period_id:
+        raise HTTPException(409, "A reversal must be posted to a different editable payroll period")
 
     target_period = (
         db.query(PayrollPeriod)
@@ -3051,12 +4350,34 @@ def reverse_record_as_adjustment(
             PayrollPeriod.id == payload.target_period_id,
             PayrollPeriod.factory_code == factory_code,
         )
+        .populate_existing()
         .with_for_update()
         .first()
     )
     if not target_period:
         raise HTTPException(404, "Target payroll period not found")
     _assert_period_accepts_adjustments(target_period)
+
+    record = (
+        db.query(PayrollRecord)
+        .filter(PayrollRecord.id == record_id, PayrollRecord.factory_code == factory_code)
+        .populate_existing()
+        .with_for_update()
+        .first()
+    )
+    if not record:
+        raise HTTPException(404, "Payroll record not found")
+    if record.status == "voided":
+        raise HTTPException(409, "Voided payroll records cannot be reversed")
+    source_period = db.query(PayrollPeriod).filter(
+        PayrollPeriod.id == record.payroll_period_id,
+        PayrollPeriod.factory_code == factory_code,
+    ).first() if record.payroll_period_id else None
+    source_finalized = record.status in {"approved", "paid"} or bool(
+        source_period and source_period.status in {"locked", "approved", "paid"}
+    )
+    if not source_finalized:
+        raise HTTPException(409, "Use Void while the source payroll period is still editable")
     if target_period.id == record.payroll_period_id:
         raise HTTPException(409, "A reversal must be posted to a different editable payroll period")
 
@@ -3119,7 +4440,14 @@ def payroll_summary(
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     group_by_operation: bool = True,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=100)] = None,
+    employee_search: Annotated[str | None, Query(max_length=100)] = None,
 ):
+    paged = page is not None or page_size is not None or bool((employee_search or "").strip())
+    effective_page = page or 1
+    effective_page_size = page_size or 50
+    normalized_search = " ".join((employee_search or "").split()).casefold()
     factory_code = selected_factory_code(current)
     base_qry = _filtered_record_query(
         db,
@@ -3129,10 +4457,17 @@ def payroll_summary(
         department_id=department_id,
         date_from=date_from,
         date_to=date_to,
-    ).filter(PayrollRecord.status != "voided")
+    ).filter(PayrollRecord.status != "voided").options(load_only(
+        PayrollRecord.employee_id,
+        PayrollRecord.currency,
+        PayrollRecord.quantity,
+        PayrollRecord.total_amount,
+        PayrollRecord.operation_section,
+        PayrollRecord.operation_code,
+        PayrollRecord.operation_name,
+    ))
 
-    rows = base_qry.all()
-    adjustments = _filtered_adjustment_query(
+    adjustment_qry = _filtered_adjustment_query(
         db,
         factory_code=factory_code,
         period_id=period_id,
@@ -3140,31 +4475,29 @@ def payroll_summary(
         department_id=department_id,
         date_from=date_from,
         date_to=date_to,
-    ).all()
-    employees, departments = _load_employee_maps(db, {int(r.employee_id) for r in rows} | {int(a.employee_id) for a in adjustments})
-    currencies = {str(r.currency or "UZS") for r in rows} | {str(a.currency or "UZS") for a in adjustments}
-    summary_currency = next(iter(currencies)) if len(currencies) == 1 else ("MIXED" if currencies else "UZS")
-
-    total_quantity = sum((r.quantity or Decimal("0")) for r in rows) if rows else Decimal("0")
-    piecework_amount = sum((r.total_amount or Decimal("0")) for r in rows) if rows else Decimal("0")
-    bonus_amount = sum((a.amount or Decimal("0")) for a in adjustments if a.adjustment_type == "bonus") if adjustments else Decimal("0")
-    deduction_amount = sum((a.amount or Decimal("0")) for a in adjustments if a.adjustment_type == "deduction") if adjustments else Decimal("0")
-    adjustment_amount = bonus_amount - deduction_amount
-    total_amount = piecework_amount + adjustment_amount
+    ).options(load_only(
+        PayrollAdjustment.employee_id,
+        PayrollAdjustment.currency,
+        PayrollAdjustment.adjustment_type,
+        PayrollAdjustment.amount,
+    ))
 
     employee_groups: dict[tuple[int, str], dict[str, Any]] = {}
     operation_groups: dict[tuple[int, str, str | None, str | None, str | None], dict[str, Any]] = {}
+    employee_ids: set[int] = set()
+    currencies: set[str] = set()
+    records_count = 0
+    adjustment_count = 0
+    total_quantity = Decimal("0")
+    piecework_amount = Decimal("0")
+    bonus_amount = Decimal("0")
+    deduction_amount = Decimal("0")
 
     def employee_group(employee_id_value: int, currency_value: str) -> dict[str, Any]:
-        employee = employees.get(int(employee_id_value))
-        department = departments.get(int(employee.department_id)) if employee and employee.department_id else None
         return employee_groups.setdefault(
             (int(employee_id_value), currency_value),
             {
                 "employee_id": int(employee_id_value),
-                "employee_name": employee.full_name if employee else f"Employee {employee_id_value}",
-                "department_id": employee.department_id if employee else None,
-                "department_name": department.name if department else None,
                 "currency": currency_value,
                 "records_count": 0,
                 "adjustment_count": 0,
@@ -3178,17 +4511,26 @@ def payroll_summary(
             },
         )
 
-    for record in rows:
-        current = employee_group(int(record.employee_id), str(record.currency or "UZS"))
+    # These reports can cover years of scans. Iterate in fixed-size fetch
+    # batches and retain only the response's employee/operation aggregates.
+    for record in base_qry.yield_per(400):
+        record_employee_id = int(record.employee_id)
+        record_currency = str(record.currency or "UZS")
+        employee_ids.add(record_employee_id)
+        currencies.add(record_currency)
+        records_count += 1
+        total_quantity += record.quantity or Decimal("0")
+        piecework_amount += record.total_amount or Decimal("0")
+        current = employee_group(record_employee_id, record_currency)
         current["records_count"] += 1
         current["quantity"] += record.quantity or Decimal("0")
         current["piecework_amount"] += record.total_amount or Decimal("0")
         current["total_amount"] += record.total_amount or Decimal("0")
 
-        if group_by_operation:
+        if group_by_operation and not paged:
             operation_key = (
-                int(record.employee_id),
-                str(record.currency or "UZS"),
+                record_employee_id,
+                record_currency,
                 record.operation_section,
                 record.operation_code,
                 record.operation_name,
@@ -3196,11 +4538,11 @@ def payroll_summary(
             op = operation_groups.setdefault(
                 operation_key,
                 {
-                    "employee_id": int(record.employee_id),
+                    "employee_id": record_employee_id,
                     "operation_section": record.operation_section,
                     "operation_code": record.operation_code,
                     "operation_name": record.operation_name,
-                    "currency": str(record.currency or "UZS"),
+                    "currency": record_currency,
                     "records_count": 0,
                     "quantity": Decimal("0"),
                     "total_amount": Decimal("0"),
@@ -3210,27 +4552,152 @@ def payroll_summary(
             op["quantity"] += record.quantity or Decimal("0")
             op["total_amount"] += record.total_amount or Decimal("0")
 
-    for adjustment in adjustments:
-        current = employee_group(int(adjustment.employee_id), str(adjustment.currency or "UZS"))
+    for adjustment in adjustment_qry.yield_per(400):
+        adjustment_employee_id = int(adjustment.employee_id)
+        adjustment_currency = str(adjustment.currency or "UZS")
+        employee_ids.add(adjustment_employee_id)
+        currencies.add(adjustment_currency)
+        adjustment_count += 1
+        current = employee_group(adjustment_employee_id, adjustment_currency)
         signed_amount = _adjustment_signed_amount(adjustment)
         current["adjustment_count"] += 1
         current["adjustment_amount"] += signed_amount
         current["total_amount"] += signed_amount
         if adjustment.adjustment_type == "deduction":
-            current["deduction_amount"] += adjustment.amount or Decimal("0")
+            amount = adjustment.amount or Decimal("0")
+            deduction_amount += amount
+            current["deduction_amount"] += amount
         else:
-            current["bonus_amount"] += adjustment.amount or Decimal("0")
+            amount = adjustment.amount or Decimal("0")
+            bonus_amount += amount
+            current["bonus_amount"] += amount
 
-    if group_by_operation:
+    employees, departments = _load_employee_maps(
+        db, employee_ids, include_search_fields=bool(normalized_search)
+    )
+    for (group_employee_id, _currency), group in employee_groups.items():
+        employee = employees.get(group_employee_id)
+        department = (
+            departments.get(int(employee.department_id))
+            if employee and employee.department_id
+            else None
+        )
+        group["employee_name"] = (
+            employee.full_name if employee else f"Employee {group_employee_id}"
+        )
+        group["department_id"] = employee.department_id if employee else None
+        group["department_name"] = department.name if department else None
+
+    if group_by_operation and not paged:
         for key, op in operation_groups.items():
             employee_key = (key[0], key[1])
             employee_groups[employee_key]["operations"].append(PayrollSummaryOperationOut(**op))
 
     employees_out = [PayrollSummaryEmployeeOut(**row) for row in employee_groups.values()]
     employees_out.sort(key=lambda row: (str(row.employee_name).lower(), row.employee_id))
+    if normalized_search:
+        search_terms = normalized_search.split()
+
+        def matches_employee(row: PayrollSummaryEmployeeOut) -> bool:
+            employee = employees.get(row.employee_id)
+            department = (
+                departments.get(int(employee.department_id))
+                if employee and employee.department_id
+                else None
+            )
+            searchable = [
+                row.employee_name,
+                getattr(employee, "employee_no", None),
+                getattr(department, "code", None),
+                row.department_name,
+            ]
+            normalized_fields = [str(value).casefold() for value in searchable if value]
+            if normalized_search.isdecimal() and normalized_search == str(row.employee_id):
+                return True
+            return all(
+                any(term in field for field in normalized_fields)
+                for term in search_terms
+            )
+
+        employees_out = [row for row in employees_out if matches_employee(row)]
+
+    employees_total = len(employees_out)
+    if paged:
+        start = (effective_page - 1) * effective_page_size
+        employees_out = employees_out[start : start + effective_page_size]
+
+    if group_by_operation and paged and employees_out:
+        selected_groups = {(row.employee_id, row.currency) for row in employees_out}
+        page_operation_query = _filtered_record_query(
+            db,
+            factory_code=factory_code,
+            period_id=period_id,
+            employee_id=employee_id,
+            department_id=department_id,
+            date_from=date_from,
+            date_to=date_to,
+        ).filter(
+            PayrollRecord.status != "voided",
+            or_(
+                *(
+                    and_(
+                        PayrollRecord.employee_id == selected_employee_id,
+                        func.coalesce(PayrollRecord.currency, "UZS") == selected_currency,
+                    )
+                    for selected_employee_id, selected_currency in selected_groups
+                )
+            ),
+        ).options(load_only(
+            PayrollRecord.employee_id,
+            PayrollRecord.currency,
+            PayrollRecord.quantity,
+            PayrollRecord.total_amount,
+            PayrollRecord.operation_section,
+            PayrollRecord.operation_code,
+            PayrollRecord.operation_name,
+        ))
+        page_operation_groups: dict[
+            tuple[int, str, str | None, str | None, str | None], dict[str, Any]
+        ] = {}
+        for record in page_operation_query.yield_per(400):
+            key = (
+                int(record.employee_id),
+                str(record.currency or "UZS"),
+                record.operation_section,
+                record.operation_code,
+                record.operation_name,
+            )
+            op = page_operation_groups.setdefault(
+                key,
+                {
+                    "employee_id": key[0],
+                    "operation_section": key[2],
+                    "operation_code": key[3],
+                    "operation_name": key[4],
+                    "currency": key[1],
+                    "records_count": 0,
+                    "quantity": Decimal("0"),
+                    "total_amount": Decimal("0"),
+                },
+            )
+            op["records_count"] += 1
+            op["quantity"] += record.quantity or Decimal("0")
+            op["total_amount"] += record.total_amount or Decimal("0")
+        page_employees = {(row.employee_id, row.currency): row for row in employees_out}
+        for key, op in page_operation_groups.items():
+            page_employees[(key[0], key[1])].operations.append(
+                PayrollSummaryOperationOut(**op)
+            )
+    summary_currency = (
+        next(iter(currencies))
+        if len(currencies) == 1
+        else ("MIXED" if currencies else "UZS")
+    )
+    adjustment_amount = bonus_amount - deduction_amount
+    total_amount = piecework_amount + adjustment_amount
     return PayrollSummaryOut(
-        records_count=len(rows),
-        adjustment_count=len(adjustments),
+        records_count=records_count,
+        adjustment_count=adjustment_count,
         quantity=total_quantity,
         piecework_amount=piecework_amount,
         adjustment_amount=adjustment_amount,
@@ -3239,10 +4706,17 @@ def payroll_summary(
         total_amount=total_amount,
         currency=summary_currency,
         employees=employees_out,
+        employees_total=employees_total if paged else None,
+        employee_page=effective_page if paged else None,
+        employee_page_size=effective_page_size if paged else None,
+        employees_has_more=(
+            effective_page * effective_page_size < employees_total if paged else None
+        ),
+        employee_search=normalized_search or None if paged else None,
     )
 
 
-@router.get("/adjustments", response_model=list[PayrollAdjustmentOut])
+@router.get("/adjustments", response_model=list[PayrollAdjustmentOut] | PayrollAdjustmentPageOut)
 def list_adjustments(
     db: DbSession,
     current: User = Depends(require_permissions("payroll.view", "payroll.manage", "*")),
@@ -3251,6 +4725,8 @@ def list_adjustments(
     department_id: int | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     qry = _filtered_adjustment_query(
         db,
@@ -3261,7 +4737,49 @@ def list_adjustments(
         date_from=date_from,
         date_to=date_to,
     )
-    return qry.order_by(PayrollAdjustment.id.desc()).all()
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = qry.order_by(None).count()
+    ordered_qry = qry.order_by(PayrollAdjustment.id.desc())
+    if total is None:
+        return ordered_qry.all()
+    rows = ordered_qry.offset((page - 1) * page_size).limit(page_size).all()
+    employee_ids = {int(row.employee_id) for row in rows}
+    employee_labels = {}
+    if employee_ids:
+        labels = db.query(
+            Employee.id,
+            Employee.full_name,
+            Employee.department_id,
+            Department.name.label("department_name"),
+        ).outerjoin(Department, Employee.department_id == Department.id).filter(
+            Employee.factory_code == selected_factory_code(current),
+            Employee.id.in_(employee_ids),
+        ).all()
+        employee_labels = {
+            int(row.id): {
+                "employee_name": row.full_name,
+                "department_id": row.department_id,
+                "department_name": row.department_name,
+            }
+            for row in labels
+        }
+    serialized_rows = [
+        {
+            **PayrollAdjustmentOut.model_validate(row).model_dump(),
+            **employee_labels.get(int(row.employee_id), {}),
+        }
+        for row in rows
+    ]
+    return {
+        "rows": serialized_rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.post("/adjustments", response_model=PayrollAdjustmentOut, status_code=201)
@@ -3274,7 +4792,7 @@ def create_adjustment(
     period = db.query(PayrollPeriod).filter(
         PayrollPeriod.id == payload.payroll_period_id,
         PayrollPeriod.factory_code == factory_code,
-    ).first() if payload.payroll_period_id else None
+    ).populate_existing().with_for_update().first() if payload.payroll_period_id else None
     if payload.payroll_period_id and not period:
         raise HTTPException(404, "Payroll period not found")
     _assert_period_accepts_adjustments(period)
@@ -3335,7 +4853,7 @@ def delete_adjustment(
         period = db.query(PayrollPeriod).filter(
             PayrollPeriod.id == adjustment.payroll_period_id,
             PayrollPeriod.factory_code == factory_code,
-        ).with_for_update().first()
+        ).populate_existing().with_for_update().first()
         if not period:
             raise HTTPException(404, "Payroll period not found")
         _assert_period_accepts_adjustments(period)

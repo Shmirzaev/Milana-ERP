@@ -1,6 +1,7 @@
 """Edit existing planned size labels without changing quantities or row identities."""
 from fastapi import HTTPException
-from sqlalchemy.orm import Session, lazyload
+from sqlalchemy import exists, or_
+from sqlalchemy.orm import Session, lazyload, load_only
 
 from app.models import Bundle, CuttingRecord, ProductionOrder, ProductionOrderItem, User, WorkOrder
 from app.models.payroll import PayrollQrLabel
@@ -17,18 +18,35 @@ def update_production_sizes(db: Session, pid: int, payload: ProductionOrderSizes
         raise HTTPException(404, "Production order not found")
     if po.source_type == "usluga" or po.status not in PRE_CUTTING_STATUSES:
         raise HTTPException(409, "production_sizes_locked")
-    work_orders = (db.query(WorkOrder).options(lazyload("*"))
-                   .filter(WorkOrder.production_order_id == pid).order_by(WorkOrder.id)
-                   .with_for_update().populate_existing().all())
+    work_orders = (
+        db.query(WorkOrder)
+        .options(
+            lazyload("*"),
+            load_only(WorkOrder.id, WorkOrder.operation, WorkOrder.status),
+        )
+        .filter(WorkOrder.production_order_id == pid)
+        .order_by(WorkOrder.id)
+        .with_for_update()
+        .populate_existing()
+        .all()
+    )
     if any(wo.operation == "cutting" and wo.status not in PRE_CUTTING_STATUSES for wo in work_orders):
         raise HTTPException(409, "production_sizes_locked")
     items = (db.query(ProductionOrderItem).filter(ProductionOrderItem.production_order_id == pid)
              .order_by(ProductionOrderItem.id).with_for_update().populate_existing().all())
-    if (any(item.completed_quantity > 0 for item in items)
-            or db.query(Bundle.id).filter(Bundle.production_order_id == pid).first()
-            or db.query(CuttingRecord.id).join(WorkOrder, WorkOrder.id == CuttingRecord.work_order_id)
-            .filter(WorkOrder.production_order_id == pid).first()
-            or db.query(PayrollQrLabel.id).filter(PayrollQrLabel.production_order_id == pid).first()):
+    if any(item.completed_quantity > 0 for item in items):
+        raise HTTPException(409, "production_sizes_locked")
+    has_activity = db.query(
+        or_(
+            exists().where(Bundle.production_order_id == pid),
+            exists().where(
+                CuttingRecord.work_order_id == WorkOrder.id,
+                WorkOrder.production_order_id == pid,
+            ),
+            exists().where(PayrollQrLabel.production_order_id == pid),
+        )
+    ).scalar()
+    if has_activity:
         raise HTTPException(409, "production_sizes_locked")
     submitted = {row.id: row for row in payload.items}
     if len(submitted) != len(payload.items) or set(submitted) != {item.id for item in items}:

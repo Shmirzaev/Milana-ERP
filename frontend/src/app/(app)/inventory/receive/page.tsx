@@ -2,10 +2,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import { api, fetcher } from "@/lib/api";
 import { modelOptionsByIdsFetcher, modelOptionsByIdsKey } from "@/lib/useModelOptions";
 import MaterialRollWeightFields, { rollWeightsTotal, validRollWeights } from "@/components/MaterialRollWeightFields";
 import PageHeader from "@/components/PageHeader";
+import PaginationControls from "@/components/PaginationControls";
+import SearchableSelect from "@/components/SearchableSelect";
+import SupplierAsyncSelect from "@/components/SupplierAsyncSelect";
 import { useT } from "@/lib/i18n";
 import { formatOrderReference, orderReference } from "@/lib/orderRef";
 import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
@@ -40,14 +44,70 @@ type ReceiveFormState = {
 type ReceiveItem = {
   id: number;
   name: string;
+  sku?: string | null;
   category?: string | null;
   unit?: string | null;
 };
+type ReceiveItemPage = { rows: ReceiveItem[]; total: number };
+
+type BatchRow = {
+  id: number;
+  batch_no: string;
+  item_id: number;
+  item_name?: string | null;
+  color?: string | null;
+  old_code?: string | null;
+  color_code?: string | null;
+  color_status?: string | null;
+  order_no?: string | null;
+  quantity: number;
+  gsm?: number | null;
+  roll_lengths_m?: (number | null)[] | null;
+  length_m?: number | null;
+  piece_count?: number | null;
+  processes?: string | null;
+};
+type BatchPage = { rows: BatchRow[]; total: number; page: number; page_size: number };
 
 type OrderOption = {
   id: number;
   label: string;
   orderNo: string;
+};
+
+type ProductionOrderOption = {
+  id: number;
+  production_no: string;
+  order_no?: string | null;
+  model_id: number;
+};
+
+type ProductionOrderPage = {
+  rows: ProductionOrderOption[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+};
+
+type AccessoryIssueSummaryPage = {
+  rows: AccessoryIssueSummaryRow[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+};
+
+type AccessoryReturnOrderRow = Pick<AccessoryIssueSummaryRow,
+  "production_order_id" | "production_no" | "order_no" | "model_id" | "model_code" | "model_name"
+>;
+
+type AccessoryReturnOrderPage = {
+  rows: AccessoryReturnOrderRow[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
 };
 
 type StockFormProps = {
@@ -58,8 +118,24 @@ type StockFormProps = {
   form: ReceiveFormState;
   items?: ReceiveItem[];
   warehouses?: any[];
-  suppliers?: any[];
   orderOptions?: OrderOption[];
+  asyncItemOptions?: { value: string | number; label: string; searchText?: string }[];
+  asyncItemValue?: string | number | null;
+  asyncItemLoading?: boolean;
+  asyncItemHasMore?: boolean;
+  asyncItemCount?: number;
+  onAsyncItemChange?: (value: string | number) => void;
+  onAsyncItemSearchChange?: (query: string) => void;
+  onAsyncItemLoadMore?: () => void;
+  onAsyncItemOpenChange?: (open: boolean) => void;
+  asyncOrderOptions?: { value: number; label: string; searchText?: string }[];
+  asyncOrderValue?: number | null;
+  asyncOrderLoading?: boolean;
+  asyncOrderHasMore?: boolean;
+  asyncOrderCount?: number;
+  onAsyncOrderChange?: (value: number) => void;
+  onAsyncOrderSearchChange?: (query: string) => void;
+  onAsyncOrderLoadMore?: () => void;
   message: string;
   requireOrder?: boolean;
   showOrder?: boolean;
@@ -241,8 +317,24 @@ function StockForm({
   form,
   items,
   warehouses,
-  suppliers,
   orderOptions,
+  asyncItemOptions,
+  asyncItemValue,
+  asyncItemLoading = false,
+  asyncItemHasMore = false,
+  asyncItemCount = 0,
+  onAsyncItemChange,
+  onAsyncItemSearchChange,
+  onAsyncItemLoadMore,
+  onAsyncItemOpenChange,
+  asyncOrderOptions,
+  asyncOrderValue,
+  asyncOrderLoading = false,
+  asyncOrderHasMore = false,
+  asyncOrderCount = 0,
+  onAsyncOrderChange,
+  onAsyncOrderSearchChange,
+  onAsyncOrderLoadMore,
   message,
   requireOrder = false,
   showOrder = true,
@@ -288,7 +380,23 @@ function StockForm({
 
       <div>
         <label className="label">{itemLabel}</label>
-        <select
+        {asyncItemOptions ? (
+          <SearchableSelect<string | number>
+            value={asyncItemValue ?? null}
+            options={asyncItemOptions}
+            onChange={(value) => onAsyncItemChange?.(value)}
+            placeholder={itemLabel}
+            noResultsText={t("page.search.noMatches")}
+            serverFilter
+            loading={asyncItemLoading}
+            loadingText={t("common.loading")}
+            hasMore={asyncItemHasMore}
+            loadMoreText={`${t("common.loadMore")} (${asyncItemOptions.length} / ${asyncItemCount})`}
+            onSearchChange={onAsyncItemSearchChange}
+            onLoadMore={onAsyncItemLoadMore}
+            onOpenChange={onAsyncItemOpenChange}
+          />
+        ) : <select
           className="input"
           value={form.item_id}
           onChange={(e) => {
@@ -300,7 +408,7 @@ function StockForm({
         >
           <option value={0}>{itemLabel}</option>
           {items?.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
-        </select>
+        </select>}
       </div>
       {showItemImage && (
         <div className={spanClass}>
@@ -409,7 +517,23 @@ function StockForm({
       {showOrder && (
         <div>
           <label className="label">{t("field.orderNo")}</label>
-          {orderOptions ? (
+          {asyncOrderOptions ? (
+            <SearchableSelect<number>
+              value={asyncOrderValue ?? null}
+              options={asyncOrderOptions}
+              onChange={(value) => onAsyncOrderChange?.(value)}
+              placeholder={t("ph.orderNo")}
+              noResultsText={t("page.search.noMatches")}
+              serverFilter
+              loading={asyncOrderLoading}
+              loadingText={t("common.loading")}
+              hasMore={asyncOrderHasMore}
+              loadMoreText={`${t("common.loadMore")} (${asyncOrderOptions.length} / ${asyncOrderCount})`}
+              onSearchChange={onAsyncOrderSearchChange}
+              onLoadMore={onAsyncOrderLoadMore}
+              required={requireOrder}
+            />
+          ) : orderOptions ? (
             <select
               className="input"
               value={selectedOrderId}
@@ -431,7 +555,7 @@ function StockForm({
           ) : (
             <input className="input" placeholder={t("field.orderNo")} value={form.order_no} onChange={(e) => onChange({ ...form, order_no: e.target.value })} required={requireOrder} />
           )}
-          {orderOptions && orderOptions.length === 0 && noOrderOptionsMessage && (
+          {(orderOptions || asyncOrderOptions)?.length === 0 && noOrderOptionsMessage && (
             <div className="mt-1 text-xs text-[#8a8472]">{noOrderOptionsMessage}</div>
           )}
         </div>
@@ -489,10 +613,11 @@ function StockForm({
       </div>
       <div>
         <label className="label">{t("ph.supplier")}</label>
-        <select className="input" value={form.supplier_id} onChange={(e) => onChange({ ...form, supplier_id: Number(e.target.value) })}>
-          <option value={0}>{t("ph.supplier")}</option>
-          {suppliers?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-        </select>
+        <SupplierAsyncSelect
+          inputId={showReturnCondition ? "accessory-return-supplier" : "stock-receive-supplier"}
+          value={form.supplier_id || null}
+          onChange={(supplierId) => onChange({ ...form, supplier_id: supplierId })}
+        />
       </div>
 
       <div className={spanClass}>
@@ -543,18 +668,109 @@ export default function ReceiveStockPage() {
   const isFabricReceiving = receiveGroup === "materials";
   const isAccessoryReceiving = receiveGroup === "accessories";
   const preselectedIssueProductionOrderId = Number(searchParams.get("issue_production_order_id") || 0);
-  const { data: receiveItems } = useSWR<ReceiveItem[]>(`/api/inventory/items?group=${receiveGroup}`, fetcher);
+  const [receiveItemPickerOpen, setReceiveItemPickerOpen] = useState(false);
+  const [receiveItemSearchInput, setReceiveItemSearchInput] = useState("");
+  const [receiveItemSearch, setReceiveItemSearch] = useState("");
+  const [selectedReceiveItem, setSelectedReceiveItem] = useState<ReceiveItem | null>(null);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setReceiveItemSearch(receiveItemSearchInput.trim()), 180);
+    return () => window.clearTimeout(timer);
+  }, [receiveItemSearchInput]);
+  const {
+    data: receiveItemPages,
+    size: receiveItemPageCount,
+    setSize: setReceiveItemPageCount,
+    isLoading: receiveItemsLoading,
+    isValidating: receiveItemsValidating,
+  } = useSWRInfinite<ReceiveItemPage>(
+    (index, previous) => !receiveItemPickerOpen || (previous && index * 50 >= previous.total) ? null
+      : `/api/inventory/items?group=${receiveGroup}&page=${index + 1}&page_size=50&include_total=true&q=${encodeURIComponent(receiveItemSearch)}`,
+    fetcher,
+    { persistSize: false, revalidateFirstPage: false },
+  );
   const { data: warehouses } = useSWR<any[]>("/api/inventory/warehouses", fetcher);
-  const { data: suppliers } = useSWR<any[]>("/api/suppliers", fetcher);
-  const { data: productionOrders } = useSWR<any[]>(isAccessoryReceiving ? "/api/production-orders?page_size=500" : null, fetcher);
-  const { data: savedColors, mutate: refreshColors } = useSWR<string[]>(isFabricReceiving ? "/api/inventory/colors" : null, fetcher);
-  const receiveModelOptionsKey = modelOptionsByIdsKey((productionOrders || []).map((row) => row.model_id));
-  const { data: models } = useSWR<any[]>(receiveModelOptionsKey, modelOptionsByIdsFetcher);
-  const { data: batches, mutate: refreshBatches } = useSWR<any[]>(`/api/inventory/batches?group=${receiveGroup}`, fetcher);
-  const { data: accessoryIssueRows, mutate: refreshAccessoryIssues } = useSWR<AccessoryIssueSummaryRow[]>(
-    isAccessoryReceiving ? "/api/inventory/accessory-issues?page_size=500" : null,
+  const [productionOrderSearchInput, setProductionOrderSearchInput] = useState("");
+  const [productionOrderSearch, setProductionOrderSearch] = useState("");
+  const [selectedProductionOrder, setSelectedProductionOrder] = useState<ProductionOrderOption | null>(null);
+  const {
+    data: productionOrderPages,
+    setSize: setProductionOrderPageCount,
+    isValidating: productionOrdersValidating,
+  } = useSWRInfinite<ProductionOrderPage>(
+    (index, previousPage) => isAccessoryReceiving && !(previousPage && !previousPage.has_more)
+      ? `/api/production-orders?page=${index + 1}&page_size=50&include_total=true&q=${encodeURIComponent(productionOrderSearch)}`
+      : null,
     fetcher,
   );
+  useEffect(() => {
+    void setProductionOrderPageCount(1);
+    const timer = window.setTimeout(() => setProductionOrderSearch(productionOrderSearchInput.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [productionOrderSearchInput, setProductionOrderPageCount]);
+  const [accessoryReturnOrderSearchInput, setAccessoryReturnOrderSearchInput] = useState("");
+  const [accessoryReturnOrderSearch, setAccessoryReturnOrderSearch] = useState("");
+  const [accessoryReturnItemSearchInput, setAccessoryReturnItemSearchInput] = useState("");
+  const [accessoryReturnItemSearch, setAccessoryReturnItemSearch] = useState("");
+  const [accessoryReturnSelectedOrderId, setAccessoryReturnSelectedOrderId] = useState(0);
+  const [selectedAccessoryReturnOrder, setSelectedAccessoryReturnOrder] = useState<OrderOption | null>(null);
+  const [selectedAccessoryReturnItem, setSelectedAccessoryReturnItem] = useState<ReceiveItem | null>(null);
+  const {
+    data: accessoryReturnOrderPages,
+    setSize: setAccessoryReturnOrderPageCount,
+    isValidating: accessoryReturnOrdersValidating,
+    mutate: refreshAccessoryReturnOrders,
+  } = useSWRInfinite<AccessoryReturnOrderPage>(
+    (index, previousPage) => isAccessoryReceiving && !(previousPage && !previousPage.has_more)
+      ? `/api/inventory/accessory-issues?page=${index + 1}&page_size=50&include_total=true&returnable_only=true&orders_only=true&q=${encodeURIComponent(accessoryReturnOrderSearch)}`
+      : null,
+    fetcher,
+  );
+  useEffect(() => {
+    void setAccessoryReturnOrderPageCount(1);
+    const timer = window.setTimeout(() => setAccessoryReturnOrderSearch(accessoryReturnOrderSearchInput.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [accessoryReturnOrderSearchInput, setAccessoryReturnOrderPageCount]);
+  const {
+    data: accessoryReturnItemPages,
+    setSize: setAccessoryReturnItemPageCount,
+    isValidating: accessoryReturnItemsValidating,
+    mutate: refreshAccessoryReturnItems,
+  } = useSWRInfinite<AccessoryIssueSummaryPage>(
+    (index, previousPage) => isAccessoryReceiving && accessoryReturnSelectedOrderId > 0
+      && !(previousPage && !previousPage.has_more)
+      ? `/api/inventory/accessory-issues?page=${index + 1}&page_size=50&include_total=true&returnable_only=true&production_order_id=${accessoryReturnSelectedOrderId}&q=${encodeURIComponent(accessoryReturnItemSearch)}`
+      : null,
+    fetcher,
+  );
+  useEffect(() => {
+    void setAccessoryReturnItemPageCount(1);
+    const timer = window.setTimeout(() => setAccessoryReturnItemSearch(accessoryReturnItemSearchInput.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [accessoryReturnItemSearchInput, accessoryReturnSelectedOrderId, setAccessoryReturnItemPageCount]);
+  const productionOrders = useMemo(
+    () => productionOrderPages?.flatMap((page) => page.rows) || [],
+    [productionOrderPages],
+  );
+  const productionOrderTotal = productionOrderPages?.[0]?.total || 0;
+  const lastProductionOrderPage = productionOrderPages?.[productionOrderPages.length - 1];
+  const hasMoreProductionOrders = Boolean(lastProductionOrderPage?.has_more);
+  const { data: savedColors, mutate: refreshColors } = useSWR<string[]>(isFabricReceiving ? "/api/inventory/colors" : null, fetcher);
+  const receiveModelOptionsKey = modelOptionsByIdsKey([
+    ...productionOrders.map((row) => row.model_id),
+    ...(selectedProductionOrder ? [selectedProductionOrder.model_id] : []),
+  ]);
+  const { data: models } = useSWR<any[]>(receiveModelOptionsKey, modelOptionsByIdsFetcher);
+  const [batchSearchInput, setBatchSearchInput] = useState("");
+  const [batchSearch, setBatchSearch] = useState("");
+  const [batchPage, setBatchPage] = useState(1);
+  useEffect(() => {
+    setBatchPage(1);
+    const timer = window.setTimeout(() => setBatchSearch(batchSearchInput.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [batchSearchInput, receiveGroup]);
+  const batchUrl = `/api/inventory/batches?group=${receiveGroup}&page=${batchPage}&page_size=30&include_total=true&q=${encodeURIComponent(batchSearch)}`;
+  const { data: batchData, mutate: refreshBatches } = useSWR<BatchPage>(batchUrl, fetcher);
+  const batches = batchData?.rows || [];
   const [receiveForm, setReceiveForm] = useState(DEFAULT_RECEIVE_FORM);
   const [accessoryReturnForm, setAccessoryReturnForm] = useState(DEFAULT_ACCESSORY_RETURN_FORM);
   const [issueProductionOrderId, setIssueProductionOrderId] = useState(0);
@@ -572,22 +788,32 @@ export default function ReceiveStockPage() {
     fetcher,
   );
   const modelById = useMemo(() => new Map((models || []).map((m) => [Number(m.id), m])), [models]);
-  const sortedReceiveItems = useMemo<ReceiveItem[]>(() => {
-    return [...(receiveItems || [])].sort((a, b) => {
-      const left = `${a.category || ""} ${a.name || ""}`;
-      const right = `${b.category || ""} ${b.name || ""}`;
-      return left.localeCompare(right);
-    });
-  }, [receiveItems]);
+  const loadedReceiveItems = useMemo(() => receiveItemPages?.flatMap((itemPage) => itemPage.rows) || [], [receiveItemPages]);
+  const receiveItemOptions = useMemo(() => {
+    const byId = new Map<number, ReceiveItem>();
+    if (selectedReceiveItem?.id === receiveForm.item_id) byId.set(selectedReceiveItem.id, selectedReceiveItem);
+    for (const item of loadedReceiveItems) byId.set(item.id, item);
+    return Array.from(byId.values());
+  }, [loadedReceiveItems, receiveForm.item_id, selectedReceiveItem]);
+  const receiveItemTotal = receiveItemPages?.[0]?.total ?? 0;
   const receiveWarehouses = useMemo(
     () => (warehouses || []).filter((warehouse) => (
       String(warehouse.type || "") === (isFabricReceiving ? "fabric_storage" : "accessory_storage")
     )),
     [isFabricReceiving, warehouses],
   );
-  const returnableAccessoryIssueRows = useMemo(() => {
-    return (accessoryIssueRows || []).filter((row) => Number(row.returnable_quantity ?? row.issued_quantity ?? 0) > 0);
-  }, [accessoryIssueRows]);
+  const returnableAccessoryIssueRows = useMemo(
+    () => accessoryReturnOrderPages?.flatMap((page) => page.rows) || [],
+    [accessoryReturnOrderPages],
+  );
+  const returnableAccessoryItemRows = useMemo(
+    () => accessoryReturnItemPages?.flatMap((page) => page.rows) || [],
+    [accessoryReturnItemPages],
+  );
+  const accessoryReturnOrderTotal = accessoryReturnOrderPages?.[0]?.total || 0;
+  const accessoryReturnOrderLastPage = accessoryReturnOrderPages?.[accessoryReturnOrderPages.length - 1];
+  const accessoryReturnItemTotal = accessoryReturnItemPages?.[0]?.total || 0;
+  const accessoryReturnItemLastPage = accessoryReturnItemPages?.[accessoryReturnItemPages.length - 1];
   const accessoryReturnOrderOptions = useMemo<OrderOption[]>(() => {
     const byOrder = new Map<number, OrderOption>();
     for (const row of returnableAccessoryIssueRows) {
@@ -600,21 +826,25 @@ export default function ReceiveStockPage() {
         label: [orderReference(row, row.production_no), modelText].filter(Boolean).join(" - "),
       });
     }
+    if (selectedAccessoryReturnOrder && !byOrder.has(selectedAccessoryReturnOrder.id)) {
+      byOrder.set(selectedAccessoryReturnOrder.id, selectedAccessoryReturnOrder);
+    }
     return [...byOrder.values()];
-  }, [returnableAccessoryIssueRows]);
-  const selectedAccessoryReturnRows = useMemo(() => {
-    return returnableAccessoryIssueRows.filter(
-      (row) => Number(row.production_order_id) === Number(accessoryReturnForm.production_order_id),
-    );
-  }, [accessoryReturnForm.production_order_id, returnableAccessoryIssueRows]);
+  }, [returnableAccessoryIssueRows, selectedAccessoryReturnOrder]);
   const returnableAccessoryItems = useMemo<ReceiveItem[]>(() => {
-    return selectedAccessoryReturnRows.map((row) => ({
+    const items: ReceiveItem[] = returnableAccessoryItemRows.map((row) => ({
       id: row.item_id,
       name: `${row.item_name} (${fmtQty(row.returnable_quantity ?? row.issued_quantity)} ${row.unit})`,
       category: row.category,
       unit: row.unit,
     }));
-  }, [selectedAccessoryReturnRows]);
+    if (selectedAccessoryReturnItem && !items.some((item) => (
+      item.id === selectedAccessoryReturnItem.id && (item.unit || "") === (selectedAccessoryReturnItem.unit || "")
+    ))) {
+      items.unshift(selectedAccessoryReturnItem);
+    }
+    return items;
+  }, [returnableAccessoryItemRows, selectedAccessoryReturnItem]);
   const customColors = useMemo(() => {
     const colorsByKey = new Map<string, string>();
     for (const rawColor of [...(savedColors || []), ...pendingColors]) {
@@ -626,6 +856,8 @@ export default function ReceiveStockPage() {
 
   useEffect(() => {
     setReceiveForm({ ...DEFAULT_RECEIVE_FORM, unit: isFabricReceiving ? "kg" : "pcs", piece_count: isFabricReceiving ? 1 : "" });
+    setSelectedReceiveItem(null);
+    setReceiveItemSearchInput("");
     setReceiveMsg("");
   }, [isFabricReceiving]);
 
@@ -651,6 +883,10 @@ export default function ReceiveStockPage() {
   async function submitReceive(e: React.FormEvent) {
     e.preventDefault();
     setReceiveMsg("");
+    if (!receiveForm.item_id) {
+      setReceiveMsg(t("page.modelDetail.selectItem"));
+      return;
+    }
     const quantity = numberOrZero(receiveForm.quantity);
     const rollCount = numberOrZero(receiveForm.piece_count);
     if (isFabricReceiving && (quantity <= 0 || !Number.isInteger(rollCount) || rollCount <= 0)) {
@@ -665,6 +901,8 @@ export default function ReceiveStockPage() {
       await api.post("/api/inventory/receive", toReceivePayload(receiveForm, isFabricReceiving));
       setReceiveMsg(t("msg.recorded"));
       setReceiveForm({ ...DEFAULT_RECEIVE_FORM, unit: isFabricReceiving ? "kg" : "pcs", piece_count: isFabricReceiving ? 1 : "" });
+      setSelectedReceiveItem(null);
+      setBatchPage(1);
       refreshBatches();
       refreshColors();
     } catch (e: any) {
@@ -704,8 +942,13 @@ export default function ReceiveStockPage() {
       await api.post("/api/inventory/accessory-returns", toAccessoryReturnPayload(accessoryReturnForm));
       setAccessoryMsg(t("msg.recorded"));
       setAccessoryReturnForm(DEFAULT_ACCESSORY_RETURN_FORM);
+      setAccessoryReturnSelectedOrderId(0);
+      setSelectedAccessoryReturnItem(null);
+      setSelectedAccessoryReturnOrder(null);
+      setBatchPage(1);
       refreshBatches();
-      refreshAccessoryIssues();
+      void refreshAccessoryReturnOrders();
+      void refreshAccessoryReturnItems();
     } catch (e: any) {
       setAccessoryMsg(e.message);
     }
@@ -737,6 +980,7 @@ export default function ReceiveStockPage() {
       });
       setIssueMsg(t("msg.recorded"));
       refreshIssuePlan();
+      setBatchPage(1);
       refreshBatches();
     } catch (e: any) {
       setIssueMsg(e.message);
@@ -745,8 +989,32 @@ export default function ReceiveStockPage() {
     }
   }
 
-  const selectedPo = productionOrders?.find((po) => Number(po.id) === Number(issueProductionOrderId));
+  const issuePlanOrder: ProductionOrderOption | null = issuePlan && Number(issuePlan.production_order_id) === issueProductionOrderId
+    ? {
+      id: Number(issuePlan.production_order_id),
+      production_no: issuePlan.production_no,
+      order_no: issuePlan.order_no,
+      model_id: Number(issuePlan.model_id),
+    }
+    : null;
+  const selectedPo = selectedProductionOrder?.id === issueProductionOrderId
+    ? selectedProductionOrder
+    : productionOrders.find((po) => Number(po.id) === Number(issueProductionOrderId)) || issuePlanOrder;
   const selectedPoModel = selectedPo ? modelById.get(Number(selectedPo.model_id)) : null;
+  const productionOrderOptionRows = [...productionOrders];
+  const selectedOrderOption = selectedProductionOrder || issuePlanOrder;
+  if (selectedOrderOption && !productionOrderOptionRows.some((row) => Number(row.id) === Number(selectedOrderOption.id))) {
+    productionOrderOptionRows.unshift(selectedOrderOption);
+  }
+  const productionOrderOptions = productionOrderOptionRows.map((po) => {
+    const model = modelById.get(Number(po.model_id));
+    const modelValue = model?.code || (Number(po.id) === issueProductionOrderId ? issuePlan?.model_code : null) || po.model_id;
+    const modelText = modelValue ? `Model ${modelValue}` : "";
+    return {
+      value: Number(po.id),
+      label: [orderReference(po, `#${po.id}`), modelText].filter(Boolean).join(" - "),
+    };
+  });
 
   function addCustomColor(color: string) {
     setPendingColors((current) => (
@@ -766,9 +1034,22 @@ export default function ReceiveStockPage() {
           itemLabel={t(isFabricReceiving ? "field.materialName" : "field.accessory")}
           submitLabel={t("btn.receive")}
           form={receiveForm}
-          items={sortedReceiveItems}
+          asyncItemOptions={receiveItemOptions.map((item) => ({ value: item.id, label: item.name, searchText: item.sku || item.category || "" }))}
+          asyncItemValue={receiveForm.item_id || null}
+          asyncItemLoading={receiveItemsLoading || receiveItemsValidating}
+          asyncItemHasMore={loadedReceiveItems.length < receiveItemTotal}
+          asyncItemCount={receiveItemTotal}
+          onAsyncItemSearchChange={setReceiveItemSearchInput}
+          onAsyncItemLoadMore={() => void setReceiveItemPageCount(receiveItemPageCount + 1)}
+          onAsyncItemOpenChange={setReceiveItemPickerOpen}
+          onAsyncItemChange={(id) => {
+            const itemId = Number(id);
+            const item = receiveItemOptions.find((option) => option.id === itemId);
+            if (!item) return;
+            setSelectedReceiveItem(item);
+            setReceiveForm((current) => ({ ...current, item_id: itemId, unit: item.unit || current.unit, image_url: "" }));
+          }}
           warehouses={receiveWarehouses}
-          suppliers={suppliers}
           message={receiveMsg}
           showOrder={false}
           showGramaj={isFabricReceiving}
@@ -791,14 +1072,63 @@ export default function ReceiveStockPage() {
             form={accessoryReturnForm}
             items={returnableAccessoryItems}
             warehouses={receiveWarehouses}
-            suppliers={suppliers}
-            orderOptions={accessoryReturnOrderOptions}
             message={accessoryMsg}
             requireOrder
             showReturnCondition
             noOrderOptionsMessage={t("page.receiveStock.noReturnableAccessories")}
             customColors={customColors}
             onChange={setAccessoryReturnForm}
+            asyncOrderOptions={accessoryReturnOrderOptions.map((option) => ({
+              value: option.id,
+              label: option.label,
+              searchText: option.orderNo,
+            }))}
+            asyncOrderValue={accessoryReturnForm.production_order_id || null}
+            asyncOrderLoading={accessoryReturnOrdersValidating && Boolean(accessoryReturnOrderPages?.length)}
+            asyncOrderHasMore={Boolean(accessoryReturnOrderLastPage?.has_more)}
+            asyncOrderCount={accessoryReturnOrderTotal}
+            onAsyncOrderSearchChange={setAccessoryReturnOrderSearchInput}
+            onAsyncOrderLoadMore={() => void setAccessoryReturnOrderPageCount((size) => size + 1)}
+            onAsyncOrderChange={(orderId) => {
+              const order = accessoryReturnOrderOptions.find((option) => option.id === orderId);
+              if (!order) return;
+              setSelectedAccessoryReturnOrder(order);
+              setAccessoryReturnSelectedOrderId(orderId);
+              setAccessoryReturnForm((current) => ({
+                ...current,
+                production_order_id: orderId,
+                order_no: order.orderNo,
+                item_id: 0,
+              }));
+              setSelectedAccessoryReturnItem(null);
+              setAccessoryReturnItemSearchInput("");
+            }}
+            asyncItemOptions={returnableAccessoryItems.map((item) => ({
+              value: JSON.stringify([item.id, item.unit || ""]),
+              label: item.name,
+              searchText: item.category || "",
+            }))}
+            asyncItemValue={accessoryReturnForm.item_id
+              ? JSON.stringify([accessoryReturnForm.item_id, accessoryReturnForm.unit || ""])
+              : null}
+            asyncItemLoading={accessoryReturnItemsValidating && Boolean(accessoryReturnItemPages?.length)}
+            asyncItemHasMore={Boolean(accessoryReturnItemLastPage?.has_more)}
+            asyncItemCount={accessoryReturnItemTotal}
+            onAsyncItemSearchChange={setAccessoryReturnItemSearchInput}
+            onAsyncItemLoadMore={() => void setAccessoryReturnItemPageCount((size) => size + 1)}
+            onAsyncItemChange={(value) => {
+              let selection: [number, string];
+              try {
+                selection = JSON.parse(String(value)) as [number, string];
+              } catch {
+                return;
+              }
+              const [itemId, unit] = selection;
+              const item = returnableAccessoryItems.find((option) => option.id === itemId && (option.unit || "") === unit);
+              if (!item) return;
+              setSelectedAccessoryReturnItem(item);
+              setAccessoryReturnForm((current) => ({ ...current, item_id: itemId, unit: item.unit || current.unit }));
+            }}
             onAddColor={addCustomColor}
             onSubmit={submitAccessoryReturn}
           />
@@ -815,23 +1145,29 @@ export default function ReceiveStockPage() {
             </div>
             <div>
               <label className="label">{t("field.orderNo")}</label>
-              <select
-                className="input"
-                value={issueProductionOrderId}
-                onChange={(e) => { setIssueProductionOrderId(Number(e.target.value)); setIssueMsg(""); }}
-              >
-                <option value={0}>{t("page.receiveStock.selectProductionOrder")}</option>
-                {productionOrders?.map((po) => {
-                  const model = modelById.get(Number(po.model_id));
-                  const modelValue = model?.code || po.model_id;
-                  const modelText = modelValue ? `Model ${modelValue}` : "";
-                  const label = [
-                    orderReference(po, `#${po.id}`),
-                    modelText,
-                  ].filter(Boolean).join(" - ");
-                  return <option key={po.id} value={po.id}>{label}</option>;
-                })}
-              </select>
+              <SearchableSelect<number>
+                value={issueProductionOrderId || null}
+                options={productionOrderOptions}
+                onChange={(id) => {
+                  const order = productionOrders.find((row) => Number(row.id) === Number(id))
+                    || (Number(selectedProductionOrder?.id) === Number(id) ? selectedProductionOrder : null)
+                    || (Number(issuePlanOrder?.id) === Number(id) ? issuePlanOrder : null);
+                  if (!order) return;
+                  setSelectedProductionOrder(order);
+                  setIssueProductionOrderId(Number(id));
+                  setProductionOrderSearchInput("");
+                  setIssueMsg("");
+                }}
+                placeholder={t("page.receiveStock.selectProductionOrder")}
+                noResultsText={t("page.search.noMatches")}
+                serverFilter
+                loading={productionOrdersValidating && Boolean(productionOrderPages?.length)}
+                loadingText={t("common.loading")}
+                hasMore={hasMoreProductionOrders}
+                loadMoreText={`${t("common.loadMore")} (${productionOrders.length} / ${productionOrderTotal})`}
+                onSearchChange={setProductionOrderSearchInput}
+                onLoadMore={() => void setProductionOrderPageCount((size) => size + 1)}
+              />
             </div>
           </div>
           {issuePlan && (
@@ -903,6 +1239,16 @@ export default function ReceiveStockPage() {
       )}
 
       <div className="card mt-4 overflow-x-auto">
+        <div className="border-b border-[#ecebe3] p-4">
+          <input
+            className="input"
+            type="search"
+            value={batchSearchInput}
+            onChange={(event) => setBatchSearchInput(event.target.value)}
+            placeholder={t("page.inventory.searchPlaceholder")}
+            aria-label={t("common.search")}
+          />
+        </div>
         <table className="table">
           <thead>
             <tr>
@@ -921,7 +1267,7 @@ export default function ReceiveStockPage() {
             </tr>
           </thead>
           <tbody>
-              {batches?.slice(0, 30).map((b) => (
+              {batches.map((b) => (
               <tr key={b.id}>
                 <td>{b.batch_no}</td>
                 <td>{b.item_name || b.item_id}</td>
@@ -939,6 +1285,15 @@ export default function ReceiveStockPage() {
             ))}
           </tbody>
         </table>
+        <PaginationControls
+          page={batchPage}
+          pageSize={30}
+          total={batchData?.total || 0}
+          count={batches.length}
+          onPageChange={setBatchPage}
+          onPageSizeChange={() => setBatchPage(1)}
+          pageSizeOptions={[30]}
+        />
       </div>
     </div>
   );

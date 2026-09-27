@@ -1,58 +1,100 @@
 from app.core.order_reference import order_reference_contains
-import os
 from collections import defaultdict
 from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from functools import partial
+from pathlib import Path
 from uuid import uuid4
 
+from anyio import CancelScope, to_thread
 from fastapi import APIRouter, HTTPException, Depends, Header
 from fastapi import UploadFile, File
-from sqlalchemy import or_, func
-from sqlalchemy.orm import joinedload
+from pydantic import BaseModel
+from sqlalchemy import and_, func, literal, or_
+from sqlalchemy.orm import joinedload, load_only, selectinload
 
-from app.core.deps import DbSession, CurrentUser, require_permissions
+from app.core.deps import DbSession, CurrentUser, require_permissions, user_permissions
 from app.core.config import settings
 from app.core.dt import date_filter_bounds
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
-from app.core.signing import sign_path, strip_signature
+from app.core.signing import sign_path
 from app.core.uploads import (
     SAFE_DOCUMENT_EXTENSIONS,
     SAFE_IMAGE_EXTENSIONS,
+    UploadFileWriteState,
     extension_for_upload,
+    run_upload_file_write,
     safe_content_type,
     read_validated_upload_content,
+    upload_processing_slot,
 )
 from app.models import (
-    SalesOrder, SalesOrderItem, FinishedGoodsStock, StockReservation,
+    SalesOrder, SalesOrderItem, FinishedGoodsStock, StockReservation, ModelImage,
     BrandedPlanningOrder, Customer, Model, User, ProductionOrder,
     CuttingRecord, PrintingRecord, SewingRecord, PackagingRecord, QualityCheck, Shipment, ShipmentPackage,
     Task, Department, Invoice, Payment, StockMovement, Item, StockBatch, MaterialReservation,
     Package, Bundle, FinishedGoodsStock, AuditLog,
 )
 from app.schemas.sales import (
-    SalesOrderIn, SalesOrderUpdate, SalesOrderOut, SalesOrderDetail,
+    SalesOrderIn, SalesOrderItemIn, SalesOrderUpdate, SalesOrderOut, SalesOrderDetail,
 )
+from app.schemas.production import MaterialRequirement
 from app.services.audit import log_action
 from app.services.finished_goods import repair_missing_brand_metadata
 from app.services.ready_stock_sales import ready_pack_candidates, reserve_ready_packs
+from app.services.sales_order_amounts import validate_sales_order_total
 from app.services.numbering import next_sales_order_no
 from app.services.numbering import next_invoice_no
+from app.services.production import production_order_printing_attachments_for_storage
 from app.services.workflow import notify_department
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 from app.services.model_images import material_preview_image_url, model_display_image_url
+from app.services.planning import material_requirements_for_sales_order
 
 router = APIRouter(prefix="/sales-orders", tags=["sales"])
 _SHIPMENT_READY_PACKAGE_STATUSES = ("received_in_storage", "reserved")
+_STOCK_VARIANT_QUERY_CHUNK_SIZE = 200
+_MAX_SALES_ORDER_ITEM_PRICE = Decimal("9999999999.99")
+_SALES_ORDER_ITEM_PRICE_CENT = Decimal("0.01")
+_SALES_ORDER_ITEM_SOURCE_TYPES = frozenset({"produce_new", "from_stock", "first_grade"})
+_UNPROVENANCED_PLANNING_MONEY_FIELDS = (
+    "planning_estimated_material_cost",
+    "planning_estimated_labor_cost",
+    "planning_estimated_electricity_cost",
+    "planning_estimated_other_cost",
+    "planning_estimated_net_cost",
+    "planning_suggested_price_15",
+    "planning_suggested_price_20",
+)
 
 
-def _attachments_for_storage(attachments) -> list[dict]:
-    """Persist the bare storage path (no signature) so it never expires at rest."""
-    out: list[dict] = []
-    for a in attachments or []:
-        d = a.model_dump() if hasattr(a, "model_dump") else dict(a)
-        if d.get("file_url"):
-            d["file_url"] = strip_signature(d["file_url"])
-        out.append(d)
-    return out
+class SalesOrderPageContext(BaseModel):
+    sales_order: SalesOrderDetail
+    material_requirements: list[MaterialRequirement] | None = None
+
+
+def _validate_sales_order_item_source_type(value: str) -> str:
+    if value not in _SALES_ORDER_ITEM_SOURCE_TYPES:
+        raise HTTPException(400, "Invalid sales order item source_type")
+    return value
+
+
+def _sales_order_item_price(value: object, *, round_catalog_price: bool = False) -> Decimal:
+    try:
+        price = Decimal(str(value))
+        if not price.is_finite() or price < 0:
+            raise ValueError
+        if round_catalog_price:
+            # Model.selling_price is NUMERIC(14,4); match PostgreSQL's positive
+            # NUMERIC scale-2 rounding before both line storage and total math.
+            price = price.quantize(_SALES_ORDER_ITEM_PRICE_CENT, rounding=ROUND_HALF_UP)
+        elif price != price.quantize(_SALES_ORDER_ITEM_PRICE_CENT):
+            raise HTTPException(422, "Sales order item unit_price must be representable in cents")
+        if price > _MAX_SALES_ORDER_ITEM_PRICE:
+            raise HTTPException(422, "Sales order item unit_price exceeds the supported maximum")
+    except (InvalidOperation, ValueError):
+        raise HTTPException(422, "Sales order item unit_price must be finite and representable") from None
+    return price
 
 
 def _sign_attachment_urls(payload: dict) -> dict:
@@ -69,12 +111,29 @@ def _serialize_sales_order(
     so: SalesOrder,
     *,
     include_items: bool = False,
+    customers: dict[int, Customer] | None = None,
 ) -> dict:
     """Shape sales-order payloads with customer/model names for frontend display."""
     schema_cls = SalesOrderDetail if include_items else SalesOrderOut
     payload = schema_cls.model_validate(so).model_dump()
 
-    customer = db.get(Customer, so.customer_id) if so.customer_id else None
+    # Planning estimates have no persisted cost-currency provenance. Item.default_cost
+    # is currency-less, so neither those estimates nor derived suggested prices can
+    # safely inherit the sales order currency.
+    for field in _UNPROVENANCED_PLANNING_MONEY_FIELDS:
+        payload[field] = None
+    # A numeric order total and line prices are meaningful only with the currency
+    # recorded on the order. Keep these as stored internally for business logic.
+    if so.currency is None:
+        payload["total_amount"] = None
+        for item in payload.get("items", []):
+            item["unit_price"] = None
+
+    customer = (
+        customers.get(so.customer_id)
+        if customers is not None
+        else db.get(Customer, so.customer_id) if so.customer_id else None
+    )
     if customer:
         payload["customer_name"] = customer.name
         payload["customer"] = {"id": customer.id, "name": customer.name}
@@ -114,6 +173,16 @@ def _serialize_sales_order(
 
 def _num(value) -> float:
     return float(value or 0)
+
+
+def _history_money_total(rows: list, *, empty_currency: str | None = None) -> tuple[float | None, str | None]:
+    """Sum recorded amounts only when every row has the same known currency."""
+    if not rows:
+        return (0.0, empty_currency) if empty_currency else (None, None)
+    currencies = {row.currency for row in rows}
+    if len(currencies) != 1 or None in currencies:
+        return None, None
+    return sum(_num(row.amount) for row in rows), currencies.pop()
 
 
 def _int_qty(value) -> int:
@@ -168,7 +237,18 @@ def _history_products(db: DbSession, model_ids: set[int]) -> list[dict]:
         return []
     models = (
         db.query(Model)
-        .options(joinedload(Model.images), joinedload(Model.bom))
+        .options(
+            selectinload(Model.images).load_only(
+                ModelImage.id,
+                ModelImage.model_id,
+                ModelImage.file_url,
+                ModelImage.file_name,
+                ModelImage.content_type,
+                ModelImage.image_type,
+                ModelImage.is_primary,
+            ),
+            joinedload(Model.bom),
+        )
         .filter(Model.id.in_(model_ids))
         .order_by(Model.code.asc())
         .all()
@@ -348,7 +428,7 @@ def _production_step_records(db: DbSession, production_orders: list[ProductionOr
                 "package_id": row.package_id, "model_id": row.model_id, "collection_id": row.collection_id,
                 "brand_id": row.brand_id, "color": row.color, "size": row.size, "quantity": row.quantity,
                 "available_qty": row.available_qty, "reserved_qty": row.reserved_qty, "sold_qty": row.sold_qty,
-                "cost_per_piece": _num(row.cost_per_piece), "selling_price": _num(row.selling_price),
+                "cost_per_piece": None, "selling_price": None,
                 "warehouse_id": row.warehouse_id, "status": row.status, "created_at": row.created_at,
             }
             for row in finished_goods
@@ -517,18 +597,22 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
     packed_record_qty = sum(_int_qty(row.total_packed_quantity or row.packed_qty) for row in packaging_records)
     packaged_qty = sum(_int_qty(pkg.total_quantity) for pkg in packages)
     shipped_qty = sum(_int_qty(row.quantity) for row in shipment_package_rows)
-    invoice_total = sum(_num(inv.amount) for inv in invoices)
-    paid_total = sum(_num(payment.amount) for payment in payments)
+    invoice_total, invoice_currency = _history_money_total(invoices, empty_currency=so.currency)
+    paid_total, payment_currency = _history_money_total(payments, empty_currency=so.currency)
 
     material_by_key: dict[tuple[int, str], dict] = {}
     material_movements: list[dict] = []
     material_cost_total = 0.0
+    material_cost_currencies: set[str | None] = set()
     for movement, item, batch in movement_rows:
         qty = _num(movement.quantity)
         unit = movement.unit or item.unit
-        unit_cost = _num(batch.cost_per_unit if batch else item.default_cost)
-        cost = qty * unit_cost
-        material_cost_total += cost
+        unit_cost = _num(movement.unit_cost_at_movement) if movement.unit_cost_at_movement is not None else None
+        cost_currency = movement.cost_currency_at_movement
+        material_cost_currencies.add(cost_currency)
+        cost = qty * unit_cost if unit_cost is not None and cost_currency else None
+        if material_cost_total is not None:
+            material_cost_total = material_cost_total + cost if cost is not None else None
         key = (int(item.id), unit)
         bucket = material_by_key.setdefault(
             key,
@@ -540,10 +624,13 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
                 "unit": unit,
                 "quantity": 0.0,
                 "estimated_cost": 0.0,
+                "_cost_currencies": set(),
             },
         )
         bucket["quantity"] += qty
-        bucket["estimated_cost"] += cost
+        bucket["_cost_currencies"].add(cost_currency)
+        if bucket["estimated_cost"] is not None:
+            bucket["estimated_cost"] = bucket["estimated_cost"] + cost if cost is not None else None
         material_movements.append(
             {
                 "id": movement.id,
@@ -551,6 +638,8 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
                 "quantity": qty,
                 "unit": unit,
                 "estimated_cost": cost,
+                "unit_cost_at_movement": unit_cost if cost_currency else None,
+                "cost_currency": cost_currency,
                 "reference_type": movement.reference_type,
                 "reference_id": movement.reference_id,
                 "created_at": movement.created_at,
@@ -563,11 +652,21 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
                 "batch": {
                     "id": batch.id,
                     "batch_no": batch.batch_no,
-                    "cost_per_unit": _num(batch.cost_per_unit),
                 } if batch else None,
             }
         )
+    for bucket in material_by_key.values():
+        currencies = bucket.pop("_cost_currencies")
+        bucket["cost_currency"] = next(iter(currencies)) if len(currencies) == 1 and None not in currencies else None
+        if bucket["cost_currency"] is None:
+            bucket["estimated_cost"] = None
     materials_spent = sorted(material_by_key.values(), key=lambda row: (str(row["category"]), str(row["sku"])))
+    material_cost_currency = (
+        next(iter(material_cost_currencies))
+        if len(material_cost_currencies) == 1 and None not in material_cost_currencies else None
+    )
+    if material_cost_currency is None:
+        material_cost_total = None
 
     done_markers = (
         [sh.delivered_at for sh in shipments]
@@ -605,11 +704,23 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
         "shipment_count": len(shipments),
         "invoice_count": len(invoices),
         "payment_count": len(payments),
-        "order_amount": _num(so.total_amount),
+        "order_amount": _num(so.total_amount) if so.currency else None,
+        "order_currency": so.currency,
         "invoice_total": invoice_total,
+        "invoice_currency": invoice_currency,
         "paid_total": paid_total,
-        "outstanding_amount": max(_num(so.total_amount) - paid_total, 0),
+        "payment_currency": payment_currency,
+        "outstanding_amount": (
+            max(_num(so.total_amount) - paid_total, 0)
+            if (
+                so.currency
+                and payment_currency == so.currency
+                and (not invoices or invoice_currency == so.currency)
+                and paid_total is not None
+            ) else None
+        ),
         "material_spent_cost": material_cost_total,
+        "material_cost_currency": material_cost_currency,
         "material_spent": materials_spent,
         "ordered_at": so.created_at,
         "completed_at": completed_at,
@@ -636,7 +747,8 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
         "updated_at": so.updated_at,
         "completed_at": completed_at,
         "last_activity_at": last_activity_at,
-        "total_amount": _num(so.total_amount),
+        "total_amount": _num(so.total_amount) if so.currency else None,
+        "currency": so.currency,
         "products": _history_products(db, product_model_ids),
         "summary": summary,
     }
@@ -682,9 +794,9 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
         timeline.append(_history_event("shipment_shipped", f"Shipment {sh.shipment_no} shipped", sh.shipped_at, shipment_id=sh.id, status=sh.status))
         timeline.append(_history_event("shipment_delivered", f"Shipment {sh.shipment_no} delivered", sh.delivered_at, shipment_id=sh.id, status=sh.status))
     for inv in invoices:
-        timeline.append(_history_event("invoice", f"Invoice {inv.invoice_no}", inv.issued_at or inv.created_at, invoice_id=inv.id, amount=_num(inv.amount), status=inv.status))
+        timeline.append(_history_event("invoice", f"Invoice {inv.invoice_no}", inv.issued_at or inv.created_at, invoice_id=inv.id, amount=_num(inv.amount) if inv.currency else None, currency=inv.currency, status=inv.status))
     for payment in payments:
-        timeline.append(_history_event("payment", "Payment received", payment.paid_at or payment.created_at, payment_id=payment.id, amount=_num(payment.amount)))
+        timeline.append(_history_event("payment", "Payment received", payment.paid_at or payment.created_at, payment_id=payment.id, amount=_num(payment.amount) if payment.currency else None, currency=payment.currency))
     for audit, user in audit_rows:
         timeline.append(_history_event("audit", f"Sales order {audit.action}", audit.created_at, action=audit.action, user=user.name if user else None))
     timeline = sorted([event for event in timeline if event], key=_event_sort_key)
@@ -693,9 +805,14 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
     for row_sp in shipment_package_rows:
         shipment_packages_by_shipment[int(row_sp.shipment_id)].append(row_sp)
 
+    order_payload = _serialize_sales_order(db, so, include_items=True)
+    if not so.currency:
+        order_payload["total_amount"] = None
+        for order_item in order_payload.get("items", []):
+            order_item["unit_price"] = None
     detail = {
         **row,
-        "order": _serialize_sales_order(db, so, include_items=True),
+        "order": order_payload,
         "items": [
             {
                 "id": item.id,
@@ -706,8 +823,9 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
                 "color": item.color,
                 "size": item.size,
                 "quantity": _int_qty(item.quantity),
-                "unit_price": _num(item.unit_price),
-                "line_total": _num(item.unit_price) * _int_qty(item.quantity),
+                "unit_price": _num(item.unit_price) if so.currency else None,
+                "line_total": _num(item.unit_price) * _int_qty(item.quantity) if so.currency else None,
+                "currency": so.currency,
                 "source_type": item.source_type,
                 "printing_required": bool(item.printing_required),
                 "notes": item.notes,
@@ -869,7 +987,8 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
             {
                 "id": inv.id,
                 "invoice_no": inv.invoice_no,
-                "amount": _num(inv.amount),
+                "amount": _num(inv.amount) if inv.currency else None,
+                "currency": inv.currency,
                 "status": inv.status,
                 "issued_at": inv.issued_at,
                 "due_date": inv.due_date,
@@ -880,7 +999,8 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
             {
                 "id": payment.id,
                 "invoice_id": payment.invoice_id,
-                "amount": _num(payment.amount),
+                "amount": _num(payment.amount) if payment.currency else None,
+                "currency": payment.currency,
                 "payment_method": payment.payment_method,
                 "paid_at": payment.paid_at,
                 "notes": payment.notes,
@@ -933,33 +1053,54 @@ def _stock_production_history(db: DbSession, po: ProductionOrder, *, include_det
     material_by_key: dict[tuple[int, str], dict] = {}
     material_movements: list[dict] = []
     material_cost_total = 0.0
+    material_cost_currencies: set[str | None] = set()
     for movement, item, batch in movement_rows:
         quantity = _num(movement.quantity)
         unit = movement.unit or item.unit
-        unit_cost = _num(batch.cost_per_unit if batch else item.default_cost)
-        cost = quantity * unit_cost
-        material_cost_total += cost
+        unit_cost = _num(movement.unit_cost_at_movement) if movement.unit_cost_at_movement is not None else None
+        cost_currency = movement.cost_currency_at_movement
+        material_cost_currencies.add(cost_currency)
+        cost = quantity * unit_cost if unit_cost is not None and cost_currency else None
+        if material_cost_total is not None:
+            material_cost_total = material_cost_total + cost if cost is not None else None
         bucket = material_by_key.setdefault(
             (int(item.id), unit),
             {
                 "item_id": int(item.id), "sku": item.sku, "name": item.name,
                 "category": item.category, "unit": unit, "quantity": 0.0, "estimated_cost": 0.0,
+                "_cost_currencies": set(),
             },
         )
         bucket["quantity"] += quantity
-        bucket["estimated_cost"] += cost
+        bucket["_cost_currencies"].add(cost_currency)
+        if bucket["estimated_cost"] is not None:
+            bucket["estimated_cost"] = bucket["estimated_cost"] + cost if cost is not None else None
         material_movements.append(
             {
                 "id": movement.id, "movement_type": movement.movement_type, "quantity": quantity,
-                "unit": unit, "estimated_cost": cost, "reference_type": movement.reference_type,
+                "unit": unit, "estimated_cost": cost,
+                "unit_cost_at_movement": unit_cost if cost_currency else None,
+                "cost_currency": cost_currency,
+                "reference_type": movement.reference_type,
                 "reference_id": movement.reference_id, "created_at": movement.created_at,
                 "item": {"id": item.id, "sku": item.sku, "name": item.name, "category": item.category},
                 "batch": {
-                    "id": batch.id, "batch_no": batch.batch_no, "cost_per_unit": _num(batch.cost_per_unit),
+                    "id": batch.id, "batch_no": batch.batch_no,
                 } if batch else None,
             }
         )
+    for bucket in material_by_key.values():
+        currencies = bucket.pop("_cost_currencies")
+        bucket["cost_currency"] = next(iter(currencies)) if len(currencies) == 1 and None not in currencies else None
+        if bucket["cost_currency"] is None:
+            bucket["estimated_cost"] = None
     materials_spent = sorted(material_by_key.values(), key=lambda row: (str(row["category"]), str(row["sku"])))
+    material_cost_currency = (
+        next(iter(material_cost_currencies))
+        if len(material_cost_currencies) == 1 and None not in material_cost_currencies else None
+    )
+    if material_cost_currency is None:
+        material_cost_total = None
 
     planned_qty = _int_qty(po.planned_quantity)
     cut_qty = sum(_int_qty(row.cut_pieces) for row in cutting)
@@ -984,9 +1125,11 @@ def _stock_production_history(db: DbSession, po: ProductionOrder, *, include_det
         "sewn_passed_qty": sum(_int_qty(row.passed_qty) for row in sewing),
         "packed_record_qty": sum(_int_qty(row.total_packed_quantity or row.packed_qty) for row in packaging),
         "packaged_qty": packaged_qty, "shipped_qty": shipped_qty, "package_count": len(packages),
-        "shipment_count": 0, "invoice_count": 0, "payment_count": 0, "order_amount": 0.0,
-        "invoice_total": 0.0, "paid_total": 0.0, "outstanding_amount": 0.0,
-        "material_spent_cost": material_cost_total, "material_spent": materials_spent,
+        "shipment_count": 0, "invoice_count": 0, "payment_count": 0, "order_amount": None,
+        "order_currency": None, "invoice_total": None, "invoice_currency": None,
+        "paid_total": None, "payment_currency": None, "outstanding_amount": None,
+        "material_spent_cost": material_cost_total, "material_cost_currency": material_cost_currency,
+        "material_spent": materials_spent,
         "ordered_at": po.created_at, "completed_at": completed_at, "last_activity_at": last_activity_at,
     }
     product_model_ids = {int(po.model_id)} if po.model_id else set()
@@ -999,7 +1142,7 @@ def _stock_production_history(db: DbSession, po: ProductionOrder, *, include_det
         "ordered_for": planning_order.ordered_for_name if planning_order else None,
         "order_type": po.production_type, "status": po.status, "deadline": po.deadline,
         "created_at": po.created_at, "updated_at": po.updated_at, "completed_at": completed_at,
-        "last_activity_at": last_activity_at, "total_amount": 0.0,
+        "last_activity_at": last_activity_at, "total_amount": None, "currency": None,
         "products": _history_products(db, product_model_ids), "summary": summary,
     }
     if not include_detail:
@@ -1115,50 +1258,75 @@ def _stock_variant_key(model_id: int, color: str, size: str, brand_id: int | Non
     return (int(model_id), str(color or "").strip(), str(size or "").strip(), brand_id)
 
 
-def _stock_rows_for_variant(
+def _stock_rows_by_variant(
     db: DbSession,
+    variant_keys: list[tuple[int, str, str, int | None]],
     *,
-    model_id: int,
-    color: str,
-    size: str,
-    brand_id: int | None,
     stock_kind: str = "standard",
-) -> list[FinishedGoodsStock]:
-    qry = (
-        db.query(FinishedGoodsStock)
-        .outerjoin(Package, Package.id == FinishedGoodsStock.package_id)
-        .filter(
-            FinishedGoodsStock.model_id == model_id,
-            FinishedGoodsStock.status == "available",
-            FinishedGoodsStock.available_qty > 0,
-            or_(
-                FinishedGoodsStock.package_id.is_(None),
-                Package.status.in_(_SHIPMENT_READY_PACKAGE_STATUSES),
-            ),
-            ~db.query(ShipmentPackage.id).join(Shipment, Shipment.id == ShipmentPackage.shipment_id).filter(
-                ShipmentPackage.package_id == FinishedGoodsStock.package_id,
-                Shipment.status != "cancelled",
-            ).exists(),
-        )
+) -> dict[tuple[int, str, str, int | None], list[FinishedGoodsStock]]:
+    """Load eligible stock for requested variants in bounded, ordered lock batches."""
+    unique_keys = sorted(
+        set(variant_keys),
+        key=lambda key: (key[0], key[1], key[2], -1 if key[3] is None else key[3]),
     )
-    qry = qry.filter(func.coalesce(Package.stock_kind, "standard") == stock_kind)
-    if not _is_any_stock_token(color):
-        qry = qry.filter(FinishedGoodsStock.color == color)
-    if not _is_any_stock_token(size):
-        qry = qry.filter(FinishedGoodsStock.size == size)
-    if brand_id is not None:
-        qry = qry.filter(FinishedGoodsStock.brand_id == brand_id)
-    if db.bind and db.bind.dialect.name == "postgresql":
-        # Keep the same package -> stock lock order as warehouse dispatch.
-        package_ids = qry.with_entities(FinishedGoodsStock.package_id).filter(FinishedGoodsStock.package_id.isnot(None))
-        db.query(Package).filter(Package.id.in_(package_ids)).order_by(Package.id).with_for_update(of=Package).all()
-        qry = qry.with_for_update(of=FinishedGoodsStock)
-    return qry.order_by(FinishedGoodsStock.id.asc()).all()
+    rows_by_variant = {key: [] for key in unique_keys}
+    for offset in range(0, len(unique_keys), _STOCK_VARIANT_QUERY_CHUNK_SIZE):
+        chunk = unique_keys[offset:offset + _STOCK_VARIANT_QUERY_CHUNK_SIZE]
+        predicates = []
+        keys_by_model: dict[int, list[tuple[int, str, str, int | None]]] = defaultdict(list)
+        for key in chunk:
+            model_id, color, size, brand_id = key
+            keys_by_model[model_id].append(key)
+            parts = [FinishedGoodsStock.model_id == model_id]
+            if not _is_any_stock_token(color):
+                parts.append(FinishedGoodsStock.color == color)
+            if not _is_any_stock_token(size):
+                parts.append(FinishedGoodsStock.size == size)
+            if brand_id is not None:
+                parts.append(FinishedGoodsStock.brand_id == brand_id)
+            predicates.append(and_(*parts))
+
+        qry = (
+            db.query(FinishedGoodsStock)
+            .outerjoin(Package, Package.id == FinishedGoodsStock.package_id)
+            .filter(
+                FinishedGoodsStock.status == "available",
+                FinishedGoodsStock.available_qty > 0,
+                func.coalesce(Package.stock_kind, "standard") == stock_kind,
+                or_(
+                    FinishedGoodsStock.package_id.is_(None),
+                    Package.status.in_(_SHIPMENT_READY_PACKAGE_STATUSES),
+                ),
+                ~db.query(ShipmentPackage.id).join(Shipment, Shipment.id == ShipmentPackage.shipment_id).filter(
+                    ShipmentPackage.package_id == FinishedGoodsStock.package_id,
+                    Shipment.status != "cancelled",
+                ).exists(),
+                or_(*predicates),
+            )
+        )
+        if db.bind and db.bind.dialect.name == "postgresql":
+            # _reserve_branded_stock locks every eligible package first. Lock
+            # each deterministic variant batch by stock ID so callers with
+            # opposite sales-line order agree.
+            qry = qry.with_for_update(of=FinishedGoodsStock)
+        for row in qry.order_by(FinishedGoodsStock.id.asc()).all():
+            for key in keys_by_model[int(row.model_id)]:
+                _model_id, color, size, brand_id = key
+                if not _is_any_stock_token(color) and str(row.color or "").strip() != color:
+                    continue
+                if not _is_any_stock_token(size) and str(row.size or "").strip() != size:
+                    continue
+                if brand_id is not None and int(row.brand_id or 0) != int(brand_id):
+                    continue
+                rows_by_variant[key].append(row)
+    return rows_by_variant
 
 
 def _package_allocation_candidates(
     db: DbSession,
     stock_rows: list[FinishedGoodsStock],
+    *,
+    package_cache: dict[int, Package] | None = None,
 ) -> tuple[dict[int, tuple[Package, list[FinishedGoodsStock]]], list[FinishedGoodsStock]]:
     """Split physical whole bags from legacy stock that permits piece allocation."""
     rows_by_package: dict[int, list[FinishedGoodsStock]] = defaultdict(list)
@@ -1168,10 +1336,16 @@ def _package_allocation_candidates(
     if not rows_by_package:
         return {}, [row for row in stock_rows if row.package_id is None]
 
-    package_query = db.query(Package).filter(Package.id.in_(rows_by_package))
-    if db.bind and db.bind.dialect.name == "postgresql":
-        package_query = package_query.with_for_update(of=Package)
-    packages = {int(package.id): package for package in package_query.order_by(Package.id).all()}
+    packages = package_cache if package_cache is not None else {}
+    missing_package_ids = sorted(set(rows_by_package) - set(packages))
+    if missing_package_ids:
+        package_query = db.query(Package).filter(Package.id.in_(missing_package_ids))
+        if db.bind and db.bind.dialect.name == "postgresql":
+            package_query = package_query.with_for_update(of=Package)
+        packages.update({
+            int(package.id): package
+            for package in package_query.order_by(Package.id).all()
+        })
 
     partial_rows = [
         row
@@ -1358,16 +1532,18 @@ def _reserve_branded_stock(
         key = _stock_variant_key(line.model_id, line.color, line.size, line.brand_id)
         requested_by_variant[key] += int(line.quantity or 0)
 
+    package_cache: dict[int, Package] = {}
     if db.bind and db.bind.dialect.name == "postgresql":
         # Lock across all lines before metadata repair or any stock lock, so
         # opposite model-line ordering cannot invert the package lock order.
-        db.query(Package).filter(
+        locked_packages = db.query(Package).filter(
             Package.model_id.in_({key[0] for key in requested_by_variant}),
             Package.status.in_(_SHIPMENT_READY_PACKAGE_STATUSES),
             ~db.query(ShipmentPackage.id).join(Shipment, Shipment.id == ShipmentPackage.shipment_id).filter(
                 ShipmentPackage.package_id == Package.id, Shipment.status != "cancelled",
             ).exists(),
         ).order_by(Package.id).with_for_update(of=Package).all()
+        package_cache.update({int(package.id): package for package in locked_packages})
 
     # Legacy rows need inferred metadata only when a requested brand must be
     # matched. Keep that repair scoped to the models in this order instead of
@@ -1409,21 +1585,21 @@ def _reserve_branded_stock(
         raise HTTPException(409, "Stock has already been fully reserved for this sales order")
 
     shortages_precheck: list[dict] = []
-    stock_rows_by_variant: dict[tuple[int, str, str, int | None], list[FinishedGoodsStock]] = {}
+    stock_rows_by_variant = _stock_rows_by_variant(
+        db,
+        [key for key, requested_qty in outstanding_by_variant.items() if requested_qty > 0],
+        stock_kind=stock_kind,
+    )
     for key, requested_qty in outstanding_by_variant.items():
         if requested_qty <= 0:
             continue
         model_id, color, size, brand_id = key
-        stock_rows = _stock_rows_for_variant(
+        stock_rows = stock_rows_by_variant[key]
+        package_groups, partial_stocks = _package_allocation_candidates(
             db,
-            model_id=model_id,
-            color=color,
-            size=size,
-            brand_id=brand_id,
-            stock_kind=stock_kind,
+            stock_rows,
+            package_cache=package_cache,
         )
-        stock_rows_by_variant[key] = stock_rows
-        package_groups, partial_stocks = _package_allocation_candidates(db, stock_rows)
         available_qty = sum(
             int(package.total_quantity or 0)
             for package, _rows in package_groups.values()
@@ -1461,7 +1637,11 @@ def _reserve_branded_stock(
         model_id, color, size, brand_id = key
         needed = int(requested_qty)
         stocks = stock_rows_by_variant[key]
-        package_groups, partial_stocks = _package_allocation_candidates(db, stocks)
+        package_groups, partial_stocks = _package_allocation_candidates(
+            db,
+            stocks,
+            package_cache=package_cache,
+        )
         selected_package_ids = _select_whole_packages(package_groups, needed)
         for package_id in selected_package_ids:
             package, package_stocks = package_groups[package_id]
@@ -1575,6 +1755,24 @@ def ready_stock_options(db: DbSession, _: User = Depends(require_permissions("sa
     return list(groups.values())
 
 
+def _write_new_sales_attachment(target: Path, content: bytes) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    created = False
+    try:
+        with target.open("xb") as stream:
+            created = True
+            stream.write(content)
+    except BaseException:
+        if created:
+            target.unlink(missing_ok=True)
+        raise
+
+
+async def _discard_sales_attachment(target: Path) -> None:
+    with CancelScope(shield=True):
+        await to_thread.run_sync(target.unlink, True, abandon_on_cancel=False)
+
+
 @router.post("/printing-attachments/upload", status_code=201)
 async def upload_printing_attachment(
     file: UploadFile = File(...),
@@ -1582,34 +1780,48 @@ async def upload_printing_attachment(
 ):
     _ = current
     ext = extension_for_upload(file, SAFE_IMAGE_EXTENSIONS | SAFE_DOCUMENT_EXTENSIONS)
-    if ext in SAFE_IMAGE_EXTENSIONS:
-        from app.services.image_storage import store_uploaded_image
+    stored_image = None
+    document_target = None
+    document_state = UploadFileWriteState()
+    try:
+        if ext in SAFE_IMAGE_EXTENSIONS:
+            from app.services.image_storage import store_uploaded_image
 
-        stored = await store_uploaded_image(
-            file,
-            target_dir=settings.SALES_ORDER_FILES_DIR,
-            file_url_base="/storage/sales-order-files",
-            name_prefix="so_print",
-            max_bytes=20 * 1024 * 1024,
-        )
-        safe_name = stored.file_name
-        content_type = stored.content_type
-    else:
-        os.makedirs(settings.SALES_ORDER_FILES_DIR, exist_ok=True)
-        safe_name = f"so_print_{uuid4().hex}{ext}"
-        abs_path = os.path.join(settings.SALES_ORDER_FILES_DIR, safe_name)
-        content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
-        with open(abs_path, "wb") as f:
-            f.write(content)
-        content_type = safe_content_type(ext)
-    file_url = f"/storage/sales-order-files/{safe_name}"
-    return {
-        # Signed for immediate <img> preview; the bare path is what gets stored
-        # when the order is saved (create/update strip the signature).
-        "file_url": sign_path(file_url),
-        "file_name": file.filename or safe_name,
-        "content_type": content_type,
-    }
+            stored_image = await store_uploaded_image(
+                file,
+                target_dir=settings.SALES_ORDER_FILES_DIR,
+                file_url_base="/storage/sales-order-files",
+                name_prefix="so_print",
+                max_bytes=20 * 1024 * 1024,
+            )
+            safe_name = stored_image.file_name
+            content_type = stored_image.content_type
+        else:
+            safe_name = f"so_print_{uuid4().hex}{ext}"
+            document_target = Path(settings.SALES_ORDER_FILES_DIR) / safe_name
+            async with upload_processing_slot():
+                content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
+                await run_upload_file_write(
+                    partial(_write_new_sales_attachment, document_target, content),
+                    document_state,
+                )
+            content_type = safe_content_type(ext)
+        file_url = f"/storage/sales-order-files/{safe_name}"
+        return {
+            # Signed for immediate <img> preview; the bare path is what gets stored
+            # when the order is saved (create/update strip the signature).
+            "file_url": sign_path(file_url),
+            "file_name": file.filename or safe_name,
+            "content_type": content_type,
+        }
+    except BaseException:
+        if stored_image is not None:
+            from app.services.image_storage import discard_stored_image
+
+            await discard_stored_image(stored_image)
+        elif document_state.created and document_target is not None:
+            await _discard_sales_attachment(document_target)
+        raise
 
 
 @router.get("")
@@ -1622,7 +1834,9 @@ def list_sales_orders(
     page: int = 1, page_size: int = 50,
     include_total: bool = False,
 ):
-    qry = db.query(SalesOrder).outerjoin(Customer, Customer.id == SalesOrder.customer_id)
+    qry = db.query(SalesOrder, Customer).options(
+        load_only(Customer.id, Customer.name),
+    ).outerjoin(Customer, Customer.id == SalesOrder.customer_id)
     if status: qry = qry.filter(SalesOrder.status == status)
     if order_type: qry = qry.filter(SalesOrder.order_type == order_type)
     if customer_id: qry = qry.filter(SalesOrder.customer_id == customer_id)
@@ -1658,7 +1872,11 @@ def list_sales_orders(
     safe_page = max(1, page)
     safe_size = max(1, min(page_size, 500))
     rows = qry.order_by(SalesOrder.id.desc()).offset((safe_page - 1) * safe_size).limit(safe_size).all()
-    payload = [_serialize_sales_order(db, so, include_items=False) for so in rows]
+    customers = {customer.id: customer for _, customer in rows if customer is not None}
+    payload = [
+        _serialize_sales_order(db, so, include_items=False, customers=customers)
+        for so, _ in rows
+    ]
     if include_total:
         return {"rows": payload, "total": total, "page": safe_page, "page_size": safe_size}
     return payload
@@ -1754,18 +1972,74 @@ def list_sales_order_history(
             )
     safe_page = max(1, page)
     safe_size = max(1, min(page_size, 200))
-    candidates = (
-        [(so.created_at, "sales", so) for so in qry.all()]
-        + [(po.created_at, "production", po) for po in stock_qry.all()]
+    # Page lightweight keys in SQL. The explicit kind rank preserves the legacy
+    # stable ordering: a sales row precedes a production row when timestamp and
+    # numeric id are identical.
+    sales_candidates = qry.enable_eagerloads(False).with_entities(
+        SalesOrder.created_at.label("created_at"),
+        literal("sales").label("kind"),
+        literal(0).label("kind_order"),
+        SalesOrder.id.label("row_id"),
     )
-    candidates.sort(key=lambda entry: ((entry[0].isoformat() if entry[0] else ""), int(entry[2].id)), reverse=True)
-    total = len(candidates)
+    production_candidates = stock_qry.enable_eagerloads(False).with_entities(
+        ProductionOrder.created_at.label("created_at"),
+        literal("production").label("kind"),
+        literal(1).label("kind_order"),
+        ProductionOrder.id.label("row_id"),
+    )
+    candidate_union = sales_candidates.union_all(production_candidates).subquery()
+    total = (
+        int(db.query(func.count()).select_from(candidate_union).scalar() or 0)
+        if include_total else 0
+    )
     start_index = (safe_page - 1) * safe_size
-    selected = candidates[start_index:start_index + safe_size]
+    selected = (
+        db.query(
+            candidate_union.c.created_at,
+            candidate_union.c.kind,
+            candidate_union.c.row_id,
+        )
+        .order_by(
+            candidate_union.c.created_at.desc().nullslast(),
+            candidate_union.c.row_id.desc(),
+            candidate_union.c.kind_order.asc(),
+        )
+        .offset(start_index)
+        .limit(safe_size)
+        .all()
+    )
+    sales_ids = [row_id for _, kind, row_id in selected if kind == "sales"]
+    production_ids = [row_id for _, kind, row_id in selected if kind == "production"]
+    selected_sales = {
+        row.id: row for row in db.query(SalesOrder).options(
+            load_only(
+                SalesOrder.id,
+                SalesOrder.status,
+                SalesOrder.updated_at,
+                SalesOrder.created_at,
+                SalesOrder.planning_estimate_submitted_at,
+                SalesOrder.total_amount,
+                SalesOrder.currency,
+                SalesOrder.order_no,
+                SalesOrder.customer_id,
+                SalesOrder.order_type,
+                SalesOrder.deadline,
+            )
+        ).filter(SalesOrder.id.in_(sales_ids)).all()
+    } if sales_ids else {}
+    selected_production = {
+        row.id: row for row in db.query(ProductionOrder).options(
+            joinedload(ProductionOrder.planning_order),
+            joinedload(ProductionOrder.items),
+            joinedload(ProductionOrder.batches),
+            joinedload(ProductionOrder.work_orders),
+        ).filter(ProductionOrder.id.in_(production_ids)).all()
+    } if production_ids else {}
     payload = [
         _sales_order_history(db, entity, include_detail=False)
         if kind == "sales" else _stock_production_history(db, entity, include_detail=False)
-        for _, kind, entity in selected
+        for _, kind, row_id in selected
+        if (entity := (selected_sales if kind == "sales" else selected_production).get(row_id)) is not None
     ]
     if include_total:
         return {"rows": payload, "total": total, "page": safe_page, "page_size": safe_size}
@@ -1825,20 +2099,9 @@ def create_sales_order(payload: SalesOrderIn, db: DbSession, current: User = Dep
         raise HTTPException(400, "A piece quantity is required")
     if payload.customer_id and not db.get(Customer, payload.customer_id):
         raise HTTPException(404, "Customer not found")
-    so = SalesOrder(
-        order_no=next_sales_order_no(db),
-        customer_id=payload.customer_id,
-        order_type=payload.order_type,
-        status="draft",
-        deadline=payload.deadline,
-        printing_instructions=payload.printing_instructions,
-        printing_attachments=_attachments_for_storage(payload.printing_attachments),
-        notes=payload.notes,
-        created_by=current.id,
+    printing_attachments = production_order_printing_attachments_for_storage(
+        payload.printing_attachments,
     )
-    db.add(so); db.flush()
-    total = 0.0
-    created_lines: list[SalesOrderItem] = []
     selected_model_ids = {int(item.model_id) for item in payload.items}
     selected_models = {
         model.id: model
@@ -1848,12 +2111,43 @@ def create_sales_order(payload: SalesOrderIn, db: DbSession, current: User = Dep
         ).all()
     } if selected_model_ids else {}
     for item in payload.items:
-        model = selected_models.get(item.model_id)
-        if not model:
+        if item.model_id not in selected_models:
             raise HTTPException(404, f"Model {item.model_id} not found")
-        unit_price = item.unit_price
-        if unit_price is None:
-            unit_price = float(model.selling_price) if model.selling_price is not None else 0.0
+
+    prepared_lines: list[tuple[SalesOrderItemIn, Decimal, str]] = []
+    total = Decimal("0")
+    for item in payload.items:
+        model = selected_models.get(item.model_id)
+        source_type = "from_stock" if pack_order else _validate_sales_order_item_source_type(item.source_type)
+        if item.unit_price is None:
+            if payload.currency is not None and payload.currency != model.selling_price_currency:
+                raise HTTPException(409, "Catalog price currency differs from order currency; enter an explicit price")
+            catalog_price = model.selling_price if model.selling_price is not None else Decimal("0")
+            unit_price = _sales_order_item_price(catalog_price, round_catalog_price=True)
+        else:
+            unit_price = _sales_order_item_price(item.unit_price)
+        prepared_lines.append((item, unit_price, source_type))
+        total += unit_price * (0 if pack_order else item.quantity)
+
+    # Unit prices are cent-precise here, so reject an unrepresentable order
+    # total before allocating its business number or flushing any rows.
+    total = validate_sales_order_total(total)
+
+    so = SalesOrder(
+        order_no=next_sales_order_no(db),
+        currency=payload.currency,
+        customer_id=payload.customer_id,
+        order_type=payload.order_type,
+        status="draft",
+        deadline=payload.deadline,
+        printing_instructions=payload.printing_instructions,
+        printing_attachments=printing_attachments,
+        notes=payload.notes,
+        created_by=current.id,
+    )
+    db.add(so); db.flush()
+    created_lines: list[SalesOrderItem] = []
+    for item, unit_price, source_type in prepared_lines:
         line = SalesOrderItem(
             sales_order_id=so.id,
             unit_price=unit_price,
@@ -1861,11 +2155,10 @@ def create_sales_order(payload: SalesOrderIn, db: DbSession, current: User = Dep
             quantity=0 if pack_order else item.quantity,
             color="mixed" if pack_order else item.color,
             size="any" if pack_order else item.size,
-            source_type="from_stock" if pack_order else item.source_type,
+            source_type=source_type,
         )
         db.add(line)
         created_lines.append(line)
-        total += float(unit_price) * line.quantity
     so.total_amount = total
     if payload.order_type == "branded_stock_sale":
         reservations, shortages = _reserve_branded_stock(
@@ -1877,6 +2170,7 @@ def create_sales_order(payload: SalesOrderIn, db: DbSession, current: User = Dep
             notify_shortage=False,
             notify_storage_when_ready=True,
         )
+        validate_sales_order_total(Decimal(str(so.total_amount)))
         log_action(
             db,
             current,
@@ -1898,13 +2192,40 @@ def get_sales_order(sid: int, db: DbSession, _: CurrentUser):
     return _serialize_sales_order(db, so, include_items=True)
 
 
+@router.get("/{sid}/page-context", response_model=SalesOrderPageContext)
+def get_sales_order_page_context(sid: int, db: DbSession, current: CurrentUser):
+    so = db.query(SalesOrder).options(joinedload(SalesOrder.items)).filter(SalesOrder.id == sid).first()
+    if not so:
+        raise HTTPException(404, "Sales order not found")
+    permissions = set(user_permissions(current))
+    may_view_requirements = bool(permissions.intersection({"*", "planning.requirements", "sales.orders"}))
+    requirements = None
+    if may_view_requirements:
+        requirements = [
+            MaterialRequirement(**row)
+            for row in material_requirements_for_sales_order(db, sid)
+        ]
+    return {
+        "sales_order": _serialize_sales_order(db, so, include_items=True),
+        "material_requirements": requirements,
+    }
+
+
 @router.patch("/{sid}", response_model=SalesOrderOut)
 def update_sales_order(sid: int, payload: SalesOrderUpdate, db: DbSession, current: User = Depends(require_permissions("sales.orders", "*"))):
     so = db.get(SalesOrder, sid)
     if not so: raise HTTPException(404, "Sales order not found")
     updates = payload.model_dump(exclude_unset=True)
+    if "status" in updates:
+        if updates.pop("status") != so.status:
+            raise HTTPException(409, "Order status is controlled by workflow commands, not general edits")
+        # A full-form resubmission may include the unchanged status. Never write
+        # that snapshot back over progress made by another workflow command.
     if "printing_attachments" in updates:
-        updates["printing_attachments"] = _attachments_for_storage(updates["printing_attachments"])
+        updates["printing_attachments"] = production_order_printing_attachments_for_storage(
+            updates["printing_attachments"],
+            existing=so.printing_attachments,
+        )
     for k, v in updates.items():
         setattr(so, k, v)
     log_action(db, current, "update", "SalesOrder", so.id)
@@ -1941,7 +2262,7 @@ def reserve_stock(
 ):
     """For branded_stock_sale: try to reserve from FinishedGoodsStock for each line."""
     fingerprint_payload = {"sales_order_id": sid}
-    replay = replay_idempotent_response(db, scope="sales.reserve-stock", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="sales.reserve-stock", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
 
@@ -1958,6 +2279,7 @@ def reserve_stock(
         notify_shortage=True,
         notify_storage_when_ready=True,
     )
+    validate_sales_order_total(Decimal(str(so.total_amount)))
     log_action(db, current, "reserve_stock", "SalesOrder", so.id, new_value={"reservations": reservations, "shortages": shortages})
     response = {"reservations": reservations, "shortages": shortages}
     store_idempotent_response(
@@ -1978,7 +2300,15 @@ def generate_invoice_for_order(
     db: DbSession,
     current: User = Depends(require_permissions("finance.invoice", "sales.orders", "*")),
 ):
-    so = db.get(SalesOrder, sid)
+    # Match finance.create_invoice: both entry points must serialize on the
+    # order before checking whether an invoice already exists.
+    so = (
+        db.query(SalesOrder)
+        .filter(SalesOrder.id == sid)
+        .populate_existing()
+        .with_for_update(of=SalesOrder, key_share=True)
+        .first()
+    )
     if not so:
         raise HTTPException(404, "Sales order not found")
     allowed = {"confirmed", "in_production", "cutting", "sewing", "packaging", "storage", "ready", "reserved", "shipped", "delivered", "planning", "planning_approved", "production"}
@@ -2000,6 +2330,7 @@ def generate_invoice_for_order(
         sales_order_id=sid,
         invoice_no=next_invoice_no(db),
         amount=float(so.total_amount or 0),
+        currency=so.currency,
         status="unpaid",
         issued_at=datetime.now(timezone.utc),
     )
@@ -2028,11 +2359,11 @@ def delete_sales_order(sid: int, db: DbSession, current: User = Depends(require_
 
     if so.status not in ("draft", "cancelled"):
         raise HTTPException(409, "Only draft or cancelled sales orders can be deleted")
-    if db.query(ProductionOrder).filter(ProductionOrder.sales_order_id == sid).first():
+    if db.query(ProductionOrder.id).filter(ProductionOrder.sales_order_id == sid).first():
         raise HTTPException(409, "Sales order already has linked production orders")
-    if db.query(Shipment).filter(Shipment.sales_order_id == sid).first():
+    if db.query(Shipment.id).filter(Shipment.sales_order_id == sid).first():
         raise HTTPException(409, "Sales order already has linked shipments")
-    if db.query(StockReservation).filter(StockReservation.sales_order_id == sid).first():
+    if db.query(StockReservation.id).filter(StockReservation.sales_order_id == sid).first():
         raise HTTPException(409, "Sales order already has stock reservations")
 
     db.delete(so)

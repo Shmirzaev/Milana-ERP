@@ -135,6 +135,52 @@ def test_restore_requires_receive_permission_and_active_material(client, scoped_
     assert client.post(f"/api/inventory/batches/{batch_id}/restore", headers=scoped_headers, json=payload).status_code == 403
 
 
+def test_restore_rejects_batch_unit_mismatch_without_writes(client, scoped_headers):
+    batch_id, item_id = make_batch()
+    with session_module.SessionLocal() as db:
+        batch = db.get(StockBatch, batch_id)
+        batch.unit = "m"
+        db.commit()
+        before = (
+            batch.quantity,
+            batch.archived_at,
+            batch.archived_by,
+            batch.qc_status,
+            batch.roll_weights_kg,
+            batch.piece_count,
+            db.query(StockMovement).filter_by(batch_id=batch_id).count(),
+            db.query(AuditLog).count(),
+        )
+
+    response = client.post(
+        f"/api/inventory/batches/{batch_id}/restore",
+        headers=scoped_headers,
+        json={"quantity": "3.2500", "reason": "Physical stock returned from cutting"},
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "Batch unit must match the material unit"
+    with session_module.SessionLocal() as db:
+        batch = db.get(StockBatch, batch_id)
+        after = (
+            batch.quantity,
+            batch.archived_at,
+            batch.archived_by,
+            batch.qc_status,
+            batch.roll_weights_kg,
+            batch.piece_count,
+            db.query(StockMovement).filter_by(batch_id=batch_id).count(),
+            db.query(AuditLog).count(),
+        )
+        assert after == before
+        assert batch.unit == "m"
+        assert db.get(Item, item_id).unit == "kg"
+        assert db.query(StockMovement).filter_by(
+            batch_id=batch_id,
+            reference_type="StockBatchRestore",
+        ).count() == 0
+
+
 def test_material_scope_blocks_accessory_purchase_receipt(client, scoped_headers, auth_headers):
     _, accessory_id = make_batch("accessory", 10, False)
     response = client.post("/api/purchasing/orders", headers=auth_headers, json={

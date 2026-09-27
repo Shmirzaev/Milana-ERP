@@ -5,12 +5,12 @@ import hashlib
 import logging
 import secrets
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, lazyload, load_only
 
 from app.core.config import settings
 from app.core.deps import user_permissions
 from app.db.session import SessionLocal
-from app.models import Notification, PasswordResetToken, User
+from app.models import Department, Notification, PasswordResetToken, Role, User
 from app.services.email import send_password_reset_email, send_password_setup_email
 
 log = logging.getLogger(__name__)
@@ -63,12 +63,30 @@ def notify_admins_about_password_email_failure(
         else "Do not share stored links; generate a fresh reset after email delivery is restored."
     )
     try:
-        user = db.query(User).filter(User.id == user_id).first()
+        user = db.query(User).options(
+            load_only(User.id, User.name, User.email),
+            lazyload(User.role),
+            lazyload(User.department),
+        ).filter(User.id == user_id).first()
         if not user:
             return
         recipients = [
             admin
-            for admin in db.query(User).filter(User.is_active.is_(True)).all()
+            for admin in db.query(User).options(
+                load_only(
+                    User.id,
+                    User.name,
+                    User.email,
+                    User.role_id,
+                    User.department_id,
+                    User.factory_code,
+                    User.extra_permissions,
+                    User.access_policy,
+                    User.is_active,
+                ),
+                joinedload(User.role).load_only(Role.id, Role.name, Role.permissions),
+                joinedload(User.department).load_only(Department.id, Department.code),
+            ).filter(User.is_active.is_(True)).all()
             if "*" in user_permissions(admin) or "admin.users" in user_permissions(admin)
         ]
         for admin in recipients:

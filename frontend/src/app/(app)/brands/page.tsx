@@ -1,14 +1,16 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
+import PaginationControls from "@/components/PaginationControls";
 import Modal from "@/components/Modal";
 import { useMe, can } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 
 type Brand = { id: number; name: string; description?: string | null; is_active: boolean };
+type BrandPage = { rows: Brand[]; total: number; page: number; page_size: number; has_more: boolean };
 
 export default function BrandsPage() {
   const searchParams = useSearchParams();
@@ -16,7 +18,13 @@ export default function BrandsPage() {
   const { me } = useMe();
   const { t } = useT();
   const isAdmin = can(me, "*");
-  const { data, mutate } = useSWR<Brand[]>("/api/brands", fetcher);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  useEffect(() => { setPage(1); }, [q]);
+  const { data, mutate } = useSWR<BrandPage>(
+    `/api/brands?page=${page}&page_size=${pageSize}&q=${encodeURIComponent(q)}`,
+    fetcher,
+  );
   const [form, setForm] = useState({ name: "", description: "" });
   const [editing, setEditing] = useState<Brand | null>(null);
   const [edit, setEdit] = useState({ name: "", description: "", is_active: true });
@@ -41,15 +49,7 @@ export default function BrandsPage() {
     catch (e: any) { setEditMsg(e.message); }
   }
 
-  const rows = useMemo(() => {
-    if (!data) return [];
-    if (!q) return data;
-    return data.filter((b) => {
-      const name = (b.name ?? "").toLowerCase();
-      const desc = (b.description ?? "").toLowerCase();
-      return name.includes(q) || desc.includes(q);
-    });
-  }, [data, q]);
+  const rows = data?.rows ?? [];
 
   return (
     <div>
@@ -80,6 +80,15 @@ export default function BrandsPage() {
             ))}
           </tbody>
         </table>
+        <PaginationControls
+          page={page}
+          pageSize={pageSize}
+          total={data?.total ?? 0}
+          count={rows.length}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          pageSizeOptions={[25, 50, 100]}
+        />
       </div>
 
       <Modal open={!!editing} onClose={() => setEditing(null)} title={t("page.brands.editTitle", { name: editing?.name ?? "" })}>

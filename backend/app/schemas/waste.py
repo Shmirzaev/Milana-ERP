@@ -1,6 +1,7 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.common import ORMModel
 
@@ -11,9 +12,9 @@ class WasteIn(BaseModel):
     source_department_id: Optional[int] = None
     item_id: Optional[int] = None
     batch_id: Optional[int] = None
-    waste_type: str
-    quantity: float
-    unit: str
+    waste_type: str = Field(max_length=64)
+    quantity: Decimal | float | int | str
+    unit: str = Field(max_length=32)
     reason: Optional[str] = None
     sellable: bool = False
     estimated_value: float = 0
@@ -28,6 +29,7 @@ class WasteOut(ORMModel):
     batch_id: Optional[int] = None
     waste_type: str
     quantity: float
+    remaining_quantity: float | None = None
     unit: str
     reason: Optional[str] = None
     sellable: bool
@@ -36,10 +38,18 @@ class WasteOut(ORMModel):
     created_at: datetime
 
 
+class WastePageOut(BaseModel):
+    rows: list[WasteOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class WasteSaleIn(BaseModel):
     buyer_name: str
-    quantity: float
-    unit_price: float
+    quantity: Decimal = Field(allow_inf_nan=True)
+    unit_price: Decimal = Field(allow_inf_nan=True)
 
 
 class WasteSaleOut(ORMModel):

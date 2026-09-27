@@ -63,6 +63,29 @@ def test_validate_hidden_model_rejects_visible_catalog_row():
         importer.validate_hidden_model(model, row)
 
 
+def _nested_payload(levels: int) -> dict:
+    nested = {}
+    for _ in range(levels):
+        nested = {"nested": nested}
+    return nested
+
+
+@pytest.mark.parametrize("source_extra", [
+    {"large_extension": "x" * importer.MAX_SOURCE_PAYLOAD_BYTES},
+    {"deep_extension": _nested_payload(importer.MAX_SOURCE_PAYLOAD_DEPTH)},
+    {"nonfinite_extension": float("nan")},
+])
+def test_validate_row_rejects_unbounded_source_payload_before_import(tmp_path: Path, source_extra):
+    photo = tmp_path / "evidence.jpg"
+    photo.write_bytes(b"photo evidence")
+    photo_hash = hashlib.sha256(photo.read_bytes()).hexdigest()
+    row = {**_row(photo_hash), **source_extra}
+
+    expected = "finite JSON" if "nonfinite_extension" in source_extra else "source_payload"
+    with pytest.raises(ValueError, match=expected):
+        importer.validate_row(row, tmp_path)
+
+
 def test_version_two_manifest_preserves_hidden_identity(tmp_path: Path):
     photo = tmp_path / "evidence.jpg"
     photo.write_bytes(b"photo evidence")

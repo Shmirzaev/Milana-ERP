@@ -44,6 +44,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+from pydantic import ValidationError
 from sqlalchemy import func, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import selectinload
@@ -52,6 +53,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models import Model, ModelBOM, ModelColor, ModelImage, ModelSize, User
+from app.schemas.catalog import ModelSizeMeasurements
 
 
 SCHEMA_VERSION = 1
@@ -420,6 +422,10 @@ def load_sizes(payload: Any) -> dict[int, dict[str, Any]]:
                 measurement = None
             if not size:
                 continue
+            validate_size_measurements(
+                measurement,
+                f"Sizes/details manifest model {old_model_id} size {size!r}.measurement_json",
+            )
             normalized_sizes.append({"size": size, "measurement_json": measurement})
         scalar = row.get("scalar") if isinstance(row.get("scalar"), dict) else {}
         indexed[old_model_id] = {
@@ -428,6 +434,16 @@ def load_sizes(payload: Any) -> dict[int, dict[str, Any]]:
             "raw": copy.deepcopy(row),
         }
     return indexed
+
+
+def validate_size_measurements(value: Any, label: str) -> None:
+    """Apply the live ModelSize measurement shape to imported new rows."""
+    if value is None:
+        return
+    try:
+        ModelSizeMeasurements.model_validate(value)
+    except ValidationError as exc:
+        raise MigrationError(f"{label} does not match the ModelSize measurement schema") from exc
 
 
 def image_sha(row: dict[str, Any], field: str) -> str:
@@ -2023,6 +2039,7 @@ def compile_plan(
         "planned_provenance_merges": planned_provenance_merges,
         "metadata_classification": classification["counts"],
     }
+    validate_planned_details_bounds(actions, db_models)
     plan = {
         "schema_version": SCHEMA_VERSION,
         "source_key": SOURCE_KEY,
@@ -2393,8 +2410,27 @@ def merge_provenance(details: dict[str, Any], incoming: dict[str, Any]) -> None:
     current["validated_images"] = current_validated
 
 
-def apply_details(model: Model, patch: dict[str, Any], provenance: dict[str, Any], *, created: bool) -> None:
-    details = copy.deepcopy(model.details_json) if isinstance(model.details_json, dict) else {}
+def validate_imported_details_bounds(details: object, *, existing_details: object = None) -> None:
+    """Apply the live changed-document bound before offline Model writes."""
+    from fastapi import HTTPException
+
+    from app.api.routes.catalog import _validate_model_details_json_bounds
+
+    try:
+        _validate_model_details_json_bounds(details, existing_details=existing_details)
+    except HTTPException as exc:
+        raise MigrationError(f"Imported Model.details_json is invalid: {exc.detail}") from exc
+
+
+def merged_imported_details(
+    existing_details: object,
+    patch: dict[str, Any],
+    provenance: dict[str, Any],
+    *,
+    created: bool,
+) -> dict[str, Any]:
+    """Build and validate the exact document an importer action would persist."""
+    details = copy.deepcopy(existing_details) if existing_details is not None else {}
     general = details.get("general")
     if not isinstance(general, dict):
         general = {}
@@ -2409,6 +2445,30 @@ def apply_details(model: Model, patch: dict[str, Any], provenance: dict[str, Any
         # Existing nonblank ERP data is authoritative and remains untouched.
     details["general"] = general
     merge_provenance(details, provenance)
+    validate_imported_details_bounds(details, existing_details=existing_details)
+    return details
+
+
+def validate_planned_details_bounds(actions: list[dict[str, Any]], models: Iterable[Model]) -> None:
+    """Reject an invalid reviewed plan before media files or output are written."""
+    existing_by_id = {int(model.id): model for model in models}
+    for action in actions:
+        created = action["action"] != "update_existing"
+        model = None if created else existing_by_id.get(int(action["target_model_id"]))
+        if not created and model is None:
+            raise MigrationError(f"Existing target {action['target_model_id']} disappeared")
+        existing_details = model.details_json if model and isinstance(model.details_json, dict) else None
+        merged_imported_details(
+            existing_details,
+            action["details_patch"],
+            action["provenance"],
+            created=created,
+        )
+
+
+def apply_details(model: Model, patch: dict[str, Any], provenance: dict[str, Any], *, created: bool) -> None:
+    existing_details = model.details_json if isinstance(model.details_json, dict) else None
+    details = merged_imported_details(existing_details, patch, provenance, created=created)
     model.details_json = details
     flag_modified(model, "details_json")
 

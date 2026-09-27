@@ -1,23 +1,26 @@
 from uuid import UUID
 from datetime import datetime
-from typing import Optional
-from pydantic import BaseModel, Field
+from decimal import Decimal
+from typing import Literal, Optional
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.common import ORMModel, SchemaModel
 from app.schemas.shipment_review import ShipmentTransportDetails
 
 
 class SalesOrderItemIn(SchemaModel):
-    model_id: int
-    brand_id: Optional[int] = None
-    collection_id: Optional[int] = None
-    color: str
-    size: str
-    quantity: Optional[int] = Field(default=None, ge=0)
-    requested_pack_count: Optional[int] = Field(default=None, gt=0, strict=True)
+    model_id: int = Field(gt=0, le=2_147_483_647)
+    brand_id: Optional[int] = Field(default=None, gt=0, le=2_147_483_647)
+    collection_id: Optional[int] = Field(default=None, gt=0, le=2_147_483_647)
+    color: str = Field(max_length=64)
+    size: str = Field(max_length=32)
+    quantity: Optional[int] = Field(default=None, ge=0, le=2_147_483_647)
+    requested_pack_count: Optional[int] = Field(default=None, gt=0, le=2_147_483_647, strict=True)
     # When omitted, the backend uses the selected variant's current selling price.
     # An explicitly entered zero remains an intentional zero-price override.
-    unit_price: Optional[float] = Field(default=None, ge=0)
+    unit_price: Optional[Decimal] = Field(
+        default=None, ge=0, le=Decimal("9999999999.99"), allow_inf_nan=False
+    )
     printing_required: bool = False
     source_type: str = "produce_new"
     notes: Optional[str] = None
@@ -47,7 +50,7 @@ class SalesOrderItemOut(ORMModel):
     size: str
     quantity: int
     requested_pack_count: Optional[int] = None
-    unit_price: float
+    unit_price: Optional[float] = None
     printing_required: bool
     source_type: str
     notes: Optional[str] = None
@@ -61,13 +64,14 @@ class SalesOrderPrintingAttachment(BaseModel):
 
 
 class SalesOrderIn(BaseModel):
+    currency: Optional[str] = Field(default=None, pattern=r"^[A-Z]{3}$")
     customer_id: Optional[int] = None
-    order_type: str = "client_order"
+    order_type: Literal["client_order", "branded_stock_sale"] = "client_order"
     deadline: Optional[datetime] = None
     printing_instructions: Optional[str] = None
-    printing_attachments: list[SalesOrderPrintingAttachment] = []
+    printing_attachments: list[SalesOrderPrintingAttachment] = Field(default_factory=list, max_length=50)
     notes: Optional[str] = None
-    items: list[SalesOrderItemIn] = []
+    items: list[SalesOrderItemIn] = Field(default_factory=list, max_length=1000)
 
 
 class SalesOrderUpdate(BaseModel):
@@ -87,7 +91,8 @@ class SalesOrderOut(ORMModel):
     order_type: str
     status: str
     deadline: Optional[datetime] = None
-    total_amount: float
+    total_amount: Optional[float] = None
+    currency: Optional[str] = None
     planning_estimated_material_cost: Optional[float] = None
     planning_estimated_labor_cost: Optional[float] = None
     planning_estimated_electricity_cost: Optional[float] = None
@@ -115,7 +120,7 @@ class ShipmentIn(BaseModel):
     request_key: UUID | None = None
     sales_order_id: Optional[int] = None
     customer_id: Optional[int] = None
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(default=None, max_length=4000)
     transport_details: ShipmentTransportDetails | None = None
 
 
@@ -141,6 +146,50 @@ class ShipmentOut(ORMModel):
     created_at: datetime
 
 
+class ShipmentPageOut(BaseModel):
+    rows: list[ShipmentOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
+class ShipmentCustomerOut(BaseModel):
+    id: int
+    name: str
+
+
+class ShipmentCustomerPageOut(BaseModel):
+    rows: list[ShipmentCustomerOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
+class ReadyPackageOut(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    id: int
+    package_no: str
+    sales_order_id: int | None = None
+    model_id: int
+    model_code: str | None = None
+    color: str
+    total_quantity: int
+    status: str
+    storage_cell: str | None = None
+    storage_shelf: str | None = None
+
+
+class ReadyPackagePageOut(BaseModel):
+    rows: list[ReadyPackageOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class ShipmentScanIn(BaseModel):
     code: str
 
@@ -160,8 +209,11 @@ class ShipmentScanOut(BaseModel):
 
 
 class InvoiceIn(BaseModel):
-    sales_order_id: int
-    amount: Optional[float] = None
+    sales_order_id: int = Field(gt=0, le=2_147_483_647)
+    currency: Optional[str] = Field(default=None, pattern=r"^[A-Z]{3}$")
+    amount: Optional[Decimal] = Field(
+        default=None, ge=0, le=Decimal("999999999999.99"), allow_inf_nan=False
+    )
 
 
 class InvoiceOut(ORMModel):
@@ -169,16 +221,23 @@ class InvoiceOut(ORMModel):
     sales_order_id: int
     invoice_no: str
     amount: float
+    currency: Optional[str] = None
     status: str
     issued_at: Optional[datetime] = None
     due_date: Optional[datetime] = None
 
 
 class PaymentIn(BaseModel):
-    invoice_id: int
-    amount: float
+    invoice_id: int = Field(gt=0, le=2_147_483_647)
+    currency: Optional[str] = Field(default=None, pattern=r"^[A-Z]{3}$")
+    amount: Decimal = Field(
+        ge=Decimal("0.01"),
+        le=Decimal("999999999999.99"),
+        multiple_of=Decimal("0.01"),
+        allow_inf_nan=False,
+    )
     paid_at: Optional[datetime] = None
-    payment_method: Optional[str] = None
+    payment_method: Optional[str] = Field(default=None, max_length=32)
     notes: Optional[str] = None
 
 
@@ -186,5 +245,6 @@ class PaymentOut(ORMModel):
     id: int
     invoice_id: int
     amount: float
+    currency: Optional[str] = None
     payment_method: Optional[str] = None
     paid_at: Optional[datetime] = None

@@ -1,8 +1,14 @@
 from datetime import datetime
-from typing import Literal, Optional
-from pydantic import BaseModel, Field, field_serializer
+from typing import Annotated, Literal, Optional
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 from app.schemas.common import ORMModel, SchemaModel
+
+
+PackageWeight = Annotated[
+    float,
+    Field(le=9_999_999_999.9999, allow_inf_nan=False),
+]
 
 
 class BundleIn(SchemaModel):
@@ -15,7 +21,7 @@ class BundleIn(SchemaModel):
     model_id: int
     color: str
     size: str
-    quantity: int
+    quantity: int = Field(le=2_147_483_647)
     notes: Optional[str] = None
 
 
@@ -66,15 +72,56 @@ class BundleScanLogOut(ORMModel):
     scanned_at: datetime
 
 
+class BundleHistoryOut(SchemaModel):
+    id: int
+    scan_type: str
+    scanned_by: Optional[int] = None
+    from_department_id: Optional[int] = None
+    to_department_id: Optional[int] = None
+    scanned_at: datetime
+
+
+class BundleHistoryPageOut(SchemaModel):
+    rows: list[BundleHistoryOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
+class SewingReceiveOptionOut(SchemaModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    production_order_id: int
+    production_batch_id: int | None = None
+    batch_label: str | None = None
+    model_id: int
+    production_no: str
+    order_no: str
+    model_code: str | None = None
+    model_name: str | None = None
+    material_image_url: str | None = None
+    bundle_count: int
+    quantity: int
+
+
+class SewingReceiveOptionPageOut(SchemaModel):
+    rows: list[SewingReceiveOptionOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class BundleDetail(BundleOut):
     scan_logs: list[BundleScanLogOut] = []
 
 
 class PackageItemIn(SchemaModel):
     model_id: int
-    color: str
-    size: str
-    quantity: int
+    color: str = Field(max_length=64)
+    size: str = Field(max_length=32)
+    quantity: int = Field(le=2_147_483_647)
 
 
 class PackageItemOut(ORMModel):
@@ -88,7 +135,7 @@ class PackageItemOut(ORMModel):
 
 class PackageBatchAllocationIn(BaseModel):
     production_batch_id: int
-    quantity: int
+    quantity: int = Field(le=2_147_483_647)
 
 
 class PackageBatchAllocationOut(ORMModel):
@@ -109,17 +156,17 @@ class PackageIn(SchemaModel):
     color: str
     package_type: str = "bag"
     capacity: int = 60
-    weight_kg: Optional[float] = None
+    weight_kg: Optional[PackageWeight] = None
     warehouse_id: Optional[int] = None
-    items: list[PackageItemIn]
-    batch_allocations: list[PackageBatchAllocationIn] = []
+    items: list[PackageItemIn] = Field(max_length=200)
+    batch_allocations: list[PackageBatchAllocationIn] = Field(default_factory=list, max_length=200)
     override_capacity: bool = False
     notes: Optional[str] = None
 
 
 class PackageBulkIn(PackageIn):
     count: int = 1
-    weight_kg_values: list[Optional[float]] = Field(default_factory=list)
+    weight_kg_values: list[Optional[PackageWeight]] = Field(default_factory=list)
 
 
 class PackageReceiveStorageIn(BaseModel):
@@ -143,6 +190,8 @@ class PackageReceivingQueueScanIn(BaseModel):
 class PackageStoragePlacementIn(BaseModel):
     storage_cell: str
     storage_shelf: Optional[str] = "S1"
+    allow_mixed_models: bool = False
+    enforce_model_guard: bool = False
 
 
 class PackageBatchStoragePlacementIn(PackageStoragePlacementIn):
@@ -151,8 +200,8 @@ class PackageBatchStoragePlacementIn(PackageStoragePlacementIn):
 
 class PackageEditItemIn(SchemaModel):
     model_id: Optional[int] = None
-    color: Optional[str] = None
-    size: str
+    color: Optional[str] = Field(default=None, max_length=64)
+    size: str = Field(max_length=32)
     quantity: int
 
 
@@ -160,12 +209,12 @@ class PackageEditPayload(BaseModel):
     color: Optional[str] = None
     package_type: Optional[str] = None
     capacity: Optional[int] = None
-    weight_kg: Optional[float] = None
+    weight_kg: Optional[PackageWeight] = None
     warehouse_id: Optional[int] = None
     storage_cell: Optional[str] = None
     storage_shelf: Optional[str] = None
-    items: Optional[list[PackageEditItemIn]] = None
-    batch_allocations: Optional[list[PackageBatchAllocationIn]] = None
+    items: Optional[list[PackageEditItemIn]] = Field(default=None, max_length=200)
+    batch_allocations: Optional[list[PackageBatchAllocationIn]] = Field(default=None, max_length=200)
     notes: Optional[str] = None
 
 
@@ -177,6 +226,13 @@ class PackageChangeRequestIn(BaseModel):
 
 class PackageChangeDecisionIn(BaseModel):
     notes: Optional[str] = None
+
+    @field_validator("notes")
+    @classmethod
+    def bound_notes_for_audit_json(cls, value: str | None) -> str | None:
+        if value is not None and len(value.encode("utf-8")) > 4096:
+            raise ValueError("decision notes cannot exceed 4096 UTF-8 bytes")
+        return value
 
 
 class PackageOut(ORMModel):
@@ -236,6 +292,37 @@ class PackageDetail(PackageOut):
     legacy_source: Optional[dict] = None
 
 
+class PackageReceivingQueueItemOut(ORMModel):
+    id: int
+    package_no: str
+    barcode: str
+    packaging_department_code: str = "PKG"
+    color: str
+    package_type: str
+    total_quantity: int
+    capacity: int
+    weight_kg: Optional[float] = None
+    status: str
+    packed_at: Optional[datetime] = None
+
+
+class PackageReceivingQueuePageOut(BaseModel):
+    rows: list[PackageReceivingQueueItemOut]
+    total: int
+    offset: int
+    limit: int
+    has_more: bool
+
+
+class PackageReceivingQueueRemoveOut(BaseModel):
+    count: int
+    packages: list[PackageReceivingQueueItemOut]
+    total: int
+    offset: int
+    limit: int
+    has_more: bool
+
+
 class PackageChangeRequestOut(ORMModel):
     id: int
     package_id: int
@@ -274,3 +361,11 @@ class FinishedGoodsStockOut(ORMModel):
     selling_price: float
     warehouse_id: Optional[int] = None
     status: str
+
+
+class FinishedGoodsStockPageOut(ORMModel):
+    rows: list[FinishedGoodsStockOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool

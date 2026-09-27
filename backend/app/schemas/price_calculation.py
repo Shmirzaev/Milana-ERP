@@ -1,6 +1,23 @@
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
+
+
+def _reject_storage_fractional_precision(
+    value: object, *, places: int, maximum: Decimal, field_name: str,
+) -> object:
+    try:
+        amount = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return value
+    if not amount.is_finite() or not Decimal("0") <= amount <= maximum:
+        return value
+    digits = amount.as_tuple().digits
+    extra_places = -amount.as_tuple().exponent - places
+    if extra_places > 0 and any(digits[-extra_places:]):
+        raise ValueError(f"{field_name} cannot have more than {places} decimal places")
+    return value
 
 
 class PriceCalculationCreateIn(BaseModel):
@@ -9,26 +26,83 @@ class PriceCalculationCreateIn(BaseModel):
 
 
 class PriceCalculationFinanceIn(BaseModel):
-    cost_price_uzs: float | None = Field(default=None, ge=0)
-    selling_price: float | None = Field(default=None, ge=0)
-    profit_percentage: float | None = Field(default=None, ge=0)
-    exchange_rate: float | None = Field(default=None, ge=0)
+    cost_price_uzs: Decimal | None = Field(
+        default=None,
+        ge=Decimal("0"),
+        le=Decimal("9999999999999999.99"),
+        allow_inf_nan=False,
+    )
+    selling_price: float | None = Field(
+        default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
+    profit_percentage: float | None = Field(
+        default=None, ge=0, le=999_999.99, allow_inf_nan=False,
+    )
+    exchange_rate: float | None = Field(
+        default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
+
+    @field_validator("cost_price_uzs", "selling_price", "profit_percentage", "exchange_rate", mode="before")
+    @classmethod
+    def reject_fractional_precision(cls, value: object, info: ValidationInfo) -> object:
+        places, maximum = {
+            "cost_price_uzs": (2, Decimal("9999999999999999.99")),
+            "selling_price": (4, Decimal("9999999999.9999")),
+            "profit_percentage": (2, Decimal("999999.99")),
+            "exchange_rate": (4, Decimal("9999999999.9999")),
+        }[info.field_name]
+        return _reject_storage_fractional_precision(
+            value, places=places, maximum=maximum, field_name=info.field_name,
+        )
 
 
 class PriceCalculationPurchasingIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    fabric_price: float | None = Field(default=None, ge=0)
-    sewing_cost: float | None = Field(default=None, ge=0)
+    fabric_price: float | None = Field(
+        default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
+    sewing_cost: float | None = Field(
+        default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
+
+    @field_validator("fabric_price", "sewing_cost", mode="before")
+    @classmethod
+    def reject_fractional_precision(cls, value: object, info: ValidationInfo) -> object:
+        return _reject_storage_fractional_precision(
+            value, places=4, maximum=Decimal("9999999999.9999"), field_name=info.field_name,
+        )
 
 
 class PriceCalculationCuttingIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     kroy_no: str = Field(min_length=1, max_length=32)
-    fabric_width_m: float | None = Field(default=None, gt=0)
-    lay_length_m: float | None = Field(default=None, gt=0)
-    size_count: int | None = Field(default=None, gt=0)
-    gramage: float | None = Field(default=None, gt=0)
-    binding_kg_per_piece: float | None = Field(default=None, ge=0)
+    fabric_width_m: float | None = Field(
+        default=None, gt=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
+    lay_length_m: float | None = Field(
+        default=None, gt=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
+    size_count: int | None = Field(default=None, gt=0, le=2_147_483_647)
+    gramage: float | None = Field(
+        default=None, gt=0, le=99_999_999.999999, allow_inf_nan=False,
+    )
+    binding_kg_per_piece: float | None = Field(
+        default=None, ge=0, le=99_999_999.999999, allow_inf_nan=False,
+    )
+
+    @field_validator(
+        "fabric_width_m", "lay_length_m", "gramage", "binding_kg_per_piece", mode="before",
+    )
+    @classmethod
+    def reject_fractional_precision(cls, value: object, info: ValidationInfo) -> object:
+        places, maximum = (
+            (4, Decimal("9999999999.9999"))
+            if info.field_name in {"fabric_width_m", "lay_length_m"}
+            else (6, Decimal("99999999.999999"))
+        )
+        return _reject_storage_fractional_precision(
+            value, places=places, maximum=maximum, field_name=info.field_name,
+        )
 
     @field_validator("kroy_no")
     @classmethod
@@ -41,7 +115,7 @@ class PriceCalculationCuttingIn(BaseModel):
 
 class PriceCalculationAccessoryIn(BaseModel):
     name: str | None = Field(default=None, max_length=128)
-    price: float | None = Field(default=None, ge=0)
+    price: float | None = Field(default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False)
 
     @field_validator("name")
     @classmethod
@@ -100,3 +174,11 @@ class PriceCalculationRequestOut(BaseModel):
     overall_status: str
     created_at: datetime
     updated_at: datetime
+
+
+class PriceCalculationRequestPageOut(BaseModel):
+    items: list[PriceCalculationRequestOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool

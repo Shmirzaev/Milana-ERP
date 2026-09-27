@@ -83,16 +83,15 @@ export default function PackagingPage() {
   const { me } = useMe();
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
-  const { data: wo, mutate: mutateWo } = useSWR<any>(`/api/work-orders/${id}`, fetcher);
-  const { data: po, mutate: mutatePo } = useSWR<any>(wo ? `/api/production-orders/${wo.production_order_id}` : null, fetcher);
+  const { data: pageContext, mutate: mutateWo } = useSWR<any>(`/api/work-orders/${id}/page-context`, fetcher);
+  const wo = pageContext?.work_order;
+  const po = pageContext?.production_order;
+  const so = pageContext?.sales_order;
+  const model = pageContext?.model;
   const { data: batchProgress, mutate: mutateBatchProgress } = useSWR<any>(
     wo ? `/api/work-orders/${id}/packaging-batch-progress` : null,
     fetcher,
   );
-  const { data: so } = useSWR<any>(po?.sales_order_id ? `/api/sales-orders/${po.sales_order_id}` : null, fetcher);
-  const { data: model } = useSWR<any>(po?.model_id ? `/api/models/${po.model_id}` : null, fetcher);
-  const { data: customers = [] } = useSWR<any[]>("/api/customers", fetcher);
-  const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
 
   const [rec, setRec] = useState<PackagingRecordForm>({
     production_batch_id: 0,
@@ -491,7 +490,7 @@ export default function PackagingPage() {
   }, [isAlreadyBatched, po?.batches]);
 
   async function refreshPackagingOutputs() {
-    await Promise.all([mutateBatchProgress(), mutateWo(), mutatePo()]);
+    await Promise.all([mutateBatchProgress(), mutateWo()]);
     setPackageQrRefreshKey((prev) => prev + 1);
   }
 
@@ -638,7 +637,7 @@ export default function PackagingPage() {
         po={po}
         wo={wo}
         model={model}
-        customerName={so?.customer_id ? (customerMap.get(so.customer_id) || `#${so.customer_id}`) : null}
+        customerName={so?.customer_id ? (so.customer?.name || so.customer_name || `#${so.customer_id}`) : null}
         statusText={wo ? statusLabel(wo.status, t) : "-"}
         compact
         canEditBreakdown={canEditBreakdown}
@@ -733,7 +732,7 @@ export default function PackagingPage() {
       </div>
 
       <div className="mb-4">
-        {po && !po.sales_order_id && po.source_type !== "usluga" && <FirstGradePackaging key={`${po.id}:${rec.production_batch_id}:${color}`} productionOrderId={po.id} batchId={rec.production_batch_id || undefined} modelId={po.model_id} color={color} onChanged={async () => { setPackageQrRefreshKey(k => k + 1); await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress()]); }} />}
+        {po && !po.sales_order_id && po.source_type !== "usluga" && <FirstGradePackaging key={`${po.id}:${rec.production_batch_id}:${color}`} productionOrderId={po.id} batchId={rec.production_batch_id || undefined} modelId={po.model_id} color={color} onChanged={async () => { setPackageQrRefreshKey(k => k + 1); await Promise.all([mutateWo(), mutateBatchProgress()]); }} />}
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">

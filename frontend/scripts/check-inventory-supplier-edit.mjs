@@ -9,9 +9,11 @@ const source = fs.readFileSync(pagePath, "utf8");
 const requiredPatterns = [
   ['supplier is loaded into the batch form', 'supplier_id: batch.supplier_id ? String(batch.supplier_id) : ""'],
   ['supplier is sent in the batch update payload', 'supplier_id: form.supplier_id ? Number(form.supplier_id) : null'],
-  ['supplier options are loaded from the supplier API', '"/api/suppliers"'],
-  ['supplier selector is bound to the batch form', 'value={batchForm.supplier_id}'],
-  ['saving a batch uses the batch update endpoint', 'api.patch(`/api/inventory/batches/${editingBatch.id}`, batchPayload(batchForm))'],
+  ['selected batch supplier name is retained', 'setBatchSupplierName(batch?.supplier_name ?? null)'],
+  ['supplier selector is bound to the batch form', 'value={Number(batchForm.supplier_id) || null}'],
+  ['batch supplier picker retains an off-page name', 'selectedName={batchSupplierName}'],
+  ['supplier filter picker retains an off-page name', 'selectedName={supplierFilterName}'],
+  ['saving a batch uses the batch update endpoint', 'api.patch(`/api/inventory/batches/${editingBatch.id}?force=true`, batchPayload(batchForm))'],
 ];
 
 const missing = requiredPatterns.filter(([, pattern]) => !source.includes(pattern));
@@ -22,10 +24,15 @@ if (missing.length) {
   process.exit(1);
 }
 
-const supplierSelector = source.indexOf('value={batchForm.supplier_id}');
+const supplierSelector = source.indexOf('value={Number(batchForm.supplier_id) || null}');
 const batchDetails = source.indexOf('{editingBatch && (', supplierSelector);
 if (supplierSelector < 0 || batchDetails < 0 || supplierSelector > batchDetails) {
   console.error("The supplier selector must remain visible at the top of the batch edit form.");
+  process.exit(1);
+}
+
+if (source.includes('"/api/suppliers"') || (source.match(/<SupplierAsyncSelect/g) || []).length !== 2) {
+  console.error("Inventory must use exactly two paged supplier pickers without a full-directory request.");
   process.exit(1);
 }
 

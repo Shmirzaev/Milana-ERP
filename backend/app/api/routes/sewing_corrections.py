@@ -1,16 +1,26 @@
 """Correct unused sewing output, preserving cumulative and assignment accounting."""
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, or_
+from sqlalchemy.orm import load_only
 from app.core.deps import DbSession, require_permissions
 from app.models import (User, WorkOrder, SewingRecord, SewingAssignment, SewingFlow,
                         SewingReplacementRequest, PackagingReceipt, PackagingRecord, CuttingRecord, PrintingRecord)
 from app.services.factory_scope import require_work_order_factory_access
 from app.services.audit import log_action
 from app.services.workflow import advance_workflow
+from app.services.sewing_assignment_policy import validate_assignment_progress
 
 router = APIRouter(tags=["sewing_corrections"])
+
+
+class CorrectionSizeQuantity(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    size: str = Field(min_length=1, max_length=32)
+    quantity: int = Field(gt=0, le=2_147_483_647, strict=True)
 
 
 class Correction(BaseModel):
@@ -19,12 +29,40 @@ class Correction(BaseModel):
     input_qty: int = Field(ge=0)
     sewn_qty: int = Field(ge=0)
     passed_qty: int = Field(ge=0)
-    size_quantities: list[dict] = Field(default_factory=list)
+    size_quantities: list[CorrectionSizeQuantity] = Field(default_factory=list, max_length=1000)
     notes: str | None = Field(default=None, max_length=4000)
 
 
 class DeleteInput(BaseModel):
     expected_version: int = Field(ge=0)
+
+
+class SewingRecordHistoryOut(BaseModel):
+    id: int
+    work_order_id: int
+    production_batch_id: int | None = None
+    input_qty: int
+    sewn_qty: int
+    passed_qty: int
+    failed_qty: int
+    rejected_qty: int
+    rework_qty: int
+    line_name: str | None = None
+    notes: str | None = None
+    size_quantities: list[dict] | None = None
+    created_at: datetime
+    correction_version: int
+    sewing_assignment_id: int | None = None
+    assignment_applied_qty: int | None = None
+    locked_reason: str | None = None
+
+
+class SewingRecordHistoryPageOut(BaseModel):
+    rows: list[SewingRecordHistoryOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
 
 
 def snapshot(row):
@@ -51,6 +89,70 @@ def reason(db, wo, record):
             PackagingRecord.production_batch_id == record.production_batch_id).first():
         return "sewingEdit.handedOff"
     return None
+
+
+def _batch_match_filter(column, batch_ids):
+    conditions = []
+    non_null_ids = [batch_id for batch_id in batch_ids if batch_id is not None]
+    if non_null_ids:
+        conditions.append(column.in_(non_null_ids))
+    if None in batch_ids:
+        conditions.append(column.is_(None))
+    return or_(*conditions)
+
+
+def _reasons_for_records(db, wo, records):
+    if wo.status in ("cancelled", "rejected"):
+        return {record.id: "sewingEdit.closed" for record in records}
+
+    reasons = {
+        record.id: "sewingEdit.linkedReplacement"
+        for record in records
+        if record.failed_qty or record.rejected_qty or record.rework_qty
+    }
+    candidates = [record for record in records if record.id not in reasons]
+    if not candidates:
+        return reasons
+
+    batch_ids = {record.production_batch_id for record in candidates}
+    replacement_batches = {
+        batch_id
+        for (batch_id,) in db.query(SewingReplacementRequest.production_batch_id)
+        .filter(
+            SewingReplacementRequest.sewing_work_order_id == wo.id,
+            _batch_match_filter(SewingReplacementRequest.production_batch_id, batch_ids),
+        )
+        .distinct()
+        .all()
+    }
+    receipt_batches = {
+        batch_id
+        for (batch_id,) in db.query(PackagingReceipt.production_batch_id)
+        .filter(
+            PackagingReceipt.source_work_order_id == wo.id,
+            _batch_match_filter(PackagingReceipt.production_batch_id, batch_ids),
+        )
+        .distinct()
+        .all()
+    }
+    packaging_batches = {
+        batch_id
+        for (batch_id,) in db.query(PackagingRecord.production_batch_id)
+        .join(WorkOrder, WorkOrder.id == PackagingRecord.work_order_id)
+        .filter(
+            WorkOrder.production_order_id == wo.production_order_id,
+            _batch_match_filter(PackagingRecord.production_batch_id, batch_ids),
+        )
+        .distinct()
+        .all()
+    }
+    for record in candidates:
+        batch_id = record.production_batch_id
+        if batch_id in replacement_batches:
+            reasons[record.id] = "sewingEdit.linkedReplacement"
+        elif batch_id in receipt_batches or batch_id in packaging_batches:
+            reasons[record.id] = "sewingEdit.handedOff"
+    return reasons
 
 
 def assignment_for(db, wo, row):
@@ -82,17 +184,61 @@ def assignment_for(db, wo, row):
         applied = row.passed_qty
     if not assignment or assignment.status not in ("planned", "in_progress", "completed") or applied is None:
         raise HTTPException(409, "sewingEdit.assignmentAmbiguous")
+    validate_assignment_progress(int(assignment.quantity or 0), int(assignment.completed_qty or 0))
     return assignment, applied
 
 
-@router.get("/work-orders/{wid}/sewing-records")
-def list_records(wid: int, db: DbSession, user: User = Depends(require_permissions("sewing.records"))):
+@router.get(
+    "/work-orders/{wid}/sewing-records",
+    response_model=list[SewingRecordHistoryOut] | SewingRecordHistoryPageOut,
+)
+def list_records(
+    wid: int,
+    db: DbSession,
+    user: User = Depends(require_permissions("sewing.records")),
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
     wo = db.get(WorkOrder, wid)
     if not wo or wo.operation != "sewing":
         raise HTTPException(404, "Not found")
     require_work_order_factory_access(user, db, wo)
-    return [{**snapshot(row), "locked_reason": reason(db, wo, row)} for row in db.query(SewingRecord).filter_by(
-            work_order_id=wid).order_by(SewingRecord.id.desc()).all()]
+    query = db.query(SewingRecord).options(load_only(
+        SewingRecord.id,
+        SewingRecord.work_order_id,
+        SewingRecord.production_batch_id,
+        SewingRecord.input_qty,
+        SewingRecord.sewn_qty,
+        SewingRecord.passed_qty,
+        SewingRecord.failed_qty,
+        SewingRecord.rejected_qty,
+        SewingRecord.rework_qty,
+        SewingRecord.line_name,
+        SewingRecord.notes,
+        SewingRecord.size_quantities,
+        SewingRecord.created_at,
+        SewingRecord.correction_version,
+        SewingRecord.sewing_assignment_id,
+        SewingRecord.assignment_applied_qty,
+    )).filter_by(work_order_id=wid)
+    ordered_query = query.order_by(SewingRecord.id.desc())
+    if page is None and page_size is None:
+        rows = ordered_query.all()
+        reasons = _reasons_for_records(db, wo, rows)
+        return [{**snapshot(row), "locked_reason": reasons.get(row.id)} for row in rows]
+
+    page = page or 1
+    page_size = page_size or 50
+    total = query.count()
+    rows = ordered_query.offset((page - 1) * page_size).limit(page_size).all()
+    reasons = _reasons_for_records(db, wo, rows)
+    return {
+        "rows": [{**snapshot(row), "locked_reason": reasons.get(row.id)} for row in rows],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 def locked_record(db, rid, user, version):
@@ -152,6 +298,7 @@ def apply(db, wo, row, user, payload=None):
         next_completed = assignment.completed_qty - applied + new_passed
         if next_completed < 0 or next_completed > assignment.quantity:
             raise HTTPException(409, "sewingEdit.assignmentLimit")
+        validate_assignment_progress(int(assignment.quantity or 0), int(next_completed))
         assignment.completed_qty = next_completed
         assignment.status = "completed" if next_completed == assignment.quantity else "in_progress" if next_completed else "planned"
         assignment.actual_end = datetime.now(timezone.utc) if assignment.status == "completed" else None
@@ -167,7 +314,8 @@ def apply(db, wo, row, user, payload=None):
     db.flush()
     if payload:
         data = SewingRecordIn(work_order_id=wo.id, production_batch_id=row.production_batch_id,
-                input_qty=new_input, sewn_qty=new_sewn, passed_qty=new_passed, size_quantities=payload.size_quantities)
+                input_qty=new_input, sewn_qty=new_sewn, passed_qty=new_passed,
+                size_quantities=[item.model_dump() for item in payload.size_quantities])
         row.size_quantities = _validated_sewing_size_quantities(db, wo, row.production_batch_id, data)
         row.passed_qty = new_passed
         row.notes = payload.notes

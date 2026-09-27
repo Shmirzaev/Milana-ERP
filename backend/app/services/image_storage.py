@@ -6,15 +6,21 @@ import subprocess
 import sys
 import warnings
 from dataclasses import dataclass
+from functools import partial
 from io import BytesIO
 from pathlib import Path
 from threading import BoundedSemaphore
 from uuid import uuid4
 
+from anyio import CancelScope
 from fastapi import HTTPException, UploadFile
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from app.core.uploads import read_validated_image_upload
+from app.core.uploads import (
+    UPLOAD_PROCESSING_LIMITER,
+    read_validated_image_upload,
+    run_sync_to_completion,
+)
 
 
 FULL_IMAGE_QUALITY = 93
@@ -24,6 +30,9 @@ PREBUILT_THUMBNAIL_SIZES = (160, 320)
 MAX_IMAGE_PIXELS = 50_000_000
 
 _thumbnail_generation_slot = BoundedSemaphore(1)
+# Bound upload decoding per worker process without blocking the event loop or
+# occupying a thread while waiting. Acquire before buffering the upload too.
+_image_upload_slot = UPLOAD_PROCESSING_LIMITER
 
 
 @dataclass(frozen=True)
@@ -191,11 +200,13 @@ def prebuild_webp_thumbnails(
 ) -> list[Path]:
     image, icc_profile, source_format = _normalized_image(content, recover_legacy_jpeg=recover_legacy_jpeg)
     created: list[Path] = []
+    previous_content: dict[Path, bytes | None] = {}
     try:
         root = Path(thumbnail_root)
         for raw_size in sizes:
             size = max(96, min(int(raw_size), 1280))
             destination = root / f"{size}_{source_file_name}.webp"
+            previous_content[destination] = destination.read_bytes() if destination.exists() else None
             _atomic_write(
                 destination,
                 _thumbnail_data(
@@ -206,6 +217,14 @@ def prebuild_webp_thumbnails(
                 ),
             )
             created.append(destination)
+    except BaseException:
+        for path in reversed(created):
+            previous = previous_content[path]
+            if previous is None:
+                path.unlink(missing_ok=True)
+            else:
+                _atomic_write(path, previous)
+        raise
     finally:
         image.close()
     return created
@@ -220,10 +239,68 @@ async def store_uploaded_image(
     max_bytes: int,
     prebuild_thumbnails: bool = False,
 ) -> StoredImage:
-    content, _ = await read_validated_image_upload(file, max_bytes)
+    async with _image_upload_slot:
+        content, _ = await read_validated_image_upload(file, max_bytes)
+        completed: list[StoredImage] = []
+
+        def store_and_record() -> StoredImage:
+            stored = _store_image_content(
+                content,
+                target_dir=target_dir,
+                file_url_base=file_url_base,
+                name_prefix=name_prefix,
+                prebuild_thumbnails=prebuild_thumbnails,
+            )
+            completed.append(stored)
+            return stored
+
+        try:
+            return await run_sync_to_completion(store_and_record)
+        except BaseException:
+            if completed:
+                await discard_stored_image(completed[0])
+            raise
+
+
+async def discard_stored_image(stored: StoredImage) -> None:
+    with CancelScope(shield=True):
+        await run_sync_to_completion(partial(_discard_stored_image_files, stored))
+
+
+def _discard_stored_image_files(stored: StoredImage) -> None:
+    original = Path(stored.absolute_path)
+    thumbnail_root = original.parent / "_thumbs"
+    for size in PREBUILT_THUMBNAIL_SIZES:
+        (thumbnail_root / f"{size}_{stored.file_name}.webp").unlink(missing_ok=True)
+    original.unlink(missing_ok=True)
+
+
+def _new_stored_image_path(target_dir: str, name_prefix: str) -> tuple[str, Path]:
+    root = Path(target_dir)
+    thumbnail_root = root / "_thumbs"
+    prefix = _safe_prefix(name_prefix)
+    for _ in range(16):
+        file_name = f"{prefix}_{uuid4().hex}.webp"
+        absolute_path = root / file_name
+        thumbnails = [
+            thumbnail_root / f"{size}_{file_name}.webp"
+            for size in PREBUILT_THUMBNAIL_SIZES
+        ]
+        if not absolute_path.exists() and not any(path.exists() for path in thumbnails):
+            return file_name, absolute_path
+    raise HTTPException(500, "Could not allocate image storage name")
+
+
+def _store_image_content(
+    content: bytes,
+    *,
+    target_dir: str,
+    file_url_base: str,
+    name_prefix: str,
+    prebuild_thumbnails: bool,
+) -> StoredImage:
     converted = convert_image_to_webp(content)
-    file_name = f"{_safe_prefix(name_prefix)}_{uuid4().hex}.webp"
-    absolute_path = Path(target_dir) / file_name
+    file_name, absolute_path = _new_stored_image_path(target_dir, name_prefix)
     _atomic_write(absolute_path, converted.data)
     if prebuild_thumbnails:
         try:
@@ -232,7 +309,7 @@ async def store_uploaded_image(
                 thumbnail_root=Path(target_dir) / "_thumbs",
                 source_file_name=file_name,
             )
-        except Exception:
+        except BaseException:
             absolute_path.unlink(missing_ok=True)
             raise
     return StoredImage(

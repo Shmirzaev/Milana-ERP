@@ -11,9 +11,19 @@ class CuttingOperatorOut(ORMModel):
     name: str
 
 
+class CuttingOperatorPageOut(BaseModel):
+    rows: list[CuttingOperatorOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class PassportAdditionalMaterial(BaseModel):
     stock_batch_id: int = Field(gt=0)
-    estimated_quantity: float = Field(gt=0, allow_inf_nan=False)
+    estimated_quantity: float = Field(
+        gt=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
     unit: str = Field(min_length=1, max_length=32)
 
 
@@ -114,3 +124,11 @@ class CuttingPassportOut(ORMModel):
     model_name: Optional[str] = None
     model_image_url: Optional[str] = None
     operator_name: Optional[str] = None
+
+
+class CuttingPassportPageOut(BaseModel):
+    rows: list[CuttingPassportOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool

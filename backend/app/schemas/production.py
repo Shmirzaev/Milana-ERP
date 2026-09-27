@@ -1,16 +1,26 @@
 from datetime import datetime
-from typing import Optional
-from pydantic import BaseModel, ConfigDict, Field
+from decimal import Decimal
+from typing import Annotated, Literal, Optional
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas.common import ORMModel, SchemaModel
 from app.schemas.inventory import ItemComposition
+
+
+def _reject_boolean_quantity(value: object) -> object:
+    if isinstance(value, bool):
+        raise ValueError("Quantity must be an integer")
+    return value
+
+
+NonBooleanInteger = Annotated[int, BeforeValidator(_reject_boolean_quantity)]
 
 
 class ProductionOrderItemIn(SchemaModel):
     model_id: int
     color: str
     size: str
-    planned_quantity: int
+    planned_quantity: NonBooleanInteger = Field(ge=0, le=2_147_483_647)
     printing_required: bool = False
 
 
@@ -38,14 +48,58 @@ class ProductionOrderSizesIn(BaseModel):
 
 
 class ProductionOrderPrintingAttachment(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     file_url: str
     file_name: Optional[str] = None
     content_type: Optional[str] = None
 
 
+class ProductionOrderUpdateIn(BaseModel):
+    model_config = ConfigDict(extra="forbid", protected_namespaces=())
+
+    status: Literal[
+        "new",
+        "planning",
+        "waiting_material",
+        "cutting",
+        "printing",
+        "sewing",
+        "packaging",
+        "storage_transfer",
+        "finished_storage",
+        "delivered",
+        "closed",
+        "cancelled",
+    ] | None = None
+    model_id: int | None = Field(default=None, gt=0, le=2_147_483_647)
+    sales_order_id: int | None = Field(default=None, gt=0, le=2_147_483_647)
+    planned_quantity: NonBooleanInteger | None = Field(default=None, ge=0, le=2_147_483_647)
+    deadline: datetime | None = None
+    estimated_material_code: str | None = Field(default=None, max_length=128)
+    estimated_material_amount: Decimal | None = Field(
+        default=None,
+        ge=0,
+        max_digits=14,
+        decimal_places=4,
+    )
+    estimated_material_unit: str | None = Field(default=None, max_length=32)
+    printing_instructions: str | None = None
+    printing_attachments: list[ProductionOrderPrintingAttachment] | None = None
+
+    @model_validator(mode="after")
+    def reject_null_required_fields(self):
+        for field in ("status", "model_id", "planned_quantity"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null")
+        return self
+
+
 class ProductionOrderMaterialIn(BaseModel):
-    stock_batch_id: int
-    estimated_quantity: float = Field(gt=0)
+    stock_batch_id: int = Field(le=2_147_483_647)
+    estimated_quantity: float = Field(
+        gt=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
     unit: str = Field(min_length=1, max_length=32)
 
 
@@ -61,7 +115,7 @@ class ProductionOrderMaterialOut(ORMModel):
 class ProductionBatchIn(BaseModel):
     batch_no: str | None = None
     name: str | None = None
-    planned_quantity: int
+    planned_quantity: int = Field(strict=True, gt=0, le=2_147_483_647)
     start_date: Optional[datetime] = None
     deadline: Optional[datetime] = None
     notes: str | None = None
@@ -80,27 +134,27 @@ class ProductionBatchOut(ORMModel):
 
 
 class ProductionOrderIn(SchemaModel):
-    production_type: str  # client_order | branded_stock
+    production_type: Literal["client_order", "branded_stock"]
     planning_order_id: Optional[int] = None
     sales_order_id: Optional[int] = None
     collection_id: Optional[int] = None
     model_id: int
     brand_id: Optional[int] = None
     fabric_batch_id: Optional[int] = None
-    planned_quantity: int = 0
+    planned_quantity: NonBooleanInteger = Field(default=0, ge=0, le=2_147_483_647)
     start_date: Optional[datetime] = None
     deadline: Optional[datetime] = None
     estimated_material_code: Optional[str] = None
     estimated_material_amount: Optional[float] = None
     estimated_material_unit: Optional[str] = None
-    materials: list[ProductionOrderMaterialIn] = Field(default_factory=list)
+    materials: list[ProductionOrderMaterialIn] = Field(default_factory=list, max_length=1000)
     printing_instructions: Optional[str] = None
     printing_attachments: list[ProductionOrderPrintingAttachment] = Field(default_factory=list)
     destination_warehouse_id: Optional[int] = None
     cutting_department_code: str = "CUT"
     sewing_factory_code: Optional[str] = None
-    items: list[ProductionOrderItemIn] = []
-    batches: list[ProductionBatchIn] = []
+    items: list[ProductionOrderItemIn] = Field(default_factory=list, max_length=1000)
+    batches: list[ProductionBatchIn] = Field(default_factory=list, max_length=1000)
 
 
 class ProductionOrderOut(ORMModel):
@@ -147,10 +201,28 @@ class ProductionOrderOut(ORMModel):
     actual_cut_quantity: Optional[int] = None
 
 
+class ProductionOrderPageOut(SchemaModel):
+    rows: list[ProductionOrderOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
+BrandedPlanningOrderType = Literal["milana", "eco_cotton", "besttex", "customer"]
+
+
 class BrandedPlanningOrderIn(SchemaModel):
-    ordered_for_type: str = "milana"
+    ordered_for_type: BrandedPlanningOrderType = "milana"
     customer_id: Optional[int] = None
     notes: Optional[str] = None
+
+    @field_validator("ordered_for_type", mode="before")
+    @classmethod
+    def normalize_ordered_for_type(cls, value):
+        if isinstance(value, str):
+            return value.strip().lower()
+        return value
 
 
 class BrandedPlanningOrderOut(ORMModel):
@@ -164,6 +236,70 @@ class BrandedPlanningOrderOut(ORMModel):
     created_by: Optional[int] = None
     created_at: datetime
     updated_at: datetime
+
+
+class BrandedPlanningModelOut(SchemaModel):
+    id: int
+    code: Optional[str] = None
+    name: Optional[str] = None
+    primary_image_url: Optional[str] = None
+    variant_fabric: Optional[str] = None
+    fabric_image_url: Optional[str] = None
+
+
+class BrandedPlanningCuttingDepartmentOut(SchemaModel):
+    code: str
+    name: str
+
+
+class BrandedPlanningProductionOut(SchemaModel):
+    id: int
+    order_no: Optional[str] = None
+    production_no: str
+    model_id: int
+    model: Optional[BrandedPlanningModelOut] = None
+    planned_quantity: int
+    status: str
+    cutting_status: str
+    cutting_quantity: int
+    cutting_departments: list[BrandedPlanningCuttingDepartmentOut]
+
+
+class BrandedPlanningOrderListOut(BrandedPlanningOrderOut):
+    production_count: int
+    total_quantity: int
+    cutting_status: str
+    productions: list[BrandedPlanningProductionOut]
+
+
+class BrandedPlanningOrderPageOut(SchemaModel):
+    rows: list[BrandedPlanningOrderListOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
+class BrandedOrderCompanyOut(SchemaModel):
+    type: str
+    name: str
+
+
+class BrandedOrderCustomerOut(SchemaModel):
+    id: int
+    name: str
+
+
+class BrandedOrderPartiesOut(SchemaModel):
+    companies: list[BrandedOrderCompanyOut]
+    customers: list[BrandedOrderCustomerOut]
+
+
+class BrandedOrderPartiesPageOut(BrandedOrderPartiesOut):
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
 
 
 class WorkOrderOut(ORMModel):
@@ -234,7 +370,11 @@ from app.schemas.cutting_material import CuttingMaterialDetails
 class CuttingMaterialUsageIn(BaseModel):
     details: CuttingMaterialDetails | None = None
     stock_batch_id: int
-    quantity: float = Field(gt=0)
+    quantity: float = Field(
+        gt=0,
+        le=9_999_999_999.9999,
+        allow_inf_nan=False,
+    )
     unit: str = Field(min_length=1, max_length=32)
 
 
@@ -257,36 +397,60 @@ class CuttingRecordIn(BaseModel):
     production_batch_id: Optional[int] = None
     fabric_batch_id: Optional[int] = None
     model_bom_id: Optional[int] = None
-    input_quantity: float
+    input_quantity: float = Field(ge=0, le=9_999_999_999.9999, allow_inf_nan=False)
     input_unit: str = "kg"
-    cut_pieces: int
-    report_piece_count: int = Field(default=0, ge=0)
-    passed_pieces: int
-    defective_pieces: int = 0
-    waste_quantity: float = 0
+    cut_pieces: int = Field(ge=0, le=2_147_483_647)
+    report_piece_count: int = Field(default=0, ge=0, le=2_147_483_647)
+    passed_pieces: int = Field(ge=0, le=2_147_483_647)
+    defective_pieces: int = Field(default=0, ge=0, le=2_147_483_647)
+    waste_quantity: float = Field(default=0, ge=0, le=9_999_999_999.9999, allow_inf_nan=False)
     waste_unit: str = "kg"
-    layer_material_kg: float = Field(default=0, ge=0)
-    beika_kg: float = Field(default=0, ge=0)
-    material_rolls_used: float = Field(default=0, ge=0)
+    layer_material_kg: float = Field(default=0, ge=0, le=9_999_999_999.9999, allow_inf_nan=False)
+    beika_kg: float = Field(default=0, ge=0, le=9_999_999_999.9999, allow_inf_nan=False)
+    material_rolls_used: float = Field(default=0, ge=0, le=9_999_999_999.9999, allow_inf_nan=False)
     operator_id: Optional[int] = None
     layup_operator_name: Optional[str] = Field(default=None, max_length=128)
     notes: Optional[str] = None
-    materials: list[CuttingMaterialUsageIn] = Field(default_factory=list)
+    materials: list[CuttingMaterialUsageIn] = Field(default_factory=list, max_length=1000)
     # Bundle plan: list of {color, size, quantity, count}
-    bundles: list[dict] = []
+    bundles: list[dict] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_output_quantity(self):
+        # Positive-count bundle plans derive effective passed/cut quantities in the route.
+        has_effective_bundle_plan = False
+        for bundle in self.bundles:
+            try:
+                has_effective_bundle_plan = has_effective_bundle_plan or int(bundle.get("count", 1)) > 0
+            except (TypeError, ValueError):
+                # The route returns the established row-specific validation error.
+                has_effective_bundle_plan = True
+        if not has_effective_bundle_plan and self.passed_pieces + self.defective_pieces > self.cut_pieces:
+            raise ValueError("Passed and defective pieces cannot exceed cut pieces")
+        return self
 
 
 class PrintingRecordIn(BaseModel):
     work_order_id: int
     production_batch_id: Optional[int] = None
-    input_qty: int
-    printed_qty: int
-    passed_qty: int
-    rejected_qty: int = 0
+    input_qty: int = Field(ge=0, le=2_147_483_647)
+    printed_qty: int = Field(ge=0, le=2_147_483_647)
+    passed_qty: int = Field(ge=0, le=2_147_483_647)
+    rejected_qty: int = Field(default=0, ge=0, le=2_147_483_647)
     defect_reason: Optional[str] = None
     print_type: Optional[str] = None
     operator_id: Optional[int] = None
     notes: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_output_quantity(self):
+        if self.printed_qty > self.input_qty:
+            raise ValueError("Printed quantity cannot exceed input quantity")
+        if self.passed_qty > self.printed_qty:
+            raise ValueError("Passed quantity cannot exceed printed quantity")
+        if self.passed_qty + self.rejected_qty > self.input_qty:
+            raise ValueError("Passed and rejected quantities cannot exceed input quantity")
+        return self
 
 
 class SewingSizeQuantityIn(BaseModel):
@@ -297,12 +461,12 @@ class SewingSizeQuantityIn(BaseModel):
 class SewingRecordIn(BaseModel):
     work_order_id: int
     production_batch_id: Optional[int] = None
-    input_qty: int
-    sewn_qty: int
-    passed_qty: int
-    failed_qty: int = 0
-    rework_qty: int = 0
-    rejected_qty: int = 0
+    input_qty: int = Field(ge=0, le=2_147_483_647)
+    sewn_qty: int = Field(ge=0, le=2_147_483_647)
+    passed_qty: int = Field(ge=0, le=2_147_483_647)
+    failed_qty: int = Field(default=0, ge=0, le=2_147_483_647)
+    rework_qty: int = Field(default=0, ge=0, le=2_147_483_647)
+    rejected_qty: int = Field(default=0, ge=0, le=2_147_483_647)
     size_quantities: list[SewingSizeQuantityIn] = Field(default_factory=list)
     defect_reason: Optional[str] = None
     line_name: Optional[str] = None
@@ -310,16 +474,68 @@ class SewingRecordIn(BaseModel):
     operator_id: Optional[int] = None
     notes: Optional[str] = None
 
+    @model_validator(mode="after")
+    def validate_quantity_conservation(self):
+        if self.input_qty > 0 and self.sewn_qty > self.input_qty:
+            raise ValueError("Sewn quantity cannot exceed input quantity")
+        if self.passed_qty > self.sewn_qty:
+            raise ValueError("Passed quantity cannot exceed sewn quantity")
+        processed_total = self.passed_qty + self.failed_qty + self.rejected_qty
+        if self.input_qty > 0 and processed_total > self.input_qty:
+            raise ValueError("Passed, failed, and rejected quantities cannot exceed input quantity")
+        return self
+
 
 class PackagingRecordIn(BaseModel):
     work_order_id: int
     production_batch_id: Optional[int] = None
-    input_qty: int
-    packed_qty: int
-    damaged_qty: int = 0
+    input_qty: NonBooleanInteger = Field(ge=0, le=2_147_483_647)
+    packed_qty: NonBooleanInteger = Field(ge=0, le=2_147_483_647)
+    damaged_qty: NonBooleanInteger = Field(default=0, ge=0, le=2_147_483_647)
     packaging_material_used: Optional[str] = None
     operator_id: Optional[int] = None
     notes: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_output_quantity(self):
+        if self.packed_qty + self.damaged_qty > self.input_qty:
+            raise ValueError("Packed and damaged quantities cannot exceed input quantity")
+        return self
+
+
+class PackagingReceiptOut(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    id: int
+    work_order_id: int
+    packaging_department_code: str
+    source_work_order_id: int
+    production_order_id: int
+    production_batch_id: int | None = None
+    production_no: str | None = None
+    order_no: str | None = None
+    model_id: int | None = None
+    model_code: str | None = None
+    model_name: str | None = None
+    batch_no: str | None = None
+    batch_name: str | None = None
+    bundle_id: int | None = None
+    bundle_no: str | None = None
+    size: str | None = None
+    color: str | None = None
+    quantity: int
+    receive_method: str
+    received_by: int | None = None
+    notes: str | None = None
+    created_at: datetime
+
+
+class PackagingReceiptPageOut(BaseModel):
+    rows: list[PackagingReceiptOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
 
 
 class QualityCheckIn(BaseModel):
@@ -330,7 +546,7 @@ class QualityCheckIn(BaseModel):
     failed_qty: int
     defect_type: Optional[str] = None
     defect_reason: Optional[str] = None
-    severity: str = "low"
+    severity: Literal["low", "medium", "high", "critical"] = "low"
 
 
 class QualityCheckOut(ORMModel):
@@ -344,6 +560,14 @@ class QualityCheckOut(ORMModel):
     defect_reason: Optional[str] = None
     severity: str
     checked_at: Optional[datetime] = None
+
+
+class QualityCheckPageOut(BaseModel):
+    rows: list[QualityCheckOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
 
 
 class MaterialRequirement(BaseModel):

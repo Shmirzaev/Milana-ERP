@@ -61,6 +61,14 @@ def next_details(existing: dict | None, operations: list[dict]) -> dict:
             raise ValueError("Existing paid operations changed; refusing to overwrite them")
     details["paid_operations"] = deepcopy(operations)
     details.pop("paidOperations", None)
+    from fastapi import HTTPException
+
+    from app.api.routes.catalog import _validate_model_details_json_bounds
+
+    try:
+        _validate_model_details_json_bounds(details, existing_details=existing)
+    except HTTPException as exc:
+        raise ValueError(str(exc.detail)) from exc
     return details
 
 

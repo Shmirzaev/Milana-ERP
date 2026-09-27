@@ -4,8 +4,7 @@ import importlib.util
 from pathlib import Path
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, event, inspect, select
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 
@@ -15,7 +14,7 @@ from app.db.base import Base
 from app.main import app
 from app.models import Item, Role, StockBatch, User, Warehouse
 from app.models.fabric_scan import FabricScan
-from app.tests.conftest import TestSessionLocal
+from app.tests.conftest import TestSessionLocal, test_engine
 
 
 @pytest.fixture
@@ -59,6 +58,31 @@ def test_receipt_return_and_duplicate_touch_only_register(client, auth_headers, 
     assert (report["total"], report["received"], report["returned"]) == (2, 1, 1)
     assert report["summary"][0]["batch_no"] == "DAILY-ROLLS"
     assert report["rows"][0]["operator_name"]
+
+
+def test_roll_scan_projects_batch_and_fabric_identity_columns(client, auth_headers, fabric_batch):
+    statements = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("select") and " from stock_batches " in normalized:
+            statements.append(normalized)
+
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        response = scan(client, auth_headers, fabric_batch)
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["duplicate"] is False
+    assert response.json()["row"]["batch_no"] == "DAILY-ROLLS"
+    assert response.json()["row"]["fabric_name"]
+    assert len(statements) == 1
+    selected_columns = statements[0].split(" from stock_batches ", maxsplit=1)[0]
+    for omitted in ("stock_batches.quantity", "stock_batches.cost_per_unit", "stock_batches.unit"):
+        assert omitted not in selected_columns
+    assert "join items" in statements[0]
 
 
 def test_return_without_receipt_and_depleted_batch(client, auth_headers, fabric_batch):

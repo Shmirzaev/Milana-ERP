@@ -1,7 +1,7 @@
 import os
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import field_validator
+from pydantic import Field, field_validator
 
 
 class Settings(BaseSettings):
@@ -10,7 +10,10 @@ class Settings(BaseSettings):
     APP_NAME: str = "Milana ERP"
     ENV: str = "development"
     DEBUG: bool = False
+    LOCAL_TRACE_CAPTURE_ENABLED: bool = False
     DATABASE_URL: str = "postgresql+psycopg2://erp:erp@db:5432/erp"
+    DB_POOL_SIZE: int | None = None
+    DB_MAX_OVERFLOW: int | None = None
     JWT_SECRET: str = "dev-secret"
     FILE_SIGNING_SECRET: str = ""
     JWT_ALGORITHM: str = "HS256"
@@ -55,10 +58,12 @@ class Settings(BaseSettings):
     MODEL_FILES_DIR: str = "/app/storage/model_files"
     SALES_ORDER_FILES_DIR: str = "/app/storage/sales_order_files"
     INTEGRATION_1C_TOKEN: str = ""
+    INTEGRATION_1C_CLIENTS_JSON: str = ""
     ATTENDANCE_INTEGRATION_TOKEN: str = ""
     ATTENDANCE_INTEGRATION_FACTORY_CODE: str = "MIL"
     ATTENDANCE_PHOTOS_DIR: str = "/app/storage/attendance_photos"
     ATTENDANCE_PHOTO_MAX_BYTES: int = 8 * 1024 * 1024
+    ATTENDANCE_SOURCE_MAX_FUTURE_SECONDS: int = Field(default=300, ge=0, le=86_400)
     HR_DOCUMENTS_DIR: str = "/app/storage/hr_documents"
     HR_DOCUMENT_MAX_BYTES: int = 20 * 1024 * 1024
     STARTUP_SCHEMA_SYNC: bool = False
@@ -74,6 +79,35 @@ class Settings(BaseSettings):
                 return True
             if normalized in {"0", "false", "f", "no", "n", "off", "falce", "fasle", "flase"}:
                 return False
+        return value
+
+    @field_validator("JWT_ALGORITHM")
+    @classmethod
+    def validate_jwt_algorithm(cls, value: str) -> str:
+        """Keep JWT verification on the configured HMAC family only.
+
+        The application uses one shared secret for signing and verification;
+        accepting an arbitrary algorithm here would make an unsafe deployment
+        setting (for example ``none``) possible.  Preserve the existing
+        HS256 default while allowing the other jose-supported HMAC strengths.
+        """
+        normalized = str(value).strip().upper()
+        if normalized not in {"HS256", "HS384", "HS512"}:
+            raise ValueError("JWT_ALGORITHM must be HS256, HS384, or HS512")
+        return normalized
+
+    @field_validator("DB_POOL_SIZE")
+    @classmethod
+    def validate_db_pool_size(cls, value):
+        if value is not None and value <= 0:
+            raise ValueError("DB_POOL_SIZE must be positive")
+        return value
+
+    @field_validator("DB_MAX_OVERFLOW")
+    @classmethod
+    def validate_db_max_overflow(cls, value):
+        if value is not None and value < 0:
+            raise ValueError("DB_MAX_OVERFLOW must be non-negative")
         return value
 
     @property
@@ -114,6 +148,17 @@ class Settings(BaseSettings):
         return self.FILE_SIGNING_SECRET.strip() or self.JWT_SECRET.strip()
 
     def validate_runtime_security(self) -> None:
+        if self.strict_security_required and self.LOCAL_TRACE_CAPTURE_ENABLED:
+            raise RuntimeError("LOCAL_TRACE_CAPTURE_ENABLED must be false in production/public environments")
+        from app.core.integration_auth import parse_onec_client_credentials
+
+        try:
+            parse_onec_client_credentials(
+                self.INTEGRATION_1C_CLIENTS_JSON,
+                minimum_secret_length=32 if self.strict_security_required else 1,
+            )
+        except ValueError as exc:
+            raise RuntimeError(f"Invalid 1C integration client configuration: {exc}") from exc
         if not self.strict_security_required:
             return
         errors: list[str] = []

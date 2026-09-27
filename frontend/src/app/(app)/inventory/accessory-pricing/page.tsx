@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
-import useSWR from "swr";
 import PageHeader from "@/components/PageHeader";
 import PriceRequestCard from "@/components/price-calculation/PriceRequestCard";
-import { api, fetcher } from "@/lib/api";
+import { api } from "@/lib/api";
+import { usePriceRequests } from "@/lib/usePriceRequests";
 import { useT } from "@/lib/i18n";
 import {
   numberInputValue,
@@ -39,11 +39,7 @@ function optionalNumber(value: string): number | null {
 
 export default function AccessoryPricingPage() {
   const { t } = useT();
-  const { data, error, isLoading, mutate } = useSWR<PriceCalculationRequest[]>(
-    "/api/price-calculation/requests",
-    fetcher,
-    { refreshInterval: 5_000 },
-  );
+  const { requests: data, error, isLoading, mutate, hasMore, loadMore, isLoadingMore } = usePriceRequests();
   const [drafts, setDrafts] = useState<Record<number, AccessoryDraft[]>>({});
   const [editing, setEditing] = useState<Set<number>>(() => new Set());
   const [savingId, setSavingId] = useState<number | null>(null);
@@ -114,7 +110,7 @@ export default function AccessoryPricingPage() {
             {t("page.priceWorkflow.empty")}
           </div>
         ) : null}
-        {(data || []).map((request) => {
+        {data.map((request) => {
           const isEditing = editing.has(request.id);
           const rows = drafts[request.id] || requestDraft(request);
           return (
@@ -168,6 +164,7 @@ export default function AccessoryPricingPage() {
             </PriceRequestCard>
           );
         })}
+        {hasMore ? <button type="button" className="btn" disabled={isLoadingMore} onClick={loadMore}>{isLoadingMore ? t("common.loading") : t("common.loadMore")}</button> : null}
       </div>
     </div>
   );

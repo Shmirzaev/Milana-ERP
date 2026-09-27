@@ -17,19 +17,16 @@ def is_preview_model_image(img: ModelImage) -> bool:
     return content_type.startswith("image/") or _looks_like_preview_url(file_name)
 
 
-def model_preview_image_url(model: Model | None) -> str | None:
-    if not model:
-        return None
-    images = sorted(
+def _preview_model_images(model: Model) -> list[ModelImage]:
+    return sorted(
         [img for img in (model.images or []) if is_preview_model_image(img)],
         key=_image_id,
         reverse=True,
     )
-    model_images = [
-        img
-        for img in images
-        if str(img.image_type or "").lower() in {"", "model"}
-    ]
+
+
+def _model_preview_image_url_from_images(images: list[ModelImage]) -> str | None:
+    model_images = [img for img in images if str(img.image_type or "").lower() in {"", "model"}]
     primary = (
         next((img for img in model_images if img.is_primary and str(img.image_type or "").lower() == "model"), None)
         or next((img for img in model_images if img.is_primary), None)
@@ -39,17 +36,12 @@ def model_preview_image_url(model: Model | None) -> str | None:
     return primary.file_url if primary else None
 
 
-def material_preview_image_url(model: Model | None) -> str | None:
-    if not model:
-        return None
-
+def _material_preview_image_url_from_images(
+    model: Model,
+    images: list[ModelImage],
+) -> str | None:
     # A material image attached to the model belongs to that exact variant.
     # Prefer it over BOM/item fallbacks, which may be shared by many variants.
-    images = sorted(
-        [img for img in (model.images or []) if is_preview_model_image(img)],
-        key=_image_id,
-        reverse=True,
-    )
     typed_material = next((img for img in images if str(img.image_type or "").lower() == "material"), None)
     if typed_material:
         return typed_material.file_url
@@ -64,6 +56,18 @@ def material_preview_image_url(model: Model | None) -> str | None:
             return url
 
     return None
+
+
+def model_preview_image_url(model: Model | None) -> str | None:
+    if not model:
+        return None
+    return _model_preview_image_url_from_images(_preview_model_images(model))
+
+
+def material_preview_image_url(model: Model | None) -> str | None:
+    if not model:
+        return None
+    return _material_preview_image_url_from_images(model, _preview_model_images(model))
 
 
 def model_variant_picture_url(model: Model | None) -> str | None:
@@ -127,7 +131,10 @@ def model_variant_picture_url(model: Model | None) -> str | None:
 
 
 def model_display_image_url(model: Model | None) -> str | None:
-    return model_preview_image_url(model) or material_preview_image_url(model)
+    if not model:
+        return None
+    images = _preview_model_images(model)
+    return _model_preview_image_url_from_images(images) or _material_preview_image_url_from_images(model, images)
 
 
 def warehouse_stock_image_url(model: Model | None) -> str | None:

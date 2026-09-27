@@ -62,6 +62,7 @@ class StockBatch(Base, PkMixin, TimestampMixin):
     processes: Mapped[str | None] = mapped_column(String(255))
     unit: Mapped[str] = mapped_column(String(32), nullable=False)
     cost_per_unit: Mapped[float] = mapped_column(Numeric(12, 4), default=0, nullable=False)
+    cost_currency: Mapped[str | None] = mapped_column(String(3))
     image_url: Mapped[str | None] = mapped_column(String(512))
     received_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     warehouse_id: Mapped[int] = mapped_column(ForeignKey("warehouses.id"), nullable=False)
@@ -77,6 +78,10 @@ class StockMovement(Base, PkMixin):
     __table_args__ = (
         CheckConstraint("quantity >= 0", name="ck_stock_movements_quantity_nonnegative"),
         CheckConstraint(
+            "unit_cost_at_movement IS NULL OR unit_cost_at_movement >= 0",
+            name="ck_stock_movements_snapshot_cost_nonnegative",
+        ),
+        CheckConstraint(
             "movement_type IN ('receive', 'transfer', 'issue', 'consume', 'adjustment', 'return', 'produce', 'waste', 'shipment')",
             name="ck_stock_movements_type",
         ),
@@ -88,6 +93,8 @@ class StockMovement(Base, PkMixin):
     to_warehouse_id: Mapped[int | None] = mapped_column(ForeignKey("warehouses.id"))
     quantity: Mapped[float] = mapped_column(Numeric(14, 4), nullable=False)
     unit: Mapped[str] = mapped_column(String(32), nullable=False)
+    unit_cost_at_movement: Mapped[float | None] = mapped_column(Numeric(12, 4))
+    cost_currency_at_movement: Mapped[str | None] = mapped_column(String(3))
     reference_type: Mapped[str | None] = mapped_column(String(64))
     reference_id: Mapped[int | None] = mapped_column(Integer)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
@@ -118,7 +125,7 @@ class MaterialReservation(Base, PkMixin, TimestampMixin):
         ),
     )
 
-    reservation_no: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    reservation_no: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     production_order_id: Mapped[int] = mapped_column(ForeignKey("production_orders.id"), nullable=False, index=True)
     sales_order_id: Mapped[int | None] = mapped_column(ForeignKey("sales_orders.id"), index=True)
     item_id: Mapped[int] = mapped_column(ForeignKey("items.id"), nullable=False, index=True)

@@ -3,6 +3,7 @@ import { formatOrderReference } from "@/lib/orderRef";
 
 import { useMemo, useState } from "react";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import { CheckCircle2, Clock3, FileSearch, QrCode, Search } from "lucide-react";
 
 import PageHeader from "@/components/PageHeader";
@@ -17,6 +18,15 @@ import type {
 } from "@/lib/orderQrStatus";
 
 const DEFAULT_PAGE_SIZE = 100;
+const ORDER_OPTION_PAGE_SIZE = 50;
+
+type OrderOptionPage = {
+  rows: OrderQrStatusOrderOption[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+};
 
 function number(value: number | string | null | undefined, lang: string) {
   return Number(value || 0).toLocaleString(lang, { maximumFractionDigits: 2 });
@@ -77,8 +87,28 @@ export default function OrderQrStatusPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
-  const optionUrl = `/api/payroll/reports/order-qr-status/orders?search=${encodeURIComponent(draftOrder.trim())}&limit=50`;
-  const { data: orderOptions = [], error: optionsError } = useSWR<OrderQrStatusOrderOption[]>(optionUrl, fetcher);
+  const optionSearch = draftOrder.trim();
+  const {
+    data: optionPages,
+    error: optionsError,
+    isValidating: optionsLoading,
+    setSize: setOptionPageCount,
+    size: optionPageCount,
+  } = useSWRInfinite<OrderOptionPage>(
+    (pageIndex, previousPage) => {
+      if (previousPage && !previousPage.has_more) return null;
+      const params = new URLSearchParams({
+        search: optionSearch,
+        page: String(pageIndex + 1),
+        page_size: String(ORDER_OPTION_PAGE_SIZE),
+      });
+      return `/api/payroll/reports/order-qr-status/orders?${params.toString()}`;
+    },
+    fetcher,
+    { persistSize: false },
+  );
+  const orderOptions = optionPages?.flatMap((optionPage) => optionPage.rows) ?? [];
+  const lastOptionPage = optionPages?.at(-1);
   const reportUrl = useMemo(() => {
     if (!selectedOrder) return null;
     const params = new URLSearchParams({
@@ -138,6 +168,25 @@ export default function OrderQrStatusPage() {
               </datalist>
             </div>
             <p className="mt-1.5 text-xs text-[#817966]">{t("page.orderQr.findOrderHint")}</p>
+            {lastOptionPage && (
+              <p className="mt-1 text-xs text-[#817966]" role="status">
+                {t("common.showingRange", {
+                  start: orderOptions.length ? 1 : 0,
+                  end: orderOptions.length,
+                  total: lastOptionPage.total,
+                })}
+              </p>
+            )}
+            {lastOptionPage?.has_more && (
+              <button
+                type="button"
+                className="btn mt-2 h-8 px-2 text-xs"
+                disabled={optionsLoading}
+                onClick={() => void setOptionPageCount(optionPageCount + 1)}
+              >
+                {t("common.loadMore")}
+              </button>
+            )}
           </label>
           <button type="submit" className="btn btn-primary" disabled={!draftOrder.trim()}>
             <FileSearch />

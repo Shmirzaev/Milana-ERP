@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
+from sqlalchemy import event
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 
@@ -12,6 +13,7 @@ from app.models import AuditLog
 from app.models.paid_process import PaidProcess
 from app.services.paid_process_catalog import normalized_key, normalized_name, process_section
 from app.tests.test_payroll import _create_user_with_permissions
+from app.tests.conftest import test_engine
 
 
 def _create(client, headers, name, section="sewing", **extra):
@@ -35,6 +37,30 @@ def test_catalog_deduplicates_name_and_preserves_section_identity_without_rates(
         assert saved.factory_code == "MIL"
         assert saved.normalized_name == "pocket sewing"
         assert db.query(AuditLog).filter(AuditLog.entity_type == "PaidProcess", AuditLog.entity_id == saved.id).count() == 1
+
+
+def test_duplicate_catalog_create_projects_only_response_fields(client, auth_headers):
+    original = _create(client, auth_headers, "Projection duplicate", "sewing")
+    assert original.status_code == 200, original.text
+    statements = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _many):
+        if statement.lstrip().upper().startswith("SELECT") and "from paid_processes" in statement.lower():
+            statements.append(" ".join(statement.lower().split()))
+
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        duplicate = _create(client, auth_headers, " projection   duplicate ", "sewing")
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
+
+    assert duplicate.status_code == 200, duplicate.text
+    assert duplicate.json() == original.json()
+    process_reads = [sql for sql in statements if " from paid_processes " in sql]
+    assert len(process_reads) == 1
+    selected_columns = process_reads[0].split(" from paid_processes ", maxsplit=1)[0]
+    for omitted in ("normalized_name", "normalized_key", "created_at", "updated_at"):
+        assert omitted not in selected_columns
 
 
 def test_catalog_isolates_factory_and_allows_code_search(client, auth_headers):

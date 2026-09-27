@@ -1,6 +1,7 @@
 import pytest
+from sqlalchemy import event
 from app.tests.test_sewing_assignment_return import make_assignment
-from app.tests.conftest import TestSessionLocal
+from app.tests.conftest import TestSessionLocal, test_engine
 from app.models import (SewingRecord, SewingAssignment, WorkOrder, AuditLog, Department,
                         PackagingReceipt, SewingReplacementRequest, Role, User)
 from app.main import app
@@ -57,6 +58,68 @@ def test_bad_changes_rollback(client, auth_headers, values, status):
         assert db.get(SewingAssignment, aid).completed_qty == 80
 
 
+@pytest.mark.parametrize("size_quantities", [
+    [1],
+    [{"size": "M"}],
+    [{"size": "M", "quantity": True}],
+    [{"size": "M", "quantity": 0}],
+    [{"size": "M", "quantity": 2_147_483_648}],
+    [{"size": "M", "quantity": 1, "extra": "unexpected"}],
+    [{"size": "X" * 33, "quantity": 1}],
+    [{"size": "M", "quantity": 1}] * 1001,
+])
+def test_correction_rejects_malformed_size_rows_before_writes(client, auth_headers, size_quantities):
+    rid, wid, aid = setup_record()
+    with TestSessionLocal() as db:
+        before = (
+            db.get(SewingRecord, rid).correction_version,
+            db.get(SewingRecord, rid).passed_qty,
+            db.get(WorkOrder, wid).passed_qty,
+            db.get(SewingAssignment, aid).completed_qty,
+            db.query(AuditLog).count(),
+        )
+
+    response = update(client, auth_headers, rid, size_quantities=size_quantities)
+
+    assert response.status_code == 422, response.text
+    with TestSessionLocal() as db:
+        assert (
+            db.get(SewingRecord, rid).correction_version,
+            db.get(SewingRecord, rid).passed_qty,
+            db.get(WorkOrder, wid).passed_qty,
+            db.get(SewingAssignment, aid).completed_qty,
+            db.query(AuditLog).count(),
+        ) == before
+
+
+def test_correction_keeps_duplicate_size_aggregation_and_explicit_clear(client, auth_headers):
+    from app.models import ProductionOrder, ProductionOrderItem
+
+    rid, wid, _ = setup_record()
+    with TestSessionLocal() as db:
+        order_id = db.get(WorkOrder, wid).production_order_id
+        model_id = db.get(ProductionOrder, order_id).model_id
+        db.add(ProductionOrderItem(
+            production_order_id=order_id, model_id=model_id,
+            color="white", size="M", planned_quantity=100,
+        ))
+        db.commit()
+
+    corrected = update(client, auth_headers, rid, size_quantities=[
+        {"size": "M", "quantity": 25}, {"size": "m ", "quantity": 35},
+    ])
+
+    assert corrected.status_code == 200, corrected.text
+    assert corrected.json()["size_quantities"] == [{"size": "M", "quantity": 60}]
+    cleared = client.patch(
+        f"/api/sewing/records/{rid}", headers=auth_headers,
+        json={"expected_version": 1, "input_qty": 90, "sewn_qty": 60, "passed_qty": 60,
+              "size_quantities": []},
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["size_quantities"] == []
+
+
 @pytest.mark.parametrize("linked", ["packaging", "replacement"])
 def test_linked_output_cannot_change(client, auth_headers, linked):
     rid, wid, _ = setup_record()
@@ -93,6 +156,29 @@ def test_factory_and_permission_enforced(client, auth_headers):
             assert update(client, {}, rid).status_code == 403
             assert client.get(f"/api/work-orders/{wid}/sewing-records").status_code == 403
         finally: app.dependency_overrides.pop(get_current_user)
+
+
+def test_sewing_record_history_projects_snapshot_columns(client, auth_headers):
+    rid, wid, _ = setup_record()
+    statements = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(" ".join(statement.lower().split()))
+
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        response = client.get(f"/api/work-orders/{wid}/sewing-records", headers=auth_headers)
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    assert response.json()[0]["id"] == rid
+    assert response.json()[0]["input_qty"] == 100
+    record_reads = [statement for statement in statements if " from sewing_records " in statement]
+    assert len(record_reads) == 1
+    assert "sewing_records.defect_reason" not in record_reads[0]
+    assert "sewing_records.operator_id" not in record_reads[0]
 
 
 def test_legacy_assignment_safe_inference(client, auth_headers):

@@ -31,7 +31,7 @@ class CuttingPassport(Base, PkMixin, TimestampMixin):
     has_print: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # Печать
     order_no: Mapped[str | None] = mapped_column(String(128))
     lot_no: Mapped[str | None] = mapped_column(String(64))         # Партия рақам
-    size_range: Mapped[str | None] = mapped_column(String(32))     # Размер e.g. "44-52"
+    size_range: Mapped[str | None] = mapped_column(String(255))    # Размер e.g. "44-52"
 
     # Layup inputs (manual)
     rolls_count: Mapped[int | None] = mapped_column(Integer)       # Рулон сони

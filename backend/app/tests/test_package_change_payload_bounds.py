@@ -1,0 +1,240 @@
+from types import SimpleNamespace
+from uuid import uuid4
+
+import pytest
+from fastapi import HTTPException
+from pydantic import ValidationError
+
+from app.db.session import SessionLocal
+from app.models import AuditLog, LegacyStockReceipt, Model, Notification, Package, PackageChangeRequest, PackageItem
+from app.schemas.tracking import PackageBulkIn, PackageChangeDecisionIn, PackageEditPayload, PackageIn
+from app.services.packages import (
+    _normalize_package_items,
+    _validate_batch_allocations,
+    create_package,
+    create_packages_bulk,
+    normalize_package_edit_payload,
+)
+
+
+def _size_lines(count: int) -> list[dict]:
+    return [{"size": "M", "quantity": 1} for _ in range(count)]
+
+
+def _allocations(count: int) -> list[dict]:
+    return [{"production_batch_id": 1, "quantity": 1} for _ in range(count)]
+
+
+@pytest.mark.parametrize("field,rows", [
+    ("items", _size_lines),
+    ("batch_allocations", _allocations),
+])
+def test_package_edit_arrays_accept_200_rows_and_reject_201(field, rows):
+    assert len(getattr(PackageEditPayload.model_validate({field: rows(200)}), field)) == 200
+    with pytest.raises(ValidationError):
+        PackageEditPayload.model_validate({field: rows(201)})
+
+
+def test_package_edit_service_rejects_oversized_items_before_normalization():
+    pkg = SimpleNamespace(model_id=1, color="blue", items=[])
+    payload = {"items": _size_lines(201)}
+    with pytest.raises(HTTPException, match="more than 200 size lines"):
+        _normalize_package_items(pkg, payload, "blue")
+    assert len(payload["items"]) == 201
+
+
+def test_unsubmitted_legacy_item_rows_remain_available_for_unrelated_edits():
+    items = [SimpleNamespace(id=index, model_id=1, color="blue", size="M", quantity=1) for index in range(201)]
+    pkg = SimpleNamespace(model_id=1, color="blue", items=items)
+    assert len(_normalize_package_items(pkg, {"notes": "updated"}, "blue")) == 201
+
+
+def test_package_edit_service_rejects_oversized_allocations_before_database_reads():
+    with pytest.raises(HTTPException, match="more than 200 batch allocations"):
+        _validate_batch_allocations(None, None, _allocations(201), 201)
+
+
+def test_oversized_package_change_request_has_no_request_or_audit_write(client, auth_headers):
+    with SessionLocal() as db:
+        before = (db.query(PackageChangeRequest).count(), db.query(AuditLog).count())
+
+    payload = {"request_type": "edit", "payload": {"items": _size_lines(201)}}
+    rejected = client.post("/api/packages/1/change-requests", headers=auth_headers, json=payload)
+    unauthenticated = client.post("/api/packages/1/change-requests", json=payload)
+
+    assert rejected.status_code == 422, rejected.text
+    assert unauthenticated.status_code == 401, unauthenticated.text
+    with SessionLocal() as db:
+        assert (db.query(PackageChangeRequest).count(), db.query(AuditLog).count()) == before
+
+
+def _editable_package() -> int:
+    suffix = uuid4().hex[:12]
+    with SessionLocal() as db:
+        model_id = db.query(Model.id).order_by(Model.id).first()[0]
+        receipt = LegacyStockReceipt(
+            source_system="DB03", source_warehouse_id="test", source_record_id=suffix,
+            source_checksum="0" * 64, source_payload={},
+        )
+        db.add(receipt)
+        db.flush()
+        pkg = Package(
+            package_no=f"DB03-EDIT-{suffix}", barcode=f"DB03-EDIT-QR-{suffix}",
+            packaging_department_code="PKG", legacy_receipt_id=receipt.id, model_id=model_id, color="blue",
+            package_type="bag", total_quantity=1, capacity=10, status="packed",
+        )
+        db.add(pkg)
+        db.flush()
+        db.add(PackageItem(package_id=pkg.id, model_id=model_id, color="blue", size="M", quantity=1))
+        db.commit()
+        return int(pkg.id)
+
+
+def test_package_decision_notes_bound_is_measured_in_utf8_bytes():
+    assert PackageChangeDecisionIn(notes="🍃" * 1024).notes == "🍃" * 1024
+    with pytest.raises(ValidationError, match="4096 UTF-8 bytes"):
+        PackageChangeDecisionIn(notes="🍃" * 1025)
+
+
+@pytest.mark.parametrize("decision", ["approve", "reject"])
+def test_oversized_package_decision_notes_leave_request_notification_and_audit_unchanged(
+    client, auth_headers, decision,
+):
+    package_id = _editable_package()
+    created = client.post(
+        f"/api/packages/{package_id}/change-requests", headers=auth_headers,
+        json={"request_type": "edit", "payload": {"notes": "Updated package"}},
+    )
+    assert created.status_code == 201, created.text
+    request_id = created.json()["id"]
+    with SessionLocal() as db:
+        before = (
+            db.get(PackageChangeRequest, request_id).status,
+            db.get(PackageChangeRequest, request_id).decision_notes,
+            db.query(Notification).count(), db.query(AuditLog).count(),
+        )
+
+    rejected = client.post(
+        f"/api/packages/change-requests/{request_id}/{decision}", headers=auth_headers,
+        json={"notes": "🍃" * 1025},
+    )
+    assert rejected.status_code == 422, rejected.text
+    with SessionLocal() as db:
+        request = db.get(PackageChangeRequest, request_id)
+        assert (
+            request.status, request.decision_notes,
+            db.query(Notification).count(), db.query(AuditLog).count(),
+        ) == before
+
+
+@pytest.mark.parametrize("edit", [
+    {"color": "x" * 65},
+    {"notes": "x" * 4097},
+    {"notes": "🍃" * 1025},
+])
+def test_changed_package_edit_text_rejects_without_request_or_audit_write(client, auth_headers, edit):
+    package_id = _editable_package()
+    with SessionLocal() as db:
+        before = (db.query(PackageChangeRequest).count(), db.query(AuditLog).count())
+
+    rejected = client.post(
+        f"/api/packages/{package_id}/change-requests", headers=auth_headers,
+        json={"request_type": "edit", "payload": edit},
+    )
+
+    assert rejected.status_code == 400, rejected.text
+    with SessionLocal() as db:
+        assert (db.query(PackageChangeRequest).count(), db.query(AuditLog).count()) == before
+        assert db.get(Package, package_id).notes is None
+
+
+def test_package_edit_text_accepts_boundary_and_unchanged_legacy_values():
+    pkg = SimpleNamespace(
+        model_id=1, color="blue", items=[SimpleNamespace(id=1, model_id=1, color="blue", size="M", quantity=1)],
+        package_type="bag", capacity=10, weight_kg=None, warehouse_id=None, storage_cell=None,
+        storage_shelf=None, production_order_id=None, notes="legacy" * 1000,
+    )
+    normalized = normalize_package_edit_payload(None, pkg, {"color": "C" * 64})
+    assert normalized["color"] == "C" * 64
+    assert normalized["notes"] == pkg.notes
+    assert normalize_package_edit_payload(None, pkg, {"notes": "N" * 4096})["notes"] == "N" * 4096
+    pkg.capacity = 2_147_483_648
+    assert normalize_package_edit_payload(None, pkg, {"notes": "updated"})["capacity"] == pkg.capacity
+
+
+def _new_package_payload(**changes):
+    payload = {
+        "production_order_id": 1, "model_id": 1, "color": "blue",
+        "items": [{"model_id": 1, "color": "blue", "size": "M", "quantity": 1}],
+    }
+    payload.update(changes)
+    return payload
+
+
+@pytest.mark.parametrize("schema", [PackageIn, PackageBulkIn])
+@pytest.mark.parametrize("field,rows", [
+    ("items", lambda count: _new_package_payload()["items"] * count),
+    ("batch_allocations", _allocations),
+])
+def test_initial_package_arrays_accept_200_rows_and_reject_201(schema, field, rows):
+    assert len(getattr(schema.model_validate(_new_package_payload(**{field: rows(200)})), field)) == 200
+    with pytest.raises(ValidationError):
+        schema.model_validate(_new_package_payload(**{field: rows(201)}))
+
+
+@pytest.mark.parametrize("field,rows", [
+    ("items", lambda count: _new_package_payload()["items"] * count),
+    ("batch_allocations", _allocations),
+])
+def test_initial_package_service_rejects_oversized_rows_before_database_reads(field, rows):
+    payload = _new_package_payload(**{field: rows(201)})
+    with pytest.raises(HTTPException, match="more than 200"):
+        create_package(None, **payload)
+
+
+@pytest.mark.parametrize("path", ["/api/packages", "/api/packages/bulk"])
+def test_oversized_initial_package_rows_have_no_package_or_audit_write(client, auth_headers, path):
+    with SessionLocal() as db:
+        before = (db.query(Package).count(), db.query(PackageItem).count(), db.query(AuditLog).count())
+    rejected = client.post(path, headers=auth_headers, json=_new_package_payload(items=_new_package_payload()["items"] * 201))
+    assert rejected.status_code == 422, rejected.text
+    with SessionLocal() as db:
+        assert (db.query(Package).count(), db.query(PackageItem).count(), db.query(AuditLog).count()) == before
+
+
+@pytest.mark.parametrize("builder", [create_package, create_packages_bulk])
+@pytest.mark.parametrize("change", [
+    {"capacity": 2_147_483_648},
+    {"capacity": 2_147_483_647, "items": [{"model_id": 1, "color": "blue", "size": "M", "quantity": 2_147_483_648}]},
+])
+def test_new_package_integer_overflow_rejects_before_database_access(builder, change):
+    payload = _new_package_payload(**change)
+    if builder is create_packages_bulk:
+        payload["count"] = 1
+    with pytest.raises(HTTPException, match="must be at most 2147483647"):
+        builder(None, **payload)
+
+
+@pytest.mark.parametrize("change", [
+    {"capacity": 2_147_483_648},
+    {"items": [{"model_id": 1, "color": "blue", "size": "M", "quantity": 2_147_483_648}]},
+])
+def test_package_edit_integer_overflow_has_no_request_or_audit_write(client, auth_headers, change):
+    package_id = _editable_package()
+    if "items" in change:
+        # A legacy capacity can survive an unrelated edit, but newly submitted
+        # quantities must still fit the Package and PackageItem Integer columns.
+        with SessionLocal() as db:
+            db.get(Package, package_id).capacity = 2_147_483_648
+            db.commit()
+    with SessionLocal() as db:
+        before = (db.query(PackageChangeRequest).count(), db.query(AuditLog).count())
+
+    rejected = client.post(
+        f"/api/packages/{package_id}/change-requests", headers=auth_headers,
+        json={"request_type": "edit", "payload": change},
+    )
+
+    assert rejected.status_code == 400, rejected.text
+    with SessionLocal() as db:
+        assert (db.query(PackageChangeRequest).count(), db.query(AuditLog).count()) == before

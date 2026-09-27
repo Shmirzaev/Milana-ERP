@@ -3,34 +3,38 @@ capacity utilization, PDF/HTML export of the process-tracking view.
 """
 from datetime import datetime, timezone
 from html import escape
-from typing import Optional
+from typing import Annotated, Optional
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import func, or_
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, load_only, noload, selectinload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions, is_admin
 from app.models import (
-    WorkOrder, SewingFlow, SewingAssignment, ProductionOrder, Model, User,
-    Customer, SalesOrder, Bundle, ProductionBatch, SewingDailyReport, SewingRecord,
+    WorkOrder, SewingFlow, SewingAssignment, ProductionOrder, Model, ModelBOM, ModelImage, User,
+    Customer, Item, SalesOrder, StockBatch, Bundle, ProductionBatch, SewingDailyReport, SewingRecord,
 )
 from app.schemas.sewing_assignment import (
-    SewingAssignmentIn, SewingAssignmentUpdate, SewingAssignmentOut,
+    SewingAssignmentIn, SewingAssignmentUpdate, SewingAssignmentOut, SewingAssignmentPageOut,
 )
 from app.core.dt import as_utc
 from app.services.audit import log_action
-from app.services.model_images import model_display_image_url
+from app.services.model_images import is_preview_model_image, model_display_image_url, model_preview_image_url
 from app.services.notifications import notify
 from app.services.bundles import resolve_sewing_factory_code
-from app.services.factory_scope import require_factory_access
+from app.services.factory_scope import require_factory_access, require_work_order_factory_access
 from app.services.payroll_factory_scope import production_order_factory_condition
 from app.services.sewing_scope import require_sewing_flow_access
+from app.services.sewing_assignment_policy import validate_assignment_progress
 
 router = APIRouter(tags=["production_extra"])
 _ACTIVE_WO_STATUSES = ("waiting", "pending", "collected", "ready", "in_progress", "paused", "new", "planning")
 _ASSIGNMENT_MANAGED_STATUSES = ("planned", "in_progress", "completed")
+_ASSIGNMENT_STATUSES = frozenset((*_ASSIGNMENT_MANAGED_STATUSES, "cancelled", "transferred"))
+_DB_INTEGER_MIN = -2_147_483_648
+_DB_INTEGER_MAX = 2_147_483_647
 # Blocking/unblocking a work order is a planning/management action.
 _WO_BLOCK_PERMS = (
     "planning.production",
@@ -42,6 +46,11 @@ _WO_BLOCK_PERMS = (
     "management.approve",
     "*",
 )
+
+
+def _require_storable_assignment_integer(field: str, value: int) -> None:
+    if value < _DB_INTEGER_MIN or value > _DB_INTEGER_MAX:
+        raise HTTPException(422, f"{field} must fit a 32-bit database integer")
 
 
 def _received_sewing_qty(db: DbSession, wo: WorkOrder, production_batch_id: int | None = None) -> int:
@@ -122,12 +131,30 @@ def _h(value) -> str:
 class BlockIn(BaseModel):
     reason: Optional[str] = None
 
+    @field_validator("reason")
+    @classmethod
+    def bound_reason_for_audit_json(cls, value: str | None) -> str | None:
+        if value is not None and len(value.strip().encode("utf-8")) > 4096:
+            raise ValueError("block reason cannot exceed 4096 UTF-8 bytes")
+        return value
+
+
+_MAX_ASSIGNMENT_NOTES_UTF8_BYTES = 4096
+
+
+def _validate_changed_assignment_notes(value: str | None, *, existing: str | None = None) -> None:
+    if value is None or value == existing:
+        return
+    if len(value.encode("utf-8")) > _MAX_ASSIGNMENT_NOTES_UTF8_BYTES:
+        raise HTTPException(422, "sewing assignment notes cannot exceed 4096 UTF-8 bytes")
+
 
 # ===== Block / Unblock =====
 @router.post("/work-orders/{wid}/block")
 def block_wo(wid: int, payload: BlockIn, db: DbSession, current: User = Depends(require_permissions(*_WO_BLOCK_PERMS))):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
+    require_work_order_factory_access(current, db, wo)
     reason = (payload.reason or "Blocked").strip()
     wo.is_blocked = True
     wo.block_reason = reason
@@ -148,6 +175,7 @@ def block_wo(wid: int, payload: BlockIn, db: DbSession, current: User = Depends(
 def unblock_wo(wid: int, db: DbSession, current: User = Depends(require_permissions(*_WO_BLOCK_PERMS))):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
+    require_work_order_factory_access(current, db, wo)
     wo.is_blocked = False
     wo.block_reason = None
     log_action(db, current, "unblock", "WorkOrder", wo.id)
@@ -156,11 +184,49 @@ def unblock_wo(wid: int, db: DbSession, current: User = Depends(require_permissi
 
 
 # ===== Sewing Assignments (parallel-line splitting) =====
-@router.get("/work-orders/{wid}/assignments", response_model=list[SewingAssignmentOut])
-def list_assignments(wid: int, db: DbSession, _: CurrentUser):
-    if not db.get(WorkOrder, wid):
+@router.get(
+    "/work-orders/{wid}/assignments",
+    response_model=list[SewingAssignmentOut] | SewingAssignmentPageOut,
+)
+def list_assignments(
+    wid: int,
+    db: DbSession,
+    _: CurrentUser,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
+    if not db.query(WorkOrder.id).filter(WorkOrder.id == wid).first():
         raise HTTPException(404, "Work order not found")
-    return db.query(SewingAssignment).filter(SewingAssignment.work_order_id == wid).order_by(SewingAssignment.id).all()
+    query = db.query(SewingAssignment).options(load_only(
+        SewingAssignment.id,
+        SewingAssignment.work_order_id,
+        SewingAssignment.production_batch_id,
+        SewingAssignment.sewing_flow_id,
+        SewingAssignment.quantity,
+        SewingAssignment.completed_qty,
+        SewingAssignment.planned_start,
+        SewingAssignment.planned_end,
+        SewingAssignment.actual_start,
+        SewingAssignment.actual_end,
+        SewingAssignment.status,
+        SewingAssignment.notes,
+        SewingAssignment.created_by,
+    )).filter(SewingAssignment.work_order_id == wid)
+    ordered_query = query.order_by(SewingAssignment.id)
+    if page is None and page_size is None:
+        return ordered_query.all()
+
+    page = page or 1
+    page_size = page_size or 50
+    total = query.with_entities(func.count(SewingAssignment.id)).scalar()
+    rows = ordered_query.offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.post("/work-orders/{wid}/assignments", response_model=SewingAssignmentOut, status_code=201)
@@ -204,6 +270,9 @@ def create_assignment(
 
     # Soft capacity warning — append to response, do not block.
     capacity_warning = None
+    _require_storable_assignment_integer("quantity", payload.quantity)
+    validate_assignment_progress(payload.quantity, 0)
+    _validate_changed_assignment_notes(payload.notes)
 
     a = SewingAssignment(
         work_order_id=wid,
@@ -248,6 +317,8 @@ def update_assignment(
     require_sewing_flow_access(current, previous_flow)
 
     next_flow_id = changes.get("sewing_flow_id", a.sewing_flow_id)
+    if changes.get("quantity", a.quantity) is None:
+        raise HTTPException(400, "Quantity is required")
     next_qty = int(changes.get("quantity", a.quantity))
     next_start = changes.get("planned_start", a.planned_start)
     next_end = changes.get("planned_end", a.planned_end)
@@ -288,6 +359,25 @@ def update_assignment(
         )
 
     capacity_warning = None
+    if "status" in changes:
+        next_status = str(changes["status"] or "").strip().lower()
+        if next_status not in _ASSIGNMENT_STATUSES:
+            raise HTTPException(400, "Invalid sewing assignment status")
+        changes["status"] = next_status
+
+    _require_storable_assignment_integer("quantity", next_qty)
+    if "completed_qty" in changes:
+        if changes["completed_qty"] is None:
+            raise HTTPException(400, "Completed quantity is required")
+        _require_storable_assignment_integer("completed_qty", int(changes["completed_qty"]))
+    next_completed_qty = int(changes.get("completed_qty", a.completed_qty) or 0)
+    validate_assignment_progress(next_qty, next_completed_qty)
+
+    if "notes" in changes:
+        _validate_changed_assignment_notes(changes["notes"], existing=a.notes)
+        if changes["notes"] == a.notes:
+            # Preserve legacy text without copying an unchanged value to audit JSON.
+            del changes["notes"]
 
     previous_flow_id = int(a.sewing_flow_id)
     for k, v in changes.items():
@@ -324,6 +414,27 @@ class SewingAssignmentReturnIn(BaseModel):
     sewing_flow_id: int
 
 
+def _assignment_has_output(db: DbSession, assignment: SewingAssignment, wo: WorkOrder, flow: SewingFlow) -> bool:
+    if assignment.completed_qty or assignment.actual_start or assignment.actual_end:
+        return True
+    reports = db.query(SewingDailyReport.id).filter(or_(
+        SewingDailyReport.sewing_assignment_id == assignment.id,
+        (SewingDailyReport.work_order_id == wo.id)
+        & (SewingDailyReport.sewing_flow_id == flow.id)
+        & (SewingDailyReport.production_batch_id == assignment.production_batch_id),
+    )).first()
+    if reports:
+        return True
+    records = db.query(SewingRecord.id).filter(or_(
+        SewingRecord.sewing_assignment_id == assignment.id,
+        (SewingRecord.work_order_id == wo.id)
+        & (SewingRecord.production_batch_id == assignment.production_batch_id)
+        & or_(SewingRecord.line_name.is_(None), SewingRecord.line_name == "",
+              func.lower(SewingRecord.line_name).in_((flow.name.lower(), flow.code.lower()))),
+    )).first()
+    return bool(records)
+
+
 @router.post("/sewing-assignments/{aid}/return", response_model=SewingAssignmentOut)
 def return_assignment(
     aid: int, payload: SewingAssignmentReturnIn, db: DbSession,
@@ -348,19 +459,7 @@ def return_assignment(
         return a
     if a.status not in ("planned", "in_progress") or wo.status not in _ACTIVE_WO_STATUSES:
         raise HTTPException(409, "SEWING_RETURN_INACTIVE")
-    reports = db.query(SewingDailyReport.id).filter(or_(
-        SewingDailyReport.sewing_assignment_id == aid,
-        (SewingDailyReport.work_order_id == wo.id)
-        & (SewingDailyReport.sewing_flow_id == flow.id)
-        & (SewingDailyReport.production_batch_id == a.production_batch_id),
-    )).first()
-    records = db.query(SewingRecord.id).filter(
-        SewingRecord.work_order_id == wo.id,
-        SewingRecord.production_batch_id == a.production_batch_id,
-        or_(SewingRecord.line_name.is_(None), SewingRecord.line_name == "",
-            func.lower(SewingRecord.line_name).in_((flow.name.lower(), flow.code.lower()))),
-    ).first()
-    if a.completed_qty or a.actual_start or a.actual_end or reports or records:
+    if _assignment_has_output(db, a, wo, flow):
         raise HTTPException(409, "SEWING_RETURN_HAS_OUTPUT")
     old = {"status": a.status, "sewing_flow_id": a.sewing_flow_id, "quantity": a.quantity,
            "work_order_id": wo.id, "production_batch_id": a.production_batch_id,
@@ -388,6 +487,19 @@ def delete_assignment(
 ):
     a = db.get(SewingAssignment, aid)
     if not a: raise HTTPException(404, "Assignment not found")
+    flow = db.get(SewingFlow, a.sewing_flow_id)
+    if not flow:
+        raise HTTPException(404, "Sewing flow not found")
+    require_sewing_flow_access(current, flow)
+    wo = db.query(WorkOrder).filter(WorkOrder.id == a.work_order_id).with_for_update().first()
+    if not wo or wo.operation != "sewing":
+        raise HTTPException(404, "Sewing work order not found")
+    db.refresh(a, with_for_update=True)
+    require_work_order_factory_access(current, db, wo)
+    if a.status not in ("planned", "in_progress") or wo.status not in _ACTIVE_WO_STATUSES:
+        raise HTTPException(409, "SEWING_DELETE_INACTIVE")
+    if _assignment_has_output(db, a, wo, flow):
+        raise HTTPException(409, "SEWING_DELETE_HAS_OUTPUT")
     db.delete(a)
     log_action(db, current, "delete", "SewingAssignment", aid)
     db.commit()
@@ -468,11 +580,23 @@ def _capacity_warning(
 
 
 @router.get("/sewing-flows/{fid}/utilization")
-def flow_utilization(fid: int, db: DbSession, _: CurrentUser):
-    f = db.get(SewingFlow, fid)
+def flow_utilization(fid: int, db: DbSession, current: CurrentUser):
+    f = db.query(SewingFlow).options(load_only(
+        SewingFlow.id,
+        SewingFlow.factory_code,
+        SewingFlow.code,
+        SewingFlow.capacity_per_day,
+    )).filter(SewingFlow.id == fid).first()
     if not f: raise HTTPException(404, "Flow not found")
+    require_sewing_flow_access(current, f)
     now = datetime.now(timezone.utc)
-    rows = db.query(SewingAssignment).join(
+    rows = db.query(SewingAssignment).options(load_only(
+        SewingAssignment.id,
+        SewingAssignment.quantity,
+        SewingAssignment.completed_qty,
+        SewingAssignment.planned_start,
+        SewingAssignment.planned_end,
+    )).join(
         WorkOrder, WorkOrder.id == SewingAssignment.work_order_id
     ).filter(
         SewingAssignment.sewing_flow_id == fid,
@@ -492,18 +616,21 @@ def flow_utilization(fid: int, db: DbSession, _: CurrentUser):
             days = max(1.0, (a_end - a_start).total_seconds() / 86400.0)
             committed_today += round(remaining_qty / days)
     # Add directly assigned sewing WOs that are not split.
-    direct_wos = db.query(WorkOrder).filter(
+    managed_assignment_exists = db.query(SewingAssignment.id).filter(
+        SewingAssignment.work_order_id == WorkOrder.id,
+        SewingAssignment.status.in_(_ASSIGNMENT_MANAGED_STATUSES),
+    ).exists()
+    direct_wos = db.query(WorkOrder).options(load_only(
+        WorkOrder.id,
+        WorkOrder.planned_output_qty,
+        WorkOrder.passed_qty,
+    )).filter(
         WorkOrder.sewing_flow_id == fid,
         WorkOrder.operation == "sewing",
         WorkOrder.status.in_(_ACTIVE_WO_STATUSES),
+        ~managed_assignment_exists,
     ).all()
     for w in direct_wos:
-        has_split = db.query(SewingAssignment.id).filter(
-            SewingAssignment.work_order_id == w.id,
-            SewingAssignment.status.in_(_ASSIGNMENT_MANAGED_STATUSES),
-        ).first()
-        if has_split:
-            continue
         committed_today += max(0, int(w.planned_output_qty or 0) - int(w.passed_qty or 0))
     pct = (committed_today / f.capacity_per_day * 100) if f.capacity_per_day else 0
     return {
@@ -516,7 +643,13 @@ def flow_utilization(fid: int, db: DbSession, _: CurrentUser):
 
 # ===== Printable HTML export of process tracking =====
 @router.get("/process-tracking/export", response_class=HTMLResponse)
-def export_process_html(db: DbSession, current: CurrentUser, factory: str | None = None):
+def export_process_html(
+    db: DbSession,
+    current: CurrentUser,
+    factory: str | None = None,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
     """A printable HTML view (use browser's "Save as PDF" — keeps deps minimal)."""
     qry = db.query(ProductionOrder).filter(
         ProductionOrder.status.not_in(["closed", "cancelled", "delivered"]),
@@ -530,15 +663,115 @@ def export_process_html(db: DbSession, current: CurrentUser, factory: str | None
         )
     else:
         qry = qry.filter(ProductionOrder.source_type == "standard")
+    qry = qry.order_by(ProductionOrder.id.desc())
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = qry.order_by(None).count()
+        qry = qry.offset((page - 1) * page_size).limit(page_size)
     pos = qry.options(
-        selectinload(ProductionOrder.work_orders),
-    ).order_by(ProductionOrder.id.desc()).all()
+        load_only(
+            ProductionOrder.id,
+            ProductionOrder.production_no,
+            ProductionOrder.model_id,
+            ProductionOrder.sales_order_id,
+            ProductionOrder.service_customer_name,
+            ProductionOrder.planned_quantity,
+            ProductionOrder.status,
+            ProductionOrder.deadline,
+        ),
+        noload(ProductionOrder.materials),
+        selectinload(ProductionOrder.work_orders).load_only(
+            WorkOrder.id,
+            WorkOrder.production_order_id,
+            WorkOrder.operation,
+            WorkOrder.status,
+            WorkOrder.passed_qty,
+            WorkOrder.planned_output_qty,
+        ),
+    ).all()
+
+    model_ids = {po.model_id for po in pos}
+    models = {
+        model.id: model
+        for model in (
+            db.query(Model)
+            .options(
+                load_only(Model.id, Model.code, Model.name),
+                selectinload(Model.images).load_only(
+                    ModelImage.id,
+                    ModelImage.model_id,
+                    ModelImage.file_url,
+                    ModelImage.file_name,
+                    ModelImage.content_type,
+                    ModelImage.image_type,
+                    ModelImage.is_primary,
+                ),
+            )
+            .filter(Model.id.in_(model_ids))
+            .all()
+            if model_ids
+            else []
+        )
+    }
+
+    bom_fallback_ids = {
+        int(model.id)
+        for model in models.values()
+        if not model_preview_image_url(model)
+        and not any(
+            is_preview_model_image(image)
+            and str(image.image_type or "").lower() == "material"
+            for image in model.images or []
+        )
+    }
+    if bom_fallback_ids:
+        db.query(Model).options(
+            load_only(Model.id),
+            selectinload(Model.bom)
+            .load_only(
+                ModelBOM.id,
+                ModelBOM.model_id,
+                ModelBOM.item_id,
+                ModelBOM.stock_batch_id,
+                ModelBOM.photo_url,
+            )
+            .options(
+                joinedload(ModelBOM.item).load_only(Item.id, Item.category, Item.image_url),
+                joinedload(ModelBOM.stock_batch).load_only(StockBatch.id, StockBatch.image_url),
+            ),
+        ).filter(Model.id.in_(bom_fallback_ids)).all()
+    sales_order_ids = {po.sales_order_id for po in pos if po.sales_order_id is not None}
+    sales_orders = {
+        order.id: order
+        for order in (
+            db.query(SalesOrder)
+            .options(load_only(SalesOrder.id, SalesOrder.order_no, SalesOrder.customer_id))
+            .filter(SalesOrder.id.in_(sales_order_ids))
+            .all()
+            if sales_order_ids
+            else []
+        )
+    }
+    customer_ids = {order.customer_id for order in sales_orders.values() if order.customer_id is not None}
+    customers = {
+        customer.id: customer
+        for customer in (
+            db.query(Customer)
+            .options(load_only(Customer.id, Customer.name))
+            .filter(Customer.id.in_(customer_ids))
+            .all()
+            if customer_ids
+            else []
+        )
+    }
 
     rows_html = ""
     for po in pos:
-        model = db.get(Model, po.model_id)
-        so = db.get(SalesOrder, po.sales_order_id) if po.sales_order_id else None
-        cust = db.get(Customer, so.customer_id) if so and so.customer_id else None
+        model = models.get(po.model_id)
+        so = sales_orders.get(po.sales_order_id) if po.sales_order_id else None
+        cust = customers.get(so.customer_id) if so and so.customer_id else None
         model_image_url = model_display_image_url(model)
         model_image = (
             f"<img class='model-img' src='{_h(model_image_url)}' alt='{_h(model.name if model else po.model_id)}'>"
@@ -591,4 +824,10 @@ def export_process_html(db: DbSession, current: CurrentUser, factory: str | None
   </table>
   <button onclick="window.print()" style="margin-top:6mm;padding:3mm 8mm;background:#1d4ed8;color:#fff;border:none;border-radius:2mm">Print / Save as PDF</button>
 </body></html>"""
-    return HTMLResponse(content=html)
+    response = HTMLResponse(content=html)
+    if total is not None:
+        response.headers["X-Total-Count"] = str(total)
+        response.headers["X-Page"] = str(page)
+        response.headers["X-Page-Size"] = str(page_size)
+        response.headers["X-Has-More"] = "true" if page * page_size < total else "false"
+    return response

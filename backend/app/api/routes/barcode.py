@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import RedirectResponse, Response
+from sqlalchemy.orm import load_only
 
 from app.core.deps import DbSession, CurrentUser, PRODUCTION_READ_PERMISSIONS, require_permissions
 from app.models import Bundle, Package, User
@@ -11,7 +12,7 @@ router = APIRouter(prefix="/barcode", tags=["barcode"])
 
 @router.get("/bundle/{bundle_no}")
 def bundle_qr(bundle_no: str, db: DbSession, _: CurrentUser):
-    b = find_bundle_by_scanned_code(db, bundle_no)
+    b = find_bundle_by_scanned_code(db, bundle_no, qr_payload_only=True)
     if not b: raise HTTPException(404, "Bundle not found")
     return {"qr_code_url": bundle_qr_image_url(b.id), "barcode": b.barcode, "bundle_no": b.bundle_no}
 
@@ -19,7 +20,17 @@ def bundle_qr(bundle_no: str, db: DbSession, _: CurrentUser):
 @router.get("/bundle-image/{bundle_id}")
 def bundle_qr_image(bundle_id: int, db: DbSession, _: CurrentUser):
     """Cookie-authenticated image for the same-origin bundle detail page."""
-    bundle = db.get(Bundle, bundle_id)
+    if bundle_id > 2_147_483_647:
+        raise HTTPException(404, "Bundle not found")
+    bundle = db.query(Bundle).options(
+        load_only(
+            Bundle.id,
+            Bundle.bundle_no,
+            Bundle.barcode,
+            Bundle.production_order_id,
+            Bundle.production_batch_id,
+        )
+    ).filter(Bundle.id == bundle_id).first()
     if bundle is None:
         raise HTTPException(404, "Bundle not found")
     return Response(
@@ -30,9 +41,12 @@ def bundle_qr_image(bundle_id: int, db: DbSession, _: CurrentUser):
 
 @router.get("/package/{package_no}")
 def package_qr(package_no: str, db: DbSession, _: CurrentUser):
-    p = db.query(Package).filter(Package.package_no == package_no).first()
+    p = db.query(Package.qr_code_url, Package.barcode, Package.package_no).filter(
+        Package.package_no == package_no,
+    ).first()
     if not p: raise HTTPException(404, "Package not found")
-    return {"qr_code_url": p.qr_code_url, "barcode": p.barcode, "package_no": p.package_no}
+    qr_code_url, barcode, resolved_package_no = p
+    return {"qr_code_url": qr_code_url, "barcode": barcode, "package_no": resolved_package_no}
 
 
 @router.post("/generate-bundle-label/{bundle_id}")

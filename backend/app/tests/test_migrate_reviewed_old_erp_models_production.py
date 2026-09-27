@@ -799,6 +799,40 @@ def test_existing_model_preserves_code_name_images_and_nonblank_information() ->
     assert action["add_colors"] == [{"color_name": "Red", "color_code": "#f00"}]
 
 
+@pytest.mark.parametrize(
+    "measurement_json",
+    [
+        {"shoulder": 40},
+        {"chest": {"value": 92}},
+        {"waist": "71.5"},
+        {"hip": [98]},
+        {"length": True},
+        {"sleeve": float("inf")},
+    ],
+)
+def test_reviewed_package_rejects_measurements_outside_live_schema(measurement_json) -> None:
+    with pytest.raises(migration.MigrationError, match="measurement schema"):
+        migration._validate_sizes(
+            [{"size": "M", "measurement_json": measurement_json}],
+            "Package model TEST",
+        )
+
+
+def test_reviewed_package_preserves_valid_measurements_and_null() -> None:
+    measurements = {"chest": 92, "waist": 71.5}
+
+    assert migration._validate_sizes(
+        [
+            {"size": "M", "measurement_json": measurements},
+            {"size": "L", "measurement_json": None},
+        ],
+        "Package model TEST",
+    ) == [
+        {"size": "L", "measurement_json": None},
+        {"size": "M", "measurement_json": measurements},
+    ]
+
+
 def test_existing_update_is_idempotent_after_receipt() -> None:
     exact = paid_operation("old-1", "Exact")
     missing = paid_operation("old-2", "Missing")
@@ -855,6 +889,123 @@ def test_existing_update_is_idempotent_after_receipt() -> None:
     )
     assert same_receipt == model.details_json
     assert len(same_receipt[migration.RECEIPTS_KEY]) == 1
+
+
+def test_receipt_write_bounds_changed_details_and_preserves_unchanged_legacy() -> None:
+    plan = {
+        "source_key": "reviewed-final",
+        "package_sha256": "a" * 64,
+        "plan_sha256": "b" * 64,
+        "actions": [{"identity": "TEST"}],
+        "active_release": {"active_release": "20260727_062443"},
+    }
+    receipt_args = {
+        "plan": plan,
+        "identity": "TEST",
+        "action": "update_existing",
+        "action_index": 1,
+    }
+    existing = migration._append_receipt({"general": {}}, **receipt_args)
+    existing["legacy_extension"] = "x" * (70 * 1024)
+    planned = copy.deepcopy(existing)
+    planned["general"]["legacy_product"] = "Tunic"
+    before = copy.deepcopy(planned)
+
+    with pytest.raises(migration.MigrationError, match="Imported Model.details_json is invalid"):
+        migration._append_receipt(planned, existing_details=existing, **receipt_args)
+
+    assert planned == before
+    assert migration._append_receipt(
+        existing, existing_details=existing, **receipt_args,
+    ) == existing
+
+
+@pytest.mark.parametrize("invalid_kind", ["oversized", "deep"])
+def test_new_model_receipt_rejects_unbounded_details(invalid_kind: str) -> None:
+    extension: object = "x" * (70 * 1024)
+    if invalid_kind == "deep":
+        extension = {"leaf": True}
+        for _ in range(20):
+            extension = {"next": extension}
+    details = {"general": {}, "legacy_extension": extension}
+    before = copy.deepcopy(details)
+    plan = {
+        "source_key": "reviewed-final",
+        "package_sha256": "a" * 64,
+        "plan_sha256": "b" * 64,
+        "actions": [{"identity": "TEST"}],
+        "active_release": {"active_release": "20260727_062443"},
+    }
+
+    with pytest.raises(migration.MigrationError, match="Imported Model.details_json is invalid"):
+        migration._append_receipt(
+            details,
+            plan=plan,
+            identity="TEST",
+            action="create_model",
+            action_index=1,
+        )
+
+    assert details == before
+
+
+@pytest.mark.parametrize("action_type", ["update_existing", "create_model"])
+@pytest.mark.parametrize("invalid_kind", ["oversized", "deep", "nonfinite"])
+def test_receipt_plan_preflight_rejects_invalid_final_details_without_database(
+    monkeypatch: pytest.MonkeyPatch,
+    action_type: str,
+    invalid_kind: str,
+) -> None:
+    monkeypatch.setattr(migration, "SessionLocal", lambda: pytest.fail("database session opened"))
+    invalid_value: object = "ж" * (70 * 1024)
+    if invalid_kind == "deep":
+        invalid_value = {"leaf": True}
+        for _ in range(20):
+            invalid_value = {"next": invalid_value}
+    elif invalid_kind == "nonfinite":
+        invalid_value = float("nan")
+    details = {"general": {"extension": invalid_value}}
+    action = {"action": action_type, "identity": "TEST"}
+    if action_type == "update_existing":
+        action.update(target_model_id=7, details_after=details)
+        models = [SimpleNamespace(id=7, details_json={"general": {}})]
+    else:
+        action["record"] = {"details_json": details}
+        models = []
+    plan = {
+        "source_key": "reviewed-final", "package_sha256": "a" * 64,
+        "plan_sha256": "b" * 64, "actions": [action],
+        "active_release": {"active_release": "20260727_062443"},
+    }
+    before = copy.deepcopy(details)
+
+    with pytest.raises(migration.MigrationError, match="Imported Model.details_json is invalid"):
+        migration.preflight_planned_details_receipts(plan, models)
+
+    assert details == before
+
+
+def test_receipt_plan_preflight_preserves_exact_unchanged_oversized_legacy_without_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(migration, "SessionLocal", lambda: pytest.fail("database session opened"))
+    action = {"action": "update_existing", "identity": "TEST", "target_model_id": 7}
+    plan = {
+        "source_key": "reviewed-final", "package_sha256": "a" * 64,
+        "plan_sha256": "b" * 64, "actions": [action],
+        "active_release": {"active_release": "20260727_062443"},
+    }
+    existing = migration._append_receipt(
+        {"general": {}}, plan=plan, identity="TEST",
+        action="update_existing", action_index=1,
+    )
+    existing["future_extension"] = "ж" * (70 * 1024)
+    action["details_after"] = copy.deepcopy(existing)
+    model = SimpleNamespace(id=7, details_json=copy.deepcopy(existing))
+
+    migration.preflight_planned_details_receipts(plan, [model])
+
+    assert model.details_json == existing
 
 
 def test_new_image_rows_preserve_reviewed_metadata() -> None:

@@ -45,11 +45,9 @@ def upgrade():
     op.create_index("ix_packaging_receipts_source_work_order_id", "packaging_receipts", ["source_work_order_id"])
     op.create_index("ix_packaging_receipts_production_order_id", "packaging_receipts", ["production_order_id"])
     op.create_index("ix_packaging_receipts_production_batch_id", "packaging_receipts", ["production_batch_id"])
-    op.create_index("ix_packaging_receipts_bundle_id", "packaging_receipts", ["bundle_id"])
 
 
 def downgrade():
-    op.drop_index("ix_packaging_receipts_bundle_id", table_name="packaging_receipts")
     op.drop_index("ix_packaging_receipts_production_batch_id", table_name="packaging_receipts")
     op.drop_index("ix_packaging_receipts_production_order_id", table_name="packaging_receipts")
     op.drop_index("ix_packaging_receipts_source_work_order_id", table_name="packaging_receipts")

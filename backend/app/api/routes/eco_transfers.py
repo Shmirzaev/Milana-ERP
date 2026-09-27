@@ -5,8 +5,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func
-from sqlalchemy.orm import lazyload
+from sqlalchemy import func, text
+from sqlalchemy.orm import lazyload, load_only
 from app.core.deps import DbSession, require_permissions
 from app.models import EcoFabricDispatch, EcoFabricRoll, Item, StockBatch, StockMovement, User
 from app.api.routes.fabric_scans import parse_roll, TASHKENT
@@ -14,6 +14,8 @@ from app.services.audit import log_action
 from app.services.factory_scope import selected_factory_code
 from app.services.inventory import reserved_stock_for_batch, available_stock_for_item
 from app.services.inventory_access import MATERIAL_CATEGORIES
+from app.services.stock_batch_policy import validate_stock_batch_unit
+from app.services.workflow import STOCK_ITEM_AVAILABILITY_LOCK_NAMESPACE
 
 router = APIRouter(prefix="/eco-fabric-transfers", tags=["eco_fabric_transfers"])
 
@@ -41,10 +43,41 @@ class ReturnIn(ScanIn):
 
 
 def batch_lock(db, batch_id):
-    batch = db.query(StockBatch).options(lazyload(StockBatch.item)).filter_by(id=batch_id).with_for_update().first()
+    batch = db.query(StockBatch).options(
+        load_only(
+            StockBatch.id,
+            StockBatch.item_id,
+            StockBatch.batch_no,
+            StockBatch.color,
+            StockBatch.quantity,
+            StockBatch.piece_count,
+            StockBatch.roll_weights_kg,
+            StockBatch.unit,
+            StockBatch.warehouse_id,
+            StockBatch.archived_at,
+            StockBatch.archived_by,
+        ),
+        lazyload(StockBatch.item).load_only(
+            Item.id,
+            Item.category,
+            Item.name,
+            Item.is_active,
+            Item.unit,
+        ),
+    ).filter_by(id=batch_id).with_for_update().first()
     if not batch or not batch.item or batch.item.category not in MATERIAL_CATEGORIES:
         raise HTTPException(404, "fabricScans.fabric_not_found")
     return batch
+
+
+def _lock_dispatch_items(db, batches):
+    """Protect item-only reservations after all batch row locks are held."""
+    if db.bind and db.bind.dialect.name == "postgresql":
+        item_ids = sorted({int(batch.item_id) for batch in batches.values()})
+        db.execute(text(
+            "SELECT pg_advisory_xact_lock(:namespace, lock_id) "
+            "FROM unnest(CAST(:item_ids AS INTEGER[])) AS ordered_locks(lock_id) ORDER BY lock_id"
+        ), {"namespace": STOCK_ITEM_AVAILABILITY_LOCK_NAMESPACE, "item_ids": item_ids})
 
 
 def quantity(db, batch, roll):
@@ -78,8 +111,9 @@ def roll_data(row):
             "returned_at": utc(row.returned_at), "return_operator_name": row.return_operator_name}
 
 
-def dispatch_data(db, dispatch):
-    rows = db.query(EcoFabricRoll).filter_by(dispatch_id=dispatch.id).order_by(EcoFabricRoll.id).all()
+def dispatch_data(db, dispatch, *, rows=None):
+    if rows is None:
+        rows = db.query(EcoFabricRoll).filter_by(dispatch_id=dispatch.id).order_by(EcoFabricRoll.id).all()
     return {"id": dispatch.id, "number": f"ECO-{dispatch.id:06d}", "sent_at": utc(dispatch.sent_at),
             "operator_name": dispatch.operator_name, "rows": [roll_data(row) for row in rows],
             "sent_rolls": len(rows), "outstanding_rolls": sum(row.returned_at is None for row in rows),
@@ -94,6 +128,7 @@ def scan(payload: ScanIn, db: DbSession, user: User = Depends(access)):
     outstanding = db.query(EcoFabricRoll).filter_by(batch_id=batch_id, roll_number=roll, returned_at=None).first()
     if outstanding:
         return {**roll_data(outstanding), "status": "sent"}
+    validate_stock_batch_unit(batch.item, batch.unit)
     amount, _ = quantity(db, batch, roll)
     if batch.archived_at or Decimal(batch.quantity) < amount:
         raise HTTPException(409, "ecoTransfers.unavailable")
@@ -108,6 +143,7 @@ def send(payload: SendIn, db: DbSession, user: User = Depends(access)):
         raise HTTPException(400, "ecoTransfers.duplicate")
     # Lock batches in stable order; all mutation paths share the inventory row locks.
     batches = {bid: batch_lock(db, bid) for bid in sorted({bid for bid, _ in identities})}
+    _lock_dispatch_items(db, batches)
     key = str(payload.request_key)
     previous = db.query(EcoFabricDispatch).filter_by(request_key=key).first()
     if previous:
@@ -115,6 +151,8 @@ def send(payload: SendIn, db: DbSession, user: User = Depends(access)):
         if sorted((r.batch_id, r.roll_number) for r in old) != identities:
             raise HTTPException(409, "ecoTransfers.changedRequest")
         return dispatch_data(db, previous)
+    for batch in batches.values():
+        validate_stock_batch_unit(batch.item, batch.unit)
     dispatch = EcoFabricDispatch(request_key=key, created_by=user.id, operator_name=user.name,
                                   sent_at=datetime.now(timezone.utc), remaining_inventory=[])
     db.add(dispatch)
@@ -144,10 +182,18 @@ def send(payload: SendIn, db: DbSession, user: User = Depends(access)):
     # Immutable snapshot: later returns/consumption never rewrite this dispatch's PDF.
     offsite_counts = dict(db.query(EcoFabricRoll.batch_id, func.count(EcoFabricRoll.id)).filter(
         EcoFabricRoll.returned_at.is_(None)).group_by(EcoFabricRoll.batch_id).all())
-    dispatch.remaining_inventory = [{"fabric_name": item.name, "batch_no": batch.batch_no,
-                "color": batch.color, "quantity": str(batch.quantity), "unit": batch.unit,
-                "rolls": max(0, batch.piece_count - offsite_counts.get(batch.id, 0)) if batch.piece_count is not None else None}
-        for batch, item in db.query(StockBatch, Item).join(Item, Item.id == StockBatch.item_id).filter(
+    dispatch.remaining_inventory = [{"fabric_name": item_name, "batch_no": batch_no,
+                "color": color, "quantity": str(batch_quantity), "unit": unit,
+                "rolls": max(0, piece_count - offsite_counts.get(batch_id, 0)) if piece_count is not None else None}
+        for batch_id, batch_no, color, batch_quantity, unit, piece_count, item_name in db.query(
+            StockBatch.id,
+            StockBatch.batch_no,
+            StockBatch.color,
+            StockBatch.quantity,
+            StockBatch.unit,
+            StockBatch.piece_count,
+            Item.name,
+        ).join(Item, Item.id == StockBatch.item_id).filter(
             Item.category.in_(MATERIAL_CATEGORIES), StockBatch.archived_at.is_(None), StockBatch.quantity > 0,
         ).order_by(Item.name, StockBatch.batch_no, StockBatch.id).all()]
     result = dispatch_data(db, dispatch)
@@ -165,12 +211,15 @@ def receive(payload: ReturnIn, db: DbSession, user: User = Depends(access)):
         if (previous.batch_id, previous.roll_number, previous.dispatch_id) != (bid, roll, payload.dispatch_id):
             raise HTTPException(409, "ecoTransfers.changedRequest")
         return roll_data(previous)
+    if payload.dispatch_id > 2_147_483_647:
+        raise HTTPException(409, "ecoTransfers.notSent")
     row = db.query(EcoFabricRoll).filter_by(batch_id=bid, roll_number=roll,
                     dispatch_id=payload.dispatch_id).with_for_update().first()
     if not row or row.returned_at is not None:
         raise HTTPException(409, "ecoTransfers.notSent")
     if batch.unit != row.unit or not batch.item.is_active:
         raise HTTPException(409, "ecoTransfers.batchChanged")
+    validate_stock_batch_unit(batch.item, batch.unit)
     before = roll_data(row)
     row.returned_at = datetime.now(timezone.utc)
     row.returned_by = user.id
@@ -195,9 +244,33 @@ def report(db: DbSession, user: User = Depends(access), report_date: date | None
         start = datetime.combine(report_date, time.min, TASHKENT).astimezone(timezone.utc)
         query = query.filter(EcoFabricDispatch.sent_at >= start, EcoFabricDispatch.sent_at < start + timedelta(days=1))
     outstanding = db.query(func.count(EcoFabricRoll.id), func.coalesce(func.sum(EcoFabricRoll.quantity), 0)).filter_by(returned_at=None).one()
-    rows = query.order_by(EcoFabricDispatch.sent_at.desc(), EcoFabricDispatch.id.desc()).offset((page-1)*page_size).limit(page_size).all()
+    rows = query.options(load_only(
+        EcoFabricDispatch.id,
+        EcoFabricDispatch.sent_at,
+        EcoFabricDispatch.operator_name,
+    )).order_by(
+        EcoFabricDispatch.sent_at.desc(), EcoFabricDispatch.id.desc(),
+    ).offset((page-1)*page_size).limit(page_size).all()
+    rolls_by_dispatch = {row.id: [] for row in rows}
+    if rows:
+        for roll in db.query(EcoFabricRoll).filter(
+            EcoFabricRoll.dispatch_id.in_(rolls_by_dispatch),
+        ).options(load_only(
+            EcoFabricRoll.id,
+            EcoFabricRoll.dispatch_id,
+            EcoFabricRoll.batch_id,
+            EcoFabricRoll.roll_number,
+            EcoFabricRoll.fabric_name,
+            EcoFabricRoll.batch_no,
+            EcoFabricRoll.color,
+            EcoFabricRoll.quantity,
+            EcoFabricRoll.unit,
+            EcoFabricRoll.returned_at,
+            EcoFabricRoll.return_operator_name,
+        )).order_by(EcoFabricRoll.id).all():
+            rolls_by_dispatch[roll.dispatch_id].append(roll)
     return {"total": query.count(), "outstanding_rolls": outstanding[0], "outstanding_kg": outstanding[1],
-            "items": [dispatch_data(db, row) for row in rows]}
+            "items": [dispatch_data(db, row, rows=rolls_by_dispatch[row.id]) for row in rows]}
 
 
 @router.get("/{dispatch_id}/pdf")
