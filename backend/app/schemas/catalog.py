@@ -179,11 +179,11 @@ class ModelImageOut(ORMModel):
 class ModelSizeMeasurements(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    chest: float | None = Field(default=None, allow_inf_nan=False)
-    waist: float | None = Field(default=None, allow_inf_nan=False)
-    hip: float | None = Field(default=None, allow_inf_nan=False)
-    length: float | None = Field(default=None, allow_inf_nan=False)
-    sleeve: float | None = Field(default=None, allow_inf_nan=False)
+    chest: float | None = Field(default=None, gt=0, le=1000, allow_inf_nan=False)
+    waist: float | None = Field(default=None, gt=0, le=1000, allow_inf_nan=False)
+    hip: float | None = Field(default=None, gt=0, le=1000, allow_inf_nan=False)
+    length: float | None = Field(default=None, gt=0, le=1000, allow_inf_nan=False)
+    sleeve: float | None = Field(default=None, gt=0, le=1000, allow_inf_nan=False)
 
 
 class ModelSizeIn(BaseModel):

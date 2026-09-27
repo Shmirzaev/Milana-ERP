@@ -89,6 +89,72 @@ def test_reserved_stock_consumption_accepts_matching_item_and_batch_unit():
         assert movement.unit == item.unit == batch.unit
 
 
+@pytest.mark.parametrize("scope", ["item", "warehouse"])
+def test_batch_reservation_rejects_scope_mismatch_without_writes(scope):
+    with TestSessionLocal() as db:
+        batch_item, batch_warehouse, batch, _model, _batch_order = _stock_case(
+            db, name="RES-ITEM-REF-BATCH",
+        )
+        claim_item, _claim_warehouse, _claim_batch, _claim_model, claim_order = _stock_case(
+            db, name="RES-ITEM-REF-CLAIM",
+        )
+        reservation = MaterialReservation(
+            reservation_no=f"RES-ITEM-REF-{uuid4().hex[:10]}",
+            production_order_id=claim_order.id,
+            item_id=claim_item.id if scope == "item" else batch_item.id,
+            stock_batch_id=batch.id,
+            warehouse_id=batch_warehouse.id if scope == "item" else _claim_warehouse.id,
+            reserved_quantity=3,
+            consumed_quantity=0,
+            released_quantity=0,
+            unit=batch.unit,
+            status="reserved",
+            reservation_type="packaging",
+            source="manual",
+        )
+        db.add(reservation)
+        db.flush()
+        movement_count = db.query(StockMovement).filter_by(batch_id=batch.id).count()
+
+        with pytest.raises(HTTPException) as rejected:
+            consume_material_reservation(db, reservation.id, quantity=2, user_id=None)
+        db.flush()
+
+        assert rejected.value.status_code == 409
+        assert float(batch.quantity) == 10
+        assert float(reservation.consumed_quantity) == 0
+        assert db.query(StockMovement).filter_by(batch_id=batch.id).count() == movement_count
+
+
+def test_batch_reservation_allows_legacy_null_warehouse_scope():
+    with TestSessionLocal() as db:
+        item, _warehouse, batch, _model, order = _stock_case(db, name="RES-NULL-WH")
+        reservation = MaterialReservation(
+            reservation_no=f"RES-NULL-WH-{uuid4().hex[:10]}",
+            production_order_id=order.id,
+            item_id=item.id,
+            stock_batch_id=batch.id,
+            warehouse_id=None,
+            reserved_quantity=3,
+            consumed_quantity=0,
+            released_quantity=0,
+            unit=batch.unit,
+            status="reserved",
+            reservation_type="packaging",
+            source="manual",
+        )
+        db.add(reservation)
+        db.flush()
+
+        consumed = consume_material_reservation(db, reservation.id, quantity=2, user_id=None)
+        db.flush()
+
+        movement = db.query(StockMovement).filter_by(batch_id=batch.id).one()
+        assert float(batch.quantity) == 8
+        assert float(consumed.consumed_quantity) == 2
+        assert movement.unit == item.unit == batch.unit
+
+
 def test_reserved_stock_consumption_rejects_bad_legacy_reservation_without_writes():
     with TestSessionLocal() as db:
         item, warehouse, batch, _model, order = _stock_case(db, name="RES-BAD")

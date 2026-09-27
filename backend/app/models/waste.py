@@ -19,6 +19,8 @@ class WasteRecord(Base, PkMixin, TimestampMixin):
     reason: Mapped[str | None] = mapped_column(Text)
     sellable: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     estimated_value: Mapped[float] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    cost_currency_at_recording: Mapped[str | None] = mapped_column(String(3))
+    cost_source_batch_id: Mapped[int | None] = mapped_column(ForeignKey("stock_batches.id"))
     status: Mapped[str] = mapped_column(String(32), default="recorded", nullable=False)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 

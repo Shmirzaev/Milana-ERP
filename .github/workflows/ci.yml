@@ -152,6 +152,7 @@ jobs:
           app/tests/test_packaging_receive_options_query_growth.py
           app/tests/test_package_batch_receive_concurrency.py
           app/tests/test_material_reservation_concurrency.py
+          app/tests/test_migration_0099_downgrade_postgres.py
           app/tests/test_user_audit_history.py
           app/tests/test_admin_membership_delete_race.py
           app/tests/test_finished_goods_release_integrity.py

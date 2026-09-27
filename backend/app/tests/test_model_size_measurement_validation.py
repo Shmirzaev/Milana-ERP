@@ -96,6 +96,34 @@ def test_model_size_rejects_malformed_measurements_without_side_effects(
     assert _size_counts() == before
 
 
+@pytest.mark.parametrize("measurement", [0, -0.01, 1000.01, 1e100])
+def test_model_size_rejects_out_of_range_finite_measurements_without_side_effects(
+    client, auth_headers, measurement,
+):
+    model_id = _model()
+    before = _size_counts()
+
+    response = client.post(
+        f"/api/models/{model_id}/sizes",
+        headers=auth_headers,
+        json={"size": "M", "measurement_json": {"chest": measurement}},
+    )
+
+    assert response.status_code == 422, response.text
+    assert _size_counts() == before
+
+
+def test_model_size_accepts_measurement_at_upper_boundary(client, auth_headers):
+    model_id = _model()
+    response = client.post(
+        f"/api/models/{model_id}/sizes",
+        headers=auth_headers,
+        json={"size": "M", "measurement_json": {"chest": 1000}},
+    )
+
+    assert response.status_code == 201, response.text
+
+
 def test_model_size_validation_preserves_auth_and_not_found_precedence(client, auth_headers):
     invalid = {"chest": {"value": 92}}
     model_id = _model()
