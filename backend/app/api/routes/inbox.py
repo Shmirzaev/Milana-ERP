@@ -236,15 +236,20 @@ def _awaiting_packaging_rows(
     po_ids = sorted({row["production_order_id"] for row in pairs})
     batch_ids = sorted({row["production_batch_id"] for row in pairs if row["production_batch_id"] is not None})
     context_by_po = _production_context_by_production_order(db, po_ids)
-    material_by_po = _material_payload_by_production_order(db, po_ids)
     production_by_id = {
         int(row.id): row
         for row in db.query(
             ProductionOrder.id,
             ProductionOrder.production_no,
             ProductionOrder.sales_order_id,
+            ProductionOrder.model_id,
         ).filter(ProductionOrder.id.in_(po_ids)).all()
     }
+    material_by_po = _material_payload_by_production_order(
+        db,
+        po_ids,
+        model_by_po={int(row.id): int(row.model_id) for row in production_by_id.values() if row.model_id},
+    )
     sales_order_ids = sorted({int(row.sales_order_id) for row in production_by_id.values() if row.sales_order_id})
     sales_no_by_id = {
         int(row.id): row.order_no
@@ -1318,18 +1323,24 @@ def _bom_material_image_url(
     )
 
 
-def _material_payload_by_production_order(db: DbSession, production_order_ids: list[int]) -> dict[int, dict]:
+def _material_payload_by_production_order(
+    db: DbSession,
+    production_order_ids: list[int],
+    *,
+    model_by_po: dict[int, int] | None = None,
+) -> dict[int, dict]:
     po_ids = sorted({int(po_id) for po_id in production_order_ids if po_id})
     if not po_ids:
         return {}
-    po_rows = []
-    for ids in _reference_id_chunks(set(po_ids)):
-        po_rows.extend(
-            db.query(ProductionOrder.id, ProductionOrder.model_id)
-            .filter(ProductionOrder.id.in_(ids))
-            .all()
-        )
-    model_by_po = {int(po_id): int(model_id) for po_id, model_id in po_rows if model_id}
+    if model_by_po is None:
+        po_rows = []
+        for ids in _reference_id_chunks(set(po_ids)):
+            po_rows.extend(
+                db.query(ProductionOrder.id, ProductionOrder.model_id)
+                .filter(ProductionOrder.id.in_(ids))
+                .all()
+            )
+        model_by_po = {int(po_id): int(model_id) for po_id, model_id in po_rows if model_id}
     model_ids = sorted(set(model_by_po.values()))
     if not model_ids:
         return {}
