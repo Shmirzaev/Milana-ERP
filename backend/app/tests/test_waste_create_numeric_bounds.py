@@ -74,6 +74,7 @@ def test_waste_create_accepts_exact_quantity_boundary_and_preserves_derived_valu
         json=_payload(quantity=str(MAX_WASTE_QUANTITY)),
     )
     assert maximum.status_code == 201, maximum.text
+    assert maximum.json()["estimated_value"] is None
 
     item_id = _cost_item("2.5000")
     ordinary = client.post(
@@ -86,6 +87,7 @@ def test_waste_create_accepts_exact_quantity_boundary_and_preserves_derived_valu
 
     with SessionLocal() as db:
         assert db.get(WasteRecord, maximum.json()["id"]).quantity == MAX_WASTE_QUANTITY
+        assert db.get(WasteRecord, maximum.json()["id"]).estimated_value == Decimal("0.00")
         saved = db.get(WasteRecord, ordinary.json()["id"])
         assert saved.quantity == Decimal("3.0000")
         assert saved.estimated_value == Decimal("7.50")

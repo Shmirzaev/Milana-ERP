@@ -173,7 +173,7 @@ class HarnessRecoveryError extends Error {
   constructor(code) { super(code); this.code = code; }
 }
 
-function pageHarness({ confirmPromise, refreshFailure = false, storageFailure = false, recoveryCode = null } = {}) {
+function pageHarness({ confirmPromise, refreshFailure = false, storageFailure = false, recoveryCode = null, estimatedValue = 1 } = {}) {
   const initial = [
     1,
     50,
@@ -212,7 +212,7 @@ function pageHarness({ confirmPromise, refreshFailure = false, storageFailure = 
     react: reactHooks,
     "react/jsx-runtime": jsxRuntime,
     swr: { default: key => key === "/api/waste?page=1&page_size=50"
-      ? { data: { rows: [{ id: 11, waste_type: "offcuts", quantity: 10, remaining_quantity: 6, unit: "kg", sellable: true, status: "sold", estimated_value: 1 }], total: 101, page: 1, page_size: 50, has_more: true }, mutate: async () => { if (refreshFailure) throw new Error("refresh failed"); } }
+      ? { data: { rows: [{ id: 11, waste_type: "offcuts", quantity: 10, remaining_quantity: 6, unit: "kg", sellable: true, status: "sold", estimated_value: estimatedValue }], total: 101, page: 1, page_size: 50, has_more: true }, mutate: async () => { if (refreshFailure) throw new Error("refresh failed"); } }
       : { data: undefined } },
     "swr/infinite": { default: () => ({ data: [], size: 1, setSize: async () => {}, isLoading: false, isValidating: false }) },
     "@/lib/api": { api: { post: async () => ({}) }, fetcher() {} },
@@ -257,6 +257,9 @@ assert.ok(overlap.updates[0].includes(2), "page controls must request the next b
 assert.ok(overlap.updates[8].includes(null), "page changes must close the current sale form");
 assert.ok(walk(overlap.tree, node => node.type === "div" && node.props.children?.join?.("") === "field.remaining: 6.00 kg").length,
   "the actual page must render the server-computed remaining balance");
+const unknownEstimate = pageHarness({ estimatedValue: null });
+assert.ok(walk(unknownEstimate.tree, node => node.type === "td" && node.props.children === "—").length,
+  "unknown waste cost must remain unavailable instead of appearing as zero");
 assert.ok(walk(overlap.tree, node => node.type === "button" && node.props.children === "page.waste.retrySale").length,
   "a sold row with pending evidence must expose exact replay");
 const saleForm = walk(overlap.tree, node => node.type === "form" && String(node.props.className).includes("min-w-64"))[0];

@@ -30,6 +30,7 @@ from app.services.price_calculation import (
     accessories_status,
     purchasing_status,
     serialize_price_request,
+    validate_derived_price_bounds,
     update_accessories,
     update_cutting_details,
     update_purchasing_details,
@@ -169,6 +170,7 @@ def update_finance(request_id: int, payload: PriceCalculationFinanceIn, db: DbSe
     old_value = {key: getattr(request, key) for key in changes}
     for key, value in changes.items():
         setattr(request, key, value)
+    validate_derived_price_bounds(request)
     request.finance_updated_by_id = current.id
     log_action(db, current, "update_finance_price", "PriceCalculationRequest", request.id, old_value=old_value, new_value=changes)
     db.flush()

@@ -18,6 +18,7 @@ from app.services.model_images import model_preview_image_url, model_variant_pic
 
 FIXED_PACKAGING_COST = Decimal("0.1")
 MAX_ACCESSORY_PRICE = Decimal("9999999999.9999")
+MAX_DERIVED_PRICE = Decimal("9999999999.9999")
 MAX_BINDING_KG_PER_PIECE = Decimal("99999999.999999")
 PURCHASING_PERMISSION = "price_calculation.purchasing"
 ACCESSORIES_PERMISSION = "price_calculation.accessories"
@@ -269,7 +270,7 @@ def attach_completed_selling_price(
     return True
 
 
-def _calculation(request: PriceCalculationRequest) -> dict:
+def _calculation(request: PriceCalculationRequest, *, reject_oversized: bool = False) -> dict:
     ready = cutting_status(request) == "complete" and purchasing_status(request) == "complete" and accessories_status(request) == "complete"
     if not ready:
         return {
@@ -295,6 +296,19 @@ def _calculation(request: PriceCalculationRequest) -> dict:
         if isinstance(row, dict)
     )
     cost_price = consumption_cost + binding_price + sewing + FIXED_PACKAGING_COST + accessory_total
+    if any(
+        not amount.is_finite() or amount < 0 or amount > MAX_DERIVED_PRICE
+        for amount in (consumption_cost, binding_price, cost_price)
+    ):
+        if reject_oversized:
+            raise HTTPException(422, "Calculated price exceeds supported per-piece price limit")
+        return {
+            "fabric_consumption": None,
+            "consumption_cost": None,
+            "binding_price": None,
+            "cost_price": None,
+            "difference": None,
+        }
     selling = _decimal(request.selling_price)
     return {
         "fabric_consumption": _money(consumption, "0.000001"),
@@ -303,6 +317,10 @@ def _calculation(request: PriceCalculationRequest) -> dict:
         "cost_price": _money(cost_price),
         "difference": _money(selling - cost_price) if selling is not None else None,
     }
+
+
+def validate_derived_price_bounds(request: PriceCalculationRequest) -> None:
+    _calculation(request, reject_oversized=True)
 
 
 def serialize_price_request(request: PriceCalculationRequest) -> dict:
@@ -444,6 +462,7 @@ def update_cutting_details(db: Session, request: PriceCalculationRequest, data: 
     request.size_count = passport_size_count or data.get("size_count")
     request.gramage = passport.gramage if passport and passport.gramage is not None else data.get("gramage")
     request.binding_kg_per_piece = passport_binding if passport_binding is not None else data.get("binding_kg_per_piece")
+    validate_derived_price_bounds(request)
     db.flush()
     after = cutting_status(request)
     log_action(
@@ -470,6 +489,7 @@ def update_purchasing_details(db: Session, request: PriceCalculationRequest, dat
     before = purchasing_status(request)
     request.fabric_price = data.get("fabric_price")
     request.sewing_cost = data.get("sewing_cost")
+    validate_derived_price_bounds(request)
     request.purchasing_updated_by_id = current.id
     db.flush()
     after = purchasing_status(request)
@@ -485,6 +505,7 @@ def update_accessories(db: Session, request: PriceCalculationRequest, rows: list
         for row in rows
         if str(row.get("name") or "").strip() or row.get("price") is not None
     ][:4]
+    validate_derived_price_bounds(request)
     request.accessories_updated_by_id = current.id
     db.flush()
     after = accessories_status(request)

@@ -177,6 +177,67 @@ def test_batch_tracked_adjustment_uses_matching_category_storage(client, auth_he
         assert movement.quantity == batch.quantity == Decimal("3")
 
 
+def test_forced_batch_tracked_adjustment_preserves_batch_bound_reservations(client, auth_headers):
+    from app.db.session import SessionLocal
+    from app.models import MaterialReservation, Model, ProductionOrder
+
+    suffix = uuid4().hex[:10].upper()
+    item_response = client.post("/api/inventory/items", headers=auth_headers, json={
+        "sku": f"ADJ-CLAIM-{suffix}", "name": f"Adjustment claim {suffix}",
+        "category": "accessory", "unit": "pcs", "default_cost": 1,
+        "reorder_level": 0, "track_batch": True,
+    })
+    assert item_response.status_code == 201, item_response.text
+    item_id = int(item_response.json()["id"])
+
+    with SessionLocal() as db:
+        warehouse = db.query(Warehouse).filter_by(type="accessory_storage").first()
+        model = db.query(Model).first()
+        assert warehouse is not None and model is not None
+        older_batch = StockBatch(
+            item_id=item_id, batch_no=f"ADJ-CLAIM-A-{suffix}", quantity=5,
+            unit="pcs", cost_per_unit=1, warehouse_id=warehouse.id, qc_status="passed",
+        )
+        newer_batch = StockBatch(
+            item_id=item_id, batch_no=f"ADJ-CLAIM-B-{suffix}", quantity=5,
+            unit="pcs", cost_per_unit=1, warehouse_id=warehouse.id, qc_status="passed",
+        )
+        db.add_all([older_batch, newer_batch])
+        db.flush()
+        order = ProductionOrder(
+            production_no=f"ADJ-CLAIM-{suffix}", production_type="branded_stock",
+            model_id=model.id, planned_quantity=1,
+        )
+        db.add(order)
+        db.flush()
+        reservation = MaterialReservation(
+            reservation_no=f"MR-ADJ-CLAIM-{suffix}", production_order_id=order.id,
+            item_id=item_id, stock_batch_id=newer_batch.id, warehouse_id=warehouse.id,
+            reserved_quantity=5, consumed_quantity=0, released_quantity=0, unit="pcs",
+            status="reserved", reservation_type="accessory", source="manual",
+        )
+        db.add(reservation)
+        db.commit()
+        older_batch_id, newer_batch_id, reservation_id = older_batch.id, newer_batch.id, reservation.id
+
+    response = client.patch(
+        f"/api/inventory/stock/{item_id}?force=true",
+        headers=auth_headers,
+        json={"quantity": 5, "unit": "pcs"},
+    )
+
+    assert response.status_code == 200, response.text
+    with SessionLocal() as db:
+        assert db.get(StockBatch, older_batch_id).quantity == Decimal("0.0000")
+        assert db.get(StockBatch, newer_batch_id).quantity == Decimal("5.0000")
+        assert db.get(MaterialReservation, reservation_id).status == "reserved"
+        assert db.get(MaterialReservation, reservation_id).stock_batch_id == newer_batch_id
+        adjustment = db.query(StockMovement).filter_by(
+            batch_id=older_batch_id, reference_type="StockAdjustment",
+        ).one()
+        assert adjustment.quantity == Decimal("5.0000")
+
+
 @pytest.mark.parametrize(
     ("archived", "target_quantity"),
     [(False, 6), (False, 5), (True, 6), (True, 5)],

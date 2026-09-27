@@ -65,7 +65,14 @@ class OrgUnitIn(BaseModel):
     unit_type: str = Field(pattern="^(company|factory|department|section|team)$")
     name: str = Field(min_length=1, max_length=160)
     code: str | None = Field(default=None, max_length=48)
-    sort_order: int = 0
+    sort_order: int = Field(default=0, ge=-(MAX_INT4 + 1), le=MAX_INT4)
+
+    @field_validator("sort_order", mode="before")
+    @classmethod
+    def validate_sort_order_integer(cls, value):
+        if isinstance(value, bool):
+            raise ValueError("Sort order must be an integer")
+        return value
 
     @field_validator("name")
     @classmethod

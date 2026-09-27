@@ -72,6 +72,34 @@ def test_invalid_language_does_not_write_settings_or_audit(client, auth_headers)
     assert _state() == before
 
 
+@pytest.mark.parametrize(
+    ("section", "payload", "detail"),
+    [
+        ("preferences", {"timezone": "Mars/Olympus"}, "Invalid timezone"),
+        ("preferences", {"timezone": "   "}, "Invalid timezone"),
+        ("financial", {"default_currency": "dollars"}, "Invalid default_currency"),
+        ("financial", {"default_currency": "usd"}, "Invalid default_currency"),
+    ],
+)
+def test_settings_reject_invalid_timezone_or_currency_without_writes(
+    client, auth_headers, section, payload, detail,
+):
+    before = _state() if section == "preferences" else _financial_state()
+
+    response = client.patch(f"/api/settings/{section}", headers=auth_headers, json=payload)
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": detail}
+    after = _state() if section == "preferences" else _financial_state()
+    assert after == before
+
+
+def _financial_state() -> tuple[dict | None, int]:
+    with SessionLocal() as db:
+        row = db.query(SystemSetting).filter_by(key="financial").one_or_none()
+        return (row.value_json if row else None, db.query(AuditLog).count())
+
+
 def test_authentication_precedes_language_validation(client):
     response = client.patch(
         "/api/settings/preferences",
