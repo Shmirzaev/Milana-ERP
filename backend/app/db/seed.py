@@ -22,6 +22,8 @@ from app.models import (
     Brand, Collection, Model, ModelSize, ModelColor, ModelBOM,
     CollectionModel, SalesOrder, SalesOrderItem, StockBatch, SewingFlow,
 )
+from app.services.audit import log_action
+from app.services.credentials import apply_password_credential_change, lock_user_for_credential_change
 
 
 DEPARTMENTS = [
@@ -142,6 +144,27 @@ def _ai_monitor_password() -> str | None:
         return None
     validate_password_strength(password)
     return password
+
+
+def _synchronize_configured_password(db: Session, user: User, password: str, source: str) -> User:
+    locked_user = lock_user_for_credential_change(db, user.id, require_active=False)
+    if locked_user is None:
+        raise RuntimeError("Configured credential target disappeared during seed")
+    if not _password_matches(password, locked_user.password_hash):
+        apply_password_credential_change(db, locked_user, password)
+        log_action(
+            db,
+            None,
+            "configured_password_sync",
+            "User",
+            locked_user.id,
+            new_value={
+                "credential_changed": True,
+                "reset_links_invalidated": True,
+                "source": source,
+            },
+        )
+    return locked_user
 
 
 def _clean_text(value) -> str:
@@ -369,7 +392,7 @@ def seed(*, ensure_schema: bool | None = None):
                 )
         elif manage_configured_admin_password and _password_matches(LEGACY_DEFAULT_ADMIN_PASSWORD, admin.password_hash):
             if admin_password:
-                admin.password_hash = hash_password(admin_password)
+                admin = _synchronize_configured_password(db, admin, admin_password, "INITIAL_ADMIN_PASSWORD")
                 admin.is_active = True
                 print("Seed security: rotated legacy default admin password from INITIAL_ADMIN_PASSWORD.")
             else:
@@ -379,11 +402,11 @@ def seed(*, ensure_schema: bool | None = None):
                     "Set INITIAL_ADMIN_PASSWORD to reactivate the admin user."
                 )
         elif manage_configured_admin_password and admin_password and not admin.is_active:
-            admin.password_hash = hash_password(admin_password)
+            admin = _synchronize_configured_password(db, admin, admin_password, "INITIAL_ADMIN_PASSWORD")
             admin.is_active = True
             print("Seed security: activated initial admin from INITIAL_ADMIN_PASSWORD.")
         elif manage_configured_admin_password and admin_password and not _password_matches(admin_password, admin.password_hash):
-            admin.password_hash = hash_password(admin_password)
+            admin = _synchronize_configured_password(db, admin, admin_password, "INITIAL_ADMIN_PASSWORD")
             admin.is_active = True
             print("Seed security: synchronized initial admin password from INITIAL_ADMIN_PASSWORD.")
 
@@ -410,7 +433,7 @@ def seed(*, ensure_schema: bool | None = None):
                 print("Seed: created AI Monitor read-only account.")
             else:
                 monitor.name = "AI Monitor"
-                monitor.password_hash = hash_password(monitor_password)
+                monitor = _synchronize_configured_password(db, monitor, monitor_password, "AI_MONITOR_PASSWORD")
                 monitor.role_id = role_map[AI_MONITOR_ROLE_NAME].id
                 monitor.department_id = monitor_department_id
                 monitor.extra_permissions = []

@@ -1,8 +1,9 @@
 "use client";
 import { formatOrderReference } from "@/lib/orderRef";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import {
   Ban,
   CheckCircle2,
@@ -39,6 +40,7 @@ type PayrollRecord = {
   payroll_period_id?: number | null;
   employee_id: number;
   employee_name?: string | null;
+  department_id?: number | null;
   department_name?: string | null;
   production_no?: string | null;
   sales_order_no?: string | null;
@@ -93,6 +95,11 @@ type PayrollSummary = {
   total_amount: number | string;
   currency: string;
   employees: PayrollSummaryEmployee[];
+  employees_total?: number | null;
+  employee_page?: number | null;
+  employee_page_size?: number | null;
+  employees_has_more?: boolean | null;
+  employee_search?: string | null;
 };
 
 type PayrollAdjustment = {
@@ -100,6 +107,9 @@ type PayrollAdjustment = {
   payroll_period_id?: number | null;
   source_payroll_record_id?: number | null;
   employee_id: number;
+  employee_name?: string | null;
+  department_id?: number | null;
+  department_name?: string | null;
   adjustment_type: "bonus" | "deduction";
   amount: number | string;
   signed_amount: number | string;
@@ -108,13 +118,31 @@ type PayrollAdjustment = {
   created_at: string;
 };
 
-type Employee = {
+type PayrollAdjustmentPage = {
+  rows: PayrollAdjustment[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+};
+
+type PayrollEmployeeOption = {
   id: number;
   full_name: string;
   employee_no?: string | null;
   position?: string | null;
   department_id?: number | null;
-  status: string;
+  department_code?: string | null;
+  department_name?: string | null;
+};
+
+type PayrollEmployeeOptionPage = {
+  items: PayrollEmployeeOption[];
+  selected: PayrollEmployeeOption | null;
+  page: number;
+  page_size: number;
+  search: string;
+  has_more: boolean;
 };
 
 type Department = {
@@ -190,6 +218,12 @@ export default function PayrollPage() {
   const { me } = useMe();
   const canManage = can(me, "payroll.manage", "*");
   const [deletingAdjustment, setDeletingAdjustment] = useState<number | null>(null);
+  const [employeeFilterSearch, setEmployeeFilterSearch] = useState("");
+  const [debouncedEmployeeFilterSearch, setDebouncedEmployeeFilterSearch] = useState("");
+  const [adjustmentEmployeeSearch, setAdjustmentEmployeeSearch] = useState("");
+  const [debouncedAdjustmentEmployeeSearch, setDebouncedAdjustmentEmployeeSearch] = useState("");
+  const [employeeTotalsSearch, setEmployeeTotalsSearch] = useState("");
+  const [debouncedEmployeeTotalsSearch, setDebouncedEmployeeTotalsSearch] = useState("");
   const canApprove = can(me, "payroll.approve", "*");
   const canPay = can(me, "payroll.pay", "*");
   const [filters, setFilters] = useState({ periodId: "", employeeId: "", departmentId: "", from: "", to: "" });
@@ -215,9 +249,48 @@ export default function PayrollPage() {
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error" | "info">("info");
 
+  useEffect(() => {
+    const timeout = window.setTimeout(
+      () => setDebouncedEmployeeTotalsSearch(employeeTotalsSearch.trim()),
+      250,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [employeeTotalsSearch]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedEmployeeFilterSearch(employeeFilterSearch.trim()), 250);
+    return () => window.clearTimeout(timeout);
+  }, [employeeFilterSearch]);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedAdjustmentEmployeeSearch(adjustmentEmployeeSearch.trim()), 250);
+    return () => window.clearTimeout(timeout);
+  }, [adjustmentEmployeeSearch]);
+
   const { data: periods = [], mutate: mutatePeriods } = useSWR<PayrollPeriod[]>("/api/payroll/periods", fetcher);
-  const { data: employees = [] } = useSWR<Employee[]>("/api/employees", fetcher);
   const { data: departments = [] } = useSWR<Department[]>("/api/departments", fetcher);
+  const {
+    data: employeeFilterPages,
+    setSize: setEmployeeFilterSize,
+    isValidating: employeeFilterIsValidating,
+  } = useSWRInfinite<PayrollEmployeeOptionPage>((index, previousPage) => {
+    if (previousPage && !previousPage.has_more) return null;
+    const params = new URLSearchParams({ page: String(index + 1), page_size: "50", search: debouncedEmployeeFilterSearch });
+    if (filters.employeeId) params.set("selected_id", filters.employeeId);
+    return `/api/payroll/employees/options?${params.toString()}`;
+  }, fetcher);
+  const {
+    data: adjustmentEmployeePages,
+    setSize: setAdjustmentEmployeeSize,
+    isValidating: adjustmentEmployeeIsValidating,
+  } = useSWRInfinite<PayrollEmployeeOptionPage>((index, previousPage) => {
+    if (!canManage) return null;
+    if (previousPage && !previousPage.has_more) return null;
+    const params = new URLSearchParams({ page: String(index + 1), page_size: "50", search: debouncedAdjustmentEmployeeSearch });
+    if (adjustmentForm.employee_id) params.set("selected_id", adjustmentForm.employee_id);
+    return `/api/payroll/employees/options?${params.toString()}`;
+  }, fetcher);
+  useEffect(() => { void setEmployeeFilterSize(1); }, [debouncedEmployeeFilterSearch, filters.employeeId, setEmployeeFilterSize]);
+  useEffect(() => { void setAdjustmentEmployeeSize(1); }, [debouncedAdjustmentEmployeeSearch, adjustmentForm.employee_id, setAdjustmentEmployeeSize]);
 
   const recordsQuery = [buildPayrollQuery(filters, true), "status=active"].filter(Boolean).join("&");
   const summaryQuery = buildPayrollQuery(filters);
@@ -225,46 +298,104 @@ export default function PayrollPage() {
     `/api/payroll/records?${recordsQuery}`,
     fetcher,
   );
-  const { data: summary, mutate: mutateSummary } = useSWR<PayrollSummary>(
-    `/api/payroll/summary${summaryQuery ? `?${summaryQuery}` : ""}`,
-    fetcher,
+  const {
+    data: summaryPages,
+    mutate: mutateSummary,
+    setSize: setSummarySize,
+    size: summarySize,
+    isValidating: summaryIsValidating,
+  } = useSWRInfinite<PayrollSummary>((index, previousPage) => {
+    if (previousPage && !previousPage.employees_has_more) return null;
+    const params = new URLSearchParams(summaryQuery);
+    params.set("page", String(index + 1));
+    params.set("page_size", "50");
+    params.set("group_by_operation", "true");
+    if (debouncedEmployeeTotalsSearch) params.set("employee_search", debouncedEmployeeTotalsSearch);
+    return `/api/payroll/summary?${params.toString()}`;
+  }, fetcher);
+  useEffect(() => {
+    void setSummarySize(1);
+  }, [summaryQuery, debouncedEmployeeTotalsSearch, setSummarySize]);
+  const summary = summaryPages?.[0];
+  const summaryEmployees = useMemo(
+    () => summaryPages?.flatMap((page) => page.employees) || [],
+    [summaryPages],
   );
-  const { data: adjustments = [], mutate: mutateAdjustments } = useSWR<PayrollAdjustment[]>(
-    `/api/payroll/adjustments${summaryQuery ? `?${summaryQuery}` : ""}`,
-    fetcher,
+  const summaryHasMore = Boolean(summaryPages?.[summaryPages.length - 1]?.employees_has_more);
+  const summaryIsLoadingMore = summaryIsValidating && Boolean(summaryPages?.length);
+  const {
+    data: adjustmentPages,
+    mutate: mutateAdjustmentPages,
+    setSize: setAdjustmentSize,
+    isValidating: adjustmentsIsValidating,
+    isLoading: adjustmentsIsLoading,
+  } = useSWRInfinite<PayrollAdjustmentPage>((index, previousPage) => {
+    if (previousPage && !previousPage.has_more) return null;
+    const params = new URLSearchParams(summaryQuery);
+    params.set("page", String(index + 1));
+    params.set("page_size", "50");
+    return `/api/payroll/adjustments?${params.toString()}`;
+  }, fetcher);
+  const adjustments = useMemo(
+    () => adjustmentPages?.flatMap((page) => page.rows) || [],
+    [adjustmentPages],
   );
+  const adjustmentsTotal = adjustmentPages?.[0]?.total || 0;
+  const adjustmentsHasMore = Boolean(adjustmentPages?.[adjustmentPages.length - 1]?.has_more);
+  const adjustmentsIsLoadingMore = adjustmentsIsValidating && adjustments.length > 0;
 
   const periodById = useMemo(() => new Map(periods.map((period) => [Number(period.id), period])), [periods]);
-  const employeeById = useMemo(() => new Map(employees.map((employee) => [Number(employee.id), employee])), [employees]);
   const departmentById = useMemo(() => new Map(departments.map((department) => [Number(department.id), department])), [departments]);
-  const employeeFilterOptions = useMemo(() => [
-    { value: "", label: t("page.payroll.allEmployees") },
-    ...employees.map((employee) => {
-      const department = employee.department_id ? departmentById.get(Number(employee.department_id)) : null;
-      return {
+  const employeeFilterPagesAreCurrent = Boolean(employeeFilterPages?.every((page, index) => page.page === index + 1 && page.search === debouncedEmployeeFilterSearch));
+  const employeeFilterOptions = useMemo(() => {
+    const pages = employeeFilterPagesAreCurrent ? employeeFilterPages || [] : [];
+    const rows = new Map<number, PayrollEmployeeOption>();
+    for (const page of pages) {
+      for (const employee of page.items) rows.set(employee.id, employee);
+      if (page.selected) rows.set(page.selected.id, page.selected);
+    }
+    return [
+      { value: "", label: t("page.payroll.allEmployees") },
+      ...Array.from(rows.values()).map((employee) => ({
         value: String(employee.id),
         label: employee.full_name,
         searchText: [
           employee.employee_no,
           employee.id,
           employee.position,
-          department?.code,
-          department?.name,
+          employee.department_code,
+          employee.department_name,
         ].filter(Boolean).join(" "),
-      };
-    }),
-  ], [departmentById, employees, t]);
+      })),
+    ];
+  }, [employeeFilterPages, employeeFilterPagesAreCurrent, t]);
+  const adjustmentEmployeePagesAreCurrent = Boolean(adjustmentEmployeePages?.every((page, index) => page.page === index + 1 && page.search === debouncedAdjustmentEmployeeSearch));
+  const adjustmentEmployeeOptions = useMemo(() => {
+    const pages = adjustmentEmployeePagesAreCurrent ? adjustmentEmployeePages || [] : [];
+    const rows = new Map<number, PayrollEmployeeOption>();
+    for (const page of pages) {
+      for (const employee of page.items) rows.set(employee.id, employee);
+      if (page.selected) rows.set(page.selected.id, page.selected);
+    }
+    return Array.from(rows.values()).map((employee) => ({
+      value: String(employee.id),
+      label: employee.full_name,
+      searchText: [employee.employee_no, employee.id, employee.position, employee.department_code, employee.department_name].filter(Boolean).join(" "),
+    }));
+  }, [adjustmentEmployeePages, adjustmentEmployeePagesAreCurrent]);
+  const employeeFilterHasMore = employeeFilterPagesAreCurrent && Boolean(employeeFilterPages?.[employeeFilterPages.length - 1]?.has_more);
+  const adjustmentEmployeeHasMore = adjustmentEmployeePagesAreCurrent && Boolean(adjustmentEmployeePages?.[adjustmentEmployeePages.length - 1]?.has_more);
   const adjustmentPeriod = adjustmentForm.payroll_period_id ? periodById.get(Number(adjustmentForm.payroll_period_id)) : null;
   const adjustmentPeriodFinalized = Boolean(adjustmentPeriod && FINALIZED_PERIOD_STATUSES.has(adjustmentPeriod.status));
   const operationRows = useMemo(() => (
-    (summary?.employees || []).flatMap((employee) => (
+    summaryEmployees.flatMap((employee) => (
       (employee.operations || []).map((operation) => ({
         ...operation,
         employee_name: employee.employee_name,
         department_name: employee.department_name,
       }))
     ))
-  ), [summary?.employees]);
+  ), [summaryEmployees]);
 
   function notice(text: string, tone: typeof messageTone = "info") {
     setMessage(text);
@@ -272,7 +403,15 @@ export default function PayrollPage() {
   }
 
   async function refreshAll() {
-    await Promise.all([mutatePeriods(), mutateRecords(), mutateSummary(), mutateAdjustments()]);
+    await Promise.all([
+      mutatePeriods(),
+      mutateRecords(),
+      mutateSummary(),
+      (async () => {
+        await setAdjustmentSize(1);
+        await mutateAdjustmentPages();
+      })(),
+    ]);
   }
 
   async function createPeriod(event: React.FormEvent) {
@@ -543,6 +682,16 @@ export default function PayrollPage() {
               options={employeeFilterOptions}
               placeholder={t("page.payroll.searchEmployee")}
               noResultsText={t("page.payroll.noEmployeeResults")}
+              serverFilter
+              loading={employeeFilterIsValidating}
+              loadingText={t("common.loading")}
+              loadMoreText={t("common.loadMore")}
+              hasMore={employeeFilterHasMore}
+              onSearchChange={(search) => {
+                setEmployeeFilterSearch(search);
+                void setEmployeeFilterSize(1);
+              }}
+              onLoadMore={() => void setEmployeeFilterSize((size) => size + 1)}
               onChange={(employeeId) => setFilters((current) => ({ ...current, employeeId }))}
             />
           </div>
@@ -615,17 +764,25 @@ export default function PayrollPage() {
               </div>
               <div>
                 <label className="label">{t("page.payroll.employee")}</label>
-                <select
-                  className="input"
+                <SearchableSelect<string>
+                  inputId="payroll-adjustment-employee"
                   value={adjustmentForm.employee_id}
-                  onChange={(event) => setAdjustmentForm({ ...adjustmentForm, employee_id: event.target.value })}
+                  options={adjustmentEmployeeOptions}
                   required
-                >
-                  <option value="">{t("page.payroll.selectEmployee")}</option>
-                  {employees.map((employee) => (
-                    <option key={employee.id} value={employee.id}>{employee.full_name}</option>
-                  ))}
-                </select>
+                  placeholder={t("page.payroll.searchEmployee")}
+                  noResultsText={t("page.payroll.noEmployeeResults")}
+                  serverFilter
+                  loading={adjustmentEmployeeIsValidating}
+                  loadingText={t("common.loading")}
+                  loadMoreText={t("common.loadMore")}
+                  hasMore={adjustmentEmployeeHasMore}
+                  onSearchChange={(search) => {
+                    setAdjustmentEmployeeSearch(search);
+                    void setAdjustmentEmployeeSize(1);
+                  }}
+                  onLoadMore={() => void setAdjustmentEmployeeSize((size) => size + 1)}
+                  onChange={(employeeId) => setAdjustmentForm((current) => ({ ...current, employee_id: employeeId }))}
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -669,7 +826,12 @@ export default function PayrollPage() {
 
         <section className="card overflow-hidden">
           <div className="border-b border-[#ecebe3] p-4">
-            <h2 className="app-card-title">{t("page.payroll.adjustments")}</h2>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="app-card-title">{t("page.payroll.adjustments")}</h2>
+              <span className="text-xs text-[#8a8472]">
+                {adjustments.length.toLocaleString()} / {adjustmentsTotal.toLocaleString()}
+              </span>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="table min-w-[840px]">
@@ -685,16 +847,18 @@ export default function PayrollPage() {
                 </tr>
               </thead>
               <tbody>
-                {adjustments.length === 0 && (
+                {adjustments.length === 0 && adjustmentsIsLoading && (
+                  <tr><td colSpan={7} className="text-sm text-[#8a8472]">{t("common.loading")}</td></tr>
+                )}
+                {adjustments.length === 0 && !adjustmentsIsLoading && (
                   <tr><td colSpan={7} className="text-sm text-[#8a8472]">{t("page.payroll.noAdjustments")}</td></tr>
                 )}
                 {adjustments.map((adjustment) => {
-                  const employee = employeeById.get(Number(adjustment.employee_id));
                   const period = adjustment.payroll_period_id ? periodById.get(Number(adjustment.payroll_period_id)) : null;
                   return (
                     <tr key={adjustment.id}>
                       <td>{new Date(adjustment.created_at).toLocaleString(lang)}</td>
-                      <td>{employee?.full_name || t("page.payroll.employeeId", { id: adjustment.employee_id })}</td>
+                      <td>{adjustment.employee_name || t("page.payroll.employeeId", { id: adjustment.employee_id })}</td>
                       <td>{period?.period_no || "-"}</td>
                       <td><span className={`badge ${adjustmentBadge(adjustment.adjustment_type)}`}>{t(`page.payroll.${adjustment.adjustment_type}`)}</span></td>
                       <td className="font-semibold">{money(adjustment.signed_amount, adjustment.currency)}</td>
@@ -721,13 +885,42 @@ export default function PayrollPage() {
               </tbody>
             </table>
           </div>
+          {adjustmentsHasMore && (
+            <div className="border-t border-[#ecebe3] p-3 text-center">
+              <button
+                type="button"
+                className="btn"
+                disabled={adjustmentsIsLoadingMore}
+                onClick={() => void setAdjustmentSize((size) => size + 1)}
+              >
+                {adjustmentsIsLoadingMore ? t("common.loading") : t("common.loadMore")}
+              </button>
+            </div>
+          )}
         </section>
       </div>
 
       <div className="mb-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
         <section className="card overflow-hidden">
           <div className="border-b border-[#ecebe3] p-4">
-            <h2 className="app-card-title">{t("page.payroll.employeeTotals")}</h2>
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h2 className="app-card-title">{t("page.payroll.employeeTotals")}</h2>
+                <p className="mt-1 text-xs text-[#8a8472]">
+                  {summaryEmployees.length.toLocaleString()} / {Number(summary?.employees_total || 0).toLocaleString()}
+                </p>
+              </div>
+              <input
+                className="input min-w-[220px] max-w-sm"
+                value={employeeTotalsSearch}
+                maxLength={100}
+                onChange={(event) => {
+                  setEmployeeTotalsSearch(event.target.value);
+                }}
+                placeholder={t("page.payroll.searchEmployee")}
+                aria-label={t("page.payroll.searchEmployee")}
+              />
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="table min-w-[760px]">
@@ -743,10 +936,10 @@ export default function PayrollPage() {
                 </tr>
               </thead>
               <tbody>
-                {(summary?.employees || []).length === 0 && (
+                {summaryEmployees.length === 0 && (
                   <tr><td colSpan={7} className="text-sm text-[#8a8472]">{t("page.payroll.noTotals")}</td></tr>
                 )}
-                {(summary?.employees || []).map((row) => (
+                {summaryEmployees.map((row) => (
                   <tr key={`${row.employee_id}-${row.currency}`}>
                     <td>{row.employee_name}</td>
                     <td>{row.department_name || "-"}</td>
@@ -765,6 +958,12 @@ export default function PayrollPage() {
         <section className="card overflow-hidden">
           <div className="border-b border-[#ecebe3] p-4">
             <h2 className="app-card-title">{t("page.payroll.operationTotals")}</h2>
+            <p className="mt-1 text-xs text-[#8a8472]">
+              {t("page.payroll.operationTotalsScope", {
+                count: summaryEmployees.length,
+                total: Number(summary?.employees_total || 0),
+              })}
+            </p>
           </div>
           <div className="overflow-x-auto">
             <table className="table min-w-[840px]">
@@ -801,6 +1000,19 @@ export default function PayrollPage() {
           </div>
         </section>
       </div>
+
+      {summaryHasMore && (
+        <div className="mb-4 flex justify-center">
+          <button
+            type="button"
+            className="btn"
+            disabled={summaryIsLoadingMore}
+            onClick={() => void setSummarySize(summarySize + 1)}
+          >
+            {summaryIsLoadingMore ? t("common.loading") : t("common.loadMore")}
+          </button>
+        </div>
+      )}
 
       <section className="card overflow-hidden">
         <div className="border-b border-[#ecebe3] p-4">
@@ -897,9 +1109,7 @@ export default function PayrollPage() {
                   period && FINALIZED_PERIOD_STATUSES.has(period.status)
                 );
                 const employeeDept = record.department_name || (
-                  employees.find((employee) => Number(employee.id) === Number(record.employee_id))?.department_id
-                    ? departmentById.get(Number(employees.find((employee) => Number(employee.id) === Number(record.employee_id))?.department_id))?.name
-                    : null
+                  record.department_id ? departmentById.get(Number(record.department_id))?.name : null
                 );
                 return (
                   <tr key={record.id}>

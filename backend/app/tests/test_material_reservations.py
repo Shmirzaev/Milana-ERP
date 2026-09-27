@@ -1,5 +1,10 @@
 from uuid import uuid4
 
+import pytest
+from sqlalchemy import event
+
+from app.tests.conftest import test_engine
+
 
 def test_cutting_can_correct_batch_before_consumption(client, auth_headers):
     from app.db.session import SessionLocal
@@ -33,8 +38,26 @@ def test_cutting_can_correct_batch_before_consumption(client, auth_headers):
     with SessionLocal() as db:
         assert db.get(ProductionOrder, order_id).fabric_batch_id == original
         assert sum(float(r.released_quantity) for r in db.query(MaterialReservation).filter_by(production_order_id=order_id, stock_batch_id=original)) == 0
-    corrected = client.patch(url, headers=cutting_headers, json={"stock_batch_id": replacement})
+    statements = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("select") and " from stock_batches " in normalized:
+            statements.append(normalized)
+
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        corrected = client.patch(url, headers=cutting_headers, json={"stock_batch_id": replacement})
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
     assert corrected.status_code == 200, corrected.text
+    replacement_reads = [sql for sql in statements if "stock_batches.id in (?, ?)" in sql]
+    assert len(replacement_reads) == 1
+    selected_columns = replacement_reads[0].split(" from stock_batches ", maxsplit=1)[0]
+    assert "stock_batches.cost_per_unit" not in selected_columns
+    assert "stock_batches.roll_weights_kg" not in selected_columns
+    assert "items_1.default_cost" not in selected_columns
+    assert "join items" in replacement_reads[0]
     # A stale second click cannot move the reservation twice.
     assert client.patch(url, headers=cutting_headers, json={"stock_batch_id": replacement}).status_code == 409
     with SessionLocal() as db:
@@ -68,6 +91,64 @@ def test_cutting_can_correct_batch_before_consumption(client, auth_headers):
     used_url = f"/api/work-orders/{wo['id']}/cutting-materials/{replacement}"
     rejected = client.patch(used_url, headers=cutting_headers, json={"stock_batch_id": original})
     assert rejected.status_code == 409 and "already been used" in rejected.text
+
+
+def test_cutting_batch_replacement_rejects_catalog_unit_drift_with_existing_reservation(
+    client, auth_headers,
+):
+    from app.db.session import SessionLocal
+    from app.models import AuditLog, Item, MaterialReservation, ProductionOrderMaterial, StockBatch
+    from app.tests.test_sewing_workspace_permissions import _create_user_headers
+
+    cutting_headers = _create_user_headers(client, auth_headers, role="Cutting", department="CUT")
+    warehouse = _warehouse(client, auth_headers, "fabric_storage")
+    item = _fabric_item(client, auth_headers)
+    old_batch = _receive_batch(
+        client, auth_headers, item_id=item["id"], warehouse_id=warehouse["id"], quantity=20, unit="kg",
+    )
+    new_batch = _receive_batch(
+        client, auth_headers, item_id=item["id"], warehouse_id=warehouse["id"], quantity=20, unit="kg",
+    )
+    created = client.post("/api/planning/create-branded-production", headers=auth_headers, json={
+        "production_type": "branded_stock", "model_id": 1, "planned_quantity": 10,
+        "materials": [{"stock_batch_id": old_batch["id"], "estimated_quantity": 5, "unit": "kg"}],
+        "items": [{"model_id": 1, "color": "white", "size": "46", "planned_quantity": 10}],
+    })
+    assert created.status_code == 201, created.text
+    order_id = created.json()["id"]
+    work_order = _cutting_work_order(client, auth_headers, order_id)
+    for batch in (old_batch, new_batch):
+        _create_material_reservation(
+            client, auth_headers, production_order_id=order_id, item_id=item["id"],
+            stock_batch_id=batch["id"], warehouse_id=warehouse["id"], quantity=5,
+        )
+    with SessionLocal() as db:
+        db.get(Item, item["id"]).unit = "m"
+        db.commit()
+        before = (
+            db.query(ProductionOrderMaterial).filter_by(production_order_id=order_id).one().stock_batch_id,
+            [(row.stock_batch_id, row.status, row.released_quantity) for row in db.query(
+                MaterialReservation,
+            ).filter_by(production_order_id=order_id).order_by(MaterialReservation.id).all()],
+            db.query(AuditLog).count(),
+        )
+
+    response = client.patch(
+        f"/api/work-orders/{work_order['id']}/cutting-materials/{old_batch['id']}",
+        headers=cutting_headers, json={"stock_batch_id": new_batch["id"]},
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "Batch unit must match the material unit"
+    with SessionLocal() as db:
+        assert (
+            db.query(ProductionOrderMaterial).filter_by(production_order_id=order_id).one().stock_batch_id,
+            [(row.stock_batch_id, row.status, row.released_quantity) for row in db.query(
+                MaterialReservation,
+            ).filter_by(production_order_id=order_id).order_by(MaterialReservation.id).all()],
+            db.query(AuditLog).count(),
+        ) == before
+        assert db.get(StockBatch, new_batch["id"]).unit == "kg"
 
 
 def test_cutting_passport_adds_missing_material_atomically(client, auth_headers):
@@ -135,6 +216,242 @@ def test_cutting_passport_adds_missing_material_atomically(client, auth_headers)
         db.get(ProductionOrder, order["id"]).source_type = "usluga"
         db.commit()
     assert client.patch(f"/api/cutting-passports/{passport_id}", headers=cutting_headers, json=extra).status_code == 400
+
+
+def test_cutting_passport_rejects_legacy_batch_unit_drift_with_existing_reservation(client, auth_headers):
+    from app.db.session import SessionLocal
+    from app.models import AuditLog, MaterialReservation, ProductionOrderMaterial, StockBatch
+    from app.models.cutting_passport import CuttingPassport
+    from app.tests.test_sewing_workspace_permissions import _create_user_headers
+
+    cutting_headers = _create_user_headers(client, auth_headers, role="Cutting", department="CUT")
+    warehouse = _warehouse(client, auth_headers, "fabric_storage")
+    item = _fabric_item(client, auth_headers)
+    primary = _receive_batch(
+        client, auth_headers, item_id=item["id"], warehouse_id=warehouse["id"], quantity=20, unit="kg",
+    )
+    extra = _receive_batch(
+        client, auth_headers, item_id=item["id"], warehouse_id=warehouse["id"], quantity=20, unit="kg",
+    )
+    created = client.post("/api/planning/create-branded-production", headers=auth_headers, json={
+        "production_type": "branded_stock", "model_id": 1, "planned_quantity": 10,
+        "materials": [{"stock_batch_id": primary["id"], "estimated_quantity": 5, "unit": "kg"}],
+        "items": [{"model_id": 1, "color": "white", "size": "46", "planned_quantity": 10}],
+    })
+    assert created.status_code == 201, created.text
+    order_id = created.json()["id"]
+    _create_material_reservation(
+        client, auth_headers, production_order_id=order_id, item_id=item["id"],
+        stock_batch_id=extra["id"], warehouse_id=warehouse["id"], quantity=5,
+    )
+    with SessionLocal() as db:
+        db.get(StockBatch, extra["id"]).unit = "m"
+        db.commit()
+        before = (
+            db.query(CuttingPassport).count(), db.query(ProductionOrderMaterial).count(),
+            db.query(MaterialReservation).count(), db.query(AuditLog).count(),
+        )
+
+    response = client.post("/api/cutting-passports", headers=cutting_headers, json={
+        "passport_no": f"DRIFT-{uuid4().hex[:8]}", "date": "2026-09-10T00:00:00Z",
+        "production_order_id": order_id,
+        "materials": [
+            {"stock_batch_id": primary["id"], "planned_kg": 5, "pieces": 10},
+            {"stock_batch_id": extra["id"], "planned_kg": 5, "pieces": 10},
+        ],
+        "additional_materials": [{"stock_batch_id": extra["id"], "estimated_quantity": 5, "unit": "m"}],
+    })
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "Batch unit must match the material unit"
+    with SessionLocal() as db:
+        assert (
+            db.query(CuttingPassport).count(), db.query(ProductionOrderMaterial).count(),
+            db.query(MaterialReservation).count(), db.query(AuditLog).count(),
+        ) == before
+        assert db.get(StockBatch, extra["id"]).unit == "m"
+
+
+def _production_order_write_counts(db):
+    from app.models import AuditLog, BrandedPlanningOrder, ProductionOrder, ProductionOrderMaterial, WorkOrder
+
+    return (
+        db.query(BrandedPlanningOrder).count(),
+        db.query(ProductionOrder).count(),
+        db.query(ProductionOrderMaterial).count(),
+        db.query(WorkOrder).count(),
+        db.query(AuditLog).count(),
+    )
+
+
+@pytest.mark.parametrize("material_mode", ["materials", "legacy"])
+def test_production_order_rejects_catalog_batch_unit_drift_without_writes(
+    client, auth_headers, material_mode,
+):
+    from app.db.session import SessionLocal
+    from app.models import Item
+
+    warehouse = _warehouse(client, auth_headers, "fabric_storage")
+    item = _fabric_item(client, auth_headers)
+    batch = _receive_batch(
+        client, auth_headers, item_id=item["id"], warehouse_id=warehouse["id"],
+        quantity=20, unit="kg",
+    )
+    with SessionLocal() as db:
+        db.get(Item, item["id"]).unit = "m"
+        db.commit()
+        before = _production_order_write_counts(db)
+
+    payload = {
+        "production_type": "branded_stock", "model_id": 1, "planned_quantity": 10,
+        "items": [],
+    }
+    if material_mode == "materials":
+        payload["materials"] = [{
+            "stock_batch_id": batch["id"], "estimated_quantity": 5, "unit": "kg",
+        }]
+    else:
+        payload["fabric_batch_id"] = batch["id"]
+        payload["estimated_material_amount"] = 5
+
+    response = client.post(
+        "/api/planning/create-branded-production", headers=auth_headers, json=payload,
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "Batch unit must match the material unit"
+    with SessionLocal() as db:
+        assert _production_order_write_counts(db) == before
+
+
+def test_production_order_material_rejects_submitted_unit_mismatch_without_writes(client, auth_headers):
+    from app.db.session import SessionLocal
+
+    warehouse = _warehouse(client, auth_headers, "fabric_storage")
+    item = _fabric_item(client, auth_headers)
+    batch = _receive_batch(
+        client, auth_headers, item_id=item["id"], warehouse_id=warehouse["id"],
+        quantity=20, unit="kg",
+    )
+    with SessionLocal() as db:
+        before = _production_order_write_counts(db)
+
+    response = client.post("/api/planning/create-branded-production", headers=auth_headers, json={
+        "production_type": "branded_stock", "model_id": 1, "planned_quantity": 10,
+        "materials": [{"stock_batch_id": batch["id"], "estimated_quantity": 5, "unit": "m"}],
+        "items": [],
+    })
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "Material #1 unit must match the material unit"
+    with SessionLocal() as db:
+        assert _production_order_write_counts(db) == before
+
+
+@pytest.mark.parametrize("material_mode", ["materials", "legacy"])
+def test_production_order_accepts_matching_catalog_batch_units(client, auth_headers, material_mode):
+    from app.db.session import SessionLocal
+    from app.models import ProductionOrder, ProductionOrderMaterial
+
+    warehouse = _warehouse(client, auth_headers, "fabric_storage")
+    item = _fabric_item(client, auth_headers)
+    batch = _receive_batch(
+        client, auth_headers, item_id=item["id"], warehouse_id=warehouse["id"],
+        quantity=20, unit="kg",
+    )
+    payload = {
+        "production_type": "branded_stock", "model_id": 1, "planned_quantity": 10,
+        "items": [],
+    }
+    if material_mode == "materials":
+        payload["materials"] = [{
+            "stock_batch_id": batch["id"], "estimated_quantity": 5, "unit": "kg",
+        }]
+    else:
+        payload["fabric_batch_id"] = batch["id"]
+        payload["estimated_material_amount"] = 5
+
+    response = client.post(
+        "/api/planning/create-branded-production", headers=auth_headers, json=payload,
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["estimated_material_unit"] == "kg"
+    with SessionLocal() as db:
+        order = db.get(ProductionOrder, response.json()["id"])
+        rows = db.query(ProductionOrderMaterial).filter_by(production_order_id=order.id).all()
+        if material_mode == "materials":
+            assert [(row.stock_batch_id, row.unit) for row in rows] == [(batch["id"], "kg")]
+        else:
+            assert rows == []
+
+
+@pytest.mark.parametrize("drift", [None, "batch", "item", "planned"])
+def test_cutting_passport_validates_synthesized_legacy_primary_unit(client, auth_headers, drift):
+    from app.db.session import SessionLocal
+    from app.models import AuditLog, Item, MaterialReservation, ProductionOrder, ProductionOrderMaterial, StockBatch
+    from app.models.cutting_passport import CuttingPassport
+    from app.tests.test_sewing_workspace_permissions import _create_user_headers
+
+    cutting_headers = _create_user_headers(client, auth_headers, role="Cutting", department="CUT")
+    warehouse = _warehouse(client, auth_headers, "fabric_storage")
+    primary_item = _fabric_item(client, auth_headers)
+    extra_item = _fabric_item(client, auth_headers)
+    primary = _receive_batch(
+        client, auth_headers, item_id=primary_item["id"], warehouse_id=warehouse["id"],
+        quantity=20, unit="kg",
+    )
+    extra = _receive_batch(
+        client, auth_headers, item_id=extra_item["id"], warehouse_id=warehouse["id"],
+        quantity=20, unit="kg",
+    )
+    created = client.post("/api/planning/create-branded-production", headers=auth_headers, json={
+        "production_type": "branded_stock", "model_id": 1, "planned_quantity": 10,
+        "materials": [{"stock_batch_id": primary["id"], "estimated_quantity": 5, "unit": "kg"}],
+        "items": [{"model_id": 1, "color": "white", "size": "46", "planned_quantity": 10}],
+    })
+    assert created.status_code == 201, created.text
+    order_id = created.json()["id"]
+    with SessionLocal() as db:
+        db.query(ProductionOrderMaterial).filter_by(production_order_id=order_id).delete()
+        if drift == "batch":
+            db.get(StockBatch, primary["id"]).unit = "m"
+        elif drift == "item":
+            db.get(Item, primary_item["id"]).unit = "m"
+        elif drift == "planned":
+            db.get(ProductionOrder, order_id).estimated_material_unit = "m"
+        db.commit()
+        before = (
+            db.query(CuttingPassport).count(), db.query(ProductionOrderMaterial).count(),
+            db.query(MaterialReservation).count(), db.query(AuditLog).count(),
+        )
+
+    response = client.post("/api/cutting-passports", headers=cutting_headers, json={
+        "passport_no": f"LEGACY-PRIMARY-{uuid4().hex[:8]}", "date": "2026-09-10T00:00:00Z",
+        "production_order_id": order_id,
+        "materials": [
+            {"stock_batch_id": primary["id"], "planned_kg": 5, "pieces": 10},
+            {"stock_batch_id": extra["id"], "planned_kg": 5, "pieces": 10},
+        ],
+        "additional_materials": [{"stock_batch_id": extra["id"], "estimated_quantity": 5, "unit": "kg"}],
+    })
+
+    if drift is None:
+        assert response.status_code == 201, response.text
+        with SessionLocal() as db:
+            rows = db.query(ProductionOrderMaterial).filter_by(production_order_id=order_id).order_by(
+                ProductionOrderMaterial.position,
+            ).all()
+            assert [(row.stock_batch_id, row.unit) for row in rows] == [
+                (primary["id"], "kg"), (extra["id"], "kg"),
+            ]
+    else:
+        assert response.status_code == 409, response.text
+        with SessionLocal() as db:
+            assert (
+                db.query(CuttingPassport).count(), db.query(ProductionOrderMaterial).count(),
+                db.query(MaterialReservation).count(), db.query(AuditLog).count(),
+            ) == before
 
 
 def _planning_headers(client) -> dict[str, str]:
@@ -283,6 +600,61 @@ def _submit_cutting(client, headers, *, work_order_id: int, fabric_batch_id: int
         },
         headers=headers,
     )
+
+
+@pytest.mark.parametrize("claim_scope", ["batch", "item"])
+def test_cutting_direct_remainder_preserves_other_order_reservation(
+    client, auth_headers, claim_scope,
+):
+    from app.db.session import SessionLocal
+    from app.models import AuditLog, CuttingRecord, MaterialReservation, StockBatch, StockMovement
+
+    _set_strict_material_reservation(False)
+    cutting_order = _create_branded_po(client, auth_headers, qty=10)
+    other_order = _create_branded_po(client, auth_headers, qty=10)
+    work_order = _cutting_work_order(client, auth_headers, cutting_order["id"])
+    item = _fabric_item(client, auth_headers)
+    warehouse = _warehouse(client, auth_headers, "fabric_storage")
+    batch = _receive_batch(
+        client, auth_headers, item_id=item["id"], warehouse_id=warehouse["id"],
+        quantity=10, unit="kg",
+    )
+    claim_quantity = 8
+    if claim_scope == "item":
+        from app.services.inventory import available_stock_for_item
+
+        with SessionLocal() as db:
+            # The shared catalog item can have seeded batches in this warehouse.
+            # Leave exactly 2 kg unreserved so this 4 kg cut would take a claim.
+            claim_quantity = round(available_stock_for_item(db, item["id"], warehouse["id"]) - 2, 4)
+    response = client.post("/api/inventory/reservations", headers=auth_headers, json={
+        "production_order_id": other_order["id"], "item_id": item["id"],
+        "stock_batch_id": batch["id"] if claim_scope == "batch" else None,
+        "warehouse_id": warehouse["id"], "reserved_quantity": claim_quantity,
+        "unit": "kg", "reservation_type": "material",
+    })
+    assert response.status_code == 201, response.text
+    claim_id = response.json()["id"]
+    with SessionLocal() as db:
+        before = (
+            float(db.get(StockBatch, batch["id"]).quantity),
+            db.query(StockMovement).count(), db.query(CuttingRecord).count(),
+            db.query(AuditLog).count(),
+        )
+
+    denied = _submit_cutting(
+        client, auth_headers, work_order_id=work_order["id"],
+        fabric_batch_id=batch["id"], input_quantity=4,
+    )
+    assert denied.status_code == 409, denied.text
+    with SessionLocal() as db:
+        claim = db.get(MaterialReservation, claim_id)
+        assert claim.status == "reserved" and float(claim.released_quantity) == 0
+        assert (
+            float(db.get(StockBatch, batch["id"]).quantity),
+            db.query(StockMovement).count(), db.query(CuttingRecord).count(),
+            db.query(AuditLog).count(),
+        ) == before
 
 
 def test_reservation_plan_applies_bom_waste_percent(client, auth_headers):
@@ -802,6 +1174,156 @@ def test_reservation_availability_release_and_over_reservation(client, auth_head
     assert round(float(stock_row["available_quantity"]), 2) == 10.00
 
 
+def test_item_only_reservation_rejects_mismatched_item_unit_without_stock_writes(
+    client, auth_headers,
+):
+    from app.db.session import SessionLocal
+    from app.models import MaterialReservation, StockBatch, StockMovement
+
+    po = _create_branded_po(client, auth_headers, qty=10)
+    item = _create_accessory_item(client, auth_headers, unit="kg")
+    warehouse = _warehouse(client, auth_headers, "accessory_storage")
+    batch = _receive_batch(
+        client,
+        auth_headers,
+        item_id=item["id"],
+        warehouse_id=warehouse["id"],
+        quantity=10,
+        unit="kg",
+    )
+
+    with SessionLocal() as db:
+        movements_before = db.query(StockMovement.id).filter(
+            StockMovement.item_id == item["id"],
+        ).all()
+        reservations_before = db.query(MaterialReservation.id).filter(
+            MaterialReservation.item_id == item["id"],
+        ).all()
+
+    response = client.post(
+        "/api/inventory/reservations",
+        json={
+            "production_order_id": po["id"],
+            "item_id": item["id"],
+            "warehouse_id": warehouse["id"],
+            "reserved_quantity": 2,
+            "unit": "pcs",
+            "reservation_type": "accessory",
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 400, response.text
+    assert response.json() == {
+        "detail": f"Item {item['sku']} unit is kg, not pcs",
+    }
+    with SessionLocal() as db:
+        assert db.query(MaterialReservation.id).filter(
+            MaterialReservation.item_id == item["id"],
+        ).all() == reservations_before
+        assert db.query(StockMovement.id).filter(
+            StockMovement.item_id == item["id"],
+        ).all() == movements_before
+        assert float(db.get(StockBatch, batch["id"]).quantity) == 10
+
+
+def test_batch_reservation_rejects_legacy_batch_item_unit_mismatch_without_stock_writes(
+    client, auth_headers,
+):
+    from app.db.session import SessionLocal
+    from app.models import MaterialReservation, StockBatch, StockMovement
+
+    po = _create_branded_po(client, auth_headers, qty=10)
+    item = _create_accessory_item(client, auth_headers, unit="kg")
+    warehouse = _warehouse(client, auth_headers, "accessory_storage")
+    batch = _receive_batch(
+        client,
+        auth_headers,
+        item_id=item["id"],
+        warehouse_id=warehouse["id"],
+        quantity=10,
+        unit="kg",
+    )
+    with SessionLocal() as db:
+        legacy_batch = db.get(StockBatch, batch["id"])
+        legacy_batch.unit = "pcs"
+        db.commit()
+        movements_before = db.query(StockMovement.id).filter(
+            StockMovement.item_id == item["id"],
+        ).all()
+        reservations_before = db.query(MaterialReservation.id).filter(
+            MaterialReservation.item_id == item["id"],
+        ).all()
+
+    response = client.post(
+        "/api/inventory/reservations",
+        json={
+            "production_order_id": po["id"],
+            "item_id": item["id"],
+            "stock_batch_id": batch["id"],
+            "warehouse_id": warehouse["id"],
+            "reserved_quantity": 2,
+            "unit": "pcs",
+            "reservation_type": "accessory",
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 400, response.text
+    assert response.json() == {
+        "detail": f"Item {item['sku']} unit is kg, not pcs",
+    }
+    with SessionLocal() as db:
+        assert db.query(MaterialReservation.id).filter(
+            MaterialReservation.item_id == item["id"],
+        ).all() == reservations_before
+        assert db.query(StockMovement.id).filter(
+            StockMovement.item_id == item["id"],
+        ).all() == movements_before
+        assert float(db.get(StockBatch, batch["id"]).quantity) == 10
+
+
+def test_batch_reservation_preserves_batch_unit_error_precedence(client, auth_headers):
+    from app.db.session import SessionLocal
+    from app.models import MaterialReservation, StockBatch
+
+    po = _create_branded_po(client, auth_headers, qty=10)
+    item = _create_accessory_item(client, auth_headers, unit="kg")
+    warehouse = _warehouse(client, auth_headers, "accessory_storage")
+    batch = _receive_batch(
+        client,
+        auth_headers,
+        item_id=item["id"],
+        warehouse_id=warehouse["id"],
+        quantity=10,
+        unit="kg",
+    )
+
+    response = client.post(
+        "/api/inventory/reservations",
+        json={
+            "production_order_id": po["id"],
+            "item_id": item["id"],
+            "stock_batch_id": batch["id"],
+            "warehouse_id": warehouse["id"],
+            "reserved_quantity": 2,
+            "unit": "pcs",
+            "reservation_type": "accessory",
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 400, response.text
+    assert response.json() == {
+        "detail": f"Batch {batch['batch_no']} unit is kg, not pcs",
+    }
+    with SessionLocal() as db:
+        assert db.query(MaterialReservation.id).filter(
+            MaterialReservation.item_id == item["id"],
+        ).count() == 0
+        assert float(db.get(StockBatch, batch["id"]).quantity) == 10
+
+
 def test_consume_reservation_creates_stock_movement(client, auth_headers):
     po = _create_branded_po(client, auth_headers, qty=10)
     item = _create_accessory_item(client, auth_headers)
@@ -848,6 +1370,58 @@ def test_consume_reservation_creates_stock_movement(client, auth_headers):
         assert round(float(movement.quantity or 0), 2) == 0.75
     finally:
         db.close()
+
+
+@pytest.mark.parametrize("batch_quantity", [0, 2])
+def test_item_only_reservation_consumes_batchless_warehouse_stock(
+    client, auth_headers, batch_quantity,
+):
+    from app.db.session import SessionLocal
+    from app.models import MaterialReservation, StockBatch, StockMovement
+    from app.services.inventory import current_stock_for_item
+
+    po = _create_branded_po(client, auth_headers, qty=10)
+    item = _create_accessory_item(client, auth_headers)
+    warehouse = _warehouse(client, auth_headers, "accessory_storage")
+    batch = (
+        _receive_batch(
+            client, auth_headers, item_id=item["id"], warehouse_id=warehouse["id"],
+            quantity=batch_quantity, unit=item["unit"],
+        ) if batch_quantity else None
+    )
+    deposited = client.post("/api/inventory/transfer", headers=auth_headers, json={
+        "movement_type": "adjustment", "item_id": item["id"], "batch_id": None,
+        "to_warehouse_id": warehouse["id"], "quantity": 5 - batch_quantity, "unit": item["unit"],
+    })
+    assert deposited.status_code == 201, deposited.text
+    created = client.post("/api/inventory/reservations", headers=auth_headers, json={
+        "production_order_id": po["id"], "item_id": item["id"],
+        "warehouse_id": warehouse["id"], "reserved_quantity": 4,
+        "unit": item["unit"], "reservation_type": "accessory",
+    })
+    assert created.status_code == 201, created.text
+    reservation_id = created.json()["id"]
+
+    consumed = client.post(
+        f"/api/inventory/reservations/{reservation_id}/consume",
+        headers=auth_headers, json={"quantity": 4},
+    )
+
+    assert consumed.status_code == 200, consumed.text
+    assert consumed.json()["status"] == "consumed"
+    with SessionLocal() as db:
+        movements = db.query(StockMovement).filter_by(
+            reference_type="MaterialReservation", reference_id=reservation_id,
+            movement_type="consume",
+        ).order_by(StockMovement.id).all()
+        assert sum(float(row.quantity) for row in movements) == 4
+        assert len(movements) == (2 if batch else 1)
+        assert all(row.from_warehouse_id == warehouse["id"] for row in movements)
+        assert all(row.unit == item["unit"] for row in movements)
+        if batch:
+            assert db.get(StockBatch, batch["id"]).quantity == 0
+        assert current_stock_for_item(db, item["id"], warehouse["id"]) == 1
+        assert db.get(MaterialReservation, reservation_id).consumed_quantity == 4
 
 
 def test_cutting_consumes_matching_reservations_fifo_without_double_deducting_stock(client, auth_headers):

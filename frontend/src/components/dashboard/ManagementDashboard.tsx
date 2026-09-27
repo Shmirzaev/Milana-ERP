@@ -14,6 +14,9 @@ import { dashboardDemoEnabled, demoFinance, demoMessages, demoOverview } from ".
 
 const surface = { background: "var(--erp-surface)", borderColor: "var(--erp-border)", color: "var(--erp-text)" };
 const muted = { color: "var(--erp-text-soft)" };
+function recordedMoney(value: number | null | undefined, currency: string | null | undefined) {
+  return value == null || !currency ? "—" : `${Number(value).toFixed(2)} ${currency}`;
+}
 function Panel({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
   return <section className="min-w-0 rounded-lg border" style={surface}><div className="px-5 pt-5"><h2 className="text-base font-semibold">{title}</h2><p className="mt-1 text-xs" style={muted}>{subtitle}</p></div>{children}</section>;
 }
@@ -42,7 +45,12 @@ export default function ManagementDashboard() {
     !dashboardDemoEnabled && can(me, "management.view") ? `/api/dashboard/overview?start=${range.start}&end=${range.end}&factory=${factory}` : null,
     fetcher, { refreshInterval: 30_000, refreshWhenHidden: false, keepPreviousData: false },
   );
-  const { data: liveFinance, error: financeError } = useSWR<{ revenue_total: number; payments_received: number }>(!dashboardDemoEnabled && can(me, "finance.view") ? "/api/dashboard/finance" : null, fetcher);
+  const { data: liveFinance, error: financeError } = useSWR<{
+    revenue_total: number | null;
+    revenue_currency: string | null;
+    payments_received: number | null;
+    payments_currency: string | null;
+  }>(!dashboardDemoEnabled && can(me, "finance.view") ? "/api/dashboard/finance" : null, fetcher);
   const demoData = useMemo(() => dashboardDemoEnabled ? demoOverview(range.start, range.end, factory, today) : undefined, [range.start, range.end, factory, today]);
   const data = dashboardDemoEnabled ? demoData : liveData;
   const finance = dashboardDemoEnabled ? demoFinance : liveFinance;
@@ -124,6 +132,6 @@ export default function ManagementDashboard() {
       <details className="mt-4 rounded-lg border" style={surface}><summary className="cursor-pointer px-5 py-3 text-sm">{copy.details}</summary><div className="max-h-72 overflow-auto"><table className="w-full text-left text-sm"><thead><tr><th className="px-5 py-2">{copy.period}</th>{chartSeries.map(item => <th key={item.key} className="px-5 py-2">{item.label}</th>)}</tr></thead><tbody>{chartPoints.map(p => <tr key={p.date}><th className="px-5 py-2 font-normal">{p.date}</th>{chartSeries.map(item => <td key={item.key} className="px-5 py-2 tabular-nums">{n(p.values[item.key] || 0)}</td>)}</tr>)}</tbody></table></div></details>
       <div className="mt-3 text-xs" style={muted}>{dashboardDemoEnabled ? demoCopy.generated : copy.updated} {new Date(data.updated_at).toLocaleTimeString(lang, { timeZone: data.timezone })} Â· Asia/Tashkent</div>
     </>}
-    {can(me, "finance.view") && <section className="mt-5 flex flex-wrap items-center gap-x-10 gap-y-3 rounded-lg border px-5 py-4" style={surface}><h2 className="text-sm font-semibold">{factoriesCopy.finance}{dashboardDemoEnabled && ` · ${demoCopy.label}`}</h2>{financeError ? <span className="text-sm" role="status">{copy.financeError}</span> : [ [copy.revenue, finance?.revenue_total], [copy.payments, finance?.payments_received] ].map(([label, value]) => <div key={String(label)} className="text-sm"><span style={muted}>{label}</span><span className="ml-4 font-semibold tabular-nums">{value === undefined ? "â€”" : `$${n(Number(value))}`}</span></div>)}</section>}
+    {can(me, "finance.view") && <section className="mt-5 flex flex-wrap items-center gap-x-10 gap-y-3 rounded-lg border px-5 py-4" style={surface}><h2 className="text-sm font-semibold">{factoriesCopy.finance}{dashboardDemoEnabled && ` · ${demoCopy.label}`}</h2>{financeError ? <span className="text-sm" role="status">{copy.financeError}</span> : [ [copy.revenue, recordedMoney(finance?.revenue_total, finance?.revenue_currency)], [copy.payments, recordedMoney(finance?.payments_received, finance?.payments_currency)] ].map(([label, value]) => <div key={String(label)} className="text-sm"><span style={muted}>{label}</span><span className="ml-4 font-semibold tabular-nums">{value}</span></div>)}</section>}
   </div>;
 }

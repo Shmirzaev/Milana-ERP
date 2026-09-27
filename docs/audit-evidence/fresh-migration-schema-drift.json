@@ -1,0 +1,2310 @@
+{
+  "source": "outputs/cycle3-migration-contract.xml",
+  "result": "DB04 frozen bootstrap is accepted with an exact reviewed known-drift baseline, not a claim of ORM parity. Thirty pre-existing drift entries remain unresolved under follow-up DB08.",
+  "environment": "Disposable loopback PostgreSQL 17 cluster stopped after run; no production connection.",
+  "observed": {
+    "fresh_upgrade": "0001 through 0131 succeeded",
+    "head_rerun": "No CREATE/ALTER/DROP/INSERT/UPDATE/DELETE",
+    "existing_data_upgrade": "0130 through 0131 preserved sewing row and initialized new fields",
+    "strict_parity": "126 normalized differences retained verbatim in the baseline; 2 migration-owned generated lookup columns asserted separately. Raw ORM parity is not achieved."
+  },
+  "limits": [
+    "Alembic compare_metadata does not fully compare CHECK constraints.",
+    "No add_table/add_column diffs: every ORM-mapped table/column is present.",
+    "No inference that currently unmapped legacy schema may be deleted."
+  ],
+  "known_generated_columns": [
+    {
+      "table": "models",
+      "column": "model_group_key",
+      "type": "TEXT",
+      "stored": true,
+      "migration": "0084_model_group_key"
+    },
+    {
+      "table": "models",
+      "column": "is_legacy_import",
+      "type": "BOOLEAN",
+      "stored": true,
+      "migration": "0084_model_group_key"
+    }
+  ],
+  "classification_counts": {
+    "preexisting_unmapped_legacy_schema": 13,
+    "migration_owned_index": 34,
+    "matching_python_default": 48,
+    "migration_owned_unique_constraint": 4,
+    "preexisting_default_contract": 1,
+    "preexisting_type_contract": 1,
+    "preexisting_nullable_contract": 4,
+    "preexisting_missing_hr_index": 9,
+    "preexisting_fk_contract": 2,
+    "equivalent_index_name": 10
+  },
+  "category_explanation": {
+    "migration_owned_index": "34 explicit indexes from 0028, 0084, 0097, 0098, 0102, 0107, 0111. Performance and integrity additions are not bootstrap omissions.",
+    "equivalent_index_name": "Five 0060 indexes match ORM columns/uniqueness but use ix_sewing_replacements rather than ix_sewing_replacement_requests names: 10 diff entries.",
+    "migration_owned_unique_constraint": "0025/0047 constraints duplicate existing unique indexes; 0078 finance external-ID uniqueness is explicitly migration-owned but absent from ORM-only create_all schemas.",
+    "matching_python_default": "48 PostgreSQL defaults have corresponding scalar/dict/list client defaults in current ORM. Representation differs and raw SQL insert semantics remain server-owned.",
+    "preexisting_type_contract": "0077 widened cutting_passports.size_range to VARCHAR(255); current ORM remains VARCHAR(32).",
+    "preexisting_nullable_contract": "0070/0071 permit model-less legacy stock/sales; current ORM still marks four model_id columns nonnullable.",
+    "preexisting_fk_contract": "0069 package_barcode_aliases.package_id ON DELETE CASCADE is absent from ORM FK: remove/add pair.",
+    "preexisting_missing_hr_index": "Nine ORM index=True declarations are not created by 0110 or later migrations.",
+    "preexisting_default_contract": "0010 leaves collections.year server_default 2024; current ORM declares no client/server default.",
+    "preexisting_unmapped_legacy_schema": "13 entries: 0076 beika usage table and 2 indexes; 0071 sales stock reference/source model fields (3 columns, FK, index); 0079 accepted defect fields (4 columns, FK). No current application references found; retention/omission intent not established. Preserve storage and track separately."
+  },
+  "differences": [
+    {
+      "number": 1,
+      "classification": "preexisting_unmapped_legacy_schema",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "cutting_beika_material_usages.cutting_record_id"
+          ],
+          "index": "ix_cutting_beika_material_usages_cutting_record_id",
+          "options": {},
+          "table": "cutting_beika_material_usages",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 2,
+      "classification": "preexisting_unmapped_legacy_schema",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "cutting_beika_material_usages.stock_batch_id"
+          ],
+          "index": "ix_cutting_beika_material_usages_stock_batch_id",
+          "options": {},
+          "table": "cutting_beika_material_usages",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 3,
+      "classification": "preexisting_unmapped_legacy_schema",
+      "difference": [
+        "remove_table",
+        "cutting_beika_material_usages"
+      ]
+    },
+    {
+      "number": 4,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "attendance_events.factory_code",
+            "attendance_events.occurred_at"
+          ],
+          "index": "ix_attendance_events_factory_occurred",
+          "options": {},
+          "table": "attendance_events",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 5,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "audit_logs.entity_type",
+            "audit_logs.entity_id"
+          ],
+          "index": "ix_audit_logs_entity",
+          "options": {},
+          "table": "audit_logs",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 6,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "branded_planning_orders",
+          "status",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "VARCHAR(32)"
+          },
+          "'open'::character varying",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 7,
+      "classification": "migration_owned_unique_constraint",
+      "difference": [
+        "remove_constraint",
+        {
+          "columns": [
+            "order_no"
+          ],
+          "constraint": "UniqueConstraint",
+          "name": "branded_planning_orders_order_no_key",
+          "table": "branded_planning_orders"
+        }
+      ]
+    },
+    {
+      "number": 8,
+      "classification": "preexisting_default_contract",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "collections",
+          "year",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "INTEGER"
+          },
+          "2024",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 9,
+      "classification": "preexisting_type_contract",
+      "difference": [
+        [
+          "modify_type",
+          null,
+          "cutting_passports",
+          "size_range",
+          {
+            "existing_comment": null,
+            "existing_nullable": true,
+            "existing_server_default": false
+          },
+          "VARCHAR(255)",
+          "VARCHAR(32)"
+        ]
+      ]
+    },
+    {
+      "number": 10,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "cutting_records",
+          "approval_status",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "VARCHAR(16)"
+          },
+          "'approved'::character varying",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 11,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "cutting_records",
+          "layer_material_kg",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "NUMERIC(14, 4)"
+          },
+          "'0'::numeric",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 12,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "cutting_records",
+          "beika_kg",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "NUMERIC(14, 4)"
+          },
+          "'0'::numeric",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 13,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "cutting_records",
+          "material_rolls_used",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "NUMERIC(14, 4)"
+          },
+          "'0'::numeric",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 14,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "cutting_records.work_order_id",
+            "cutting_records.production_batch_id"
+          ],
+          "index": "ix_cutting_records_work_order_batch",
+          "options": {},
+          "table": "cutting_records",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 15,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "employees",
+          "hr_profile_json",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "JSON"
+          },
+          "'{}'::json",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 16,
+      "classification": "preexisting_nullable_contract",
+      "difference": [
+        [
+          "modify_nullable",
+          null,
+          "finished_goods_stock",
+          "model_id",
+          {
+            "existing_comment": null,
+            "existing_server_default": false,
+            "existing_type": "INTEGER"
+          },
+          true,
+          false
+        ]
+      ]
+    },
+    {
+      "number": 17,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "finished_goods_stock.model_id",
+            "finished_goods_stock.status",
+            "finished_goods_stock.id DESC"
+          ],
+          "index": "ix_finished_goods_model_status_id",
+          "options": {},
+          "table": "finished_goods_stock",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 18,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "finished_goods_stock.package_id"
+          ],
+          "index": "ix_finished_goods_package_id",
+          "options": {},
+          "table": "finished_goods_stock",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 19,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "forecast_recommendations",
+          "status",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "VARCHAR(32)"
+          },
+          "'open'::character varying",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 20,
+      "classification": "preexisting_missing_hr_index",
+      "difference": [
+        "add_index",
+        {
+          "expressions": [
+            "hr_calendar_events.employee_id"
+          ],
+          "index": "ix_hr_calendar_events_employee_id",
+          "options": {},
+          "table": "hr_calendar_events",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 21,
+      "classification": "preexisting_missing_hr_index",
+      "difference": [
+        "add_index",
+        {
+          "expressions": [
+            "hr_calendar_events.event_type"
+          ],
+          "index": "ix_hr_calendar_events_event_type",
+          "options": {},
+          "table": "hr_calendar_events",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 22,
+      "classification": "preexisting_missing_hr_index",
+      "difference": [
+        "add_index",
+        {
+          "expressions": [
+            "hr_employee_documents.category"
+          ],
+          "index": "ix_hr_employee_documents_category",
+          "options": {},
+          "table": "hr_employee_documents",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 23,
+      "classification": "preexisting_missing_hr_index",
+      "difference": [
+        "add_index",
+        {
+          "expressions": [
+            "hr_org_units.department_id"
+          ],
+          "index": "ix_hr_org_units_department_id",
+          "options": {},
+          "table": "hr_org_units",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 24,
+      "classification": "preexisting_missing_hr_index",
+      "difference": [
+        "add_index",
+        {
+          "expressions": [
+            "hr_org_units.manager_employee_id"
+          ],
+          "index": "ix_hr_org_units_manager_employee_id",
+          "options": {},
+          "table": "hr_org_units",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 25,
+      "classification": "preexisting_missing_hr_index",
+      "difference": [
+        "add_index",
+        {
+          "expressions": [
+            "hr_positions.department_id"
+          ],
+          "index": "ix_hr_positions_department_id",
+          "options": {},
+          "table": "hr_positions",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 26,
+      "classification": "preexisting_missing_hr_index",
+      "difference": [
+        "add_index",
+        {
+          "expressions": [
+            "hr_positions.org_unit_id"
+          ],
+          "index": "ix_hr_positions_org_unit_id",
+          "options": {},
+          "table": "hr_positions",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 27,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "hr_recruitment_candidates.factory_code",
+            "hr_recruitment_candidates.pinfl"
+          ],
+          "index": "uq_hr_recruitment_candidates_factory_pinfl",
+          "options": {
+            "postgresql_where": "(pinfl IS NOT NULL)"
+          },
+          "table": "hr_recruitment_candidates",
+          "unique": true
+        }
+      ]
+    },
+    {
+      "number": 28,
+      "classification": "preexisting_missing_hr_index",
+      "difference": [
+        "add_index",
+        {
+          "expressions": [
+            "hr_recruitment_candidates.position_id"
+          ],
+          "index": "ix_hr_recruitment_candidates_position_id",
+          "options": {},
+          "table": "hr_recruitment_candidates",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 29,
+      "classification": "preexisting_missing_hr_index",
+      "difference": [
+        "add_index",
+        {
+          "expressions": [
+            "hr_recruitment_candidates.stage"
+          ],
+          "index": "ix_hr_recruitment_candidates_stage",
+          "options": {},
+          "table": "hr_recruitment_candidates",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 30,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "idempotency_records",
+          "status_code",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "INTEGER"
+          },
+          "200",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 31,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "idempotency_records.created_at"
+          ],
+          "index": "ix_idempotency_records_created_at",
+          "options": {},
+          "table": "idempotency_records",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 32,
+      "classification": "migration_owned_unique_constraint",
+      "difference": [
+        "remove_constraint",
+        {
+          "columns": [
+            "external_source",
+            "external_id"
+          ],
+          "constraint": "UniqueConstraint",
+          "name": "uq_invoices_external_source_id",
+          "table": "invoices"
+        }
+      ]
+    },
+    {
+      "number": 33,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "items",
+          "composition_json",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "JSON"
+          },
+          "'[]'::json",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 34,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "material_reservations",
+          "consumed_quantity",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "NUMERIC(14, 4)"
+          },
+          "'0'::numeric",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 35,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "material_reservations",
+          "released_quantity",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "NUMERIC(14, 4)"
+          },
+          "'0'::numeric",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 36,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "material_reservations",
+          "status",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "VARCHAR(32)"
+          },
+          "'reserved'::character varying",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 37,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "material_reservations",
+          "reservation_type",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "VARCHAR(32)"
+          },
+          "'material'::character varying",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 38,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "material_reservations",
+          "source",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "VARCHAR(32)"
+          },
+          "'manual'::character varying",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 39,
+      "classification": "migration_owned_unique_constraint",
+      "difference": [
+        "remove_constraint",
+        {
+          "columns": [
+            "reservation_no"
+          ],
+          "constraint": "UniqueConstraint",
+          "name": "uq_material_reservations_reservation_no",
+          "table": "material_reservations"
+        }
+      ]
+    },
+    {
+      "number": 40,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "model_bom.model_id",
+            "model_bom.id DESC"
+          ],
+          "index": "ix_model_bom_model_id_id",
+          "options": {},
+          "table": "model_bom",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 41,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "model_bom.model_id"
+          ],
+          "index": "uq_model_bom_main_material_per_model",
+          "options": {
+            "postgresql_where": "((material_role)::text = 'main'::text)"
+          },
+          "table": "model_bom",
+          "unique": true
+        }
+      ]
+    },
+    {
+      "number": 42,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "model_colors.model_id",
+            "model_colors.id DESC"
+          ],
+          "index": "ix_model_colors_model_id_id",
+          "options": {},
+          "table": "model_colors",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 43,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "model_images.model_id",
+            "model_images.id DESC"
+          ],
+          "index": "ix_model_images_model_id_id",
+          "options": {},
+          "table": "model_images",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 44,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "model_sizes.model_id",
+            "model_sizes.id DESC"
+          ],
+          "index": "ix_model_sizes_model_id_id",
+          "options": {},
+          "table": "model_sizes",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 45,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "models.is_legacy_import",
+            "models.status",
+            "models.created_at DESC",
+            "models.id DESC"
+          ],
+          "index": "ix_models_legacy_status_created_id",
+          "options": {},
+          "table": "models",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 46,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "models.is_legacy_import",
+            "models.model_group_key",
+            "models.id DESC"
+          ],
+          "index": "ix_models_model_group_key_id",
+          "options": {},
+          "table": "models",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 47,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "notifications.user_id",
+            "notifications.id DESC"
+          ],
+          "index": "ix_notifications_user_unread_id",
+          "options": {
+            "postgresql_where": "(is_read = false)"
+          },
+          "table": "notifications",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 48,
+      "classification": "preexisting_fk_contract",
+      "difference": [
+        "remove_fk",
+        {
+          "columns": [
+            "package_id"
+          ],
+          "constraint": "ForeignKeyConstraint",
+          "name": "package_barcode_aliases_package_id_fkey",
+          "ondelete": "CASCADE",
+          "onupdate": null,
+          "table": "package_barcode_aliases",
+          "targets": [
+            "packages.id"
+          ]
+        }
+      ]
+    },
+    {
+      "number": 49,
+      "classification": "preexisting_fk_contract",
+      "difference": [
+        "add_fk",
+        {
+          "columns": [
+            "package_id"
+          ],
+          "constraint": "ForeignKeyConstraint",
+          "name": null,
+          "ondelete": null,
+          "onupdate": null,
+          "table": "package_barcode_aliases",
+          "targets": [
+            "packages.id"
+          ]
+        }
+      ]
+    },
+    {
+      "number": 50,
+      "classification": "preexisting_nullable_contract",
+      "difference": [
+        [
+          "modify_nullable",
+          null,
+          "package_items",
+          "model_id",
+          {
+            "existing_comment": null,
+            "existing_server_default": false,
+            "existing_type": "INTEGER"
+          },
+          true,
+          false
+        ]
+      ]
+    },
+    {
+      "number": 51,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "package_scan_logs.package_id",
+            "package_scan_logs.scanned_at"
+          ],
+          "index": "ix_package_scan_logs_package_scanned",
+          "options": {},
+          "table": "package_scan_logs",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 52,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "packages",
+          "packaging_department_code",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "VARCHAR(16)"
+          },
+          "'PKG'::character varying",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 53,
+      "classification": "preexisting_nullable_contract",
+      "difference": [
+        [
+          "modify_nullable",
+          null,
+          "packages",
+          "model_id",
+          {
+            "existing_comment": null,
+            "existing_server_default": false,
+            "existing_type": "INTEGER"
+          },
+          true,
+          false
+        ]
+      ]
+    },
+    {
+      "number": 54,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "packages.production_order_id",
+            "packages.status",
+            "packages.production_batch_id"
+          ],
+          "index": "ix_packages_order_status_batch",
+          "options": {},
+          "table": "packages",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 55,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "packages.production_order_id",
+            "packages.status"
+          ],
+          "index": "ix_packages_production_status",
+          "options": {},
+          "table": "packages",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 56,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "packages.sales_order_id",
+            "packages.status"
+          ],
+          "index": "ix_packages_sales_status",
+          "options": {},
+          "table": "packages",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 57,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "packages.status",
+            "packages.id"
+          ],
+          "index": "ix_packages_status_id",
+          "options": {},
+          "table": "packages",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 58,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "packages.storage_cell",
+            "packages.storage_shelf",
+            "packages.status"
+          ],
+          "index": "ix_packages_storage_status",
+          "options": {},
+          "table": "packages",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 59,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "packaging_receipts",
+          "packaging_department_code",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "VARCHAR(16)"
+          },
+          "'PKG'::character varying",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 60,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "packaging_records.work_order_id",
+            "packaging_records.production_batch_id"
+          ],
+          "index": "ix_packaging_records_work_order_batch",
+          "options": {},
+          "table": "packaging_records",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 61,
+      "classification": "migration_owned_unique_constraint",
+      "difference": [
+        "remove_constraint",
+        {
+          "columns": [
+            "external_source",
+            "external_id"
+          ],
+          "constraint": "UniqueConstraint",
+          "name": "uq_payments_external_source_id",
+          "table": "payments"
+        }
+      ]
+    },
+    {
+      "number": 62,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "payroll_adjustments",
+          "adjustment_type",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "VARCHAR(16)"
+          },
+          "'bonus'::character varying",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 63,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "payroll_adjustments",
+          "currency",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "VARCHAR(8)"
+          },
+          "'UZS'::character varying",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 64,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "payroll_periods",
+          "status",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "VARCHAR(32)"
+          },
+          "'open'::character varying",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 65,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "payroll_qr_labels",
+          "copy_index",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "INTEGER"
+          },
+          "1",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 66,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "payroll_qr_labels",
+          "quantity",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "NUMERIC(14, 4)"
+          },
+          "'0'::numeric",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 67,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "payroll_qr_labels",
+          "rate_per_piece",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "NUMERIC(14, 4)"
+          },
+          "'0'::numeric",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 68,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "payroll_qr_labels",
+          "currency",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "VARCHAR(8)"
+          },
+          "'UZS'::character varying",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 69,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "payroll_qr_labels",
+          "status",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "VARCHAR(16)"
+          },
+          "'available'::character varying",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 70,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "payroll_qr_labels",
+          "return_count",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "INTEGER"
+          },
+          "0",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 71,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "payroll_records",
+          "quantity",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "NUMERIC(14, 4)"
+          },
+          "'0'::numeric",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 72,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "payroll_records",
+          "rate_per_piece",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "NUMERIC(14, 4)"
+          },
+          "'0'::numeric",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 73,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "payroll_records",
+          "currency",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "VARCHAR(8)"
+          },
+          "'UZS'::character varying",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 74,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "payroll_records",
+          "total_amount",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "NUMERIC(14, 2)"
+          },
+          "'0'::numeric",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 75,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "payroll_records",
+          "source",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "VARCHAR(64)"
+          },
+          "'payroll_scan'::character varying",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 76,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "payroll_records",
+          "status",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "VARCHAR(32)"
+          },
+          "'recorded'::character varying",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 77,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "price_calculation_requests",
+          "accessories_json",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "JSON"
+          },
+          "'[]'::json",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 78,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "printing_records.work_order_id",
+            "printing_records.production_batch_id"
+          ],
+          "index": "ix_printing_records_work_order_batch",
+          "options": {},
+          "table": "printing_records",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 79,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "production_orders.sales_order_id",
+            "production_orders.status"
+          ],
+          "index": "ix_production_orders_sales_status",
+          "options": {},
+          "table": "production_orders",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 80,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "production_orders.status",
+            "production_orders.id"
+          ],
+          "index": "ix_production_orders_status_id",
+          "options": {},
+          "table": "production_orders",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 81,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "purchase_order_lines",
+          "ordered_quantity",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "NUMERIC(14, 4)"
+          },
+          "'0'::numeric",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 82,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "purchase_order_lines",
+          "received_quantity",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "NUMERIC(14, 4)"
+          },
+          "'0'::numeric",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 83,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "purchase_order_lines",
+          "unit_cost",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "NUMERIC(12, 4)"
+          },
+          "'0'::numeric",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 84,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "purchase_orders",
+          "status",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "VARCHAR(32)"
+          },
+          "'draft'::character varying",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 85,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "purchase_request_lines",
+          "required_quantity",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "NUMERIC(14, 4)"
+          },
+          "'0'::numeric",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 86,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "purchase_request_lines",
+          "requested_quantity",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "NUMERIC(14, 4)"
+          },
+          "'0'::numeric",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 87,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "purchase_request_lines",
+          "available_quantity",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "NUMERIC(14, 4)"
+          },
+          "'0'::numeric",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 88,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "purchase_request_lines",
+          "shortage_quantity",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "NUMERIC(14, 4)"
+          },
+          "'0'::numeric",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 89,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "purchase_requests",
+          "status",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "VARCHAR(32)"
+          },
+          "'draft'::character varying",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 90,
+      "classification": "preexisting_nullable_contract",
+      "difference": [
+        [
+          "modify_nullable",
+          null,
+          "sales_order_items",
+          "model_id",
+          {
+            "existing_comment": null,
+            "existing_server_default": false,
+            "existing_type": "INTEGER"
+          },
+          true,
+          false
+        ]
+      ]
+    },
+    {
+      "number": 91,
+      "classification": "preexisting_unmapped_legacy_schema",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "sales_order_items.finished_goods_stock_id"
+          ],
+          "index": "ix_sales_order_items_finished_goods_stock_id",
+          "options": {},
+          "table": "sales_order_items",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 92,
+      "classification": "preexisting_unmapped_legacy_schema",
+      "difference": [
+        "remove_fk",
+        {
+          "columns": [
+            "finished_goods_stock_id"
+          ],
+          "constraint": "ForeignKeyConstraint",
+          "name": "fk_sales_order_items_finished_goods_stock_id",
+          "ondelete": null,
+          "onupdate": null,
+          "table": "sales_order_items",
+          "targets": [
+            "finished_goods_stock.id"
+          ]
+        }
+      ]
+    },
+    {
+      "number": 93,
+      "classification": "preexisting_unmapped_legacy_schema",
+      "difference": [
+        "remove_column",
+        null,
+        "sales_order_items",
+        {
+          "column": "finished_goods_stock_id",
+          "default": null,
+          "nullable": true,
+          "type": "INTEGER"
+        }
+      ]
+    },
+    {
+      "number": 94,
+      "classification": "preexisting_unmapped_legacy_schema",
+      "difference": [
+        "remove_column",
+        null,
+        "sales_order_items",
+        {
+          "column": "source_model_name",
+          "default": null,
+          "nullable": true,
+          "type": "VARCHAR(255)"
+        }
+      ]
+    },
+    {
+      "number": 95,
+      "classification": "preexisting_unmapped_legacy_schema",
+      "difference": [
+        "remove_column",
+        null,
+        "sales_order_items",
+        {
+          "column": "source_model_code",
+          "default": null,
+          "nullable": true,
+          "type": "VARCHAR(64)"
+        }
+      ]
+    },
+    {
+      "number": 96,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "sewing_flows",
+          "factory_code",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "VARCHAR(16)"
+          },
+          "'MIL'::character varying",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 97,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "sewing_records.work_order_id",
+            "sewing_records.production_batch_id"
+          ],
+          "index": "ix_sewing_records_work_order_batch",
+          "options": {},
+          "table": "sewing_records",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 98,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "sewing_replacement_requests",
+          "cut_qty",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "INTEGER"
+          },
+          "0",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 99,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "sewing_replacement_requests",
+          "replaced_qty",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "INTEGER"
+          },
+          "0",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 100,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "sewing_replacement_requests",
+          "status",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "VARCHAR(32)"
+          },
+          "'waiting_cutting'::character varying",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 101,
+      "classification": "equivalent_index_name",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "sewing_replacement_requests.cutting_work_order_id"
+          ],
+          "index": "ix_sewing_replacements_cutting_work_order_id",
+          "options": {},
+          "table": "sewing_replacement_requests",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 102,
+      "classification": "equivalent_index_name",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "sewing_replacement_requests.production_batch_id"
+          ],
+          "index": "ix_sewing_replacements_production_batch_id",
+          "options": {},
+          "table": "sewing_replacement_requests",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 103,
+      "classification": "equivalent_index_name",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "sewing_replacement_requests.production_order_id"
+          ],
+          "index": "ix_sewing_replacements_production_order_id",
+          "options": {},
+          "table": "sewing_replacement_requests",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 104,
+      "classification": "equivalent_index_name",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "sewing_replacement_requests.sewing_work_order_id"
+          ],
+          "index": "ix_sewing_replacements_sewing_work_order_id",
+          "options": {},
+          "table": "sewing_replacement_requests",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 105,
+      "classification": "equivalent_index_name",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "sewing_replacement_requests.status"
+          ],
+          "index": "ix_sewing_replacements_status",
+          "options": {},
+          "table": "sewing_replacement_requests",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 106,
+      "classification": "equivalent_index_name",
+      "difference": [
+        "add_index",
+        {
+          "expressions": [
+            "sewing_replacement_requests.cutting_work_order_id"
+          ],
+          "index": "ix_sewing_replacement_requests_cutting_work_order_id",
+          "options": {},
+          "table": "sewing_replacement_requests",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 107,
+      "classification": "equivalent_index_name",
+      "difference": [
+        "add_index",
+        {
+          "expressions": [
+            "sewing_replacement_requests.production_batch_id"
+          ],
+          "index": "ix_sewing_replacement_requests_production_batch_id",
+          "options": {},
+          "table": "sewing_replacement_requests",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 108,
+      "classification": "equivalent_index_name",
+      "difference": [
+        "add_index",
+        {
+          "expressions": [
+            "sewing_replacement_requests.production_order_id"
+          ],
+          "index": "ix_sewing_replacement_requests_production_order_id",
+          "options": {},
+          "table": "sewing_replacement_requests",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 109,
+      "classification": "equivalent_index_name",
+      "difference": [
+        "add_index",
+        {
+          "expressions": [
+            "sewing_replacement_requests.sewing_work_order_id"
+          ],
+          "index": "ix_sewing_replacement_requests_sewing_work_order_id",
+          "options": {},
+          "table": "sewing_replacement_requests",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 110,
+      "classification": "equivalent_index_name",
+      "difference": [
+        "add_index",
+        {
+          "expressions": [
+            "sewing_replacement_requests.status"
+          ],
+          "index": "ix_sewing_replacement_requests_status",
+          "options": {},
+          "table": "sewing_replacement_requests",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 111,
+      "classification": "preexisting_unmapped_legacy_schema",
+      "difference": [
+        "remove_fk",
+        {
+          "columns": [
+            "accepted_defect_by"
+          ],
+          "constraint": "ForeignKeyConstraint",
+          "name": "fk_sewing_replacements_accepted_defect_by_users",
+          "ondelete": null,
+          "onupdate": null,
+          "table": "sewing_replacement_requests",
+          "targets": [
+            "users.id"
+          ]
+        }
+      ]
+    },
+    {
+      "number": 112,
+      "classification": "preexisting_unmapped_legacy_schema",
+      "difference": [
+        "remove_column",
+        null,
+        "sewing_replacement_requests",
+        {
+          "column": "accepted_defect_by",
+          "default": null,
+          "nullable": true,
+          "type": "INTEGER"
+        }
+      ]
+    },
+    {
+      "number": 113,
+      "classification": "preexisting_unmapped_legacy_schema",
+      "difference": [
+        "remove_column",
+        null,
+        "sewing_replacement_requests",
+        {
+          "column": "accepted_defect_reason",
+          "default": null,
+          "nullable": true,
+          "type": "VARCHAR(64)"
+        }
+      ]
+    },
+    {
+      "number": 114,
+      "classification": "preexisting_unmapped_legacy_schema",
+      "difference": [
+        "remove_column",
+        null,
+        "sewing_replacement_requests",
+        {
+          "column": "accepted_defect_at",
+          "default": null,
+          "nullable": true,
+          "type": "TIMESTAMP"
+        }
+      ]
+    },
+    {
+      "number": 115,
+      "classification": "preexisting_unmapped_legacy_schema",
+      "difference": [
+        "remove_column",
+        null,
+        "sewing_replacement_requests",
+        {
+          "column": "accepted_defect_qty",
+          "default": "0",
+          "nullable": false,
+          "type": "INTEGER"
+        }
+      ]
+    },
+    {
+      "number": 116,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "shipment_scan_logs.shipment_id",
+            "shipment_scan_logs.package_id"
+          ],
+          "index": "ix_shipment_scan_logs_shipment_package",
+          "options": {},
+          "table": "shipment_scan_logs",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 117,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "shipments.sales_order_id",
+            "shipments.status"
+          ],
+          "index": "ix_shipments_sales_status",
+          "options": {},
+          "table": "shipments",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 118,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "shipments.status",
+            "shipments.id"
+          ],
+          "index": "ix_shipments_status_id",
+          "options": {},
+          "table": "shipments",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 119,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "stock_batches",
+          "roll_weights_kg",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "JSON"
+          },
+          "'[]'::json",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 120,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "stock_batches.item_id",
+            "stock_batches.warehouse_id"
+          ],
+          "index": "ix_stock_batches_item_warehouse",
+          "options": {},
+          "table": "stock_batches",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 121,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "stock_movements.item_id",
+            "stock_movements.created_at"
+          ],
+          "index": "ix_stock_movements_item_created",
+          "options": {},
+          "table": "stock_movements",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 122,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "stock_movements.reference_type",
+            "stock_movements.reference_id"
+          ],
+          "index": "ix_stock_movements_reference",
+          "options": {},
+          "table": "stock_movements",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 123,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "suppliers",
+          "is_active",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "BOOLEAN"
+          },
+          "true",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 124,
+      "classification": "matching_python_default",
+      "difference": [
+        [
+          "modify_default",
+          null,
+          "users",
+          "extra_permissions",
+          {
+            "existing_comment": null,
+            "existing_nullable": false,
+            "existing_type": "JSON"
+          },
+          "'[]'::json",
+          null
+        ]
+      ]
+    },
+    {
+      "number": 125,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "work_orders.production_batch_id",
+            "work_orders.operation"
+          ],
+          "index": "ix_work_orders_batch_operation",
+          "options": {},
+          "table": "work_orders",
+          "unique": false
+        }
+      ]
+    },
+    {
+      "number": 126,
+      "classification": "migration_owned_index",
+      "difference": [
+        "remove_index",
+        {
+          "expressions": [
+            "work_orders.production_order_id",
+            "work_orders.status"
+          ],
+          "index": "ix_work_orders_production_status",
+          "options": {},
+          "table": "work_orders",
+          "unique": false
+        }
+      ]
+    }
+  ],
+  "acceptance_qa": {
+    "decision": "Accept the DB04 initial-migration decoupling fix without redesigning existing business schema.",
+    "accepted_evidence": [
+      "Frozen historical PostgreSQL DDL equivalence: 54 tables, 632 columns, 27 indexes including the two documented audit columns/index.",
+      "Fresh upgrade through 0131 completes; upgrade head rerun emits no schema or data mutation.",
+      "0130 to 0131 preserves existing synthetic sewing rows and initializes correction fields.",
+      "Every current ORM-mapped table and column is present."
+    ],
+    "assertion_contract": "Compare the full normalized remaining differences to differences[].difference using canonical key ordering and top-level sorting. Any added, changed, duplicated, or disappearing difference fails until reviewed. Generated columns retain explicit existence, type and persisted-expression checks.",
+    "counts": {
+      "raw_difference_entries": 128,
+      "reviewed_difference_entries": 126,
+      "explicit_generated_columns": 2,
+      "explained_migration_owned_or_representation_entries": 98,
+      "unresolved_preexisting_drift_entries": 30
+    },
+    "unresolved_followup": "DB08: review the 30 pre-existing ORM/schema drift entries as one tracked risk; this DB04 change neither fixes nor silently suppresses them.",
+    "non_claims": [
+      "Not exact ORM/database parity.",
+      "Not a business-schema redesign or repair of existing drift.",
+      "Not a complete CHECK-constraint comparison; Alembic autogenerate coverage is limited."
+    ],
+    "review_policy": "Update this baseline only after explicitly reviewing schema-contract changes and their migration provenance; never regenerate it automatically to turn a failure green.",
+    "final_verification": {
+      "lightweight_tests": "13 passed; 2 PostgreSQL tests deselected. Includes SQLite bootstrap regression and rejection of added, changed, disappearing or duplicated baseline differences.",
+      "isolated_postgresql_tests": "2 passed; 13 lightweight tests deselected. Fresh 0001-to-0131 upgrade, no-op head rerun, exact reviewed drift baseline, and data-preserving 0130-to-0131 upgrade all passed.",
+      "evidence": "outputs/cycle3-migration-contract.xml",
+      "cleanup": "Disposable PostgreSQL runner confirmed its temporary cluster stopped after both tests.",
+      "lint": "Ruff passed for all three owned Python files.",
+      "production": "Not accessed or changed. Only disposable loopback PostgreSQL schemas and synthetic rows were used."
+    }
+  }
+}

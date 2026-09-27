@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -20,11 +21,15 @@ class ForecastRecommendationIn(BaseModel):
     item_id: int | None = None
     brand_id: int | None = None
     collection_id: int | None = None
-    color: str | None = None
-    size: str | None = None
-    suggested_quantity: float = Field(gt=0)
-    unit: str | None = None
-    confidence: str | None = None
+    color: str | None = Field(default=None, max_length=64)
+    size: str | None = Field(default=None, max_length=32)
+    suggested_quantity: Decimal = Field(
+        gt=0,
+        le=Decimal("9999999999.9999"),
+        allow_inf_nan=False,
+    )
+    unit: str | None = Field(default=None, max_length=32)
+    confidence: str | None = Field(default=None, max_length=16)
     reason: str | None = None
     source_json: dict[str, Any] | None = None
 
@@ -55,3 +60,11 @@ class ForecastRecommendationOut(ORMModel):
     reviewed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class ForecastRecommendationPageOut(BaseModel):
+    rows: list[ForecastRecommendationOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool

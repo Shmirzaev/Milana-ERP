@@ -23,6 +23,7 @@ class SalesOrder(Base, PkMixin, TimestampMixin):
     status: Mapped[str] = mapped_column(String(32), default="draft", nullable=False)
     deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     total_amount: Mapped[float] = mapped_column(Numeric(14, 2), default=0, nullable=False)
+    currency: Mapped[str | None] = mapped_column(String(3))
     planning_estimated_material_cost: Mapped[float | None] = mapped_column(Numeric(14, 2))
     planning_estimated_labor_cost: Mapped[float | None] = mapped_column(Numeric(14, 2))
     planning_estimated_electricity_cost: Mapped[float | None] = mapped_column(Numeric(14, 2))
@@ -48,9 +49,22 @@ class SalesOrderItem(Base, PkMixin, TimestampMixin):
         CheckConstraint("quantity >= 0", name="ck_sales_order_items_quantity_nonnegative"),
         CheckConstraint("requested_pack_count IS NULL OR requested_pack_count > 0", name="ck_sales_order_items_requested_packs_positive"),
         CheckConstraint("unit_price >= 0", name="ck_sales_order_items_unit_price_nonnegative"),
+        CheckConstraint(
+            "model_id IS NOT NULL OR finished_goods_stock_id IS NOT NULL",
+            name="ck_sales_order_items_product_reference",
+        ),
     )
     sales_order_id: Mapped[int] = mapped_column(ForeignKey("sales_orders.id"), nullable=False)
-    model_id: Mapped[int] = mapped_column(ForeignKey("models.id"), nullable=False)
+    model_id: Mapped[int | None] = mapped_column(ForeignKey("models.id"))
+    finished_goods_stock_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "finished_goods_stock.id",
+            name="fk_sales_order_items_finished_goods_stock_id",
+        ),
+        index=True,
+    )
+    source_model_code: Mapped[str | None] = mapped_column(String(64))
+    source_model_name: Mapped[str | None] = mapped_column(String(255))
     brand_id: Mapped[int | None] = mapped_column(ForeignKey("brands.id"))
     collection_id: Mapped[int | None] = mapped_column(ForeignKey("collections.id"))
     color: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -127,6 +141,7 @@ class Invoice(Base, PkMixin, TimestampMixin):
     external_source: Mapped[str | None] = mapped_column(String(32))
     external_id: Mapped[str | None] = mapped_column(String(128))
     amount: Mapped[float] = mapped_column(Numeric(14, 2), default=0, nullable=False)
+    currency: Mapped[str | None] = mapped_column(String(3))
     status: Mapped[str] = mapped_column(String(32), default="unpaid", nullable=False)
     issued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -142,6 +157,7 @@ class Payment(Base, PkMixin, TimestampMixin):
     external_source: Mapped[str | None] = mapped_column(String(32))
     external_id: Mapped[str | None] = mapped_column(String(128))
     amount: Mapped[float] = mapped_column(Numeric(14, 2), default=0, nullable=False)
+    currency: Mapped[str | None] = mapped_column(String(3))
     payment_method: Mapped[str | None] = mapped_column(String(32))
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     notes: Mapped[str | None] = mapped_column(Text)

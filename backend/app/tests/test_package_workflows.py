@@ -1,17 +1,91 @@
 """Physical receipt and exact print-run handoff regressions (isolated test DB)."""
+import json
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select
+from fastapi import HTTPException
+from sqlalchemy import event, select
 
 from app.db.session import SessionLocal
+from app.tests.conftest import test_engine
 from app.models import (
-    AuditLog, Department, FinishedGoodsStock, ManualPackageReceipt, Model, Package,
+    AuditLog, Department, FinishedGoodsStock, ManualPackageReceipt, Model, ModelSize, Package,
     PackageBarcodeAlias, PackagePrintRun, PackagePrintRunMember,
     PackageScanLog, PackagingRecord, ProductionOrder, WorkOrder,
 )
 
 BASE = "/api/packages"
+
+
+def test_manual_receipt_evidence_byte_boundary_and_largest_request_shape():
+    from app.services.package_workflows import _validate_manual_receipt_evidence
+
+    overhead = len(json.dumps({"name": ""}, separators=(",", ":")).encode("utf-8"))
+    _validate_manual_receipt_evidence({"name": "x" * (16 * 1024 - overhead)})
+    with pytest.raises(HTTPException) as exc:
+        _validate_manual_receipt_evidence({"name": "x" * (16 * 1024 - overhead + 1)})
+    assert exc.value.status_code == 422
+
+    _validate_manual_receipt_evidence({
+        "pack_quantities": [10000] * 200,
+        "configured_sizes": ["S" * 32] * 50,
+        "reason": "é" * 1000,
+        "model_name": "M" * 255,
+        "color": "C" * 64,
+    })
+
+
+def test_packaging_bom_item_preload_preserves_order_and_skips_missing_items(monkeypatch):
+    from app.models import Item, ModelBOM
+    from app.services import workflow
+
+    marker = uuid4().hex[:8]
+    with SessionLocal() as db:
+        model = Model(code=f"BOM-PERF20-{marker}", name="BOM query test", category="T-shirt")
+        packaging_a = Item(sku=f"BOM-A-{marker}", name="Bag", category="packaging", unit="pcs")
+        fabric = Item(sku=f"BOM-F-{marker}", name="Fabric", category="fabric", unit="kg")
+        packaging_b = Item(sku=f"BOM-B-{marker}", name="Box", category="packaging", unit="pcs")
+        db.add_all([model, packaging_a, fabric, packaging_b])
+        db.flush()
+        db.add_all([
+            ModelBOM(model_id=model.id, item_id=packaging_a.id, quantity_per_piece=2, unit="pcs"),
+            ModelBOM(model_id=model.id, item_id=fabric.id, quantity_per_piece=99, unit="kg"),
+            ModelBOM(model_id=model.id, item_id=packaging_b.id, quantity_per_piece=3, unit="pcs"),
+            ModelBOM(model_id=model.id, item_id=2_147_483_647, quantity_per_piece=7, unit="pcs"),
+        ])
+        db.flush()
+        order = ProductionOrder(
+            production_no=f"BOM-PO-{marker}",
+            production_type="branded_stock",
+            model_id=model.id,
+            planned_quantity=10,
+        )
+        db.add(order)
+        db.flush()
+        statements = []
+        consumed = []
+
+        monkeypatch.setattr(
+            workflow,
+            "consume_item_from_batches",
+            lambda _db, **kwargs: consumed.append(kwargs),
+        )
+
+        def capture(_conn, _cursor, statement, _params, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT") and "from items" in statement.lower():
+                statements.append(statement)
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            workflow.consume_packaging_materials_from_bom(
+                db, production_order_id=order.id, packed_qty=2,
+                reference_type="PackagingRecord", reference_id=7, user_id=None,
+            )
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+        assert [row["item_id"] for row in consumed] == [packaging_a.id, packaging_b.id]
+        assert [row["quantity"] for row in consumed] == [4.0, 6.0]
+        assert len(statements) == 1
 
 
 @pytest.fixture
@@ -55,6 +129,27 @@ def create_run(client, headers, template, count):
     return result.json()
 
 
+def test_print_run_label_loads_package_rows_in_one_query(client, auth_headers, warehouse, packaging_order):
+    run = create_run(client, auth_headers, packaging_order, 4)
+    package_reads = []
+
+    def capture_package_reads(_connection, _cursor, statement, _parameters, _context, _executemany):
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("select") and " from packages " in normalized:
+            package_reads.append(normalized)
+
+    event.listen(test_engine, "before_cursor_execute", capture_package_reads)
+    try:
+        response = client.get(BASE + f"/print-runs/{run['id']}/label", headers=warehouse)
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture_package_reads)
+
+    assert response.status_code == 200, response.text
+    assert response.text.count("class='label'") == 4
+    assert len(package_reads) == 1, package_reads
+    assert "packages.id in" in package_reads[0]
+
+
 def package_qr(pid):
     with SessionLocal() as db:
         p = db.get(Package, pid)
@@ -94,6 +189,37 @@ def test_manual_receipt_once_with_real_source_and_reprints(client, warehouse):
     assert lookup.json()["manual_source"]["receipt_no"] == saved["receipt_no"]
 
 
+def test_manual_receipt_rejects_oversized_configured_size_evidence_without_writes(client, warehouse):
+    token = uuid4().hex[:8]
+    with SessionLocal() as db:
+        model = Model(code=f"EVIDENCE-{token}", name="Manual receipt evidence", status="approved")
+        db.add(model)
+        db.flush()
+        first_size = f"S-0000-{'x' * 24}"
+        db.add_all(
+            ModelSize(model_id=model.id, size=f"S-{number:04d}-{'x' * 24}")
+            for number in range(600)
+        )
+        db.commit()
+        model_id = model.id
+        receipt_count = db.query(ManualPackageReceipt).count()
+        package_count = db.query(Package).count()
+        audit_count = db.query(AuditLog).filter(AuditLog.action == "manual_receipt").count()
+
+    response = client.post(BASE + "/manual-receipt", headers=warehouse, json={
+        "request_key": str(uuid4()), "model_id": model_id, "color": "White",
+        "weight_kg": 1.5, "count": 1,
+        "sizes": [{"size": first_size, "quantity": 1}],
+    })
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == "Manual receipt evidence exceeds 16 KiB"
+    with SessionLocal() as db:
+        assert db.query(ManualPackageReceipt).count() == receipt_count
+        assert db.query(Package).count() == package_count
+        assert db.query(AuditLog).filter(AuditLog.action == "manual_receipt").count() == audit_count
+
+
 def test_six_then_four_receive_by_actual_package_qr_and_alias(client, auth_headers, warehouse, packaging_order):
     first = create_run(client, auth_headers, packaging_order, 6)
     second = create_run(client, auth_headers, packaging_order, 4)
@@ -105,9 +231,22 @@ def test_six_then_four_receive_by_actual_package_qr_and_alias(client, auth_heade
     scan = package_qr(first["package_ids"][3])
     resolved = client.get(BASE + "/print-runs/resolve", params={"code": scan}, headers=warehouse)
     assert resolved.json()["print_run"]["package_ids"] == first["package_ids"]
-    received = client.post(BASE + "/print-runs/receive", json={"code": scan, "storage_cell": "A-01", "storage_shelf": "S1"}, headers=warehouse)
+    stock_reads = []
+
+    def capture_stock_read(_connection, _cursor, statement, _parameters, _context, _executemany):
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("select") and " from finished_goods_stock " in normalized:
+            stock_reads.append(normalized)
+
+    event.listen(test_engine, "before_cursor_execute", capture_stock_read)
+    try:
+        received = client.post(BASE + "/print-runs/receive", json={"code": scan, "storage_cell": "A-01", "storage_shelf": "S1"}, headers=warehouse)
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture_stock_read)
     assert received.status_code == 200, received.text
     assert received.json()["count"] == 6
+    assert len(stock_reads) == 1, stock_reads
+    assert "finished_goods_stock.package_id in" in stock_reads[0]
     with SessionLocal() as db:
         assert {p.status for p in db.query(Package).filter(Package.id.in_(second["package_ids"]))} == {"packed"}
         db.add(PackageBarcodeAlias(package_id=second["package_ids"][2], code="UNIQUE-SECOND-RUN", code_type="legacy"))
@@ -122,6 +261,41 @@ def test_six_then_four_receive_by_actual_package_qr_and_alias(client, auth_heade
         assert db.query(PackageScanLog).filter(PackageScanLog.scan_type == "received_storage").count() == 10
         assert db.query(PackagePrintRun).count() == 2
     assert before == stock_fingerprint()
+
+
+def test_print_run_receipt_stores_canonical_bounded_location(client, auth_headers, warehouse, packaging_order):
+    run = create_run(client, auth_headers, packaging_order, 1)
+    code = package_qr(run["package_ids"][0])
+    before_stock = stock_fingerprint()
+    with SessionLocal() as db:
+        before_audits = db.query(AuditLog).filter(AuditLog.action == "receive_print_run").count()
+
+    invalid = client.post(
+        BASE + "/print-runs/receive",
+        headers=warehouse,
+        json={"code": code, "storage_cell": " " * 20_000 + "A-99"},
+    )
+    assert invalid.status_code == 400, invalid.text
+    with SessionLocal() as db:
+        saved = db.get(PackagePrintRun, run["id"])
+        assert saved.received_at is None and saved.receipt_location is None
+        assert db.get(Package, run["package_ids"][0]).status == "packed"
+        assert db.query(PackageScanLog).filter(PackageScanLog.scan_type == "received_storage").count() == 0
+        assert db.query(AuditLog).filter(AuditLog.action == "receive_print_run").count() == before_audits
+    assert stock_fingerprint() == before_stock
+
+    received = client.post(
+        BASE + "/print-runs/receive",
+        headers=warehouse,
+        json={"code": code, "storage_cell": " " * 20_000 + "a-01  ", "storage_shelf": " s1 "},
+    )
+    assert received.status_code == 200, received.text
+    with SessionLocal() as db:
+        saved = db.get(PackagePrintRun, run["id"])
+        assert saved.receipt_location == {"warehouse_id": None, "storage_cell": "A-01", "storage_shelf": "S1"}
+        assert db.get(Package, run["package_ids"][0]).storage_cell == "A-01"
+        audit = db.query(AuditLog).filter(AuditLog.action == "receive_print_run").one()
+        assert audit.new_value_json["storage_cell"] == "A-01"
 
 
 def test_group_member_cannot_receive_individually_or_regroup(client, auth_headers, warehouse, packaging_order):
@@ -287,9 +461,10 @@ def test_stale_resolved_run_refreshes_receipt_after_lock(client, auth_headers, p
             completed.received_by = 1
             other.commit()
         monkeypatch.setattr(service, "resolve_run", lambda *_: stale)
-        refreshed, packages = service.receive_run(db, db.get(User, 1), PrintRunReceiveIn(code=run["code"]))
+        refreshed, packages, members = service.receive_run(db, db.get(User, 1), PrintRunReceiveIn(code=run["code"]))
         assert refreshed.received_at is not None
         assert packages == []
+        assert [member.package_id for member in members] == run["package_ids"]
 
 
 def test_pending_correction_cannot_change_newly_grouped_package(client, auth_headers, warehouse, packaging_order):
@@ -305,6 +480,31 @@ def test_pending_correction_cannot_change_newly_grouped_package(client, auth_hea
     approval = client.post(BASE + f"/change-requests/{request.json()['id']}/approve", headers=auth_headers)
     assert approval.status_code == 409, approval.text
     assert client.post(BASE + "/print-runs/receive", headers=warehouse, json={"code": package_qr(pid)}).status_code == 200
+
+
+def test_print_run_list_projects_only_payload_columns(client, auth_headers, warehouse, packaging_order):
+    created = create_run(client, auth_headers, packaging_order, 2)
+    statements = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(" ".join(statement.lower().split()))
+
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        response = client.get(BASE + "/print-runs?page=1&page_size=10", headers=auth_headers)
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    assert any(row["id"] == created["id"] for row in response.json()["rows"])
+    run_reads = [
+        statement for statement in statements
+        if "package_print_runs.run_no" in statement and "limit ? offset ?" in statement
+    ]
+    assert len(run_reads) == 1
+    assert "package_print_runs.receipt_location" not in run_reads[0]
+    assert "package_print_runs.received_by" not in run_reads[0]
 
 
 def test_0115_migration_roundtrip_preserves_existing_packages():

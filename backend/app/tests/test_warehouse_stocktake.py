@@ -3,7 +3,7 @@ import io
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 from app.db.session import SessionLocal
 from app.models import AuditLog, FinishedGoodsStock, LegacyStockReceipt, Model, Package, PackageBarcodeAlias
@@ -87,6 +87,88 @@ def business_fingerprint():
             db.execute(select(table)).all()
             for table in [Package.__table__, FinishedGoodsStock.__table__, LegacyStockReceipt.__table__]
         ]
+
+
+def test_unrepresentable_stocktake_id_returns_not_found_before_database_lookup(client, auth_headers):
+    from fastapi import HTTPException
+
+    from app.api.routes.stocktake import get_count
+
+    class QueryForbidden:
+        def query(self, *_args, **_kwargs):
+            raise AssertionError("unrepresentable stocktake ID must not reach the database")
+
+    with pytest.raises(HTTPException) as exc_info:
+        get_count(QueryForbidden(), 2_147_483_648)
+    assert exc_info.value.status_code == 404
+
+    path = f"{BASE}/2147483648"
+    assert client.get(path).status_code == 401
+    assert client.get(path, headers=auth_headers).status_code == 404
+
+
+def test_stocktake_completion_projects_only_row_ids_package_ids_and_final_snapshot(client, auth_headers, packs):
+    from app.db.session import SessionLocal
+
+    count_id = start(client, auth_headers)
+    statements = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("select") and "from warehouse_stocktake_rows" in normalized:
+            statements.append(normalized)
+
+    event.listen(SessionLocal.kw["bind"], "before_cursor_execute", capture)
+    try:
+        response = client.post(f"{BASE}/{count_id}/complete", headers=auth_headers)
+    finally:
+        event.remove(SessionLocal.kw["bind"], "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    assert len(statements) == 1
+    selected = statements[0].split(" from warehouse_stocktake_rows", 1)[0]
+    assert "warehouse_stocktake_rows.id" in selected
+    assert "warehouse_stocktake_rows.package_id" in selected
+    assert "warehouse_stocktake_rows.final_snapshot" in selected
+    assert "warehouse_stocktake_rows.snapshot" not in selected
+    assert "warehouse_stocktake_rows.scan_snapshot" not in selected
+
+
+def test_stocktake_completion_projects_only_count_response_fields(client, auth_headers):
+    count_id = start(client, auth_headers)
+    statements = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("select") and "from warehouse_stocktakes " in normalized:
+            statements.append(normalized)
+
+    event.listen(SessionLocal.kw["bind"], "before_cursor_execute", capture)
+    try:
+        response = client.post(f"{BASE}/{count_id}/complete", headers=auth_headers)
+    finally:
+        event.remove(SessionLocal.kw["bind"], "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["id"] == count_id
+    assert response.json()["completed_at"] is not None
+    assert len(statements) == 1
+    selected = statements[0].split(" from warehouse_stocktakes", 1)[0]
+    assert "warehouse_stocktakes.completed_at" in selected
+    assert "warehouse_stocktakes.created_by" in selected
+    assert "warehouse_stocktakes.request_key" not in selected
+
+
+def test_unrepresentable_scan_row_id_preserves_stocktake_state_precedence(client, auth_headers):
+    cid = start(client, auth_headers)
+    path = f"{BASE}/{cid}/scans/2147483648"
+    assert client.delete(path, headers=auth_headers).status_code == 404
+
+    completed = client.post(f"{BASE}/{cid}/complete", headers=auth_headers)
+    assert completed.status_code == 200, completed.text
+    response = client.delete(path, headers=auth_headers)
+    assert response.status_code == 409
+    assert response.json()["detail"] == "This inventory count is completed"
 
 
 def test_full_count_unknown_missing_duplicates_completion_and_no_stock_mutation(client, auth_headers, packs):

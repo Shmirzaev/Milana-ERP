@@ -1,6 +1,8 @@
 import os
 import logging
+from threading import Event, Lock, Thread
 from time import perf_counter
+from uuid import uuid4
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -8,22 +10,35 @@ from urllib.parse import urlsplit
 from alembic.config import Config as AlembicConfig
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security.utils import get_authorization_scheme_param
 from starlette.middleware.gzip import GZipMiddleware
+from starlette.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, Response
+from sqlalchemy import text
 
 from app.core.config import settings
-from app.core.deps import DbSession
+from app.core.deps import CurrentUser, DbSession
+from app.core.proxy_trust import client_ip, effective_request_scheme, validate_proxy_runtime_configuration
+from app.core.request_body_limit import AuthRequestBodyLimitMiddleware, validate_request_body_runtime_configuration
+from app.core.request_trace import (
+    RequestTrace,
+    bind_request_trace,
+    install_sql_timing_listeners,
+    reset_request_trace,
+)
 from app.core.security import decode_token
 from app.core.shared_store import get_shared_counter_store
+from app.services.credentials import validate_credential_runtime_configuration
 from app.api.router import api_router
 from app.db.session import SessionLocal, engine
 import app.models  # noqa: F401 — register models with metadata
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("milana")
+trace_log = logging.getLogger("milana.request_trace")
 
 
 def _alembic_config() -> AlembicConfig:
@@ -67,6 +82,9 @@ def _run_local_schema_sync() -> None:
 def _run_startup() -> None:
     """Validate runtime settings and database readiness before serving."""
     settings.validate_runtime_security()
+    validate_proxy_runtime_configuration(strict_security_required=settings.strict_security_required)
+    validate_request_body_runtime_configuration()
+    validate_credential_runtime_configuration(strict_security_required=settings.strict_security_required)
     # In production validate_runtime_security() hard-fails on insecure defaults.
     # Outside production we don't block local dev, but we still surface them
     # loudly so a misconfigured deploy (e.g. ENV left at "development") can't run
@@ -109,28 +127,119 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title=settings.APP_NAME, version="0.1.0", lifespan=lifespan)
 
 _UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
-_RATE_LIMIT_EXEMPT_PATHS = {"/health"}
+_RATE_LIMIT_EXEMPT_PATHS = {"/health", "/ready"}
+_RATE_LIMIT_IP_ONLY_PATHS = {
+    "/api/auth/forgot-password",
+    "/api/auth/login",
+    "/api/auth/login-json",
+    "/api/auth/login-panel",
+    "/api/auth/reset-password",
+    "/api/auth/token",
+    "/api/session/forgot-password",
+    "/api/session/login",
+    "/api/session/login-json",
+    "/api/session/login-panel",
+    "/api/session/reset-password",
+}
+_READINESS_TIMEOUT_SECONDS = 2.0
+_READINESS_CHECK_SLOT = Lock()
+_SHARED_STORE_READINESS_CHECK_SLOT = Lock()
+
+
+def _probe_postgresql() -> None:
+    with engine.connect() as connection:
+        connection.execute(text("SELECT 1")).scalar_one()
+
+
+def _probe_shared_store() -> None:
+    get_shared_counter_store().ping()
+
+
+def _dependencies_ready_within(timeout_seconds: float) -> dict[str, bool]:
+    """Probe required dependencies concurrently within one latency budget.
+
+    A separate non-blocking slot per dependency prevents a timed-out probe from
+    accumulating daemon threads while still allowing the other dependency to
+    be checked on later requests.
+    """
+    probes = {
+        "postgresql": (_probe_postgresql, _READINESS_CHECK_SLOT),
+        "shared_store": (_probe_shared_store, _SHARED_STORE_READINESS_CHECK_SLOT),
+    }
+    completed: dict[str, Event | None] = {}
+    ready = dict.fromkeys(probes, False)
+
+    for name, (probe, slot) in probes.items():
+        if not slot.acquire(blocking=False):
+            completed[name] = None
+            continue
+
+        event = Event()
+        completed[name] = event
+
+        def run_probe(
+            dependency_probe=probe,
+            dependency_slot=slot,
+            dependency_name=name,
+            dependency_event=event,
+        ) -> None:
+            try:
+                dependency_probe()
+            except Exception:
+                pass
+            else:
+                ready[dependency_name] = True
+            finally:
+                dependency_slot.release()
+                dependency_event.set()
+
+        try:
+            Thread(target=run_probe, name=f"{name}-readiness", daemon=True).start()
+        except Exception:
+            slot.release()
+            event.set()
+
+    deadline = perf_counter() + max(timeout_seconds, 0.001)
+    observed: dict[str, bool] = {}
+    for name, event in completed.items():
+        observed[name] = event is not None and event.wait(timeout=max(0.0, deadline - perf_counter()))
+    return {name: observed[name] and ready[name] for name in probes}
 
 
 def _rate_limit_client_key(request: Request) -> str:
-    peer = request.client.host if request.client else "unknown"
-    forwarded = request.headers.get("x-forwarded-for")
-    # In supported deployments the app sits behind a trusted proxy. This keeps
-    # direct clients from picking arbitrary buckets in normal operation while
-    # still separating users behind Vercel/HF proxies and local TestClient.
-    trusted_peer = peer in {"testclient", "127.0.0.1", "::1", "localhost"}
-    if not trusted_peer:
-        try:
-            import ipaddress
-            peer_ip = ipaddress.ip_address(peer)
-            trusted_peer = peer_ip.is_private or peer_ip.is_loopback
-        except ValueError:
-            trusted_peer = False
-    if trusted_peer and forwarded:
-        first = forwarded.split(",")[0].strip()
-        if first:
-            return first
-    return peer
+    return client_ip(request)
+
+
+def _rate_limit_identity_key(request: Request) -> str:
+    """Choose a rate-limit identity without changing route authentication.
+
+    Public authentication entry points always remain IP-scoped, even when a
+    caller supplies a valid session. Other requests with a cryptographically
+    valid, unexpired access token use its canonical user id so office users do
+    not consume one shared NAT budget. Invalid credentials fall back to the IP
+    bucket and are still rejected independently by the route dependency.
+    """
+    client_key = f"ip:{_rate_limit_client_key(request)}"
+    path = request.url.path.rstrip("/") or "/"
+    if path in _RATE_LIMIT_IP_ONLY_PATHS:
+        return client_key
+
+    authorization = request.headers.get("authorization")
+    scheme, parameter = get_authorization_scheme_param(authorization)
+    token = parameter if scheme.lower() == "bearer" else None
+    if not token:
+        token = request.cookies.get(settings.AUTH_COOKIE_NAME)
+    if not token:
+        return client_key
+
+    try:
+        payload = decode_token(token)
+        user_id = int(payload["sub"])
+        if user_id <= 0:
+            raise ValueError("invalid user id")
+    except (KeyError, OverflowError, TypeError, ValueError):
+        return client_key
+    return f"user:{user_id}"
 
 
 def _rate_limit_allowed(key: str) -> tuple[bool, int | None]:
@@ -147,6 +256,10 @@ def _rate_limit_allowed(key: str) -> tuple[bool, int | None]:
     if count > limit:
         return False, store.ttl(store_key) or window
     return True, None
+
+
+def _rate_limit_request_allowed(request: Request) -> tuple[bool, int | None]:
+    return _rate_limit_allowed(_rate_limit_identity_key(request))
 
 
 def _origin_from_url(value: str) -> str:
@@ -168,10 +281,7 @@ def _trusted_csrf_origins(request: Request) -> set[str]:
     })
     host = request.headers.get("host", "").strip().lower()
     if host:
-        configured.add(f"{request.url.scheme}://{host}")
-        proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
-        if proto in {"http", "https"}:
-            configured.add(f"{proto}://{host}")
+        configured.add(f"{effective_request_scheme(request)}://{host}")
     return configured
 
 
@@ -190,7 +300,9 @@ def _request_origin_allowed(request: Request) -> bool:
 @app.middleware("http")
 async def _global_rate_limit(request: Request, call_next):
     if request.method.upper() != "OPTIONS" and request.url.path not in _RATE_LIMIT_EXEMPT_PATHS:
-        allowed, retry_after = _rate_limit_allowed(_rate_limit_client_key(request))
+        # SQLite/Redis counters use synchronous I/O. Starlette's bounded worker
+        # pool keeps storage contention off the event loop.
+        allowed, retry_after = await run_in_threadpool(_rate_limit_request_allowed, request)
         if not allowed:
             return JSONResponse(
                 status_code=429,
@@ -217,7 +329,7 @@ async def _security_headers(request: Request, call_next):
         "Content-Security-Policy",
         "default-src 'self'; img-src 'self' data: blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
     )
-    if request.url.scheme == "https":
+    if effective_request_scheme(request) == "https":
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     # Uploaded files under /storage are served unauthenticated (so <img> tags can
     # render them with bearer-token auth). They have unguessable UUID names; keep
@@ -238,9 +350,53 @@ async def _security_headers(request: Request, call_next):
 @app.middleware("http")
 async def _request_timing(request: Request, call_next):
     started = perf_counter()
-    response = await call_next(request)
+    trace = RequestTrace(request_id=uuid4().hex) if settings.LOCAL_TRACE_CAPTURE_ENABLED else None
+    if trace is not None:
+        install_sql_timing_listeners()
+    trace_token = bind_request_trace(trace) if trace is not None else None
+    try:
+        response = await call_next(request)
+    except Exception:
+        if trace is not None:
+            duration_ms = (perf_counter() - started) * 1000
+            route = request.scope.get("route")
+            route_template = getattr(route, "path", "<unmatched>")
+            trace_log.error(
+                "request_trace request_id=%s method=%s route=%s status=500 "
+                "duration_ms=%.1f sql_count=%d sql_duration_ms=%.1f",
+                trace.request_id,
+                request.method,
+                route_template,
+                duration_ms,
+                trace.sql_count,
+                trace.sql_duration_ms,
+            )
+        raise
+    finally:
+        if trace_token is not None:
+            reset_request_trace(trace_token)
     duration_ms = (perf_counter() - started) * 1000
-    response.headers["Server-Timing"] = f"app;dur={duration_ms:.1f}"
+    if trace is not None:
+        response.headers["X-Request-ID"] = trace.request_id
+        response.headers["Server-Timing"] = (
+            f"app;dur={duration_ms:.1f}, db;dur={trace.sql_duration_ms:.1f}, "
+            f'dbq;desc="{trace.sql_count}"'
+        )
+        route = request.scope.get("route")
+        route_template = getattr(route, "path", "<unmatched>")
+        trace_log.info(
+            "request_trace request_id=%s method=%s route=%s status=%d "
+            "duration_ms=%.1f sql_count=%d sql_duration_ms=%.1f",
+            trace.request_id,
+            request.method,
+            route_template,
+            response.status_code,
+            duration_ms,
+            trace.sql_count,
+            trace.sql_duration_ms,
+        )
+    else:
+        response.headers["Server-Timing"] = f"app;dur={duration_ms:.1f}"
     if duration_ms >= 1000:
         log.warning(
             "slow_request method=%s path=%s status=%s duration_ms=%.1f",
@@ -286,6 +442,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID", "Server-Timing"],
 )
 
 # Most authenticated ERP list endpoints return highly compressible JSON. Keep
@@ -293,6 +450,7 @@ app.add_middleware(
 # where it materially reduces transfer size. Static model images are already
 # encoded and are therefore unaffected by this middleware.
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
+app.add_middleware(AuthRequestBodyLimitMiddleware)
 
 app.include_router(api_router)
 
@@ -336,34 +494,22 @@ def _model_image_record(name: str, db: DbSession):
     )
 
 
-def _require_model_file_token(request: Request) -> None:
-    """Validate image access without checking out a database connection.
+def _require_model_file_token(_user: CurrentUser, db: DbSession) -> None:
+    """Check current session access, then release the authentication connection.
 
-    A model list can render hundreds of thumbnails at once. Using CurrentUser
-    here made every image reserve a database connection merely to re-check the
-    same signed JWT, which could exhaust the pool and block login/API requests.
+    CurrentUser rejects disabled/deleted accounts and revoked credentials. A
+    model list can render hundreds of thumbnails at once, so do not hold that
+    database connection during filesystem reads, image generation or streaming.
+    These routes use separate short-lived sessions for database image fallback.
     """
-    from fastapi import HTTPException, status
-
-    authorization = request.headers.get("authorization", "").strip()
-    token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
-    if not token:
-        token = request.cookies.get(settings.AUTH_COOKIE_NAME, "").strip()
-    try:
-        payload = decode_token(token) if token else None
-        user_id = int((payload or {}).get("sub") or 0)
-        if user_id <= 0:
-            raise ValueError("missing subject")
-    except Exception:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    db.close()
 
 
-@app.get("/storage/model-files/{name}")
-def serve_model_file(name: str, request: Request):
+@app.get("/storage/model-files/{name}", dependencies=[Depends(_require_model_file_token)])
+def serve_model_file(name: str):
     from fastapi import HTTPException
     from fastapi.responses import FileResponse
 
-    _require_model_file_token(request)
     abs_path = _model_file_path_if_exists(name)
     if abs_path:
         return FileResponse(abs_path)
@@ -381,13 +527,12 @@ def serve_model_file(name: str, request: Request):
     )
 
 
-@app.get("/storage/model-files/thumb/{name}")
-def serve_model_thumbnail(name: str, request: Request, size: int = 320):
+@app.get("/storage/model-files/thumb/{name}", dependencies=[Depends(_require_model_file_token)])
+def serve_model_thumbnail(name: str, size: int = 320):
     from fastapi import HTTPException
     from fastapi.responses import FileResponse
     from PIL import UnidentifiedImageError
 
-    _require_model_file_token(request)
     source_path = _model_file_path_if_exists(name)
     image_data = b""
     if not source_path:
@@ -454,3 +599,15 @@ def serve_sales_order_file(name: str, exp: str | None = None, sig: str | None = 
 @app.get("/health")
 def health():
     return {"status": "ok", "app": settings.APP_NAME}
+
+
+@app.get("/ready", response_model=None)
+def readiness() -> dict[str, object] | JSONResponse:
+    readiness_checks = _dependencies_ready_within(_READINESS_TIMEOUT_SECONDS)
+    checks = {name: "ok" if ready else "unavailable" for name, ready in readiness_checks.items()}
+    if all(readiness_checks.values()):
+        return {"status": "ready", "checks": checks}
+    return JSONResponse(
+        status_code=503,
+        content={"status": "not_ready", "checks": checks},
+    )

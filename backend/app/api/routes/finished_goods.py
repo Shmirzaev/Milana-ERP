@@ -1,18 +1,21 @@
 from collections import defaultdict
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy import func, or_
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import aliased, load_only
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.models import (
     Brand, FinishedGoodsStock, Model, Package, PackageItem, ProductionOrder,
     SalesOrder, Shipment, ShipmentPackage, StockReservation, User,
 )
-from app.schemas.tracking import FinishedGoodsStockOut
+from app.schemas.tracking import FinishedGoodsStockOut, FinishedGoodsStockPageOut
 from app.services.audit import log_action
 router = APIRouter(prefix="/finished-goods", tags=["finished_goods"])
 PackageBrand = aliased(Brand)
+_DB_INTEGER_MIN = -2_147_483_648
+_DB_INTEGER_MAX = 2_147_483_647
 
 
 def _stock_payload(
@@ -46,9 +49,72 @@ def _stock_payload(
     }
 
 
-@router.get("", response_model=list[FinishedGoodsStockOut])
+def _stock_list_projection():
+    return load_only(
+        FinishedGoodsStock.id,
+        FinishedGoodsStock.production_order_id,
+        FinishedGoodsStock.sales_order_id,
+        FinishedGoodsStock.package_id,
+        FinishedGoodsStock.model_id,
+        FinishedGoodsStock.brand_id,
+        FinishedGoodsStock.collection_id,
+        FinishedGoodsStock.color,
+        FinishedGoodsStock.size,
+        FinishedGoodsStock.quantity,
+        FinishedGoodsStock.available_qty,
+        FinishedGoodsStock.reserved_qty,
+        FinishedGoodsStock.sold_qty,
+        FinishedGoodsStock.cost_per_piece,
+        FinishedGoodsStock.selling_price,
+        FinishedGoodsStock.warehouse_id,
+        FinishedGoodsStock.status,
+    )
+
+
+def _search_stock_rows(query, term: str | None, brand_name):
+    normalized = (term or "").strip()
+    if not normalized:
+        return query
+    escaped = normalized.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    pattern = f"%{escaped}%"
+    return query.filter(
+        or_(
+            Model.code.ilike(pattern, escape="\\"),
+            Model.name.ilike(pattern, escape="\\"),
+            brand_name.ilike(pattern, escape="\\"),
+            FinishedGoodsStock.color.ilike(pattern, escape="\\"),
+            FinishedGoodsStock.size.ilike(pattern, escape="\\"),
+            FinishedGoodsStock.status.ilike(pattern, escape="\\"),
+        )
+    )
+
+
+def _require_storable_sales_order_id(sales_order_id: int) -> None:
+    if sales_order_id < 1 or sales_order_id > _DB_INTEGER_MAX:
+        raise HTTPException(404, "Sales order not found")
+
+
+@router.get("", response_model=list[FinishedGoodsStockOut] | FinishedGoodsStockPageOut)
 def list_stock(db: DbSession, _: CurrentUser,
-               model_id: int | None = None, status: str | None = None, brand_id: int | None = None, stock_kind: str = "standard"):
+               model_id: int | None = None, status: str | None = None, brand_id: int | None = None,
+               stock_kind: str = "standard", limit: int = 500, offset: int = 0,
+               page: Annotated[int | None, Query(ge=1)] = None,
+               page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+               q: Annotated[str | None, Query(max_length=100)] = None):
+    limit = max(0, min(limit, 500))
+    offset = max(0, offset)
+    if any(value is not None and not _DB_INTEGER_MIN <= value <= _DB_INTEGER_MAX for value in (model_id, brand_id)):
+        if page is None and page_size is None:
+            return []
+        effective_page = page or 1
+        effective_page_size = page_size or 100
+        return {
+            "rows": [],
+            "total": 0,
+            "page": effective_page,
+            "page_size": effective_page_size,
+            "has_more": False,
+        }
     qry = (
         db.query(
             FinishedGoodsStock,
@@ -56,6 +122,7 @@ def list_stock(db: DbSession, _: CurrentUser,
             Model.name.label("model_name"),
             Brand.name.label("brand_name"),
         )
+        .options(_stock_list_projection())
         .outerjoin(Model, Model.id == FinishedGoodsStock.model_id)
         .outerjoin(Brand, Brand.id == FinishedGoodsStock.brand_id)
         .outerjoin(Package, Package.id == FinishedGoodsStock.package_id)
@@ -64,26 +131,54 @@ def list_stock(db: DbSession, _: CurrentUser,
     if model_id: qry = qry.filter(FinishedGoodsStock.model_id == model_id)
     if status: qry = qry.filter(FinishedGoodsStock.status == status)
     if brand_id: qry = qry.filter(FinishedGoodsStock.brand_id == brand_id)
-    return [
+    qry = _search_stock_rows(qry, q, Brand.name)
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = qry.order_by(None).count()
+        offset = (page - 1) * page_size
+        limit = page_size
+    rows = [
         _stock_payload(
             stock,
             model_code=model_code,
             model_name=model_name,
             brand_name=brand_name,
         )
-        for stock, model_code, model_name, brand_name in qry.order_by(FinishedGoodsStock.id.desc()).all()
+        for stock, model_code, model_name, brand_name in qry.order_by(FinishedGoodsStock.id.desc()).offset(offset).limit(limit).all()
     ]
+    if total is None:
+        return rows
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
-@router.get("/branded-stock", response_model=list[FinishedGoodsStockOut])
-def list_branded(db: DbSession, _: CurrentUser):
-    rows = (
+@router.get("/branded-stock", response_model=list[FinishedGoodsStockOut] | FinishedGoodsStockPageOut)
+def list_branded(
+    db: DbSession,
+    _: CurrentUser,
+    limit: int = 500,
+    offset: int = 0,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+    q: Annotated[str | None, Query(max_length=100)] = None,
+):
+    limit = max(0, min(limit, 500))
+    offset = max(0, offset)
+    qry = (
         db.query(
             FinishedGoodsStock,
             Model.code.label("model_code"),
             Model.name.label("model_name"),
             func.coalesce(Brand.name, PackageBrand.name).label("brand_name"),
         )
+        .options(_stock_list_projection())
         .outerjoin(ProductionOrder, ProductionOrder.id == FinishedGoodsStock.production_order_id)
         .outerjoin(Package, Package.id == FinishedGoodsStock.package_id)
         .outerjoin(Model, Model.id == FinishedGoodsStock.model_id)
@@ -101,30 +196,54 @@ def list_branded(db: DbSession, _: CurrentUser):
                 | (Package.manual_receipt_id.isnot(None))
             ),
         )
-        .order_by(FinishedGoodsStock.id.desc())
-        .all()
     )
-    return [
+    qry = _search_stock_rows(qry, q, func.coalesce(Brand.name, PackageBrand.name))
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = qry.order_by(None).count()
+        offset = (page - 1) * page_size
+        limit = page_size
+    joined_rows = qry.order_by(FinishedGoodsStock.id.desc()).offset(offset).limit(limit).all()
+    rows = [
         _stock_payload(
             stock,
             model_code=model_code,
             model_name=model_name,
             brand_name=brand_name,
         )
-        for stock, model_code, model_name, brand_name in rows
+        for stock, model_code, model_name, brand_name in joined_rows
     ]
+    if total is None:
+        return rows
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 def _reserve_manual_package(db, current, stock, quantity, sales_order_id):
     # Match receipt/correction locking: package first, then its contents/stock.
     package = (
-        db.query(Package).filter(Package.id == stock.package_id)
+        db.query(Package).options(load_only(
+            Package.id,
+            Package.manual_receipt_id,
+            Package.status,
+            Package.total_quantity,
+            Package.sales_order_id,
+            Package.model_id,
+        )).filter(Package.id == stock.package_id)
         .with_for_update(of=Package).populate_existing().one()
     )
     if not package.manual_receipt_id or package.status not in {"received_in_storage", "reserved"}:
         raise HTTPException(409, "Manual package is not available for reservation")
     if quantity != package.total_quantity or quantity <= 0:
         raise HTTPException(409, "Reserve the entire manual package quantity in one request")
+    _require_storable_sales_order_id(sales_order_id)
     order = db.get(SalesOrder, sales_order_id)
     if not order:
         raise HTTPException(404, "Sales order not found")
@@ -178,28 +297,60 @@ def _reserve_manual_package(db, current, stock, quantity, sales_order_id):
     return {"message": "reserved", "stock_id": stock.id, "package_id": package.id, "quantity": quantity}
 
 
+def _reserve_piece_stock(db, current, stock_id, package_id, quantity, sales_order_id):
+    # Shipment and release lock package -> stock. Refresh both rows after the
+    # locks so availability checks cannot use a stale pre-wait balance.
+    if package_id is not None:
+        package = (
+            db.query(Package).options(load_only(Package.id, Package.status)).filter(Package.id == package_id)
+            .with_for_update(of=Package).populate_existing().first()
+        )
+        if not package:
+            raise HTTPException(409, "Stock package changed; reload before reserving")
+        if package.status not in {"received_in_storage", "reserved"}:
+            raise HTTPException(409, "Package is not available for reservation")
+    stock = (
+        db.query(FinishedGoodsStock).filter(FinishedGoodsStock.id == stock_id)
+        .with_for_update(of=FinishedGoodsStock).populate_existing().first()
+    )
+    if not stock:
+        raise HTTPException(404, "Stock not found")
+    if stock.package_id != package_id:
+        raise HTTPException(409, "Stock package changed; reload before reserving")
+    if quantity > stock.available_qty:
+        raise HTTPException(400, "Not enough available")
+    _require_storable_sales_order_id(sales_order_id)
+    stock.available_qty -= quantity
+    stock.reserved_qty += quantity
+    if stock.available_qty == 0:
+        stock.status = "reserved"
+    db.add(StockReservation(
+        sales_order_id=sales_order_id, finished_goods_stock_id=stock.id,
+        package_id=stock.package_id, quantity=quantity, reserved_by=current.id,
+    ))
+    log_action(db, current, "reserve", "FinishedGoodsStock", stock.id, new_value={"qty": quantity})
+    db.commit()
+    return {"message": "reserved", "stock_id": stock.id, "quantity": quantity}
+
+
 @router.post("/reserve")
 def reserve(stock_id: int, quantity: int, sales_order_id: int, db: DbSession,
             current: User = Depends(require_permissions("sales.orders", "*"))):
+    if stock_id < 1 or stock_id > _DB_INTEGER_MAX:
+        raise HTTPException(404, "Stock not found")
     s = db.get(FinishedGoodsStock, stock_id)
     if not s: raise HTTPException(404, "Stock not found")
     if quantity <= 0: raise HTTPException(400, "Quantity must be > 0")
-    package = db.get(Package, s.package_id) if s.package_id else None
+    package = (
+        db.query(Package).options(load_only(Package.id, Package.manual_receipt_id, Package.stock_kind))
+        .filter(Package.id == s.package_id).first()
+        if s.package_id else None
+    )
     if package and package.stock_kind == "first_grade":
         raise HTTPException(409, "FIRST_GRADE_SEPARATE_ORDER")
     if package and package.manual_receipt_id:
         return _reserve_manual_package(db, current, s, quantity, sales_order_id)
-    if quantity > s.available_qty: raise HTTPException(400, "Not enough available")
-    s.available_qty -= quantity
-    s.reserved_qty += quantity
-    if s.available_qty == 0: s.status = "reserved"
-    db.add(StockReservation(
-        sales_order_id=sales_order_id, finished_goods_stock_id=s.id, package_id=s.package_id,
-        quantity=quantity, reserved_by=current.id,
-    ))
-    log_action(db, current, "reserve", "FinishedGoodsStock", s.id, new_value={"qty": quantity})
-    db.commit()
-    return {"message": "reserved", "stock_id": s.id, "quantity": quantity}
+    return _reserve_piece_stock(db, current, s.id, s.package_id, quantity, sales_order_id)
 
 
 def _release_manual_package(db, current, package_id, reservation_id):
@@ -259,9 +410,66 @@ def _release_manual_package(db, current, package_id, reservation_id):
     return {"message": "released", "package_id": package.id, "quantity": package.total_quantity}
 
 
+def _release_piece_reservation(db, current, reservation_id, stock_id, package_ids):
+    # Shipment and package-correction paths lock package -> stock -> reservation.
+    # Keep the same order so release cannot race a dispatch and recreate its stock.
+    packages = (
+        db.query(Package).filter(Package.id.in_(package_ids))
+        .order_by(Package.id).with_for_update(of=Package).populate_existing().all()
+        if package_ids else []
+    )
+    stock = (
+        db.query(FinishedGoodsStock).filter(FinishedGoodsStock.id == stock_id)
+        .with_for_update(of=FinishedGoodsStock).populate_existing().first()
+    )
+    reservations = (
+        db.query(StockReservation)
+        .filter(StockReservation.finished_goods_stock_id == stock_id)
+        .order_by(StockReservation.id)
+        .with_for_update(of=StockReservation).populate_existing().all()
+    )
+    reservation = next((row for row in reservations if row.id == reservation_id), None)
+    if not reservation:
+        raise HTTPException(404, "Reservation not found")
+    if not stock or reservation.finished_goods_stock_id != stock.id:
+        raise HTTPException(409, "Reservation no longer matches warehouse stock")
+
+    current_package_ids = {
+        pid for pid in (reservation.package_id, stock.package_id) if pid is not None
+    }
+    if current_package_ids != package_ids:
+        raise HTTPException(409, "Reservation package changed; reload before releasing")
+    if any(package.status in {"shipped", "delivered"} for package in packages):
+        raise HTTPException(409, "Shipped stock reservations cannot be released")
+    if package_ids and db.query(ShipmentPackage.id).join(Shipment).filter(
+        ShipmentPackage.package_id.in_(package_ids),
+        Shipment.status.in_(("shipped", "delivered")),
+    ).first():
+        raise HTTPException(409, "Shipped stock reservations cannot be released")
+
+    # Dispatch intentionally retains StockReservation rows as historical evidence.
+    # Because reserved_qty is aggregate, every reservation for the stock must still
+    # be represented in that balance. Otherwise consumption cannot be attributed to
+    # one row safely and releasing any row could restore sold stock or steal another
+    # order's reservation.
+    if (any(row.quantity <= 0 for row in reservations)
+            or sum(row.quantity for row in reservations) != stock.reserved_qty):
+        raise HTTPException(409, "Consumed stock reservations cannot be released")
+
+    stock.available_qty += reservation.quantity
+    stock.reserved_qty -= reservation.quantity
+    stock.status = "available"
+    db.delete(reservation)
+    log_action(db, current, "release_reservation", "StockReservation", reservation_id)
+    db.commit()
+    return {"message": "released"}
+
+
 @router.post("/release-reservation")
 def release(reservation_id: int, db: DbSession,
             current: User = Depends(require_permissions("sales.orders", "*"))):
+    if reservation_id < 1 or reservation_id > _DB_INTEGER_MAX:
+        raise HTTPException(404, "Reservation not found")
     r = db.get(StockReservation, reservation_id)
     if not r: raise HTTPException(404, "Reservation not found")
     s = db.get(FinishedGoodsStock, r.finished_goods_stock_id)
@@ -273,11 +481,4 @@ def release(reservation_id: int, db: DbSession,
     ).first() if package_ids else None
     if manual_package:
         return _release_manual_package(db, current, manual_package.id, reservation_id)
-    if s:
-        s.available_qty += r.quantity
-        s.reserved_qty = max(0, s.reserved_qty - r.quantity)
-        s.status = "available"
-    db.delete(r)
-    log_action(db, current, "release_reservation", "StockReservation", reservation_id)
-    db.commit()
-    return {"message": "released"}
+    return _release_piece_reservation(db, current, reservation_id, r.finished_goods_stock_id, package_ids)

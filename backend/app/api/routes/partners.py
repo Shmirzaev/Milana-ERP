@@ -1,9 +1,12 @@
 from collections import defaultdict
 from datetime import date, datetime, timezone
+from decimal import Decimal
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Depends, Header
-from pydantic import BaseModel
-from sqlalchemy import or_
+from fastapi import APIRouter, HTTPException, Depends, Header, Path, Query
+from pydantic import BaseModel, Field
+from sqlalchemy import func, or_
+from sqlalchemy.orm import load_only
 
 from app.core.dt import date_filter_bounds
 from app.core.deps import (
@@ -25,6 +28,14 @@ from app.models import (
     User,
 )
 from app.schemas.catalog import PartyIn, PartyOut
+from app.schemas.partners import (
+    CustomerOrderHistoryOut,
+    CustomerOrderHistoryPageOut,
+    CustomerPageOut,
+    CustomerPaymentHistoryOut,
+    CustomerPaymentHistoryPageOut,
+    SupplierPageOut,
+)
 from app.services.audit import log_action
 from app.services.numbering import next_invoice_no
 from app.services.payments import create_customer_advance_payment, create_invoice_payment, invoice_paid_total
@@ -34,26 +45,40 @@ router = APIRouter(tags=["partners"])
 
 
 class CustomerPaymentIn(BaseModel):
-    sales_order_id: int | None = None
-    amount: float
+    sales_order_id: int | None = Field(default=None, gt=0, le=2_147_483_647)
+    currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
+    amount: Decimal = Field(
+        ge=0.01,
+        le=Decimal("999999999999.99"),
+        multiple_of=Decimal("0.01"),
+        allow_inf_nan=False,
+    )
     paid_at: datetime | None = None
-    payment_method: str | None = None
+    payment_method: str | None = Field(default=None, max_length=32)
     notes: str | None = None
 
 
 # ===== Customers =====
-@router.get("/customers")
+@router.get("/customers", response_model=list[PartyOut] | CustomerPageOut)
 def list_customers(
     db: DbSession,
     _: User = Depends(require_permissions(*CUSTOMER_READ_PERMISSIONS)),
     q: str | None = None,
     created_from: date | None = None,
     created_to: date | None = None,
-    page: int = 1,
-    page_size: int = 50,
+    page: int | None = None,
+    page_size: int | None = None,
     include_total: bool = False,
 ):
-    qry = db.query(Customer)
+    qry = db.query(Customer).options(load_only(
+        Customer.id,
+        Customer.name,
+        Customer.phone,
+        Customer.email,
+        Customer.address,
+        Customer.notes,
+        raiseload=True,
+    ))
     if q:
         qry = qry.filter(Customer.name.ilike(f"%{q}%"))
     start, end = date_filter_bounds(created_from, created_to)
@@ -61,15 +86,31 @@ def list_customers(
         qry = qry.filter(Customer.created_at >= start)
     if end:
         qry = qry.filter(Customer.created_at <= end)
-    total = qry.count() if include_total else 0
+    paginated = include_total or page is not None or page_size is not None
+    if include_total:
+        # Keep the historical include_total behavior, including clamping.
+        effective_page = max(1, page or 1)
+        effective_page_size = max(1, min(page_size or 50, 500))
+    else:
+        effective_page = page or 1
+        effective_page_size = page_size or 50
+        if effective_page < 1 or effective_page_size < 1 or effective_page_size > 500:
+            raise HTTPException(422, "page must be >= 1 and page_size must be between 1 and 500")
+    total = qry.order_by(None).with_entities(func.count(Customer.id)).scalar() if paginated else 0
     qry = qry.order_by(Customer.id.desc())
-    if include_total:
-        safe_page = max(1, page)
-        safe_size = max(1, min(page_size, 500))
-        qry = qry.offset((safe_page - 1) * safe_size).limit(safe_size)
-    rows = [PartyOut.model_validate(c).model_dump() for c in qry.all()]
-    if include_total:
-        return {"rows": rows, "total": total, "page": max(1, page), "page_size": max(1, min(page_size, 500))}
+    if paginated:
+        qry = qry.offset((effective_page - 1) * effective_page_size).limit(effective_page_size)
+    rows = [
+        PartyOut.model_validate(c).model_dump()
+        for c in qry.all()
+    ]
+    if paginated:
+        return {
+            "rows": rows,
+            "total": total,
+            "page": effective_page,
+            "page_size": effective_page_size,
+        }
     return rows
 
 
@@ -86,17 +127,60 @@ def create_customer(payload: PartyIn, db: DbSession, current: User = Depends(req
 
 @router.get("/customers/{cid}", response_model=PartyOut)
 def get_customer(cid: int, db: DbSession, _: User = Depends(require_permissions(*CUSTOMER_READ_PERMISSIONS))):
-    c = db.get(Customer, cid)
+    c = (
+        db.query(Customer)
+        .options(
+            load_only(
+                Customer.id,
+                Customer.name,
+                Customer.phone,
+                Customer.email,
+                Customer.address,
+                Customer.notes,
+                raiseload=True,
+            )
+        )
+        .filter(Customer.id == cid)
+        .one_or_none()
+    )
     if not c:
         raise HTTPException(404, "Customer not found")
     return c
 
 
-@router.get("/customers/{cid}/orders")
-def get_customer_orders(cid: int, db: DbSession, _: User = Depends(require_permissions(*CUSTOMER_READ_PERMISSIONS))):
+@router.get(
+    "/customers/{cid}/orders",
+    response_model=list[CustomerOrderHistoryOut] | CustomerOrderHistoryPageOut,
+)
+def get_customer_orders(
+    cid: int,
+    db: DbSession,
+    _: User = Depends(require_permissions(*CUSTOMER_READ_PERMISSIONS)),
+    status: str | None = None,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
     if not db.get(Customer, cid):
         raise HTTPException(404, "Customer not found")
-    rows = db.query(SalesOrder).filter(SalesOrder.customer_id == cid).order_by(SalesOrder.id.desc()).all()
+    query = db.query(SalesOrder).options(load_only(
+        SalesOrder.id,
+        SalesOrder.order_no,
+        SalesOrder.created_at,
+        SalesOrder.total_amount,
+        SalesOrder.currency,
+        SalesOrder.status,
+    )).filter(SalesOrder.customer_id == cid)
+    if status:
+        query = query.filter(SalesOrder.status == status)
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = query.order_by(None).count()
+    query = query.order_by(SalesOrder.id.desc())
+    if total is not None:
+        query = query.offset((page - 1) * page_size).limit(page_size)
+    rows = query.all()
     order_ids = [int(so.id) for so in rows]
     invoices_by_order: dict[int, list[Invoice]] = defaultdict(list)
     payments_by_invoice: dict[int, list[Payment]] = defaultdict(list)
@@ -104,6 +188,16 @@ def get_customer_orders(cid: int, db: DbSession, _: User = Depends(require_permi
     if order_ids:
         invoices = (
             db.query(Invoice)
+            .options(load_only(
+                Invoice.id,
+                Invoice.sales_order_id,
+                Invoice.invoice_no,
+                Invoice.amount,
+                Invoice.currency,
+                Invoice.status,
+                Invoice.issued_at,
+                Invoice.due_date,
+            ))
             .filter(Invoice.sales_order_id.in_(order_ids))
             .order_by(Invoice.id.asc())
             .all()
@@ -115,6 +209,15 @@ def get_customer_orders(cid: int, db: DbSession, _: User = Depends(require_permi
         if invoice_ids:
             payments = (
                 db.query(Payment)
+                .options(load_only(
+                    Payment.id,
+                    Payment.invoice_id,
+                    Payment.amount,
+                    Payment.currency,
+                    Payment.payment_method,
+                    Payment.paid_at,
+                    Payment.notes,
+                ))
                 .filter(Payment.invoice_id.in_(invoice_ids))
                 .order_by(Payment.id.desc())
                 .all()
@@ -122,40 +225,90 @@ def get_customer_orders(cid: int, db: DbSession, _: User = Depends(require_permi
             for payment in payments:
                 payments_by_invoice[int(payment.invoice_id)].append(payment)
 
-    return [
+    payloads = [
         _serialize_customer_order(so, invoices_by_order[int(so.id)], payments_by_invoice)
         for so in rows
     ]
+    if total is None:
+        return payloads
+    return {
+        "rows": payloads,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
-@router.get("/customers/{cid}/payments")
-def get_customer_payments(cid: int, db: DbSession, _: User = Depends(require_permissions(*CUSTOMER_READ_PERMISSIONS))):
+@router.get(
+    "/customers/{cid}/payments",
+    response_model=list[CustomerPaymentHistoryOut] | CustomerPaymentHistoryPageOut,
+)
+def get_customer_payments(
+    cid: int,
+    db: DbSession,
+    _: User = Depends(require_permissions(*CUSTOMER_READ_PERMISSIONS)),
+    limit: Annotated[int, Query(ge=1, le=500)] = 500,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
     if not db.get(Customer, cid):
         raise HTTPException(404, "Customer not found")
-    rows = (
+    query = (
         db.query(Payment, Invoice, SalesOrder)
+        .options(
+            load_only(
+                Payment.id,
+                Payment.amount,
+                Payment.currency,
+                Payment.payment_method,
+                Payment.paid_at,
+                Payment.notes,
+            ),
+            load_only(Invoice.id, Invoice.invoice_no, Invoice.amount, Invoice.currency),
+            load_only(SalesOrder.id, SalesOrder.order_no, SalesOrder.currency),
+        )
         .outerjoin(Invoice, Invoice.id == Payment.invoice_id)
         .outerjoin(SalesOrder, SalesOrder.id == Invoice.sales_order_id)
         .filter(or_(SalesOrder.customer_id == cid, Payment.customer_id == cid))
-        .order_by(Payment.id.desc())
-        .all()
     )
-    return [
+    ordered_query = query.order_by(Payment.id.desc())
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = query.order_by(None).count()
+        ordered_query = ordered_query.offset((page - 1) * page_size).limit(page_size)
+    else:
+        ordered_query = ordered_query.limit(limit)
+    rows = ordered_query.all()
+    payloads = [
         _serialize_customer_payment(payment, invoice, so)
         for payment, invoice, so in rows
     ]
+    if total is None:
+        return payloads
+    return {
+        "rows": payloads,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.post("/customers/{cid}/payments", status_code=201)
 def create_customer_payment(
-    cid: int,
+    cid: Annotated[int, Path(gt=0, le=2_147_483_647)],
     payload: CustomerPaymentIn,
     db: DbSession,
     current: User = Depends(require_permissions("finance.payment", "*")),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     fingerprint_payload = {"customer_id": cid, **payload.model_dump(mode="json")}
-    replay = replay_idempotent_response(db, scope="customers.payments", key=idempotency_key, payload=fingerprint_payload)
+    if payload.currency is None:
+        fingerprint_payload.pop("currency", None)
+    replay = replay_idempotent_response(db, user=current, scope="customers.payments", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
 
@@ -170,7 +323,7 @@ def create_customer_payment(
 
     payment = None
     invoice = None
-    amount_remaining = float(payload.amount)
+    amount_remaining = payload.amount
 
     if sales_order:
         invoice = _find_payable_invoice(db, sales_order)
@@ -178,7 +331,8 @@ def create_customer_payment(
             invoice = Invoice(
                 sales_order_id=sales_order.id,
                 invoice_no=next_invoice_no(db),
-                amount=float(sales_order.total_amount or 0),
+                amount=Decimal(str(sales_order.total_amount or 0)),
+                currency=sales_order.currency,
                 status="unpaid",
                 issued_at=datetime.now(timezone.utc),
             )
@@ -186,21 +340,25 @@ def create_customer_payment(
             db.flush()
 
         if invoice:
-            invoice_balance = max(float(invoice.amount or 0) - invoice_paid_total(db, int(invoice.id)), 0)
-            invoice_amount = min(amount_remaining, invoice_balance) if invoice_balance > 0 else 0
+            invoice_balance = max(
+                Decimal(str(invoice.amount or 0)) - invoice_paid_total(db, int(invoice.id)),
+                Decimal("0"),
+            )
+            invoice_amount = min(amount_remaining, invoice_balance) if invoice_balance > 0 else Decimal("0")
             if invoice_amount > 0:
                 payment = create_invoice_payment(
                     db,
                     invoice,
                     amount=invoice_amount,
+                    currency=payload.currency,
                     customer_id=cid,
                     payment_method=payload.payment_method,
                     paid_at=payload.paid_at,
                     notes=payload.notes,
                 )
-                amount_remaining = round(amount_remaining - invoice_amount, 2)
+                amount_remaining -= invoice_amount
 
-    if amount_remaining > 0.01:
+    if amount_remaining >= Decimal("0.01"):
         advance_notes = payload.notes
         if sales_order and invoice and payment:
             suffix = f"Advance balance from overpayment on {sales_order.order_no}"
@@ -209,6 +367,7 @@ def create_customer_payment(
             db,
             customer_id=cid,
             amount=amount_remaining,
+            currency=payload.currency or (invoice.currency if invoice else None),
             payment_method=payload.payment_method,
             paid_at=payload.paid_at,
             notes=advance_notes,
@@ -240,15 +399,33 @@ def create_customer_payment(
 
 
 def _find_payable_invoice(db: DbSession, sales_order: SalesOrder) -> Invoice | None:
+    # Keep invoice selection and the invoice/advance split under the same lock
+    # used by direct finance payments, including when these rows are cached.
     invoices = (
         db.query(Invoice)
         .filter(Invoice.sales_order_id == sales_order.id)
         .order_by(Invoice.id.asc())
+        .populate_existing()
+        .with_for_update(of=Invoice)
         .all()
     )
+    # All candidate invoices are locked above before reading their totals.
+    # Batch the sums without loading each payment or changing allocation order.
+    paid_by_invoice = {}
+    invoice_ids = [int(invoice.id) for invoice in invoices]
+    for start in range(0, len(invoice_ids), 400):
+        paid_by_invoice.update(
+            db.query(Payment.invoice_id, func.sum(Payment.amount))
+            .filter(Payment.invoice_id.in_(invoice_ids[start:start + 400]))
+            .group_by(Payment.invoice_id)
+            .all()
+        )
     for invoice in invoices:
-        balance_due = max(float(invoice.amount or 0) - invoice_paid_total(db, int(invoice.id)), 0)
-        if balance_due > 0.01:
+        balance_due = (
+            Decimal(str(invoice.amount or 0))
+            - Decimal(str(paid_by_invoice.get(int(invoice.id)) or 0))
+        )
+        if balance_due > Decimal("0"):
             return invoice
     return None
 
@@ -262,6 +439,7 @@ def _serialize_customer_payment(payment: Payment, invoice: Invoice | None, sales
         "id": payment.id,
         "row_key": f"payment-{payment.id}",
         "amount": float(payment.amount or 0),
+        "currency": payment.currency,
         "payment_method": payment.payment_method,
         "paid_at": payment.paid_at,
         "notes": payment.notes,
@@ -280,58 +458,76 @@ def _serialize_customer_order(
     payments_by_invoice: dict[int, list[Payment]],
 ) -> dict:
     invoice_payloads: list[dict] = []
-    invoice_total = 0.0
-    paid_total = 0.0
+    invoice_total = Decimal("0")
+    paid_total = Decimal("0")
     last_payment_at = None
 
     for inv in invoices:
         payments = payments_by_invoice.get(int(inv.id), [])
+        invoice_money_known = inv.currency is not None and all(
+            payment.currency == inv.currency for payment in payments
+        )
         payment_payloads = []
-        raw_paid_amount = 0.0
+        raw_paid_amount = Decimal("0")
         for payment in payments:
-            amount = float(payment.amount or 0)
+            amount = Decimal(str(payment.amount or 0))
             raw_paid_amount += amount
             if payment.paid_at and (last_payment_at is None or payment.paid_at > last_payment_at):
                 last_payment_at = payment.paid_at
             payment_payloads.append(
                 {
                     "id": payment.id,
-                    "amount": amount,
+                    "amount": float(amount) if payment.currency else None,
+                    "currency": payment.currency,
                     "payment_method": payment.payment_method,
                     "paid_at": payment.paid_at,
                     "notes": payment.notes,
                 }
             )
 
-        amount = float(inv.amount or 0)
+        amount = Decimal(str(inv.amount or 0))
         paid_amount = min(raw_paid_amount, amount)
-        advance_amount = max(raw_paid_amount - amount, 0)
+        advance_amount = max(raw_paid_amount - amount, Decimal("0"))
         invoice_total += amount
         paid_total += paid_amount
         invoice_payloads.append(
             {
                 "id": inv.id,
                 "invoice_no": inv.invoice_no,
-                "amount": amount,
+                "amount": float(amount) if invoice_money_known else None,
+                "currency": inv.currency,
                 "status": inv.status,
                 "issued_at": inv.issued_at,
                 "due_date": inv.due_date,
-                "paid_amount": round(paid_amount, 2),
-                "raw_paid_amount": round(raw_paid_amount, 2),
-                "advance_amount": round(advance_amount, 2),
-                "balance_due": round(max(amount - paid_amount, 0), 2),
+                "paid_amount": float(paid_amount) if invoice_money_known else None,
+                "raw_paid_amount": float(raw_paid_amount) if invoice_money_known else None,
+                "advance_amount": float(advance_amount) if invoice_money_known else None,
+                "balance_due": float(max(amount - paid_amount, Decimal("0"))) if invoice_money_known else None,
                 "payments": payment_payloads,
             }
         )
 
-    balance_due = max((invoice_total if invoices else float(so.total_amount or 0)) - paid_total, 0)
+    order_total = invoice_total if invoices else Decimal(str(so.total_amount or 0))
+    balance_due = max(order_total - paid_total, Decimal("0"))
+    invoice_currencies = {inv.currency for inv in invoices}
+    recorded_currency = (
+        so.currency if not invoices and so.currency else
+        next(iter(invoice_currencies)) if len(invoice_currencies) == 1 and None not in invoice_currencies else None
+    )
+    if so.currency is not None and recorded_currency != so.currency:
+        recorded_currency = None
+    if recorded_currency and any(
+        payment.currency != recorded_currency
+        for inv in invoices for payment in payments_by_invoice.get(int(inv.id), [])
+    ):
+        recorded_currency = None
 
     def payment_status() -> str:
         if not invoices:
             return "no_invoice"
-        if invoice_total <= 0 or paid_total >= invoice_total - 0.01:
+        if invoice_total <= 0 or paid_total >= invoice_total:
             return "paid"
-        if paid_total > 0.01:
+        if paid_total > 0:
             return "partial"
         if any(str(inv.status or "").lower() in {"partial", "partially_paid"} for inv in invoices):
             return "partial"
@@ -343,12 +539,13 @@ def _serialize_customer_order(
         "id": so.id,
         "order_no": so.order_no,
         "date": so.created_at,
-        "total": float(so.total_amount or 0),
+        "total": float(so.total_amount or 0) if recorded_currency else None,
+        "currency": recorded_currency,
         "status": so.status,
-        "invoice_total": round(invoice_total, 2),
-        "paid_total": round(paid_total, 2),
-        "balance_due": round(balance_due, 2),
-        "payment_status": payment_status(),
+        "invoice_total": float(invoice_total) if recorded_currency else None,
+        "paid_total": float(paid_total) if recorded_currency else None,
+        "balance_due": float(balance_due) if recorded_currency else None,
+        "payment_status": payment_status() if recorded_currency else "unavailable",
         "last_payment_at": last_payment_at,
         "invoices": invoice_payloads,
     }
@@ -382,9 +579,39 @@ def delete_customer(cid: int, db: DbSession, current: User = Depends(require_per
 
 
 # ===== Suppliers =====
-@router.get("/suppliers", response_model=list[PartyOut])
-def list_suppliers(db: DbSession, _: User = Depends(require_permissions(*SUPPLIER_READ_PERMISSIONS))):
-    return db.query(Supplier).filter(Supplier.is_active.is_(True)).order_by(Supplier.id.desc()).all()
+@router.get("/suppliers", response_model=list[PartyOut] | SupplierPageOut)
+def list_suppliers(
+    db: DbSession,
+    _: User = Depends(require_permissions(*SUPPLIER_READ_PERMISSIONS)),
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+    q: Annotated[str | None, Query(max_length=100)] = None,
+):
+    query = db.query(Supplier).filter(Supplier.is_active.is_(True))
+    search = (q or "").strip()
+    if search:
+        escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        query = query.filter(or_(
+            Supplier.name.ilike(pattern, escape="\\"),
+            Supplier.phone.ilike(pattern, escape="\\"),
+            Supplier.email.ilike(pattern, escape="\\"),
+        ))
+    ordered_query = query.order_by(Supplier.id.desc())
+    if page is None and page_size is None:
+        return ordered_query.all()
+
+    page = page or 1
+    page_size = page_size or 50
+    total = query.count()
+    rows = ordered_query.offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.post("/suppliers", response_model=PartyOut, status_code=201)
@@ -400,7 +627,22 @@ def create_supplier(payload: PartyIn, db: DbSession, current: User = Depends(req
 
 @router.get("/suppliers/{sid}", response_model=PartyOut)
 def get_supplier(sid: int, db: DbSession, _: User = Depends(require_permissions(*SUPPLIER_READ_PERMISSIONS))):
-    s = db.get(Supplier, sid)
+    s = (
+        db.query(Supplier)
+        .options(
+            load_only(
+                Supplier.id,
+                Supplier.name,
+                Supplier.phone,
+                Supplier.email,
+                Supplier.address,
+                Supplier.notes,
+                raiseload=True,
+            )
+        )
+        .filter(Supplier.id == sid)
+        .one_or_none()
+    )
     if not s:
         raise HTTPException(404, "Supplier not found")
     return s

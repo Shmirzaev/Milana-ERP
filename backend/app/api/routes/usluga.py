@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import load_only, noload, selectinload
 
 from app.api.routes import catalog as catalog_routes
 from app.core.deps import DbSession, require_permissions
@@ -14,6 +15,7 @@ from app.models import (
     CuttingRecord,
     FinishedGoodsStock,
     Model,
+    ModelImage,
     Package,
     PackageScanLog,
     PackagingReceipt,
@@ -46,6 +48,8 @@ from app.schemas.catalog import (
 
 
 router = APIRouter(prefix="/usluga", tags=["usluga"])
+_PRELOAD_CHUNK_SIZE = 400
+_NOT_PRELOADED = object()
 
 
 def _require_eco(current: User) -> None:
@@ -143,7 +147,16 @@ def _model_payload(model: Model) -> dict:
 def _usluga_model_query(db: DbSession):
     return (
         db.query(Model)
-        .options(selectinload(Model.images), selectinload(Model.sizes), selectinload(Model.colors))
+        .options(
+            selectinload(Model.images).options(load_only(
+                ModelImage.id,
+                ModelImage.model_id,
+                ModelImage.file_url,
+                ModelImage.is_primary,
+            )),
+            selectinload(Model.sizes),
+            selectinload(Model.colors),
+        )
         .filter(Model.catalog_scope == "usluga", Model.factory_code == "ECO")
     )
 
@@ -153,6 +166,22 @@ def _require_usluga_order(db: DbSession, order_id: int) -> ProductionOrder:
         ProductionOrder.id == order_id,
         ProductionOrder.source_type == "usluga",
     ).one_or_none()
+    if not order:
+        raise HTTPException(404, "Usluga order not found")
+    return order
+
+
+def _lock_usluga_order(db: DbSession, order_id: int) -> ProductionOrder:
+    order = (
+        db.query(ProductionOrder)
+        .filter(
+            ProductionOrder.id == order_id,
+            ProductionOrder.source_type == "usluga",
+        )
+        .populate_existing()
+        .with_for_update(of=ProductionOrder)
+        .one_or_none()
+    )
     if not order:
         raise HTTPException(404, "Usluga order not found")
     return order
@@ -189,7 +218,18 @@ def _structural_edit_blocker(db: DbSession, order: ProductionOrder) -> str | Non
     if db.query(Package.id).filter(Package.production_order_id == order.id).first():
         return "Packages already exist"
 
-    work_orders = db.query(WorkOrder).filter(WorkOrder.production_order_id == order.id).all()
+    work_orders = db.query(WorkOrder).options(
+        load_only(
+            WorkOrder.id,
+            WorkOrder.actual_input_qty,
+            WorkOrder.actual_output_qty,
+            WorkOrder.passed_qty,
+            WorkOrder.failed_qty,
+            WorkOrder.rework_qty,
+            WorkOrder.end_time,
+            WorkOrder.status,
+        ),
+    ).filter(WorkOrder.production_order_id == order.id).all()
     work_order_ids = [int(row.id) for row in work_orders]
     if any(
         int(row.actual_input_qty or 0) > 0
@@ -221,15 +261,28 @@ def _structural_edit_blocker(db: DbSession, order: ProductionOrder) -> str | Non
     return None
 
 
-def _order_payload(db: DbSession, order: ProductionOrder) -> dict:
-    model = _usluga_model_query(db).filter(Model.id == order.model_id).one_or_none()
-    work_orders = (
-        db.query(WorkOrder)
-        .filter(WorkOrder.production_order_id == order.id)
-        .order_by(WorkOrder.id)
-        .all()
-    )
-    packages = db.query(Package).filter(Package.production_order_id == order.id).order_by(Package.id).all()
+def _order_payload(
+    db: DbSession,
+    order: ProductionOrder,
+    *,
+    model: Model | None | object = _NOT_PRELOADED,
+    items: list[ProductionOrderItem] | None = None,
+    work_orders: list[WorkOrder] | None = None,
+    packages: list[Package] | None = None,
+) -> dict:
+    if model is _NOT_PRELOADED:
+        model = _usluga_model_query(db).filter(Model.id == order.model_id).one_or_none()
+    if items is None:
+        items = sorted(order.items, key=lambda row: row.id)
+    if work_orders is None:
+        work_orders = (
+            db.query(WorkOrder)
+            .filter(WorkOrder.production_order_id == order.id)
+            .order_by(WorkOrder.id)
+            .all()
+        )
+    if packages is None:
+        packages = db.query(Package).filter(Package.production_order_id == order.id).order_by(Package.id).all()
     by_operation = {row.operation: row for row in work_orders}
     packaging = by_operation.get("packaging")
     required_operations_complete = all(
@@ -257,7 +310,7 @@ def _order_payload(db: DbSession, order: ProductionOrder) -> dict:
         "created_at": order.created_at,
         "items": [
             {"id": row.id, "color": row.color, "size": row.size, "planned_quantity": row.planned_quantity}
-            for row in sorted(order.items, key=lambda row: row.id)
+            for row in items
         ],
         "work_orders": [
             {
@@ -588,13 +641,120 @@ def delete_usluga_model(mid: int, db: DbSession, current: User = Depends(require
 def list_usluga_orders(
     db: DbSession,
     current: User = Depends(require_permissions("usluga.view", "usluga.manage", "usluga.handover", "*")),
-    status: str | None = Query(default=None, max_length=32),
+    status: Annotated[str | None, Query(max_length=32)] = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 100,
 ):
     _require_eco(current)
-    query = db.query(ProductionOrder).filter(ProductionOrder.source_type == "usluga")
+    query = (
+        db.query(ProductionOrder)
+        .options(
+            load_only(
+                ProductionOrder.id,
+                ProductionOrder.production_no,
+                ProductionOrder.status,
+                ProductionOrder.model_id,
+                ProductionOrder.planned_quantity,
+                ProductionOrder.deadline,
+                ProductionOrder.service_customer_name,
+                ProductionOrder.service_customer_reference,
+                ProductionOrder.service_material_description,
+                ProductionOrder.service_material_usage_kg,
+                ProductionOrder.service_material_notes,
+                ProductionOrder.service_handover_recipient,
+                ProductionOrder.service_handover_notes,
+                ProductionOrder.handed_over_at,
+                ProductionOrder.created_at,
+            ),
+            noload(ProductionOrder.materials),
+            noload(ProductionOrder.items),
+        )
+        .filter(ProductionOrder.source_type == "usluga")
+    )
     if status:
         query = query.filter(ProductionOrder.status == status)
-    return [_order_payload(db, row) for row in query.order_by(ProductionOrder.id.desc()).all()]
+    total = int(query.count())
+    ordered_query = query.order_by(ProductionOrder.id.desc())
+    orders = ordered_query.offset((page - 1) * page_size).limit(page_size).all()
+    if not orders:
+        return {"rows": [], "total": total, "page": page, "page_size": page_size}
+
+    order_ids = [int(order.id) for order in orders]
+    model_ids = sorted({int(order.model_id) for order in orders})
+    models_by_id: dict[int, Model] = {}
+    items_by_order: dict[int, list[ProductionOrderItem]] = {}
+    work_orders_by_order: dict[int, list[WorkOrder]] = {}
+    packages_by_order: dict[int, list[Package]] = {}
+
+    for start in range(0, len(model_ids), _PRELOAD_CHUNK_SIZE):
+        rows = _usluga_model_query(db).filter(
+            Model.id.in_(model_ids[start:start + _PRELOAD_CHUNK_SIZE]),
+        ).options(load_only(
+            Model.id,
+            Model.code,
+            Model.name,
+            Model.category,
+            Model.description,
+            Model.created_at,
+        )).all()
+        models_by_id.update((int(row.id), row) for row in rows)
+    for start in range(0, len(order_ids), _PRELOAD_CHUNK_SIZE):
+        chunk = order_ids[start:start + _PRELOAD_CHUNK_SIZE]
+        for item in (
+            db.query(ProductionOrderItem)
+            .options(load_only(
+                ProductionOrderItem.id,
+                ProductionOrderItem.production_order_id,
+                ProductionOrderItem.color,
+                ProductionOrderItem.size,
+                ProductionOrderItem.planned_quantity,
+            ))
+            .filter(ProductionOrderItem.production_order_id.in_(chunk))
+            .order_by(ProductionOrderItem.production_order_id, ProductionOrderItem.id)
+            .all()
+        ):
+            items_by_order.setdefault(int(item.production_order_id), []).append(item)
+        for work_order in (
+            db.query(WorkOrder)
+            .options(load_only(
+                WorkOrder.id,
+                WorkOrder.production_order_id,
+                WorkOrder.operation,
+                WorkOrder.status,
+                WorkOrder.planned_output_qty,
+                WorkOrder.passed_qty,
+                WorkOrder.failed_qty,
+            ))
+            .filter(WorkOrder.production_order_id.in_(chunk))
+            .order_by(WorkOrder.production_order_id, WorkOrder.id)
+            .all()
+        ):
+            work_orders_by_order.setdefault(int(work_order.production_order_id), []).append(work_order)
+        for package in (
+            db.query(Package)
+            .options(load_only(
+                Package.id,
+                Package.production_order_id,
+                Package.total_quantity,
+            ))
+            .filter(Package.production_order_id.in_(chunk))
+            .order_by(Package.production_order_id, Package.id)
+            .all()
+        ):
+            packages_by_order.setdefault(int(package.production_order_id), []).append(package)
+
+    rows = [
+        _order_payload(
+            db,
+            order,
+            model=models_by_id.get(int(order.model_id)),
+            items=items_by_order.get(int(order.id), []),
+            work_orders=work_orders_by_order.get(int(order.id), []),
+            packages=packages_by_order.get(int(order.id), []),
+        )
+        for order in orders
+    ]
+    return {"rows": rows, "total": total, "page": page, "page_size": page_size}
 
 
 @router.get("/orders/{order_id}")
@@ -614,6 +774,8 @@ def create_usluga_order(
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)
+    if payload.model_id > 2_147_483_647:
+        raise HTTPException(404, "Usluga model not found")
     model = _usluga_model_query(db).filter(Model.id == payload.model_id).one_or_none()
     if not model:
         raise HTTPException(404, "Usluga model not found")
@@ -676,14 +838,7 @@ def update_usluga_order(
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)
-    order = (
-        db.query(ProductionOrder)
-        .filter(ProductionOrder.id == order_id, ProductionOrder.source_type == "usluga")
-        .with_for_update(of=ProductionOrder)
-        .one_or_none()
-    )
-    if not order:
-        raise HTTPException(404, "Usluga order not found")
+    order = _lock_usluga_order(db, order_id)
     if order.handed_over_at:
         raise HTTPException(409, "Handed-over Usluga orders are read-only")
 
@@ -791,7 +946,7 @@ def update_usluga_material(
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)
-    order = _require_usluga_order(db, order_id)
+    order = _lock_usluga_order(db, order_id)
     if order.handed_over_at:
         raise HTTPException(409, "Handed-over Usluga orders are read-only")
     before = {
@@ -816,13 +971,33 @@ def hand_over_usluga_order(
 ):
     _require_eco(current)
     order = _require_usluga_order(db, order_id)
+    packages = (
+        db.query(Package)
+        .filter(Package.production_order_id == order.id)
+        .order_by(Package.id)
+        .populate_existing()
+        .with_for_update(of=Package)
+        .all()
+    )
+    locked_package_ids = [int(package.id) for package in packages]
+    order = _lock_usluga_order(db, order_id)
+    current_package_ids = [
+        int(package_id)
+        for (package_id,) in (
+            db.query(Package.id)
+            .filter(Package.production_order_id == order.id)
+            .order_by(Package.id)
+            .all()
+        )
+    ]
+    if current_package_ids != locked_package_ids:
+        raise HTTPException(409, "Usluga packages changed; retry handover")
     if order.handed_over_at:
         raise HTTPException(409, "Usluga order was already handed over")
-    summary = _order_payload(db, order)
+    summary = _order_payload(db, order, packages=packages)
     if not summary["ready_for_handover"]:
         raise HTTPException(409, "Complete packaging and create all packages before handover")
-    packages = db.query(Package).filter(Package.production_order_id == order.id).all()
-    package_ids = [row.id for row in packages]
+    package_ids = locked_package_ids
     if db.query(FinishedGoodsStock.id).filter(FinishedGoodsStock.package_id.in_(package_ids)).first():
         raise HTTPException(409, "Usluga packages must not create finished-goods stock")
     now = datetime.now(timezone.utc)

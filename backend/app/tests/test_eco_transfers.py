@@ -1,11 +1,13 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 import pytest
-from app.models import (StockBatch, StockMovement, EcoFabricDispatch, EcoFabricRoll, User, Role,
+from sqlalchemy import event
+from app.models import (StockBatch, StockMovement, EcoFabricDispatch, EcoFabricRoll, User, Role, Item,
                         MaterialReservation, ProductionOrder)
-from app.tests.conftest import TestSessionLocal
+from app.tests.conftest import TestSessionLocal, test_engine
 from app.core.deps import get_current_user
 from app.main import app
+from app.services.inventory import current_stock_for_item
 from app.tests.test_fabric_scans import fabric_batch  # noqa: F401
 
 
@@ -54,6 +56,111 @@ def test_dispatch_return_inventory_and_immutable_pdf(client, auth_headers, fabri
         assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
 
 
+def test_dispatch_inventory_snapshot_projects_only_payload_columns(client, auth_headers, fabric_batch):
+    legacy_inventory_sql = ""
+    statements = []
+    with TestSessionLocal() as db:
+        batch = db.get(StockBatch, fabric_batch)
+        fabric_name = db.get(Item, batch.item_id).name
+        legacy_inventory_sql = str(
+            db.query(StockBatch, Item)
+            .join(Item, Item.id == StockBatch.item_id)
+            .statement.compile(dialect=db.bind.dialect)
+        ).lower()
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().lower().startswith("select"):
+            statements.append(" ".join(statement.lower().split()))
+
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        response = send(client, auth_headers, fabric_batch, (1,))
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    assert "remaining_inventory" not in response.json()
+    with TestSessionLocal() as db:
+        snapshot = next(
+            row for row in db.query(EcoFabricDispatch).one().remaining_inventory
+            if row["batch_no"] == "DAILY-ROLLS"
+        )
+    assert snapshot == {
+        "fabric_name": fabric_name,
+        "batch_no": "DAILY-ROLLS",
+        "color": "Blue",
+        "quantity": "35.0000",
+        "unit": "kg",
+        "rolls": 2,
+    }
+    inventory_reads = [
+        statement for statement in statements
+        if " from stock_batches " in statement and " join items " in statement
+    ]
+    assert len(inventory_reads) == 1
+    assert "stock_batches.id" in inventory_reads[0]
+    assert "items.name" in inventory_reads[0]
+    assert "roll_weights_kg" not in inventory_reads[0]
+    assert "items.composition_json" not in inventory_reads[0]
+    assert "stock_batches.roll_weights_kg" in legacy_inventory_sql
+    assert "items.composition_json" in legacy_inventory_sql
+
+
+def test_scan_batch_lock_projects_required_inventory_and_item_fields(client, auth_headers, fabric_batch):
+    with TestSessionLocal() as db:
+        batch = db.get(StockBatch, fabric_batch)
+        item = db.get(Item, batch.item_id)
+        item_name = item.name
+        legacy_batch_sql = str(
+            db.query(StockBatch)
+            .filter(StockBatch.id == fabric_batch)
+            .statement.compile(dialect=db.bind.dialect)
+        ).lower()
+        legacy_item_sql = str(
+            db.query(Item)
+            .filter(Item.id == batch.item_id)
+            .statement.compile(dialect=db.bind.dialect)
+        ).lower()
+
+    statements = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().lower().startswith("select"):
+            statements.append(" ".join(statement.lower().split()))
+
+    event.listen(test_engine, "before_cursor_execute", capture)
+    try:
+        response = client.post(
+            "/api/eco-fabric-transfers/scan",
+            headers=auth_headers,
+            json={"code": f"B{fabric_batch}-R1"},
+        )
+    finally:
+        event.remove(test_engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "code": f"B{fabric_batch}-R1",
+        "status": "available",
+        "fabric_name": item_name,
+        "batch_no": "DAILY-ROLLS",
+        "color": "Blue",
+        "roll_number": 1,
+        "quantity": 10,
+        "unit": "kg",
+    }
+    batch_read = next(statement for statement in statements if " from stock_batches " in statement)
+    item_read = next(statement for statement in statements if " from items " in statement)
+    assert "stock_batches.roll_weights_kg" in batch_read
+    assert "stock_batches.quantity" in batch_read
+    assert "stock_batches.roll_lengths_m" not in batch_read
+    assert "stock_batches.image_url" not in batch_read
+    assert "items.name" in item_read and "items.category" in item_read
+    assert "items.composition_json" not in item_read
+    assert "stock_batches.roll_lengths_m" in legacy_batch_sql
+    assert "items.composition_json" in legacy_item_sql
+
+
 @pytest.mark.parametrize("rolls", [(1, 1), (1, 99)])
 def test_dispatch_validation_is_atomic(client, auth_headers, fabric_batch, rolls):
     assert send(client, auth_headers, fabric_batch, rolls).status_code in (400, 409)
@@ -63,11 +170,66 @@ def test_dispatch_validation_is_atomic(client, auth_headers, fabric_batch, rolls
         assert db.query(EcoFabricRoll).count() == 0
 
 
+def test_legacy_batch_unit_drift_blocks_scan_and_send_without_writes(client, auth_headers, fabric_batch):
+    with TestSessionLocal() as db:
+        db.get(StockBatch, fabric_batch).unit = "kilogram"
+        db.commit()
+        before_movements = db.query(StockMovement).count()
+
+    scanned = client.post(
+        "/api/eco-fabric-transfers/scan", headers=auth_headers,
+        json={"code": f"B{fabric_batch}-R1"},
+    )
+    sent = send(client, auth_headers, fabric_batch)
+
+    assert scanned.status_code == 409, scanned.text
+    assert sent.status_code == 409, sent.text
+    assert scanned.json()["detail"] == sent.json()["detail"] == "Batch unit must match the material unit"
+    with TestSessionLocal() as db:
+        batch = db.get(StockBatch, fabric_batch)
+        assert batch.quantity == 45
+        assert batch.unit == "kilogram"
+        assert db.query(StockMovement).count() == before_movements
+        assert db.query(EcoFabricDispatch).count() == 0
+        assert db.query(EcoFabricRoll).count() == 0
+
+
+def test_legacy_item_unit_drift_blocks_return_without_writes(client, auth_headers, fabric_batch):
+    sent = send(client, auth_headers, fabric_batch)
+    assert sent.status_code == 200, sent.text
+    with TestSessionLocal() as db:
+        batch = db.get(StockBatch, fabric_batch)
+        db.get(Item, batch.item_id).unit = "kilogram"
+        db.commit()
+        before_movements = db.query(StockMovement).count()
+
+    returned = client.post(
+        "/api/eco-fabric-transfers/return", headers=auth_headers,
+        json={
+            "code": f"B{fabric_batch}-R1", "dispatch_id": sent.json()["id"],
+            "request_key": str(uuid4()),
+        },
+    )
+
+    assert returned.status_code == 409, returned.text
+    assert returned.json()["detail"] == "Batch unit must match the material unit"
+    with TestSessionLocal() as db:
+        batch = db.get(StockBatch, fabric_batch)
+        roll = db.query(EcoFabricRoll).one()
+        assert batch.quantity == 35
+        assert roll.returned_at is None
+        assert db.query(StockMovement).count() == before_movements
+
+
 def test_scan_is_read_only_and_return_requires_dispatch(client, auth_headers, fabric_batch):
     response = client.post("/api/eco-fabric-transfers/scan", headers=auth_headers, json={"code": f"B{fabric_batch}-R1"})
     assert response.status_code == 200 and float(response.json()["quantity"]) == 10
     assert client.post("/api/eco-fabric-transfers/return", headers=auth_headers,
         json={"code": f"B{fabric_batch}-R1", "dispatch_id": 999, "request_key": str(uuid4())}).status_code == 409
+    oversized = client.post("/api/eco-fabric-transfers/return", headers=auth_headers,
+        json={"code": f"B{fabric_batch}-R1", "dispatch_id": 2_147_483_648, "request_key": str(uuid4())})
+    assert oversized.status_code == 409
+    assert oversized.json()["detail"] == "ecoTransfers.notSent"
     with TestSessionLocal() as db:
         assert db.get(StockBatch, fabric_batch).quantity == 45
         assert db.query(EcoFabricDispatch).count() == 0
@@ -111,6 +273,34 @@ def test_reserved_stock_cannot_leave(client, auth_headers, fabric_batch):
     assert send(client, auth_headers, fabric_batch).status_code == 409
     with TestSessionLocal() as db:
         assert db.get(StockBatch, fabric_batch).quantity == 45
+
+
+def test_item_only_reservation_blocks_dispatch_without_partial_writes(client, auth_headers, fabric_batch):
+    with TestSessionLocal() as db:
+        batch = db.get(StockBatch, fabric_batch)
+        order = ProductionOrder(
+            production_no=f"PO-ECO-ITEM-{uuid4().hex[:8]}", model_id=1,
+            planned_quantity=50, production_type="branded_stock",
+        )
+        db.add(order)
+        db.flush()
+        db.add(MaterialReservation(
+            reservation_no=f"RES-ECO-ITEM-{uuid4().hex[:8]}", production_order_id=order.id,
+            item_id=batch.item_id, warehouse_id=batch.warehouse_id,
+            reserved_quantity=current_stock_for_item(db, batch.item_id, batch.warehouse_id) - 5,
+            unit="kg", status="reserved",
+        ))
+        db.commit()
+        before_movements = db.query(StockMovement).count()
+
+    response = send(client, auth_headers, fabric_batch, (1,))
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "ecoTransfers.unavailable"
+    with TestSessionLocal() as db:
+        assert db.get(StockBatch, fabric_batch).quantity == 45
+        assert db.query(StockMovement).count() == before_movements
+        assert db.query(EcoFabricDispatch).count() == 0
+        assert db.query(EcoFabricRoll).count() == 0
 
 
 def test_daily_history_uses_tashkent_date(client, auth_headers, fabric_batch):

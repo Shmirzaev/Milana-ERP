@@ -44,6 +44,8 @@ EXPECTED_WAREHOUSE_ID = 8
 EXPECTED_WAREHOUSE_NAME = "Finished Goods"
 EXPECTED_WAREHOUSE_TYPE = "finished_goods"
 EXPECTED_IMPORTER_ID = 1
+MAX_SOURCE_PAYLOAD_BYTES = 16 * 1024
+MAX_SOURCE_PAYLOAD_DEPTH = 16
 QR_RE = re.compile(r"^(?:uzerp_ii_(\d+)_(\d+)|(\d{7}))$", re.IGNORECASE)
 SHA_RE = re.compile(r"^[0-9a-f]{64}$", re.IGNORECASE)
 CONFUSABLES = str.maketrans(
@@ -81,6 +83,25 @@ def file_sha256(path: Path) -> str:
 
 def canonical_payload(row: dict[str, Any]) -> dict[str, Any]:
     return {str(key): row[key] for key in sorted(row)}
+
+
+def validate_source_payload_bounds(payload: object) -> None:
+    pending = [(payload, 1)]
+    while pending:
+        value, depth = pending.pop()
+        if isinstance(value, (dict, list)):
+            if depth > MAX_SOURCE_PAYLOAD_DEPTH:
+                raise ValueError("source_payload exceeds the maximum nesting depth")
+            children = value.values() if isinstance(value, dict) else value
+            pending.extend((child, depth + 1) for child in children)
+    try:
+        encoded = json.dumps(
+            payload, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":"),
+        ).encode("utf-8")
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise ValueError("source_payload must contain finite JSON-compatible values") from exc
+    if len(encoded) > MAX_SOURCE_PAYLOAD_BYTES:
+        raise ValueError("source_payload exceeds the 16 KiB limit")
 
 
 def payload_checksum(row: dict[str, Any]) -> str:
@@ -206,6 +227,7 @@ def validate_row(row: dict[str, Any], photo_root: Path, *, manifest_version: int
                 "package_no": package_no,
             }
         )
+    validate_source_payload_bounds(validated)
     return validated
 
 

@@ -10,15 +10,19 @@ import PaginationControls from "@/components/PaginationControls";
 import { useT } from "@/lib/i18n";
 import { statusLabel } from "@/components/StagePipeline";
 import { useDialogs } from "@/components/DialogProvider";
+import { recordedSalesOrderMoney } from "@/lib/salesOrderMoney";
 
 type SO = {
   id: number;
   order_no: string;
   customer_id: number | null;
+  customer_name?: string | null;
+  customer?: { id: number; name: string } | null;
   order_type: string;
   status: string;
   deadline: string | null;
-  total_amount: number;
+  total_amount: number | null;
+  currency: string | null;
   notes: string | null;
 };
 
@@ -32,8 +36,8 @@ function statusClass(status: string) {
   return "bg-[#fbe9dd] text-[#c2410c]";
 }
 
-function Money({ value }: { value: number }) {
-  return <span className="mono">${value.toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>;
+function Money({ value, currency }: { value: number | null; currency: string | null }) {
+  return <span className="mono">{recordedSalesOrderMoney(value, currency)}</span>;
 }
 
 function rowMetrics(index: number) {
@@ -68,7 +72,6 @@ export default function SalesOrdersPage() {
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
-  const { data: customers = [] } = useSWR<any[]>("/api/customers", fetcher);
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("all");
@@ -103,7 +106,7 @@ export default function SalesOrdersPage() {
     setPage(1);
   }, [createdFrom, createdTo, query, statusFilter, typeFilter]);
 
-  const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
+  const customerName = (order: SO) => order.customer?.name || order.customer_name;
 
   const filtered = useMemo(() => {
     return data.filter((o) => {
@@ -116,7 +119,11 @@ export default function SalesOrdersPage() {
 
   const selected = filtered.find((o) => o.id === (selectedId ?? filtered[0]?.id)) ?? filtered[0];
   const activeCount = data.filter((o) => !["closed", "cancelled", "delivered"].includes(o.status)).length;
-  const inFlight = data.reduce((s, o) => s + Number(o.total_amount || 0), 0);
+  const inFlightCurrencies = new Set(data.map((order) => order.currency));
+  const inFlightCurrency = inFlightCurrencies.size === 1 ? data[0]?.currency : null;
+  const inFlight = inFlightCurrency
+    ? recordedSalesOrderMoney(data.reduce((sum, order) => sum + Number(order.total_amount || 0), 0), inFlightCurrency)
+    : "—";
 
   const tabs = useMemo(() => [
     { key: "all" as TabKey, label: t("sales.tab.all"), count: data.length },
@@ -128,14 +135,15 @@ export default function SalesOrdersPage() {
 
   function exportCsv() {
     if (!filtered.length) return;
-    const header = ["order_no", "customer", "order_type", "status", "deadline", "total_amount"];
+    const header = ["order_no", "customer", "order_type", "status", "deadline", "total_amount", "currency"];
     const lines = filtered.map((o) => [
       o.order_no,
-      customerMap.get(o.customer_id) || "",
+      customerName(o) || "",
       o.order_type,
       o.status,
       o.deadline || "",
-      Number(o.total_amount || 0).toFixed(2),
+      o.total_amount == null || !o.currency ? "" : Number(o.total_amount).toFixed(2),
+      o.currency || "",
     ]);
     const csv = [header, ...lines].map((row) => row.map(toCsvCell).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -163,7 +171,7 @@ export default function SalesOrdersPage() {
       <PageHeader
         eyebrow={t("sales.eyebrow")}
         title={t("sales.title")}
-        subtitle={t("sales.subtitle", { active: activeCount, value: Math.round(inFlight).toLocaleString(), shown: filtered.length })}
+        subtitle={t("sales.subtitle", { active: activeCount, value: inFlight, shown: filtered.length })}
         actions={(
           <>
             <button className="btn" onClick={() => setShowFilters((v) => !v)}><Filter />{t("sales.filter")}</button>
@@ -238,7 +246,7 @@ export default function SalesOrdersPage() {
                       {formatOrderReference(o.order_no)}
                     </a>
                     <div className="mt-1 truncate text-sm font-medium text-[#14110b]">
-                      {customerMap.get(o.customer_id) ?? t("sales.unknownCustomer")}
+                      {customerName(o) ?? t("sales.unknownCustomer")}
                     </div>
                   </div>
                   <span className={`badge shrink-0 ${statusClass(o.status)}`}>{statusLabel(o.status, t)}</span>
@@ -250,7 +258,7 @@ export default function SalesOrdersPage() {
                   </div>
                   <div>
                     <div className="label">{t("field.value")}</div>
-                    <div className="font-semibold"><Money value={Number(o.total_amount || 0)} /></div>
+                    <div className="font-semibold"><Money value={o.total_amount} currency={o.currency} /></div>
                   </div>
                   <div>
                     <div className="label">{t("field.deadline")}</div>
@@ -308,7 +316,7 @@ export default function SalesOrdersPage() {
                     <tr key={o.id} data-selected={active} className={active ? "bg-[#fdf3eb]" : ""} onClick={() => setSelectedId(o.id)}>
                       <td><input type="checkbox" onClick={(e) => e.stopPropagation()} /></td>
                       <td><a href={`/sales-orders/${o.id}`} title={o.order_no} className="mono font-medium">{formatOrderReference(o.order_no)}</a></td>
-                      <td>{customerMap.get(o.customer_id) ?? t("sales.unknownCustomer")}</td>
+                      <td>{customerName(o) ?? t("sales.unknownCustomer")}</td>
                       <td className="mono text-right">{qty.toLocaleString()}</td>
                       <td>
                         <div className="flex items-center gap-2">
@@ -318,7 +326,7 @@ export default function SalesOrdersPage() {
                       </td>
                       <td><span className={`badge ${statusClass(o.status)}`}>{statusLabel(o.status, t)}</span></td>
                       <td className="mono text-[#8a8472]">{o.deadline ? new Date(o.deadline).toLocaleDateString("en-US", { month: "short", day: "2-digit" }) : "-"}</td>
-                      <td className="text-right"><Money value={Number(o.total_amount || 0)} /></td>
+                      <td className="text-right"><Money value={o.total_amount} currency={o.currency} /></td>
                     </tr>
                   );
                 })}
@@ -355,7 +363,7 @@ export default function SalesOrdersPage() {
               <div className="space-y-6 p-4">
                 <section>
                   <div className="label">{t("field.customer")}</div>
-                  <div className="text-lg font-semibold">{customerMap.get(selected.customer_id) ?? t("sales.unknownCustomer")}</div>
+                  <div className="text-lg font-semibold">{customerName(selected) ?? t("sales.unknownCustomer")}</div>
                 </section>
                 <section>
                   <div className="label">{t("sales.orderType")}</div>
@@ -364,7 +372,7 @@ export default function SalesOrdersPage() {
                 <section>
                   <div className="label">{t("sales.financials")}</div>
                   <div className="space-y-2 text-sm">
-                    <div className="flex justify-between text-base font-semibold"><span>{t("field.totalAmount")}</span><Money value={Number(selected.total_amount || 0)} /></div>
+                    <div className="flex justify-between text-base font-semibold"><span>{t("field.totalAmount")}</span><Money value={selected.total_amount} currency={selected.currency} /></div>
                   </div>
                 </section>
               </div>

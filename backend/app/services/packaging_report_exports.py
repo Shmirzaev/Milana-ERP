@@ -187,8 +187,15 @@ def export_packaging_report(report: dict, lang: str) -> bytes:
             cell.fill = PatternFill("solid", fgColor="E9E5DA")
             cell.alignment = Alignment(wrap_text=True, vertical="center")
         sheet.row_dimensions[3].height = 34
+        numeric_values_present = set()
         for index, row in enumerate(report[kind], 1):
-            sheet.append([index, *[date.fromisoformat(row[c]) if c == "date" else row.get(c) for c in columns]])
+            row_values = [date.fromisoformat(row[c]) if c == "date" else row.get(c) for c in columns]
+            numeric_values_present.update(
+                key
+                for key, value in zip(columns, row_values)
+                if key in numeric and value is not None
+            )
+            sheet.append([index, *row_values])
             for cell in sheet[sheet.max_row]:
                 # Business text must never be interpreted as an Excel formula.
                 if isinstance(cell.value, str):
@@ -208,7 +215,7 @@ def export_packaging_report(report: dict, lang: str) -> bytes:
         total_row = end_row + 1
         sheet.cell(total_row, 1, labels["total"])
         for column_index, key in enumerate(columns, 2):
-            if key in numeric and any(row.get(key) is not None for row in report[kind]):
+            if key in numeric and key in numeric_values_present:
                 letter = get_column_letter(column_index)
                 sheet.cell(total_row, column_index, f"=SUM({letter}4:{letter}{end_row})").number_format = "#,##0"
         for cell in sheet[total_row]:

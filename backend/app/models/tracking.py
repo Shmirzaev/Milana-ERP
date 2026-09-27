@@ -91,7 +91,7 @@ class Package(Base, PkMixin, TimestampMixin):
     sales_order_id: Mapped[int | None] = mapped_column(ForeignKey("sales_orders.id"))
     brand_id: Mapped[int | None] = mapped_column(ForeignKey("brands.id"))
     collection_id: Mapped[int | None] = mapped_column(ForeignKey("collections.id"))
-    model_id: Mapped[int] = mapped_column(ForeignKey("models.id"), nullable=False)
+    model_id: Mapped[int | None] = mapped_column(ForeignKey("models.id"))
     color: Mapped[str] = mapped_column(String(64), nullable=False)
     package_type: Mapped[str] = mapped_column(String(16), default="bag", nullable=False)
     stock_kind: Mapped[str] = mapped_column(String(16), default="standard", server_default="standard", nullable=False, index=True)
@@ -163,7 +163,9 @@ class PackageBarcodeAlias(Base, PkMixin, TimestampMixin):
         UniqueConstraint("package_id", "code", name="uq_package_barcode_alias_package_code"),
     )
 
-    package_id: Mapped[int] = mapped_column(ForeignKey("packages.id"), nullable=False, index=True)
+    package_id: Mapped[int] = mapped_column(
+        ForeignKey("packages.id", ondelete="CASCADE"), nullable=False, index=True,
+    )
     code: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     code_type: Mapped[str] = mapped_column(String(32), nullable=False)
 
@@ -176,7 +178,7 @@ class PackageItem(Base, PkMixin, TimestampMixin):
         CheckConstraint("quantity > 0", name="ck_package_items_quantity_positive"),
     )
     package_id: Mapped[int] = mapped_column(ForeignKey("packages.id"), nullable=False)
-    model_id: Mapped[int] = mapped_column(ForeignKey("models.id"), nullable=False)
+    model_id: Mapped[int | None] = mapped_column(ForeignKey("models.id"))
     color: Mapped[str] = mapped_column(String(64), nullable=False)
     size: Mapped[str] = mapped_column(String(32), nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -241,7 +243,7 @@ class FinishedGoodsStock(Base, PkMixin, TimestampMixin):
     production_order_id: Mapped[int | None] = mapped_column(ForeignKey("production_orders.id"))
     sales_order_id: Mapped[int | None] = mapped_column(ForeignKey("sales_orders.id"))
     package_id: Mapped[int | None] = mapped_column(ForeignKey("packages.id"))
-    model_id: Mapped[int] = mapped_column(ForeignKey("models.id"), nullable=False)
+    model_id: Mapped[int | None] = mapped_column(ForeignKey("models.id"))
     collection_id: Mapped[int | None] = mapped_column(ForeignKey("collections.id"))
     brand_id: Mapped[int | None] = mapped_column(ForeignKey("brands.id"))
     color: Mapped[str] = mapped_column(String(64), nullable=False)

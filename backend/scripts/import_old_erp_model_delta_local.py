@@ -1084,7 +1084,28 @@ def details_after(
     ):
         details["paid_operations"] = copy.deepcopy(paid_operations)
     merge_delta_provenance(details, provenance)
+    original.validate_imported_details_bounds(
+        details,
+        existing_details=current_details if isinstance(current_details, dict) else None,
+    )
     return details
+
+
+def validate_planned_details_bounds(actions: list[dict[str, Any]], models: Iterable[Model]) -> None:
+    """Check every final delta document before a plan can reach media work."""
+    existing_by_id = {int(model.id): model for model in models}
+    for action in actions:
+        if action["action"] == "update_existing":
+            model = existing_by_id.get(int(action["target_model_id"]))
+            if model is None:
+                raise MigrationError(f"Existing target {action['target_model_id']} disappeared")
+            existing_details = model.details_json
+        else:
+            existing_details = None
+        original.validate_imported_details_bounds(
+            action["details_after"],
+            existing_details=existing_details,
+        )
 
 
 def merge_quarantine_provenance(
@@ -1946,6 +1967,7 @@ def compile_plan(
             "production_touched": False,
         },
     }
+    validate_planned_details_bounds(actions, models)
     plan["plan_sha256"] = original.object_sha256(plan)
     return plan
 
@@ -2174,6 +2196,10 @@ def apply_plan(
                     != action["expected_details_sha256"]
                 ):
                     raise MigrationError(f"Details changed for model {model.id}")
+                original.validate_imported_details_bounds(
+                    action["details_after"],
+                    existing_details=model.details_json,
+                )
                 new_name = action.get("new_name")
                 if new_name is not None:
                     if not is_delta_created(model):
@@ -2204,6 +2230,7 @@ def apply_plan(
 
             if action["action"] != "create_variant":
                 raise MigrationError(f"Unsupported delta action {action['action']!r}")
+            original.validate_imported_details_bounds(action["details_after"])
             model = Model(
                 code=action["code"],
                 name=action["name"],

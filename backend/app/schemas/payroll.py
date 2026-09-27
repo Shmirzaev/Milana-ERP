@@ -1,10 +1,16 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.common import ORMModel
+
+
+PayrollQrStoredAmount = Annotated[
+    Decimal,
+    Field(ge=0, le=Decimal("9999999999.9999"), allow_inf_nan=False),
+]
 
 
 class PayrollPeriodIn(BaseModel):
@@ -41,6 +47,14 @@ class PayrollPeriodOut(ORMModel):
     updated_at: datetime
 
 
+class PayrollPeriodPageOut(BaseModel):
+    rows: list[PayrollPeriodOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class PayrollRecordIn(BaseModel):
     model_config = ConfigDict(extra="allow", protected_namespaces=())
 
@@ -74,7 +88,7 @@ class PayrollRecordIn(BaseModel):
 
 class PayrollRecordBulkIn(BaseModel):
     payroll_period_id: int | None = None
-    records: list[PayrollRecordIn] = Field(default_factory=list)
+    records: list[PayrollRecordIn] = Field(default_factory=list, max_length=500)
 
 
 class PayrollNumericWorkScanIn(BaseModel):
@@ -131,6 +145,14 @@ class PayrollRecordOut(ORMModel):
     duplicate: bool = False
 
 
+class PayrollRecordPageOut(BaseModel):
+    rows: list[PayrollRecordOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class PayrollBulkOut(BaseModel):
     records: list[PayrollRecordOut]
     created_count: int
@@ -166,9 +188,11 @@ class PayrollQrLabelIssueIn(BaseModel):
     cutting_passport_id: int | None = None
     cutting_passport_no: str | None = None
     size: str | None = None
-    copy_index: int = 1
-    quantity: Decimal = Decimal("0")
-    rate_per_piece: Decimal = Decimal("0")
+    # SQLAlchemy Integer is a signed 32-bit value on supported databases.
+    # Keep the full legacy signed range; reject only values that cannot persist.
+    copy_index: int = Field(default=1, ge=-(2**31), le=2**31 - 1)
+    quantity: PayrollQrStoredAmount = Decimal("0")
+    rate_per_piece: PayrollQrStoredAmount = Decimal("0")
     currency: str = "UZS"
 
 
@@ -200,7 +224,7 @@ class PayrollQrLabelBatchDeleteOut(BaseModel):
 
 class PayrollQrLabelEditIn(BaseModel):
     operation_name: str = Field(min_length=1, max_length=255)
-    rate_per_piece: Decimal = Field(ge=0)
+    rate_per_piece: PayrollQrStoredAmount
 
 
 class PayrollQrLabelSplitIn(PayrollQrLabelEditIn):
@@ -277,6 +301,14 @@ class OrderQrStatusOrderOption(BaseModel):
     production_nos: list[str] = Field(default_factory=list)
     model_codes: list[str] = Field(default_factory=list)
     label_count: int
+
+
+class OrderQrStatusOrderOptionPage(BaseModel):
+    rows: list[OrderQrStatusOrderOption]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
 
 
 class OrderQrStatusCellOut(BaseModel):
@@ -367,6 +399,17 @@ class SewingProductionReportOptions(BaseModel):
     sizes: list[SewingProductionReportOption] = Field(default_factory=list)
 
 
+class SewingProductionReportOrderOptionPage(BaseModel):
+    items: list[SewingProductionReportOption]
+    total: int
+    offset: int
+    limit: int
+    factory_code: str
+    search: str
+    selected_value: str
+    selected_option: SewingProductionReportOption | None = None
+
+
 class SewingSalarySummaryRow(BaseModel):
     employee_id: int
     employee_no: str | None = None
@@ -430,15 +473,30 @@ class PayrollSummaryOut(BaseModel):
     total_amount: Decimal
     currency: str
     employees: list[PayrollSummaryEmployeeOut]
+    employees_total: int | None = None
+    employee_page: int | None = None
+    employee_page_size: int | None = None
+    employees_has_more: bool | None = None
+    employee_search: str | None = None
 
 
 class PayrollAdjustmentIn(BaseModel):
     payroll_period_id: int | None = None
     employee_id: int
-    adjustment_type: str | None = None
+    adjustment_type: Literal["bonus", "deduction"] | None = None
     amount: Decimal | float | int | str
     currency: str = "UZS"
-    reason: str
+    reason: str = Field(max_length=255)
+
+    @field_validator("adjustment_type", mode="before")
+    @classmethod
+    def normalize_adjustment_type(cls, value):
+        if value is None:
+            return None
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            return normalized or None
+        return value
 
 
 class PayrollRecordReversalIn(BaseModel):
@@ -459,3 +517,17 @@ class PayrollAdjustmentOut(ORMModel):
     reason: str
     created_by: int | None = None
     created_at: datetime
+
+
+class PayrollAdjustmentRowOut(PayrollAdjustmentOut):
+    employee_name: str | None = None
+    department_id: int | None = None
+    department_name: str | None = None
+
+
+class PayrollAdjustmentPageOut(BaseModel):
+    rows: list[PayrollAdjustmentRowOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool

@@ -19,7 +19,8 @@ from app.models.sales import (
 )
 from app.models.production import (
     BrandedPlanningOrder, ProductionOrder, ProductionOrderMaterial, ProductionBatch, ProductionOrderItem,
-    WorkOrder, public_production_order_no, CuttingRecord, CuttingMaterialUsage, PrintingRecord, SewingRecord,
+    WorkOrder, public_production_order_no, CuttingRecord, CuttingMaterialUsage, CuttingBeikaMaterialUsage,
+    PrintingRecord, SewingRecord,
     SewingReplacementRequest, PackagingRecord, PackagingReceipt, QualityCheck,
 )
 from app.models.tracking import (
@@ -56,7 +57,8 @@ __all__ = [
     "PurchaseRequest", "PurchaseRequestLine", "PurchaseOrder", "PurchaseOrderLine",
     "SalesOrder", "SalesOrderItem", "Shipment", "ShipmentPackage", "ShipmentScanLog", "Invoice", "Payment",
     "BrandedPlanningOrder", "ProductionOrder", "ProductionOrderMaterial", "ProductionBatch", "ProductionOrderItem",
-    "WorkOrder", "public_production_order_no", "CuttingRecord", "CuttingMaterialUsage", "PrintingRecord",
+    "WorkOrder", "public_production_order_no", "CuttingRecord", "CuttingMaterialUsage",
+    "CuttingBeikaMaterialUsage", "PrintingRecord",
     "SewingRecord", "SewingReplacementRequest", "PackagingRecord", "PackagingReceipt", "QualityCheck",
     "Bundle", "BundleScanLog", "Package", "PackageItem", "PackageBatchAllocation", "PackageScanLog",
     "PackageChangeRequest", "PackageBarcodeAlias", "LegacyStockReceipt",

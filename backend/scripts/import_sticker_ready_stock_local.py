@@ -38,6 +38,8 @@ SOURCE_WAREHOUSE_ID = "18"
 SOURCE_WAREHOUSE_NAME = "TAYYOR MAHSULOT OMBORI"
 QR_RE = re.compile(r"^uzerp_ii_(\d+)_(\d+)$", re.IGNORECASE)
 SHA_RE = re.compile(r"^[0-9a-f]{64}$", re.IGNORECASE)
+MAX_SOURCE_PAYLOAD_BYTES = 16 * 1024
+MAX_SOURCE_PAYLOAD_DEPTH = 16
 LOCAL_DATABASE_HOSTS = {"db", "localhost", "127.0.0.1", "::1", "host.docker.internal"}
 CONFUSABLES = str.maketrans(
     {
@@ -66,6 +68,25 @@ def clean(value: Any, *, limit: int | None = None) -> str:
 
 def canonical_payload(row: dict[str, Any]) -> dict[str, Any]:
     return {str(key): row[key] for key in sorted(row)}
+
+
+def validate_source_payload_bounds(payload: object) -> None:
+    pending = [(payload, 1)]
+    while pending:
+        value, depth = pending.pop()
+        if isinstance(value, (dict, list)):
+            if depth > MAX_SOURCE_PAYLOAD_DEPTH:
+                raise ValueError("source_payload exceeds the maximum nesting depth")
+            children = value.values() if isinstance(value, dict) else value
+            pending.extend((child, depth + 1) for child in children)
+    try:
+        encoded = json.dumps(
+            payload, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":"),
+        ).encode("utf-8")
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise ValueError("source_payload must contain finite JSON-compatible values") from exc
+    if len(encoded) > MAX_SOURCE_PAYLOAD_BYTES:
+        raise ValueError("source_payload exceeds the 16 KiB limit")
 
 
 def payload_checksum(row: dict[str, Any]) -> str:
@@ -153,7 +174,7 @@ def validate_row(row: dict[str, Any], photo_root: Path) -> dict[str, Any]:
         raise ValueError(f"{qr_code}: source photo hash changed")
     if clean(row.get("review_status")).casefold() != "approved":
         raise ValueError(f"{qr_code}: row is not explicitly approved")
-    return {
+    validated = {
         **canonical_payload(row),
         "qr_code": qr_code,
         "quantity": quantity,
@@ -162,6 +183,8 @@ def validate_row(row: dict[str, Any], photo_root: Path) -> dict[str, Any]:
         "source_photo": source_photo,
         "source_photo_sha256": source_sha,
     }
+    validate_source_payload_bounds(validated)
+    return validated
 
 
 def read_manifest(path: Path, photo_root: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:

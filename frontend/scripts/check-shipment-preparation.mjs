@@ -2,14 +2,17 @@ import fs from "node:fs";
 
 const page = fs.readFileSync("src/app/(app)/shipments/page.tsx", "utf8");
 const history = fs.readFileSync("src/app/(app)/shipments/history/page.tsx", "utf8");
-if (!history.includes("historyQuery") || page.includes("filteredHistory")) throw new Error("History must have its own route");
+if (!history.includes("historyQuery")) throw new Error("History route must retain search");
+for (const token of ["filteredHistory", "historyPages?.flatMap", "historyPages?.at(-1)?.has_more", "setHistoryPageCount"]) {
+  if (!page.includes(token)) throw new Error(`Paged shipment history is missing ${token}`);
+}
 const workspace = fs.readFileSync("src/components/ShipmentPreparationWorkspace.tsx", "utf8");
 
 for (const token of [
   "ShipmentPreparationWorkspace",
   "/api/shipments/${shipmentId}/preparation",
   "/api/shipments/sales-order/${order.id}/preparation",
-  "filteredOrders.map",
+  "shipmentOrders.map",
   "ShipmentOrderWorkspace",
   "orderFloorTitle",
   "orderFloorSearch",

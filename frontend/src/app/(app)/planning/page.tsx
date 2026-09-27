@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import { PackageCheck, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
 import { useMe, can } from "@/lib/auth";
@@ -13,10 +14,12 @@ import BrandedOrderHistory, { type BrandedPlanningOrder } from "@/components/Bra
 import Modal from "@/components/Modal";
 import SearchableSelect from "@/components/SearchableSelect";
 import BrandedModelVariantSelect from "@/components/BrandedModelVariantSelect";
+import BrandAsyncSelect from "@/components/BrandAsyncSelect";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 import { GARMENT_SIZE_OPTIONS } from "@/lib/garmentSizes";
 import { numberOrFallback, numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
+import { recordedSalesOrderMoney } from "@/lib/salesOrderMoney";
 
 type FabricBatch = {
   id: number;
@@ -31,6 +34,12 @@ type FabricBatch = {
   warehouse_name?: string | null;
   qc_status?: string | null;
   image_url?: string | null;
+};
+
+type ProductionOrderPage = {
+  rows: any[];
+  total: number;
+  has_more: boolean;
 };
 
 type Brand = {
@@ -337,13 +346,23 @@ export default function PlanningDashboard() {
   const { me } = useMe();
   const { data: dash } = useSWR<any>("/api/dashboard/planning", fetcher);
   const { data: orders } = useSWR<any[]>("/api/sales-orders?order_type=client_order&page_size=200", fetcher);
-  const { data: productionOrders, mutate: mutateProductionOrders } = useSWR<any[]>("/api/production-orders?page_size=100", fetcher);
-  const { data: brands, mutate: mutateBrands } = useSWR<Brand[]>("/api/brands", fetcher);
+  const [reservationOrderSearch, setReservationOrderSearch] = useState("");
+  const { data: productionOrderPages, size: productionOrderPageCount, setSize: setProductionOrderPageCount, mutate: mutateProductionOrders } = useSWRInfinite<ProductionOrderPage>(
+    (index, previous) => {
+      if (brandedOnly || (previous && !previous.has_more)) return null;
+      return `/api/production-orders?page=${index + 1}&page_size=50&include_total=true&q=${encodeURIComponent(reservationOrderSearch)}`;
+    },
+    fetcher,
+  );
+  const productionOrders = productionOrderPages?.flatMap((page) => page.rows) || [];
+  const productionOrderTotal = productionOrderPages?.[0]?.total || 0;
+  const hasMoreProductionOrders = Boolean(productionOrderPages?.at(-1)?.has_more);
+  const [createdBrand, setCreatedBrand] = useState<Brand | null>(null);
   const { data: fabricBatches } = useSWR<FabricBatch[]>("/api/inventory/batches?group=materials&hide_empty=true&page_size=1000", fetcher);
   const { data: brandedOrders, mutate: mutateBrandedOrders } = useSWR<BrandedPlanningOrder[]>("/api/planning/branded-orders", fetcher, { refreshInterval: 10_000 });
   const canViewForecasting = can(me, "forecasting.view");
   const { data: forecastSuggestions } = useSWR<any[]>(
-    canViewForecasting ? "/api/forecasting/branded-stock-suggestions" : null,
+    !brandedOnly && canViewForecasting ? "/api/forecasting/branded-stock-suggestions" : null,
     fetcher,
   );
   const [brandedForm, setBrandedForm] = useState<BrandedFormState>({
@@ -372,8 +391,9 @@ export default function PlanningDashboard() {
   const [brandedPrintingAttachments, setBrandedPrintingAttachments] = useState<PrintingAttachment[]>([]);
   const [brandedUploadingPrintFile, setBrandedUploadingPrintFile] = useState(false);
   const { data: selectedBrandedModelDetail } = useSWR<BrandedModelDetail>(
-    brandedForm.model_id ? `/api/models/${brandedForm.model_id}` : null,
+    brandedDialogOpen && brandedForm.model_id ? `/api/models/${brandedForm.model_id}` : null,
     fetcher,
+    { keepPreviousData: true },
   );
   const [busyOrderId, setBusyOrderId] = useState<number | null>(null);
   const [materialEstimate, setMaterialEstimate] = useState<MaterialEstimateState | null>(null);
@@ -399,12 +419,15 @@ export default function PlanningDashboard() {
   const brandedTotalQty = brandedForm.lines.reduce((sum, line) => sum + Number(line.quantity || 0), 0);
   const brandedPrintingLineCount = brandedForm.lines.filter((line) => Boolean(line.printing_required)).length;
   const brandedHasPrintingSelected = brandedPrintingLineCount > 0;
-  const activeBrands = (brands || []).filter((brand) => brand.is_active);
   const availableFabricBatches = useMemo(() => (fabricBatches || [])
     .filter((batch) => Number(batch.available_quantity || 0) > 0)
     .filter((batch) => !["failed", "rejected"].includes(String(batch.qc_status || "").toLowerCase())), [fabricBatches]);
   const selectedBrandedModel = selectedBrandedModelDetail || null;
-  const selectedBrandedBrand = activeBrands.find((brand) => Number(brand.id) === Number(brandedForm.brand_id)) || null;
+  const { data: brandedBrandDetail } = useSWR<Brand>(
+    brandedForm.brand_id && createdBrand?.id !== brandedForm.brand_id ? `/api/brands/${brandedForm.brand_id}` : null,
+    fetcher,
+  );
+  const selectedBrandedBrand = createdBrand?.id === brandedForm.brand_id ? createdBrand : brandedBrandDetail;
   const selectedBrandedModelSizes = useMemo(
     () => uniqueSortedSizes((selectedBrandedModelDetail?.sizes || []).map((row) => row.size)),
     [selectedBrandedModelDetail],
@@ -541,11 +564,7 @@ export default function PlanningDashboard() {
         description: newBrandForm.description.trim() || null,
         is_active: true,
       });
-      await mutateBrands(
-        (current) => [...(current || []).filter((brand) => brand.id !== created.id), created]
-          .sort((a, b) => a.name.localeCompare(b.name)),
-        { revalidate: false },
-      );
+      setCreatedBrand(created);
       if (target === "material") {
         setMaterialEstimate((prev) => prev ? { ...prev, brandId: created.id } : prev);
       } else if (target === "batch") {
@@ -1058,7 +1077,20 @@ export default function PlanningDashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)]">
           <div className="border-b border-[#ecebe3] lg:border-b-0 lg:border-r">
             <div className="max-h-[520px] overflow-y-auto p-3">
-              {(productionOrders || []).slice(0, 30).map((po) => {
+              <input
+                className="input mb-3"
+                value={reservationOrderSearch}
+                onChange={(event) => setReservationOrderSearch(event.target.value)}
+                maxLength={100}
+                placeholder={t("common.search")}
+                aria-label={t("common.search")}
+              />
+              {selectedReservationPoId && !productionOrders.some((po) => Number(po.id) === selectedReservationPoId) && (
+                <button type="button" className="mb-2 block w-full rounded-md bg-[#14110b] px-3 py-2 text-left text-sm text-[#fdfcf8]" onClick={() => setSelectedReservationPoId(selectedReservationPoId)}>
+                  {reservationStatus?.plan.order_no || reservationStatus?.plan.production_no || `#${selectedReservationPoId}`}
+                </button>
+              )}
+              {productionOrders.map((po) => {
                 const active = Number(po.id) === Number(activeReservationPoId);
                 return (
                   <button
@@ -1081,8 +1113,13 @@ export default function PlanningDashboard() {
                   </button>
                 );
               })}
-              {(productionOrders || []).length === 0 && (
+              {productionOrders.length === 0 && productionOrderTotal === 0 && (
                 <div className="px-2 py-4 text-sm text-[#8a8472]">{t("reservation.noProductionOrders")}</div>
+              )}
+              {hasMoreProductionOrders && (
+                <button type="button" className="mt-2 w-full text-sm underline" onClick={() => void setProductionOrderPageCount(productionOrderPageCount + 1)}>
+                  {t("common.loadMore")} ({productionOrders.length} / {productionOrderTotal})
+                </button>
               )}
             </div>
           </div>
@@ -1233,7 +1270,7 @@ export default function PlanningDashboard() {
               <tr key={o.id}>
                 <td>{formatOrderReference(o.order_no)}</td>
                 <td>{o.customer?.name || o.customer_name || o.customer_id || "-"}</td>
-                <td>${Number(o.total_amount).toFixed(2)}</td>
+                <td>{recordedSalesOrderMoney(o.total_amount, o.currency)}</td>
                 <td>{statusLabel(o.status, t)}</td>
                 <td>
                   <div className="flex flex-wrap gap-2">
@@ -1299,15 +1336,14 @@ export default function PlanningDashboard() {
                 <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
                     <label className="label">{t("field.brand")}</label>
-                    <select
-                      className="input"
-                      value={batchPlan.brandId}
-                      onChange={(e) => setBatchPlan((prev) => prev ? { ...prev, brandId: Number(e.target.value) } : prev)}
+                    <BrandAsyncSelect
+                      inputId="planning-batch-brand"
+                      value={batchPlan.brandId || null}
+                      onChange={(brandId) => setBatchPlan((prev) => prev ? { ...prev, brandId } : prev)}
+                      selectedBrand={createdBrand}
+                      activeOnly
                       required
-                    >
-                      <option value={0}>{t("newso.brandSelect")}</option>
-                      {activeBrands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
-                    </select>
+                    />
                     <button
                       type="button"
                       className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-brand-600 hover:underline"
@@ -1494,15 +1530,14 @@ export default function PlanningDashboard() {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="label">{t("field.brand")}</label>
-                  <select
-                    className="input"
-                    value={materialEstimate.brandId}
-                    onChange={(e) => setMaterialEstimate((prev) => prev ? { ...prev, brandId: Number(e.target.value) } : prev)}
+                  <BrandAsyncSelect
+                    inputId="planning-material-brand"
+                    value={materialEstimate.brandId || null}
+                    onChange={(brandId) => setMaterialEstimate((prev) => prev ? { ...prev, brandId } : prev)}
+                    selectedBrand={createdBrand}
+                    activeOnly
                     required
-                  >
-                    <option value={0}>{t("newso.brandSelect")}</option>
-                    {activeBrands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
-                  </select>
+                  />
                   <button
                     type="button"
                     className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-brand-600 hover:underline"
@@ -1587,15 +1622,14 @@ export default function PlanningDashboard() {
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div>
                 <label className="label">{t("field.brand")}</label>
-                <select
-                  className="input"
-                  value={brandedForm.brand_id}
-                  onChange={(e) => setBrandedForm((prev) => ({ ...prev, brand_id: Number(e.target.value) }))}
+                <BrandAsyncSelect
+                  inputId="planning-branded-brand"
+                  value={brandedForm.brand_id || null}
+                  onChange={(brandId) => setBrandedForm((prev) => ({ ...prev, brand_id: brandId }))}
+                  selectedBrand={createdBrand}
+                  activeOnly
                   required
-                >
-                  <option value={0}>{t("newso.brandSelect")}</option>
-                  {activeBrands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
-                </select>
+                />
                 <button
                   type="button"
                   className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-brand-600 hover:underline"

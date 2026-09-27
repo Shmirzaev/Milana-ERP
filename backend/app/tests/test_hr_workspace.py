@@ -1,4 +1,8 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import event
+
+from app.tests.conftest import TestSessionLocal
 
 
 def test_hr_workspace_is_additive_and_factory_scoped(client, auth_headers):
@@ -71,6 +75,11 @@ def test_hr_calendar_recruitment_and_settings(client, auth_headers):
     assert saved_candidate["passport_number"] == "AA1234567"
     assert saved_candidate["first_name"] == "Aziz"
 
+    limited = client.get("/api/hr/recruitment?limit=1", headers=auth_headers)
+    assert limited.status_code == 200, limited.text
+    assert len(limited.json()) == 1
+    assert client.get("/api/hr/recruitment?limit=501", headers=auth_headers).status_code == 422
+
     event = client.post(
         "/api/hr/calendar",
         headers=auth_headers,
@@ -98,3 +107,103 @@ def test_hr_calendar_recruitment_and_settings(client, auth_headers):
     loaded = client.get("/api/hr/settings", headers=auth_headers)
     assert loaded.status_code == 200
     assert loaded.json()["default_monthly_hours"] == 176
+
+
+def test_hr_documents_pagination_preserves_legacy_rows_and_metrics(client, auth_headers, tmp_path, monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "HR_DOCUMENTS_DIR", str(tmp_path))
+    employee_ids = []
+    for index in range(3):
+        response = client.post(
+            "/api/employees",
+            headers=auth_headers,
+            json={"employee_no": f"990000{index}", "full_name": f"Document Employee {index}"},
+        )
+        assert response.status_code == 201, response.text
+        employee_ids.append(response.json()["id"])
+        uploaded = client.post(
+            "/api/hr/documents",
+            headers=auth_headers,
+            data={"employee_id": employee_ids[-1], "category": "other", "title": f"Doc {index}"},
+            files={"file": (f"doc-{index}.txt", b"abc", "text/plain")},
+        )
+        assert uploaded.status_code == 201, uploaded.text
+
+    legacy = client.get("/api/hr/documents", headers=auth_headers)
+    assert legacy.status_code == 200 and isinstance(legacy.json(), list)
+    page = client.get("/api/hr/documents?page=1&page_size=2", headers=auth_headers)
+    assert page.status_code == 200, page.text
+    body = page.json()
+    assert [row["title"] for row in body["rows"]] == ["Doc 2", "Doc 1"]
+    assert body["total"] == 3 and body["has_more"] is True
+    assert body["metrics"]["employee_folders"] == 3
+    assert body["metrics"]["archive_size_bytes"] == 9
+    assert body["metrics"]["expiring_in_30_days"] == 0
+    empty = client.get("/api/hr/documents?page=3&page_size=2", headers=auth_headers)
+    assert empty.status_code == 200 and empty.json()["rows"] == []
+    assert empty.json()["total"] == 3 and empty.json()["has_more"] is False
+
+
+def test_hr_documents_list_projects_only_response_columns(client, auth_headers):
+    statements = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("select") and "from hr_employee_documents" in normalized:
+            statements.append(normalized)
+
+    event.listen(TestSessionLocal.kw["bind"], "before_cursor_execute", capture)
+    try:
+        response = client.get("/api/hr/documents?page=1&page_size=2", headers=auth_headers)
+    finally:
+        event.remove(TestSessionLocal.kw["bind"], "before_cursor_execute", capture)
+
+    assert response.status_code == 200, response.text
+    document_rows = [statement for statement in statements if "order by hr_employee_documents.id desc limit" in statement]
+    assert len(document_rows) == 1, statements
+    assert "hr_employee_documents.stored_name" not in document_rows[0]
+    assert "hr_employee_documents.uploaded_by" not in document_rows[0]
+    assert "hr_employee_documents.title" in document_rows[0]
+
+
+def test_hr_calendar_pagination_preserves_legacy_rows_and_global_metrics(client, auth_headers):
+    now = datetime.now(timezone.utc)
+    events = [
+        ("Past probation", "probation_end", now - timedelta(days=2), "scheduled"),
+        ("Future training", "training", now + timedelta(days=1), "scheduled"),
+        ("Future contract", "contract_expiry", now + timedelta(days=2), "scheduled"),
+        ("Completed training", "training", now + timedelta(days=3), "completed"),
+    ]
+    for title, event_type, starts_at, status in events:
+        response = client.post(
+            "/api/hr/calendar",
+            headers=auth_headers,
+            json={
+                "title": title,
+                "event_type": event_type,
+                "starts_at": starts_at.isoformat(),
+                "status": status,
+            },
+        )
+        assert response.status_code == 201, response.text
+
+    legacy = client.get("/api/hr/calendar", headers=auth_headers)
+    assert legacy.status_code == 200 and isinstance(legacy.json(), list)
+    assert [row["title"] for row in legacy.json()] == [title for title, *_rest in events]
+
+    first = client.get("/api/hr/calendar?page=1&page_size=2", headers=auth_headers)
+    assert first.status_code == 200, first.text
+    body = first.json()
+    assert [row["title"] for row in body["rows"]] == ["Past probation", "Future training"]
+    assert body["total"] == 4 and body["has_more"] is True
+    assert body["metrics"] == {
+        "upcoming": 2,
+        "contracts_expiring": 1,
+        "probation_ending": 0,
+        "training": 1,
+    }
+
+    empty = client.get("/api/hr/calendar?page=3&page_size=2", headers=auth_headers)
+    assert empty.status_code == 200 and empty.json()["rows"] == []
+    assert empty.json()["total"] == 4 and empty.json()["has_more"] is False

@@ -1,0 +1,323 @@
+from datetime import datetime
+from decimal import Decimal
+from uuid import uuid4
+
+import pytest
+from pydantic import ValidationError
+
+from app.db.session import SessionLocal
+from app.models import AuditLog, StockBatch, StockMovement, Warehouse
+from app.schemas.inventory import StockQuantityAdjustmentIn
+
+
+MAX_STOCK_QUANTITY = Decimal("9999999999.9999")
+
+
+def _create_item(client, auth_headers) -> int:
+    suffix = uuid4().hex[:10].upper()
+    response = client.post(
+        "/api/inventory/items",
+        headers=auth_headers,
+        json={
+            "sku": f"ADJ-BOUND-{suffix}",
+            "name": f"Adjustment bound {suffix}",
+            "category": "accessory",
+            "unit": "pcs",
+            "default_cost": 1,
+            "reorder_level": 0,
+            "track_batch": False,
+        },
+    )
+    assert response.status_code == 201, response.text
+    return int(response.json()["id"])
+
+
+def _write_counts(item_id: int) -> tuple[int, int]:
+    with SessionLocal() as db:
+        return (
+            db.query(StockMovement).filter(StockMovement.item_id == item_id).count(),
+            db.query(AuditLog).count(),
+        )
+
+
+@pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity", "10000000000"])
+def test_stock_adjustment_rejects_non_finite_and_storage_overflow(value):
+    with pytest.raises(ValidationError):
+        StockQuantityAdjustmentIn(quantity=value)
+
+
+def test_stock_adjustment_preserves_zero_ordinary_and_exact_storage_maximum():
+    assert StockQuantityAdjustmentIn(quantity=0).quantity == 0
+    assert StockQuantityAdjustmentIn(quantity="12.3456").quantity == pytest.approx(12.3456)
+    assert StockQuantityAdjustmentIn(quantity="12.345600").quantity == pytest.approx(12.3456)
+    assert StockQuantityAdjustmentIn(quantity="12.34567").quantity == pytest.approx(12.34567)
+    maximum = StockQuantityAdjustmentIn(quantity=str(MAX_STOCK_QUANTITY))
+    assert maximum.quantity == pytest.approx(float(MAX_STOCK_QUANTITY))
+
+
+@pytest.mark.parametrize("value", ["Infinity", "10000000000", "12.34567"])
+def test_invalid_stock_adjustment_has_no_movement_or_audit_side_effects(
+    client,
+    auth_headers,
+    value,
+):
+    item_id = _create_item(client, auth_headers)
+    before = _write_counts(item_id)
+
+    response = client.patch(
+        f"/api/inventory/stock/{item_id}",
+        headers=auth_headers,
+        json={"quantity": value, "unit": "pcs"},
+    )
+
+    assert response.status_code == 422, response.text
+    assert _write_counts(item_id) == before
+
+
+def test_stock_adjustment_storage_maximum_persists_exactly(client, auth_headers):
+    item_id = _create_item(client, auth_headers)
+
+    response = client.patch(
+        f"/api/inventory/stock/{item_id}",
+        headers=auth_headers,
+        json={"quantity": str(MAX_STOCK_QUANTITY), "unit": "pcs"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["quantity"] == pytest.approx(float(MAX_STOCK_QUANTITY))
+    with SessionLocal() as db:
+        movement = (
+            db.query(StockMovement)
+            .filter(
+                StockMovement.item_id == item_id,
+                StockMovement.reference_type == "StockAdjustment",
+            )
+            .one()
+        )
+        assert movement.quantity == MAX_STOCK_QUANTITY
+
+
+def test_forced_stock_adjustment_cannot_leave_active_reservations_unbacked(client, auth_headers):
+    from app.db.session import SessionLocal
+    from app.models import MaterialReservation, Model, ProductionOrder
+
+    item_id = _create_item(client, auth_headers)
+    received = client.patch(
+        f"/api/inventory/stock/{item_id}",
+        headers=auth_headers,
+        json={"quantity": 10, "unit": "pcs"},
+    )
+    assert received.status_code == 200, received.text
+
+    with SessionLocal() as db:
+        model = db.query(Model).first()
+        assert model is not None
+        order = ProductionOrder(
+            production_no=f"ADJ-RESERVE-{uuid4().hex[:12]}",
+            production_type="branded_stock",
+            model_id=model.id,
+            planned_quantity=1,
+        )
+        db.add(order)
+        db.flush()
+        db.add(MaterialReservation(
+            reservation_no=f"MR-ADJ-{uuid4().hex[:12]}",
+            production_order_id=order.id,
+            item_id=item_id,
+            reserved_quantity=8,
+            consumed_quantity=0,
+            released_quantity=0,
+            unit="pcs",
+            status="reserved",
+            reservation_type="accessory",
+            source="manual",
+        ))
+        db.commit()
+        before_movement_count = db.query(StockMovement).filter_by(item_id=item_id).count()
+        before_audit_count = db.query(AuditLog).count()
+
+    response = client.patch(
+        f"/api/inventory/stock/{item_id}?force=true",
+        headers=auth_headers,
+        json={"quantity": 5, "unit": "pcs"},
+    )
+
+    assert response.status_code == 409, response.text
+    assert "cannot be lower than reserved quantity" in response.json()["detail"]
+    with SessionLocal() as db:
+        assert db.query(MaterialReservation).filter_by(item_id=item_id).one().status == "reserved"
+        assert db.query(StockMovement).filter_by(item_id=item_id).count() == before_movement_count
+        assert db.query(AuditLog).count() == before_audit_count
+        assert db.query(StockBatch).filter_by(item_id=item_id).count() == 0
+
+
+def test_batch_tracked_adjustment_uses_matching_category_storage(client, auth_headers):
+    suffix = uuid4().hex[:10].upper()
+    item_response = client.post("/api/inventory/items", headers=auth_headers, json={
+        "sku": f"ADJ-BATCH-{suffix}", "name": f"Adjustment batch {suffix}",
+        "category": "accessory", "unit": "pcs", "default_cost": 1,
+        "reorder_level": 0, "track_batch": True,
+    })
+    assert item_response.status_code == 201, item_response.text
+    item_id = int(item_response.json()["id"])
+
+    adjusted = client.patch(
+        f"/api/inventory/stock/{item_id}", headers=auth_headers,
+        json={"quantity": 3, "unit": "pcs"},
+    )
+
+    assert adjusted.status_code == 200, adjusted.text
+    with SessionLocal() as db:
+        batch = db.query(StockBatch).filter_by(item_id=item_id).one()
+        warehouse = db.get(Warehouse, batch.warehouse_id)
+        movement = db.query(StockMovement).filter_by(batch_id=batch.id).one()
+        assert warehouse.type == "accessory_storage"
+        assert movement.item_id == batch.item_id == item_id
+        assert movement.to_warehouse_id == batch.warehouse_id
+        assert movement.quantity == batch.quantity == Decimal("3")
+
+
+@pytest.mark.parametrize(
+    ("archived", "target_quantity"),
+    [(False, 6), (False, 5), (True, 6), (True, 5)],
+)
+def test_batch_tracked_adjustment_rejects_legacy_unit_drift_without_writes(
+    client, auth_headers, archived, target_quantity,
+):
+    suffix = uuid4().hex[:10].upper()
+    item_response = client.post("/api/inventory/items", headers=auth_headers, json={
+        "sku": f"ADJ-DRIFT-{suffix}", "name": f"Adjustment drift {suffix}",
+        "category": "accessory", "unit": "pcs", "default_cost": 1,
+        "reorder_level": 0, "track_batch": True,
+    })
+    assert item_response.status_code == 201, item_response.text
+    item_id = int(item_response.json()["id"])
+
+    with SessionLocal() as db:
+        warehouse = db.query(Warehouse).filter_by(type="accessory_storage").first()
+        assert warehouse is not None
+        batch = StockBatch(
+            item_id=item_id,
+            batch_no=f"LEGACY-DRIFT-{suffix}",
+            quantity=5,
+            unit="kg",
+            cost_per_unit=1,
+            warehouse_id=warehouse.id,
+            qc_status="passed",
+            archived_at=datetime.utcnow() if archived else None,
+        )
+        db.add(batch)
+        db.commit()
+        batch_id = int(batch.id)
+    with SessionLocal() as db:
+        before = (
+            db.query(StockBatch).filter_by(item_id=item_id).count(),
+            db.query(StockMovement).filter_by(item_id=item_id).count(),
+            db.query(AuditLog).count(),
+        )
+
+    response = client.patch(
+        f"/api/inventory/stock/{item_id}",
+        headers=auth_headers,
+        json={"quantity": target_quantity, "unit": "pcs"},
+    )
+
+    assert response.status_code == 409, response.text
+    assert "unit differs from the item" in response.text
+    with SessionLocal() as db:
+        after = (
+            db.query(StockBatch).filter_by(item_id=item_id).count(),
+            db.query(StockMovement).filter_by(item_id=item_id).count(),
+            db.query(AuditLog).count(),
+        )
+        assert db.get(StockBatch, batch_id).quantity == Decimal("5")
+        assert (db.get(StockBatch, batch_id).archived_at is not None) is archived
+    assert after == before
+
+
+@pytest.mark.parametrize("target_quantity", [10, 12])
+def test_nontracked_adjustment_rejects_legacy_batch_unit_drift_without_writes(
+    client, auth_headers, target_quantity,
+):
+    item_id = _create_item(client, auth_headers)
+    with SessionLocal() as db:
+        warehouse = db.query(Warehouse).filter_by(type="accessory_storage").first()
+        assert warehouse is not None
+        warehouse_id = warehouse.id
+    receipt = client.post("/api/inventory/receive", headers=auth_headers, json={
+        "item_id": item_id, "batch_no": f"NONTRACKED-DRIFT-{uuid4().hex[:8]}",
+        "quantity": 10, "unit": "pcs", "warehouse_id": warehouse_id,
+        "qc_status": "passed",
+    })
+    assert receipt.status_code == 201, receipt.text
+    batch_id = receipt.json()["id"]
+    with SessionLocal() as db:
+        batch = db.get(StockBatch, batch_id)
+        batch.unit = "kg"
+        db.commit()
+    before = _write_counts(item_id)
+
+    response = client.patch(
+        f"/api/inventory/stock/{item_id}", headers=auth_headers,
+        json={"quantity": target_quantity, "unit": "pcs"},
+    )
+
+    assert response.status_code == 409, response.text
+    assert "unit differs from the item" in response.text
+    assert _write_counts(item_id) == before
+    with SessionLocal() as db:
+        batch = db.get(StockBatch, batch_id)
+        assert (batch.quantity, batch.unit) == (Decimal("10"), "kg")
+
+
+def test_stock_adjustment_unknown_item_precedes_precision_error(client, auth_headers):
+    response = client.patch(
+        "/api/inventory/stock/2147483647",
+        headers=auth_headers,
+        json={"quantity": "12.34567", "unit": "pcs"},
+    )
+    assert response.status_code == 404, response.text
+
+
+def test_stock_adjustment_rejects_derived_delta_overflow_without_writes(client, auth_headers):
+    item_id = _create_item(client, auth_headers)
+    with SessionLocal() as db:
+        db.add(StockMovement(
+            movement_type="issue",
+            item_id=item_id,
+            quantity=Decimal("0.0001"),
+            unit="pcs",
+            reference_type="SyntheticBoundSetup",
+        ))
+        db.commit()
+    before = _write_counts(item_id)
+
+    response = client.patch(
+        f"/api/inventory/stock/{item_id}",
+        headers=auth_headers,
+        json={"quantity": str(MAX_STOCK_QUANTITY), "unit": "pcs"},
+    )
+
+    assert response.status_code == 422, response.text
+    assert "delta exceeds" in response.text
+    assert _write_counts(item_id) == before
+
+
+def test_invalid_stock_adjustment_preserves_authentication_precedence(client, auth_headers):
+    item_id = _create_item(client, auth_headers)
+    before = _write_counts(item_id)
+
+    response = client.patch(
+        f"/api/inventory/stock/{item_id}",
+        json={"quantity": "Infinity", "unit": "pcs"},
+    )
+
+    assert response.status_code == 401, response.text
+    assert _write_counts(item_id) == before
+
+    precision = client.patch(
+        f"/api/inventory/stock/{item_id}",
+        json={"quantity": "12.34567", "unit": "pcs"},
+    )
+    assert precision.status_code == 401, precision.text
+    assert _write_counts(item_id) == before

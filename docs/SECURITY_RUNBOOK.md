@@ -23,6 +23,10 @@ Rules:
 
 ## Secret Rotation
 
+Use the value-free ownership, consumer-inventory, validation, and evidence
+checklist in [OPS11 credential custody](OPS11_CREDENTIAL_CUSTODY_CHECKLIST.md).
+Do not copy secret values into its record template.
+
 1. Generate the replacement secret.
 2. Schedule a maintenance window if rotating `JWT_SECRET`, because active sessions will be invalidated.
 3. Update the deployment provider secret.

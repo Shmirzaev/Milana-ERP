@@ -16,6 +16,19 @@ branch_labels = None
 depends_on = None
 
 
+def _has_foreign_key(inspector, table, columns, referred_table, referred_columns):
+    signature = (tuple(columns), referred_table, tuple(referred_columns))
+    return any(
+        (
+            tuple(foreign_key.get("constrained_columns") or ()),
+            foreign_key.get("referred_table"),
+            tuple(foreign_key.get("referred_columns") or ()),
+        )
+        == signature
+        for foreign_key in inspector.get_foreign_keys(table)
+    )
+
+
 def upgrade():
     bind = op.get_bind()
     inspector = inspect(bind)
@@ -32,8 +45,13 @@ def upgrade():
     if "planning_estimate_submitted_by" not in existing_cols:
         op.add_column("sales_orders", sa.Column("planning_estimate_submitted_by", sa.Integer(), nullable=True))
 
-    existing_fks = {fk.get("name") for fk in inspector.get_foreign_keys("sales_orders")}
-    if "fk_sales_orders_planning_estimate_submitted_by_users" not in existing_fks:
+    if not _has_foreign_key(
+        inspector,
+        "sales_orders",
+        ["planning_estimate_submitted_by"],
+        "users",
+        ["id"],
+    ):
         op.create_foreign_key(
             "fk_sales_orders_planning_estimate_submitted_by_users",
             "sales_orders",

@@ -17,7 +17,9 @@ function resolveUrl(path: string): string {
 }
 
 
-async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 12_000) {
+async function fetchWithTimeout<T>(
+  url: string, init: RequestInit, timeoutMs: number, consume: (response: Response) => Promise<T>,
+): Promise<T> {
   const controller = new AbortController();
   const callerSignal = init.signal;
   const abortFromCaller = () => controller.abort(callerSignal?.reason);
@@ -25,10 +27,14 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs =
   else callerSignal?.addEventListener("abort", abortFromCaller, { once: true });
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { credentials: "same-origin", ...init, signal: controller.signal });
+    const response = await fetch(url, { credentials: "same-origin", ...init, signal: controller.signal });
+    // fetch resolves at headers. Keep cancellation active until the body is read.
+    const result = await consume(response);
+    controller.signal.throwIfAborted();
+    return result;
   } catch (err: any) {
-    if (err?.name === "AbortError") {
-      if (callerSignal?.aborted) throw err;
+    if (controller.signal.aborted || err?.name === "AbortError") {
+      if (callerSignal?.aborted) callerSignal.throwIfAborted();
       throw new ApiError(504, "Request timed out");
     }
     if (err instanceof TypeError) throw new ApiError(0, "Failed to fetch");
@@ -37,6 +43,18 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs =
     clearTimeout(timeout);
     callerSignal?.removeEventListener("abort", abortFromCaller);
   }
+}
+
+async function readJson<T>(res: Response): Promise<T> {
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      detail = errorDetail(await res.json()) || detail || "Request failed";
+    } catch {}
+    throw new ApiError(res.status, detail);
+  }
+  if (res.status === 204) return undefined as T;
+  return res.json();
 }
 
 function sleep(ms: number) {
@@ -80,17 +98,7 @@ async function request<T = any>(path: string, init: RequestInit = {}, timeoutMs 
 
   // Use Next.js rewrite proxy: paths starting with /api or /storage are proxied
   const url = resolveUrl(path);
-  const res = await fetchWithTimeout(url, { ...init, headers }, timeoutMs);
-  if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const body = await res.json();
-      detail = errorDetail(body) || detail || "Request failed";
-    } catch {}
-    throw new ApiError(res.status, detail);
-  }
-  if (res.status === 204) return undefined as any;
-  return res.json();
+  return fetchWithTimeout(url, { ...init, headers }, timeoutMs, readJson<T>);
 }
 
 export const api = {
@@ -99,18 +107,10 @@ export const api = {
     request<T>(p, { method: "GET", signal }, timeoutMs),
   post: <T = any>(p: string, body?: any, timeoutMs?: number) =>
     request<T>(p, { method: "POST", body: body !== undefined ? JSON.stringify(body) : undefined }, timeoutMs),
+  postWithIdempotency: <T = any>(p: string, body: unknown, key: string, timeoutMs?: number) =>
+    request<T>(p, { method: "POST", headers: { "Idempotency-Key": key }, body: JSON.stringify(body) }, timeoutMs),
   postForm: async <T = any>(p: string, form: FormData, timeoutMs = 60_000): Promise<T> => {
-    const res = await fetchWithTimeout(resolveUrl(p), { method: "POST", body: form }, timeoutMs);
-    if (!res.ok) {
-      let detail = res.statusText;
-      try {
-        const body = await res.json();
-        detail = errorDetail(body) || detail || "Request failed";
-      } catch {}
-      throw new ApiError(res.status, detail);
-    }
-    if (res.status === 204) return undefined as any;
-    return res.json();
+    return fetchWithTimeout(resolveUrl(p), { method: "POST", body: form }, timeoutMs, readJson<T>);
   },
   patch: <T = any>(p: string, body?: any) =>
     request<T>(p, { method: "PATCH", body: body !== undefined ? JSON.stringify(body) : undefined }),
@@ -135,23 +135,28 @@ export const api = {
               body: JSON.stringify({ email, password, factory_code: factoryCode }),
             },
             20_000,
+            async (response) => {
+              let msg = "Login failed";
+              if (response.ok) {
+                await response.arrayBuffer();
+              } else {
+                try {
+                  if ((response.headers.get("content-type") || "").includes("application/json")) {
+                    msg = errorDetail(await response.json()) || msg;
+                  } else {
+                    msg = (await response.text()).trim().slice(0, 300) || msg;
+                  }
+                } catch {}
+              }
+              return { ok: response.ok, status: response.status, msg };
+            },
           );
           if (res.ok) {
             clearLegacyToken();
             return;
           }
 
-          let msg = "Login failed";
-          try {
-            const contentType = res.headers.get("content-type") || "";
-            if (contentType.includes("application/json")) {
-              const b = await res.json();
-              msg = errorDetail(b) || msg;
-            } else {
-              const text = (await res.text()).trim();
-              if (text) msg = text.slice(0, 300);
-            }
-          } catch {}
+          const msg = res.msg;
 
           const shouldRetry =
             res.status === 500 || res.status === 502 || res.status === 503 || res.status === 504;
@@ -175,7 +180,7 @@ export const api = {
   },
 
   async forgotPassword(email: string): Promise<{ message: string }> {
-    const res = await fetchWithTimeout(
+    return fetchWithTimeout(
       resolveUrl("/api/auth/forgot-password"),
       {
         method: "POST",
@@ -183,20 +188,12 @@ export const api = {
         body: JSON.stringify({ email }),
       },
       60_000,
+      readJson<{ message: string }>,
     );
-    if (!res.ok) {
-      let msg = "Could not send reset request";
-      try {
-        const body = await res.json();
-        msg = errorDetail(body) || msg;
-      } catch {}
-      throw new ApiError(res.status, msg);
-    }
-    return res.json();
   },
 
   async resetPassword(token: string, newPassword: string, confirmNewPassword: string): Promise<{ message: string }> {
-    const res = await fetchWithTimeout(
+    return fetchWithTimeout(
       resolveUrl("/api/auth/reset-password"),
       {
         method: "POST",
@@ -208,22 +205,14 @@ export const api = {
         }),
       },
       60_000,
+      readJson<{ message: string }>,
     );
-    if (!res.ok) {
-      let msg = "Could not reset password";
-      try {
-        const body = await res.json();
-        msg = errorDetail(body) || msg;
-      } catch {}
-      throw new ApiError(res.status, msg);
-    }
-    return res.json();
   },
 
   async logout() {
     clearToken();
     try {
-      await fetchWithTimeout(resolveUrl("/api/auth/logout"), { method: "POST" }, 8_000);
+      await fetchWithTimeout(resolveUrl("/api/auth/logout"), { method: "POST" }, 8_000, async (res) => { await res.arrayBuffer(); });
     } catch {}
   },
 
@@ -233,16 +222,10 @@ export const api = {
    * child window via a Blob URL so the print view does not need bearer tokens.
    */
   async openLabel(path: string, method: "GET" | "POST" = "GET"): Promise<void> {
-    const res = await fetchWithTimeout(resolveUrl(path), { method });
-    if (!res.ok) {
-      let detail = res.statusText;
-      try {
-        const body = await res.json();
-        detail = errorDetail(body) || detail || "Request failed";
-      } catch {}
-      throw new ApiError(res.status, detail);
-    }
-    const html = await res.text();
+    const html = await fetchWithTimeout(resolveUrl(path), { method }, 12_000, async (res) => {
+      if (!res.ok) await readJson(res);
+      return res.text();
+    });
     const blob = new Blob([html], { type: "text/html" });
     const url = URL.createObjectURL(blob);
     const win = window.open(url, "_blank", "width=600,height=700");

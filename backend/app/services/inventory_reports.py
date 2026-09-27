@@ -85,8 +85,22 @@ def material_inventory_report_rows(
     item_ids = [int(row["item_id"]) for row in stock_rows]
     batch_totals: dict[int, tuple[int, int]] = {}
     if item_ids:
-        offsite = db.query(EcoFabricRoll.batch_id, func.count(EcoFabricRoll.id).label("rolls")).filter(
-            EcoFabricRoll.returned_at.is_(None)).group_by(EcoFabricRoll.batch_id).subquery()
+        offsite_query = (
+            db.query(EcoFabricRoll.batch_id, func.count(EcoFabricRoll.id).label("rolls"))
+            .join(StockBatch, StockBatch.id == EcoFabricRoll.batch_id)
+            .filter(
+                EcoFabricRoll.returned_at.is_(None),
+                StockBatch.item_id.in_(item_ids),
+                StockBatch.quantity > 0,
+            )
+        )
+        if supplier_id:
+            offsite_query = offsite_query.filter(StockBatch.supplier_id == supplier_id)
+        if created_from:
+            offsite_query = offsite_query.filter(StockBatch.received_date >= created_from)
+        if created_to:
+            offsite_query = offsite_query.filter(StockBatch.received_date <= created_to)
+        offsite = offsite_query.group_by(EcoFabricRoll.batch_id).subquery()
         batch_totals_query = (
             db.query(
                 StockBatch.item_id,

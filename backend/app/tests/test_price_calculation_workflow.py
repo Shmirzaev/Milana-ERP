@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 from app.core.security import hash_password
 from app.db.session import SessionLocal
-from app.models import CuttingPassport, Department, Model, ModelImage, ModelSize, Role, User
+from app.models import AuditLog, CuttingPassport, Department, Model, ModelImage, ModelSize, PriceCalculationRequest, Role, User
 
 
 PASSWORD = "PriceWorkflow123!"
@@ -21,7 +21,7 @@ def _setup_workflow_data(suffix: str):
         finance_department = db.query(Department).filter(Department.code == "FIN").one()
         sales_department = db.query(Department).filter(Department.code == "SLS").one()
         cutting_department = db.query(Department).filter(Department.code == "CUT").one()
-        purchasing_role = Role(name=f"Price workflow purchaser {suffix}", permissions=["purchasing.view"])
+        purchasing_role = Role(name=f"Price workflow purchaser {suffix}", permissions=["purchasing.view", "price_calculation.purchasing"])
         finance_role = Role(name=f"Price workflow finance {suffix}", permissions=["finance.view"])
         sales_role = Role(name=f"Price workflow sales {suffix}", permissions=["sales.orders"])
         accessory_role = Role(name=f"Price workflow accessories {suffix}", permissions=["storage.items"])
@@ -176,6 +176,19 @@ def test_price_calculation_department_workflow_and_authorization(client):
     assert request["cost_price"] is not None
     assert request["overall_status"] == "in_progress"
 
+    with SessionLocal() as db:
+        before_accessories = db.get(PriceCalculationRequest, request_id).accessories_json
+        before_audit_count = db.query(AuditLog).count()
+    oversized_accessory = client.patch(
+        f"/api/price-calculation/requests/{request_id}/accessories",
+        json={"accessories": [{"name": "Label", "price": 10_000_000_000}]},
+        headers=accessories,
+    )
+    assert oversized_accessory.status_code == 422, oversized_accessory.text
+    with SessionLocal() as db:
+        assert db.get(PriceCalculationRequest, request_id).accessories_json == before_accessories
+        assert db.query(AuditLog).count() == before_audit_count
+
     finalized = client.patch(
         f"/api/price-calculation/requests/{request_id}/finance",
         json={"selling_price": 2.0},
@@ -213,6 +226,7 @@ def test_price_calculation_department_workflow_and_authorization(client):
     sales_order = client.post(
         "/api/sales-orders",
         json={
+            "currency": "USD",
             "items": [
                 {"model_id": data["model_id"], "color": "gray", "size": "S", "quantity": 10},
                 {"model_id": data["model_id"], "color": "gray", "size": "M", "quantity": 4, "unit_price": 1.25},

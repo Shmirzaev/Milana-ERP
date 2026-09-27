@@ -1,5 +1,4 @@
 import pytest
-from fastapi import HTTPException
 from sqlalchemy import Column, Integer, String, create_engine
 from sqlalchemy.orm import Session, declarative_base
 
@@ -42,20 +41,21 @@ def test_compact_sequence_continues_across_legacy_years_and_preserves_references
     assert set(value for (value,) in reference_db.query(Reference.number).all()) == set(existing)
 
 
-def test_sequence_uses_numeric_order_and_never_wraps(reference_db):
+def test_sequence_expands_after_9999_without_recycling_or_alias_collisions(reference_db):
+    from app.models import BusinessOrderAlias
+
     reference_db.add_all([Reference(number="PO-9998"), Reference(number="PO-900")])
     reference_db.flush()
     assert _next_order(reference_db, Reference, "number", "PO") == "PO-9999"
     reference_db.add(Reference(number="PO-9999"))
+    reference_db.add(BusinessOrderAlias(
+        namespace="PO",
+        entity_id=42,
+        reference="PO-10000",
+        canonical_reference="PO-0202",
+    ))
     reference_db.flush()
-    assert _next_order(reference_db, Reference, "number", "PO") == "PO-0001"
-    occupied = {value for (value,) in reference_db.query(Reference.number).all()}
-    reference_db.add_all([Reference(number=f"PO-{number:04d}") for number in range(1, 10000)
-                         if f"PO-{number:04d}" not in occupied])
-    reference_db.flush()
-    with pytest.raises(HTTPException) as error:
-        _next_order(reference_db, Reference, "number", "PO")
-    assert error.value.status_code == 409
+    assert _next_order(reference_db, Reference, "number", "PO") == "PO-10001"
 
 
 def test_high_volume_qr_references_keep_existing_format(reference_db):
@@ -65,6 +65,26 @@ def test_high_volume_qr_references_keep_existing_format(reference_db):
     reference_db.add(Reference(number=f"BND-{year}-010000"))
     reference_db.flush()
     assert _next(reference_db, Reference, "number", "BND") == f"BND-{year}-010001"
+
+
+def test_five_digit_standalone_production_reference_resolves_as_public_order():
+    from app.core.order_reference import canonical_order_reference
+    from app.models import Model, ProductionOrder
+    from app.tests.conftest import TestSessionLocal
+
+    with TestSessionLocal() as db:
+        model = Model(code="DB07-FIVE-DIGIT", name="Five digit model", status="approved")
+        db.add(model)
+        db.flush()
+        order = ProductionOrder(
+            production_no="PO-10000",
+            production_type="client_order",
+            model_id=model.id,
+            planned_quantity=1,
+        )
+        db.add(order)
+        db.commit()
+        assert canonical_order_reference(db, "SO", "PO-10000") == "PO-10000"
 
 
 def test_order_search_uses_exact_collision_mapping_for_historical_years(reference_db):
@@ -86,7 +106,7 @@ def test_order_search_uses_exact_collision_mapping_for_historical_years(referenc
     assert other == [("PO-0001",)]
 
 
-def test_branded_planning_sequence_stops_at_four_digit_capacity():
+def test_branded_planning_sequence_expands_after_four_digit_minimum():
     from app.models import BrandedPlanningOrder
     from app.services.numbering import next_branded_planning_order_no
     from app.tests.conftest import TestSessionLocal
@@ -97,8 +117,7 @@ def test_branded_planning_sequence_stops_at_four_digit_capacity():
         assert next_branded_planning_order_no(db) == "9999"
         db.add(BrandedPlanningOrder(order_no="9999", ordered_for_type="milana", ordered_for_name="Milana"))
         db.flush()
-        with pytest.raises(HTTPException) as error:
-            next_branded_planning_order_no(db)
-        assert error.value.status_code == 409
-        assert "BSO" in error.value.detail
-        assert not db.query(BrandedPlanningOrder).filter(BrandedPlanningOrder.order_no == "10000").first()
+        assert next_branded_planning_order_no(db) == "10000"
+        db.add(BrandedPlanningOrder(order_no="10000", ordered_for_type="milana", ordered_for_name="Milana"))
+        db.flush()
+        assert next_branded_planning_order_no(db) == "10001"

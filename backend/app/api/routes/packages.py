@@ -1,13 +1,19 @@
-from fastapi import APIRouter, HTTPException, Depends, Header
+from fastapi import APIRouter, HTTPException, Depends, Header, Query, Response
 from fastapi.responses import HTMLResponse
 from app.services.print_response import warehouse_print_response
 from app.services.package_label_pages import label_document
-from sqlalchemy import func, or_
-from sqlalchemy.orm import selectinload
+from sqlalchemy import String, and_, case, cast, func, literal, or_, select, union_all
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.sql.functions import FunctionElement
+from sqlalchemy.orm import aliased, joinedload, load_only, selectinload
+from sqlalchemy.orm.attributes import set_committed_value
 import base64
-from datetime import date
+from datetime import date, datetime, timedelta
 from html import escape
 import os
+from typing import Annotated
+
+from pydantic import BaseModel, ConfigDict
 
 from app.core.deps import DbSession, CurrentUser, PRODUCTION_READ_PERMISSIONS, require_permissions, is_admin
 from app.core.config import settings
@@ -19,17 +25,24 @@ from app.core.model_search import (
 )
 from app.models import (
     Customer,
+    Item,
+    LegacyStockReceipt,
     Package,
+    PackageBatchAllocation,
     PackageBarcodeAlias,
     PackageChangeRequest,
+    PackageItem,
     PackageScanLog,
     Model,
     ModelBOM,
+    ModelImage,
     ProductionOrder,
     ProductionBatch,
     SalesOrder,
     StockBatch,
     User,
+    ManualPackageReceipt,
+    PackagePrintRunMember,
 )
 from app.schemas.tracking import (
     PackageIn,
@@ -37,6 +50,9 @@ from app.schemas.tracking import (
     PackageOut,
     PackageDetail,
     PackageBatchReceiveStorageIn,
+    PackageReceivingQueueItemOut,
+    PackageReceivingQueuePageOut,
+    PackageReceivingQueueRemoveOut,
     PackageReceivingQueueRemoveIn,
     PackageReceivingQueueScanIn,
     PackageBatchStoragePlacementIn,
@@ -56,13 +72,20 @@ from app.services.packages import (
     mark_delivered,
     mark_damaged,
     place_on_storage_map,
+    place_packages_on_storage_map,
+    prepare_locked_package_receive,
+    sync_package_production_orders,
     format_storage_location,
     create_package_change_request,
     approve_package_change_request,
     reject_package_change_request,
 )
 from app.services.barcode import save_qr_image
-from app.services.label_images import material_label_image_src, variant_label_image_src
+from app.services.label_images import (
+    is_preview_model_image,
+    material_label_image_src,
+    variant_label_image_src,
+)
 from app.services.model_images import model_display_image_url, warehouse_stock_image_url
 from app.services.audit import log_action
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
@@ -73,11 +96,63 @@ from app.services.packaging_scope import (
 )
 
 router = APIRouter(prefix="/packages", tags=["packages"])
+_LABEL_CONTEXT_CHUNK_SIZE = 400
+_RECEIVING_QUEUE_DEFAULT_PAGE_SIZE = 50
+_RECEIVING_QUEUE_MAX_PAGE_SIZE = 100
 _RECEIVING_QUEUE_EVENTS = (
     "queued_storage",
     "removed_storage_queue",
     "received_storage",
 )
+
+
+class PackageChangeRequestPageOut(BaseModel):
+    rows: list[PackageChangeRequestOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
+class PackageHistoryOut(BaseModel):
+    id: int
+    scan_type: str
+    scanned_by: int | None = None
+    scanned_at: datetime
+    location: str | None = None
+
+
+class PackageHistoryPageOut(BaseModel):
+    rows: list[PackageHistoryOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
+class StorageMapMatchOut(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    id: int
+    package_no: str
+    barcode: str
+    model_id: int
+    model_code: str | None = None
+    model_name: str | None = None
+    color: str
+    total_quantity: int
+    status: str
+    storage_cell: str | None = None
+    storage_shelf: str | None = None
+    location: str
+
+
+class StorageMapMatchPageOut(BaseModel):
+    rows: list[StorageMapMatchOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
 
 
 def _package_context(db: DbSession, pkg: Package) -> dict:
@@ -86,12 +161,32 @@ def _package_context(db: DbSession, pkg: Package) -> dict:
     customer = db.get(Customer, so.customer_id) if so and so.customer_id else None
     model = (
         db.query(Model)
-        .options(selectinload(Model.images), selectinload(Model.bom).joinedload(ModelBOM.item))
+        .options(
+            selectinload(Model.images).load_only(
+                ModelImage.id,
+                ModelImage.model_id,
+                ModelImage.file_url,
+                ModelImage.file_name,
+                ModelImage.content_type,
+                ModelImage.image_type,
+                ModelImage.is_primary,
+            ),
+            selectinload(Model.bom).joinedload(ModelBOM.item),
+        )
         .filter(Model.id == pkg.model_id)
         .first()
         if pkg.model_id
         else None
     )
+    return _package_context_values(po, so, customer, model)
+
+
+def _package_context_values(
+    po: ProductionOrder | None,
+    so: SalesOrder | None,
+    customer: Customer | None,
+    model: Model | None,
+) -> dict:
     return {
         "production_no": po.production_no if po else None,
         "sales_order_no": so.order_no if so else None,
@@ -104,20 +199,32 @@ def _package_context(db: DbSession, pkg: Package) -> dict:
     }
 
 
-def _package_out_payload(db: DbSession, pkg: Package) -> dict:
+def _package_out_payload(db: DbSession, pkg: Package, *, context: dict | None = None) -> dict:
     data = PackageOut.model_validate(pkg).model_dump(mode="json")
-    data.update(_package_context(db, pkg))
+    data.update(_package_context(db, pkg) if context is None else context)
     return data
 
 
-def _package_detail_payload(db: DbSession, pkg: Package) -> dict:
+def _package_detail_payload(db: DbSession, pkg: Package, *, context: dict | None = None) -> dict:
     data = PackageDetail.model_validate(pkg).model_dump(mode="json")
-    data.update(_package_context(db, pkg))
-    from app.models.package_workflows import ManualPackageReceipt, PackagePrintRunMember
-    member = db.query(PackagePrintRunMember).filter(PackagePrintRunMember.package_id == pkg.id).first()
-    data["print_run_id"] = member.run_id if member else None
+    if context is None:
+        data.update(_package_context(db, pkg))
+        member = db.query(PackagePrintRunMember).filter(PackagePrintRunMember.package_id == pkg.id).first()
+        print_run_id = member.run_id if member else None
+    else:
+        po = context["production_orders"].get(int(pkg.production_order_id)) if pkg.production_order_id else None
+        so = context["sales_orders"].get(int(pkg.sales_order_id)) if pkg.sales_order_id else None
+        customer = context["customers"].get(int(so.customer_id)) if so and so.customer_id else None
+        model = context["models"].get(int(pkg.model_id)) if pkg.model_id else None
+        data.update(_package_context_values(po, so, customer, model))
+        print_run_id = context["print_run_ids"].get(int(pkg.id))
+    data["print_run_id"] = print_run_id
     if pkg.manual_receipt_id:
-        manual = db.get(ManualPackageReceipt, pkg.manual_receipt_id)
+        manual = (
+            context["manual_receipts"].get(int(pkg.manual_receipt_id))
+            if context is not None
+            else db.get(ManualPackageReceipt, pkg.manual_receipt_id)
+        )
         data["manual_source"] = {"receipt_no": manual.receipt_no, "evidence": manual.evidence,
                                  "created_by": manual.created_by, "created_at": manual.created_at} if manual else None
     receipt = pkg.legacy_receipt
@@ -135,8 +242,219 @@ def _package_detail_payload(db: DbSession, pkg: Package) -> dict:
     return data
 
 
-def _receiving_queue_packages(db: DbSession) -> list[Package]:
-    latest_event = (
+def _model_display_load_options():
+    return (
+        selectinload(Model.images).load_only(
+            ModelImage.id,
+            ModelImage.model_id,
+            ModelImage.file_url,
+            ModelImage.file_name,
+            ModelImage.content_type,
+            ModelImage.image_type,
+            ModelImage.is_primary,
+        ),
+        selectinload(Model.bom).options(
+            joinedload(ModelBOM.item),
+            joinedload(ModelBOM.stock_batch),
+        ),
+    )
+
+
+def _model_label_load_options():
+    return (
+        selectinload(Model.images).load_only(
+            ModelImage.id,
+            ModelImage.model_id,
+            ModelImage.file_url,
+            ModelImage.file_name,
+            ModelImage.content_type,
+            ModelImage.image_type,
+            ModelImage.is_primary,
+        ),
+        selectinload(Model.bom).options(
+            joinedload(ModelBOM.item),
+            joinedload(ModelBOM.stock_batch),
+        ),
+    )
+
+
+def _load_selected_label_image_data(db: DbSession, models: dict[int, Model]) -> None:
+    selected_images = {}
+    for model in models.values():
+        images = [image for image in (model.images or []) if is_preview_model_image(image)]
+        typed_model = next(
+            (image for image in images if str(image.image_type or "").lower() == "model"),
+            None,
+        )
+        primary = next((image for image in images if image.is_primary), None)
+        selected = typed_model or primary or (images[0] if images else None)
+        if selected is not None:
+            selected_images[int(selected.id)] = selected
+        typed_material = next(
+            (
+                image
+                for image in sorted(images, key=lambda candidate: int(candidate.id or 0), reverse=True)
+                if str(image.image_type or "").lower() == "material"
+            ),
+            None,
+        )
+        if typed_material is not None:
+            selected_images[int(typed_material.id)] = typed_material
+
+    if not selected_images:
+        return
+    image_data = (
+        db.query(ModelImage.id, ModelImage.file_data)
+        .filter(
+            ModelImage.id.in_(selected_images),
+            ModelImage.file_data.isnot(None),
+        )
+        .all()
+    )
+    for image_id, file_data in image_data:
+        set_committed_value(selected_images[int(image_id)], "file_data", file_data)
+
+
+def _load_reference_map(db: DbSession, model_type, ids, *, options=()) -> dict:
+    loaded = {}
+    ordered_ids = sorted({int(row_id) for row_id in ids if row_id})
+    for offset in range(0, len(ordered_ids), _LABEL_CONTEXT_CHUNK_SIZE):
+        chunk = ordered_ids[offset:offset + _LABEL_CONTEXT_CHUNK_SIZE]
+        query = db.query(model_type)
+        if options:
+            query = query.options(*options)
+        loaded.update({
+            int(row.id): row
+            for row in query.filter(model_type.id.in_(chunk)).all()
+        })
+    return loaded
+
+
+def _package_detail_reference_context(
+    db: DbSession,
+    packages: list[Package],
+    *,
+    print_run_ids: dict[int, int] | None = None,
+) -> dict:
+    production_orders = _load_reference_map(
+        db,
+        ProductionOrder,
+        (pkg.production_order_id for pkg in packages),
+        options=(joinedload(ProductionOrder.sales_order),),
+    )
+    sales_orders = _load_reference_map(
+        db,
+        SalesOrder,
+        (pkg.sales_order_id for pkg in packages),
+    )
+    customers = _load_reference_map(
+        db,
+        Customer,
+        (order.customer_id for order in sales_orders.values()),
+    )
+    models = _load_reference_map(
+        db,
+        Model,
+        (pkg.model_id for pkg in packages),
+        options=_model_display_load_options(),
+    )
+    manual_receipts = _load_reference_map(
+        db,
+        ManualPackageReceipt,
+        (pkg.manual_receipt_id for pkg in packages),
+    )
+    if print_run_ids is None:
+        package_ids = sorted({int(pkg.id) for pkg in packages})
+        resolved_print_run_ids = {}
+        for offset in range(0, len(package_ids), _LABEL_CONTEXT_CHUNK_SIZE):
+            chunk = package_ids[offset:offset + _LABEL_CONTEXT_CHUNK_SIZE]
+            resolved_print_run_ids.update({
+                int(package_id): int(run_id)
+                for package_id, run_id in db.query(
+                    PackagePrintRunMember.package_id,
+                    PackagePrintRunMember.run_id,
+                )
+                .filter(PackagePrintRunMember.package_id.in_(chunk))
+                .all()
+            })
+    else:
+        resolved_print_run_ids = {
+            int(package_id): int(run_id)
+            for package_id, run_id in print_run_ids.items()
+        }
+    return {
+        "production_orders": production_orders,
+        "sales_orders": sales_orders,
+        "customers": customers,
+        "models": models,
+        "manual_receipts": manual_receipts,
+        "print_run_ids": resolved_print_run_ids,
+    }
+
+
+def _package_detail_payloads(
+    db: DbSession,
+    packages: list[Package],
+    *,
+    print_run_ids: dict[int, int] | None = None,
+) -> list[dict]:
+    context = _package_detail_reference_context(db, packages, print_run_ids=print_run_ids)
+    return [_package_detail_payload(db, pkg, context=context) for pkg in packages]
+
+
+def _package_detail_relationship_options():
+    return (
+        selectinload(Package.items).load_only(
+            PackageItem.id,
+            PackageItem.package_id,
+            PackageItem.model_id,
+            PackageItem.color,
+            PackageItem.size,
+            PackageItem.quantity,
+        ),
+        selectinload(Package.batch_allocations).load_only(
+            PackageBatchAllocation.id,
+            PackageBatchAllocation.package_id,
+            PackageBatchAllocation.production_batch_id,
+            PackageBatchAllocation.quantity,
+        ),
+        selectinload(Package.scan_logs).load_only(
+            PackageScanLog.id,
+            PackageScanLog.package_id,
+            PackageScanLog.scanned_by,
+            PackageScanLog.scan_type,
+            PackageScanLog.location,
+            PackageScanLog.scanned_at,
+        ),
+        joinedload(Package.legacy_receipt).load_only(
+            LegacyStockReceipt.id,
+            LegacyStockReceipt.source_payload,
+            LegacyStockReceipt.source_system,
+            LegacyStockReceipt.source_record_id,
+            LegacyStockReceipt.source_warehouse_name,
+            LegacyStockReceipt.imported_at,
+        ),
+    )
+
+
+def _package_details_by_ids(db: DbSession, package_ids: list[int]) -> list[Package]:
+    packages_by_id = {}
+    ordered_ids = list(dict.fromkeys(int(package_id) for package_id in package_ids))
+    for offset in range(0, len(ordered_ids), _LABEL_CONTEXT_CHUNK_SIZE):
+        chunk = ordered_ids[offset:offset + _LABEL_CONTEXT_CHUNK_SIZE]
+        packages_by_id.update({
+            int(pkg.id): pkg
+            for pkg in db.query(Package)
+            .options(*_package_detail_relationship_options())
+            .filter(Package.id.in_(chunk))
+            .populate_existing()
+            .all()
+        })
+    return [packages_by_id[package_id] for package_id in ordered_ids if package_id in packages_by_id]
+
+
+def _receiving_queue_latest_event_subquery(db: DbSession):
+    return (
         db.query(
             PackageScanLog.package_id.label("package_id"),
             func.max(PackageScanLog.id).label("event_id"),
@@ -145,6 +463,10 @@ def _receiving_queue_packages(db: DbSession) -> list[Package]:
         .group_by(PackageScanLog.package_id)
         .subquery()
     )
+
+
+def _receiving_queue_query(db: DbSession):
+    latest_event = _receiving_queue_latest_event_subquery(db)
     return (
         db.query(Package)
         .join(latest_event, latest_event.c.package_id == Package.id)
@@ -154,8 +476,52 @@ def _receiving_queue_packages(db: DbSession) -> list[Package]:
             PackageScanLog.scan_type == "queued_storage",
         )
         .order_by(PackageScanLog.id.desc())
-        .all()
     )
+
+
+def _receiving_queue_packages(
+    db: DbSession,
+    *,
+    offset: int = 0,
+    limit: int | None = None,
+) -> list[Package]:
+    query = _receiving_queue_query(db)
+    if offset:
+        query = query.offset(offset)
+    if limit is not None:
+        query = query.limit(limit)
+    return query.all()
+
+
+def _receiving_queue_count(db: DbSession) -> int:
+    latest_event = _receiving_queue_latest_event_subquery(db)
+    return int(
+        db.query(func.count(Package.id))
+        .join(latest_event, latest_event.c.package_id == Package.id)
+        .join(PackageScanLog, PackageScanLog.id == latest_event.c.event_id)
+        .filter(
+            Package.status == "packed",
+            PackageScanLog.scan_type == "queued_storage",
+        )
+        .scalar()
+        or 0
+    )
+
+
+def _receiving_queue_page_payload(db: DbSession, *, offset: int, limit: int) -> dict:
+    total = _receiving_queue_count(db)
+    packages = _receiving_queue_packages(db, offset=offset, limit=limit)
+    rows = [
+        PackageReceivingQueueItemOut.model_validate(package).model_dump(mode="json")
+        for package in packages
+    ]
+    return {
+        "rows": rows,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + len(rows) < total,
+    }
 
 
 def _package_for_receiving_scan(db: DbSession, raw_code: str) -> Package | None:
@@ -245,6 +611,103 @@ def _label_model(db: DbSession, model_id: int | None) -> Model | None:
     )
 
 
+def _warehouse_model_image_loader():
+    return selectinload(Model.images).load_only(
+        ModelImage.id,
+        ModelImage.model_id,
+        ModelImage.file_url,
+        ModelImage.file_name,
+        ModelImage.content_type,
+        ModelImage.image_type,
+        ModelImage.is_primary,
+    )
+
+
+def _warehouse_model_bom_loader():
+    return (
+        selectinload(Model.bom)
+        .load_only(
+            ModelBOM.id,
+            ModelBOM.model_id,
+            ModelBOM.item_id,
+            ModelBOM.stock_batch_id,
+            ModelBOM.photo_url,
+        )
+        .joinedload(ModelBOM.item)
+        .load_only(Item.id, Item.category, Item.image_url)
+    ), (
+        selectinload(Model.bom)
+        .joinedload(ModelBOM.stock_batch)
+        .load_only(StockBatch.id, StockBatch.image_url)
+    )
+
+
+def _package_label_reference_context(db: DbSession, packages: list[Package]) -> dict:
+    models = _load_reference_map(
+        db,
+        Model,
+        (pkg.model_id for pkg in packages),
+        options=_model_label_load_options(),
+    )
+    _load_selected_label_image_data(db, models)
+    production_orders = _load_reference_map(
+        db,
+        ProductionOrder,
+        (pkg.production_order_id for pkg in packages),
+    )
+    sales_order_ids = []
+    for pkg in packages:
+        production_order = production_orders.get(int(pkg.production_order_id)) if pkg.production_order_id else None
+        sales_order_ids.append(pkg.sales_order_id or (production_order.sales_order_id if production_order else None))
+    sales_orders = _load_reference_map(db, SalesOrder, sales_order_ids)
+    customers = _load_reference_map(db, Customer, (order.customer_id for order in sales_orders.values()))
+    fabric_batches = _load_reference_map(
+        db,
+        StockBatch,
+        (order.fabric_batch_id for order in production_orders.values()),
+    )
+
+    package_ids = sorted({int(pkg.id) for pkg in packages})
+    allocations_by_package = {package_id: [] for package_id in package_ids}
+    for offset in range(0, len(package_ids), _LABEL_CONTEXT_CHUNK_SIZE):
+        chunk = package_ids[offset:offset + _LABEL_CONTEXT_CHUNK_SIZE]
+        allocations = (
+            db.query(PackageBatchAllocation)
+            .filter(PackageBatchAllocation.package_id.in_(chunk))
+            .order_by(PackageBatchAllocation.id.asc())
+            .all()
+        )
+        for allocation in allocations:
+            allocations_by_package[int(allocation.package_id)].append(allocation)
+    batch_ids = {
+        int(allocation.production_batch_id)
+        for allocations in allocations_by_package.values()
+        for allocation in allocations
+        if allocation.production_batch_id
+    }
+    batch_ids.update(
+        int(pkg.production_batch_id)
+        for pkg in packages
+        if pkg.production_batch_id and not allocations_by_package.get(int(pkg.id))
+    )
+    production_batches = _load_reference_map(db, ProductionBatch, batch_ids)
+    manual_receipts = _load_reference_map(
+        db,
+        ManualPackageReceipt,
+        (pkg.manual_receipt_id for pkg in packages),
+    )
+    return {
+        "models": models,
+        "production_orders": production_orders,
+        "sales_orders": sales_orders,
+        "customers": customers,
+        "fabric_batches": fabric_batches,
+        "allocations_by_package": allocations_by_package,
+        "production_batches": production_batches,
+        "manual_receipts": manual_receipts,
+    }
+
+
 def _variant_picture_html(model: Model | None) -> str:
     src = variant_label_image_src(model)
     picture_class = "variant-picture"
@@ -299,15 +762,37 @@ def _composition_label(item) -> str:
     return ", ".join(parts)
 
 
-def _package_label_details(db: DbSession, pkg: Package, model: Model | None) -> dict[str, str]:
-    po = db.get(ProductionOrder, pkg.production_order_id) if pkg.production_order_id else None
+def _package_label_details(
+    db: DbSession,
+    pkg: Package,
+    model: Model | None,
+    *,
+    context: dict | None = None,
+) -> dict[str, str]:
+    po = (
+        context["production_orders"].get(int(pkg.production_order_id))
+        if context is not None and pkg.production_order_id
+        else db.get(ProductionOrder, pkg.production_order_id) if pkg.production_order_id else None
+    )
     sales_order_id = pkg.sales_order_id or (po.sales_order_id if po else None)
-    so = db.get(SalesOrder, sales_order_id) if sales_order_id else None
-    customer = db.get(Customer, so.customer_id) if so and so.customer_id else None
+    so = (
+        context["sales_orders"].get(int(sales_order_id))
+        if context is not None and sales_order_id
+        else db.get(SalesOrder, sales_order_id) if sales_order_id else None
+    )
+    customer = (
+        context["customers"].get(int(so.customer_id))
+        if context is not None and so and so.customer_id
+        else db.get(Customer, so.customer_id) if so and so.customer_id else None
+    )
 
     fabric_item = None
     if po and po.fabric_batch_id:
-        fabric_batch = db.get(StockBatch, po.fabric_batch_id)
+        fabric_batch = (
+            context["fabric_batches"].get(int(po.fabric_batch_id))
+            if context is not None
+            else db.get(StockBatch, po.fabric_batch_id)
+        )
         fabric_item = fabric_batch.item if fabric_batch else None
     if not fabric_item and model:
         fabric_row = next(
@@ -376,19 +861,38 @@ html,body{margin:0;padding:0;background:#fff;color:#111;font-family:"DejaVu Sans
 """
 
 
-def _package_label_card_html(db: DbSession, pkg: Package) -> str:
+def _package_label_card_html(
+    db: DbSession,
+    pkg: Package,
+    *,
+    context: dict | None = None,
+    active_label_checked: bool = False,
+) -> str:
     from app.services.package_workflows import require_active_label
-    require_active_label(db, pkg.id)
-    model = _label_model(db, pkg.model_id)
-    details = _package_label_details(db, pkg, model)
+    if not active_label_checked:
+        require_active_label(db, pkg.id)
+    model = (
+        context["models"].get(int(pkg.model_id))
+        if context is not None and pkg.model_id
+        else _label_model(db, pkg.model_id)
+    )
+    details = _package_label_details(db, pkg, model, context=context)
     qr = _qr_data_uri_for_package(db, pkg)
     picture = _variant_picture_html(model)
-    batches = _batch_allocations_html(db, pkg) or "-"
+    batches = _batch_allocations_html(
+        db,
+        pkg,
+        allocations=context["allocations_by_package"].get(int(pkg.id)) if context is not None else None,
+        production_batches=context["production_batches"] if context is not None else None,
+    ) or "-"
     weight = _format_weight_kg(pkg.weight_kg) or "-"
     label_sizes = None
     if pkg.manual_receipt_id:
-        from app.models import ManualPackageReceipt
-        receipt = db.get(ManualPackageReceipt, pkg.manual_receipt_id)
+        receipt = (
+            context["manual_receipts"].get(int(pkg.manual_receipt_id))
+            if context is not None
+            else db.get(ManualPackageReceipt, pkg.manual_receipt_id)
+        )
         if receipt and receipt.evidence.get("pack_quantities"):
             label_sizes = receipt.evidence.get("configured_sizes") or None
     return f"""
@@ -454,10 +958,16 @@ def _package_lookup_candidates(raw_code: str) -> list[str]:
     return unique
 
 
-def _batch_allocations_html(db: DbSession, pkg: Package) -> str:
+def _batch_allocations_html(
+    db: DbSession,
+    pkg: Package,
+    *,
+    allocations: list[PackageBatchAllocation] | None = None,
+    production_batches: dict[int, ProductionBatch] | None = None,
+) -> str:
     rows = [
         (int(alloc.production_batch_id), int(alloc.quantity or 0))
-        for alloc in (pkg.batch_allocations or [])
+        for alloc in (pkg.batch_allocations if allocations is None else allocations)
     ]
     if not rows and pkg.production_batch_id:
         rows = [(int(pkg.production_batch_id), int(pkg.total_quantity or 0))]
@@ -466,7 +976,11 @@ def _batch_allocations_html(db: DbSession, pkg: Package) -> str:
 
     parts = []
     for batch_id, _quantity in rows:
-        batch = db.get(ProductionBatch, batch_id)
+        batch = (
+            production_batches.get(batch_id)
+            if production_batches is not None
+            else db.get(ProductionBatch, batch_id)
+        )
         if batch:
             label = batch.batch_no
             if batch.name:
@@ -498,31 +1012,61 @@ def list_packages(db: DbSession, current: CurrentUser,
     so_ids = {int(p.sales_order_id) for p in rows if p.sales_order_id}
     production_by_id = {
         int(po.id): po
-        for po in db.query(ProductionOrder).filter(ProductionOrder.id.in_(po_ids)).all()
+        for po in (
+            db.query(ProductionOrder)
+            .options(
+                load_only(
+                    ProductionOrder.id,
+                    ProductionOrder.production_no,
+                    ProductionOrder.production_type,
+                    ProductionOrder.sales_order_id,
+                ),
+                joinedload(ProductionOrder.sales_order).load_only(
+                    SalesOrder.id,
+                    SalesOrder.order_no,
+                    SalesOrder.customer_id,
+                    SalesOrder.order_type,
+                ),
+            )
+            .filter(ProductionOrder.id.in_(po_ids))
+            .all()
+        )
     } if po_ids else {}
     sales_by_id = {
         int(so.id): so
-        for so in db.query(SalesOrder).filter(SalesOrder.id.in_(so_ids)).all()
+        for so in db.query(SalesOrder).options(
+            load_only(SalesOrder.id, SalesOrder.order_no, SalesOrder.customer_id, SalesOrder.order_type),
+        ).filter(SalesOrder.id.in_(so_ids)).all()
     } if so_ids else {}
     customer_ids = {int(so.customer_id) for so in sales_by_id.values() if so.customer_id}
     customer_by_id = {
         int(customer.id): customer
-        for customer in db.query(Customer).filter(Customer.id.in_(customer_ids)).all()
+        for customer in db.query(Customer).options(load_only(Customer.id, Customer.name)).filter(
+            Customer.id.in_(customer_ids),
+        ).all()
     } if customer_ids else {}
+    model_ids = {int(p.model_id) for p in rows if p.model_id}
+    model_by_id = {
+        int(model.id): model
+        for model in (
+            db.query(Model)
+            .options(
+                *_model_display_load_options(),
+            )
+            .filter(Model.id.in_(model_ids))
+            .all()
+        )
+    } if model_ids else {}
 
     out = []
     for p in rows:
         qr_url = _ensure_package_qr_url(db, p)
-        row = _package_out_payload(db, p)
-        row["qr_code_url"] = qr_url
         po = production_by_id.get(int(p.production_order_id or 0))
         so = sales_by_id.get(int(p.sales_order_id or 0))
         customer = customer_by_id.get(int(so.customer_id or 0)) if so else None
-        row["production_no"] = po.production_no if po else None
-        row["sales_order_no"] = so.order_no if so else None
-        row["order_no"] = so.order_no if so else (po.order_no if po else None)
-        row["customer_name"] = customer.name if customer else None
-        row["order_type"] = so.order_type if so else (po.production_type if po else None)
+        model = model_by_id.get(int(p.model_id or 0))
+        row = _package_out_payload(db, p, context=_package_context_values(po, so, customer, model))
+        row["qr_code_url"] = qr_url
         out.append(row)
     db.commit()
     if include_total:
@@ -542,7 +1086,7 @@ def create_pkg(
     )
     packaging_department_scope(current, department_code)
     fingerprint_payload = payload.model_dump(mode="json")
-    replay = replay_idempotent_response(db, scope="packages.create", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="packages.create", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
     pkg = create_package(
@@ -594,7 +1138,7 @@ def create_pkg_bulk(
     )
     packaging_department_scope(current, department_code)
     fingerprint_payload = payload.model_dump(mode="json")
-    replay = replay_idempotent_response(db, scope="packages.bulk-create", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="packages.bulk-create", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
     pkgs = create_packages_bulk(
@@ -660,7 +1204,7 @@ def storage_map(
         .join(Model, Model.id == Package.model_id)
         .outerjoin(SalesOrder, SalesOrder.id == Package.sales_order_id)
         .outerjoin(ProductionOrder, ProductionOrder.id == Package.production_order_id)
-        .options(selectinload(Model.images), selectinload(Model.bom).joinedload(ModelBOM.item))
+        .options(_warehouse_model_image_loader(), *_warehouse_model_bom_loader())
         .filter(Package.status.in_(ready_statuses), Package.stock_kind == stock_kind)
         .order_by(Package.storage_cell.asc(), Package.storage_shelf.asc(), Package.id.desc())
     )
@@ -765,7 +1309,7 @@ def storage_map(
             int(model.id): model
             for model in (
                 db.query(Model)
-                .options(selectinload(Model.images), selectinload(Model.bom).joinedload(ModelBOM.item))
+                .options(_warehouse_model_image_loader(), selectinload(Model.bom).joinedload(ModelBOM.item))
                 .filter(Model.id.in_(model_ids))
                 .all()
                 if model_ids
@@ -877,18 +1421,903 @@ def storage_map(
     }
 
 
-@router.get("/storage-map/find")
+class WarehouseStockPackageLabelOut(BaseModel):
+    id: int
+    package_no: str
+
+
+class WarehouseStockDetailOut(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    key: str
+    model_id: int
+    model_code: str
+    model_name: str
+    model_image_url: str | None = None
+    order_no: str
+    section: str
+    storage_cell: str
+    storage_shelf: str
+    color: str | None = None
+    status: str
+    total_quantity: int
+    package_count: int
+    packages: list[WarehouseStockPackageLabelOut]
+
+
+class WarehouseStockModelOut(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    model_id: int
+    model_code: str
+    model_name: str
+    model_image_url: str | None = None
+    package_count: int
+    total_quantity: int
+    sections: list[str]
+
+
+class WarehouseStockPageOut(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    rows: list[WarehouseStockDetailOut]
+    model_groups: list[WarehouseStockModelOut]
+    summary: dict[str, int]
+    total: int
+    offset: int
+    page_size: int
+    has_more: bool
+
+
+@router.get("/warehouse-stock", response_model=WarehouseStockPageOut)
+def warehouse_stock_page(
+    db: DbSession,
+    _: CurrentUser,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 50,
+    query_text: Annotated[str | None, Query(alias="query", max_length=100)] = None,
+    created_from: date | None = None,
+    created_to: date | None = None,
+    include_unplaced: bool = False,
+    stock_kind: str = "standard",
+):
+    """Return exact warehouse KPIs/model cards with SQL-paged detail groups.
+
+    Package groups are formed before pagination so a page boundary cannot split a
+    model/order/location group. Legacy unplaced receipts retain the prior screen's
+    compact aggregation and representative-package search behavior.
+    """
+    if stock_kind not in {"standard", "first_grade"}:
+        raise HTTPException(422, "Invalid stock classification")
+    ready_statuses = ("packed", "received_in_storage", "reserved")
+    start, end = date_filter_bounds(created_from, created_to)
+    needle = (query_text or "").strip()
+    escaped = needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    like = f"%{escaped}%"
+
+    order_expression = func.coalesce(
+        SalesOrder.order_no,
+        ProductionOrder.production_no,
+        case(
+            (Package.sales_order_id.isnot(None), literal("#") + cast(Package.sales_order_id, String)),
+            (Package.production_order_id.isnot(None), literal("#") + cast(Package.production_order_id, String)),
+            else_=literal("#") + cast(Package.id, String),
+        ),
+    )
+    normalized_cell = func.nullif(func.trim(Package.storage_cell), "")
+    section_expression = func.coalesce(_WarehouseStockSection(normalized_cell), "-")
+    cell_expression = func.coalesce(func.nullif(Package.storage_cell, ""), "-")
+    shelf_expression = func.coalesce(func.nullif(Package.storage_shelf, ""), "S1")
+
+    base = (
+        db.query(Package)
+        .join(Model, Model.id == Package.model_id)
+        .outerjoin(SalesOrder, SalesOrder.id == Package.sales_order_id)
+        .outerjoin(ProductionOrder, ProductionOrder.id == Package.production_order_id)
+        .filter(Package.status.in_(ready_statuses), Package.stock_kind == stock_kind)
+    )
+    if include_unplaced:
+        base = base.filter(or_(Package.storage_cell.isnot(None), Package.legacy_receipt_id.is_(None)))
+    else:
+        base = base.filter(Package.storage_cell.isnot(None))
+    if start:
+        base = base.filter(Package.created_at >= start)
+    if end:
+        base = base.filter(Package.created_at <= end)
+    if needle:
+        base = base.filter(
+            or_(
+                _storage_map_search_expression(needle),
+                Package.color.ilike(like, escape="\\"),
+                Package.status.ilike(like, escape="\\"),
+            )
+        )
+
+    group_columns = (
+        Package.model_id,
+        Model.code,
+        Model.name,
+        order_expression,
+        section_expression,
+        cell_expression,
+        shelf_expression,
+        Package.color,
+        Package.status,
+    )
+    base_groups = base.with_entities(
+        Package.model_id.label("model_id"),
+        Model.code.label("model_code"),
+        Model.name.label("model_name"),
+        order_expression.label("order_no"),
+        section_expression.label("section"),
+        cell_expression.label("storage_cell"),
+        shelf_expression.label("storage_shelf"),
+        Package.color.label("color"),
+        Package.status.label("status"),
+        func.count(Package.id).label("package_count"),
+        func.coalesce(func.sum(Package.total_quantity), 0).label("total_quantity"),
+        func.max(Package.id).label("representative_id"),
+        literal(False).label("is_legacy_aggregate"),
+    ).group_by(*group_columns).subquery("warehouse_stock_base_groups")
+
+    # Legacy imported rows without a cell have historically been summarized by
+    # model/color/package type/status and searched through their minimum-id row.
+    legacy_raw = (
+        db.query(
+            Package.model_id.label("model_id"),
+            Package.color.label("color"),
+            Package.package_type.label("package_type"),
+            Package.status.label("status"),
+            func.count(Package.id).label("package_count"),
+            func.coalesce(func.sum(Package.total_quantity), 0).label("total_quantity"),
+            func.min(Package.id).label("representative_id"),
+            func.min(Package.created_at).label("created_at"),
+        )
+        .filter(
+            Package.legacy_receipt_id.isnot(None),
+            Package.stock_kind == stock_kind,
+            Package.storage_cell.is_(None),
+            Package.status.in_(ready_statuses),
+        )
+    )
+    if start:
+        legacy_raw = legacy_raw.filter(Package.created_at >= start)
+    if end:
+        legacy_raw = legacy_raw.filter(Package.created_at <= end)
+    legacy_raw = legacy_raw.group_by(
+        Package.model_id, Package.color, Package.package_type, Package.status
+    ).subquery("warehouse_stock_legacy_raw")
+
+    representative = aliased(Package)
+    legacy_query = (
+        db.query(
+            legacy_raw.c.model_id,
+            Model.code.label("model_code"),
+            Model.name.label("model_name"),
+            (literal("#") + cast(legacy_raw.c.representative_id, String)).label("order_no"),
+            literal("-").label("section"),
+            literal("-").label("storage_cell"),
+            literal("S1").label("storage_shelf"),
+            legacy_raw.c.color,
+            legacy_raw.c.status,
+            legacy_raw.c.package_count,
+            legacy_raw.c.total_quantity,
+            legacy_raw.c.representative_id,
+            literal(True).label("is_legacy_aggregate"),
+        )
+        .join(Model, Model.id == legacy_raw.c.model_id)
+        .join(representative, representative.id == legacy_raw.c.representative_id)
+    )
+    if needle:
+        model_pattern = normalized_model_code_pattern(needle)
+        model_needle = model_pattern[1:-1].replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        legacy_query = legacy_query.filter(
+            or_(
+                normalized_model_code_column(Model.code).ilike(f"%{model_needle}%", escape="\\"),
+                Model.name.ilike(like, escape="\\"),
+                representative.package_no.ilike(like, escape="\\"),
+                representative.barcode.ilike(like, escape="\\"),
+                representative.color.ilike(like, escape="\\"),
+                representative.status.ilike(like, escape="\\"),
+            )
+        )
+    legacy_groups = legacy_query.subquery("warehouse_stock_legacy_groups")
+
+    union_columns = (
+        "model_id", "model_code", "model_name", "order_no", "section",
+        "storage_cell", "storage_shelf", "color", "status", "package_count",
+        "total_quantity", "representative_id", "is_legacy_aggregate",
+    )
+    group_selects = [select(*(getattr(base_groups.c, column) for column in union_columns))]
+    if include_unplaced:
+        group_selects.append(select(*(getattr(legacy_groups.c, column) for column in union_columns)))
+    group_rows = union_all(*group_selects).subquery("warehouse_stock_groups")
+
+    group_count = int(db.query(func.count()).select_from(group_rows).scalar() or 0)
+    count_row = db.query(
+        func.coalesce(func.sum(group_rows.c.package_count), 0),
+        func.coalesce(func.sum(group_rows.c.total_quantity), 0),
+        func.count(func.distinct(group_rows.c.model_id)),
+    ).one()
+    section_count = int(
+        base.with_entities(func.count(func.distinct(section_expression)))
+        .filter(normalized_cell.isnot(None), section_expression != "-")
+        .scalar()
+        or 0
+    )
+    summary = {
+        "models": int(count_row[2] or 0),
+        "packages": int(count_row[0] or 0),
+        "quantity": int(count_row[1] or 0),
+        "sections": section_count,
+    }
+
+    legacy_first = case(
+        (func.upper(func.trim(group_rows.c.model_code)).like("LEGACY-%"), 0), else_=1
+    )
+    page_rows = (
+        db.query(group_rows)
+        .order_by(
+            legacy_first,
+            group_rows.c.model_code.asc(),
+            group_rows.c.order_no.asc(),
+            group_rows.c.storage_cell.asc(),
+            group_rows.c.storage_shelf.asc(),
+            group_rows.c.color.asc(),
+            group_rows.c.status.asc(),
+        )
+        .offset(offset)
+        .limit(page_size)
+        .all()
+    )
+
+    # Exact model-card totals are independently aggregated over every matching
+    # package group, not inferred from the visible detail page.
+    model_selects = [select(
+            base_groups.c.model_id,
+            base_groups.c.model_code,
+            base_groups.c.model_name,
+            base_groups.c.package_count,
+            base_groups.c.total_quantity,
+        )]
+    if include_unplaced:
+        model_selects.append(select(
+            legacy_groups.c.model_id,
+            legacy_groups.c.model_code,
+            legacy_groups.c.model_name,
+            legacy_groups.c.package_count,
+            legacy_groups.c.total_quantity,
+        ))
+    model_source = union_all(*model_selects).subquery("warehouse_stock_model_source")
+    model_groups = (
+        db.query(
+            model_source.c.model_id,
+            func.max(model_source.c.model_code).label("model_code"),
+            func.max(model_source.c.model_name).label("model_name"),
+            func.sum(model_source.c.package_count).label("package_count"),
+            func.sum(model_source.c.total_quantity).label("total_quantity"),
+        )
+        .group_by(model_source.c.model_id)
+        .order_by(
+            case((func.upper(func.trim(func.max(model_source.c.model_code))).like("LEGACY-%"), 0), else_=1),
+            func.sum(model_source.c.total_quantity).desc(),
+            func.max(model_source.c.model_code).asc(),
+        )
+        .limit(8)
+        .all()
+    )
+    top_model_ids = [int(row.model_id) for row in model_groups]
+    sections_by_model: dict[int, set[str]] = {model_id: set() for model_id in top_model_ids}
+    if top_model_ids:
+        for model_id, section in (
+            base.filter(Package.model_id.in_(top_model_ids))
+            .with_entities(Package.model_id, section_expression)
+            .filter(normalized_cell.isnot(None), section_expression != "-")
+            .distinct()
+            .all()
+        ):
+            sections_by_model[int(model_id)].add(str(section))
+
+    model_ids = set(top_model_ids)
+    model_ids.update(int(row.model_id) for row in page_rows)
+    models = (
+        db.query(Model)
+        .options(_warehouse_model_image_loader(), *_warehouse_model_bom_loader())
+        .filter(Model.id.in_(model_ids))
+        .all()
+        if model_ids
+        else []
+    )
+    model_by_id = {int(model.id): model for model in models}
+
+    # Fetch up to the three package labels shown for each detail group, after
+    # selecting the bounded group page. Windowing keeps this bounded at 3/page.
+    sample_conditions = []
+    for row in page_rows:
+        if row.is_legacy_aggregate:
+            continue
+        sample_conditions.append(
+            and_(
+                Package.model_id == row.model_id,
+                order_expression == row.order_no,
+                section_expression == row.section,
+                cell_expression == row.storage_cell,
+                shelf_expression == row.storage_shelf,
+                Package.color == row.color,
+                Package.status == row.status,
+            )
+        )
+    samples_by_key: dict[tuple, list[dict]] = {}
+    if sample_conditions:
+        sample_query = (
+            base.filter(or_(*sample_conditions))
+            .with_entities(
+                Package.model_id.label("model_id"),
+                Model.code.label("model_code"),
+                order_expression.label("order_no"),
+                section_expression.label("section"),
+                cell_expression.label("storage_cell"),
+                shelf_expression.label("storage_shelf"),
+                Package.color.label("color"),
+                Package.status.label("status"),
+                Package.id.label("id"),
+                Package.package_no.label("package_no"),
+                func.row_number().over(
+                    partition_by=group_columns,
+                    order_by=Package.id.desc(),
+                ).label("sample_rank"),
+            )
+            .subquery("warehouse_stock_samples")
+        )
+        for sample in (
+            db.query(sample_query)
+            .filter(sample_query.c.sample_rank <= 3)
+            .order_by(sample_query.c.storage_cell, sample_query.c.storage_shelf, sample_query.c.id.desc())
+            .all()
+        ):
+            key = (
+                int(sample.model_id), sample.order_no, sample.section, sample.storage_cell,
+                sample.storage_shelf, sample.color, sample.status,
+            )
+            samples_by_key.setdefault(key, []).append(
+                {"id": int(sample.id), "package_no": sample.package_no}
+            )
+
+    legacy_ids = [int(row.representative_id) for row in page_rows if row.is_legacy_aggregate]
+    legacy_packages = (
+        db.query(Package.id, Package.package_no)
+        .filter(Package.id.in_(legacy_ids))
+        .all()
+        if legacy_ids
+        else []
+    )
+    legacy_label_by_id = {
+        int(package_id): {"id": int(package_id), "package_no": package_no}
+        for package_id, package_no in legacy_packages
+    }
+
+    def model_image(model_id: int) -> str | None:
+        return warehouse_stock_image_url(model_by_id.get(model_id))
+
+    output_rows = []
+    for row in page_rows:
+        model_id = int(row.model_id)
+        if row.is_legacy_aggregate:
+            samples = [legacy_label_by_id[int(row.representative_id)]] if int(row.representative_id) in legacy_label_by_id else []
+        else:
+            sample_key = (
+                model_id, row.order_no, row.section, row.storage_cell, row.storage_shelf,
+                row.color, row.status,
+            )
+            samples = samples_by_key.get(sample_key, [])
+        key = "|".join(
+            str(value if value is not None else "-")
+            for value in (
+                model_id, row.order_no, row.section, row.storage_cell,
+                row.storage_shelf, row.color, row.status,
+            )
+        )
+        output_rows.append({
+            "key": key,
+            "model_id": model_id,
+            "model_code": row.model_code,
+            "model_name": row.model_name,
+            "model_image_url": model_image(model_id),
+            "order_no": row.order_no,
+            "section": row.section,
+            "storage_cell": row.storage_cell,
+            "storage_shelf": row.storage_shelf,
+            "color": row.color,
+            "status": row.status,
+            "total_quantity": int(row.total_quantity or 0),
+            "package_count": int(row.package_count or 0),
+            "packages": samples[:3],
+        })
+
+    output_models = [
+        {
+            "model_id": int(row.model_id),
+            "model_code": row.model_code,
+            "model_name": row.model_name,
+            "model_image_url": model_image(int(row.model_id)),
+            "package_count": int(row.package_count or 0),
+            "total_quantity": int(row.total_quantity or 0),
+            "sections": sorted(sections_by_model.get(int(row.model_id), set())),
+        }
+        for row in model_groups
+    ]
+    return {
+        "rows": output_rows,
+        "model_groups": output_models,
+        "summary": summary,
+        "total": group_count,
+        "offset": offset,
+        "page_size": page_size,
+        "has_more": offset + len(output_rows) < group_count,
+    }
+
+
+class StorageMapCellSummaryOut(BaseModel):
+    code: str
+    zone: str
+    count: int
+    status: str
+    matched_count: int = 0
+    quantity: int = 0
+
+
+class StorageMapOverviewOut(BaseModel):
+    summary: dict[str, int]
+    cells: list[StorageMapCellSummaryOut]
+
+
+class StorageMapZoneOverviewOut(BaseModel):
+    id: str
+    sku_count: int
+    moves_today: int
+
+
+class StorageMapPageOverviewOut(BaseModel):
+    summary: dict[str, int]
+    cells: list[StorageMapCellSummaryOut]
+    zones: list[StorageMapZoneOverviewOut]
+
+
+class StorageMapPlacementRowOut(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    id: int
+    package_no: str
+    barcode: str | None = None
+    model_id: int | None = None
+    model_code: str | None = None
+    model_name: str | None = None
+    color: str | None = None
+    total_quantity: int
+    status: str
+    storage_cell: str
+    storage_shelf: str | None = None
+    storage_placed_at: datetime | None = None
+
+
+class StorageMapPlacementPageOut(BaseModel):
+    rows: list[StorageMapPlacementRowOut]
+    total: int
+    shelf_total: int
+    total_quantity: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
+class StorageMapRackPreviewOut(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    id: int
+    package_no: str
+    model_id: int | None = None
+    model_code: str | None = None
+    model_name: str | None = None
+    color: str | None = None
+    total_quantity: int
+    status: str
+    storage_cell: str
+    storage_shelf: str
+    storage_placed_at: datetime | None = None
+
+
+class StorageMapModelPackageOut(BaseModel):
+    id: int
+    package_no: str
+    storage_cell: str
+    storage_shelf: str | None
+    total_quantity: int
+    status: str
+
+
+class StorageMapModelPageOut(BaseModel):
+    rows: list[StorageMapModelPackageOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
+class _WarehouseStockSection(FunctionElement):
+    type = String()
+    inherit_cache = True
+
+
+@compiles(_WarehouseStockSection, "sqlite")
+def _compile_warehouse_stock_section_sqlite(element, compiler, **kwargs):
+    column = compiler.process(next(iter(element.clauses)), **kwargs)
+    return (
+        f"CASE WHEN instr({column}, '-') > 0 "
+        f"THEN substr({column}, 1, instr({column}, '-') - 1) ELSE {column} END"
+    )
+
+
+@compiles(_WarehouseStockSection, "postgresql")
+def _compile_warehouse_stock_section_postgres(element, compiler, **kwargs):
+    column = compiler.process(next(iter(element.clauses)), **kwargs)
+    return (
+        f"CASE WHEN strpos({column}, '-') > 0 "
+        f"THEN substr({column}, 1, strpos({column}, '-') - 1) ELSE {column} END"
+    )
+
+
+
+
+@router.get("/storage-map/summary", response_model=StorageMapOverviewOut)
+def storage_map_summary(db: DbSession, _: CurrentUser):
+    ready_statuses = ["packed", "received_in_storage", "reserved"]
+    layout_codes = [
+        f"{zone}-{idx:02d}"
+        for zone, size in WAREHOUSE_MAP_LAYOUT
+        for idx in range(1, size + 1)
+    ]
+    cell_key = case((Package.storage_cell.in_(layout_codes), Package.storage_cell), else_=None)
+    counts = dict(
+        db.query(cell_key, func.count(Package.id))
+        .filter(Package.status.in_(ready_statuses), Package.storage_cell.isnot(None))
+        .group_by(cell_key)
+        .all()
+    )
+    cells = []
+    for zone, size in WAREHOUSE_MAP_LAYOUT:
+        for idx in range(1, size + 1):
+            code = f"{zone}-{idx:02d}"
+            count = counts.get(code, 0)
+            cells.append({
+                "code": code,
+                "zone": zone,
+                "count": count,
+                "status": "free" if count == 0 else "partial" if count == 1 else "full",
+                "matched_count": 0,
+            })
+    packages_on_map = sum(counts.values())
+    return {
+        "summary": {
+            "cells_total": len(cells),
+            "cells_occupied": sum(cell["count"] > 0 for cell in cells),
+            "packages_on_map": packages_on_map,
+            "packages_in_storage": packages_on_map,
+            "matched_packages": 0,
+        },
+        "cells": cells,
+    }
+
+
+def _storage_map_search_expression(needle: str):
+    escaped_needle = needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    like = f"%{escaped_needle}%"
+    model_pattern = normalized_model_code_pattern(needle)
+    model_needle = model_pattern[1:-1].replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return or_(
+        normalized_model_code_column(Model.code).ilike(f"%{model_needle}%", escape="\\"),
+        Model.name.ilike(like, escape="\\"),
+        SalesOrder.order_no.ilike(like, escape="\\"),
+        ProductionOrder.production_no.ilike(like, escape="\\"),
+        Package.package_no.ilike(like, escape="\\"),
+        Package.barcode.ilike(like, escape="\\"),
+        Package.storage_cell.ilike(like, escape="\\"),
+        Package.storage_shelf.ilike(like, escape="\\"),
+    )
+
+
+@router.get("/storage-map/overview", response_model=StorageMapPageOverviewOut)
+def storage_map_page_overview(
+    db: DbSession,
+    _: CurrentUser,
+    model_query: Annotated[str | None, Query(max_length=100)] = None,
+    today_from: datetime | None = None,
+    today_to: datetime | None = None,
+):
+    """Return exact warehouse totals and cell/zone aggregates without packages."""
+    ready_statuses = ("packed", "received_in_storage", "reserved")
+    layout_codes = [
+        f"{zone}-{idx:02d}"
+        for zone, size in WAREHOUSE_MAP_LAYOUT
+        for idx in range(1, size + 1)
+    ]
+    needle = (model_query or "").strip()
+    matches = _storage_map_search_expression(needle) if needle else None
+    query = (
+        db.query(Package)
+        .join(Model, Model.id == Package.model_id)
+        .outerjoin(SalesOrder, SalesOrder.id == Package.sales_order_id)
+        .outerjoin(ProductionOrder, ProductionOrder.id == Package.production_order_id)
+        .filter(Package.status.in_(ready_statuses), Package.storage_cell.isnot(None))
+    )
+    summary_row = query.with_entities(
+        func.count(Package.id),
+        func.coalesce(func.sum(Package.total_quantity), 0),
+        func.coalesce(func.sum(case((Package.status == "reserved", Package.total_quantity), else_=0)), 0),
+        func.coalesce(func.sum(case((Package.status == "packed", Package.total_quantity), else_=0)), 0),
+    ).one()
+    matched_packages = query.filter(matches).count() if matches is not None else 0
+    matched_count_expression = func.sum(case((matches, 1), else_=0)) if matches is not None else 0
+    cell_rows = (
+        query.with_entities(
+            Package.storage_cell,
+            func.count(Package.id),
+            func.coalesce(func.sum(Package.total_quantity), 0),
+            matched_count_expression,
+        )
+        .filter(Package.storage_cell.in_(layout_codes))
+        .group_by(Package.storage_cell)
+        .all()
+    )
+    counts_by_cell = {
+        str(code): (int(count), int(quantity), int(matched_count or 0))
+        for code, count, quantity, matched_count in cell_rows
+    }
+    cells = []
+    for zone, size in WAREHOUSE_MAP_LAYOUT:
+        for idx in range(1, size + 1):
+            code = f"{zone}-{idx:02d}"
+            count, quantity, matched_count = counts_by_cell.get(code, (0, 0, 0))
+            cells.append({
+                "code": code,
+                "zone": zone,
+                "count": count,
+                "quantity": quantity,
+                "status": "free" if count == 0 else "partial" if count == 1 else "full",
+                "matched_count": matched_count,
+            })
+
+    if today_from is None or today_to is None:
+        now = datetime.now().astimezone()
+        local_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        if today_from is None:
+            today_from = local_start
+        if today_to is None:
+            today_to = local_start + timedelta(days=1)
+    zone_expression = func.substr(Package.storage_cell, 1, 1)
+    zone_rows = (
+        query.with_entities(
+            zone_expression,
+        func.count(func.distinct(func.coalesce(func.nullif(Model.code, ""), cast(Model.id, String)))),
+            func.coalesce(
+                func.sum(case((and_(Package.storage_placed_at >= today_from, Package.storage_placed_at < today_to), 1), else_=0)),
+                0,
+            ),
+        )
+        .filter(or_(*(Package.storage_cell.like(f"{zone}-%") for zone, _size in WAREHOUSE_MAP_LAYOUT)))
+        .group_by(zone_expression)
+        .all()
+    )
+    zone_activity_by_id = {
+        str(zone): {"sku_count": int(sku_count), "moves_today": int(moves_today)}
+        for zone, sku_count, moves_today in zone_rows
+    }
+    zones = [
+        {"id": zone, **zone_activity_by_id.get(zone, {"sku_count": 0, "moves_today": 0})}
+        for zone, _size in WAREHOUSE_MAP_LAYOUT
+    ]
+    packages_on_map, total_qty, reserved_qty, receiving_qty = map(int, summary_row)
+    return {
+        "summary": {
+            "cells_total": len(cells),
+            "cells_occupied": sum(cell["count"] > 0 for cell in cells),
+            "packages_on_map": packages_on_map,
+            "packages_in_storage": packages_on_map,
+            "matched_packages": matched_packages,
+            "total_qty": total_qty,
+            "reserved_qty": reserved_qty,
+            "receiving_qty": receiving_qty,
+        },
+        "cells": cells,
+        "zones": zones,
+    }
+
+
+@router.get("/storage-map/rack-preview", response_model=list[StorageMapRackPreviewOut])
+def storage_map_rack_preview(
+    zone: Annotated[str, Query(min_length=1, max_length=1)],
+    db: DbSession,
+    _: CurrentUser,
+):
+    """Return only the newest package per shelf slot for the selected rack zone."""
+    zone_size = dict(WAREHOUSE_MAP_LAYOUT).get(zone.upper())
+    if zone_size is None:
+        raise HTTPException(422, "Unknown warehouse zone")
+    zone_cells = [f"{zone.upper()}-{idx:02d}" for idx in range(1, zone_size + 1)]
+    shelf_key = case((Package.storage_shelf == "S2", "S2"), else_="S1")
+    row_number = func.row_number().over(
+        partition_by=(Package.storage_cell, shelf_key),
+        order_by=Package.id.desc(),
+    ).label("slot_rank")
+    ranked = (
+        db.query(Package.id.label("package_id"), row_number)
+        .join(Model, Model.id == Package.model_id)
+        .outerjoin(SalesOrder, SalesOrder.id == Package.sales_order_id)
+        .outerjoin(ProductionOrder, ProductionOrder.id == Package.production_order_id)
+        .filter(
+            Package.status.in_(("packed", "received_in_storage", "reserved")),
+            Package.storage_cell.in_(zone_cells),
+        )
+    )
+    ranked_subquery = ranked.subquery()
+    rows = (
+        db.query(
+            Package.id,
+            Package.package_no,
+            Package.model_id,
+            Model.code.label("model_code"),
+            Model.name.label("model_name"),
+            Package.color,
+            Package.total_quantity,
+            Package.status,
+            Package.storage_cell,
+            shelf_key.label("storage_shelf"),
+            Package.storage_placed_at,
+        )
+        .join(ranked_subquery, ranked_subquery.c.package_id == Package.id)
+        .join(Model, Model.id == Package.model_id)
+        .filter(ranked_subquery.c.slot_rank == 1)
+        .order_by(Package.storage_cell.asc(), shelf_key.asc())
+        .limit(zone_size * 2)
+        .all()
+    )
+    return [
+        {
+            "id": row.id,
+            "package_no": row.package_no,
+            "model_id": row.model_id,
+            "model_code": row.model_code,
+            "model_name": row.model_name,
+            "color": row.color,
+            "total_quantity": row.total_quantity,
+            "status": row.status,
+            "storage_cell": row.storage_cell,
+            "storage_shelf": row.storage_shelf,
+            "storage_placed_at": row.storage_placed_at,
+        }
+        for row in rows
+    ]
+
+
+@router.get("/storage-map/cell-packages", response_model=StorageMapPlacementPageOut)
+def storage_map_cell_packages(
+    cell: Annotated[str, Query(min_length=1, max_length=8)],
+    shelf: Annotated[str, Query(pattern="^S[12]$")],
+    db: DbSession,
+    _: CurrentUser,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 50,
+):
+    normalized_cell = cell.strip().upper()
+    valid_cells = {
+        f"{zone}-{idx:02d}"
+        for zone, size in WAREHOUSE_MAP_LAYOUT
+        for idx in range(1, size + 1)
+    }
+    if normalized_cell not in valid_cells:
+        raise HTTPException(422, "Unknown warehouse cell")
+    query = (
+        db.query(Package, Model)
+        .join(Model, Model.id == Package.model_id)
+        .outerjoin(SalesOrder, SalesOrder.id == Package.sales_order_id)
+        .outerjoin(ProductionOrder, ProductionOrder.id == Package.production_order_id)
+        .filter(
+            Package.storage_cell == normalized_cell,
+            Package.status.in_(("packed", "received_in_storage", "reserved")),
+        )
+    )
+    shelf_key = case((Package.storage_shelf == "S2", "S2"), else_="S1")
+    cell_totals = query.with_entities(
+        func.count(Package.id),
+        func.coalesce(func.sum(case((shelf_key == shelf, 1), else_=0)), 0),
+    ).one()
+    cell_total, selected_shelf_total = map(int, cell_totals)
+    effective_query = query.filter(shelf_key == shelf) if selected_shelf_total else query
+    total = selected_shelf_total or cell_total
+    total_quantity = int(
+        effective_query.with_entities(func.coalesce(func.sum(Package.total_quantity), 0)).scalar() or 0
+    )
+    rows = effective_query.order_by(Package.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        "rows": [
+            {
+                "id": pkg.id,
+                "package_no": pkg.package_no,
+                "barcode": pkg.barcode,
+                "model_id": pkg.model_id,
+                "model_code": model.code,
+                "model_name": model.name,
+                "color": pkg.color,
+                "total_quantity": pkg.total_quantity,
+                "status": pkg.status,
+                "storage_cell": pkg.storage_cell,
+                "storage_shelf": pkg.storage_shelf,
+                "storage_placed_at": pkg.storage_placed_at,
+            }
+            for pkg, model in rows
+        ],
+        "total": total,
+        "shelf_total": selected_shelf_total,
+        "total_quantity": total_quantity,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
+
+
+@router.get("/storage-map/models/{model_id}", response_model=StorageMapModelPageOut)
+def storage_map_model_packages(
+    model_id: int,
+    db: DbSession,
+    _: CurrentUser,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 50,
+):
+    query = db.query(Package).filter(
+        Package.model_id == model_id,
+        Package.storage_cell.isnot(None),
+        Package.status.in_(["packed", "received_in_storage", "reserved"]),
+    )
+    total = query.count()
+    packages = (
+        query.options(load_only(
+            Package.id,
+            Package.package_no,
+            Package.storage_cell,
+            Package.storage_shelf,
+            Package.total_quantity,
+            Package.status,
+        ))
+        .order_by(Package.storage_cell.asc(), Package.storage_shelf.asc(), Package.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return {
+        "rows": packages,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
+
+
+@router.get(
+    "/storage-map/find",
+    response_model=list[StorageMapMatchOut] | StorageMapMatchPageOut,
+)
 def find_on_storage_map(
     db: DbSession,
     _: CurrentUser,
     q: str,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     needle = q.strip()
     if not needle:
         raise HTTPException(400, "q is required")
     like = f"%{needle}%"
     model_code_like = normalized_model_code_pattern(needle)
-    rows = (
+    query = (
         db.query(Package, Model)
         .join(Model, Model.id == Package.model_id)
         .filter(
@@ -902,9 +2331,21 @@ def find_on_storage_map(
             ),
         )
         .order_by(Package.storage_cell.asc(), Package.storage_shelf.asc(), Package.id.desc())
-        .all()
     )
-    return [
+    paginated = page is not None or page_size is not None
+    effective_page = page or 1
+    effective_page_size = page_size or 50
+    total = query.order_by(None).count() if paginated else None
+    if paginated:
+        rows = (
+            query
+            .offset((effective_page - 1) * effective_page_size)
+            .limit(effective_page_size)
+            .all()
+        )
+    else:
+        rows = query.all()
+    payloads = [
         {
             "id": pkg.id,
             "package_no": pkg.package_no,
@@ -921,15 +2362,29 @@ def find_on_storage_map(
         }
         for pkg, model in rows
     ]
+    if total is None:
+        return payloads
+    return {
+        "rows": payloads,
+        "total": total,
+        "page": effective_page,
+        "page_size": effective_page_size,
+        "has_more": effective_page * effective_page_size < total,
+    }
 
 
-@router.get("/change-requests", response_model=list[PackageChangeRequestOut])
+@router.get(
+    "/change-requests",
+    response_model=list[PackageChangeRequestOut] | PackageChangeRequestPageOut,
+)
 def list_package_change_requests(
     db: DbSession,
     current: CurrentUser,
     status: str | None = "pending",
     package_id: int | None = None,
     packaging_department_code: str | None = None,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     department_code = packaging_department_scope(current, packaging_department_code)
     qry = db.query(PackageChangeRequest).join(Package, Package.id == PackageChangeRequest.package_id).filter(
@@ -939,7 +2394,26 @@ def list_package_change_requests(
         qry = qry.filter(PackageChangeRequest.status == status)
     if package_id is not None:
         qry = qry.filter(PackageChangeRequest.package_id == package_id)
-    return qry.order_by(PackageChangeRequest.id.desc()).limit(500).all()
+    ordered_query = qry.order_by(PackageChangeRequest.id.desc())
+    if page is None and page_size is None:
+        return ordered_query.limit(500).all()
+
+    effective_page = page or 1
+    effective_page_size = page_size or 50
+    total = qry.order_by(None).count()
+    rows = (
+        ordered_query
+        .offset((effective_page - 1) * effective_page_size)
+        .limit(effective_page_size)
+        .all()
+    )
+    return {
+        "rows": rows,
+        "total": total,
+        "page": effective_page,
+        "page_size": effective_page_size,
+        "has_more": effective_page * effective_page_size < total,
+    }
 
 
 @router.post("/{pid}/change-requests", response_model=PackageChangeRequestOut, status_code=201)
@@ -1044,12 +2518,20 @@ def reject_package_change(
     return req
 
 
-@router.get("/receiving-queue", response_model=list[PackageDetail])
+@router.get("/receiving-queue", response_model=PackageReceivingQueuePageOut)
 def receiving_queue(
     db: DbSession,
+    response: Response,
     _: User = Depends(require_permissions("storage.packages", "*")),
+    offset: Annotated[int, Query(ge=0, le=1_000_000)] = 0,
+    limit: Annotated[int, Query(ge=1, le=_RECEIVING_QUEUE_MAX_PAGE_SIZE)] = _RECEIVING_QUEUE_DEFAULT_PAGE_SIZE,
 ):
-    return [_package_detail_payload(db, pkg) for pkg in _receiving_queue_packages(db)]
+    page = _receiving_queue_page_payload(db, offset=offset, limit=limit)
+    if response is not None:
+        response.headers["X-Total-Count"] = str(page["total"])
+        response.headers["X-Page-Offset"] = str(offset)
+        response.headers["X-Page-Limit"] = str(limit)
+    return page
 
 
 @router.post("/receiving-queue/scan", response_model=PackageDetail)
@@ -1103,17 +2585,37 @@ def scan_into_receiving_queue(
     return _package_detail_payload(db, pkg)
 
 
-@router.post("/receiving-queue/remove")
+@router.post("/receiving-queue/remove", response_model=PackageReceivingQueueRemoveOut)
 def remove_from_receiving_queue(
     payload: PackageReceivingQueueRemoveIn,
     db: DbSession,
     current: User = Depends(require_permissions("storage.packages", "*")),
 ):
+    if len(payload.package_ids) > _RECEIVING_QUEUE_MAX_PAGE_SIZE:
+        raise HTTPException(
+            422,
+            f"At most {_RECEIVING_QUEUE_MAX_PAGE_SIZE} packages may be removed at a time",
+        )
     requested_ids = {int(package_id) for package_id in payload.package_ids if int(package_id or 0) > 0}
     if not requested_ids:
-        return {"count": 0, "packages": [_package_detail_payload(db, pkg) for pkg in _receiving_queue_packages(db)]}
+        page = _receiving_queue_page_payload(
+            db,
+            offset=0,
+            limit=_RECEIVING_QUEUE_DEFAULT_PAGE_SIZE,
+        )
+        return {
+            "count": 0,
+            "packages": page.pop("rows"),
+            **page,
+        }
 
-    active_by_id = {int(pkg.id): pkg for pkg in _receiving_queue_packages(db)}
+    # Resolve only the requested active packages.  Loading the entire queue
+    # here would bypass the response bound and make a small removal scale with
+    # every package waiting in storage.
+    active_by_id = {
+        int(pkg.id): pkg
+        for pkg in _receiving_queue_query(db).filter(Package.id.in_(requested_ids)).all()
+    }
     removed = 0
     for package_id in sorted(requested_ids):
         pkg = active_by_id.get(package_id)
@@ -1137,9 +2639,15 @@ def remove_from_receiving_queue(
         )
         removed += 1
     db.commit()
+    page = _receiving_queue_page_payload(
+        db,
+        offset=0,
+        limit=_RECEIVING_QUEUE_DEFAULT_PAGE_SIZE,
+    )
     return {
         "count": removed,
-        "packages": [_package_detail_payload(db, pkg) for pkg in _receiving_queue_packages(db)],
+        "packages": page.pop("rows"),
+        **page,
     }
 
 
@@ -1159,13 +2667,12 @@ def api_batch_receive_storage(
     if not package_ids:
         raise HTTPException(400, "package_ids is required")
 
-    packages = db.query(Package).filter(Package.id.in_(package_ids)).order_by(Package.id).with_for_update().populate_existing().all()
-    packages_by_id = {int(pkg.id): pkg for pkg in packages}
+    receive_gate = prepare_locked_package_receive(db, package_ids)
+    packages_by_id = receive_gate.packages_by_id
     missing = [package_id for package_id in package_ids if package_id not in packages_by_id]
     if missing:
         raise HTTPException(404, f"Package not found: {missing[0]}")
 
-    updated: list[dict] = []
     for package_id in package_ids:
         pkg = packages_by_id[package_id]
         receive_at_storage(
@@ -1175,6 +2682,8 @@ def api_batch_receive_storage(
             current.id,
             storage_cell=payload.storage_cell,
             storage_shelf=payload.storage_shelf,
+            receive_gate=receive_gate,
+            sync_production=False,
         )
         log_action(
             db,
@@ -1184,11 +2693,13 @@ def api_batch_receive_storage(
             pkg.id,
             new_value={"storage_cell": pkg.storage_cell, "storage_shelf": pkg.storage_shelf, "mode": "batch"},
         )
-        updated.append(_package_detail_payload(db, pkg))
-
+    sync_package_production_orders(db, (packages_by_id[package_id].production_order_id for package_id in package_ids))
+    updated = _package_detail_payloads(
+        db,
+        _package_details_by_ids(db, package_ids),
+        print_run_ids=receive_gate.member_run_ids,
+    )
     db.commit()
-    for pkg in packages:
-        db.refresh(pkg)
     return {
         "count": len(updated),
         "packages": updated,
@@ -1211,22 +2722,28 @@ def api_batch_place_on_map(
     if not package_ids:
         raise HTTPException(400, "package_ids is required")
 
-    packages = db.query(Package).filter(Package.id.in_(package_ids)).all()
-    packages_by_id = {int(pkg.id): pkg for pkg in packages}
+    packages_by_id = {
+        int(pkg.id): pkg
+        for pkg in db.query(Package).filter(Package.id.in_(package_ids)).all()
+    }
     missing = [package_id for package_id in package_ids if package_id not in packages_by_id]
     if missing:
         raise HTTPException(404, f"Package not found: {missing[0]}")
 
-    updated: list[dict] = []
+    ordered_packages = [packages_by_id[package_id] for package_id in package_ids]
     for package_id in package_ids:
-        pkg = packages_by_id[package_id]
-        place_on_storage_map(
-            db,
-            pkg,
-            storage_cell=payload.storage_cell,
-            storage_shelf=payload.storage_shelf,
-            user_id=current.id,
-        )
+        require_package_access(current, packages_by_id[package_id])
+
+    place_packages_on_storage_map(
+        db,
+        ordered_packages,
+        storage_cell=payload.storage_cell,
+        storage_shelf=payload.storage_shelf,
+        user_id=current.id,
+        allow_mixed_models=payload.allow_mixed_models,
+        enforce_model_guard=payload.enforce_model_guard,
+    )
+    for pkg in ordered_packages:
         log_action(
             db,
             current,
@@ -1235,11 +2752,8 @@ def api_batch_place_on_map(
             pkg.id,
             new_value={"storage_cell": pkg.storage_cell, "storage_shelf": pkg.storage_shelf, "mode": "batch"},
         )
-        updated.append(_package_detail_payload(db, pkg))
-
+    updated = _package_detail_payloads(db, _package_details_by_ids(db, package_ids))
     db.commit()
-    for pkg in packages:
-        db.refresh(pkg)
     return {
         "count": len(updated),
         "packages": updated,
@@ -1281,7 +2795,7 @@ def api_receive(
         "warehouse_id": warehouse_id,
         "payload": payload.model_dump(mode="json") if payload else None,
     }
-    replay = replay_idempotent_response(db, scope="packages.receive-storage", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="packages.receive-storage", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
     p = db.get(Package, pid)
@@ -1320,7 +2834,7 @@ def api_place_on_map(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     fingerprint_payload = {"package_id": pid, **payload.model_dump(mode="json")}
-    replay = replay_idempotent_response(db, scope="packages.place-on-map", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="packages.place-on-map", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
     p = db.get(Package, pid)
@@ -1332,6 +2846,8 @@ def api_place_on_map(
         storage_cell=payload.storage_cell,
         storage_shelf=payload.storage_shelf,
         user_id=current.id,
+        allow_mixed_models=payload.allow_mixed_models,
+        enforce_model_guard=payload.enforce_model_guard,
     )
     log_action(
         db,
@@ -1362,7 +2878,7 @@ def api_reserve(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     fingerprint_payload = {"package_id": pid}
-    replay = replay_idempotent_response(db, scope="packages.reserve", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="packages.reserve", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
     p = db.get(Package, pid)
@@ -1390,7 +2906,7 @@ def api_ship(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     fingerprint_payload = {"package_id": pid}
-    replay = replay_idempotent_response(db, scope="packages.ship", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="packages.ship", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
     p = db.get(Package, pid)
@@ -1418,7 +2934,7 @@ def api_delivered(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     fingerprint_payload = {"package_id": pid}
-    replay = replay_idempotent_response(db, scope="packages.mark-delivered", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="packages.mark-delivered", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
     p = db.get(Package, pid)
@@ -1446,7 +2962,7 @@ def api_damaged(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     fingerprint_payload = {"package_id": pid}
-    replay = replay_idempotent_response(db, scope="packages.mark-damaged", key=idempotency_key, payload=fingerprint_payload)
+    replay = replay_idempotent_response(db, user=current, scope="packages.mark-damaged", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
     p = db.get(Package, pid)
@@ -1466,15 +2982,54 @@ def api_damaged(
     return response
 
 
-@router.get("/{pid}/history")
-def history(pid: int, db: DbSession, current: CurrentUser):
+def _package_history_payload(scan: PackageScanLog) -> dict:
+    return {
+        "id": scan.id,
+        "scan_type": scan.scan_type,
+        "scanned_by": scan.scanned_by,
+        "scanned_at": scan.scanned_at,
+        "location": scan.location,
+    }
+
+
+@router.get("/{pid}/history", response_model=list[PackageHistoryOut] | PackageHistoryPageOut)
+def history(
+    pid: int,
+    db: DbSession,
+    current: CurrentUser,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
     p = db.get(Package, pid)
     if not p: raise HTTPException(404, "Package not found")
     require_package_access(current, p)
-    return [
-        {"id": s.id, "scan_type": s.scan_type, "scanned_by": s.scanned_by, "scanned_at": s.scanned_at, "location": s.location}
-        for s in p.scan_logs
-    ]
+    if page is None and page_size is None:
+        return [_package_history_payload(scan) for scan in p.scan_logs]
+
+    effective_page = page or 1
+    effective_page_size = page_size or 50
+    query = db.query(PackageScanLog).filter(PackageScanLog.package_id == pid)
+    total = int(query.count())
+    scans = (
+        query.options(load_only(
+            PackageScanLog.id,
+            PackageScanLog.scan_type,
+            PackageScanLog.scanned_by,
+            PackageScanLog.scanned_at,
+            PackageScanLog.location,
+        ))
+        .order_by(PackageScanLog.scanned_at.asc(), PackageScanLog.id.asc())
+        .offset((effective_page - 1) * effective_page_size)
+        .limit(effective_page_size)
+        .all()
+    )
+    return {
+        "rows": [_package_history_payload(scan) for scan in scans],
+        "total": total,
+        "page": effective_page,
+        "page_size": effective_page_size,
+        "has_more": effective_page * effective_page_size < total,
+    }
 
 
 @router.get("/{pid}/label", response_class=HTMLResponse)
@@ -1495,6 +3050,8 @@ def label_sheet(ids: str, db: DbSession, current: User = Depends(require_permiss
         raise HTTPException(400, "ids must be comma-separated integers")
     if not parsed_ids:
         raise HTTPException(400, "Provide at least one package id")
+    if len(parsed_ids) > 500:
+        raise HTTPException(413, "A label sheet may contain at most 500 packages")
     rows = (
         db.query(Package)
         .options(selectinload(Package.items))
@@ -1507,5 +3064,16 @@ def label_sheet(ids: str, db: DbSession, current: User = Depends(require_permiss
     for package in rows:
         require_package_access(current, package)
 
-    cards = [_package_label_card_html(db, p) for p in rows]
+    from app.services.package_workflows import require_active_labels
+    require_active_labels(db, [int(package.id) for package in rows])
+    context = _package_label_reference_context(db, rows)
+    cards = [
+        _package_label_card_html(
+            db,
+            package,
+            context=context,
+            active_label_checked=True,
+        )
+        for package in rows
+    ]
     return warehouse_print_response(label_document("Package Label Sheet", cards, _PACKAGE_LABEL_CSS))

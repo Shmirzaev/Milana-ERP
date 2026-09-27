@@ -1,8 +1,9 @@
 "use client";
 import { ApiError } from "@/lib/errorMessages";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import { Download, Filter, Printer, RotateCcw } from "lucide-react";
 
 import PageHeader from "@/components/PageHeader";
@@ -17,6 +18,7 @@ import {
   type ReportOption,
   type SewingProductionReportFilters,
   type SewingProductionReportOptions,
+  type SewingProductionReportOrderOptionPage,
   type SewingProductionReportResponse,
   type SewingProductionReportRow,
 } from "@/lib/sewingProductionReport";
@@ -59,6 +61,13 @@ function ReportFilterSelect({
   searchPlaceholder,
   noResultsText,
   onChange,
+  serverFilter = false,
+  loading = false,
+  hasMore = false,
+  onSearchChange,
+  onLoadMore,
+  loadingText,
+  loadMoreText,
 }: {
   id: string;
   label: string;
@@ -68,6 +77,13 @@ function ReportFilterSelect({
   searchPlaceholder: string;
   noResultsText: string;
   onChange: (value: string) => void;
+  serverFilter?: boolean;
+  loading?: boolean;
+  hasMore?: boolean;
+  onSearchChange?: (query: string) => void;
+  onLoadMore?: () => void;
+  loadingText?: string;
+  loadMoreText?: string;
 }) {
   const searchableOptions = useMemo(
     () => [{ value: "", label: allLabel }, ...options],
@@ -83,6 +99,13 @@ function ReportFilterSelect({
         options={searchableOptions}
         placeholder={searchPlaceholder}
         noResultsText={noResultsText}
+        serverFilter={serverFilter}
+        loading={loading}
+        hasMore={hasMore}
+        onSearchChange={onSearchChange}
+        onLoadMore={onLoadMore}
+        loadingText={loadingText}
+        loadMoreText={loadMoreText}
         onChange={(nextValue) => onChange(nextValue)}
       />
     </div>
@@ -107,6 +130,9 @@ export default function SewingProductionReportPage() {
   const [reportView, setReportView] = useState<"details" | "salary">("details");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(PAGE_SIZE);
+  const [orderSearch, setOrderSearch] = useState("");
+  const [debouncedOrderSearch, setDebouncedOrderSearch] = useState("");
+  const [retainedOrderOption, setRetainedOrderOption] = useState<ReportOption | null>(null);
   const [action, setAction] = useState<"xlsx" | "print" | null>(null);
   const [actionError, setActionError] = useState("");
   const [printRows, setPrintRows] = useState<SewingProductionReportRow[] | null>(null);
@@ -115,6 +141,7 @@ export default function SewingProductionReportPage() {
     () => {
       const params = buildSewingReportParams(applied, page, pageSize);
       params.set("report_view", reportView);
+      params.set("include_options", "false");
       return params.toString();
     },
     [applied, page, pageSize, reportView],
@@ -123,16 +150,65 @@ export default function SewingProductionReportPage() {
     `/api/payroll/reports/sewing-production?${query}`,
     fetcher,
   );
-  const optionQuery = draft.factoryCode
-    ? `?factory_code=${encodeURIComponent(draft.factoryCode)}`
-    : "";
+  const optionParams = new URLSearchParams({ include_orders: "false" });
+  if (draft.factoryCode) optionParams.set("factory_code", draft.factoryCode);
+  const optionQuery = `?${optionParams.toString()}`;
   const { data: scopedOptions } = useSWR<SewingProductionReportOptions>(
     `/api/payroll/reports/sewing-production/options${optionQuery}`,
     fetcher,
   );
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedOrderSearch(orderSearch.trim().slice(0, 120)), 250);
+    return () => window.clearTimeout(timeout);
+  }, [orderSearch]);
+  const { data: orderOptionPages, size: orderOptionPageCount, setSize: setOrderOptionPageCount, isLoading: isOrderOptionsLoading, isValidating: isOrderOptionsValidating } = useSWRInfinite<SewingProductionReportOrderOptionPage>(
+    (index, previousPage) => {
+      if (previousPage && previousPage.offset + previousPage.items.length >= previousPage.total) return null;
+      const params = new URLSearchParams({ limit: "50", offset: String(index * 50) });
+      if (draft.factoryCode) params.set("factory_code", draft.factoryCode);
+      if (draft.orderNo) params.set("selected_value", draft.orderNo);
+      const search = debouncedOrderSearch;
+      if (search) params.set("search", search);
+      return `/api/payroll/reports/sewing-production/orders?${params.toString()}`;
+    },
+    fetcher,
+    { persistSize: false },
+  );
+  useEffect(() => {
+    void setOrderOptionPageCount(1);
+  }, [debouncedOrderSearch, draft.factoryCode, setOrderOptionPageCount]);
 
   const reportRows = printRows || data?.items || [];
   const rowOffset = printRows ? 0 : (page - 1) * pageSize;
+  const firstOrderOptionPage = orderOptionPages?.[0];
+  const orderOptionsMatchCurrentQuery = Boolean(
+    firstOrderOptionPage
+    && firstOrderOptionPage.search === debouncedOrderSearch
+    && firstOrderOptionPage.selected_value === draft.orderNo
+    && (!draft.factoryCode || firstOrderOptionPage.factory_code === draft.factoryCode),
+  );
+  const currentOrderOptionPages = orderOptionsMatchCurrentQuery ? orderOptionPages : undefined;
+  const fetchedOrderOptions = useMemo(() => {
+    const seen = new Set<string>();
+    return (currentOrderOptionPages || []).flatMap((optionPage) => optionPage.items).filter((option) => {
+      if (seen.has(option.value)) return false;
+      seen.add(option.value);
+      return true;
+    });
+  }, [currentOrderOptionPages]);
+  const selectedOrderOption = draft.orderNo
+    ? currentOrderOptionPages?.[0]?.selected_option?.value === draft.orderNo
+      ? currentOrderOptionPages[0].selected_option
+      : retainedOrderOption?.value === draft.orderNo ? retainedOrderOption : null
+    : null;
+  const orderOptions = useMemo(() => {
+    if (!selectedOrderOption || fetchedOrderOptions.some((option) => option.value === selectedOrderOption.value)) {
+      return fetchedOrderOptions;
+    }
+    return [selectedOrderOption, ...fetchedOrderOptions];
+  }, [fetchedOrderOptions, selectedOrderOption]);
+  const lastOrderOptionPage = currentOrderOptionPages?.[currentOrderOptionPages.length - 1];
+  const orderOptionsHaveMore = Boolean(lastOrderOptionPage && fetchedOrderOptions.length < lastOrderOptionPage.total);
   const options = scopedOptions;
   const printSummary = {
     qrCount: printRows ? reportRows.length : Number(data?.total || 0),
@@ -150,6 +226,8 @@ export default function SewingProductionReportPage() {
   }
 
   function updateFactory(factoryCode: string) {
+    setOrderSearch("");
+    setRetainedOrderOption(null);
     setDraft((current) => ({
       ...current,
       factoryCode,
@@ -171,6 +249,8 @@ export default function SewingProductionReportPage() {
 
   function resetFilters() {
     const next = initialFilters();
+    setOrderSearch("");
+    setRetainedOrderOption(null);
     setDraft(next);
     setApplied(next);
     setPage(1);
@@ -182,6 +262,7 @@ export default function SewingProductionReportPage() {
     let total = 1;
     while (rows.length < total) {
       const params = buildSewingReportParams(applied, currentPage, 5000);
+      params.set("include_options", "false");
       const response = await api.get<SewingProductionReportResponse>(
         `/api/payroll/reports/sewing-production?${params.toString()}`,
         60_000,
@@ -317,11 +398,25 @@ export default function SewingProductionReportPage() {
             id="sewing-report-order"
             label={t("page.sewingReport.order")}
             value={draft.orderNo}
-            options={options?.orders || []}
+            options={orderOptions}
             allLabel={t("page.sewingReport.allOrders")}
             searchPlaceholder={t("page.sewingReport.searchOrder")}
             noResultsText={t("page.sewingReport.noFilterOptions")}
-            onChange={(value) => update("orderNo", value)}
+            serverFilter
+            loading={isOrderOptionsLoading || isOrderOptionsValidating}
+            hasMore={orderOptionsHaveMore}
+            loadingText={t("common.loading")}
+            loadMoreText={t("common.loadMore")}
+            onSearchChange={setOrderSearch}
+            onLoadMore={() => {
+              if (orderOptionsHaveMore && !isOrderOptionsValidating) {
+                void setOrderOptionPageCount(orderOptionPageCount + 1);
+              }
+            }}
+            onChange={(value) => {
+              setRetainedOrderOption(value ? orderOptions.find((option) => option.value === value) || null : null);
+              update("orderNo", value);
+            }}
           />
           <ReportFilterSelect
             id="sewing-report-cutting"

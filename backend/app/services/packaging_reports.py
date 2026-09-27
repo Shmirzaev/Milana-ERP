@@ -8,7 +8,8 @@ from io import BytesIO
 import base64
 
 from fastapi import HTTPException
-from sqlalchemy.orm import lazyload, selectinload
+from sqlalchemy.orm import lazyload, load_only, selectinload
+from sqlalchemy.orm.attributes import set_committed_value
 from PIL import Image
 
 from app.core.dt import as_utc
@@ -19,12 +20,14 @@ from app.models import (
     Model,
     ModelImage,
     Package,
+    PackageBatchAllocation,
+    PackageItem,
     ProductionBatch,
     ProductionOrder,
     WorkOrder,
 )
 from app.services.model_images import model_preview_image_url
-from app.services.label_images import model_label_image_src
+from app.services.label_images import is_preview_model_image, model_label_image_src
 
 
 REPORT_TZ = timezone(timedelta(hours=5), "Asia/Tashkent")
@@ -60,6 +63,16 @@ def _identity(model):
     return str(model_no), str(variant or "")
 
 
+def _selected_report_image(model):
+    images = [image for image in (model.images or []) if is_preview_model_image(image)]
+    typed_model = next(
+        (image for image in images if str(image.image_type or "").lower() == "model"),
+        None,
+    )
+    primary = next((image for image in images if image.is_primary), None)
+    return typed_model or primary or (images[0] if images else None)
+
+
 def build_packaging_report(
     db, department: str, from_date: date, to_date: date, *, include_images: bool = False
 ) -> dict:
@@ -73,8 +86,28 @@ def build_packaging_report(
     packages = (
         package_query.options(
             lazyload("*"),
-            selectinload(Package.items),
-            selectinload(Package.batch_allocations),
+            load_only(
+                Package.id,
+                Package.production_order_id,
+                Package.model_id,
+                Package.brand_id,
+                Package.production_batch_id,
+                Package.color,
+                Package.total_quantity,
+                Package.capacity,
+                Package.packed_at,
+            ),
+            selectinload(Package.items).load_only(
+                PackageItem.id,
+                PackageItem.package_id,
+                PackageItem.size,
+                PackageItem.quantity,
+            ),
+            selectinload(Package.batch_allocations).load_only(
+                PackageBatchAllocation.id,
+                PackageBatchAllocation.package_id,
+                PackageBatchAllocation.production_batch_id,
+            ),
         )
         .filter(Package.packed_at >= start, Package.packed_at < end)
         .order_by(
@@ -91,7 +124,19 @@ def build_packaging_report(
     completed = (
         db.query(WorkOrder)
         .join(Department)
-        .options(lazyload("*"))
+        .options(
+            lazyload("*"),
+            load_only(
+                WorkOrder.id,
+                WorkOrder.production_order_id,
+                WorkOrder.production_batch_id,
+                WorkOrder.end_time,
+                WorkOrder.planned_output_qty,
+                WorkOrder.passed_qty,
+                WorkOrder.failed_qty,
+                WorkOrder.notes,
+            ),
+        )
         .filter(
             Department.code == department,
             WorkOrder.operation == "packaging",
@@ -109,22 +154,65 @@ def build_packaging_report(
     orders = (
         {
             o.id: o
-            for o in db.query(ProductionOrder).options(lazyload("*")).filter(ProductionOrder.id.in_(order_ids)).all()
+            for o in db.query(ProductionOrder).options(
+                lazyload("*"),
+                load_only(
+                    ProductionOrder.id,
+                    ProductionOrder.model_id,
+                    ProductionOrder.production_no,
+                    ProductionOrder.brand_id,
+                ),
+            ).filter(ProductionOrder.id.in_(order_ids)).all()
         }
         if order_ids
         else {}
     )
     model_ids = {p.model_id for p in packages} | {o.model_id for o in orders.values()}
-    image_loader = selectinload(Model.images)
-    if not include_images:
-        image_loader = image_loader.defer(ModelImage.file_data)
+    image_loader = selectinload(Model.images).load_only(
+        ModelImage.id,
+        ModelImage.model_id,
+        ModelImage.file_url,
+        ModelImage.file_name,
+        ModelImage.content_type,
+        ModelImage.image_type,
+        ModelImage.is_primary,
+    )
     models = (
-        {m.id: m for m in db.query(Model).options(lazyload("*"), image_loader).filter(Model.id.in_(model_ids)).all()}
+        {m.id: m for m in db.query(Model).options(
+            lazyload("*"),
+            load_only(
+                Model.id,
+                Model.code,
+                Model.name,
+                Model.category,
+                Model.product_type,
+                Model.brand_id,
+                Model.details_json,
+            ),
+            image_loader,
+        ).filter(Model.id.in_(model_ids)).all()}
         if model_ids
         else {}
     )
     pictures = {}
     if include_images:
+        selected_images = {
+            int(image.id): image
+            for model in models.values()
+            if (image := _selected_report_image(model)) is not None
+        }
+        selected_image_data = (
+            db.query(ModelImage.id, ModelImage.file_data)
+            .filter(
+                ModelImage.id.in_(selected_images),
+                ModelImage.file_data.isnot(None),
+            )
+            .all()
+            if selected_images
+            else []
+        )
+        for image_id, file_data in selected_image_data:
+            set_committed_value(selected_images[int(image_id)], "file_data", file_data)
         for model_id, model in models.items():
             source = model_label_image_src(model)
             if source and source.startswith("data:image/"):

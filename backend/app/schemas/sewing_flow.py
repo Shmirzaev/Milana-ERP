@@ -42,7 +42,40 @@ class SewingFlowWithLoad(SewingFlowOut):
     completed_units: int = 0
 
 
+class SewingFlowPageOut(BaseModel):
+    rows: list[SewingFlowWithLoad]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
+class SewingFlowUtilizationOut(BaseModel):
+    flow_id: int
+    code: str
+    capacity_per_day: int
+    committed_today: int
+    utilization_pct: float
+    is_full: bool
+
+
+class SewingFlowUtilizationPageOut(BaseModel):
+    rows: list[SewingFlowUtilizationOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class SewingFlowWorkOrderOut(WorkOrderOut):
     """A sewing-flow work order with the model shown on the line."""
 
     model_no: Optional[str] = None
+
+
+class SewingFlowWorkOrderPageOut(BaseModel):
+    rows: list[SewingFlowWorkOrderOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool

@@ -13,6 +13,7 @@ from app.core.config import settings
 
 
 class SharedCounterStore(Protocol):
+    def ping(self) -> None: ...
     def increment(self, key: str, ttl_seconds: int) -> int: ...
     def ttl(self, key: str) -> int | None: ...
     def set(self, key: str, value: str, ttl_seconds: int) -> None: ...
@@ -26,6 +27,9 @@ class InMemorySharedCounterStore:
 
     _values: dict[str, tuple[int | str, float]] = field(default_factory=dict)
     _lock: RLock = field(default_factory=RLock)
+
+    def ping(self) -> None:
+        return None
 
     def _purge_expired(self) -> None:
         now = time.time()
@@ -71,6 +75,14 @@ class InMemorySharedCounterStore:
 
 
 class RedisSharedCounterStore:
+    _INCREMENT_WITH_TTL = """
+local count = redis.call('INCR', KEYS[1])
+if redis.call('TTL', KEYS[1]) < 0 then
+    redis.call('EXPIRE', KEYS[1], ARGV[1])
+end
+return count
+"""
+
     def __init__(self, url: str, *, prefix: str) -> None:
         try:
             from redis import Redis
@@ -84,16 +96,13 @@ class RedisSharedCounterStore:
     def _key(self, key: str) -> str:
         return f"{self._prefix}:{key}" if self._prefix else key
 
+    def ping(self) -> None:
+        self._client.ping()
+
     def increment(self, key: str, ttl_seconds: int) -> int:
         ttl = max(1, int(ttl_seconds or 1))
         redis_key = self._key(key)
-        pipe = self._client.pipeline()
-        pipe.incr(redis_key)
-        pipe.ttl(redis_key)
-        count, current_ttl = pipe.execute()
-        if int(current_ttl) < 0:
-            self._client.expire(redis_key, ttl)
-        return int(count)
+        return int(self._client.eval(self._INCREMENT_WITH_TTL, 1, redis_key, ttl))
 
     def ttl(self, key: str) -> int | None:
         current_ttl = int(self._client.ttl(self._key(key)))
@@ -160,6 +169,10 @@ class SQLiteSharedCounterStore:
     def _key(self, key: str) -> str:
         return f"{self._prefix}:{key}" if self._prefix else key
 
+    def ping(self) -> None:
+        with sqlite3.connect(self._db_path, timeout=5) as conn:
+            conn.execute("SELECT 1 FROM shared_counters LIMIT 1").fetchone()
+
     @staticmethod
     def _purge_expired(conn: sqlite3.Connection) -> None:
         conn.execute("DELETE FROM shared_counters WHERE expires_at <= ?", (time.time(),))
@@ -220,6 +233,7 @@ class SQLiteSharedCounterStore:
 
 
 _store: SharedCounterStore | None = None
+_store_init_lock = RLock()
 
 
 def get_shared_counter_store() -> SharedCounterStore:
@@ -227,24 +241,30 @@ def get_shared_counter_store() -> SharedCounterStore:
     if _store is not None:
         return _store
 
+    with _store_init_lock:
+        if _store is None:
+            _store = _create_shared_counter_store()
+        return _store
+
+
+def _create_shared_counter_store() -> SharedCounterStore:
     url = settings.shared_store_url
     if url:
         parsed = urlparse(url)
         if parsed.scheme in {"redis", "rediss"}:
-            _store = RedisSharedCounterStore(url, prefix=settings.SHARED_STORE_KEY_PREFIX)
+            return RedisSharedCounterStore(url, prefix=settings.SHARED_STORE_KEY_PREFIX)
         elif parsed.scheme == "sqlite":
-            _store = SQLiteSharedCounterStore(url, prefix=settings.SHARED_STORE_KEY_PREFIX)
+            return SQLiteSharedCounterStore(url, prefix=settings.SHARED_STORE_KEY_PREFIX)
         else:
             raise RuntimeError("SHARED_STORE_URL must use redis://, rediss://, or sqlite:///")
-        return _store
 
     if settings.strict_security_required:
         raise RuntimeError("SHARED_STORE_URL or REDIS_URL is required for rate limits and auth lockouts in production/public deployments")
 
-    _store = InMemorySharedCounterStore()
-    return _store
+    return InMemorySharedCounterStore()
 
 
 def reset_shared_counter_store_for_tests() -> None:
     global _store
-    _store = InMemorySharedCounterStore()
+    with _store_init_lock:
+        _store = InMemorySharedCounterStore()

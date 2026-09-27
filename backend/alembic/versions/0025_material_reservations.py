@@ -58,7 +58,6 @@ def upgrade():
         )
 
     inspector = sa.inspect(bind)
-    _create_index_if_missing(inspector, "ix_material_reservations_reservation_no", "material_reservations", ["reservation_no"], unique=True)
     _create_index_if_missing(inspector, "ix_material_reservations_production_order_id", "material_reservations", ["production_order_id"])
     _create_index_if_missing(inspector, "ix_material_reservations_sales_order_id", "material_reservations", ["sales_order_id"])
     _create_index_if_missing(inspector, "ix_material_reservations_item_id", "material_reservations", ["item_id"])

@@ -1,9 +1,9 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Optional
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Annotated, Literal, Optional
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.schemas.common import ORMModel
+from app.schemas.common import ORMModel, reject_cost_fractional_precision
 
 
 class ItemComposition(BaseModel):
@@ -11,17 +11,32 @@ class ItemComposition(BaseModel):
     percentage: float = Field(ge=0, le=100)
 
 
+ItemDefaultCost = Annotated[
+    Decimal,
+    Field(ge=0, le=Decimal("99999999.9999"), allow_inf_nan=False),
+]
+ItemReorderLevel = Annotated[
+    Decimal,
+    Field(ge=0, le=Decimal("9999999999.9999"), allow_inf_nan=False),
+]
+
+
 class ItemIn(BaseModel):
     sku: str
     name: str
     category: str
     unit: str
-    default_cost: float = 0
-    reorder_level: float = 0
+    default_cost: ItemDefaultCost = Decimal("0")
+    reorder_level: ItemReorderLevel = Decimal("0")
     track_batch: bool = False
     is_active: bool = True
     image_url: Optional[str] = None
     composition: list[ItemComposition] = Field(default_factory=list)
+
+    @field_validator("default_cost", mode="before")
+    @classmethod
+    def validate_default_cost_precision(cls, value):
+        return reject_cost_fractional_precision(value, minimum=Decimal("0"))
 
 
 class ItemImageIn(BaseModel):
@@ -44,7 +59,19 @@ class ItemOut(ORMModel):
 
 class WarehouseIn(BaseModel):
     name: str
-    type: str
+    type: Literal[
+        "fabric_storage",
+        "accessory_storage",
+        "packaging",
+        "cutting",
+        "eco_cotton_cutting",
+        "printing",
+        "sewing",
+        "besttex_packaging",
+        "eco_cotton_packaging",
+        "finished_goods",
+        "waste",
+    ]
     department_id: Optional[int] = None
 
 
@@ -53,6 +80,22 @@ class WarehouseOut(ORMModel):
     name: str
     type: str
     department_id: Optional[int] = None
+
+
+class WarehousePageOut(BaseModel):
+    rows: list[WarehouseOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
+class InventoryColorPageOut(BaseModel):
+    rows: list[str]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
 
 
 class StockBatchIn(BaseModel):
@@ -66,17 +109,31 @@ class StockBatchIn(BaseModel):
     color_code: Optional[str] = None
     color_status: Optional[str] = None
     order_no: Optional[str] = None
-    width: Optional[float] = None
-    gsm: Optional[float] = None
-    quantity: float
+    width: Optional[float] = Field(
+        default=None, ge=-99_999_999.99, le=99_999_999.99, allow_inf_nan=False,
+    )
+    gsm: Optional[float] = Field(
+        default=None, ge=-99_999_999.999999, le=99_999_999.999999, allow_inf_nan=False,
+    )
+    quantity: float = Field(
+        gt=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
     piece_count: Optional[int] = None
     roll_weights_kg: list[float] = Field(default_factory=list)
     processes: Optional[str] = None
     unit: str
-    cost_per_unit: float = 0
+    cost_per_unit: float = Field(
+        default=0, ge=0, le=99_999_999.9999, allow_inf_nan=False,
+    )
+    cost_currency: Optional[str] = Field(default=None, pattern=r"^[A-Z]{3}$")
     image_url: Optional[str] = None
     warehouse_id: int
     qc_status: str = "pending"
+
+    @field_validator("cost_per_unit", mode="before")
+    @classmethod
+    def validate_cost_precision(cls, value):
+        return reject_cost_fractional_precision(value, minimum=Decimal("0"))
 
 
 class StockBatchRestoreIn(BaseModel):
@@ -94,17 +151,31 @@ class StockBatchUpdate(BaseModel):
     color_code: Optional[str] = None
     color_status: Optional[str] = None
     order_no: Optional[str] = None
-    width: Optional[float] = None
-    gsm: Optional[float] = None
-    quantity: Optional[float] = Field(default=None, ge=0)
+    width: Optional[float] = Field(
+        default=None, ge=-99_999_999.99, le=99_999_999.99, allow_inf_nan=False,
+    )
+    gsm: Optional[float] = Field(
+        default=None, ge=-99_999_999.999999, le=99_999_999.999999, allow_inf_nan=False,
+    )
+    quantity: Optional[float] = Field(
+        default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
     piece_count: Optional[int] = Field(default=None, ge=0)
     processes: Optional[str] = None
     unit: Optional[str] = None
-    cost_per_unit: Optional[float] = Field(default=None, ge=0)
+    cost_per_unit: Optional[float] = Field(
+        default=None, ge=0, le=99_999_999.9999, allow_inf_nan=False,
+    )
+    cost_currency: Optional[str] = Field(default=None, pattern=r"^[A-Z]{3}$")
     image_url: Optional[str] = None
     received_date: Optional[datetime] = None
     warehouse_id: Optional[int] = None
     qc_status: Optional[str] = None
+
+    @field_validator("cost_per_unit", mode="before")
+    @classmethod
+    def validate_cost_precision(cls, value):
+        return reject_cost_fractional_precision(value, minimum=Decimal("0"))
 
 
 class StockBatchRollWeightsIn(BaseModel):
@@ -113,7 +184,14 @@ class StockBatchRollWeightsIn(BaseModel):
 
 class AccessoryReturnIn(StockBatchIn):
     production_order_id: int
-    return_condition: Optional[str] = "used"
+    return_condition: Optional[Literal["new", "used"]] = "used"
+
+    @field_validator("return_condition", mode="before")
+    @classmethod
+    def normalize_return_condition(cls, value):
+        if isinstance(value, str):
+            return value.strip().casefold()
+        return value
 
 
 class StockBatchOut(ORMModel):
@@ -143,6 +221,7 @@ class StockBatchOut(ORMModel):
     processes: Optional[str] = None
     unit: str
     cost_per_unit: float
+    cost_currency: Optional[str] = None
     image_url: Optional[str] = None
     received_date: datetime
     warehouse_id: int
@@ -181,7 +260,9 @@ class StockMovementOut(ORMModel):
 
 
 class StockQuantityAdjustmentIn(BaseModel):
-    quantity: float = Field(ge=0)
+    quantity: float = Field(
+        ge=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
     unit: Optional[str] = None
 
 
@@ -233,27 +314,52 @@ class MaterialReservationOut(ORMModel):
     updated_at: datetime
 
 
+class MaterialReservationPageOut(BaseModel):
+    rows: list[MaterialReservationOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class MaterialReservationIn(BaseModel):
     production_order_id: int
     item_id: int
     stock_batch_id: Optional[int] = None
     warehouse_id: Optional[int] = None
-    reserved_quantity: float = Field(gt=0)
+    reserved_quantity: float = Field(
+        gt=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
     unit: str
-    reservation_type: str = "material"
+    reservation_type: Literal["material", "accessory", "packaging", ""] = Field(
+        default="material",
+        description=(
+            "Reservation classification: material, accessory, or packaging. "
+            "A blank value retains the legacy category-derived behavior."
+        ),
+    )
     notes: Optional[str] = None
+
+    @field_validator("reservation_type", mode="before")
+    @classmethod
+    def normalize_reservation_type(cls, value):
+        if isinstance(value, str):
+            return value.strip()
+        return value
 
 
 class MaterialReservationAutoIn(BaseModel):
     production_order_id: int
-    mode: str = "full_remaining"
+    mode: Literal["shortage_only", "full_remaining"] = "full_remaining"
     reserve_accessories: bool = True
     reserve_materials: bool = True
     reserve_packaging: bool = True
 
 
 class MaterialReservationConsumeIn(BaseModel):
-    quantity: float = Field(gt=0)
+    quantity: float = Field(
+        gt=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
 
 
 class ReservationBatchSuggestion(BaseModel):
@@ -352,15 +458,22 @@ class AccessoryIssueLineIn(BaseModel):
     item_id: Optional[int] = None
     item_sku: Optional[str] = None
     item_name: Optional[str] = None
-    quantity: float
+    quantity: Decimal = Field(gt=0, max_digits=14, decimal_places=4, allow_inf_nan=False)
     unit: Optional[str] = None
     manual: bool = False
 
 
 class AccessoryIssueIn(BaseModel):
     production_order_id: int
-    lines: list[AccessoryIssueLineIn]
+    lines: list[AccessoryIssueLineIn] = Field(max_length=1000)
     notes: Optional[str] = None
+
+    @field_validator("notes")
+    @classmethod
+    def bound_notes_for_audit_json(cls, value: str | None) -> str | None:
+        if value is not None and len(value.encode("utf-8")) > 4096:
+            raise ValueError("accessory issue notes cannot exceed 4096 UTF-8 bytes")
+        return value
 
 
 class AccessoryIssueLineOut(BaseModel):

@@ -1,6 +1,8 @@
 """Per-factory overrides. Empty policies preserve historical account behavior."""
 from app.core.permission_catalog import PERMISSION_KEYS
 
+_WILDCARD_EXPANSION = tuple(sorted(PERMISSION_KEYS - {"*", "admin.super"}))
+
 
 def policy_for(user, factory: str) -> dict:
     return (getattr(user, "access_policy", None) or {}).get(factory, {})
@@ -19,7 +21,7 @@ def apply_policy(user, factory: str, permissions) -> list[str]:
     if "*" in grants:
         # A wildcard must not bypass an explicit denial. Preserve all named
         # capabilities, including legacy/custom role keys, then subtract denies.
-        grants = list(dict.fromkeys([*grants, *sorted(PERMISSION_KEYS - {"*", "admin.super"})]))
+        grants = list(dict.fromkeys([*grants, *_WILDCARD_EXPANSION]))
         grants.remove("*")
     return [permission for permission in grants if permission not in denied]
 

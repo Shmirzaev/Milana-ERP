@@ -1,3 +1,5 @@
+import json
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -23,6 +25,7 @@ from scripts.import_legacy_ready_stock import (
     payload_checksum,
     profile_rows,
 )
+from scripts import import_legacy_ready_stock as legacy_stock_importer
 from scripts.prepare_legacy_ready_stock import COL, EXPECTED_COLUMNS, prepare
 from scripts.canonicalize_legacy_stock_models import reconcile as canonicalize
 from scripts.reconcile_legacy_stock_models import reconcile
@@ -76,6 +79,43 @@ def test_legacy_profile_requires_unique_whole_piece_rows():
     assert profile["units"] == {"шт.": 1, "кг": 1}
     assert payload_checksum(rows[0]) == payload_checksum(dict(reversed(list(rows[0].items()))))
     assert display_color({"color": "RED", "variant": "V-22"}) == "RED · V-22"
+
+
+def _nested_json(levels: int) -> dict:
+    nested = {}
+    for _ in range(levels):
+        nested = {"nested": nested}
+    return nested
+
+
+@pytest.mark.parametrize("source_extra", [
+    {"legacy_extension": "x" * legacy_stock_importer.MAX_SOURCE_PAYLOAD_BYTES},
+    {"legacy_extension": _nested_json(legacy_stock_importer.MAX_SOURCE_PAYLOAD_DEPTH)},
+    {"legacy_extension": float("nan")},
+])
+def test_legacy_import_rejects_unbounded_source_payload_before_database_session(tmp_path, monkeypatch, source_extra):
+    row = {"source_record_id": "1001", "quantity": 2, **source_extra}
+    source_file = tmp_path / "legacy-stock.json"
+    source_file.write_text(json.dumps({"rows": [row]}), encoding="utf-8")
+    args = SimpleNamespace(
+        input=source_file,
+        expected_rows=None,
+        expected_quantity=None,
+        expected_available_quantity=None,
+        warehouse_id=8,
+        legacy_brand="Legacy",
+        apply=False,
+        imported_by=None,
+    )
+    monkeypatch.setattr(
+        legacy_stock_importer,
+        "SessionLocal",
+        lambda: pytest.fail("source payload validation must precede database access"),
+    )
+
+    expected = "finite JSON" if isinstance(source_extra["legacy_extension"], float) else "source_payload"
+    with pytest.raises(ValueError, match=expected):
+        legacy_stock_importer.run_import(args)
 
 
 def test_reused_legacy_alias_selects_next_unscanned_attached_package():

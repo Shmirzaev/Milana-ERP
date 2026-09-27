@@ -1,30 +1,83 @@
 from datetime import datetime
-from typing import Optional
+from decimal import Decimal, InvalidOperation
+from typing import Annotated, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
-from app.schemas.common import ORMModel
+from app.schemas.common import ORMModel, reject_cost_fractional_precision
+
+
+PurchaseOrderQuantity = Annotated[
+    Decimal,
+    Field(gt=0, le=Decimal("9999999999.9999"), allow_inf_nan=False),
+]
+PurchaseReceiptQuantity = Annotated[
+    float,
+    Field(gt=0, le=9_999_999_999.9999, allow_inf_nan=False),
+]
+PurchaseOrderUnitCost = Annotated[
+    float,
+    Field(ge=-99_999_999.9999, le=99_999_999.9999, allow_inf_nan=False),
+]
+PurchaseReceiptUnitCost = Annotated[
+    float,
+    Field(ge=0, le=99_999_999.9999, allow_inf_nan=False),
+]
+PurchaseRequestQuantity = Annotated[
+    Decimal,
+    Field(
+        ge=Decimal("-9999999999.9999"),
+        le=Decimal("9999999999.9999"),
+        allow_inf_nan=False,
+    ),
+]
+
+
+def _reject_purchase_quantity_precision(value):
+    try:
+        quantity = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return value
+    if (
+        quantity.is_finite()
+        and abs(quantity) <= Decimal("9999999999.9999")
+        and quantity % Decimal("0.0001")
+    ):
+        raise ValueError("Purchase quantity supports at most four decimal places")
+    return value
 
 
 class PurchaseRequestLineIn(BaseModel):
     item_id: int
-    required_quantity: float = 0
-    requested_quantity: Optional[float] = None
-    unit: Optional[str] = None
-    available_quantity: float = 0
-    shortage_quantity: Optional[float] = None
+    required_quantity: PurchaseRequestQuantity = Decimal("0")
+    requested_quantity: Optional[PurchaseRequestQuantity] = None
+    unit: Optional[str] = Field(default=None, json_schema_extra={"maxLength": 32})
+    available_quantity: PurchaseRequestQuantity = Decimal("0")
+    shortage_quantity: Optional[PurchaseRequestQuantity] = None
     preferred_supplier_id: Optional[int] = None
-    material_name: Optional[str] = None
-    photo_url: Optional[str] = None
+    material_name: Optional[str] = Field(default=None, json_schema_extra={"maxLength": 255})
+    photo_url: Optional[str] = Field(default=None, json_schema_extra={"maxLength": 500})
     notes: Optional[str] = None
+
+    @field_validator(
+        "required_quantity", "requested_quantity", "available_quantity", "shortage_quantity", mode="before",
+    )
+    @classmethod
+    def validate_quantity_precision(cls, value):
+        return _reject_purchase_quantity_precision(value)
 
 
 class PurchaseRequestIn(BaseModel):
     sales_order_id: Optional[int] = None
     production_order_id: Optional[int] = None
-    status: str = "pending_approval"
+    status: Literal["draft", "pending_approval"] = "pending_approval"
     notes: Optional[str] = None
-    lines: list[PurchaseRequestLineIn]
+    lines: list[PurchaseRequestLineIn] = Field(max_length=1000)
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def normalize_create_status(cls, value):
+        return str(value or "pending_approval").strip() or "pending_approval"
 
 
 class PurchaseRequestLineOut(ORMModel):
@@ -62,16 +115,34 @@ class PurchaseRequestOut(ORMModel):
     lines: list[PurchaseRequestLineOut] = []
 
 
+class PurchaseRequestPageOut(BaseModel):
+    rows: list[PurchaseRequestOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class PurchaseOrderLineIn(BaseModel):
     item_id: int
-    ordered_quantity: float
-    unit: Optional[str] = None
-    unit_cost: float = 0
+    ordered_quantity: PurchaseOrderQuantity
+    unit: Optional[str] = Field(default=None, json_schema_extra={"maxLength": 32})
+    unit_cost: PurchaseOrderUnitCost = 0
     warehouse_id: Optional[int] = None
     supplier_id: Optional[int] = None
-    material_name: Optional[str] = None
-    photo_url: Optional[str] = None
+    material_name: Optional[str] = Field(default=None, json_schema_extra={"maxLength": 255})
+    photo_url: Optional[str] = Field(default=None, json_schema_extra={"maxLength": 500})
     notes: Optional[str] = None
+
+    @field_validator("ordered_quantity", mode="before")
+    @classmethod
+    def validate_quantity_precision(cls, value):
+        return _reject_purchase_quantity_precision(value)
+
+    @field_validator("unit_cost", mode="before")
+    @classmethod
+    def validate_unit_cost_precision(cls, value):
+        return reject_cost_fractional_precision(value, minimum=Decimal("-99999999.9999"))
 
 
 class PurchaseOrderIn(BaseModel):
@@ -79,7 +150,7 @@ class PurchaseOrderIn(BaseModel):
     supplier_id: Optional[int] = None
     expected_date: Optional[datetime] = None
     notes: Optional[str] = None
-    lines: list[PurchaseOrderLineIn]
+    lines: list[PurchaseOrderLineIn] = Field(max_length=1000)
 
 
 class PurchaseOrderLineOut(ORMModel):
@@ -118,30 +189,50 @@ class PurchaseOrderOut(ORMModel):
     lines: list[PurchaseOrderLineOut] = []
 
 
+class PurchaseOrderPageOut(BaseModel):
+    rows: list[PurchaseOrderOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+    supplier_totals: list[dict[str, float | str]] = Field(default_factory=list)
+
+
 class PurchaseOrderReceiveLineIn(BaseModel):
     purchase_order_line_id: int
-    received_quantity: float
+    received_quantity: PurchaseReceiptQuantity
     batch_no: str
     warehouse_id: Optional[int] = None
     supplier_id: Optional[int] = None
-    cost_per_unit: Optional[float] = None
+    cost_per_unit: Optional[PurchaseReceiptUnitCost] = None
+    cost_currency: Optional[str] = Field(default=None, pattern=r"^[A-Z]{3}$")
     color: Optional[str] = None
     old_code: Optional[str] = None
     color_code: Optional[str] = None
     color_status: Optional[str] = None
     order_no: Optional[str] = None
-    width: Optional[float] = None
-    gsm: Optional[float] = None
+    width: Optional[float] = Field(default=None, ge=-99_999_999.99, le=99_999_999.99, allow_inf_nan=False)
+    gsm: Optional[float] = Field(default=None, ge=-99_999_999.999999, le=99_999_999.999999, allow_inf_nan=False)
     piece_count: Optional[int] = None
-    roll_weights_kg: list[float] = Field(default_factory=list)
+    roll_weights_kg: list[float] = Field(default_factory=list, max_length=1000)
     processes: Optional[str] = None
     qc_status: str = "passed"
+
+    @field_validator("received_quantity", mode="before")
+    @classmethod
+    def validate_quantity_precision(cls, value):
+        return _reject_purchase_quantity_precision(value)
+
+    @field_validator("cost_per_unit", mode="before")
+    @classmethod
+    def validate_cost_precision(cls, value):
+        return reject_cost_fractional_precision(value, minimum=Decimal("0"))
 
 
 class PurchaseOrderReceiveIn(BaseModel):
     supplier_id: Optional[int] = None
     close_order: bool = False
-    lines: list[PurchaseOrderReceiveLineIn]
+    lines: list[PurchaseOrderReceiveLineIn] = Field(max_length=1000)
 
 
 class PurchaseRequestApprovalLineIn(BaseModel):
@@ -152,14 +243,19 @@ class PurchaseRequestApprovalLineIn(BaseModel):
 
 
 class PurchaseRequestApprovalIn(BaseModel):
-    lines: list[PurchaseRequestApprovalLineIn]
+    lines: list[PurchaseRequestApprovalLineIn] = Field(max_length=1000)
 
 
 class PurchaseRequestOrderLineIn(BaseModel):
     purchase_request_line_id: int
-    ordered_quantity: float
+    ordered_quantity: PurchaseOrderQuantity
+
+    @field_validator("ordered_quantity", mode="before")
+    @classmethod
+    def validate_quantity_precision(cls, value):
+        return _reject_purchase_quantity_precision(value)
 
 
 class PurchaseRequestOrderIn(BaseModel):
     expected_date: datetime
-    lines: list[PurchaseRequestOrderLineIn]
+    lines: list[PurchaseRequestOrderLineIn] = Field(max_length=1000)

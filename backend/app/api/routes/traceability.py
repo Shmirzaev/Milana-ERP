@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
+from sqlalchemy import case, or_
+from sqlalchemy.orm import load_only
 from urllib.parse import parse_qs, unquote, urlparse
 
 from app.core.deps import DbSession, require_permissions
@@ -18,6 +20,35 @@ from app.services.traceability import (
 )
 
 router = APIRouter(prefix="/traceability", tags=["traceability"])
+
+
+def _package_lookup(db: DbSession):
+    return db.query(Package).options(load_only(
+        Package.id,
+        Package.package_no,
+        Package.barcode,
+        Package.qr_code_url,
+        Package.production_order_id,
+        Package.production_batch_id,
+        Package.sales_order_id,
+        Package.brand_id,
+        Package.collection_id,
+        Package.model_id,
+        Package.color,
+        Package.package_type,
+        Package.total_quantity,
+        Package.capacity,
+        Package.weight_kg,
+        Package.warehouse_id,
+        Package.storage_cell,
+        Package.storage_shelf,
+        Package.storage_placed_at,
+        Package.status,
+        Package.packed_at,
+        Package.received_at,
+        Package.shipped_at,
+        Package.created_at,
+    ))
 
 
 def _decode(value: str) -> str:
@@ -39,15 +70,26 @@ def _package_lookup_candidates(raw_code: str) -> list[str]:
 
 def _find_package(db: DbSession, key: str) -> Package | None:
     decoded = _decode(key)
+    candidates = _package_lookup_candidates(decoded)
+    rank_cases = []
+    conditions = []
     if decoded.isdigit():
-        pkg = db.get(Package, int(decoded))
-        if pkg:
-            return pkg
-    for candidate in _package_lookup_candidates(decoded):
-        pkg = db.query(Package).filter((Package.barcode == candidate) | (Package.package_no == candidate)).first()
-        if pkg:
-            return pkg
-    return None
+        package_id = int(decoded)
+        conditions.append(Package.id == package_id)
+        rank_cases.append((Package.id == package_id, 0))
+    for rank, candidate in enumerate(candidates, start=1):
+        barcode_match = Package.barcode == candidate
+        package_no_match = Package.package_no == candidate
+        conditions.extend((barcode_match, package_no_match))
+        rank_cases.extend(((barcode_match, rank), (package_no_match, rank)))
+    if not conditions:
+        return None
+    return (
+        _package_lookup(db)
+        .filter(or_(*conditions))
+        .order_by(case(*rank_cases, else_=len(candidates) + 1), Package.id.asc())
+        .first()
+    )
 
 
 def _find_bundle(db: DbSession, key: str) -> Bundle | None:
@@ -108,11 +150,22 @@ def _find_production_batch(db: DbSession, key: str) -> ProductionBatch | None:
 
 def _find_shipment(db: DbSession, key: str) -> Shipment | None:
     decoded = _decode(key)
+    query = db.query(Shipment).options(load_only(
+        Shipment.id,
+        Shipment.shipment_no,
+        Shipment.status,
+        Shipment.sales_order_id,
+        Shipment.customer_id,
+        Shipment.shipped_at,
+        Shipment.delivered_at,
+        Shipment.created_at,
+        Shipment.notes,
+    ))
     if decoded.isdigit():
-        shipment = db.get(Shipment, int(decoded))
+        shipment = query.filter(Shipment.id == int(decoded)).first()
         if shipment:
             return shipment
-    return db.query(Shipment).filter(Shipment.shipment_no == decoded).first()
+    return query.filter(Shipment.shipment_no == decoded).first()
 
 
 @router.get("/package/barcode/{barcode}")

@@ -47,6 +47,14 @@ export type PriceCalculationRequest = {
   updated_at: string;
 };
 
+export type PriceCalculationRequestPage = {
+  items: PriceCalculationRequest[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+};
+
 export function priceRequestSurface(status: PriceRequestStatus): string {
   if (status === "complete") return "border-[#b9d8bd] bg-[#eef8ef]";
   if (status === "in_progress") return "border-[#e4d28f] bg-[#fff8dd]";
@@ -59,13 +67,7 @@ function normalized(value: unknown): string {
 
 export function isAbbosbekPricingUser(me: Me | undefined): boolean {
   if (!me) return false;
-  if (me.permissions.includes("*")) return true;
-  if (me.access_configured) return me.permissions.includes("price_calculation.purchasing");
-  const name = normalized(me.name);
-  const emailLocal = normalized(me.email).split("@", 1)[0];
-  return name === "abbosbek"
-    || name.startsWith("abbosbek ")
-    || emailLocal === "abbosbek"
+  return me.permissions.includes("*")
     || me.permissions.includes("price_calculation.purchasing");
 }
 

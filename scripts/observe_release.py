@@ -16,8 +16,10 @@ WINDOW_SECONDS = {"low": 600, "high": 1800}
 INTERVAL_SECONDS = 30
 ENDPOINTS = (
     ("internal_backend", "http://172.16.10.4:8000/health", "GET"),
+    ("internal_backend_readiness", "http://172.16.10.4:8000/ready", "GET"),
     ("internal_frontend", "http://172.16.10.5:3000/login", "HEAD"),
     ("public_backend", "https://erp.milanapremium.uz/health", "GET"),
+    ("public_backend_readiness", "https://erp.milanapremium.uz/ready", "GET"),
     ("public_frontend", "https://erp.milanapremium.uz/login", "HEAD"),
 )
 

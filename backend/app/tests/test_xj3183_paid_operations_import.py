@@ -36,6 +36,41 @@ def test_import_is_idempotent_and_preserves_unrelated_details():
         next_details({"paidOperations": [{"name": "Legacy work"}]}, operations)
 
 
+def test_import_bounds_changed_details_without_mutating_oversized_legacy(tmp_path):
+    _, operations = load_operations(MANIFEST)
+    previous = {"legacy_extension": "x" * (50 * 1024)}
+    frozen = deepcopy(previous)
+
+    with pytest.raises(ValueError, match="details_json cannot exceed"):
+        next_details(previous, operations)
+
+    assert previous == frozen
+
+
+def test_import_bounds_changed_details_without_mutating_deep_legacy():
+    _, operations = load_operations(MANIFEST)
+    nested = {"leaf": True}
+    for _ in range(20):
+        nested = {"next": nested}
+    previous = {"legacy_extension": nested}
+    frozen = deepcopy(previous)
+
+    with pytest.raises(ValueError, match="nested container levels"):
+        next_details(previous, operations)
+
+    assert previous == frozen
+
+
+def test_import_allows_exact_unchanged_oversized_legacy_details():
+    _, operations = load_operations(MANIFEST)
+    previous = {
+        "paid_operations": deepcopy(operations),
+        "legacy_extension": "x" * (70 * 1024),
+    }
+
+    assert next_details(previous, operations) == previous
+
+
 def test_import_rejects_changed_source(tmp_path):
     changed = tmp_path / "changed.json"
     changed.write_bytes(MANIFEST.read_bytes().replace(b'"8680"', b'"9999"') + b" ")

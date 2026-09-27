@@ -319,16 +319,13 @@ export default function CuttingPage() {
   const id = Number(params.id);
   const fabricListboxId = `fabric-batch-options-${id || "new"}`;
   const { me } = useMe();
-  const { data: wo, mutate: mutateWo } = useSWR<any>(`/api/work-orders/${id}`, fetcher);
-  const { data: po, mutate: mutatePo } = useSWR<any>(wo ? `/api/production-orders/${wo.production_order_id}` : null, fetcher);
+  const { data: pageContext, mutate: mutateWo } = useSWR<any>(`/api/work-orders/${id}/page-context`, fetcher);
+  const wo = pageContext?.work_order;
+  const po = pageContext?.production_order;
+  const so = pageContext?.sales_order;
+  const model = pageContext?.model;
   const isUsluga = po?.source_type === "usluga";
-  const { data: so } = useSWR<any>(po?.sales_order_id ? `/api/sales-orders/${po.sales_order_id}` : null, fetcher);
-  const { data: model } = useSWR<any>(
-    po?.model_id ? `/api/${isUsluga ? "usluga/models" : "models"}/${po.model_id}` : null,
-    fetcher,
-  );
   const canReadCustomers = can(me, "*", "sales.customers", "sales.orders", "finance.view");
-  const { data: customers = [] } = useSWR<any[]>(canReadCustomers ? "/api/customers" : null, fetcher);
   const { data: departments = [] } = useSWR<any[]>("/api/departments", fetcher);
   const { data: bundlePage, mutate: mutateBundles } = useSWR<any>(
     po?.id ? `/api/bundles?production_order_id=${po.id}&include_total=true&page=1&page_size=2000` : null,
@@ -342,7 +339,11 @@ export default function CuttingPage() {
     isUsluga && wo ? `/api/work-orders/${id}/usluga-cutting-batches` : null,
     fetcher,
   );
-  const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
+  const customerName = so?.customer_id
+    ? canReadCustomers
+      ? so.customer?.name || so.customer_name || `#${so.customer_id}`
+      : `#${so.customer_id}`
+    : null;
   const isEcoCottonCutting = departments.some(
     (department) => Number(department.id) === Number(wo?.department_id) && String(department.code).toUpperCase() === "ECT",
   );
@@ -957,7 +958,7 @@ export default function CuttingPage() {
         notes: row.notes ? row.notes : null,
       }));
       await api.post(`/api/work-orders/${id}/split-batches`, { batches: payloadRows });
-      await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress()]);
+      await Promise.all([mutateWo(), mutateBatchProgress()]);
       setDoneMsg(t("batch.planSaved"));
     } catch (e: any) {
       setSplitErr(e.message || localizeError("Failed to split into batches"));
@@ -1009,7 +1010,7 @@ export default function CuttingPage() {
       }));
       setExtraBatchOpen(false);
       setDoneMsg(t("batch.extraBatchCreated"));
-      await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress()]);
+      await Promise.all([mutateWo(), mutateBatchProgress()]);
     } catch (e: any) {
       setExtraBatchErr(e.message || localizeError("Failed to add extra batch"));
     } finally {
@@ -1060,7 +1061,7 @@ export default function CuttingPage() {
           notes: batchPlanEdit.notes.trim() || null,
         } : {}),
       });
-      await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles()]);
+      await Promise.all([mutateWo(), mutateBatchProgress(), mutateBundles()]);
       cancelBatchPlanEdit();
       setDoneMsg(t("batch.planUpdated"));
     } catch (e: any) {
@@ -1073,7 +1074,7 @@ export default function CuttingPage() {
   async function saveBreakdown(items: Array<{ id?: number | null; color: string; size: string; planned_quantity: number }>) {
     if (!po?.id) return;
     await api.put(`/api/production-orders/${po.id}/breakdown`, { items });
-    await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress()]);
+    await Promise.all([mutateWo(), mutateBatchProgress()]);
   }
 
   async function submit(e: React.FormEvent) {
@@ -1154,7 +1155,7 @@ export default function CuttingPage() {
         material_rolls_used: "",
         notes: "",
       }));
-      await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles(), mutateUslugaCutting()]);
+      await Promise.all([mutateWo(), mutateBatchProgress(), mutateBundles(), mutateUslugaCutting()]);
     } catch (e: any) {
       setErr(e.message);
     } finally {
@@ -1169,7 +1170,7 @@ export default function CuttingPage() {
     try {
       await api.post(`/api/cutting/records/${recordId}/approve-usluga-batch`, {});
       setDoneMsg(t("usluga.approved"));
-      await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles(), mutateUslugaCutting()]);
+      await Promise.all([mutateWo(), mutateBatchProgress(), mutateBundles(), mutateUslugaCutting()]);
     } catch (e: any) {
       setErr(e?.message || t("usluga.actionFailed"));
     } finally {
@@ -1231,14 +1232,13 @@ export default function CuttingPage() {
       setUslugaRejectingId(0);
       setUslugaRejectReason("");
       setDoneMsg(t("usluga.rejected"));
-      await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles(), mutateUslugaCutting()]);
+      await Promise.all([mutateWo(), mutateBatchProgress(), mutateBundles(), mutateUslugaCutting()]);
     } catch (e: any) {
       setErr(e?.message || t("usluga.actionFailed"));
     } finally {
       setUslugaBatchBusy(0);
     }
   }
-
 
   function beginBundleAdjustment(bundle: any) {
     const recordId = Number(bundle?.cutting_record_id || 0);
@@ -1285,7 +1285,7 @@ export default function CuttingPage() {
         const next = byId.get(Number(row?.id || 0));
         return next ? { ...row, quantity: next.quantity, color: next.color ?? row.color, size: next.size ?? row.size } : row;
       }));
-      await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles()]);
+      await Promise.all([mutateWo(), mutateBatchProgress(), mutateBundles()]);
       setAdjustingBundle(null);
       setDoneMsg(t("page.cutting.bundleQuantityUpdated"));
     } catch (e: any) {
@@ -1362,7 +1362,7 @@ export default function CuttingPage() {
       await api.del(`/api/bundles/${bundleId}`);
       setCreatedBundles((prev) => prev.filter((row) => Number(row?.id || 0) !== bundleId));
       if (adjustingBundle?.bundleId === bundleId) setAdjustingBundle(null);
-      await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles()]);
+      await Promise.all([mutateWo(), mutateBatchProgress(), mutateBundles()]);
       setDoneMsg(t("page.cutting.bundleDeleted", { bundleNo: bundle.bundle_no || `#${bundleId}` }));
     } catch (e: any) {
       setAdjustingBundleErr(e.message || t("page.cutting.bundleDeleteFailed"));
@@ -1388,7 +1388,7 @@ export default function CuttingPage() {
     setDoneMsg("");
     try {
       await api.post(`/api/work-orders/${id}/complete-cutting-shortage`, {});
-      await Promise.all([mutateWo(), mutatePo(), mutateBatchProgress()]);
+      await Promise.all([mutateWo(), mutateBatchProgress()]);
       setDoneMsg(t("page.cutting.shortageCompleted", {
         actual: recordedPassedQty.toLocaleString(),
         shortage: cuttingShortageQty.toLocaleString(),
@@ -1419,7 +1419,7 @@ export default function CuttingPage() {
         po={productInfoPo}
         wo={wo}
         model={model}
-        customerName={so?.customer_id ? (customerMap.get(so.customer_id) || `#${so.customer_id}`) : null}
+        customerName={customerName}
         statusText={wo ? statusLabel(wo.status, t) : "-"}
         canEditBreakdown={canEditBreakdown}
         onSaveBreakdown={saveBreakdown}
@@ -2419,7 +2419,7 @@ export default function CuttingPage() {
                         try {
                           const query = printableBundleIds ? `?bundle_ids=${encodeURIComponent(printableBundleIds)}` : "";
                           await api.openLabel(`/api/cutting/records/${printableCuttingRecordId}/production-sheet${query}`, isMilanaCutting && canEditBreakdown ? "POST" : "GET");
-                          await Promise.all([mutateWo(), mutatePo(), mutateBatchProgress()]);
+                          await Promise.all([mutateWo(), mutateBatchProgress()]);
                         } catch (error: any) {
                           setShortageErr(error.message || t("page.cutting.shortageFailed"));
                         } finally {

@@ -9,11 +9,13 @@ import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import ModelAsyncSelect from "@/components/ModelAsyncSelect";
 import SearchableSelect from "@/components/SearchableSelect";
+import CustomerAsyncSelect from "@/components/CustomerAsyncSelect";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { readySalesText } from "@/lib/readySalesLocale";
 import { GARMENT_SIZE_OPTIONS } from "@/lib/garmentSizes";
 import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
+import { copyPriceProvenance, submittedUnitPrice } from "@/lib/salesOrderPriceProvenance";
 import {
   groupModelVariants,
   modelGroupLabel,
@@ -31,6 +33,7 @@ type Line = {
   quantity: NumberInputValue;
   pack_count: NumberInputValue;
   unit_price: NumberInputValue;
+  price_edited: boolean;
   printing_required: boolean;
 };
 type PrintingAttachment = { file_url: string; file_name?: string | null; content_type?: string | null };
@@ -80,6 +83,7 @@ function createLine(overrides: Partial<Omit<Line, "row_id">> = {}): Line {
     quantity: "",
     pack_count: "",
     unit_price: "",
+    price_edited: false,
     printing_required: false,
     ...overrides,
   };
@@ -89,16 +93,21 @@ export default function NewSalesOrderPage() {
   const { t, lang } = useT();
   const packText = readySalesText(lang);
   const { me } = useMe();
-  const { data: customers, mutate: mutateCustomers } = useSWR<Customer[]>("/api/customers", fetcher);
   const { data: brands } = useSWR<any[]>("/api/brands", fetcher);
-  const { data: readyStockOptions, error: stockError, isLoading: stockLoading } = useSWR<ReadyStockOption[]>("/api/sales-orders/ready-stock-options", fetcher);
+  const [orderType, setOrderType] = useState("client_order");
+  const [currency, setCurrency] = useState("");
+  const isBrandedOrder = orderType === "branded_stock_sale";
+  const { data: readyStockOptions, error: stockError, isLoading: stockLoading } = useSWR<ReadyStockOption[]>(
+    isBrandedOrder ? "/api/sales-orders/ready-stock-options" : null,
+    fetcher,
+  );
   const [customerId, setCustomerId] = useState<number | "">("");
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerModalOpen, setCustomerModalOpen] = useState(false);
   const [customerDraft, setCustomerDraft] = useState<CustomerDraft>(EMPTY_CUSTOMER);
   const [customerSaving, setCustomerSaving] = useState(false);
   const [customerError, setCustomerError] = useState("");
   const [brandId, setBrandId] = useState<number | "">("");
-  const [orderType, setOrderType] = useState("client_order");
   const [deadline, setDeadline] = useState("");
   const [printingInstructions, setPrintingInstructions] = useState("");
   const [printingAttachments, setPrintingAttachments] = useState<PrintingAttachment[]>([]);
@@ -116,7 +125,6 @@ export default function NewSalesOrderPage() {
   ]);
   const { data: models } = useSWR<any[]>(salesModelOptionsKey, modelOptionsByIdsFetcher);
 
-  const isBrandedOrder = orderType === "branded_stock_sale";
   const canCreateCustomer = can(me, "sales.customers");
   const brandedPackSize = BRANDED_PACK_SIZE;
   const modelMap = useMemo(() => new Map((models ?? []).map((m) => [Number(m.id), m])), [models]);
@@ -213,7 +221,8 @@ export default function NewSalesOrderPage() {
   function updateLine(index: number, field: keyof Omit<Line, "row_id">, value: Line[keyof Omit<Line, "row_id">]) {
     setLines((prev) => prev.map((line, i) => {
       if (index !== i) return line;
-      const next = { ...line, [field]: value };
+      const next = { ...line, [field]: value,
+        ...(field === "unit_price" ? { price_edited: true } : {}) };
 
       return next;
     }));
@@ -222,7 +231,7 @@ export default function NewSalesOrderPage() {
   async function selectLineModel(index: number, modelId: number) {
     setLines((prev) => prev.map((line, i) => {
       if (index !== i) return line;
-      const next = { ...line, model_id: modelId, unit_price: "" as NumberInputValue };
+      const next = { ...line, model_id: modelId, unit_price: "" as NumberInputValue, price_edited: false };
 
       return next;
     }));
@@ -290,7 +299,7 @@ export default function NewSalesOrderPage() {
         size,
         quantity: qtyPerSize + addOne,
         pack_count: base.pack_count,
-        unit_price: base.unit_price,
+        ...copyPriceProvenance(base),
         printing_required: base.printing_required,
       });
     });
@@ -335,11 +344,8 @@ export default function NewSalesOrderPage() {
     setCustomerSaving(true);
     try {
       const created = await api.post<Customer>("/api/customers", customerDraft);
-      await mutateCustomers(
-        (current) => [created, ...(current || []).filter((customer) => customer.id !== created.id)],
-        { revalidate: false },
-      );
       setCustomerId(created.id);
+      setSelectedCustomer(created);
       setCustomerDraft(EMPTY_CUSTOMER);
       setCustomerModalOpen(false);
     } catch (e: any) {
@@ -403,6 +409,7 @@ export default function NewSalesOrderPage() {
       }
 
       const payload: any = {
+        currency: currency || null,
         customer_id: customerId || null,
         order_type: orderType,
         deadline: deadline || null,
@@ -414,7 +421,7 @@ export default function NewSalesOrderPage() {
           color: isBrandedOrder ? BRANDED_PACK_COLOR : line.color,
           size: isBrandedOrder ? brandedPackSize : line.size,
           ...(isBrandedOrder ? { requested_pack_count: linePacks(line) } : { quantity: linePieces(line) }),
-          unit_price: line.unit_price === "" ? null : numberOrZero(line.unit_price),
+          unit_price: submittedUnitPrice(line),
           printing_required: isBrandedOrder ? false : line.printing_required,
           brand_id: brandId || null,
         })),
@@ -456,6 +463,10 @@ export default function NewSalesOrderPage() {
                 </select>
               </div>
               <div>
+                <label className="label">Currency (3-letter code)</label>
+                <input className="input" value={currency} maxLength={3} pattern="[A-Z]{3}" placeholder="USD" onChange={(e) => setCurrency(e.target.value.toUpperCase())} />
+              </div>
+              <div>
                 <div className="flex items-center justify-between gap-2">
                   <label className="label">{t("field.customer")}</label>
                   {canCreateCustomer && (
@@ -472,10 +483,14 @@ export default function NewSalesOrderPage() {
                     </button>
                   )}
                 </div>
-                <select className="input" value={customerId} onChange={(e) => setCustomerId(Number(e.target.value) || "")}>
-                  <option value="">{t("newso.customerSelect")}</option>
-                  {customers?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+                <CustomerAsyncSelect
+                  value={customerId || null}
+                  selectedCustomer={selectedCustomer}
+                  onChange={(id, customer) => {
+                    setCustomerId(id || "");
+                    setSelectedCustomer(customer ?? null);
+                  }}
+                />
               </div>
               <div>
                 <label className="label">{t("field.deadline")}</label>

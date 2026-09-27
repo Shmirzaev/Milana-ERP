@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
 
+from app.models import Model
 from scripts import import_old_erp_models_local as migration
 
 
@@ -159,6 +161,42 @@ def test_sizes_manifest_accepts_progress_records_wrapper() -> None:
     assert list(indexed) == [42]
     assert [row["size"] for row in indexed[42]["sizes"]] == ["S", "M"]
     assert indexed[42]["raw"]["checks"] == {"size_button_count": 1}
+
+
+@pytest.mark.parametrize(
+    "measurement_json",
+    [
+        {"shoulder": 40},
+        {"chest": {"value": 92}},
+        {"waist": "71.5"},
+        {"hip": [98]},
+        {"length": True},
+        {"sleeve": float("nan")},
+    ],
+)
+def test_sizes_manifest_rejects_measurements_outside_live_schema(measurement_json) -> None:
+    payload = [{"old_model_id": 42, "sizes": [{"size": "M", "measurement_json": measurement_json}]}]
+
+    with pytest.raises(migration.MigrationError, match="measurement schema"):
+        migration.load_sizes(payload)
+
+
+def test_sizes_manifest_preserves_valid_measurements_and_null() -> None:
+    measurements = {"chest": 92, "waist": 71.5}
+    indexed = migration.load_sizes(
+        [{
+            "old_model_id": 42,
+            "sizes": [
+                {"size": "M", "measurement_json": measurements},
+                {"size": "L", "measurement_json": None},
+            ],
+        }]
+    )
+
+    assert indexed[42]["sizes"] == [
+        {"size": "M", "measurement_json": measurements},
+        {"size": "L", "measurement_json": None},
+    ]
 
 
 def test_new_variant_protected_fields_come_from_exact_parent_not_db_group() -> None:
@@ -459,3 +497,104 @@ def test_existing_metadata_plan_keeps_only_missing_values_and_real_provenance_de
         {"legacy_source_date": "2020-01-02"},
     ) == {}
     assert migration.provenance_would_change(converged, changed) is False
+
+
+def _details_provenance() -> dict:
+    return {
+        "source_key": migration.SOURCE_KEY,
+        "source_files": {},
+        "identity": "TEST|1",
+        "master_records": [],
+        "variant_records": [],
+        "metadata_only_records": [],
+        "details_and_sizes": {},
+        "validated_images": {"models": {}, "variants": {}},
+    }
+
+
+@pytest.mark.parametrize("invalid_kind", ["oversized", "deep"])
+def test_apply_details_rejects_changed_unbounded_document_without_mutation(invalid_kind: str) -> None:
+    existing = {"general": {}}
+    model = Model(code="TEST", name="Test", details_json=deepcopy(existing))
+    invalid_value: object = "x" * (70 * 1024)
+    if invalid_kind == "deep":
+        invalid_value = {"leaf": True}
+        for _ in range(20):
+            invalid_value = {"next": invalid_value}
+
+    with pytest.raises(migration.MigrationError, match="Imported Model.details_json is invalid"):
+        migration.apply_details(model, {"legacy_product": invalid_value}, _details_provenance(), created=True)
+
+    assert model.details_json == existing
+
+
+def test_apply_details_preserves_exact_unchanged_oversized_legacy_document() -> None:
+    provenance = _details_provenance()
+    existing = {
+        "general": {},
+        "old_erp_migration": deepcopy(provenance),
+        "legacy_extension": "x" * (70 * 1024),
+    }
+    model = Model(code="TEST", name="Test", details_json=deepcopy(existing))
+
+    migration.apply_details(model, {}, provenance, created=False)
+
+    assert model.details_json == existing
+
+
+def test_apply_details_accepts_bounded_new_document() -> None:
+    model = Model(code="TEST", name="Test", details_json={})
+
+    migration.apply_details(model, {"legacy_product": "Tunic"}, _details_provenance(), created=True)
+
+    assert model.details_json["general"]["legacy_product"] == "Tunic"
+
+
+@pytest.mark.parametrize("invalid_kind", ["oversized", "deep", "nonfinite"])
+def test_plan_details_preflight_rejects_invalid_final_document_without_database(
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_kind: str,
+) -> None:
+    monkeypatch.setattr(migration, "SessionLocal", lambda: pytest.fail("database session opened"))
+    invalid_value: object = "ж" * (70 * 1024)
+    if invalid_kind == "deep":
+        invalid_value = {"leaf": True}
+        for _ in range(20):
+            invalid_value = {"next": invalid_value}
+    elif invalid_kind == "nonfinite":
+        invalid_value = float("nan")
+    action = {
+        "action": "update_existing",
+        "target_model_id": 7,
+        "details_patch": {"legacy_product": invalid_value},
+        "provenance": _details_provenance(),
+    }
+    model = Model(id=7, code="TEST", name="Test", details_json={"general": {}})
+
+    with pytest.raises(migration.MigrationError, match="Imported Model.details_json is invalid"):
+        migration.validate_planned_details_bounds([action], [model])
+
+    assert model.details_json == {"general": {}}
+
+
+def test_plan_details_preflight_preserves_unchanged_legacy_and_ignored_patch_without_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(migration, "SessionLocal", lambda: pytest.fail("database session opened"))
+    provenance = _details_provenance()
+    existing = {
+        "general": {"legacy_product": "Original"},
+        "old_erp_migration": deepcopy(provenance),
+        "future_extension": "ж" * (70 * 1024),
+    }
+    model = Model(id=7, code="TEST", name="Test", details_json=deepcopy(existing))
+    action = {
+        "action": "update_existing",
+        "target_model_id": 7,
+        "details_patch": {"legacy_product": "x" * (70 * 1024)},
+        "provenance": provenance,
+    }
+
+    migration.validate_planned_details_bounds([action], [model])
+
+    assert model.details_json == existing

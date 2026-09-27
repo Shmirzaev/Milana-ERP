@@ -1,10 +1,26 @@
 import time
+from unittest.mock import Mock
 
-from app.core.shared_store import SQLiteSharedCounterStore
+from app.core.shared_store import InMemorySharedCounterStore, RedisSharedCounterStore, SQLiteSharedCounterStore
+
+
+def test_in_memory_shared_counter_store_ping():
+    InMemorySharedCounterStore().ping()
+
+
+def test_redis_shared_counter_store_ping_uses_existing_client():
+    store = object.__new__(RedisSharedCounterStore)
+    store._client = Mock()
+
+    store.ping()
+
+    store._client.ping.assert_called_once_with()
 
 
 def test_sqlite_shared_counter_store(tmp_path):
     store = SQLiteSharedCounterStore(f"sqlite:///{tmp_path / 'shared-store.db'}", prefix="test")
+
+    store.ping()
 
     assert store.increment("auth:login:alice", 30) == 1
     assert store.increment("auth:login:alice", 30) == 2

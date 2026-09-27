@@ -1,5 +1,7 @@
 """Production service: build production orders and work orders, manage flow."""
 from datetime import datetime, timezone
+from decimal import Decimal
+import math
 import re
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -11,6 +13,7 @@ from app.models import (
 from app.core.signing import strip_signature
 from app.services.numbering import next_production_order_no, next_usluga_order_no
 from app.services.inventory import available_stock_for_batch, missing_material_reservation_for_cutting
+from app.services.stock_batch_policy import validate_stock_batch_unit
 
 
 # Department code -> operation
@@ -22,7 +25,30 @@ DEPT_OPS = [
     ("FGS", "storage_transfer"),
 ]
 
+WORK_ORDER_OPERATION_PERMISSIONS = {
+    "cutting": {"cutting.records", "cutting.bundles", "planning.production"},
+    "printing": {"printing.records", "planning.production"},
+    "sewing": {"sewing.records", "sewing.bundles", "planning.production"},
+    "packaging": {"packaging.records", "packaging.packages", "planning.production"},
+    "storage_transfer": {
+        "storage.items",
+        "storage.receive",
+        "storage.transfer",
+        "storage.packages",
+        "planning.production",
+    },
+}
+
 _NUMERIC_SIZE_RANGE = re.compile(r"^\s*(\d+)\s*[-\u2013\u2014]\s*(\d+)\s*$")
+_MAX_ESTIMATED_MATERIAL_AMOUNT = 9_999_999_999.9999
+_PRODUCTION_ATTACHMENT_STORAGE_PREFIX = "/storage/sales-order-files/"
+_PRODUCTION_ATTACHMENT_FILENAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+_PRODUCTION_ATTACHMENT_LIMIT = 50
+_PRODUCTION_ORDER_ITEM_LIMIT = 1000
+_PRODUCTION_ATTACHMENT_URL_MAX_LENGTH = 512
+_PRODUCTION_ATTACHMENT_NAME_MAX_LENGTH = 255
+_PRODUCTION_ATTACHMENT_CONTENT_TYPE_MAX_LENGTH = 128
+_UNSET_ATTACHMENT_VALUE = object()
 
 
 def expand_production_size_range_items(items: list[dict] | None) -> list[dict]:
@@ -34,18 +60,27 @@ def expand_production_size_range_items(items: list[dict] | None) -> list[dict]:
         match = _NUMERIC_SIZE_RANGE.fullmatch(size)
         if not match:
             expanded.append(item)
+            if len(expanded) > _PRODUCTION_ORDER_ITEM_LIMIT:
+                raise HTTPException(422, "Production order items cannot exceed 1000 after size expansion")
             continue
 
         first, last = (int(value) for value in match.groups())
         if first > last or (last - first) % 2 or (last - first) // 2 > 50:
             expanded.append(item)
+            if len(expanded) > _PRODUCTION_ORDER_ITEM_LIMIT:
+                raise HTTPException(422, "Production order items cannot exceed 1000 after size expansion")
             continue
 
         sizes = [str(value) for value in range(first, last + 1, 2)]
         quantity = max(0, int(item.get("planned_quantity") or 0))
         if len(sizes) <= 1 or quantity < len(sizes):
             expanded.append(item)
+            if len(expanded) > _PRODUCTION_ORDER_ITEM_LIMIT:
+                raise HTTPException(422, "Production order items cannot exceed 1000 after size expansion")
             continue
+
+        if len(expanded) + len(sizes) > _PRODUCTION_ORDER_ITEM_LIMIT:
+            raise HTTPException(422, "Production order items cannot exceed 1000 after size expansion")
 
         per_size, remainder = divmod(quantity, len(sizes))
         for index, value in enumerate(sizes):
@@ -72,6 +107,72 @@ def printing_attachments_for_storage(attachments) -> list[dict]:
             data["file_url"] = strip_signature(data["file_url"])
         out.append(data)
     return out
+
+
+def production_order_printing_attachments_for_storage(
+    attachments,
+    *,
+    existing=_UNSET_ATTACHMENT_VALUE,
+) -> list[dict]:
+    """Validate new ProductionOrder attachment writes while preserving unchanged legacy JSON."""
+    raw_rows = [
+        attachment.model_dump() if hasattr(attachment, "model_dump") else dict(attachment)
+        for attachment in attachments or []
+    ]
+    normalized = printing_attachments_for_storage(raw_rows)
+
+    if existing is not _UNSET_ATTACHMENT_VALUE:
+        old_projection = _production_attachment_public_projection(existing)
+        new_projection = _production_attachment_public_projection(normalized)
+        if old_projection is not None and old_projection == new_projection:
+            # Generic PATCH clients echo response rows. Keep unexposed legacy keys
+            # and historical shapes when the public attachment values did not change.
+            return existing
+
+    if len(normalized) > _PRODUCTION_ATTACHMENT_LIMIT:
+        raise HTTPException(422, f"printing_attachments cannot exceed {_PRODUCTION_ATTACHMENT_LIMIT} rows")
+
+    for index, (raw_attachment, attachment) in enumerate(zip(raw_rows, normalized, strict=True)):
+        raw_file_url = raw_attachment.get("file_url")
+        if not isinstance(raw_file_url, str) or len(raw_file_url) > _PRODUCTION_ATTACHMENT_URL_MAX_LENGTH:
+            raise HTTPException(422, f"printing_attachments[{index}].file_url must be at most 512 characters")
+        if "#" in raw_file_url:
+            raise HTTPException(422, f"printing_attachments[{index}].file_url cannot contain a fragment")
+        file_url = attachment.get("file_url")
+        if not isinstance(file_url, str) or len(file_url) > _PRODUCTION_ATTACHMENT_URL_MAX_LENGTH:
+            raise HTTPException(422, f"printing_attachments[{index}].file_url must be at most 512 characters")
+        if not file_url.startswith(_PRODUCTION_ATTACHMENT_STORAGE_PREFIX):
+            raise HTTPException(422, f"printing_attachments[{index}].file_url must reference an uploaded attachment")
+        filename = file_url[len(_PRODUCTION_ATTACHMENT_STORAGE_PREFIX):]
+        if not filename or not _PRODUCTION_ATTACHMENT_FILENAME.fullmatch(filename) or filename in {".", ".."}:
+            raise HTTPException(422, f"printing_attachments[{index}].file_url must contain one safe filename")
+
+        file_name = attachment.get("file_name")
+        if file_name is not None and len(file_name) > _PRODUCTION_ATTACHMENT_NAME_MAX_LENGTH:
+            raise HTTPException(422, f"printing_attachments[{index}].file_name must be at most 255 characters")
+        content_type = attachment.get("content_type")
+        if content_type is not None and len(content_type) > _PRODUCTION_ATTACHMENT_CONTENT_TYPE_MAX_LENGTH:
+            raise HTTPException(422, f"printing_attachments[{index}].content_type must be at most 128 characters")
+
+    return normalized
+
+
+def _production_attachment_public_projection(value):
+    if not isinstance(value, list):
+        return None
+    projection = []
+    for attachment in value:
+        if not isinstance(attachment, dict):
+            return None
+        file_url = attachment.get("file_url")
+        if isinstance(file_url, str):
+            file_url = strip_signature(file_url)
+        projection.append({
+            "file_url": file_url,
+            "file_name": attachment.get("file_name"),
+            "content_type": attachment.get("content_type"),
+        })
+    return projection
 
 
 def create_production_order(
@@ -110,16 +211,6 @@ def create_production_order(
         raise HTTPException(400, "Invalid production source_type")
     if (production_type == "service_order") != (source_type == "usluga"):
         raise HTTPException(400, "service_order and usluga source_type must be used together")
-
-    # Usluga model labels such as "40-42" represent one paired garment size,
-    # not shorthand for multiple independent sizes. Keep them byte-for-byte
-    # aligned with the model so Cutting and its bundle passports use the same
-    # size identity. Standard production retains its established range split.
-    normalized_items = (
-        [raw.model_dump() if hasattr(raw, "model_dump") else dict(raw) for raw in (items or [])]
-        if source_type == "usluga"
-        else expand_production_size_range_items(items)
-    )
 
     model = db.get(Model, model_id)
     if not model:
@@ -176,9 +267,15 @@ def create_production_order(
             raise HTTPException(400, f"Material #{index} is not a fabric inventory batch")
         if available_stock_for_batch(db, int(batch.id)) <= 0:
             raise HTTPException(400, f"Material #{index} batch has no available stock")
+        validate_stock_batch_unit(item, batch.unit)
         unit = str(row.get("unit") or batch.unit or item.unit or "kg").strip()
         if not unit:
             raise HTTPException(400, f"Material #{index} requires a unit")
+        validate_stock_batch_unit(
+            item,
+            unit,
+            detail=f"Material #{index} unit must match the material unit",
+        )
         seen_batch_ids.add(batch_id)
         normalized_materials.append({
             "stock_batch_id": batch_id,
@@ -208,6 +305,7 @@ def create_production_order(
                 raise HTTPException(400, "Selected inventory batch is not fabric")
             if available_stock_for_batch(db, int(selected_fabric_batch.id)) <= 0:
                 raise HTTPException(400, "Selected fabric batch has no available stock")
+            validate_stock_batch_unit(selected_fabric_item, selected_fabric_batch.unit)
             material_code = selected_fabric_item.sku
             material_unit = selected_fabric_batch.unit or selected_fabric_item.unit
         else:
@@ -219,7 +317,28 @@ def create_production_order(
             material_amount = float(estimated_material_amount)
             if material_amount < 0:
                 raise HTTPException(400, "Estimated material amount cannot be negative")
+            if (
+                not math.isfinite(material_amount)
+                or material_amount > _MAX_ESTIMATED_MATERIAL_AMOUNT
+            ):
+                raise HTTPException(422, "Estimated material amount exceeds storage limits")
             material_unit = material_unit or "kg"
+
+    # Both the direct estimate and a primary material line feed the same
+    # NUMERIC(14,4) column. Reject extra places instead of silently rounding.
+    if material_amount is not None and Decimal(str(material_amount)) % Decimal("0.0001"):
+        raise HTTPException(422, "Estimated material amount supports at most four decimal places")
+    for row in normalized_materials:
+        if Decimal(str(row["estimated_quantity"])) % Decimal("0.0001"):
+            raise HTTPException(422, "Material estimated quantity supports at most four decimal places")
+
+    # Usluga labels such as "40-42" name one paired size. Standard production
+    # splits ranges only after reference checks and before numbering or writes.
+    normalized_items = (
+        [raw.model_dump() if hasattr(raw, "model_dump") else dict(raw) for raw in (items or [])]
+        if source_type == "usluga"
+        else expand_production_size_range_items(items)
+    )
 
     production_no = (
         next_usluga_order_no(db)
@@ -295,9 +414,19 @@ def create_production_batches(db: Session, production_order_id: int, batches: li
     used_nos: set[str] = set()
     created: list[ProductionBatch] = []
     for idx, raw in enumerate(batches, start=1):
-        qty = int(raw.get("planned_quantity", 0))
+        raw_quantity = raw.get("planned_quantity", 0)
+        if isinstance(raw_quantity, bool):
+            raise HTTPException(400, f"Batch #{idx} planned_quantity must be an integer")
+        try:
+            qty = int(raw_quantity)
+        except (TypeError, ValueError, OverflowError):
+            raise HTTPException(400, f"Batch #{idx} planned_quantity must be an integer") from None
+        if not isinstance(raw_quantity, str) and raw_quantity != qty:
+            raise HTTPException(400, f"Batch #{idx} planned_quantity must be an integer")
         if qty <= 0:
             raise HTTPException(400, f"Batch #{idx} planned_quantity must be > 0")
+        if qty > 2_147_483_647:
+            raise HTTPException(400, f"Batch #{idx} planned_quantity exceeds the supported maximum")
 
     for idx, raw in enumerate(batches, start=1):
         qty = int(raw.get("planned_quantity", 0))
@@ -340,8 +469,8 @@ def create_work_orders(
         raise HTTPException(404, "Production order not found")
 
     existing_ops = {
-        str(wo.operation)
-        for wo in db.query(WorkOrder).filter(WorkOrder.production_order_id == po.id).all()
+        str(operation)
+        for (operation,) in db.query(WorkOrder.operation).filter(WorkOrder.production_order_id == po.id).all()
     }
     created: list[WorkOrder] = []
     planned_qty = int(po.planned_quantity or 0)

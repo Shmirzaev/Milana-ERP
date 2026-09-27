@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.models import Employee
+from app.models import Employee, PayrollRecord
 from app.tests.conftest import TestSessionLocal
 
 
@@ -26,7 +26,7 @@ def _create_user_with_permissions(
 ) -> dict[str, str]:
     role = client.post(
         "/api/roles",
-        json={"name": f"Payroll Role {email}", "permissions": permissions},
+        json={"name": f"Payroll Role {uuid4().hex}", "permissions": permissions},
         headers=admin_headers,
     )
     assert role.status_code == 201, role.text
@@ -1189,6 +1189,23 @@ def test_sewing_production_report_filters_and_excludes_returned_work(client, aut
     assert "SO-REPORT-ONE" in option_values["orders"]
     assert "KR-REPORT-1" in option_values["cutting_references"]
     assert "L" in option_values["sizes"]
+    without_options = client.get(
+        f"/api/payroll/reports/sewing-production?employee_id={first_employee['id']}&order_no=REPORT-ONE&include_options=false",
+        headers=auth_headers,
+    )
+    assert without_options.status_code == 200, without_options.text
+    bounded_body = without_options.json()
+    assert bounded_body["options"] == {
+        "employees": [],
+        "operations": [],
+        "sewing_lines": [],
+        "models": [],
+        "orders": [],
+        "cutting_references": [],
+        "sizes": [],
+    }
+    for key in ("items", "total", "offset", "limit", "total_quantity", "total_amount", "currency"):
+        assert bounded_body[key] == body[key], f"include_options must not change filtered report {key}"
     employee_option = next(
         option for option in body["options"]["employees"]
         if option["value"] == str(first_employee["id"])
@@ -1433,6 +1450,152 @@ def test_sewing_production_report_options_are_scoped_by_factory(client, auth_hea
     assert denied_cross_factory.status_code == 403
 
 
+def test_sewing_production_order_options_are_searchable_paged_and_factory_scoped(client, auth_headers):
+    from app.models import Bundle, Model, ProductionOrder
+    from app.tests.conftest import TestSessionLocal
+
+    suffix = uuid4().hex[:8].upper()
+    mil_employee = _create_employee(client, auth_headers, f"Paged sewing worker {suffix}")
+    eco_headers = _create_user_with_permissions(
+        client,
+        auth_headers,
+        email=f"eco.orders.{suffix.lower()}@example.com",
+        permissions=["payroll.view", "payroll.manage", "payroll.scan", "hr.employees"],
+        factory_code="ECO",
+    )
+    eco_employee = _create_employee(client, eco_headers, f"ECO paged sewing worker {suffix}")
+    with TestSessionLocal() as db:
+        now = datetime.now(timezone.utc)
+        records = [
+            PayrollRecord(
+                factory_code="MIL",
+                dedupe_key=f"page-{suffix}-{index:04d}",
+                employee_id=mil_employee["id"],
+                production_no=f"PO-{suffix}-{index:04d}",
+                sales_order_no=f"SO-{suffix}-{index:04d}",
+                model_code=f"MODEL-{suffix}",
+                scanned_at=now,
+            )
+            for index in range(503)
+        ]
+        records.append(PayrollRecord(
+            factory_code="ECO",
+            dedupe_key=f"foreign-{suffix}",
+            employee_id=eco_employee["id"],
+            production_no=f"PO-{suffix}-FOREIGN",
+            sales_order_no=f"SO-{suffix}-FOREIGN",
+            model_code=f"MODEL-{suffix}",
+            scanned_at=now,
+        ))
+        db.add_all(records)
+        routed_model = Model(
+            code=f"ROUTE-MODEL-{suffix}",
+            name=f"Routed order model {suffix}",
+            status="approved",
+        )
+        db.add(routed_model)
+        db.flush()
+        for route_code in ("MIL", "SEW", None, "ECO"):
+            order = ProductionOrder(
+                production_no=f"PO-ROUTE-{suffix}-{route_code or 'NULL'}",
+                production_type="branded_stock",
+                model_id=routed_model.id,
+                status="new",
+                planned_quantity=10,
+            )
+            db.add(order)
+            db.flush()
+            db.add(Bundle(
+                bundle_no=f"BND-ROUTE-{suffix}-{route_code or 'NULL'}",
+                barcode=f"BAR-ROUTE-{suffix}-{route_code or 'NULL'}",
+                production_order_id=order.id,
+                model_id=routed_model.id,
+                color="test",
+                size="M",
+                quantity=10,
+                sewing_factory_code=route_code,
+                status="created",
+            ))
+        db.commit()
+
+    base = "/api/payroll/reports/sewing-production/orders"
+    first = client.get(
+        f"{base}?factory_code=MIL&search=PO-{suffix}-&limit=50&offset=0",
+        headers=auth_headers,
+    )
+    assert first.status_code == 200, first.text
+    first_body = first.json()
+    assert first_body["total"] == 1006
+    assert first_body["offset"] == 0
+    assert first_body["limit"] == 50
+    assert len(first_body["items"]) == 50
+    assert all(suffix in option["value"] for option in first_body["items"])
+    assert all("FOREIGN" not in option["value"] for option in first_body["items"])
+
+    second = client.get(
+        f"{base}?factory_code=MIL&search=PO-{suffix}-&limit=50&offset=50",
+        headers=auth_headers,
+    )
+    assert second.status_code == 200, second.text
+    second_body = second.json()
+    assert second_body["total"] == first_body["total"]
+    assert second_body["offset"] == 50
+    assert len(second_body["items"]) == 50
+    assert {option["value"] for option in first_body["items"]}.isdisjoint(
+        {option["value"] for option in second_body["items"]}
+    )
+
+    alias_search = client.get(
+        f"{base}?factory_code=MIL&search=SO-{suffix}-0502&limit=50&offset=0&selected_value=PO-{suffix}-0001",
+        headers=auth_headers,
+    )
+    assert alias_search.status_code == 200, alias_search.text
+    alias_body = alias_search.json()
+    assert {option["value"] for option in alias_body["items"]} == {
+        f"PO-{suffix}-0502",
+        f"SO-{suffix}-0502",
+    }, alias_body
+    assert alias_body["selected_option"]["value"] == f"PO-{suffix}-0001"
+    assert suffix in alias_body["selected_option"]["label"]
+
+    omitted_orders = client.get(
+        "/api/payroll/reports/sewing-production/options?include_orders=false",
+        headers=auth_headers,
+    )
+    assert omitted_orders.status_code == 200, omitted_orders.text
+    assert omitted_orders.json()["orders"] == []
+
+    denied_factory = client.get(
+        f"{base}?factory_code=ECO&search={suffix}",
+        headers=auth_headers,
+    )
+    assert denied_factory.status_code == 403
+
+    authorized_eco = client.get(
+        f"{base}?factory_code=ECO&search=PO-{suffix}-FOREIGN&limit=50&offset=0",
+        headers=eco_headers,
+    )
+    assert authorized_eco.status_code == 200, authorized_eco.text
+    eco_options = authorized_eco.json()
+    assert eco_options["total"] == 2
+    assert {option["value"] for option in eco_options["items"]} == {
+        f"PO-{suffix}-FOREIGN",
+        f"SO-{suffix}-FOREIGN",
+    }
+
+    routed = client.get(
+        f"{base}?factory_code=MIL&search=PO-ROUTE-{suffix}&limit=50&offset=0",
+        headers=auth_headers,
+    )
+    assert routed.status_code == 200, routed.text
+    assert routed.json()["total"] == 3
+    assert {option["value"] for option in routed.json()["items"]} == {
+        f"PO-ROUTE-{suffix}-MIL",
+        f"PO-ROUTE-{suffix}-SEW",
+        f"PO-ROUTE-{suffix}-NULL",
+    }
+
+
 def test_payroll_data_is_hard_scoped_to_login_factory(client, auth_headers):
     suffix = uuid4().hex[:8].upper()
     mil_employee = _create_employee(client, auth_headers, f"MIL isolated worker {suffix}")
@@ -1568,10 +1731,35 @@ def test_locked_period_rejects_new_records_for_scanner(client, auth_headers):
     locked = client.post(f"/api/payroll/periods/{period['id']}/lock", headers=auth_headers)
     assert locked.status_code == 200, locked.text
 
-    payload = _record_payload(employee["id"], scan_uid=f"locked-{uuid4().hex}")
+    label_uid = f"locked-{uuid4().hex}"
+    issued = client.post(
+        "/api/payroll/qr-labels/issue",
+        json={
+            "labels": [{
+                "label_uid": label_uid,
+                "operation_section": "sewing",
+                "operation_code": "SEW-LOCKED",
+                "operation_name": "Locked period sewing",
+                "quantity": 10,
+                "rate_per_piece": 250,
+                "currency": "UZS",
+            }],
+        },
+        headers=auth_headers,
+    )
+    assert issued.status_code == 200, issued.text
+
+    payload = _record_payload(employee["id"], scan_uid=label_uid)
     payload["payroll_period_id"] = period["id"]
     denied = client.post("/api/payroll/records", json=payload, headers=scanner_headers)
     assert denied.status_code == 409, denied.text
+
+    labels = client.get(f"/api/payroll/qr-labels?search={label_uid}", headers=auth_headers)
+    assert labels.status_code == 200, labels.text
+    matching = [row for row in labels.json()["items"] if row["label_uid"] == label_uid]
+    assert len(matching) == 1
+    assert matching[0]["status"] == "available"
+    assert matching[0]["payroll_record_id"] is None
 
 
 def test_approve_and_mark_paid_permissions(client, auth_headers):

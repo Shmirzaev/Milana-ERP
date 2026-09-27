@@ -1,10 +1,13 @@
 from datetime import datetime, time, timezone
 import secrets
 from types import SimpleNamespace
+from typing import Annotated, Any
 
 from pydantic import BaseModel
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from sqlalchemy import delete, update
+from sqlalchemy.orm import joinedload, lazyload, load_only
+from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
 from app.core.deps import (
@@ -28,6 +31,7 @@ from app.schemas.catalog import (
 )
 from app.services.audit import export_audit_hash_chain, log_action, verify_audit_hash_chain
 from app.services.password_reset import create_password_reset_token, password_reset_url, send_password_email_safely
+from app.services.credentials import apply_password_credential_change, lock_user_for_credential_change
 from app.db.reset_demo import reset_to_seed
 from app.core.permission_catalog import PERMISSION_CATALOG, PERMISSION_KEYS
 from app.services.factory_scope import FACTORY_CODES, available_factory_codes
@@ -37,6 +41,57 @@ router = APIRouter(tags=["admin"])
 
 class ResetDemoIn(BaseModel):
     confirm: str
+
+
+class DepartmentPageOut(BaseModel):
+    rows: list[DepartmentOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
+class UserPageOut(BaseModel):
+    rows: list[UserOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
+class RolePageOut(BaseModel):
+    rows: list[RoleOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
+class AuditLogOut(BaseModel):
+    id: int
+    user_id: int | None
+    user_name: str | None
+    user: dict[str, Any] | None
+    action: str
+    action_label: str
+    entity_type: str
+    entity_label: str
+    entity_id: int | None
+    new_value: dict[str, Any] | None
+    old_value: dict[str, Any] | None
+    changed_fields: list[dict[str, Any]]
+    prev_hash: str | None
+    entry_hash: str | None
+    summary: str
+    root_cause_hint: str
+    created_at: datetime
+
+
+class AuditLogPageOut(BaseModel):
+    rows: list[AuditLogOut]
+    total: int
+    page: int
+    page_size: int
 
 
 MCP_READ_TOOLS = [
@@ -64,6 +119,8 @@ MCP_BLOCKED_ACTIONS = [
     "change user permissions",
     "mutate raw database records",
 ]
+
+_DB_INTEGER_MAX = 2_147_483_647
 
 
 ACTION_LABELS = {
@@ -211,7 +268,12 @@ def _changed_fields(old_value: dict | None, new_value: dict | None) -> list[dict
     return changes
 
 
-def _audit_summary(audit: AuditLog, user: User | None) -> tuple[str, str]:
+def _audit_summary(
+    audit: AuditLog,
+    user: User | None,
+    *,
+    changes: list[dict] | None = None,
+) -> tuple[str, str]:
     actor = user.name if user else "System"
     action = _label_action(audit.action)
     entity = _label_entity(audit.entity_type)
@@ -221,7 +283,8 @@ def _audit_summary(audit: AuditLog, user: User | None) -> tuple[str, str]:
         target = f"{target} ({identifier})"
     summary = _sentence(f"{actor} {action} {target}.")
     reason = "Check this event and nearby earlier events when investigating the root cause."
-    changes = _changed_fields(audit.old_value_json, audit.new_value_json)
+    if changes is None:
+        changes = _changed_fields(audit.old_value_json, audit.new_value_json)
     if changes:
         names = ", ".join(c["field"].replace("_", " ") for c in changes[:4])
         if len(changes) > 4:
@@ -245,13 +308,15 @@ def _parse_date(value: str | None, end_of_day: bool = False) -> datetime | None:
 
 
 # ===== Users =====
-def _access_subject(db, values):
+def _access_subject(db, values, *, allow_inactive_department: bool = False):
     role = db.get(Role, values.get("role_id")) if values.get("role_id") else None
     department = db.get(Department, values.get("department_id")) if values.get("department_id") else None
     if values.get("role_id") and role is None:
         raise HTTPException(404, "Role not found")
     if values.get("department_id") and department is None:
         raise HTTPException(404, "Department not found")
+    if department is not None and not department.is_active and not allow_inactive_department:
+        raise HTTPException(422, "Inactive departments cannot be newly assigned")
     return SimpleNamespace(
         role=role, department=department, name=values.get("name", ""), email=values.get("email", ""),
         factory_code=values.get("factory_code") or "MIL",
@@ -266,14 +331,15 @@ def _user_access_values(user):
 
 
 def _assert_policy_change(db, actor, values, old=None):
-    proposed = _access_subject(db, values)
+    keeps_department = old is not None and values.get("department_id") == old.get("department_id")
+    proposed = _access_subject(db, values, allow_inactive_department=keeps_department)
     for factory, policy in proposed.access_policy.items():
         if factory != proposed.factory_code and SUPER_ADMIN_PERMISSION in set(policy.get("allow", [])) | set(policy.get("deny", [])):
             raise HTTPException(400, "Super Admin access is configured in the primary factory only")
     if is_super_admin(actor):
         return proposed
     own = set(user_permissions(actor))
-    previous = _access_subject(db, old) if old else None
+    previous = _access_subject(db, old, allow_inactive_department=True) if old else None
     old_policy = (old or {}).get("access_policy") or {}
     for factory in FACTORY_CODES:
         policy = proposed.access_policy.get(factory, {})
@@ -361,29 +427,43 @@ def _assert_can_grant_role(db: DbSession, actor: User, role_id: int | None) -> N
     role = db.get(Role, role_id)
     if not role:
         raise HTTPException(404, "Role not found")
-    target_perms = set(role.permissions or [])
     if _role_grants_admin_control(role):
         if not is_super_admin(actor):
             raise HTTPException(403, "Only a super admin can assign administrator roles")
         return
-    actor_perms = set(user_permissions(actor))
-    if "*" in actor_perms:
+    _assert_can_grant_permissions(actor, role.permissions)
+
+
+def _assert_can_grant_permissions(
+    actor: User, permissions: list[str] | None, *, previous: list[str] | None = None,
+) -> None:
+    if is_super_admin(actor):
         return
-    missing = target_perms - actor_perms
-    if missing:
-        raise HTTPException(403, f"You cannot grant permissions you don't hold: {sorted(missing)}")
-
-
-def _assert_can_grant_permissions(actor: User, permissions: list[str] | None) -> None:
     target_perms = set(normalize_permissions(permissions))
-    if _permissions_grant_admin_control(target_perms):
-        if not is_super_admin(actor):
-            raise HTTPException(403, "Only a super admin can grant administrator access")
-        return
+    previous_perms = set(normalize_permissions(previous))
+    added = target_perms - previous_perms
+    removed = previous_perms - target_perms
     actor_perms = set(user_permissions(actor))
-    if "*" in actor_perms:
-        return
-    missing = target_perms - actor_perms
+    actor_factory = selected_factory_code(actor)
+    missing = set()
+    # Like access_policy, unchanged legacy grants must survive profile edits.
+    # Check removals too: another factory's access is not ours to configure.
+    for token in added | removed:
+        permission = token
+        if token.startswith("factory:"):
+            parts = token.split(":", 2)
+            if len(parts) != 3 or not parts[2].strip():
+                raise HTTPException(400, "Invalid factory permission")
+            factory = normalize_factory_code(parts[1])
+            if factory != actor_factory:
+                raise HTTPException(403, "Only Super Admin can configure another factory")
+            permission = parts[2].strip()
+        if token not in added:
+            continue
+        if permission in {"*", SUPER_ADMIN_PERMISSION}:
+            raise HTTPException(403, "Only a super admin can grant administrator access")
+        if "*" not in actor_perms and permission not in actor_perms:
+            missing.add(permission)
     if missing:
         raise HTTPException(403, f"You cannot grant permissions you don't hold: {sorted(missing)}")
 
@@ -401,7 +481,7 @@ def _effective_permissions_for(db: DbSession, role_id: int | None, extra_permiss
 
 def _count_active_admins(db: DbSession, exclude_user_id: int | None = None) -> int:
     count = 0
-    for u in db.query(User).filter(User.is_active.is_(True)).all():
+    for u in _active_membership_users(db):
         if exclude_user_id is not None and u.id == exclude_user_id:
             continue
         if "*" in user_permissions(u):
@@ -411,7 +491,7 @@ def _count_active_admins(db: DbSession, exclude_user_id: int | None = None) -> i
 
 def _count_active_super_admins(db: DbSession, exclude_user_id: int | None = None) -> int:
     count = 0
-    for u in db.query(User).filter(User.is_active.is_(True)).all():
+    for u in _active_membership_users(db):
         if exclude_user_id is not None and u.id == exclude_user_id:
             continue
         if is_super_admin(u):
@@ -419,11 +499,47 @@ def _count_active_super_admins(db: DbSession, exclude_user_id: int | None = None
     return count
 
 
+def _active_membership_users(db: DbSession) -> list[User]:
+    return (
+        db.query(User)
+        .options(
+            load_only(
+                User.id,
+                User.role_id,
+                User.department_id,
+                User.factory_code,
+                User.extra_permissions,
+                User.access_policy,
+            ),
+            joinedload(User.role).load_only(Role.id, Role.name, Role.permissions),
+            joinedload(User.department).load_only(Department.id, Department.code),
+        )
+        .filter(User.is_active.is_(True))
+        .all()
+    )
+
+
+def _lock_active_user_memberships(db: DbSession) -> None:
+    """Serialize changes that can remove the final administrator membership."""
+    # NO KEY UPDATE still serializes membership mutations while allowing the
+    # KEY SHARE lock used by a concurrent audit-log foreign-key insertion.
+    # SQLite ignores the lock clause in disposable tests.
+    db.query(User).filter(User.is_active.is_(True)).order_by(User.id).with_for_update(
+        of=User, key_share=True
+    ).populate_existing().all()
+
+
+def _assert_user_has_no_audit_history(db: DbSession, user_id: int) -> None:
+    if db.query(AuditLog.id).filter(AuditLog.user_id == user_id).first() is not None:
+        raise HTTPException(409, "User has audit history. Deactivate the account instead.")
+
+
 def _detach_user_references(db: DbSession, user_id: int) -> None:
     """Remove references that would otherwise block deleting a user account."""
     users_table = User.__table__
     for table in Base.metadata.sorted_tables:
-        if table is users_table:
+        # Audit actors are part of the hash payload and must never be rewritten.
+        if table is users_table or table is AuditLog.__table__:
             continue
         for column in table.c:
             if not any(fk.column.table is users_table and fk.column.name == "id" for fk in column.foreign_keys):
@@ -434,9 +550,59 @@ def _detach_user_references(db: DbSession, user_id: int) -> None:
                 db.execute(delete(table).where(column == user_id))
 
 
-@router.get("/users", response_model=list[UserOut])
-def list_users(db: DbSession, _: User = Depends(require_permissions("admin.users", "*"))):
-    return db.query(User).order_by(User.id).all()
+@router.get("/users", response_model=list[UserOut] | UserPageOut)
+def list_users(
+    db: DbSession,
+    _: User = Depends(require_permissions("admin.users", "*")),
+    limit: int = Query(default=500, ge=1, le=500),
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
+    # Keep direct callers safe as well as HTTP callers: FastAPI replaces the
+    # Query marker with an int, but a plain Python call receives the marker.
+    effective_limit = limit if isinstance(limit, int) and not isinstance(limit, bool) else 500
+    ordered_query = db.query(User).options(
+        load_only(
+            User.id,
+            User.name,
+            User.email,
+            User.role_id,
+            User.department_id,
+            User.factory_code,
+            User.extra_permissions,
+            User.access_policy,
+            User.is_active,
+            User.last_login_at,
+            User.last_seen_at,
+            User.created_at,
+        ),
+        lazyload(User.role),
+        lazyload(User.department),
+    ).order_by(User.id)
+    if page is None and page_size is None:
+        return ordered_query.limit(effective_limit).all()
+
+    effective_page = page or 1
+    effective_page_size = page_size or 50
+    total = ordered_query.order_by(None).count()
+    rows = (
+        ordered_query
+        .offset((effective_page - 1) * effective_page_size)
+        .limit(effective_page_size)
+        .all()
+    )
+    return {
+        "rows": rows,
+        "total": total,
+        "page": effective_page,
+        "page_size": effective_page_size,
+        "has_more": effective_page * effective_page_size < total,
+    }
+
+
+def _require_storable_user_id(user_id: int) -> None:
+    if user_id < 1 or user_id > _DB_INTEGER_MAX:
+        raise HTTPException(404, "User not found")
 
 
 @router.post("/users", response_model=UserOut, status_code=201)
@@ -459,6 +625,10 @@ def create_user(
     if not is_super_admin(current) and factory_code != selected_factory_code(current):
         raise HTTPException(403, "Only Super Admin can assign another factory")
     _assert_policy_change(db, current, {**payload.model_dump(), "factory_code": factory_code})
+    if len(payload.name) > 128:
+        raise HTTPException(422, "User name must be at most 128 characters")
+    if len(email) > 255:
+        raise HTTPException(422, "User email must be at most 255 characters")
     setup_url: str | None = None
     u = User(
         name=payload.name,
@@ -495,7 +665,30 @@ def create_user(
 
 @router.get("/users/{user_id}", response_model=UserOut)
 def get_user(user_id: int, db: DbSession, _: User = Depends(require_permissions("admin.users", "*"))):
-    u = db.get(User, user_id)
+    _require_storable_user_id(user_id)
+    u = (
+        db.query(User)
+        .options(
+            lazyload("*"),
+            load_only(
+                User.id,
+                User.name,
+                User.email,
+                User.role_id,
+                User.department_id,
+                User.factory_code,
+                User.extra_permissions,
+                User.access_policy,
+                User.is_active,
+                User.last_login_at,
+                User.last_seen_at,
+                User.created_at,
+                raiseload=True,
+            ),
+        )
+        .filter(User.id == user_id)
+        .one_or_none()
+    )
     if not u:
         raise HTTPException(404, "User not found")
     return u
@@ -503,11 +696,15 @@ def get_user(user_id: int, db: DbSession, _: User = Depends(require_permissions(
 
 @router.patch("/users/{user_id}", response_model=UserOut)
 def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User = Depends(require_permissions("admin.users", "*"))):
-    # Serialize changes that can remove the final administrator on PostgreSQL.
-    # SQLite ignores FOR UPDATE in disposable tests.
     if {"role_id", "extra_permissions", "access_policy", "is_active"} & payload.model_fields_set:
-        db.query(User).filter(User.is_active.is_(True)).order_by(User.id).with_for_update(of=User).populate_existing().all()
-    u = db.get(User, user_id)
+        _lock_active_user_memberships(db)
+    _require_storable_user_id(user_id)
+    credential_change = bool(payload.password)
+    u = (
+        lock_user_for_credential_change(db, user_id, require_active=False)
+        if credential_change
+        else db.get(User, user_id)
+    )
     if not u:
         raise HTTPException(404, "User not found")
     data = payload.model_dump(exclude_unset=True)
@@ -535,7 +732,7 @@ def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User 
     if "role_id" in data and data["role_id"] != u.role_id:
         _assert_can_grant_role(db, current, data["role_id"])
     if "extra_permissions" in data:
-        _assert_can_grant_permissions(current, data["extra_permissions"])
+        _assert_can_grant_permissions(current, data["extra_permissions"], previous=u.extra_permissions)
     # Never let the last active administrator be demoted or deactivated.
     was_admin = "*" in user_permissions(u)
     was_super_admin = is_super_admin(u)
@@ -554,15 +751,22 @@ def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User 
         raise HTTPException(400, "Cannot remove the last active administrator")
     if "password" in data and data["password"]:
         _require_strong_password(data["password"])
-        u.password_hash = hash_password(data.pop("password"))
-        u.tokens_valid_from = datetime.now(timezone.utc)
-    elif "password" in data:
-        data.pop("password")
     if "email" in data and data["email"]:
         data["email"] = normalize_email(data["email"])
+    if data.get("name") is not None and len(data["name"]) > 128:
+        raise HTTPException(422, "User name must be at most 128 characters")
+    if data.get("email") is not None and len(data["email"]) > 255:
+        raise HTTPException(422, "User email must be at most 255 characters")
+    if "password" in data and data["password"]:
+        apply_password_credential_change(db, u, data.pop("password"))
+    elif "password" in data:
+        data.pop("password")
     for k, v in data.items():
         setattr(u, k, v)
-    log_action(db, current, "update", "User", u.id, old_value=old_access, new_value=data)
+    audit_new_value = dict(data)
+    if credential_change:
+        audit_new_value.update({"credential_changed": True, "reset_links_invalidated": True})
+    log_action(db, current, "update", "User", u.id, old_value=old_access, new_value=audit_new_value)
     db.commit()
     db.refresh(u)
     return u
@@ -570,27 +774,57 @@ def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User 
 
 @router.delete("/users/{user_id}", status_code=204)
 def delete_user(user_id: int, db: DbSession, current: User = Depends(require_permissions("admin.users", "*"))):
+    _lock_active_user_memberships(db)
+    _require_storable_user_id(user_id)
     u = db.get(User, user_id)
     if not u:
         raise HTTPException(404, "User not found")
     if u.id == current.id:
         raise HTTPException(400, "You cannot delete your own account")
-    if "*" in user_permissions(u) and not is_super_admin(current):
+    if ("*" in user_permissions(u) or is_super_admin(u)) and not is_super_admin(current):
         raise HTTPException(403, "Only a super admin can delete administrator accounts")
     if is_super_admin(u) and _count_active_super_admins(db, exclude_user_id=u.id) == 0:
         raise HTTPException(400, "Cannot delete the last active super administrator")
     if "*" in user_permissions(u) and _count_active_admins(db, exclude_user_id=u.id) == 0:
         raise HTTPException(400, "Cannot delete the last active administrator")
-    _detach_user_references(db, user_id)
-    db.delete(u)
-    log_action(db, current, "delete", "User", user_id)
-    db.commit()
+    _assert_user_has_no_audit_history(db, user_id)
+    try:
+        _detach_user_references(db, user_id)
+        db.delete(u)
+        log_action(db, current, "delete", "User", user_id)
+        db.commit()
+    except IntegrityError:
+        # A concurrent audit can appear after the guard. Its FK blocks deletion;
+        # roll back all reference cleanup before checking the committed history.
+        db.rollback()
+        _assert_user_has_no_audit_history(db, user_id)
+        raise
 
 
 # ===== Roles =====
-@router.get("/roles", response_model=list[RoleOut])
-def list_roles(db: DbSession, _: CurrentUser):
-    return db.query(Role).all()
+@router.get("/roles", response_model=list[RoleOut] | RolePageOut)
+def list_roles(
+    db: DbSession,
+    _: CurrentUser,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
+    query = db.query(Role).options(load_only(Role.id, Role.name, Role.permissions))
+    if page is None and page_size is None:
+        return query.all()
+
+    page = page or 1
+    page_size = page_size or 50
+    total = query.count()
+    ordered_query = query.order_by(Role.id)
+    rows = ordered_query.offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.post("/roles", response_model=RoleOut, status_code=201)
@@ -599,6 +833,8 @@ def create_role(payload: RoleIn, db: DbSession, current: User = Depends(require_
     if payload.name.strip().lower() == SUPER_ADMIN_ROLE_NAME.lower() and not is_super_admin(current):
         raise HTTPException(403, "Only a super admin can create the super admin role")
     _assert_can_grant_permissions(current, permissions)
+    if len(payload.name) > 64:
+        raise HTTPException(422, "Role name must be at most 64 characters")
     r = Role(name=payload.name, permissions=permissions)
     db.add(r)
     db.flush()
@@ -609,13 +845,46 @@ def create_role(payload: RoleIn, db: DbSession, current: User = Depends(require_
 
 
 # ===== Departments =====
-@router.get("/departments", response_model=list[DepartmentOut])
-def list_departments(db: DbSession, _: CurrentUser):
-    return db.query(Department).order_by(Department.id).all()
+def _validate_department_storage(name: str, code: str) -> None:
+    if len(name) > 128:
+        raise HTTPException(422, "Department name must be at most 128 characters")
+    if len(code) > 32:
+        raise HTTPException(422, "Department code must be at most 32 characters")
+
+
+@router.get("/departments", response_model=list[DepartmentOut] | DepartmentPageOut)
+def list_departments(
+    db: DbSession,
+    _: CurrentUser,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
+    query = db.query(Department)
+    ordered_query = query.options(load_only(
+        Department.id,
+        Department.name,
+        Department.code,
+        Department.is_active,
+    )).order_by(Department.id)
+    if page is None and page_size is None:
+        return ordered_query.all()
+
+    page = page or 1
+    page_size = page_size or 50
+    total = query.count()
+    rows = ordered_query.offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.post("/departments", response_model=DepartmentOut, status_code=201)
 def create_department(payload: DepartmentIn, db: DbSession, current: User = Depends(require_permissions("*"))):
+    _validate_department_storage(payload.name, payload.code)
     d = Department(name=payload.name, code=payload.code)
     db.add(d)
     db.flush()
@@ -647,6 +916,7 @@ def update_department(
     code_exists = db.query(Department).filter(Department.code == code, Department.id != department_id).first()
     if code_exists:
         raise HTTPException(400, "Department code already exists")
+    _validate_department_storage(name, code)
 
     old = {"name": d.name, "code": d.code}
     d.name = name
@@ -680,13 +950,13 @@ def delete_department(
 
 
 # ===== Audit log =====
-@router.get("/audit-logs")
+@router.get("/audit-logs", response_model=list[AuditLogOut] | AuditLogPageOut)
 def list_audit_logs(
     db: DbSession,
     _: User = Depends(require_permissions("admin.audit", "*")),
     limit: int = 200,
-    page: int = 1,
-    page_size: int = 50,
+    page: int | None = None,
+    page_size: int | None = None,
     include_total: bool = False,
     user_id: int | None = None,
     entity_type: str | None = None,
@@ -696,7 +966,15 @@ def list_audit_logs(
     date_to: str | None = None,
     q: str | None = None,
 ):
-    qry = db.query(AuditLog, User).outerjoin(User, User.id == AuditLog.user_id)
+    qry = (
+        db.query(AuditLog, User)
+        .outerjoin(User, User.id == AuditLog.user_id)
+        .options(
+            load_only(User.id, User.name, User.email),
+            lazyload(User.role),
+            lazyload(User.department),
+        )
+    )
     if user_id:
         qry = qry.filter(AuditLog.user_id == user_id)
     if entity_type:
@@ -720,17 +998,26 @@ def list_audit_logs(
             | (User.name.ilike(like))
             | (User.email.ilike(like))
         )
-    total = qry.count() if include_total else 0
+    paginated = include_total or page is not None or page_size is not None
     if include_total:
-        safe_page = max(1, page)
-        safe_size = max(1, min(page_size, 500))
+        # Preserve the historical include_total contract, which clamps values.
+        safe_page = max(1, page or 1)
+        safe_size = max(1, min(page_size or 50, 500))
+    else:
+        safe_page = page or 1
+        safe_size = page_size or 50
+        if safe_page < 1 or safe_size < 1 or safe_size > 500:
+            raise HTTPException(422, "page must be >= 1 and page_size must be between 1 and 500")
+    total = qry.count() if paginated else 0
+    if paginated:
         qry = qry.order_by(AuditLog.id.desc()).offset((safe_page - 1) * safe_size).limit(safe_size)
     else:
         qry = qry.order_by(AuditLog.id.desc()).limit(limit)
     rows = qry.all()
     out = []
     for audit, user in rows:
-        summary, root_cause_hint = _audit_summary(audit, user)
+        changed_fields = _changed_fields(audit.old_value_json, audit.new_value_json)
+        summary, root_cause_hint = _audit_summary(audit, user, changes=changed_fields)
         out.append(
             {
             "id": audit.id,
@@ -744,7 +1031,7 @@ def list_audit_logs(
             "entity_id": audit.entity_id,
             "new_value": audit.new_value_json,
             "old_value": audit.old_value_json,
-            "changed_fields": _changed_fields(audit.old_value_json, audit.new_value_json),
+            "changed_fields": changed_fields,
             "prev_hash": audit.prev_hash,
             "entry_hash": audit.entry_hash,
             "summary": summary,
@@ -752,8 +1039,8 @@ def list_audit_logs(
             "created_at": audit.created_at,
         }
         )
-    if include_total:
-        return {"rows": out, "total": total, "page": max(1, page), "page_size": max(1, min(page_size, 500))}
+    if paginated:
+        return {"rows": out, "total": total, "page": safe_page, "page_size": safe_size}
     return out
 
 

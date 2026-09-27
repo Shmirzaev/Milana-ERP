@@ -2,16 +2,16 @@
 
 import { useRef, useState } from "react";
 import { Plus } from "lucide-react";
-import useSWR from "swr";
 import ModelAsyncSelect from "@/components/ModelAsyncSelect";
 import PageHeader from "@/components/PageHeader";
 import { useDialogs } from "@/components/DialogProvider";
 import PriceRequestCard, { PriceRequestProductStrip } from "@/components/price-calculation/PriceRequestCard";
-import { api, fetcher } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useT } from "@/lib/i18n";
-import { priceRequestSurface, type PriceCalculationRequest, type PriceRequestStatus } from "@/lib/priceCalculationRequests";
+import { priceRequestSurface, type PriceRequestStatus } from "@/lib/priceCalculationRequests";
 import { modelVariantPictureUrl } from "@/lib/modelVariants";
 import { modelAutofillValues, type PriceCalculationModelDetail } from "../../finance/price-calculation/modelAutofill";
+import { usePriceRequests } from "@/lib/usePriceRequests";
 
 type SalesDraft = {
   id: string;
@@ -39,11 +39,7 @@ export default function SalesPriceRequestsPage() {
   const dialogs = useDialogs();
   const nextDraftId = useRef(2);
   const requestSequence = useRef(new Map<string, number>());
-  const { data: requests, error, isLoading, mutate } = useSWR<PriceCalculationRequest[]>(
-    "/api/price-calculation/requests",
-    fetcher,
-    { refreshInterval: 5_000 },
-  );
+  const { requests, error, isLoading, mutate, hasMore, loadMore, isLoadingMore } = usePriceRequests();
   const [drafts, setDrafts] = useState<SalesDraft[]>([emptyDraft("sales-price-draft-1")]);
   const [savingId, setSavingId] = useState<string | null>(null);
 
@@ -142,7 +138,7 @@ export default function SalesPriceRequestsPage() {
 
         {isLoading ? <div className="text-sm text-[var(--erp-text-muted)]">{t("common.loading")}</div> : null}
         {error ? <div className="text-sm text-red-700">{t("page.priceWorkflow.loadError")}</div> : null}
-        {(requests || []).map((request) => <PriceRequestCard
+        {requests.map((request) => <PriceRequestCard
           key={request.id}
           request={request}
           status={request.overall_status}
@@ -159,6 +155,7 @@ export default function SalesPriceRequestsPage() {
             noPicture: t("page.priceWorkflow.noPicture"),
           }}
         />)}
+        {hasMore ? <button type="button" className="btn" disabled={isLoadingMore} onClick={loadMore}>{isLoadingMore ? t("common.loading") : t("common.loadMore")}</button> : null}
       </div>
     </div>
   );

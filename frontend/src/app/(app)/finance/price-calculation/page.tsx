@@ -2,13 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
-import useSWR from "swr";
 import ImageThumbnail from "@/components/ImageThumbnail";
 import PageHeader from "@/components/PageHeader";
 import { useDialogs } from "@/components/DialogProvider";
-import { api, fetcher } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { priceRequestSurface, type PriceCalculationRequest, type PriceRequestStatus } from "@/lib/priceCalculationRequests";
+import { usePriceRequests } from "@/lib/usePriceRequests";
 import {
   PRICE_CALCULATION_DETAIL_GROUPS,
   PRICE_CALCULATION_SUMMARY_COLUMNS,
@@ -109,7 +109,7 @@ function PriceCalculationField({ column, row, calculated, formatter, label, onCh
 export default function PriceCalculationPage() {
   const { lang, t } = useT();
   const dialogs = useDialogs();
-  const { data: requests, error, isLoading, mutate } = useSWR<PriceCalculationRequest[]>("/api/price-calculation/requests", fetcher, { refreshInterval: 5_000 });
+  const { requests, error, isLoading, mutate, hasMore, loadMore, isLoadingMore } = usePriceRequests();
   const [expandedRows, setExpandedRows] = useState<Set<string>>(() => new Set());
   const [editingRequests, setEditingRequests] = useState<Set<number>>(() => new Set());
   const [financeDrafts, setFinanceDrafts] = useState<Record<number, Partial<PriceCalculationRow>>>({});
@@ -163,7 +163,7 @@ export default function PriceCalculationPage() {
       {error ? <div className="mb-3 text-sm text-red-700">{t("page.priceWorkflow.loadError")}</div> : null}
       {!isLoading && !error && requests?.length === 0 ? <div className="text-sm text-[var(--erp-text-muted)]">{t("page.priceWorkflow.empty")}</div> : null}
       <div className="space-y-4">
-        {(requests || []).map((request) => {
+        {requests.map((request) => {
           const baseRow = rowFromRequest(request);
           const row = editingRequests.has(request.id) ? { ...baseRow, ...financeDrafts[request.id] } : baseRow;
           const detailsOpen = expandedRows.has(row.id);
@@ -214,6 +214,7 @@ export default function PriceCalculationPage() {
             </section>
           );
         })}
+        {hasMore ? <button type="button" className="btn" disabled={isLoadingMore} onClick={loadMore}>{isLoadingMore ? t("common.loading") : t("common.loadMore")}</button> : null}
       </div>
     </div>
   );

@@ -1,13 +1,17 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from io import BytesIO
+from uuid import uuid4
 
 from openpyxl import load_workbook
 from PIL import Image
+import pytest
 
-from app.models import AttendanceDevice, AttendancePerson, Employee
-from app.tests.conftest import TestSessionLocal
+from app.api.routes import attendance as attendance_routes
+from app.core.dt import as_utc
+from app.models import AttendanceDevice, AttendanceEvent, AttendancePerson, Employee
+from app.tests.conftest import TestSessionLocal, test_engine
 
 
 INTEGRATION_HEADERS = {"X-Attendance-Token": "test-attendance-token"}
@@ -39,6 +43,80 @@ def person(employee_no: str, name: str):
         "card_count": 0,
         "fingerprint_count": 0,
     }
+
+
+@pytest.mark.parametrize("count", [1, 50, 401])
+def test_attendance_people_query_projects_only_overview_fields(count):
+    marker = uuid4().hex[:10]
+    name_prefix = f"Perf projection {marker}"
+    day = date(2026, 8, 17)
+    start, end = attendance_routes._day_bounds(day)
+    with TestSessionLocal() as db:
+        device = AttendanceDevice(
+            factory_code="ECO",
+            device_key=f"projection-{marker}",
+            name="Projection test device",
+            vendor="Hikvision",
+        )
+        db.add(device)
+        db.flush()
+        db.add_all([
+            AttendancePerson(
+                factory_code="ECO",
+                device_id=device.id,
+                external_person_id=f"{marker}-{index:04d}",
+                full_name=f"{name_prefix} {index:04d}",
+                is_valid=True,
+                has_face=False,
+                last_synced_at=datetime(2026, 8, 17, tzinfo=timezone.utc),
+            )
+            for index in range(count)
+        ])
+        db.commit()
+
+        query = attendance_routes._attendance_people_query(
+            db,
+            factory_code="ECO",
+            start=start,
+            end=end,
+            query=marker,
+            usage="all",
+        ).order_by(AttendancePerson.external_person_id)
+        projected_sql = str(query.statement.compile(dialect=test_engine.dialect)).lower()
+        legacy_sql = str(
+            db.query(AttendancePerson)
+            .filter(AttendancePerson.factory_code == "ECO")
+            .statement.compile(dialect=test_engine.dialect)
+        ).lower()
+        rows = query.all()
+        projected_payload = [
+            attendance_routes._attendance_row_payload(person_row, event_count, first, last)
+            for person_row, event_count, first, last in rows
+        ]
+        legacy_people = (
+            db.query(AttendancePerson)
+            .filter(
+                AttendancePerson.factory_code == "ECO",
+                AttendancePerson.full_name.ilike(f"%{marker}%"),
+            )
+            .order_by(AttendancePerson.external_person_id)
+            .all()
+        )
+        legacy_payload = [
+            attendance_routes._attendance_row_payload(person_row, None, None, None)
+            for person_row in legacy_people
+        ]
+
+    assert len(projected_payload) == count
+    assert projected_payload == legacy_payload
+    assert "card_count" not in projected_sql
+    assert "fingerprint_count" not in projected_sql
+    assert "photo_sha256" not in projected_sql
+    assert "valid_from" not in projected_sql
+    assert "card_count" in legacy_sql
+    assert "fingerprint_count" in legacy_sql
+    assert "photo_sha256" in legacy_sql
+    assert "valid_from" in legacy_sql
 
 
 def test_attendance_snapshot_is_isolated_from_hr(client, auth_headers):
@@ -102,6 +180,91 @@ def test_events_are_idempotent_and_drive_daily_usage(client, auth_headers):
     assert overview["people"][0]["departure_at"] is None
     assert overview["people"][0]["worked_minutes"] is None
     assert overview["people"][0]["attendance_status"] == "single_scan"
+
+
+def test_event_serial_number_must_fit_database_integer(client):
+    response = client.post(
+        "/api/attendance/integration/events",
+        headers=INTEGRATION_HEADERS,
+        json={
+            "device": snapshot()["device"],
+            "events": [{
+                "event_uid": "serial-overflow",
+                "occurred_at": "2026-08-17T08:15:00+05:00",
+                "serial_no": 2_147_483_648,
+            }],
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_older_event_batch_keeps_events_without_regressing_device_checkpoint(client, monkeypatch):
+    newer = datetime(2026, 8, 17, 12, tzinfo=timezone.utc)
+    older = datetime(2026, 8, 17, 11, tzinfo=timezone.utc)
+    device_key = "out-of-order-events"
+
+    current_device = snapshot(device_key=device_key, source_host="10.100.50.90")["device"]
+    current_device.update({
+        "name": "Current turnstile",
+        "model": "DS-current",
+        "serial_no": "current-serial",
+        "reported_person_count": 17,
+    })
+    monkeypatch.setattr(attendance_routes, "utcnow", lambda: newer)
+    current = client.post(
+        "/api/attendance/integration/events",
+        headers=INTEGRATION_HEADERS,
+        json={
+            "device": current_device,
+            "events": [{
+                "event_uid": "newer-batch-event",
+                "occurred_at": "2026-08-17T12:00:00Z",
+            }],
+        },
+    )
+    assert current.status_code == 200, current.text
+    assert current.json()["inserted"] == 1
+
+    stale_device = {
+        **current_device,
+        "name": "Stale turnstile",
+        "model": "DS-stale",
+        "serial_no": "stale-serial",
+        "source_host": "10.100.50.12",
+        "reported_person_count": 3,
+    }
+
+
+    monkeypatch.setattr(attendance_routes, "utcnow", lambda: older)
+    stale = client.post(
+        "/api/attendance/integration/events",
+        headers=INTEGRATION_HEADERS,
+        json={
+            "device": stale_device,
+            "events": [{
+                "event_uid": "older-batch-event",
+                "occurred_at": "2026-08-17T11:00:00Z",
+            }],
+        },
+    )
+    assert stale.status_code == 200, stale.text
+    assert stale.json()["inserted"] == 1
+
+    with TestSessionLocal() as db:
+        device = db.query(AttendanceDevice).filter_by(device_key=device_key).one()
+        assert (device.name, device.model, device.serial_no, device.source_host) == (
+            "Current turnstile",
+            "DS-current",
+            "current-serial",
+            "10.100.50.90",
+        )
+        assert device.reported_person_count == 17
+        assert as_utc(device.last_seen_at) == newer
+        assert as_utc(device.last_event_sync_at) == newer
+        assert {
+            event_uid
+            for (event_uid,) in db.query(AttendanceEvent.event_uid).filter_by(device_id=device.id)
+        } == {"newer-batch-event", "older-batch-event"}
 
 
 def test_daily_attendance_uses_first_arrival_and_last_departure_and_exports_report(client, auth_headers):

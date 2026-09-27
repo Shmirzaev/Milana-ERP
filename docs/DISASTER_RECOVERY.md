@@ -2,6 +2,11 @@
 
 This plan must be completed and tested before production launch.
 
+For physical-host, site, power, storage, network, and application failure
+domains, complete the [OPS04 evidence checklist](OPS04_FAILURE_DOMAIN_CHECKLIST.md).
+Separate VM names and blue/green application slots do not prove independent
+failure domains.
+
 ## Recovery Objectives
 
 Set these values before launch:
@@ -57,6 +62,11 @@ Before launch, perform a restore into a non-production environment and record:
 - data loss window
 - failed steps
 - owner approval
+
+Use the [OPS10 non-production drill record](OPS10_NONPRODUCTION_RESTORE_DRILL.md)
+to check isolation and retain timestamps, artifact identities, validation
+results, and owner assessment. The checklist does not set the RTO, RPO,
+retention schedule, or backup provider.
 
 ## Incident Roles
 

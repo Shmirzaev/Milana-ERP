@@ -8,6 +8,12 @@ import base64
 import os
 import time
 
+from sqlalchemy.exc import SQLAlchemyError
+
+from app.core.security import create_access_token
+from app.db.session import SessionLocal
+from app.models import AuditLog, Department, PackagingRecord, User, WorkOrder
+
 STRONG_PW = "Str0ngManager!2026"
 ESC_PW = "Esc4lation!Test2026"
 
@@ -258,8 +264,27 @@ def test_super_data_console_requires_true_super_admin(client, auth_headers):
     r = client.get("/api/admin/super-data/tables", headers=regular_admin_headers)
     assert r.status_code == 403, r.text
 
+    r = client.patch(
+        f"/api/admin/super-data/tables/departments/rows/{hr_dept}",
+        json={"values": {"name": "Forbidden regular-admin edit"}},
+        headers=regular_admin_headers,
+    )
+    assert r.status_code == 403, r.text
 
-def test_super_admin_can_edit_and_delete_rows_from_super_data_console(client, auth_headers):
+    r = client.delete(
+        f"/api/admin/super-data/tables/departments/rows/{hr_dept}",
+        headers=regular_admin_headers,
+    )
+    assert r.status_code == 403, r.text
+
+    r = client.post(
+        f"/api/admin/super-data/repairs/departments/{hr_dept}/deactivate",
+        headers=regular_admin_headers,
+    )
+    assert r.status_code == 403, r.text
+
+
+def test_super_data_mutations_are_allowlisted_audited_and_delete_fails_closed(client, auth_headers):
     r = client.post(
         "/api/departments",
         json={"name": "Super Data Temporary", "code": "SDC"},
@@ -267,6 +292,41 @@ def test_super_admin_can_edit_and_delete_rows_from_super_data_console(client, au
     )
     assert r.status_code == 201, r.text
     department_id = r.json()["id"]
+
+    r = client.get("/api/admin/super-data/tables", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    editable = {
+        (table["name"], column["name"])
+        for table in r.json()
+        for column in table["columns"]
+        if column["editable"]
+    }
+    assert editable == {("departments", "name")}
+
+    r = client.patch(
+        f"/api/admin/super-data/tables/departments/rows/{department_id}",
+        json={"values": {"code": "BAD"}},
+        headers=auth_headers,
+    )
+    assert r.status_code == 403, r.text
+
+    with SessionLocal() as db:
+        admin = db.query(User).filter(User.email == "admin@example.com").one()
+        admin_id = admin.id
+        original_factory = admin.factory_code
+        alternate_factory_headers = {
+            "Authorization": f"Bearer {create_access_token(admin.id, extra={'factory_code': 'BST'})}"
+        }
+
+    r = client.patch(
+        f"/api/admin/super-data/tables/users/rows/{admin_id}",
+        json={"values": {"factory_code": "ECO"}},
+        headers=alternate_factory_headers,
+    )
+    assert r.status_code == 403, r.text
+
+    with SessionLocal() as db:
+        assert db.get(User, admin_id).factory_code == original_factory
 
     r = client.patch(
         f"/api/admin/super-data/tables/departments/rows/{department_id}",
@@ -276,16 +336,253 @@ def test_super_admin_can_edit_and_delete_rows_from_super_data_console(client, au
     assert r.status_code == 200, r.text
     assert r.json()["name"] == "Super Data Edited"
 
+    with SessionLocal() as db:
+        audit = (
+            db.query(AuditLog)
+            .filter_by(action="update", entity_type="SuperData:departments", entity_id=department_id)
+            .one()
+        )
+        assert audit.old_value_json["name"] == "Super Data Temporary"
+        assert audit.new_value_json["name"] == "Super Data Edited"
+
     r = client.get("/api/admin/super-data/tables/departments?q=Super%20Data%20Edited", headers=auth_headers)
     assert r.status_code == 200, r.text
     assert any(row["id"] == department_id for row in r.json()["rows"])
 
     r = client.delete(f"/api/admin/super-data/tables/departments/rows/{department_id}", headers=auth_headers)
-    assert r.status_code == 204, r.text
+    assert r.status_code == 409, r.text
+    assert "soft-delete" in r.json()["detail"]
 
     r = client.get("/api/admin/super-data/tables/departments?q=Super%20Data%20Edited", headers=auth_headers)
     assert r.status_code == 200, r.text
-    assert not any(row["id"] == department_id for row in r.json()["rows"])
+    assert any(row["id"] == department_id for row in r.json()["rows"])
+
+    with SessionLocal() as db:
+        assert db.get(Department, department_id) is not None
+        assert (
+            db.query(AuditLog)
+            .filter_by(action="delete", entity_type="SuperData:departments", entity_id=department_id)
+            .count()
+            == 0
+        )
+
+
+def test_super_data_update_rolls_back_when_audit_fails(client, auth_headers, monkeypatch):
+    from app.api.routes import super_data
+
+    r = client.post(
+        "/api/departments",
+        json={"name": "Super Data Rollback", "code": "SDR"},
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    department_id = r.json()["id"]
+
+    def fail_audit(*args, **kwargs):
+        raise SQLAlchemyError("synthetic audit failure")
+
+    monkeypatch.setattr(super_data, "log_action", fail_audit)
+    r = client.patch(
+        f"/api/admin/super-data/tables/departments/rows/{department_id}",
+        json={"values": {"name": "Must Roll Back"}},
+        headers=auth_headers,
+    )
+    assert r.status_code == 400, r.text
+
+    with SessionLocal() as db:
+        assert db.get(Department, department_id).name == "Super Data Rollback"
+        assert (
+            db.query(AuditLog)
+            .filter_by(action="update", entity_type="SuperData:departments", entity_id=department_id)
+            .count()
+            == 0
+        )
+
+
+def test_super_data_named_department_repair_validates_and_keeps_legacy_patch(client, auth_headers):
+    original = client.post(
+        "/api/departments",
+        json={"name": "Repair Target", "code": "RPT"},
+        headers=auth_headers,
+    )
+    duplicate = client.post(
+        "/api/departments",
+        json={"name": "Repair Duplicate", "code": "RPD"},
+        headers=auth_headers,
+    )
+    assert original.status_code == 201, original.text
+    assert duplicate.status_code == 201, duplicate.text
+    department_id = original.json()["id"]
+    repair_url = f"/api/admin/super-data/repairs/departments/{department_id}/rename"
+
+    renamed = client.patch(repair_url, json={"name": "  Repaired Name  "}, headers=auth_headers)
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["name"] == "Repaired Name"
+
+    blank = client.patch(repair_url, json={"name": "   "}, headers=auth_headers)
+    too_long = client.patch(repair_url, json={"name": "N" * 129}, headers=auth_headers)
+    extra_field = client.patch(
+        repair_url,
+        json={"name": "Ignored Extra", "code": "MUTATE"},
+        headers=auth_headers,
+    )
+    duplicate_name = client.patch(
+        repair_url,
+        json={"name": "Repair Duplicate"},
+        headers=auth_headers,
+    )
+    assert blank.status_code == 422, blank.text
+    assert too_long.status_code == 422, too_long.text
+    assert extra_field.status_code == 422, extra_field.text
+    assert duplicate_name.status_code == 409, duplicate_name.text
+
+    # The former table/row URL stays compatible but accepts only this one
+    # named repair and routes through the same validator.
+    legacy = client.patch(
+        f"/api/admin/super-data/tables/departments/rows/{department_id}",
+        json={"values": {"name": "Legacy Compatible Repair"}},
+        headers=auth_headers,
+    )
+    assert legacy.status_code == 200, legacy.text
+    assert legacy.json()["name"] == "Legacy Compatible Repair"
+    rejected_extra_field = client.patch(
+        f"/api/admin/super-data/tables/departments/rows/{department_id}",
+        json={"values": {"name": "Rejected", "code": "MUTATE"}},
+        headers=auth_headers,
+    )
+    assert rejected_extra_field.status_code == 403, rejected_extra_field.text
+
+    with SessionLocal() as db:
+        assert db.get(Department, department_id).name == "Legacy Compatible Repair"
+        assert (
+            db.query(AuditLog)
+            .filter_by(action="update", entity_type="SuperData:departments", entity_id=department_id)
+            .count()
+            == 2
+        )
+
+
+def test_super_data_department_deactivation_is_named_audited_and_idempotent(client, auth_headers):
+    created = client.post(
+        "/api/departments",
+        json={"name": "Soft Delete Target", "code": "SDT"},
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+    department_id = created.json()["id"]
+    user = client.post(
+        "/api/users",
+        json={
+            "name": "Soft Delete Reference",
+            "email": "soft.delete.reference@example.com",
+            "password": "SoftDeleteUser!2026",
+            "role_id": _role_id(client, auth_headers, "Admin"),
+            "department_id": department_id,
+        },
+        headers=auth_headers,
+    )
+    assert user.status_code == 201, user.text
+    user_id = user.json()["id"]
+    candidate = client.post(
+        "/api/hr/recruitment",
+        json={"full_name": "Historical Candidate", "department_id": department_id},
+        headers=auth_headers,
+    )
+    assert candidate.status_code == 201, candidate.text
+
+    response = client.post(
+        f"/api/admin/super-data/repairs/departments/{department_id}/deactivate",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["is_active"] is False
+    listed = client.get("/api/departments", headers=auth_headers)
+    assert listed.status_code == 200, listed.text
+    assert any(row["id"] == department_id and row["is_active"] is False for row in listed.json())
+
+    reassignment = client.post(
+        "/api/users",
+        json={
+            "name": "New Soft Delete Assignment",
+            "email": "soft.delete.new.assignment@example.com",
+            "password": "SoftDeleteUser!2026",
+            "role_id": _role_id(client, auth_headers, "Admin"),
+            "department_id": department_id,
+        },
+        headers=auth_headers,
+    )
+    assert reassignment.status_code == 422, reassignment.text
+    retained_candidate = client.patch(
+        f"/api/hr/recruitment/{candidate.json()['id']}",
+        json={"full_name": "Renamed Historical Candidate", "department_id": department_id},
+        headers=auth_headers,
+    )
+    assert retained_candidate.status_code == 200, retained_candidate.text
+    new_candidate = client.post(
+        "/api/hr/recruitment",
+        json={"full_name": "New Candidate", "department_id": department_id},
+        headers=auth_headers,
+    )
+    assert new_candidate.status_code == 422, new_candidate.text
+
+    with SessionLocal() as db:
+        department = db.get(Department, department_id)
+        assert department is not None
+        assert department.name == "Soft Delete Target"
+        assert department.is_active is False
+        assert db.get(User, user_id).department.name == "Soft Delete Target"
+        audit = (
+            db.query(AuditLog)
+            .filter_by(action="deactivate", entity_type="SuperData:departments", entity_id=department_id)
+            .one()
+        )
+        assert audit.old_value_json["is_active"] is True
+        assert audit.new_value_json["is_active"] is False
+
+    repeated = client.post(
+        f"/api/admin/super-data/repairs/departments/{department_id}/deactivate",
+        headers=auth_headers,
+    )
+    assert repeated.status_code == 200, repeated.text
+    assert repeated.json()["is_active"] is False
+    with SessionLocal() as db:
+        assert (
+            db.query(AuditLog)
+            .filter_by(action="deactivate", entity_type="SuperData:departments", entity_id=department_id)
+            .count()
+            == 1
+        )
+
+
+def test_super_data_department_deactivation_rolls_back_when_audit_fails(client, auth_headers, monkeypatch):
+    from app.api.routes import super_data
+
+    created = client.post(
+        "/api/departments",
+        json={"name": "Soft Delete Rollback", "code": "SDR2"},
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+    department_id = created.json()["id"]
+
+    def fail_audit(*args, **kwargs):
+        raise SQLAlchemyError("synthetic audit failure")
+
+    monkeypatch.setattr(super_data, "log_action", fail_audit)
+    response = client.post(
+        f"/api/admin/super-data/repairs/departments/{department_id}/deactivate",
+        headers=auth_headers,
+    )
+    assert response.status_code == 400, response.text
+
+    with SessionLocal() as db:
+        assert db.get(Department, department_id).is_active is True
+        assert (
+            db.query(AuditLog)
+            .filter_by(action="deactivate", entity_type="SuperData:departments", entity_id=department_id)
+            .count()
+            == 0
+        )
 
 
 # ---------- H2: permission gating on state changes ----------
@@ -418,12 +715,17 @@ def test_login_sets_httponly_cookie_and_cookie_auth_works(client):
     assert client.get("/api/auth/me").status_code == 401
 
 
-def test_https_forwarded_login_cookie_is_secure(client):
-    r = client.post(
-        "/api/auth/login",
-        data={"username": "admin@example.com", "password": "test-admin-password-123!"},
-        headers={"x-forwarded-proto": "https"},
-    )
+def test_https_forwarded_login_cookie_is_secure(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    monkeypatch.setenv("TRUSTED_PROXY_CIDRS", "127.0.0.1/32")
+    with TestClient(app, client=("127.0.0.1", 50000)) as trusted_proxy_client:
+        r = trusted_proxy_client.post(
+            "/api/auth/login",
+            data={"username": "admin@example.com", "password": "test-admin-password-123!"},
+            headers={"x-forwarded-proto": "https"},
+        )
     assert r.status_code == 200, r.text
     set_cookie = r.headers.get("set-cookie", "").lower()
     assert "erp_access_token=" in set_cookie
@@ -556,6 +858,13 @@ def test_printable_package_label_escapes_database_values(client, auth_headers):
         headers=auth_headers,
     )
     assert po.status_code == 201, po.text
+    with SessionLocal() as db:
+        work_order = db.query(WorkOrder).filter_by(
+            production_order_id=po.json()["id"],
+            operation="packaging",
+        ).one()
+        db.add(PackagingRecord(work_order_id=work_order.id, input_qty=10, packed_qty=10, damaged_qty=0))
+        db.commit()
     payload = {
         "production_order_id": po.json()["id"],
         "model_id": 1,

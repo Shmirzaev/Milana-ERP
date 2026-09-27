@@ -4,6 +4,8 @@ import base64
 import mimetypes
 import os
 
+from sqlalchemy import inspect as sa_inspect
+
 from app.core.config import settings
 from app.models import Model, ModelBOM, ModelImage
 
@@ -50,7 +52,13 @@ def _uploaded_file_data_uri(file_url: str | None, content_type: str | None = Non
 def _model_image_src(img: ModelImage | None) -> str | None:
     if not img or not is_preview_model_image(img):
         return None
-    return _uploaded_file_data_uri(img.file_url, img.content_type, img.file_data)
+    # Label list endpoints deliberately project image metadata without the
+    # potentially-large binary column.  Do not dereference a deferred
+    # ``file_data`` attribute here: doing so silently adds one SELECT per
+    # image and defeats the batched label query.
+    unloaded = sa_inspect(img).unloaded
+    file_data = None if "file_data" in unloaded else img.file_data
+    return _uploaded_file_data_uri(img.file_url, img.content_type, file_data)
 
 
 def _bom_image_src(row: ModelBOM) -> str | None:

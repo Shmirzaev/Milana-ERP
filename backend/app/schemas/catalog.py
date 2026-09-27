@@ -1,6 +1,7 @@
 from datetime import datetime
-from typing import Optional
-from pydantic import BaseModel, Field
+from decimal import Decimal
+from typing import Annotated, Optional
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.common import ORMModel
 from app.schemas.inventory import ItemComposition, ItemOut
@@ -8,9 +9,12 @@ from app.schemas.user_access import AccessPolicy
 
 
 # Roles / Departments / Users
+PermissionGrant = Annotated[str, Field(max_length=128)]
+
+
 class RoleIn(BaseModel):
     name: str
-    permissions: list[str] = []
+    permissions: list[PermissionGrant] = Field(default_factory=list, max_length=150)
 
 
 class RoleOut(ORMModel):
@@ -28,6 +32,7 @@ class DepartmentOut(ORMModel):
     id: int
     name: str
     code: str
+    is_active: bool = True
 
 
 class UserIn(BaseModel):
@@ -37,7 +42,7 @@ class UserIn(BaseModel):
     role_id: Optional[int] = None
     department_id: Optional[int] = None
     factory_code: str = "MIL"
-    extra_permissions: list[str] = Field(default_factory=list)
+    extra_permissions: list[PermissionGrant] = Field(default_factory=list, max_length=150)
     access_policy: AccessPolicy | None = None
     is_active: bool = True
 
@@ -49,7 +54,7 @@ class UserUpdate(BaseModel):
     role_id: Optional[int] = None
     department_id: Optional[int] = None
     factory_code: Optional[str] = None
-    extra_permissions: Optional[list[str]] = None
+    extra_permissions: Optional[list[PermissionGrant]] = Field(default=None, max_length=150)
     access_policy: AccessPolicy | None = None
     is_active: Optional[bool] = None
 
@@ -71,9 +76,9 @@ class UserOut(ORMModel):
 
 # Customers / Suppliers
 class PartyIn(BaseModel):
-    name: str
-    phone: Optional[str] = None
-    email: Optional[str] = None
+    name: str = Field(max_length=255)
+    phone: Optional[str] = Field(default=None, max_length=64)
+    email: Optional[str] = Field(default=None, max_length=255)
     address: Optional[str] = None
     notes: Optional[str] = None
 
@@ -103,6 +108,14 @@ class BrandOut(ORMModel):
     is_active: bool
 
 
+class BrandPageOut(BaseModel):
+    rows: list[BrandOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class CollectionIn(BaseModel):
     brand_id: int
     name: str
@@ -122,6 +135,29 @@ class CollectionOut(ORMModel):
     status: str
 
 
+class CollectionPageOut(BaseModel):
+    rows: list[CollectionOut]
+    total: int
+    page: int
+    page_size: int
+
+
+class CollectionSeasonPageOut(BaseModel):
+    rows: list[str]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
+class ModelBomItemPageOut(BaseModel):
+    rows: list[ItemOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 class ModelImageIn(BaseModel):
     file_url: str
     file_name: Optional[str] = None
@@ -138,6 +174,16 @@ class ModelImageOut(ORMModel):
     image_type: Optional[str] = None
     is_primary: bool
     created_at: datetime
+
+
+class ModelSizeMeasurements(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    chest: float | None = Field(default=None, allow_inf_nan=False)
+    waist: float | None = Field(default=None, allow_inf_nan=False)
+    hip: float | None = Field(default=None, allow_inf_nan=False)
+    length: float | None = Field(default=None, allow_inf_nan=False)
+    sleeve: float | None = Field(default=None, allow_inf_nan=False)
 
 
 class ModelSizeIn(BaseModel):
@@ -170,9 +216,9 @@ class ModelBOMIn(BaseModel):
     size: Optional[str] = None
     color: Optional[str] = None
     photo_url: Optional[str] = None
-    quantity_per_piece: float
+    quantity_per_piece: Decimal | float | int | str
     unit: str
-    waste_percent: float = 0
+    waste_percent: Decimal | float | int | str = 0
 
 
 class ModelBOMUpdate(BaseModel):
@@ -183,9 +229,9 @@ class ModelBOMUpdate(BaseModel):
     size: Optional[str] = None
     color: Optional[str] = None
     photo_url: Optional[str] = None
-    quantity_per_piece: Optional[float] = None
+    quantity_per_piece: Decimal | float | int | str | None = None
     unit: Optional[str] = None
-    waste_percent: Optional[float] = None
+    waste_percent: Decimal | float | int | str | None = None
 
 
 class ModelBOMOut(ORMModel):
@@ -219,7 +265,7 @@ class ModelIn(BaseModel):
     designer_employee_id: Optional[int] = None
     details_json: Optional[dict] = None
     status: str = "draft"
-    sam_minutes: float = 0
+    sam_minutes: Decimal | float | int | str = 0
 
 
 class ModelPaidOperationsIn(BaseModel):

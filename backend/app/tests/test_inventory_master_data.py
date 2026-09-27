@@ -3,6 +3,8 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 from openpyxl import load_workbook
+import pytest
+from sqlalchemy import event
 from sqlalchemy.dialects import postgresql
 
 from app.api.routes.cutting_passports import _compute, _size_count_from_range
@@ -948,8 +950,18 @@ def test_stock_batch_editor_updates_receipt_fields_and_exact_quantity(client, au
     warehouses_response = client.get("/api/inventory/warehouses", headers=auth_headers)
     assert warehouses_response.status_code == 200, warehouses_response.text
     warehouses = warehouses_response.json()
-    source_warehouse = warehouses[0]
-    target_warehouse = warehouses[1]
+    source_warehouse = next(row for row in warehouses if row["type"] == "fabric_storage")
+    target_response = client.post(
+        "/api/inventory/warehouses",
+        json={
+            "name": f"Editable batch fabric storage {uuid4().hex[:8]}",
+            "type": "fabric_storage",
+            "department_id": source_warehouse["department_id"],
+        },
+        headers=auth_headers,
+    )
+    assert target_response.status_code == 201, target_response.text
+    target_warehouse = target_response.json()
     suppliers_response = client.get("/api/suppliers", headers=auth_headers)
     assert suppliers_response.status_code == 200, suppliers_response.text
     supplier = suppliers_response.json()[0]
@@ -1186,8 +1198,23 @@ def test_reserved_batch_delete_releases_reservation_and_archives_inventory(clien
         ).one()
         assert reservation.item_id == materials[1]["id"]
 
-    deleted = client.delete(f"/api/inventory/batches/{batch_id}", headers=auth_headers)
+    movement_reads = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().upper().startswith("SELECT") and "from stock_movements" in statement.lower():
+            movement_reads.append(" ".join(statement.lower().split()))
+
+    event.listen(session_module.SessionLocal.kw["bind"], "before_cursor_execute", capture)
+    try:
+        deleted = client.delete(f"/api/inventory/batches/{batch_id}", headers=auth_headers)
+    finally:
+        event.remove(session_module.SessionLocal.kw["bind"], "before_cursor_execute", capture)
     assert deleted.status_code == 204, deleted.text
+    # This path archives because reservations exist, so it only needs the narrow
+    # downstream-existence probe; receipt rows are fetched only for hard delete.
+    assert len(movement_reads) == 1
+    selected_columns = movement_reads[0].split(" from stock_movements", 1)[0]
+    assert selected_columns == "select stock_movements.id as stock_movements_id"
     with session_module.SessionLocal() as db:
         batch = db.get(StockBatch, batch_id)
         assert batch is not None
@@ -1666,6 +1693,219 @@ def test_stock_batch_delete_archives_used_batch_and_reduces_remaining_inventory(
     )
     assert visible.status_code == 200, visible.text
     assert all(row["id"] != batch_id for row in visible.json())
+
+
+@pytest.mark.parametrize(("category", "warehouse_type"), [
+    ("fabric", "fabric_storage"),
+    ("accessory", "accessory_storage"),
+])
+def test_stock_batch_delete_preserves_other_order_item_only_reservation(
+    client, auth_headers, category, warehouse_type,
+):
+    from app.db import session as session_module
+    from app.models import AuditLog, MaterialReservation, Model, ProductionOrder, StockBatch, StockMovement
+
+    suffix = uuid4().hex[:8].upper()
+    item_response = client.post(
+        "/api/inventory/items",
+        json={"sku": f"DELETE-CLAIM-{suffix}", "name": f"Delete claim {suffix}",
+              "category": category, "unit": "kg", "default_cost": 1,
+              "reorder_level": 0, "track_batch": True, "is_active": True},
+        headers=auth_headers,
+    )
+    assert item_response.status_code == 201, item_response.text
+    item_id = item_response.json()["id"]
+    warehouses = client.get("/api/inventory/warehouses", headers=auth_headers)
+    assert warehouses.status_code == 200, warehouses.text
+    warehouse_id = next(row["id"] for row in warehouses.json() if row["type"] == warehouse_type)
+
+    def receive(number):
+        result = client.post(
+            "/api/inventory/receive",
+            json={"item_id": item_id, "batch_no": f"DELETE-CLAIM-{number}-{suffix}",
+                  "quantity": 10, "unit": "kg", "cost_per_unit": 1,
+                  "warehouse_id": warehouse_id, "qc_status": "passed"},
+            headers=auth_headers,
+        )
+        assert result.status_code == 201, result.text
+        return result.json()["id"]
+
+    batch_id = receive(1)
+    with session_module.SessionLocal() as db:
+        model = Model(code=f"DELETE-CLAIM-{suffix}", name=f"Delete claim {suffix}", status="approved")
+        db.add(model)
+        db.flush()
+        order = ProductionOrder(production_no=f"PO-DELETE-CLAIM-{suffix}",
+                                production_type="branded_stock", model_id=model.id, planned_quantity=1)
+        db.add(order)
+        db.flush()
+        reservation = MaterialReservation(
+            reservation_no=f"MR-DELETE-CLAIM-{suffix}", production_order_id=order.id,
+            item_id=item_id, stock_batch_id=None, warehouse_id=warehouse_id,
+            reserved_quantity=8, consumed_quantity=0, released_quantity=0,
+            unit="kg", status="reserved", reservation_type="material", source="manual",
+        )
+        db.add(reservation)
+        db.commit()
+        reservation_id = reservation.id
+        movement_count = db.query(StockMovement).count()
+        audit_count = db.query(AuditLog).count()
+
+    denied = client.delete(f"/api/inventory/batches/{batch_id}", headers=auth_headers)
+    assert denied.status_code == 409, denied.text
+    with session_module.SessionLocal() as db:
+        batch = db.get(StockBatch, batch_id)
+        claim = db.get(MaterialReservation, reservation_id)
+        assert float(batch.quantity) == 10 and batch.archived_at is None
+        assert claim.status == "reserved" and float(claim.released_quantity) == 0
+        assert db.query(StockMovement).count() == movement_count
+        assert db.query(AuditLog).count() == audit_count
+
+    receive(2)
+    allowed = client.delete(f"/api/inventory/batches/{batch_id}", headers=auth_headers)
+    assert allowed.status_code == 204, allowed.text
+    with session_module.SessionLocal() as db:
+        remaining = db.get(StockBatch, batch_id)
+        if category == "fabric":
+            assert remaining is not None and float(remaining.quantity) == 0
+        else:
+            assert remaining is None
+        assert db.get(MaterialReservation, reservation_id).status == "reserved"
+
+
+@pytest.mark.parametrize("change", ["quantity", "warehouse", "item", "forced_batch_quantity"])
+def test_batch_edit_cannot_move_reserved_stock(client, auth_headers, change):
+    from app.db import session as session_module
+    from app.models import AuditLog, Item, MaterialReservation, Model, ProductionOrder, StockBatch, StockMovement, Warehouse
+
+    suffix = uuid4().hex[:8].upper()
+    item_response = client.post(
+        "/api/inventory/items",
+        json={"sku": f"FAB-EDIT-CLAIM-{suffix}", "name": f"Edit claim {suffix}",
+              "category": "fabric", "unit": "kg", "default_cost": 1,
+              "reorder_level": 0, "track_batch": True, "is_active": True},
+        headers=auth_headers,
+    )
+    assert item_response.status_code == 201, item_response.text
+    item_id = item_response.json()["id"]
+    warehouses = client.get("/api/inventory/warehouses", headers=auth_headers)
+    assert warehouses.status_code == 200, warehouses.text
+    warehouse_id = next(row["id"] for row in warehouses.json() if row["type"] == "fabric_storage")
+    receive = client.post(
+        "/api/inventory/receive",
+        json={"item_id": item_id, "batch_no": f"EDIT-CLAIM-{suffix}",
+              "quantity": 10, "unit": "kg", "cost_per_unit": 1,
+              "warehouse_id": warehouse_id, "qc_status": "passed"},
+        headers=auth_headers,
+    )
+    assert receive.status_code == 201, receive.text
+    batch_id = receive.json()["id"]
+
+    with session_module.SessionLocal() as db:
+        model = Model(code=f"EDIT-CLAIM-{suffix}", name=f"Edit claim {suffix}", status="approved")
+        db.add(model)
+        db.flush()
+        order = ProductionOrder(production_no=f"PO-EDIT-CLAIM-{suffix}",
+                                production_type="branded_stock", model_id=model.id, planned_quantity=1)
+        db.add(order)
+        db.flush()
+        claim = MaterialReservation(
+            reservation_no=f"MR-EDIT-CLAIM-{suffix}", production_order_id=order.id,
+            item_id=item_id,
+            stock_batch_id=batch_id if change == "forced_batch_quantity" else None,
+            warehouse_id=warehouse_id,
+            reserved_quantity=8, consumed_quantity=0, released_quantity=0,
+            unit="kg", status="reserved", reservation_type="material", source="manual",
+        )
+        db.add(claim)
+        target = {}
+        if change == "warehouse":
+            other = Warehouse(name=f"Other fabric {suffix}", type="fabric_storage")
+            db.add(other)
+            db.flush()
+            target = {"warehouse_id": other.id}
+        elif change == "item":
+            other = Item(sku=f"FAB-EDIT-TARGET-{suffix}", name=f"Target {suffix}",
+                         category="fabric", unit="kg")
+            db.add(other)
+            db.flush()
+            target = {"item_id": other.id}
+        else:
+            target = {"quantity": 0}
+        db.commit()
+        reservation_id = claim.id
+        movement_count = db.query(StockMovement).count()
+        audit_count = db.query(AuditLog).count()
+
+    force_query = "?force=true" if change == "forced_batch_quantity" else ""
+    denied = client.patch(
+        f"/api/inventory/batches/{batch_id}{force_query}", json=target, headers=auth_headers,
+    )
+    assert denied.status_code == 409, denied.text
+    if change == "forced_batch_quantity":
+        assert "reserved stock" in denied.json()["detail"]
+    with session_module.SessionLocal() as db:
+        batch = db.get(StockBatch, batch_id)
+        claim = db.get(MaterialReservation, reservation_id)
+        assert float(batch.quantity) == 10
+        assert batch.item_id == item_id and batch.warehouse_id == warehouse_id
+        assert claim.status == "reserved" and float(claim.released_quantity) == 0
+        assert db.query(StockMovement).count() == movement_count
+        assert db.query(AuditLog).count() == audit_count
+
+
+def test_stock_batch_delete_treats_legacy_null_reference_type_as_downstream(client, auth_headers):
+    from app.db import session as session_module
+    from app.models import StockBatch, StockMovement
+
+    suffix = uuid4().hex[:8].upper()
+    item_response = client.post(
+        "/api/inventory/items",
+        json={
+            "sku": f"ACC-NULL-REF-{suffix}",
+            "name": f"Legacy null reference {suffix}",
+            "category": "accessory",
+            "unit": "pcs",
+            "default_cost": 1,
+            "reorder_level": 0,
+            "track_batch": True,
+            "is_active": True,
+        },
+        headers=auth_headers,
+    )
+    assert item_response.status_code == 201, item_response.text
+    warehouses = client.get("/api/inventory/warehouses", headers=auth_headers)
+    assert warehouses.status_code == 200, warehouses.text
+    accessory_warehouse = next(
+        row for row in warehouses.json() if row["type"] == "accessory_storage"
+    )
+    receive = client.post(
+        "/api/inventory/receive",
+        json={
+            "item_id": item_response.json()["id"],
+            "batch_no": f"NULL-REF-{suffix}",
+            "quantity": 3,
+            "unit": "pcs",
+            "cost_per_unit": 1,
+            "warehouse_id": accessory_warehouse["id"],
+            "qc_status": "passed",
+        },
+        headers=auth_headers,
+    )
+    assert receive.status_code == 201, receive.text
+    batch_id = int(receive.json()["id"])
+    with session_module.SessionLocal() as db:
+        movement = db.query(StockMovement).filter_by(batch_id=batch_id).one()
+        movement.reference_type = None
+        db.commit()
+
+    deleted = client.delete(f"/api/inventory/batches/{batch_id}", headers=auth_headers)
+    assert deleted.status_code == 204, deleted.text
+    with session_module.SessionLocal() as db:
+        batch = db.get(StockBatch, batch_id)
+        assert batch is not None
+        assert batch.archived_at is not None
+        assert float(batch.quantity) == 0
 
 
 def test_admin_can_create_update_and_delete_supplier(client, auth_headers):

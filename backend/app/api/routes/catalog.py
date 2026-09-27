@@ -1,12 +1,21 @@
 from copy import deepcopy
 from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from functools import partial
+from math import isfinite
+import json
 import os
+from pathlib import Path
 import re
+from typing import Annotated
 from uuid import uuid4
+from anyio import CancelScope, to_thread
 from fastapi import APIRouter, HTTPException, Depends, Query, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi import UploadFile, File, Form
-from sqlalchemy import and_, case, func, literal_column, or_, select
-from sqlalchemy.orm import selectinload
+from pydantic import ValidationError
+from sqlalchemy import String, and_, case, cast, func, literal_column, or_, select
+from sqlalchemy.orm import Session, lazyload, load_only, selectinload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions, user_permissions
 from app.core.config import settings
@@ -18,9 +27,15 @@ from app.core.model_search import (
 from app.core.uploads import (
     SAFE_DOCUMENT_EXTENSIONS,
     SAFE_IMAGE_EXTENSIONS,
+    UploadCommitState,
+    UploadFileWriteState,
     extension_for_upload,
+    run_upload_db_work,
+    run_upload_file_write,
     safe_content_type,
     read_validated_upload_content,
+    upload_processing_slot,
+    upload_session_factory,
 )
 from app.models import (
     Brand, Collection, CollectionModel, Model, ModelImage, ModelSize, ModelColor, ModelBOM, User,
@@ -28,8 +43,10 @@ from app.models import (
     StockBatch, CuttingRecord,
 )
 from app.schemas.catalog import (
-    BrandIn, BrandOut, CollectionIn, CollectionOut,
-    ModelIn, ModelOut, ModelDetail, ModelImageIn, ModelImageOut, ModelSizeIn, ModelColorIn, ModelBOMIn,
+    BrandIn, BrandOut, BrandPageOut, CollectionIn, CollectionOut, CollectionPageOut,
+    CollectionSeasonPageOut,
+    ModelIn, ModelOut, ModelDetail, ModelImageIn, ModelImageOut, ModelSizeIn, ModelSizeMeasurements,
+    ModelColorIn, ModelBOMIn, ModelBomItemPageOut,
     ModelBOMUpdate, ModelOptionPage, ModelPaidOperationsIn, ModelSellingPriceOut, ModelSummaryOut,
     ModelVariantCreateIn, ModelVariantUpdateIn,
 )
@@ -42,11 +59,48 @@ from app.services.paid_operations import (
     filter_paid_operations_for_factory,
     merge_scoped_paid_operations,
     normalize_paid_operation_factory,
+    paid_operations_rows_unchanged,
     paid_operations_from_details,
     sewing_master_factory_scope,
+    validate_paid_operations_details_structure,
 )
+from app.services.stock_batch_policy import validate_stock_batch_unit
 
 router = APIRouter(tags=["catalog"])
+COLLECTION_STATUSES = frozenset({"draft", "approved", "archived"})
+MODEL_STATUSES = frozenset({"draft", "sample", "approved", "archived"})
+
+
+def _validate_brand_name_storage_length(name: str) -> None:
+    if len(name) > 128:
+        raise HTTPException(422, "Brand name cannot exceed 128 characters")
+
+
+_MODEL_BOM_NUMERIC_FIELDS = {
+    "quantity_per_piece": (Decimal("99999999.9999"), Decimal("0.0001")),
+    "waste_percent": (Decimal("9999.99"), Decimal("0.01")),
+}
+_MAX_MODEL_SAM_MINUTES = Decimal("999999.99")
+_MODEL_SAM_QUANTUM = Decimal("0.01")
+_MODEL_COPY_CODE_BATCH_SIZE = 400
+_MODEL_COPY_CODE_MAX_INDEX = 9_999
+_MAX_MODEL_DETAILS_JSON_BYTES = 64 * 1024
+_MAX_MODEL_DETAILS_JSON_DEPTH = 16
+
+
+def _validate_model_sam_minutes(data: dict) -> None:
+    if "sam_minutes" not in data:
+        return
+    try:
+        value = Decimal(str(data["sam_minutes"]))
+        stored_value = value.quantize(_MODEL_SAM_QUANTUM, rounding=ROUND_HALF_UP)
+    except (InvalidOperation, ValueError):
+        raise HTTPException(422, "sam_minutes exceeds supported precision") from None
+    if not value.is_finite():
+        raise HTTPException(422, "sam_minutes must be finite")
+    if abs(stored_value) > _MAX_MODEL_SAM_MINUTES:
+        raise HTTPException(422, "sam_minutes exceeds supported precision")
+    data["sam_minutes"] = stored_value
 
 
 def _standard_catalog_scope() -> str:
@@ -65,6 +119,154 @@ def _catalog_paid_operation_factory_scope(user: User, catalog_scope: str) -> str
     if _normalize_catalog_scope(catalog_scope) == "usluga":
         return "eco_cotton"
     return _model_paid_operation_factory_scope(user)
+
+
+_MODEL_COSTING_PERCENT_FIELDS = (
+    "labor_pct",
+    "electricity_pct",
+    "other_pct",
+    "target_margin_pct",
+)
+
+
+def _is_finite_json_number(value: object) -> bool:
+    if type(value) not in (int, float):
+        return False
+    try:
+        return isfinite(float(value))
+    except (OverflowError, ValueError):
+        return False
+
+
+def _json_values_equal(left: object, right: object) -> bool:
+    """Compare JSON-shaped values without recursion or Python's bool/int aliasing."""
+    pending = [(left, right)]
+    while pending:
+        current_left, current_right = pending.pop()
+        if type(current_left) is not type(current_right):
+            return False
+        if isinstance(current_left, dict):
+            if current_left.keys() != current_right.keys():
+                return False
+            pending.extend((current_left[key], current_right[key]) for key in current_left)
+        elif isinstance(current_left, list):
+            if len(current_left) != len(current_right):
+                return False
+            pending.extend(zip(current_left, current_right))
+        elif current_left != current_right:
+            return False
+    return True
+
+
+def _validate_model_details_json_bounds(details: object, *, existing_details: object = None) -> None:
+    """Bound changed model-detail documents while keeping exact legacy values editable."""
+    if _json_values_equal(details, existing_details):
+        return
+    if details is None:
+        return
+
+    pending = [(details, 0)]
+    while pending:
+        value, parent_depth = pending.pop()
+        if isinstance(value, dict):
+            depth = parent_depth + 1
+            if depth > _MAX_MODEL_DETAILS_JSON_DEPTH:
+                raise HTTPException(
+                    422,
+                    f"details_json cannot exceed {_MAX_MODEL_DETAILS_JSON_DEPTH} nested container levels",
+                )
+            if any(not isinstance(key, str) for key in value):
+                raise HTTPException(422, "details_json must contain JSON-compatible values")
+            pending.extend((child, depth) for child in value.values())
+        elif isinstance(value, list):
+            depth = parent_depth + 1
+            if depth > _MAX_MODEL_DETAILS_JSON_DEPTH:
+                raise HTTPException(
+                    422,
+                    f"details_json cannot exceed {_MAX_MODEL_DETAILS_JSON_DEPTH} nested container levels",
+                )
+            pending.extend((child, depth) for child in value)
+        elif value is not None and type(value) not in (str, bool, int, float):
+            raise HTTPException(422, "details_json must contain JSON-compatible values")
+
+    try:
+        serialized = json.dumps(
+            details,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError):
+        raise HTTPException(422, "details_json must contain finite JSON-compatible values") from None
+    if len(serialized) > _MAX_MODEL_DETAILS_JSON_BYTES:
+        raise HTTPException(
+            422,
+            f"details_json cannot exceed {_MAX_MODEL_DETAILS_JSON_BYTES} UTF-8 bytes",
+        )
+
+
+def _validate_model_details_structure(
+    details: object,
+    *,
+    existing_details: object = None,
+    unchanged_paid_operations_factory: str | None = None,
+) -> None:
+    """Check established model-detail containers without constraining legacy keys."""
+    if details is None:
+        return
+    if not isinstance(details, dict):
+        raise HTTPException(422, "details_json must be an object")
+    validate_paid_operations_details_structure(
+        details,
+        existing_details=existing_details,
+        unchanged_factory=unchanged_paid_operations_factory,
+    )
+    for key in ("general", "costing"):
+        if key in details and not isinstance(details[key], dict):
+            raise HTTPException(422, f"details_json.{key} must be an object")
+    costing = details.get("costing")
+    existing_costing = (
+        existing_details.get("costing")
+        if isinstance(existing_details, dict)
+        and isinstance(existing_details.get("costing"), dict)
+        else {}
+    )
+    if isinstance(costing, dict):
+        for key in _MODEL_COSTING_PERCENT_FIELDS:
+            if key not in costing:
+                continue
+            value = costing[key]
+            if _is_finite_json_number(value):
+                continue
+            old_value = existing_costing.get(key)
+            if (
+                key in existing_costing
+                and type(value) is type(old_value)
+                and value == old_value
+            ):
+                continue
+            raise HTTPException(422, f"details_json.costing.{key} must be a finite number")
+
+    if "translation" in details:
+        translation = details["translation"]
+        is_string_map = isinstance(translation, dict) and all(
+            isinstance(language, str) and isinstance(value, str)
+            for language, value in translation.items()
+        )
+        if not is_string_map:
+            existing_translation = (
+                existing_details.get("translation")
+                if isinstance(existing_details, dict)
+                and "translation" in existing_details
+                else None
+            )
+            unchanged_legacy_translation = (
+                isinstance(existing_details, dict)
+                and "translation" in existing_details
+                and _json_values_equal(translation, existing_translation)
+            )
+            if not unchanged_legacy_translation:
+                raise HTTPException(422, "details_json.translation must be a string-to-string object")
 
 
 def _model_paid_operation_factory_scope(user: User) -> str | None:
@@ -621,8 +823,14 @@ def _approval_family(db: DbSession, model: Model) -> list[Model]:
             literal_column("models.is_legacy_import").is_(False),
             literal_column("models.model_group_key") == key,
         ).order_by(Model.id).populate_existing().all()
-    return [row for row in query.order_by(Model.id).all()
-            if (row.details_json or {}).get("legacy_import") is not True and _model_group_key(row) == key]
+    model_no, _ = _model_code_parts(model)
+    candidates = query.filter(
+        _model_family_predicate(db, group_key=key, model_no=model_no)
+    ).order_by(Model.id).all()
+    # Keep the canonical Python identity check as the compatibility boundary;
+    # the portable SQL predicate only narrows candidates and must not let code
+    # prefixes, wildcard characters, or legacy imports expand the family.
+    return [row for row in candidates if _model_group_key(row) == key]
 
 
 def _model_payload(m: Model, factory_scope: str | None = None) -> dict:
@@ -829,6 +1037,38 @@ def _variant_group_predicate(db: DbSession, *, group_key: str, model_no: str):
     )
 
 
+def _model_family_predicate(db: DbSession, *, group_key: str, model_no: str):
+    """Select one complete family without treating model text as a LIKE pattern."""
+    if db.get_bind().dialect.name == "postgresql":
+        return and_(
+            literal_column("models.is_legacy_import").is_(False),
+            literal_column("models.model_group_key") == group_key,
+        )
+
+    general_model_no = func.coalesce(
+        Model.details_json["general"]["model_no"].as_string(),
+        Model.details_json["general"]["modelNo"].as_string(),
+    )
+    legacy_flag = Model.details_json["legacy_import"].as_boolean()
+    normalized_general = func.lower(func.trim(func.coalesce(general_model_no, "")))
+    normalized_model_no = _normalized_key(model_no)
+    escaped_prefix = str(model_no).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    normalized_code = func.lower(func.trim(Model.code))
+    return and_(
+        func.coalesce(legacy_flag, False).is_(False),
+        or_(
+            normalized_general == normalized_model_no,
+            and_(
+                normalized_general == "",
+                or_(
+                    normalized_code == str(model_no).strip().lower(),
+                    normalized_code.like(f"{escaped_prefix.lower()}-%", escape="\\"),
+                ),
+            ),
+        ),
+    )
+
+
 def _model_group_members(qry) -> list[list]:
     grouped: dict[str, list] = {}
     for row in qry.order_by(Model.id.desc()).all():
@@ -849,11 +1089,29 @@ def _model_group_member_ids(qry) -> list[list[int]]:
     ]
 
 
-def _model_with_variant_relations(db: DbSession, mid: int, catalog_scope: str = "standard") -> Model | None:
+def _model_with_variant_relations(
+    db: DbSession,
+    mid: int,
+    catalog_scope: str = "standard",
+    *,
+    include_image_binaries: bool = False,
+) -> Model | None:
+    image_loader = selectinload(Model.images)
+    if not include_image_binaries:
+        image_loader = image_loader.load_only(
+            ModelImage.id,
+            ModelImage.model_id,
+            ModelImage.file_url,
+            ModelImage.file_name,
+            ModelImage.content_type,
+            ModelImage.image_type,
+            ModelImage.is_primary,
+            ModelImage.created_at,
+        )
     return (
         db.query(Model)
         .options(
-            selectinload(Model.images),
+            image_loader,
             selectinload(Model.sizes),
             selectinload(Model.colors),
             selectinload(Model.bom).joinedload(ModelBOM.item),
@@ -866,19 +1124,19 @@ def _model_with_variant_relations(db: DbSession, mid: int, catalog_scope: str = 
 
 def _model_usage_blockers(db: DbSession, mid: int) -> list[str]:
     blockers: list[str] = []
-    if db.query(SalesOrderItem).filter(SalesOrderItem.model_id == mid).first():
+    if db.query(SalesOrderItem.id).filter(SalesOrderItem.model_id == mid).first():
         blockers.append("sales orders")
-    if db.query(ProductionOrder).filter(ProductionOrder.model_id == mid).first():
+    if db.query(ProductionOrder.id).filter(ProductionOrder.model_id == mid).first():
         blockers.append("production orders")
-    if db.query(ProductionOrderItem).filter(ProductionOrderItem.model_id == mid).first():
+    if db.query(ProductionOrderItem.id).filter(ProductionOrderItem.model_id == mid).first():
         blockers.append("production order items")
-    if db.query(Bundle).filter(Bundle.model_id == mid).first():
+    if db.query(Bundle.id).filter(Bundle.model_id == mid).first():
         blockers.append("bundles")
-    if db.query(Package).filter(Package.model_id == mid).first():
+    if db.query(Package.id).filter(Package.model_id == mid).first():
         blockers.append("packages")
-    if db.query(PackageItem).filter(PackageItem.model_id == mid).first():
+    if db.query(PackageItem.id).filter(PackageItem.model_id == mid).first():
         blockers.append("package items")
-    if db.query(FinishedGoodsStock).filter(FinishedGoodsStock.model_id == mid).first():
+    if db.query(FinishedGoodsStock.id).filter(FinishedGoodsStock.model_id == mid).first():
         blockers.append("finished goods stock")
     return blockers
 
@@ -937,6 +1195,83 @@ def _normalize_bom_fields(db: DbSession, data: dict, catalog_scope: str) -> dict
         if category not in {"accessory", "packaging"}:
             raise HTTPException(400, "Usluga inventory links are allowed only for accessories and packaging")
     return normalized
+
+
+def _validate_bom_numeric_fields(data: dict) -> dict:
+    for field, (maximum, quantum) in _MODEL_BOM_NUMERIC_FIELDS.items():
+        if field not in data or data[field] is None:
+            continue
+        try:
+            value = Decimal(str(data[field]))
+            stored_value = value.quantize(quantum, rounding=ROUND_HALF_UP)
+        except (InvalidOperation, ValueError):
+            raise HTTPException(422, f"{field} exceeds supported precision") from None
+        if not value.is_finite():
+            raise HTTPException(422, f"{field} must be finite")
+        if abs(stored_value) > maximum:
+            raise HTTPException(422, f"{field} exceeds supported precision")
+        data[field] = stored_value
+    return data
+
+
+def _validate_effective_bom_item_unit(
+    db: DbSession,
+    data: dict,
+    *,
+    previous: dict | None = None,
+) -> None:
+    """Validate changed inventory-linked BOM quantities without rewriting legacy rows."""
+    item_id = int(data.get("item_id") or 0)
+    batch_id = int(data.get("stock_batch_id") or 0)
+    unit = data.get("unit")
+    current = (item_id or None, batch_id or None, unit)
+    if previous is not None and current == (
+        previous.get("item_id"), previous.get("stock_batch_id"), previous.get("unit"),
+    ):
+        return
+    if not item_id:
+        # Usluga descriptive fabrics intentionally have no inventory item/unit.
+        return
+
+    item = db.get(Item, item_id)
+    if not item:
+        raise HTTPException(404, "Inventory master item not found")
+    if batch_id:
+        batch = db.get(StockBatch, batch_id)
+        if not batch:
+            raise HTTPException(404, "Stock batch not found")
+        if int(batch.item_id) != int(item.id):
+            raise HTTPException(400, "Stock batch does not belong to selected item")
+        validate_stock_batch_unit(item, batch.unit)
+    if unit != item.unit:
+        raise HTTPException(409, "BOM unit must match inventory item unit")
+
+
+def _preflight_copied_bom_item_units(
+    db: DbSession,
+    rows: list[ModelBOM] | None,
+    *,
+    replaced_row_ids: set[int] | None = None,
+) -> None:
+    """Validate inventory-linked BOM rows that a copy will persist unchanged."""
+    replaced_row_ids = replaced_row_ids or set()
+    for row in rows or []:
+        if int(row.id or 0) in replaced_row_ids:
+            continue
+        item_id = row.item_id
+        if not item_id and row.stock_batch_id:
+            batch = db.get(StockBatch, row.stock_batch_id)
+            if not batch:
+                raise HTTPException(404, "Stock batch not found")
+            item_id = batch.item_id
+        _validate_effective_bom_item_unit(
+            db,
+            {
+                "item_id": item_id,
+                "stock_batch_id": row.stock_batch_id,
+                "unit": row.unit,
+            },
+        )
 
 
 def _ensure_unique_usluga_main_material(
@@ -1004,12 +1339,14 @@ def _rename_model_group(
     if _normalized_key(old_model_no) == _normalized_key(clean_new_model_no):
         return []
 
-    old_group_key = _normalized_key(old_model_no)
-    group = [
-        model
-        for model in db.query(Model).filter(Model.catalog_scope == _normalize_catalog_scope(catalog_scope)).all()
-        if _normalized_key(_model_code_parts(model)[0]) == old_group_key
-    ]
+    group_key = _model_group_key(source)
+    group_candidates = db.query(Model).options(
+        load_only(Model.id, Model.code, Model.name, Model.details_json),
+    ).filter(
+        Model.catalog_scope == _normalize_catalog_scope(catalog_scope),
+        _model_family_predicate(db, group_key=group_key, model_no=old_model_no),
+    ).all()
+    group = [model for model in group_candidates if _model_group_key(model) == group_key]
     if not group:
         group = [source]
 
@@ -1025,14 +1362,32 @@ def _rename_model_group(
         planned.append((model, variant_no, next_code))
 
     group_ids = [int(model.id) for model in group]
-    external_models = db.query(Model).filter(~Model.id.in_(group_ids)).all()
-    external_by_code = {_normalized_key(model.code): model for model in external_models}
+    normalized_planned_codes = {_normalized_key(next_code) for _, _, next_code in planned}
+    external_code_rows = db.query(Model.code).filter(
+        ~Model.id.in_(group_ids),
+        func.lower(func.trim(Model.code)).in_(normalized_planned_codes),
+    ).all()
+    external_codes = {_normalized_key(code) for (code,) in external_code_rows}
     for _, variant_no, next_code in planned:
-        if _normalized_key(next_code) in external_by_code:
+        if _normalized_key(next_code) in external_codes:
             raise HTTPException(
                 409,
                 f"Model number change conflicts with existing variant {variant_no or next_code}",
             )
+
+    for model, variant_no, _ in planned:
+        _validate_model_details_json_bounds(model.details_json)
+        details = deepcopy(model.details_json) if isinstance(model.details_json, dict) else {}
+        general = details.get("general")
+        general = deepcopy(general) if isinstance(general, dict) else {}
+        general["model_no"] = clean_new_model_no
+        if variant_no:
+            general["variant_no"] = variant_no
+        else:
+            general.pop("variant_no", None)
+            general.pop("variantNo", None)
+        details["general"] = general
+        _validate_model_details_json_bounds(details, existing_details=model.details_json)
 
     renamed: list[tuple[Model, str]] = []
     for model, variant_no, _ in planned:
@@ -1042,13 +1397,33 @@ def _rename_model_group(
     return renamed
 
 
+def _model_copy_code(source_code: str, index: int) -> str:
+    suffix = "-COPY" if index == 1 else f"-COPY-{index}"
+    return f"{source_code[: max(1, 64 - len(suffix))]}{suffix}"
+
+
 def _unique_model_copy_code(db: DbSession, source_code: str) -> str:
-    for index in range(1, 10_000):
-        suffix = "-COPY" if index == 1 else f"-COPY-{index}"
-        base = source_code[: max(1, 64 - len(suffix))]
-        candidate = f"{base}{suffix}"
-        if not db.query(Model.id).filter(Model.code == candidate).first():
-            return candidate
+    if db.get_bind().dialect.name == "postgresql":
+        # Long source codes can truncate to the same candidate namespace even
+        # when their tails differ. Lock the shortest prefix retained by every
+        # supported suffix so concurrent clones cannot select the same gap.
+        longest_suffix = f"-COPY-{_MODEL_COPY_CODE_MAX_INDEX}"
+        namespace = source_code[: max(1, 64 - len(longest_suffix))]
+        db.execute(select(func.pg_advisory_xact_lock(func.hashtext(f"model-copy:{namespace}"))))
+
+    # Preserve the historical lowest-gap allocation without a broad LIKE scan
+    # or one existence query per occupied code. Exact candidates use the
+    # existing unique code index; only the current fixed-size window is loaded.
+    for start in range(1, _MODEL_COPY_CODE_MAX_INDEX + 1, _MODEL_COPY_CODE_BATCH_SIZE):
+        stop = min(start + _MODEL_COPY_CODE_BATCH_SIZE, _MODEL_COPY_CODE_MAX_INDEX + 1)
+        candidates = [_model_copy_code(source_code, index) for index in range(start, stop)]
+        existing_codes = {
+            code
+            for (code,) in db.query(Model.code).filter(Model.code.in_(candidates)).all()
+        }
+        for candidate in candidates:
+            if candidate not in existing_codes:
+                return candidate
     raise HTTPException(409, "Could not create a unique cloned model code")
 
 
@@ -1065,9 +1440,48 @@ def _clone_details_for_code(details: dict | None, new_code: str) -> dict:
 
 
 # ===== Brands =====
-@router.get("/brands", response_model=list[BrandOut])
-def list_brands(db: DbSession, _: CurrentUser):
-    return db.query(Brand).order_by(Brand.name).all()
+@router.get("/brands", response_model=list[BrandOut] | BrandPageOut)
+def list_brands(
+    db: DbSession,
+    _: CurrentUser,
+    limit: Annotated[int, Query(ge=1, le=500)] = 500,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+    q: str | None = None,
+    ids: Annotated[list[int] | None, Query(max_length=100)] = None,
+    active_only: bool = False,
+):
+    """Return the reference-brand list with a bounded payload."""
+    ordered_query = (
+        db.query(Brand)
+        .options(load_only(Brand.id, Brand.name, Brand.description, Brand.logo_url, Brand.is_active))
+        .order_by(Brand.name, Brand.id)
+    )
+    if ids is not None:
+        ordered_query = ordered_query.filter(Brand.id.in_(ids))
+    if active_only:
+        ordered_query = ordered_query.filter(Brand.is_active.is_(True))
+    search = (q or "").strip()
+    if search:
+        escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        ordered_query = ordered_query.filter(or_(
+            Brand.name.ilike(pattern, escape="\\"),
+            Brand.description.ilike(pattern, escape="\\"),
+        ))
+    if page is None and page_size is None:
+        return ordered_query.limit(limit).all()
+    page = page or 1
+    page_size = page_size or 100
+    total = ordered_query.order_by(None).count()
+    rows = ordered_query.offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.post("/brands", response_model=BrandOut, status_code=201)
@@ -1082,6 +1496,7 @@ def create_brand(
     existing = db.query(Brand).filter(func.lower(Brand.name) == name.lower()).first()
     if existing:
         raise HTTPException(409, "Brand already exists")
+    _validate_brand_name_storage_length(name)
     values = payload.model_dump()
     values["name"] = name
     b = Brand(**values)
@@ -1093,7 +1508,21 @@ def create_brand(
 
 @router.get("/brands/{bid}", response_model=BrandOut)
 def get_brand(bid: int, db: DbSession, _: CurrentUser):
-    b = db.get(Brand, bid)
+    b = (
+        db.query(Brand)
+        .options(
+            load_only(
+                Brand.id,
+                Brand.name,
+                Brand.description,
+                Brand.logo_url,
+                Brand.is_active,
+                raiseload=True,
+            )
+        )
+        .filter(Brand.id == bid)
+        .one_or_none()
+    )
     if not b: raise HTTPException(404, "Brand not found")
     return b
 
@@ -1102,6 +1531,7 @@ def get_brand(bid: int, db: DbSession, _: CurrentUser):
 def update_brand(bid: int, payload: BrandIn, db: DbSession, current: User = Depends(require_permissions("modeling.brands", "*"))):
     b = db.get(Brand, bid)
     if not b: raise HTTPException(404, "Brand not found")
+    _validate_brand_name_storage_length(payload.name)
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(b, k, v)
     log_action(db, current, "update", "Brand", b.id)
@@ -1110,27 +1540,64 @@ def update_brand(bid: int, payload: BrandIn, db: DbSession, current: User = Depe
 
 
 # ===== Collections =====
-@router.get("/collections")
+@router.get("/collections", response_model=list[CollectionOut] | CollectionPageOut)
 def list_collections(
     db: DbSession,
     _: CurrentUser,
     brand_id: int | None = None,
-    page: int = 1,
-    page_size: int = 50,
+    page: int | None = None,
+    page_size: int | None = None,
     include_total: bool = False,
+    q: str | None = None,
 ):
-    qry = db.query(Collection)
+    qry = db.query(Collection).options(
+        lazyload("*"),
+        load_only(
+            Collection.id,
+            Collection.brand_id,
+            Collection.name,
+            Collection.season,
+            Collection.year,
+            Collection.description,
+            Collection.status,
+        ),
+    )
     if brand_id:
         qry = qry.filter(Collection.brand_id == brand_id)
-    total = qry.count() if include_total else 0
+    search = (q or "").strip()
+    if search:
+        escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        qry = qry.outerjoin(Brand, Brand.id == Collection.brand_id).filter(or_(
+            Collection.name.ilike(pattern, escape="\\"),
+            Collection.season.ilike(pattern, escape="\\"),
+            cast(Collection.year, String).ilike(pattern, escape="\\"),
+            Collection.status.ilike(pattern, escape="\\"),
+            Brand.name.ilike(pattern, escape="\\"),
+        ))
+    paginated = include_total or page is not None or page_size is not None
+    if include_total:
+        # Preserve the historical include_total contract, which clamps page
+        # values rather than rejecting them.
+        effective_page = max(1, page or 1)
+        effective_page_size = max(1, min(page_size or 50, 500))
+    else:
+        effective_page = page or 1
+        effective_page_size = page_size or 50
+        if effective_page < 1 or effective_page_size < 1 or effective_page_size > 500:
+            raise HTTPException(422, "page must be >= 1 and page_size must be between 1 and 500")
+    total = qry.count() if paginated else 0
     qry = qry.order_by(Collection.id.desc())
-    if include_total:
-        safe_page = max(1, page)
-        safe_size = max(1, min(page_size, 500))
-        qry = qry.offset((safe_page - 1) * safe_size).limit(safe_size)
+    if paginated:
+        qry = qry.offset((effective_page - 1) * effective_page_size).limit(effective_page_size)
     rows = [_collection_payload(c) for c in qry.all()]
-    if include_total:
-        return _pagination_payload(rows, total=total, page=page, page_size=page_size)
+    if paginated:
+        return _pagination_payload(
+            rows,
+            total=total,
+            page=effective_page,
+            page_size=effective_page_size,
+        )
     return rows
 
 
@@ -1138,6 +1605,8 @@ def list_collections(
 def create_collection(payload: CollectionIn, db: DbSession, current: User = Depends(require_permissions("modeling.collections", "*"))):
     if not payload.year:
         raise HTTPException(400, "Year is required")
+    if payload.status not in COLLECTION_STATUSES:
+        raise HTTPException(400, "Invalid collection status")
     c = Collection(**payload.model_dump())
     db.add(c); db.flush()
     log_action(db, current, "create", "Collection", c.id)
@@ -1145,21 +1614,51 @@ def create_collection(payload: CollectionIn, db: DbSession, current: User = Depe
     return c
 
 
-@router.get("/collections/seasons")
-def list_collection_seasons(db: DbSession, _: CurrentUser):
-    rows = (
+@router.get("/collections/seasons", response_model=list[str] | CollectionSeasonPageOut)
+def list_collection_seasons(
+    db: DbSession,
+    _: CurrentUser,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+):
+    query = (
         db.query(Collection.season)
         .filter(Collection.season.isnot(None), Collection.season != "")
         .group_by(Collection.season)
         .order_by(Collection.season.asc())
-        .all()
     )
-    return [season for (season,) in rows if season]
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = query.order_by(None).count()
+        query = query.offset((page - 1) * page_size).limit(page_size)
+    rows = [season for (season,) in query.all() if season]
+    if total is None:
+        return rows
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.get("/collections/{cid}", response_model=CollectionOut)
 def get_collection(cid: int, db: DbSession, _: CurrentUser):
-    c = db.get(Collection, cid)
+    c = db.query(Collection).options(
+        load_only(
+            Collection.id,
+            Collection.brand_id,
+            Collection.name,
+            Collection.season,
+            Collection.year,
+            Collection.description,
+            Collection.status,
+        ),
+        lazyload(Collection.brand),
+    ).filter(Collection.id == cid).first()
     if not c: raise HTTPException(404, "Collection not found")
     return c
 
@@ -1171,6 +1670,8 @@ def update_collection(cid: int, payload: CollectionIn, db: DbSession, current: U
     data = payload.model_dump(exclude_unset=True)
     if "year" in data and not data["year"]:
         raise HTTPException(400, "Year is required")
+    if "status" in data and data["status"] != c.status and data["status"] not in COLLECTION_STATUSES:
+        raise HTTPException(400, "Invalid collection status")
     for k, v in data.items():
         setattr(c, k, v)
     log_action(db, current, "update", "Collection", c.id)
@@ -1514,21 +2015,49 @@ def list_model_variant_groups(
     return rows
 
 
-@router.get("/models/bom-items", response_model=list[ItemOut])
+@router.get("/models/bom-items", response_model=list[ItemOut] | ModelBomItemPageOut)
 def list_model_bom_items(
     db: DbSession,
     _: User = Depends(require_permissions("modeling.bom", "modeling.models", "*")),
+    page: Annotated[int | None, Query(ge=1)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
     """Return only the active item master data needed by the model BOM editor."""
-    return (
+    query = (
         db.query(Item)
+        .options(load_only(
+            Item.id,
+            Item.sku,
+            Item.name,
+            Item.category,
+            Item.unit,
+            Item.default_cost,
+            Item.reorder_level,
+            Item.track_batch,
+            Item.is_active,
+            Item.image_url,
+            Item.composition_json,
+        ))
         .filter(
             Item.is_active.is_(True),
             Item.category.in_(("fabric", "semi_finished", "accessory", "packaging")),
         )
-        .order_by(func.lower(Item.name), Item.name, Item.id)
-        .all()
     )
+    ordered_query = query.order_by(func.lower(Item.name), Item.name, Item.id)
+    if page is None and page_size is None:
+        return ordered_query.all()
+
+    page = page or 1
+    page_size = page_size or 100
+    total = query.count()
+    rows = ordered_query.offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        "rows": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }
 
 
 @router.post("/models", response_model=ModelOut, status_code=201)
@@ -1540,7 +2069,7 @@ def create_model(
 ):
     catalog_scope = _normalize_catalog_scope(catalog_scope)
     model_data = payload.model_dump()
-    details = deepcopy(model_data.get("details_json")) if isinstance(model_data.get("details_json"), dict) else {}
+    details = model_data.get("details_json") if isinstance(model_data.get("details_json"), dict) else {}
     model_data["code"] = (
         _clean_text(model_data.get("code"))
         if details.get("legacy_import") is True
@@ -1548,6 +2077,7 @@ def create_model(
     )
     if db.query(Model).filter(Model.code == model_data["code"]).first():
         raise HTTPException(400, "Model code already exists")
+    _validate_model_details_structure(model_data.get("details_json"))
     factory_scope = "eco_cotton" if catalog_scope == "usluga" else sewing_master_factory_scope(current)
     if factory_scope:
         details = merge_scoped_paid_operations({}, details, factory_scope)
@@ -1566,6 +2096,10 @@ def create_model(
         general.pop("variantNo", None)
     details["general"] = general
     model_data["details_json"] = details
+    _validate_model_sam_minutes(model_data)
+    if model_data["status"] not in MODEL_STATUSES:
+        raise HTTPException(400, "Invalid model status")
+    _validate_model_details_json_bounds(model_data.get("details_json"))
 
     m = Model(
         **model_data,
@@ -1699,6 +2233,12 @@ def clone_model(
     if not source:
         raise HTTPException(404, "Model not found")
 
+    # Cloning duplicates the effective BOM rows. Check inventory-linked rows
+    # before creating the copy so a legacy unit mismatch is not propagated;
+    # itemless Usluga description rows remain untouched.
+    _preflight_copied_bom_item_units(db, source.bom)
+    _validate_model_details_json_bounds(source.details_json)
+
     new_code = _unique_model_copy_code(db, source.code)
     cloned = Model(
         code=new_code,
@@ -1718,6 +2258,8 @@ def clone_model(
         catalog_scope=catalog_scope,
         factory_code="ECO" if catalog_scope == "usluga" else source.factory_code,
     )
+    _validate_model_details_structure(cloned.details_json, existing_details=source.details_json)
+    _validate_model_details_json_bounds(cloned.details_json, existing_details=source.details_json)
     db.add(cloned)
     db.flush()
 
@@ -1823,7 +2365,7 @@ def create_model_variant(
     catalog_scope: str = Depends(_standard_catalog_scope),
 ):
     catalog_scope = _normalize_catalog_scope(catalog_scope)
-    source = _model_with_variant_relations(db, mid, catalog_scope)
+    source = _model_with_variant_relations(db, mid, catalog_scope, include_image_binaries=True)
     if not source:
         raise HTTPException(404, "Model not found")
 
@@ -1853,6 +2395,19 @@ def create_model_variant(
     if db.query(Model.id).filter(Model.code == new_code).first():
         raise HTTPException(400, "Model variant already exists")
 
+    variant_fabric_source = _primary_material_bom_row(source)
+    replaced_bom_ids = (
+        {int(variant_fabric_source.id)}
+        if parent_fabric_item is not None and variant_fabric_source is not None and variant_fabric_source.id
+        else set()
+    )
+    _preflight_copied_bom_item_units(
+        db,
+        source.bom,
+        replaced_row_ids=replaced_bom_ids,
+    )
+
+    _validate_model_details_json_bounds(source.details_json)
     details = deepcopy(source.details_json or {})
     general = details.get("general")
     if not isinstance(general, dict):
@@ -1874,6 +2429,9 @@ def create_model_variant(
         general.pop("variant_color", None)
     general.pop("variant_stock_batch_id", None)
     details["general"] = general
+
+    _validate_model_details_structure(details, existing_details=source.details_json)
+    _validate_model_details_json_bounds(details, existing_details=source.details_json)
 
     approval = next((row for row in _approval_family(db, source) if row.status == "approved"), None)
     cloned = Model(
@@ -1904,7 +2462,6 @@ def create_model_variant(
     for row in source.colors or []:
         db.add(ModelColor(model_id=cloned.id, color_name=row.color_name, color_code=row.color_code))
 
-    variant_fabric_source = _primary_material_bom_row(source)
     for row in source.bom or []:
         is_fabric_row = bool(
             variant_fabric_source
@@ -2032,6 +2589,8 @@ def update_model_variant(
         "fabric_item_id": _variant_fabric_item_id_for_model(target),
         "color": getattr(_primary_material_bom_row(target), "color", None),
     }
+    _validate_model_details_json_bounds(target.details_json)
+    original_details = deepcopy(target.details_json)
     target.code = new_code
     _set_variant_general_details(
         target,
@@ -2048,6 +2607,8 @@ def update_model_variant(
             general.pop("variant_color", None)
         details["general"] = general
         target.details_json = details
+    _validate_model_details_structure(target.details_json, existing_details=original_details)
+    _validate_model_details_json_bounds(target.details_json, existing_details=original_details)
     fabric_row = _primary_material_bom_row(target)
     if fabric_row and parent_fabric_item:
         _apply_variant_fabric_item(
@@ -2143,12 +2704,38 @@ def update_model(
     if not m: raise HTTPException(404, "Model not found")
     update_data = payload.model_dump(exclude_unset=True)
     factory_scope = "eco_cotton" if catalog_scope == "usluga" else sewing_master_factory_scope(current)
+    _validate_model_details_structure(
+        update_data.get("details_json"),
+        existing_details=m.details_json,
+        unchanged_paid_operations_factory=factory_scope,
+    )
+    if (
+        "status" in update_data
+        and update_data["status"] != m.status
+        and update_data["status"] not in MODEL_STATUSES
+    ):
+        raise HTTPException(400, "Invalid model status")
+    unchanged_paid_operations = (
+        "details_json" in update_data
+        and paid_operations_rows_unchanged(
+            update_data["details_json"],
+            m.details_json,
+            factory=factory_scope,
+        )
+    )
     if factory_scope and "details_json" in update_data:
         update_data["details_json"] = merge_scoped_paid_operations(
             m.details_json,
             update_data.get("details_json"),
             factory_scope,
         )
+    if "details_json" in update_data:
+        validate_paid_operations_details_structure(
+            update_data["details_json"],
+            existing_details=m.details_json,
+            allow_oversized_unchanged=unchanged_paid_operations,
+        )
+        _validate_model_details_json_bounds(update_data["details_json"], existing_details=m.details_json)
     if "code" in update_data:
         update_data["code"] = _normalize_model_number(update_data.get("code"))
     incoming_details = update_data.get("details_json")
@@ -2169,6 +2756,7 @@ def update_model(
     if incoming_model_no and _normalized_key(incoming_model_no) != _normalized_key(current_model_no):
         renamed = _rename_model_group(db, m, incoming_model_no, catalog_scope)
 
+    _validate_model_sam_minutes(update_data)
     for k, v in update_data.items():
         setattr(m, k, v)
     for renamed_model, old_code in renamed:
@@ -2213,10 +2801,27 @@ def update_model_paid_operations(
     incoming_details = deepcopy(model.details_json) if isinstance(model.details_json, dict) else {}
     incoming_details["paid_operations"] = deepcopy(payload.paid_operations)
     incoming_details.pop("paidOperations", None)
+    unchanged_paid_operations = paid_operations_rows_unchanged(
+        incoming_details,
+        model.details_json,
+        factory=factory_scope,
+    )
+    validate_paid_operations_details_structure(
+        incoming_details,
+        existing_details=model.details_json,
+        unchanged_factory=factory_scope,
+    )
     if factory_scope:
         next_details = merge_scoped_paid_operations(model.details_json, incoming_details, factory_scope)
     else:
         next_details = incoming_details
+
+    validate_paid_operations_details_structure(
+        next_details,
+        existing_details=model.details_json,
+        allow_oversized_unchanged=unchanged_paid_operations,
+    )
+    _validate_model_details_json_bounds(next_details, existing_details=model.details_json)
 
     old_count = len(paid_operations_from_details(filter_paid_operations_for_factory(model.details_json, factory_scope)))
     model.details_json = next_details
@@ -2246,13 +2851,18 @@ def approve_model(
     family = _approval_family(db, m)
     pending = [row for row in family if row.status != "approved"]
     if _normalize_catalog_scope(catalog_scope) == "usluga":
-        for row in pending:
-            main_count = db.query(ModelBOM.id).filter(
-                ModelBOM.model_id == row.id,
+        pending_ids = [row.id for row in pending]
+        main_counts = dict(
+            db.query(ModelBOM.model_id, func.count(ModelBOM.id))
+            .filter(
+                ModelBOM.model_id.in_(pending_ids),
                 ModelBOM.material_role == "main",
-            ).count()
-            if main_count != 1:
-                raise HTTPException(409, "Usluga model approval requires exactly one main fabric")
+            )
+            .group_by(ModelBOM.model_id)
+            .all()
+        ) if pending_ids else {}
+        if any(main_counts.get(model_id, 0) != 1 for model_id in pending_ids):
+            raise HTTPException(409, "Usluga model approval requires exactly one main fabric")
     approved_at = datetime.now(timezone.utc)
     for row in pending:
         row.status = "approved"
@@ -2289,6 +2899,94 @@ def add_image(
     return {"id": img.id}
 
 
+def _write_new_model_document(target: Path, content: bytes) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    created = False
+    try:
+        with target.open("xb") as stream:
+            created = True
+            stream.write(content)
+    except BaseException:
+        if created:
+            target.unlink(missing_ok=True)
+        raise
+
+
+async def _discard_model_document(target: Path) -> None:
+    with CancelScope(shield=True):
+        await to_thread.run_sync(target.unlink, True, abandon_on_cancel=False)
+
+
+def _require_catalog_upload_model(db: Session, model_id: int, catalog_scope: str) -> None:
+    if not _catalog_model(db, model_id, catalog_scope):
+        raise HTTPException(404, "Model not found")
+
+
+def _create_uploaded_model_image(
+    db: Session,
+    *,
+    model_id: int,
+    catalog_scope: str,
+    actor_id: int,
+    file_url: str,
+    original_name: str,
+    stored_content_type: str,
+    image_type: str | None,
+) -> int:
+    _require_catalog_upload_model(db, model_id, catalog_scope)
+    actor = db.get(User, actor_id)
+    if not actor:
+        raise HTTPException(401, "Inactive or unknown user")
+    is_primary = image_type == "model"
+    if is_primary:
+        db.query(ModelImage).filter(
+            ModelImage.model_id == model_id,
+            ModelImage.is_primary.is_(True),
+        ).update({"is_primary": False}, synchronize_session=False)
+    image = ModelImage(
+        model_id=model_id,
+        file_url=file_url,
+        file_name=original_name,
+        content_type=stored_content_type,
+        file_data=None,
+        image_type=image_type,
+        is_primary=is_primary,
+    )
+    db.add(image)
+    db.flush()
+    log_action(
+        db,
+        actor,
+        "create",
+        "ModelImage",
+        image.id,
+        new_value={"model_id": model_id, "file_url": file_url},
+    )
+    return int(image.id)
+
+
+def _audit_uploaded_bom_photo(
+    db: Session,
+    *,
+    model_id: int,
+    catalog_scope: str,
+    actor_id: int,
+    file_url: str,
+) -> None:
+    _require_catalog_upload_model(db, model_id, catalog_scope)
+    actor = db.get(User, actor_id)
+    if not actor:
+        raise HTTPException(401, "Inactive or unknown user")
+    log_action(
+        db,
+        actor,
+        "upload",
+        "ModelBOM",
+        model_id,
+        new_value={"model_id": model_id, "file_url": file_url},
+    )
+
+
 @router.post("/models/{mid}/images/upload", status_code=201)
 async def upload_image(
     mid: int,
@@ -2298,55 +2996,70 @@ async def upload_image(
     current: User = Depends(require_permissions("modeling.models", "*")),
     catalog_scope: str = Depends(_standard_catalog_scope),
 ):
-    if not _catalog_model(db, mid, catalog_scope):
-        raise HTTPException(404, "Model not found")
+    actor_id = int(current.id)
+    worker_sessions = upload_session_factory(db)
+    await run_upload_db_work(
+        worker_sessions,
+        partial(_require_catalog_upload_model, model_id=mid, catalog_scope=catalog_scope),
+    )
     ext = extension_for_upload(file, SAFE_IMAGE_EXTENSIONS | SAFE_DOCUMENT_EXTENSIONS)
     normalized_image_type = _normalize_image_type(image_type)
-    if ext in SAFE_IMAGE_EXTENSIONS:
-        from app.services.image_storage import store_uploaded_image
+    stored_image = None
+    document_target = None
+    document_state = UploadFileWriteState()
+    commit_state = UploadCommitState()
+    try:
+        if ext in SAFE_IMAGE_EXTENSIONS:
+            from app.services.image_storage import store_uploaded_image
 
-        stored = await store_uploaded_image(
-            file,
-            target_dir=settings.MODEL_FILES_DIR,
-            file_url_base="/storage/model-files",
-            name_prefix=f"model_{mid}",
-            max_bytes=20 * 1024 * 1024,
-            prebuild_thumbnails=True,
+            stored_image = await store_uploaded_image(
+                file,
+                target_dir=settings.MODEL_FILES_DIR,
+                file_url_base="/storage/model-files",
+                name_prefix=f"model_{mid}",
+                max_bytes=20 * 1024 * 1024,
+                prebuild_thumbnails=True,
+            )
+            safe_name = stored_image.file_name
+            file_url = stored_image.file_url
+            stored_content_type = stored_image.content_type
+        else:
+            safe_name = f"model_{mid}_{uuid4().hex}{ext}"
+            document_target = Path(settings.MODEL_FILES_DIR) / safe_name
+            async with upload_processing_slot():
+                content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
+                await run_upload_file_write(
+                    partial(_write_new_model_document, document_target, content),
+                    document_state,
+                )
+            file_url = f"/storage/model-files/{safe_name}"
+            stored_content_type = safe_content_type(ext)
+        image_id = await run_upload_db_work(
+            worker_sessions,
+            partial(
+                _create_uploaded_model_image,
+                model_id=mid,
+                catalog_scope=catalog_scope,
+                actor_id=actor_id,
+                file_url=file_url,
+                original_name=file.filename or safe_name,
+                stored_content_type=stored_content_type,
+                image_type=normalized_image_type,
+            ),
+            commit=True,
+            commit_state=commit_state,
         )
-        safe_name = stored.file_name
-        file_url = stored.file_url
-        stored_content_type = stored.content_type
-    else:
-        os.makedirs(settings.MODEL_FILES_DIR, exist_ok=True)
-        safe_name = f"model_{mid}_{uuid4().hex}{ext}"
-        abs_path = os.path.join(settings.MODEL_FILES_DIR, safe_name)
-        content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
-        with open(abs_path, "wb") as f:
-            f.write(content)
-        file_url = f"/storage/model-files/{safe_name}"
-        stored_content_type = safe_content_type(ext)
-    is_primary = normalized_image_type == "model"
-    if is_primary:
-        db.query(ModelImage).filter(ModelImage.model_id == mid, ModelImage.is_primary.is_(True)).update(
-            {"is_primary": False},
-            synchronize_session=False,
-        )
-    img = ModelImage(
-        model_id=mid,
-        file_url=file_url,
-        file_name=file.filename or safe_name,
-        content_type=stored_content_type,
-        # The file is already persisted in MODEL_FILES_DIR. Keeping another
-        # multi-megabyte copy in PostgreSQL makes remote uploads needlessly slow.
-        file_data=None,
-        image_type=normalized_image_type,
-        is_primary=is_primary,
-    )
-    db.add(img)
-    db.flush()
-    log_action(db, current, "create", "ModelImage", img.id, new_value={"model_id": mid, "file_url": file_url})
-    db.commit()
-    return {"id": img.id, "file_url": file_url}
+    except BaseException:
+        if commit_state.committed:
+            raise
+        if stored_image is not None:
+            from app.services.image_storage import discard_stored_image
+
+            await discard_stored_image(stored_image)
+        elif document_state.created and document_target is not None:
+            await _discard_model_document(document_target)
+        raise
+    return {"id": image_id, "file_url": file_url}
 
 
 @router.delete("/models/{mid}/images/{image_id}", status_code=204)
@@ -2377,7 +3090,19 @@ def add_size(
     catalog_scope: str = Depends(_standard_catalog_scope),
 ):
     if not _catalog_model(db, mid, catalog_scope): raise HTTPException(404, "Model not found")
-    s = ModelSize(model_id=mid, **payload.model_dump())
+    if len(payload.size) > 32:
+        raise HTTPException(422, "size must be at most 32 characters")
+    values = payload.model_dump()
+    measurements = values.get("measurement_json")
+    if measurements is not None:
+        try:
+            ModelSizeMeasurements.model_validate(measurements)
+        except ValidationError as exc:
+            raise RequestValidationError([
+                {**error, "loc": ("body", "measurement_json", *error["loc"])}
+                for error in exc.errors()
+            ]) from exc
+    s = ModelSize(model_id=mid, **values)
     db.add(s)
     db.flush()
     log_action(db, current, "create", "ModelSize", s.id, new_value={"model_id": mid, "size": s.size})
@@ -2412,6 +3137,10 @@ def add_color(
     catalog_scope: str = Depends(_standard_catalog_scope),
 ):
     if not _catalog_model(db, mid, catalog_scope): raise HTTPException(404, "Model not found")
+    if len(payload.color_name) > 64:
+        raise HTTPException(422, "color_name must be at most 64 characters")
+    if payload.color_code is not None and len(payload.color_code) > 16:
+        raise HTTPException(422, "color_code must be at most 16 characters")
     c = ModelColor(model_id=mid, **payload.model_dump())
     db.add(c); db.commit(); db.refresh(c)
     return {"id": c.id}
@@ -2430,6 +3159,8 @@ def add_bom(
     _ensure_unique_usluga_main_material(db, mid, data)
     if data.get("photo_url"):
         data["photo_url"] = _validate_file_url(data["photo_url"])
+    _validate_bom_numeric_fields(data)
+    _validate_effective_bom_item_unit(db, data)
     b = ModelBOM(model_id=mid, **data)
     db.add(b); db.flush()
     log_action(db, current, "create", "ModelBOM", b.id, new_value={"model_id": mid})
@@ -2445,9 +3176,13 @@ async def upload_bom_photo(
     current: User = Depends(require_permissions("modeling.bom", "modeling.models", "*")),
     catalog_scope: str = Depends(_standard_catalog_scope),
 ):
-    if not _catalog_model(db, mid, catalog_scope):
-        raise HTTPException(404, "Model not found")
-    from app.services.image_storage import store_uploaded_image
+    actor_id = int(current.id)
+    worker_sessions = upload_session_factory(db)
+    await run_upload_db_work(
+        worker_sessions,
+        partial(_require_catalog_upload_model, model_id=mid, catalog_scope=catalog_scope),
+    )
+    from app.services.image_storage import discard_stored_image, store_uploaded_image
 
     stored = await store_uploaded_image(
         file,
@@ -2458,8 +3193,24 @@ async def upload_bom_photo(
         prebuild_thumbnails=True,
     )
     file_url = stored.file_url
-    log_action(db, current, "upload", "ModelBOM", mid, new_value={"model_id": mid, "file_url": file_url})
-    db.commit()
+    commit_state = UploadCommitState()
+    try:
+        await run_upload_db_work(
+            worker_sessions,
+            partial(
+                _audit_uploaded_bom_photo,
+                model_id=mid,
+                catalog_scope=catalog_scope,
+                actor_id=actor_id,
+                file_url=file_url,
+            ),
+            commit=True,
+            commit_state=commit_state,
+        )
+    except BaseException:
+        if not commit_state.committed:
+            await discard_stored_image(stored)
+        raise
     return {"file_url": file_url}
 
 
@@ -2508,6 +3259,18 @@ def update_bom(
     _ensure_unique_usluga_main_material(db, mid, data, exclude_bom_id=b.id)
     if "photo_url" in data and data["photo_url"]:
         data["photo_url"] = _validate_file_url(data["photo_url"])
+    _validate_bom_numeric_fields(data)
+    effective_data = {
+        "item_id": b.item_id,
+        "stock_batch_id": b.stock_batch_id,
+        "unit": b.unit,
+    }
+    effective_data.update(data)
+    _validate_effective_bom_item_unit(
+        db,
+        effective_data,
+        previous={"item_id": b.item_id, "stock_batch_id": b.stock_batch_id, "unit": b.unit},
+    )
     for key, value in data.items():
         setattr(b, key, value)
     log_action(db, current, "update", "ModelBOM", b.id, new_value={"model_id": mid, **data})

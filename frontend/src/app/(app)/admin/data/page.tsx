@@ -1,9 +1,8 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
-import { Database, Pencil, RefreshCw, Search, ShieldCheck, Trash2 } from "lucide-react";
+import { Ban, Database, Pencil, RefreshCw, Search, ShieldCheck } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
-import ConfirmDialog from "@/components/ConfirmDialog";
 import Modal from "@/components/Modal";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
@@ -20,7 +19,6 @@ type Column = {
 type TableInfo = {
   name: string;
   label: string;
-  row_count: number;
   columns: Column[];
 };
 
@@ -105,7 +103,7 @@ function parseDraftValue(column: Column, value: any) {
 
 export default function SuperDataPage() {
   const { t } = useT();
-  const { data: tables, mutate: mutateTables } = useSWR<TableInfo[]>("/api/admin/super-data/tables", fetcher);
+  const { data: tables, mutate: mutateTables } = useSWR<TableInfo[]>("/api/admin/super-data/tables/directory", fetcher);
   const [selectedTable, setSelectedTable] = useState("");
   const [tableFilter, setTableFilter] = useState("");
   const [page, setPage] = useState(1);
@@ -114,8 +112,7 @@ export default function SuperDataPage() {
   const [editing, setEditing] = useState<Record<string, any> | null>(null);
   const [draft, setDraft] = useState<Record<string, any>>({});
   const [editMsg, setEditMsg] = useState("");
-  const [deleting, setDeleting] = useState<Record<string, any> | null>(null);
-  const [deleteMsg, setDeleteMsg] = useState("");
+  const [actionMsg, setActionMsg] = useState("");
 
   useEffect(() => {
     if (!selectedTable && tables?.length) setSelectedTable(tables[0].name);
@@ -154,6 +151,19 @@ export default function SuperDataPage() {
     setQuery(search.trim());
   }
 
+  async function deactivateDepartment(row: Record<string, any>) {
+    const label = rowTitle(row, "departments");
+    if (!window.confirm(t("page.superData.deactivateConfirm", { row: label }))) return;
+    setActionMsg("");
+    try {
+      await api.post(`/api/admin/super-data/repairs/departments/${row.id}/deactivate`, {});
+      mutateRows();
+      mutateTables();
+    } catch (err: any) {
+      setActionMsg(err?.message || t("page.superData.deactivateFailed"));
+    }
+  }
+
   function openEdit(row: Record<string, any>) {
     const nextDraft: Record<string, any> = {};
     for (const column of columns) {
@@ -174,25 +184,17 @@ export default function SuperDataPage() {
         const parsed = parseDraftValue(column, draft[column.name]);
         if (stable(parsed) !== stable(editing[column.name])) values[column.name] = parsed;
       }
-      await api.patch(`/api/admin/super-data/tables/${selectedTable}/rows/${editing.id}`, { values });
+      if (selectedTable !== "departments" || Object.keys(values).some((field) => field !== "name")) {
+        throw new Error(t("page.superData.updateFailed"));
+      }
+      if ("name" in values) {
+        await api.patch(`/api/admin/super-data/repairs/departments/${editing.id}/rename`, { name: values.name });
+      }
       setEditing(null);
       mutateRows();
       mutateTables();
     } catch (err: any) {
       setEditMsg(err?.message || t("page.superData.updateFailed"));
-    }
-  }
-
-  async function confirmDelete() {
-    if (!deleting || !selectedTable) return;
-    setDeleteMsg("");
-    try {
-      await api.del(`/api/admin/super-data/tables/${selectedTable}/rows/${deleting.id}`);
-      setDeleting(null);
-      mutateRows();
-      mutateTables();
-    } catch (err: any) {
-      setDeleteMsg(err?.message || t("page.superData.deleteFailed"));
     }
   }
 
@@ -249,9 +251,9 @@ export default function SuperDataPage() {
                     {table.name}
                   </span>
                 </span>
-                <span className={`mono shrink-0 text-xs ${selectedTable === table.name ? "text-[#d8d2c2]" : "text-[#8a8472]"}`}>
-                  {table.row_count}
-                </span>
+                {selectedTable === table.name && grid?.table === table.name ? (
+                  <span className="mono shrink-0 text-xs text-[#d8d2c2]">{grid.total}</span>
+                ) : null}
               </button>
             ))}
           </div>
@@ -266,7 +268,7 @@ export default function SuperDataPage() {
                   <h2 className="app-card-title text-base">{grid?.label ?? activeTable?.label ?? t("page.superData.noTable")}</h2>
                 </div>
                 <p className="mt-1 text-sm text-[#8a8472]">
-                  {selectedTable ? t("page.superData.tableMeta", { columns: columns.length, rows: grid?.total ?? activeTable?.row_count ?? 0 }) : ""}
+                  {selectedTable ? t("page.superData.tableMeta", { columns: columns.length, rows: grid?.total ?? 0 }) : ""}
                 </p>
               </div>
               <form onSubmit={submitSearch} className="flex w-full gap-2 lg:max-w-md">
@@ -287,6 +289,7 @@ export default function SuperDataPage() {
           {error ? (
             <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">{String(error.message || error)}</div>
           ) : null}
+          {actionMsg ? <div className="mb-3 rounded-md bg-red-50 p-3 text-sm text-red-700">{actionMsg}</div> : null}
 
           <div className="card overflow-x-auto">
             <table className="table">
@@ -306,21 +309,31 @@ export default function SuperDataPage() {
                   <tr><td colSpan={columns.length + 1}>{t("common.loading")}</td></tr>
                 ) : (grid?.rows ?? []).length ? (
                   grid?.rows.map((row) => (
-                    <tr key={row.id}>
+                    <tr key={row.id} className={selectedTable === "departments" && row.is_active === false ? "opacity-60" : undefined}>
                       <td>
                         <div className="flex items-center gap-2">
-                          <button type="button" className="icon-btn" title={t("common.edit")} onClick={() => openEdit(row)}>
-                            <Pencil />
-                          </button>
-                          <button type="button" className="icon-btn text-red-600" title={t("common.delete")} onClick={() => setDeleting(row)}>
-                            <Trash2 />
-                          </button>
+                          {editableColumns.length ? (
+                            <button type="button" className="icon-btn" title={t("common.edit")} onClick={() => openEdit(row)}>
+                              <Pencil />
+                            </button>
+                          ) : <span className="text-[#8a8472]">—</span>}
+                          {selectedTable === "departments" && row.is_active ? (
+                            <button
+                              type="button"
+                              className="icon-btn text-red-700"
+                              title={t("page.superData.deactivateDepartment")}
+                              aria-label={t("page.superData.deactivateDepartment")}
+                              onClick={() => deactivateDepartment(row)}
+                            >
+                              <Ban />
+                            </button>
+                          ) : null}
                         </div>
                       </td>
                       {columns.map((column) => (
                         <td key={`${row.id}-${column.name}`} className="max-w-[280px]">
-                          <span className={row[column.name] === null || row[column.name] === undefined ? "text-[#8a8472]" : ""} title={toCellText(row[column.name])}>
-                            {compactCell(row[column.name])}
+                          <span className={row[column.name] === null || row[column.name] === undefined ? "text-[#8a8472]" : ""} title={column.name === "is_active" ? (row.is_active ? t("field.active") : t("field.inactive")) : toCellText(row[column.name])}>
+                            {column.name === "is_active" ? (row.is_active ? t("field.active") : t("field.inactive")) : compactCell(row[column.name])}
                           </span>
                         </td>
                       ))}
@@ -405,18 +418,6 @@ export default function SuperDataPage() {
         </form>
       </Modal>
 
-      <ConfirmDialog
-        isOpen={!!deleting}
-        title={t("confirm.deleteTitle")}
-        message={deleting ? t("page.superData.deleteConfirm", { row: rowTitle(deleting, selectedTable) }) : ""}
-        confirmText={t("common.delete")}
-        onConfirm={confirmDelete}
-        onCancel={() => {
-          setDeleting(null);
-          setDeleteMsg("");
-        }}
-      />
-      {deleteMsg ? <div className="fixed bottom-16 left-3 right-3 z-50 max-w-[calc(100vw-1.5rem)] rounded-md bg-red-50 p-3 text-sm text-red-700 shadow-sm sm:bottom-24 sm:left-auto sm:right-6 sm:max-w-md">{deleteMsg}</div> : null}
     </div>
   );
 }

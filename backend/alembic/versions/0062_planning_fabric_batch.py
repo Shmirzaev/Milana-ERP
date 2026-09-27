@@ -17,6 +17,31 @@ branch_labels = None
 depends_on = None
 
 
+def _updated_model_details(existing: object, fabric_row: object) -> dict | None:
+    details = deepcopy(existing or {})
+    if not isinstance(details, dict):
+        return None
+    general = details.get("general")
+    if not isinstance(general, dict):
+        general = {}
+    changed = general.pop("variant_stock_batch_id", None) is not None
+    if fabric_row:
+        item_id = int(fabric_row["item_id"])
+        label = str(fabric_row["name"] or fabric_row["sku"] or "").strip()
+        if str(fabric_row["name"] or "").strip() and str(fabric_row["sku"] or "").strip():
+            label = f"{fabric_row['name']} ({fabric_row['sku']})"
+        if general.get("variant_fabric_item_id") != item_id:
+            general["variant_fabric_item_id"] = item_id
+            changed = True
+        if label and general.get("variant_fabric") != label:
+            general["variant_fabric"] = label
+            changed = True
+    if not changed:
+        return None
+    details["general"] = general
+    return details
+
+
 def upgrade():
     op.add_column(
         "production_orders",
@@ -57,26 +82,8 @@ def upgrade():
     ).mappings().all()
     for model_row in model_rows:
         fabric_row = first_fabric_by_model.get(int(model_row["id"]))
-        details = deepcopy(model_row["details_json"] or {})
-        if not isinstance(details, dict):
-            continue
-        general = details.get("general")
-        if not isinstance(general, dict):
-            general = {}
-        changed = general.pop("variant_stock_batch_id", None) is not None
-        if fabric_row:
-            item_id = int(fabric_row["item_id"])
-            label = str(fabric_row["name"] or fabric_row["sku"] or "").strip()
-            if str(fabric_row["name"] or "").strip() and str(fabric_row["sku"] or "").strip():
-                label = f"{fabric_row['name']} ({fabric_row['sku']})"
-            if general.get("variant_fabric_item_id") != item_id:
-                general["variant_fabric_item_id"] = item_id
-                changed = True
-            if label and general.get("variant_fabric") != label:
-                general["variant_fabric"] = label
-                changed = True
-        if changed:
-            details["general"] = general
+        details = _updated_model_details(model_row["details_json"], fabric_row)
+        if details is not None:
             connection.execute(
                 models_table.update()
                 .where(models_table.c.id == int(model_row["id"]))

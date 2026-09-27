@@ -3,6 +3,7 @@ import { formatOrderReference } from "@/lib/orderRef";
 
 import { useMemo, useRef, useState } from "react";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import { CheckSquare, MapPin, PackageCheck, Trash2 } from "lucide-react";
 
 import { api, fetcher } from "@/lib/api";
@@ -35,6 +36,12 @@ type ScannedPackage = {
   storage_cell?: string | null;
   storage_shelf?: string | null;
   items?: Array<{ id?: number; size: string; quantity: number }>;
+};
+
+type MapModelPage = {
+  rows: Array<{ id: number; package_no: string; storage_cell: string; storage_shelf: string | null; total_quantity: number; status: string }>;
+  total: number;
+  has_more: boolean;
 };
 
 function latestPackageScan(raw: string) {
@@ -79,7 +86,7 @@ export default function ScanPackagePage() {
   const [busy, setBusy] = useState<"lookup" | "receive" | "move" | null>(null);
   const [selectedCell, setSelectedCell] = useState<string>("");
   const [selectedShelf, setSelectedShelf] = useState<"S1" | "S2">("S1");
-  const { data: mapData, mutate: mutateMap } = useSWR<any>("/api/packages/storage-map", fetcher);
+  const { data: mapData, mutate: mutateMapSummary } = useSWR<any>("/api/packages/storage-map/summary", fetcher);
   const canStoragePackages = can(me, "*", "storage.packages");
 
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
@@ -95,10 +102,20 @@ export default function ScanPackagePage() {
     () => scannedPackages.find((pkg) => pkg.id === activePackageId) || scannedPackages[0] || null,
     [activePackageId, scannedPackages],
   );
+  const { data: modelPages, size: modelPageCount, setSize: setModelPageCount, mutate: mutateModelPages, isValidating: modelPagesLoading } = useSWRInfinite<MapModelPage>(
+    (index, previousPage) => {
+      if (!activePackage?.model_id || (previousPage && !previousPage.has_more)) return null;
+      return `/api/packages/storage-map/models/${activePackage.model_id}?page=${index + 1}&page_size=50`;
+    },
+    fetcher,
+  );
   const sameModelOnMap = useMemo(() => {
-    if (!activePackage?.model_id || !mapData?.placements) return [];
-    return mapData.placements.filter((row: any) => row.model_id === activePackage.model_id);
-  }, [activePackage?.model_id, mapData?.placements]);
+    return modelPages?.flatMap((page) => page.rows) || [];
+  }, [modelPages]);
+  const modelHasMore = modelPages?.[modelPages.length - 1]?.has_more ?? false;
+  async function mutateMap() {
+    await Promise.all([mutateMapSummary(), mutateModelPages()]);
+  }
   const totalQty = scannedPackages.reduce((sum, pkg) => sum + Number(pkg.total_quantity || 0), 0);
 
   function selectCodeInput() {
@@ -463,6 +480,7 @@ export default function ScanPackagePage() {
                 <div>
                   <div className="text-sm font-semibold text-[#14110b]">{packageModelLabel(activePackage)}</div>
                   <div className="text-xs text-[#8a8472]">{activePackage.package_no} · {packageOrderLabel(activePackage)}</div>
+                  {modelPages?.[0] && <div className="text-xs text-[#8a8472]">{sameModelOnMap.length} / {modelPages[0].total}</div>}
                 </div>
                 <button type="button" className="btn h-8 px-2 text-xs" onClick={() => api.openLabel(`/api/packages/${activePackage.id}/label`)}>
                   {t("btn.printLabel")}
@@ -496,7 +514,7 @@ export default function ScanPackagePage() {
                         <td>{statusLabel(row.status, t)}</td>
                       </tr>
                     ))}
-                    {sameModelOnMap.length === 0 && (
+                    {sameModelOnMap.length === 0 && !modelPagesLoading && (
                       <tr>
                         <td colSpan={4} className="text-sm text-[#8a8472]">{t("page.packageScan.noModelPackagesOnMap")}</td>
                       </tr>
@@ -504,6 +522,11 @@ export default function ScanPackagePage() {
                   </tbody>
                 </table>
               </div>
+              {modelHasMore && (
+                <button type="button" className="btn mt-3" disabled={modelPagesLoading} onClick={() => void setModelPageCount(modelPageCount + 1)}>
+                  {modelPagesLoading ? t("common.loading") : t("common.loadMore")}
+                </button>
+              )}
             </div>
           )}
         </div>

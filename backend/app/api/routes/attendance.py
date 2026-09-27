@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import os
 import secrets
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
+from functools import partial
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from zoneinfo import ZoneInfo
@@ -12,13 +15,20 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, or_
-from sqlalchemy.orm import Session
+from sqlalchemy import case, func, or_, text
+from sqlalchemy.orm import Session, load_only
 
 from app.core.config import settings
 from app.core.deps import DbSession, require_permissions
 from app.core.dt import as_utc, utcnow
-from app.models import AttendanceDevice, AttendanceEvent, AttendancePerson, User
+from app.core.uploads import (
+    UploadCommitState,
+    run_upload_db_work,
+    upload_processing_slot,
+    upload_session_factory,
+)
+from app.models import AttendanceDevice, AttendanceEvent, AttendancePerson, SystemSetting, User
+from app.services.attendance_event_policy import accepted_attendance_result
 from app.services.factory_scope import normalize_factory_code, selected_factory_code
 from app.services.image_storage import convert_image_to_webp
 from app.services.attendance_reports import ReportLanguage, build_daily_attendance_xlsx
@@ -27,6 +37,79 @@ from app.services.audit import log_action
 
 router = APIRouter(prefix="/attendance", tags=["attendance"])
 TASHKENT = ZoneInfo("Asia/Tashkent")
+ATTENDANCE_IMPORT_LOCK_NAMESPACE = 1096043342
+ATTENDANCE_DEVICE_VENDORS = frozenset({"Hikvision", "Dahua"})
+ATTENDANCE_SOURCE_SETTING_PREFIX = "att_src:"
+_MAX_ATTENDANCE_SOURCE_STATE_JSON_BYTES = 16 * 1024
+_MAX_ATTENDANCE_SOURCE_STATE_JSON_DEPTH = 16
+
+
+def _json_values_equal(left: object, right: object) -> bool:
+    pending = [(left, right)]
+    while pending:
+        current_left, current_right = pending.pop()
+        if type(current_left) is not type(current_right):
+            return False
+        if isinstance(current_left, dict):
+            if current_left.keys() != current_right.keys():
+                return False
+            pending.extend((current_left[key], current_right[key]) for key in current_left)
+        elif isinstance(current_left, list):
+            if len(current_left) != len(current_right):
+                return False
+            pending.extend(zip(current_left, current_right))
+        elif current_left != current_right:
+            return False
+    return True
+
+
+def _validate_attendance_source_state_bounds(
+    state: dict[str, object],
+    *,
+    existing_state: object = None,
+) -> None:
+    if _json_values_equal(state, existing_state):
+        return
+
+    pending = [(state, 0)]
+    while pending:
+        current, parent_depth = pending.pop()
+        if isinstance(current, dict):
+            depth = parent_depth + 1
+            if depth > _MAX_ATTENDANCE_SOURCE_STATE_JSON_DEPTH:
+                raise HTTPException(
+                    422,
+                    f"Attendance source state cannot exceed {_MAX_ATTENDANCE_SOURCE_STATE_JSON_DEPTH} nested container levels",
+                )
+            if any(not isinstance(key, str) for key in current):
+                raise HTTPException(422, "Attendance source state must contain JSON-compatible values")
+            pending.extend((child, depth) for child in current.values())
+        elif isinstance(current, list):
+            depth = parent_depth + 1
+            if depth > _MAX_ATTENDANCE_SOURCE_STATE_JSON_DEPTH:
+                raise HTTPException(
+                    422,
+                    f"Attendance source state cannot exceed {_MAX_ATTENDANCE_SOURCE_STATE_JSON_DEPTH} nested container levels",
+                )
+            pending.extend((child, depth) for child in current)
+        elif current is not None and type(current) not in (str, bool, int, float):
+            raise HTTPException(422, "Attendance source state must contain JSON-compatible values")
+
+    try:
+        encoded = json.dumps(state, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError):
+        raise HTTPException(422, "Attendance source state must contain finite JSON-compatible values") from None
+    if len(encoded) > _MAX_ATTENDANCE_SOURCE_STATE_JSON_BYTES:
+        raise HTTPException(
+            422,
+            f"Attendance source state cannot exceed {_MAX_ATTENDANCE_SOURCE_STATE_JSON_BYTES} UTF-8 bytes",
+        )
+
+
+def _validate_device_vendor(value: str) -> str:
+    if value not in ATTENDANCE_DEVICE_VENDORS:
+        raise HTTPException(400, "Invalid attendance device vendor")
+    return value
 
 
 class DeviceIn(BaseModel):
@@ -68,6 +151,14 @@ class PeopleSnapshotIn(BaseModel):
     device: DeviceIn
     people: list[PersonIn] = Field(max_length=5_000)
     full_snapshot: bool = True
+    source_snapshot_at: datetime | None = None
+
+    @field_validator("source_snapshot_at")
+    @classmethod
+    def validate_source_snapshot_at(cls, value: datetime | None) -> datetime | None:
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            raise ValueError("source_snapshot_at must include a timezone offset")
+        return value.astimezone(timezone.utc) if value is not None else None
 
 
 class EventIn(BaseModel):
@@ -79,7 +170,7 @@ class EventIn(BaseModel):
     result: str | None = Field(default=None, max_length=32)
     door_no: int | None = Field(default=None, ge=0, le=10_000)
     reader_no: int | None = Field(default=None, ge=0, le=10_000)
-    serial_no: int | None = Field(default=None, ge=0)
+    serial_no: int | None = Field(default=None, ge=0, le=2_147_483_647)
 
     @field_validator("event_uid")
     @classmethod
@@ -96,6 +187,12 @@ class EventIn(BaseModel):
 class EventBatchIn(BaseModel):
     device: DeviceIn
     events: list[EventIn] = Field(max_length=2_000)
+    source_snapshot_at: datetime | None = None
+
+    @field_validator("source_snapshot_at")
+    @classmethod
+    def validate_source_snapshot_at(cls, value: datetime | None) -> datetime | None:
+        return PeopleSnapshotIn.validate_source_snapshot_at(value)
 
 
 class ManagedDeviceIn(BaseModel):
@@ -161,49 +258,217 @@ def _integration_factory() -> str:
     return normalize_factory_code(settings.ATTENDANCE_INTEGRATION_FACTORY_CODE, default="MIL")
 
 
+def _lock_attendance_import(db: Session, factory_code: str, device_key: str) -> None:
+    if db.get_bind().dialect.name == "postgresql":
+        db.execute(
+            text("SELECT pg_advisory_xact_lock(:namespace, hashtext(:resource))"),
+            {
+                "namespace": ATTENDANCE_IMPORT_LOCK_NAMESPACE,
+                "resource": f"{factory_code}:{device_key}",
+            },
+        )
+
+
+def _source_setting_key(factory_code: str, device_key: str) -> str:
+    identity = f"{factory_code}:{device_key}".encode("utf-8")
+    return ATTENDANCE_SOURCE_SETTING_PREFIX + hashlib.sha256(identity).hexdigest()[:56]
+
+
+def _source_checkpoint(value: object, field: str) -> datetime | None:
+    if not isinstance(value, dict) or not value.get(field):
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value[field]).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise RuntimeError(f"Invalid attendance source checkpoint: {field}") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise RuntimeError(f"Attendance source checkpoint lacks timezone: {field}")
+    return parsed.astimezone(timezone.utc)
+
+
+def _source_state(
+    db: Session,
+    factory_code: str,
+    device_key: str,
+) -> tuple[SystemSetting | None, dict[str, object]]:
+    query = db.query(SystemSetting).filter(
+        SystemSetting.key == _source_setting_key(factory_code, device_key),
+    )
+    if db.get_bind().dialect.name == "postgresql":
+        query = query.with_for_update(of=SystemSetting)
+    row = query.one_or_none()
+    if row is None:
+        return None, {"factory_code": factory_code, "device_key": device_key}
+    state = dict(row.value_json) if isinstance(row.value_json, dict) else {}
+    if state.get("factory_code") not in {None, factory_code} or state.get("device_key") not in {None, device_key}:
+        raise RuntimeError("Attendance source checkpoint identity mismatch")
+    state.update(factory_code=factory_code, device_key=device_key)
+    return row, state
+
+
+def _store_source_state(
+    db: Session,
+    row: SystemSetting | None,
+    state: dict[str, object],
+) -> None:
+    _validate_attendance_source_state_bounds(
+        state,
+        existing_state=row.value_json if row else None,
+    )
+    if row is None:
+        db.add(SystemSetting(
+            key=_source_setting_key(str(state["factory_code"]), str(state["device_key"])),
+            value_json=state,
+        ))
+    else:
+        row.value_json = state
+
+
+def _source_snapshot_at(
+    source_snapshot_at: datetime | None,
+    sync_started_at: datetime,
+) -> datetime | None:
+    if source_snapshot_at is None:
+        return None
+    normalized = as_utc(source_snapshot_at)
+    if normalized is None:
+        raise HTTPException(400, "source_snapshot_at must include a timezone offset")
+    maximum = sync_started_at + timedelta(seconds=settings.ATTENDANCE_SOURCE_MAX_FUTURE_SECONDS)
+    if normalized > maximum:
+        raise HTTPException(400, "source_snapshot_at is too far in the future")
+    return normalized
+
+
+def _advance_source_checkpoint(
+    state: dict[str, object],
+    field: str,
+    source_snapshot_at: datetime,
+    legacy_checkpoint: datetime | None,
+) -> tuple[bool, datetime | None]:
+    checkpoint = _source_checkpoint(state, field)
+    baseline = checkpoint if checkpoint is not None else as_utc(legacy_checkpoint)
+    if baseline is not None and source_snapshot_at <= baseline:
+        state[field] = baseline.isoformat()
+        return False, baseline
+    state[field] = source_snapshot_at.isoformat()
+    return True, baseline
+
+
 def _upsert_device(
     db: Session,
     payload: DeviceIn,
     identity: AttendanceDevice | None,
     *,
+    sync_started_at: datetime,
+    source_snapshot_at: datetime | None = None,
     people_sync: bool = False,
     event_sync: bool = False,
-) -> AttendanceDevice:
+) -> tuple[AttendanceDevice, str | None, str | None]:
     if identity is not None:
         if identity.device_key != payload.device_key:
             raise HTTPException(403, "Connector token does not belong to this attendance device")
         factory_code = identity.factory_code
-        device = identity
     else:
         factory_code = _integration_factory()
-        device = db.query(AttendanceDevice).filter(
-            AttendanceDevice.factory_code == factory_code,
-            AttendanceDevice.device_key == payload.device_key,
-        ).one_or_none()
-    now = utcnow()
+    _lock_attendance_import(db, factory_code, payload.device_key)
+    device_query = db.query(AttendanceDevice).filter(
+        AttendanceDevice.factory_code == factory_code,
+        AttendanceDevice.device_key == payload.device_key,
+    ).populate_existing()
+    if db.get_bind().dialect.name == "postgresql":
+        device_query = device_query.with_for_update(of=AttendanceDevice)
+    device = device_query.one_or_none()
+    if identity is not None and device is None:
+        raise HTTPException(404, "Attendance device not found")
+    source_snapshot_at = _source_snapshot_at(source_snapshot_at, sync_started_at)
+    source_row, source_state = _source_state(db, factory_code, payload.device_key)
+
+    if people_sync and device is not None:
+        source_people_checkpoint = _source_checkpoint(source_state, "people_snapshot_at")
+        source_metadata_checkpoint = _source_checkpoint(source_state, "metadata_snapshot_at")
+        if source_snapshot_at is None and (
+            source_people_checkpoint is not None or source_metadata_checkpoint is not None
+        ):
+            return device, "missing_source_version", "missing_source_version"
+        if source_snapshot_at is not None:
+            people_is_newer, _baseline = _advance_source_checkpoint(
+                source_state,
+                "people_snapshot_at",
+                source_snapshot_at,
+                device.last_people_sync_at,
+            )
+            if not people_is_newer:
+                if (
+                    _source_checkpoint(source_state, "metadata_snapshot_at") is None
+                    and as_utc(device.last_seen_at) is not None
+                ):
+                    source_state["metadata_snapshot_at"] = as_utc(device.last_seen_at).isoformat()
+                _store_source_state(db, source_row, source_state)
+                return device, "stale_source_version", "stale_source_version"
+        else:
+            previous_people_sync = as_utc(device.last_people_sync_at)
+            if previous_people_sync is not None and previous_people_sync >= sync_started_at:
+                return device, "stale_receipt", "stale_receipt"
+
+    vendor = _validate_device_vendor(payload.vendor)
     if device is None:
         device = AttendanceDevice(
             factory_code=factory_code,
             device_key=payload.device_key,
             name=payload.name,
-            vendor=payload.vendor,
+            vendor=vendor,
             read_only=True,
         )
         db.add(device)
         db.flush()
-    device.name = payload.name
-    device.vendor = payload.vendor
-    device.model = payload.model
-    device.serial_no = payload.serial_no
-    device.source_host = payload.source_host
-    device.reported_person_count = payload.reported_person_count
-    device.read_only = True
-    device.last_seen_at = now
+        if people_sync and source_snapshot_at is not None:
+            source_state["people_snapshot_at"] = source_snapshot_at.isoformat()
+
+    metadata_ignored_reason = None
+    previous_seen = as_utc(device.last_seen_at)
+    if source_snapshot_at is not None:
+        metadata_is_newer, _baseline = _advance_source_checkpoint(
+            source_state,
+            "metadata_snapshot_at",
+            source_snapshot_at,
+            previous_seen,
+        )
+        if not metadata_is_newer:
+            metadata_ignored_reason = "stale_source_version"
+    elif _source_checkpoint(source_state, "metadata_snapshot_at") is not None:
+        metadata_is_newer = False
+        metadata_ignored_reason = "missing_source_version"
+    else:
+        metadata_is_newer = previous_seen is None or sync_started_at > previous_seen
+        if not metadata_is_newer:
+            metadata_ignored_reason = "stale_receipt"
+
+    if metadata_is_newer:
+        device.name = payload.name
+        device.vendor = vendor
+        device.model = payload.model
+        device.serial_no = payload.serial_no
+        device.source_host = payload.source_host
+        device.reported_person_count = payload.reported_person_count
+        device.read_only = True
+    if previous_seen is None or sync_started_at > previous_seen:
+        device.last_seen_at = sync_started_at
     if people_sync:
-        device.last_people_sync_at = now
+        device.last_people_sync_at = sync_started_at
     if event_sync:
-        device.last_event_sync_at = now
-    return device
+        previous_event_sync = as_utc(device.last_event_sync_at)
+        if previous_event_sync is None or sync_started_at > previous_event_sync:
+            device.last_event_sync_at = sync_started_at
+    if source_snapshot_at is not None:
+        if event_sync:
+            _advance_source_checkpoint(
+                source_state,
+                "event_snapshot_at",
+                source_snapshot_at,
+                None,
+            )
+        _store_source_state(db, source_row, source_state)
+    return device, None, metadata_ignored_reason
 
 
 @router.post("/integration/people")
@@ -212,20 +477,56 @@ def import_people_snapshot(
     db: DbSession,
     identity: AttendanceDevice | None = Depends(_require_integration_token),
 ):
-    device = _upsert_device(db, payload.device, identity, people_sync=True)
-    now = utcnow()
     seen: set[str] = set()
-    created = 0
-    updated = 0
     for incoming in payload.people:
         external_id = incoming.external_person_id
         if external_id in seen:
             raise HTTPException(400, f"Duplicate person ID in snapshot: {external_id}")
         seen.add(external_id)
-        person = db.query(AttendancePerson).filter(
-            AttendancePerson.device_id == device.id,
-            AttendancePerson.external_person_id == external_id,
-        ).one_or_none()
+    if payload.full_snapshot and not seen and (payload.device.reported_person_count or 0) != 0:
+        raise HTTPException(400, "Refusing an empty full snapshot for a non-empty device")
+
+    sync_started_at = utcnow()
+    device, ignored_reason, _metadata_ignored_reason = _upsert_device(
+        db,
+        payload.device,
+        identity,
+        sync_started_at=sync_started_at,
+        source_snapshot_at=payload.source_snapshot_at,
+        people_sync=True,
+    )
+    if ignored_reason is not None:
+        device_id = device.id
+        db.commit()
+        response = {
+            "device_id": device_id,
+            "received": len(payload.people),
+            "created": 0,
+            "updated": 0,
+            "marked_absent": 0,
+            "reported_person_count": payload.device.reported_person_count,
+            "ignored": True,
+        }
+        if ignored_reason != "stale_receipt":
+            response["ignored_reason"] = ignored_reason
+        return response
+    now = sync_started_at
+    created = 0
+    updated = 0
+
+    existing_people = {}
+    incoming_ids = list(seen)
+    for offset in range(0, len(incoming_ids), 400):
+        existing_people.update({
+            person.external_person_id: person
+            for person in db.query(AttendancePerson).filter(
+                AttendancePerson.device_id == device.id,
+                AttendancePerson.external_person_id.in_(incoming_ids[offset:offset + 400]),
+            ).all()
+        })
+    for incoming in payload.people:
+        external_id = incoming.external_person_id
+        person = existing_people.get(external_id)
         if person is None:
             person = AttendancePerson(
                 factory_code=device.factory_code,
@@ -252,8 +553,6 @@ def import_people_snapshot(
 
     marked_absent = 0
     if payload.full_snapshot:
-        if not seen and (payload.device.reported_person_count or 0) != 0:
-            raise HTTPException(400, "Refusing an empty full snapshot for a non-empty device")
         absent_query = db.query(AttendancePerson).filter(
             AttendancePerson.device_id == device.id,
             AttendancePerson.present_on_device.is_(True),
@@ -269,6 +568,7 @@ def import_people_snapshot(
         "updated": updated,
         "marked_absent": marked_absent,
         "reported_person_count": payload.device.reported_person_count,
+        "ignored": False,
     }
 
 
@@ -278,7 +578,15 @@ def import_events(
     db: DbSession,
     identity: AttendanceDevice | None = Depends(_require_integration_token),
 ):
-    device = _upsert_device(db, payload.device, identity, event_sync=True)
+    sync_started_at = utcnow()
+    device, _ignored_reason, metadata_ignored_reason = _upsert_device(
+        db,
+        payload.device,
+        identity,
+        sync_started_at=sync_started_at,
+        source_snapshot_at=payload.source_snapshot_at,
+        event_sync=True,
+    )
     incoming_uids = [event.event_uid for event in payload.events]
     if len(incoming_uids) != len(set(incoming_uids)):
         raise HTTPException(400, "Duplicate event UID in batch")
@@ -323,7 +631,142 @@ def import_events(
         ))
         inserted += 1
     db.commit()
-    return {"received": len(payload.events), "inserted": inserted, "duplicates": len(payload.events) - inserted}
+    response = {
+        "received": len(payload.events),
+        "inserted": inserted,
+        "duplicates": len(payload.events) - inserted,
+        "metadata_ignored": metadata_ignored_reason is not None,
+    }
+    if metadata_ignored_reason is not None:
+        response["metadata_ignored_reason"] = metadata_ignored_reason
+    return response
+
+
+def _write_new_attendance_photo(destination: Path, content: bytes) -> bool:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    linked_destination = False
+    try:
+        with NamedTemporaryFile(
+            prefix=".attendance_",
+            suffix=".tmp",
+            dir=destination.parent,
+            delete=False,
+        ) as stream:
+            stream.write(content)
+            temporary_path = Path(stream.name)
+        os.link(temporary_path, destination)
+        linked_destination = True
+    except FileExistsError:
+        return False
+    finally:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError:
+                # If staging cleanup fails after the hard link succeeded,
+                # the caller has not yet recorded ownership of destination.
+                # Roll it back here so an exception cannot strand an orphan.
+                if linked_destination:
+                    destination.unlink(missing_ok=True)
+                try:
+                    temporary_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                raise
+    return True
+
+
+@dataclass
+class _AttendancePhotoFileState:
+    created_path: Path | None = None
+
+
+def _discard_attendance_photo(state: _AttendancePhotoFileState) -> None:
+    if state.created_path is None:
+        return
+    state.created_path.unlink(missing_ok=True)
+    state.created_path = None
+
+
+def _attendance_photo_target(
+    db: Session,
+    *,
+    factory_code: str,
+    device_key: str,
+    external_person_id: str,
+    identity_device_id: int | None,
+    lock: bool,
+) -> tuple[AttendanceDevice, AttendancePerson]:
+    device_query = db.query(AttendanceDevice).filter(
+        AttendanceDevice.factory_code == factory_code,
+        AttendanceDevice.device_key == device_key,
+    )
+    device = device_query.one_or_none()
+    if not device:
+        raise HTTPException(404, "Attendance device not found")
+    if identity_device_id is not None and device.id != identity_device_id:
+        raise HTTPException(403, "Connector token does not belong to this attendance device")
+    person_query = db.query(AttendancePerson).filter(
+        AttendancePerson.device_id == device.id,
+        AttendancePerson.external_person_id == external_person_id,
+    )
+    if lock:
+        person_query = person_query.with_for_update()
+    person = person_query.one_or_none()
+    if not person:
+        raise HTTPException(404, "Attendance person not found")
+    return device, person
+
+
+def _set_attendance_photo(
+    person: AttendancePerson,
+    *,
+    file_name: str,
+    digest: str,
+) -> None:
+    person.photo_file_name = file_name
+    person.photo_sha256 = digest
+
+
+def _store_attendance_photo(
+    db: Session,
+    *,
+    factory_code: str,
+    device_key: str,
+    external_person_id: str,
+    identity_device_id: int | None,
+    content: bytes,
+    photo_root: Path,
+    file_state: _AttendancePhotoFileState,
+) -> dict[str, bool | str]:
+    converted = convert_image_to_webp(content)
+    digest = hashlib.sha256(converted.data).hexdigest()
+    device, person = _attendance_photo_target(
+        db,
+        factory_code=factory_code,
+        device_key=device_key,
+        external_person_id=external_person_id,
+        identity_device_id=identity_device_id,
+        lock=True,
+    )
+    if person.photo_sha256 == digest and person.photo_file_name:
+        return {"updated": False, "photo_sha256": digest}
+    file_name = f"{device.id}_{person.id}_{digest[:20]}.webp"
+    destination = photo_root / file_name
+    if _write_new_attendance_photo(destination, converted.data):
+        file_state.created_path = destination
+    _set_attendance_photo(person, file_name=file_name, digest=digest)
+    return {"updated": True, "photo_sha256": digest}
+
+
+async def _read_bounded_attendance_photo(request: Request, max_bytes: int) -> bytes:
+    content = bytearray()
+    async for chunk in request.stream():
+        if len(content) + len(chunk) > max_bytes:
+            raise HTTPException(413, "Photo is too large")
+        content.extend(chunk)
+    return bytes(content)
 
 
 @router.post("/integration/photos/{device_key}/{external_person_id}")
@@ -334,48 +777,42 @@ async def import_person_photo(
     db: DbSession,
     identity: AttendanceDevice | None = Depends(_require_integration_token),
 ):
-    content_length = request.headers.get("content-length")
-    if content_length and int(content_length) > settings.ATTENDANCE_PHOTO_MAX_BYTES:
-        raise HTTPException(413, "Photo is too large")
-    content = await request.body()
-    if not content:
-        raise HTTPException(400, "Photo body is empty")
-    if len(content) > settings.ATTENDANCE_PHOTO_MAX_BYTES:
-        raise HTTPException(413, "Photo is too large")
-    device = db.query(AttendanceDevice).filter(
-        AttendanceDevice.factory_code == (identity.factory_code if identity else _integration_factory()),
-        AttendanceDevice.device_key == device_key,
-    ).one_or_none()
-    if not device:
-        raise HTTPException(404, "Attendance device not found")
-    if identity is not None and device.id != identity.id:
-        raise HTTPException(403, "Connector token does not belong to this attendance device")
-    person = db.query(AttendancePerson).filter(
-        AttendancePerson.device_id == device.id,
-        AttendancePerson.external_person_id == external_person_id,
-    ).one_or_none()
-    if not person:
-        raise HTTPException(404, "Attendance person not found")
-    converted = convert_image_to_webp(content)
-    digest = hashlib.sha256(converted.data).hexdigest()
-    if person.photo_sha256 == digest and person.photo_file_name:
-        return {"updated": False, "photo_sha256": digest}
-    root = Path(settings.ATTENDANCE_PHOTOS_DIR)
-    root.mkdir(parents=True, exist_ok=True)
-    file_name = f"{device.id}_{person.id}_{digest[:20]}.webp"
-    destination = root / file_name
-    if not destination.exists():
-        with NamedTemporaryFile(prefix=".attendance_", suffix=".tmp", dir=root, delete=False) as temporary:
-            temporary.write(converted.data)
-            temporary_path = Path(temporary.name)
-        try:
-            os.replace(temporary_path, destination)
-        finally:
-            temporary_path.unlink(missing_ok=True)
-    person.photo_file_name = file_name
-    person.photo_sha256 = digest
-    db.commit()
-    return {"updated": True, "photo_sha256": digest}
+    identity_device_id = int(identity.id) if identity is not None else None
+    factory_code = identity.factory_code if identity is not None else _integration_factory()
+    worker_sessions = upload_session_factory(db)
+    target = partial(
+        _attendance_photo_target,
+        factory_code=factory_code,
+        device_key=device_key,
+        external_person_id=external_person_id,
+        identity_device_id=identity_device_id,
+    )
+    await run_upload_db_work(worker_sessions, partial(target, lock=False))
+    async with upload_processing_slot():
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > settings.ATTENDANCE_PHOTO_MAX_BYTES:
+            raise HTTPException(413, "Photo is too large")
+        content = await _read_bounded_attendance_photo(request, settings.ATTENDANCE_PHOTO_MAX_BYTES)
+        if not content:
+            raise HTTPException(400, "Photo body is empty")
+        file_state = _AttendancePhotoFileState()
+        commit_state = UploadCommitState()
+        return await run_upload_db_work(
+            worker_sessions,
+            partial(
+                _store_attendance_photo,
+                factory_code=factory_code,
+                device_key=device_key,
+                external_person_id=external_person_id,
+                identity_device_id=identity_device_id,
+                content=content,
+                photo_root=Path(settings.ATTENDANCE_PHOTOS_DIR),
+                file_state=file_state,
+            ),
+            commit=True,
+            commit_state=commit_state,
+            failure_cleanup=partial(_discard_attendance_photo, file_state),
+        )
 
 
 def _day_bounds(day: date) -> tuple[datetime, datetime]:
@@ -403,6 +840,7 @@ def _attendance_people_query(
         AttendanceEvent.occurred_at >= start,
         AttendanceEvent.occurred_at <= end,
         AttendanceEvent.external_person_id.is_not(None),
+        accepted_attendance_result(AttendanceEvent.result),
     ).group_by(AttendanceEvent.external_person_id).subquery()
 
     # Hikvision commonly replicates the same employee profile to every lane.
@@ -410,10 +848,16 @@ def _attendance_people_query(
     # representative per employee ID for the combined attendance view.
     representative_people = db.query(
         AttendancePerson.external_person_id.label("external_person_id"),
-        func.min(AttendancePerson.id).label("person_id"),
+        func.coalesce(
+            func.min(case((AttendancePerson.present_on_device.is_(True), AttendancePerson.id))),
+            func.min(AttendancePerson.id),
+        ).label("person_id"),
+    ).outerjoin(
+        event_rollup,
+        event_rollup.c.external_person_id == AttendancePerson.external_person_id,
     ).filter(
         AttendancePerson.factory_code == factory_code,
-        AttendancePerson.present_on_device.is_(True),
+        or_(AttendancePerson.present_on_device.is_(True), event_rollup.c.event_count.is_not(None)),
     ).group_by(AttendancePerson.external_person_id).subquery()
 
     base = db.query(
@@ -429,8 +873,15 @@ def _attendance_people_query(
         representative_people.c.person_id == AttendancePerson.id,
     ).filter(
         AttendancePerson.factory_code == factory_code,
-        AttendancePerson.present_on_device.is_(True),
-    )
+    ).options(load_only(
+        AttendancePerson.id,
+        AttendancePerson.external_person_id,
+        AttendancePerson.full_name,
+        AttendancePerson.user_type,
+        AttendancePerson.is_valid,
+        AttendancePerson.has_face,
+        AttendancePerson.photo_file_name,
+    ))
     search = query.strip()
     if search:
         like = f"%{search}%"
@@ -625,15 +1076,15 @@ def attendance_overview(
         (page - 1) * page_size
     ).limit(page_size).all()
 
-    total_people = db.query(func.count(func.distinct(AttendancePerson.external_person_id))).filter(
-        AttendancePerson.factory_code == factory_code,
-        AttendancePerson.present_on_device.is_(True),
-    ).scalar() or 0
+    total_people = _attendance_people_query(
+        db, factory_code=factory_code, start=start, end=end, query="", usage="all",
+    ).count()
     used_today = db.query(func.count(func.distinct(AttendanceEvent.external_person_id))).filter(
         AttendanceEvent.factory_code == factory_code,
         AttendanceEvent.occurred_at >= start,
         AttendanceEvent.occurred_at <= end,
         AttendanceEvent.external_person_id.is_not(None),
+        accepted_attendance_result(AttendanceEvent.result),
     ).scalar() or 0
     events_today = db.query(func.count(AttendanceEvent.id)).filter(
         AttendanceEvent.factory_code == factory_code,
@@ -646,7 +1097,25 @@ def attendance_overview(
         AttendanceEvent.occurred_at <= end,
         AttendanceEvent.external_person_id.is_(None),
     ).scalar() or 0
-    devices = db.query(AttendanceDevice).filter(AttendanceDevice.factory_code == factory_code).order_by(AttendanceDevice.name).all()
+    devices = db.query(
+        AttendanceDevice.id,
+        AttendanceDevice.device_key,
+        AttendanceDevice.name,
+        AttendanceDevice.vendor,
+        AttendanceDevice.model,
+        AttendanceDevice.serial_no,
+        AttendanceDevice.source_host,
+        AttendanceDevice.certificate_sha256,
+        AttendanceDevice.connector_token_hash.is_not(None).label("managed"),
+        AttendanceDevice.sync_enabled,
+        AttendanceDevice.read_only,
+        AttendanceDevice.reported_person_count,
+        AttendanceDevice.last_seen_at,
+        AttendanceDevice.last_people_sync_at,
+        AttendanceDevice.last_event_sync_at,
+    ).filter(
+        AttendanceDevice.factory_code == factory_code,
+    ).order_by(AttendanceDevice.name).all()
     return {
         "date": day.isoformat(),
         "summary": {
@@ -656,7 +1125,26 @@ def attendance_overview(
             "events_today": events_today,
             "unmatched_events": unmatched_events,
         },
-        "devices": [_device_payload(device) for device in devices],
+        "devices": [
+            {
+                "id": device.id,
+                "device_key": device.device_key,
+                "name": device.name,
+                "vendor": device.vendor,
+                "model": device.model,
+                "serial_no": device.serial_no,
+                "source_host": device.source_host,
+                "certificate_sha256": device.certificate_sha256,
+                "managed": bool(device.managed),
+                "sync_enabled": device.sync_enabled,
+                "read_only": device.read_only,
+                "reported_person_count": device.reported_person_count,
+                "last_seen_at": device.last_seen_at,
+                "last_people_sync_at": device.last_people_sync_at,
+                "last_event_sync_at": device.last_event_sync_at,
+            }
+            for device in devices
+        ],
         "people": [
             _attendance_row_payload(person, event_count, first_seen_at, last_seen_at)
             for person, event_count, first_seen_at, last_seen_at in rows
@@ -678,17 +1166,29 @@ def download_daily_attendance_report(
     query: str = Query(default="", max_length=120),
     usage: str = Query(default="all", pattern="^(all|used|not_used)$"),
     lang: ReportLanguage = Query(default="uz"),
+    page: int | None = Query(default=None, ge=1),
+    page_size: int | None = Query(default=None, ge=1, le=500),
 ):
     factory_code = selected_factory_code(current)
     start, end = _day_bounds(day)
-    records = _attendance_people_query(
+    records_query = _attendance_people_query(
         db,
         factory_code=factory_code,
         start=start,
         end=end,
         query=query,
         usage=usage,
-    ).order_by(AttendancePerson.full_name.asc(), AttendancePerson.external_person_id.asc()).all()
+    ).order_by(
+        AttendancePerson.full_name.asc(),
+        AttendancePerson.external_person_id.asc(),
+    )
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = records_query.order_by(None).count()
+        records_query = records_query.offset((page - 1) * page_size).limit(page_size)
+    records = records_query.all()
     rows = [
         _attendance_row_payload(person, event_count, first_seen_at, last_seen_at)
         for person, event_count, first_seen_at, last_seen_at in records
@@ -699,10 +1199,18 @@ def download_daily_attendance_report(
         generated_at=utcnow(),
         lang=lang,
     )
+    headers = {"Content-Disposition": f'attachment; filename="attendance_daily_{day.isoformat()}.xlsx"'}
+    if total is not None:
+        headers.update({
+            "X-Total-Count": str(total),
+            "X-Page": str(page),
+            "X-Page-Size": str(page_size),
+            "X-Has-More": "true" if page * page_size < total else "false",
+        })
     return Response(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="attendance_daily_{day.isoformat()}.xlsx"'},
+        headers=headers,
     )
 
 
@@ -712,7 +1220,9 @@ def attendance_person_photo(
     db: DbSession,
     current: User = Depends(require_permissions("attendance.view", "attendance.manage", "*")),
 ):
-    person = db.query(AttendancePerson).filter(
+    person = db.query(AttendancePerson).options(
+        load_only(AttendancePerson.id, AttendancePerson.photo_file_name),
+    ).filter(
         AttendancePerson.id == person_id,
         AttendancePerson.factory_code == selected_factory_code(current),
         AttendancePerson.present_on_device.is_(True),
