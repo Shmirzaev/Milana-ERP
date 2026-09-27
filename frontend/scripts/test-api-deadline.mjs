@@ -3,9 +3,18 @@ import fs from "node:fs";
 import ts from "typescript";
 
 const source = fs.readFileSync(new URL("../src/lib/api.ts", import.meta.url), "utf8");
-const exports = {};
-new Function("exports", ts.transpile(source, { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }))(exports);
-const { api } = exports;
+const errorSource = fs.readFileSync(new URL("../src/lib/errorMessages.ts", import.meta.url), "utf8");
+const errorExports = {};
+new Function("exports", ts.transpile(errorSource, { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }))(errorExports);
+const apiExports = {};
+new Function("exports", "require", ts.transpile(source, { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }))(
+  apiExports,
+  (name) => {
+    assert.equal(name, "./errorMessages");
+    return errorExports;
+  },
+);
+const { api } = apiExports;
 const originalFetch = globalThis.fetch;
 try {
   // Real Response + abort-aware body: headers arrive immediately, body never ends.
@@ -26,7 +35,7 @@ try {
         new Promise(resolve => setTimeout(() => resolve("hung"), 150)),
       ]);
       assert.notEqual(outcome, "hung", "deadline must include response body consumption");
-      assert.match(outcome, /Backend is not responding/);
+      assert.match(outcome, /Request timed out/);
       assert.equal(aborted, true);
     }
   }

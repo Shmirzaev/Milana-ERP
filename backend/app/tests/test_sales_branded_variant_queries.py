@@ -68,6 +68,7 @@ def _reservation_case(variant_count: int):
             color=color,
             size="M",
             quantity=1,
+            source_type="from_stock",
             requested_pack_count=None,
         )
         for color in colors

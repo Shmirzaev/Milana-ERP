@@ -49,6 +49,7 @@ function renderCase(customer) {
                     id: 4,
                     row_key: "payment-4",
                     amount: 25,
+                    currency: "USD",
                     payment_method: "bank_transfer",
                     paid_at: "2026-09-01T00:00:00Z",
                     notes: null,
@@ -106,11 +107,11 @@ function textContent(tree) {
 const active = renderCase({ id: 8, name: "Customer Eight", phone: "", email: "", address: "", notes: "" });
 assert.equal(active.requests.filter((key) => key === paymentKey).length, 1);
 assert.match(textContent(active.tree), /bank_transfer/);
-assert.match(textContent(active.tree), /\$25\.00/);
+assert.match(textContent(active.tree), /25\.00 USD/);
 
 const deniedOrUnresolved = renderCase(undefined);
 assert.equal(deniedOrUnresolved.requests.filter((key) => key === paymentKey).length, 0);
 assert.equal(textContent(deniedOrUnresolved.tree), "common.loading");
-assert.doesNotMatch(textContent(deniedOrUnresolved.tree), /Customer Eight|bank_transfer|\$25\.00/);
+assert.doesNotMatch(textContent(deniedOrUnresolved.tree), /Customer Eight|bank_transfer|25\.00 USD/);
 
 console.log("Customer payment history: denied/unresolved key 1 -> 0; active ledger remains exactly 1.");

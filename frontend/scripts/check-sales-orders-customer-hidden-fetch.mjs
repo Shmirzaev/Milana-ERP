@@ -66,6 +66,7 @@ function renderCase(pageData) {
     "@/components/StagePipeline": { statusLabel: (value) => value },
     "@/components/DialogProvider": { useDialogs: () => ({ ask: async () => false, notify: async () => {} }) },
     "@/lib/orderRef": { formatOrderReference: (value) => value },
+    "@/lib/salesOrderMoney": { recordedSalesOrderMoney: (value, currency) => value == null || !currency ? "—" : `${Number(value).toFixed(2)} ${currency}` },
   };
   const loadedModule = { exports: {} };
   new Function("require", "exports", "module", compiled)((name) => {

@@ -327,8 +327,8 @@ class CoveragePlugin:
         original = TestClient.__init__
         ledger = self.ledger
 
-        def initialize(client, app, *args, **kwargs):
-            return original(client, ObservedApp(app, ledger) if app is target else app, *args, **kwargs)
+        def initialize(test_client, app, *args, **kwargs):
+            return original(test_client, ObservedApp(app, ledger) if app is target else app, *args, **kwargs)
 
         self.client_patch = patch.object(TestClient, "__init__", initialize)
         self.client_patch.start()

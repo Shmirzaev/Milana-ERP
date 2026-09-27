@@ -255,7 +255,9 @@ def _revenue_period_query(db: Session, *, from_dt: datetime | None = None, to_dt
     if db.bind is not None and db.bind.dialect.name == "postgresql":
         period = func.to_char(timestamp, "YYYY-MM")
     else:
-        period = func.strftime("%Y-%m", timestamp)
+        # SQLite strftime can round 23:59:59.999999 into the next month.
+        # SQLAlchemy stores these timestamps with an ISO year-month prefix.
+        period = func.substr(timestamp, 1, 7)
     qry = db.query(
         period.label("period"), func.count(Invoice.id), func.count(Invoice.currency),
         func.min(Invoice.currency), func.max(Invoice.currency),

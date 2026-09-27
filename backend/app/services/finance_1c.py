@@ -138,6 +138,7 @@ def _lock_sync_rows(db: Session, payload: OneCSyncIn) -> tuple[list[Payment], li
             Payment.external_source,
             Payment.external_id,
             Payment.amount,
+            Payment.currency,
             Payment.payment_method,
             Payment.paid_at,
             Payment.notes,
@@ -178,7 +179,7 @@ def _sales_order_lookup(
         filters.append(SalesOrder.order_no.in_(order_nos))
     rows = (
         db.query(SalesOrder)
-        .options(load_only(SalesOrder.id, SalesOrder.order_no))
+        .options(load_only(SalesOrder.id, SalesOrder.order_no, SalesOrder.currency))
         .filter(or_(*filters))
         .all()
         if filters

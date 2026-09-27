@@ -102,6 +102,7 @@ def test_customer_order_history_projects_response_fields_without_changing_totals
             customer_id=customer.id,
             status="confirmed",
             total_amount=100,
+            currency="USD",
         )
         db.add(order)
         db.flush()
@@ -109,6 +110,7 @@ def test_customer_order_history_projects_response_fields_without_changing_totals
             sales_order_id=order.id,
             invoice_no=f"PERF35-INV-{marker}",
             amount=100,
+            currency="USD",
             status="partially_paid",
         )
         db.add(invoice)
@@ -117,6 +119,7 @@ def test_customer_order_history_projects_response_fields_without_changing_totals
             invoice_id=invoice.id,
             customer_id=customer.id,
             amount=25,
+            currency="USD",
             payment_method="cash",
             notes="deposit",
         ))
@@ -176,17 +179,20 @@ def test_customer_order_history_status_uses_exact_invoice_cents(
         db.flush()
         order = SalesOrder(
             order_no=f"CENT-HISTORY-{marker}", customer_id=customer.id,
-            status="confirmed", total_amount=100,
+            status="confirmed", total_amount=100, currency="USD",
         )
         db.add(order)
         db.flush()
         invoice = Invoice(
             sales_order_id=order.id, invoice_no=f"CENT-INVOICE-{marker}",
-            amount=100, status=invoice_status,
+            amount=100, currency="USD", status=invoice_status,
         )
         db.add(invoice)
         db.flush()
-        db.add(Payment(invoice_id=invoice.id, customer_id=customer.id, amount=payment_amount))
+        db.add(Payment(
+            invoice_id=invoice.id, customer_id=customer.id,
+            amount=payment_amount, currency="USD",
+        ))
         db.commit()
         customer_id = int(customer.id)
 
@@ -207,17 +213,20 @@ def test_customer_order_history_one_cent_is_partial_without_writing_invoice_stat
         db.flush()
         order = SalesOrder(
             order_no=f"CENT-STATUS-{marker}", customer_id=customer.id,
-            status="confirmed", total_amount=100,
+            status="confirmed", total_amount=100, currency="USD",
         )
         db.add(order)
         db.flush()
         invoice = Invoice(
             sales_order_id=order.id, invoice_no=f"CENT-STATE-{marker}",
-            amount=100, status=stored_status,
+            amount=100, currency="USD", status=stored_status,
         )
         db.add(invoice)
         db.flush()
-        db.add(Payment(invoice_id=invoice.id, customer_id=customer.id, amount=Decimal("0.01")))
+        db.add(Payment(
+            invoice_id=invoice.id, customer_id=customer.id,
+            amount=Decimal("0.01"), currency="USD",
+        ))
         db.commit()
         customer_id = int(customer.id)
         order_id = int(order.id)

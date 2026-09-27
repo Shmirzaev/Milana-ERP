@@ -72,6 +72,8 @@ function renderCase({ path, authorized }) {
       useState: (initial) => [typeof initial === "function" ? initial() : initial, () => {}],
     },
     "@/lib/orderRef": { formatOrderReference: (value) => value },
+    "@/lib/errorMessages": { localizeError: (detail) => detail },
+    "@/lib/salesOrderMoney": { recordedSalesOrderMoney: (value, currency) => value == null || !currency ? "—" : `${Number(value).toFixed(2)} ${currency}` },
     "next/link": { default: "link" },
     "next/navigation": { usePathname: () => path, useSearchParams: () => ({ get: () => null }) },
     swr: { default: useSWR },
@@ -174,6 +176,8 @@ function createRetainedModelHarness() {
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "fragment" },
     react: { useEffect() {}, useMemo: (calculate) => calculate(), useState },
     "@/lib/orderRef": { formatOrderReference: (value) => value },
+    "@/lib/errorMessages": { localizeError: (detail) => detail },
+    "@/lib/salesOrderMoney": { recordedSalesOrderMoney: (value, currency) => value == null || !currency ? "—" : `${Number(value).toFixed(2)} ${currency}` },
     "next/link": { default: "link" },
     "next/navigation": {
       usePathname: () => "/planning/branded-stock",

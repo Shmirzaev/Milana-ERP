@@ -104,6 +104,7 @@ def test_customer_payment_history_projects_only_response_columns():
             "id": payment.id,
             "row_key": f"payment-{payment.id}",
             "amount": 40.0,
+            "currency": None,
             "payment_method": "cash",
             "paid_at": payment.paid_at,
             "notes": "payment note",

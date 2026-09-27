@@ -209,6 +209,7 @@ const shipmentDependencies = {
   "@/lib/api": { api, fetcher: async () => [] },
   "@/lib/auth": { can: () => false, useMe: () => ({ me: { id: 7 } }) },
   "@/lib/i18n": { useT: () => ({ t: key => key, lang: "en" }) },
+  "@/lib/errorMessages": { localizeError: message => message },
   "@/lib/orderRef": { formatOrderReference: value => value },
   "@/lib/packageWorkflow": packageWorkflow,
   "@/lib/manualShipmentText": { manualShipmentText: { en: {

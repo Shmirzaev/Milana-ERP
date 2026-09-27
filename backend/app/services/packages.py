@@ -1691,6 +1691,8 @@ def reserve_package(db: Session, pkg: Package, user_id: int | None):
         .with_for_update(of=Package).populate_existing().one()
     )
     _require_warehouse_package(db, pkg)
+    if pkg.status == "damaged":
+        raise HTTPException(409, "Damaged package cannot be reserved")
     if pkg.status not in ("received_in_storage", "packed"):
         raise HTTPException(400, f"Package cannot be reserved from status '{pkg.status}'")
     pkg.status = "reserved"

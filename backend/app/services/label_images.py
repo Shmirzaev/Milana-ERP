@@ -56,8 +56,9 @@ def _model_image_src(img: ModelImage | None) -> str | None:
     # potentially-large binary column.  Do not dereference a deferred
     # ``file_data`` attribute here: doing so silently adds one SELECT per
     # image and defeats the batched label query.
-    unloaded = sa_inspect(img).unloaded
-    file_data = None if "file_data" in unloaded else img.file_data
+    image_state = sa_inspect(img, raiseerr=False)
+    unloaded = image_state.unloaded if image_state is not None else set()
+    file_data = None if "file_data" in unloaded else getattr(img, "file_data", None)
     return _uploaded_file_data_uri(img.file_url, img.content_type, file_data)
 
 

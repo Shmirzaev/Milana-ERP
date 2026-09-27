@@ -81,6 +81,11 @@ const dependencies = {
   "@/components/CustomerAsyncSelect": { default: "customer-select" },
   "@/lib/auth": { can: () => true, useMe: () => ({ me: { id: 1 } }) },
   "@/lib/i18n": { useT: () => ({ lang: "en", t: (key) => key }) },
+  "@/lib/errorMessages": { localizeError: (message) => message },
+  "@/lib/salesOrderPriceProvenance": {
+    copyPriceProvenance: () => ({}),
+    submittedUnitPrice: (line) => Number(line.unit_price),
+  },
   "@/lib/readySalesLocale": {
     readySalesText: () => new Proxy({}, { get: (_target, property) => String(property) }),
   },

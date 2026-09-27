@@ -132,6 +132,7 @@ function createHarness(withBatch, group = "materials") {
     swr: { default: useSWR },
     "@/components/Modal": { default: "modal" },
     "@/lib/api": { api: {}, fetcher() {} },
+    "@/lib/errorMessages": { localizeError: (message) => message },
     "@/lib/useModelOptions": { modelOptionsByIdsFetcher() {}, modelOptionsByIdsKey: () => null },
     "@/lib/auth": { can: () => true, useMe: () => ({ me: { id: 7 } }) },
     "@/components/PageHeader": { default: "page-header" },

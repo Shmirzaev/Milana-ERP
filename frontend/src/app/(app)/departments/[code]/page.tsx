@@ -1,7 +1,6 @@
 "use client";
 import { localizeError } from "@/lib/errorMessages";
 
-import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import useSWR from "swr";
 import { Fragment, useDeferredValue, useEffect, useMemo, useState } from "react";

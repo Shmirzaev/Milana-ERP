@@ -69,7 +69,7 @@ function text(tree) {
   return (tree.props?.children || []).map(text).join("");
 }
 
-const module = { exports: {} };
+const loadedModule = { exports: {} };
 new Function("require", "exports", "module", output)(name => {
   if (name === "react") return { useState, useEffect, useMemo, createElement };
   if (name === "swr") return { default: useSWR };
@@ -81,9 +81,9 @@ new Function("require", "exports", "module", output)(name => {
     MetricGrid: props => createElement("metrics", props),
   };
   throw new Error(`Unexpected dependency: ${name}`);
-}, module.exports, module);
+}, loadedModule.exports, loadedModule);
 
-const OrganizationPage = module.exports.default;
+const OrganizationPage = loadedModule.exports.default;
 state = [];
 function render() {
   cursor = 0;

@@ -6,14 +6,14 @@ const source = fs.readFileSync(new URL("../src/lib/usePositionDepartments.ts", i
 const output = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
 const calls = [];
 function useSWR(key, fetcher) { calls.push({ key, fetcher }); return { data: key ? [{ id: 4, name: "Cutting" }] : undefined }; }
-const module = { exports: {} };
+const loadedModule = { exports: {} };
 new Function("require", "exports", "module", output)(name => {
   if (name === "swr") return { default: useSWR };
   if (name === "@/lib/api") return { fetcher: async () => [] };
   throw new Error(`Unexpected dependency: ${name}`);
-}, module.exports, module);
+}, loadedModule.exports, loadedModule);
 
-const hook = module.exports.usePositionDepartments;
+const hook = loadedModule.exports.usePositionDepartments;
 assert.equal(hook(null).data, undefined);
 assert.equal(calls.at(-1).key, null, "closed position modal must not fetch departments");
 assert.deepEqual(hook("new").data, [{ id: 4, name: "Cutting" }]);

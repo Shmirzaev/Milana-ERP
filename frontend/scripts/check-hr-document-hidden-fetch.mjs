@@ -46,6 +46,10 @@ new Function("exports", "require", output)(exports, name => ({
   } },
   "@/lib/api": { api: { postForm: async () => ({}) }, fetcher() {} },
   "@/components/Modal": { default: ({ open, children }) => open ? React.createElement("section", null, children) : null },
+  "@/components/hr/DocumentEmployeeSelect": { default: ({ enabled }) => {
+    keys.push(enabled ? "/api/employees" : null);
+    return enabled ? React.createElement("select", null, React.createElement("option", null, "Synthetic Employee")) : null;
+  } },
   "@/components/hr/HrUi": {
     HrHeader: ({ actions }) => React.createElement("header", null, actions),
     LoadState: ({ children }) => React.createElement(React.Fragment, null, children),
@@ -70,15 +74,17 @@ function find(node, predicate) {
 }
 
 const closed = render();
-assert.deepEqual(keys, ["/api/hr/documents?page=1&page_size=100", null], "closed upload section must not fetch employees");
+renderToStaticMarkup(closed);
+assert.deepEqual(keys, ["/api/hr/documents?page=1&page_size=100"], "closed upload section must not fetch employees");
 const uploadButton = find(closed, node => node.type === "button" && node.props.children === "Upload document");
 assert.ok(uploadButton, "actual Upload document action must render");
 uploadButton.props.onClick();
 
 keys.length = 0;
 const opened = render();
+const openedMarkup = renderToStaticMarkup(opened);
 assert.deepEqual(keys, ["/api/hr/documents?page=1&page_size=100", "/api/employees"], "opening upload must fetch employee options");
-assert.ok(renderToStaticMarkup(opened).includes("Synthetic Employee"), "open upload must render fetched employee options");
+assert.ok(openedMarkup.includes("Synthetic Employee"), "open upload must render fetched employee options");
 
 const loadMore = find(opened, node => node.type === "button" && node.props.children === "Load more");
 assert.ok(loadMore, "first page must expose load more");

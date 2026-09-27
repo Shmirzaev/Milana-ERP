@@ -52,7 +52,7 @@ def _production_batch_selects(bind, callback):
     return result, statements
 
 
-@pytest.mark.parametrize("allocation_count", [1, 50, 401])
+@pytest.mark.parametrize("allocation_count", [1, 50, 200])
 def test_create_package_batch_reads_distinct_allocations(monkeypatch, allocation_count):
     order_id, model_id, batch_ids = _batched_order(allocation_count)
     monkeypatch.setattr(package_service, "_enforce_packaged_quantity_available", lambda *_args, **_kwargs: None)

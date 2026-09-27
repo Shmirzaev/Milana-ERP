@@ -29,7 +29,7 @@ function useSWRInfinite(keyFactory) {
 }
 function jsx(type, props) { return { type, props: props || {} }; }
 const noop = () => null;
-const module = { exports: {} };
+const loadedModule = { exports: {} };
 new Function("require", "exports", "module", output)(name => {
   if (name === "react") return { useState, useRef: () => ({ current: null }), useMemo: callback => callback() };
   if (name === "react/jsx-runtime") return { jsx, jsxs: jsx, Fragment: "fragment" };
@@ -45,7 +45,7 @@ new Function("require", "exports", "module", output)(name => {
   if (name === "@/lib/packageWorkflow") return { packageWorkflowCopy: { en: {} } };
   if (name.startsWith("@/components/")) return { default: noop };
   throw new Error(`Unexpected dependency: ${name}`);
-}, module.exports, module);
+}, loadedModule.exports, loadedModule);
 
 function walk(node, predicate, found = []) {
   if (!node || typeof node !== "object") return found;
@@ -61,7 +61,7 @@ function containsText(value, text) {
   if (Array.isArray(value)) return value.some(item => containsText(item, text));
   return Boolean(value && typeof value === "object" && containsText(value.props?.children, text));
 }
-function render() { stateIndex = 0; return module.exports.default(); }
+function render() { stateIndex = 0; return loadedModule.exports.default(); }
 
 let tree = render();
 assert.deepEqual(requestedKeys.slice(0, 3), [

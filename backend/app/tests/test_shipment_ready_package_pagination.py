@@ -87,7 +87,7 @@ def test_ready_package_page_bounds_sql_and_preserves_legacy_prefix(row_count):
     assert len(page["rows"]) == expected_rows
     assert jsonable_encoder(page["rows"]) == jsonable_encoder(legacy[:expected_rows])
     assert [row["id"] for row in page["rows"]] == package_ids[:expected_rows]
-    assert len(legacy_statements) == 2, legacy_statements
+    assert len(legacy_statements) == 1, legacy_statements
     assert len(page_statements) == 2, page_statements
     assert " limit ? offset ?" in page_statements[-1]
 

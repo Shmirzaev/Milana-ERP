@@ -8,6 +8,9 @@ class _Query:
     def outerjoin(self, *args, **kwargs):
         return self
 
+    def options(self, *args, **kwargs):
+        return self
+
     def filter(self, *args, **kwargs):
         return self
 

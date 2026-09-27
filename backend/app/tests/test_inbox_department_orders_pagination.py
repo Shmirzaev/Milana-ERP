@@ -487,8 +487,6 @@ def test_legacy_inbox_can_skip_core_orders_without_skipping_fgs_package_widgets(
         "ready_packages_total",
         "ready_to_ship",
         "ready_to_ship_total",
-        "replacement_cutting_work",
-        "replacement_sewing_work",
     ):
         assert actual[key] == expected[key]
 

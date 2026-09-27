@@ -44,7 +44,7 @@ function useSWRInfinite(keyFactory) {
   };
 }
 
-const module = { exports: {} };
+const loadedModule = { exports: {} };
 new Function("require", "exports", "module", output)(name => {
   if (name === "react") return react;
   if (name === "react/jsx-runtime") return { jsx, jsxs: jsx, Fragment: "fragment" };
@@ -60,8 +60,8 @@ new Function("require", "exports", "module", output)(name => {
   if (name === "@/lib/orderRef") return { formatOrderReference: (value, fallback = "-") => value == null ? fallback : String(value) };
   if (["@/components/Modal", "@/components/ModelAsyncSelect", "@/components/PageHeader", "@/components/VerticalModelPhoto"].includes(name)) return { default: noopComponent };
   throw new Error(`Unexpected dependency: ${name}`);
-}, module.exports, module);
-const UslugaPage = module.exports.default;
+}, loadedModule.exports, loadedModule);
+const UslugaPage = loadedModule.exports.default;
 
 function render() {
   stateIndex = 0;

@@ -236,6 +236,7 @@ def _awaiting_packaging_rows(
     po_ids = sorted({row["production_order_id"] for row in pairs})
     batch_ids = sorted({row["production_batch_id"] for row in pairs if row["production_batch_id"] is not None})
     context_by_po = _production_context_by_production_order(db, po_ids)
+    material_by_po = _material_payload_by_production_order(db, po_ids)
     production_by_id = {
         int(row.id): row
         for row in db.query(
@@ -267,6 +268,7 @@ def _awaiting_packaging_rows(
         row["batch_name"] = batch.name if batch else None
         row["ready_qty"] = row["sewn_passed"] - row["already_packed"]
         row.update(context)
+        row.update(_material_payload_for_po(material_by_po, row["production_order_id"]))
         row["production_no"] = production.production_no if production else None
         sales_order_no = sales_no_by_id.get(int(production.sales_order_id)) if production and production.sales_order_id else None
         row["order_no"] = (

@@ -1,4 +1,5 @@
 from collections import Counter
+from math import ceil
 from uuid import uuid4
 
 import pytest
@@ -357,7 +358,7 @@ def test_cutting_record_complete_bundle_query_growth(
     number_suffixes = [int(row["bundle_no"].rsplit("-", 1)[-1]) for row in bundles]
     assert number_suffixes == list(range(number_suffixes[0], number_suffixes[0] + bundle_count))
     counts = _table_select_counts(statements)
-    assert len(statements) == 41
+    assert len(statements) == 38
     assert counts["departments"] == 6
     assert counts["business_order_aliases"] == 1
     print(
@@ -409,9 +410,9 @@ def test_cutting_record_complete_material_query_growth(
     assert response.status_code == 201, response.text
     assert [row["stock_batch_id"] for row in response.json()["materials"]] == batch_ids
     counts = _table_select_counts(statements)
-    assert len(statements) == 30
-    assert counts["material_reservations"] == 1
-    assert counts["stock_batches"] == 2
+    assert len(statements) == 30 + 3 * ceil(material_count / 400)
+    assert counts["material_reservations"] == 4 + ceil(material_count / 400)
+    assert counts["stock_batches"] == 2 + ceil(material_count / 400)
     assert counts["items"] == 2
     assert counts["system_settings"] == 1
     with TestSessionLocal() as db:
@@ -468,7 +469,7 @@ def test_packaging_record_complete_bom_query_growth(
 
     assert response.status_code == 201, response.text
     counts = _table_select_counts(statements)
-    assert len(statements) == 30
+    assert len(statements) == 29
     assert counts["model_bom"] == 1
     assert counts["stock_batches"] == 2
     assert counts["material_reservations"] == 3
@@ -675,7 +676,7 @@ def test_usluga_rejection_batches_complete_scan_log_reads(client, bundle_count):
 
     assert response.status_code == 200, response.text
     assert response.json()["deleted_bundle_count"] == bundle_count
-    assert len(statements) == 18
+    assert len(statements) == 17
     scan_log_reads = [statement for statement in statements if "bundle_scan_logs" in statement]
     assert len(scan_log_reads) == 1
     with TestSessionLocal() as db:

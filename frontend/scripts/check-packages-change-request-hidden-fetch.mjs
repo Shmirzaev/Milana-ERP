@@ -76,6 +76,7 @@ function createHarness({ denied = false } = {}) {
     "next/navigation": { useSearchParams: () => new URLSearchParams() },
     "@/lib/api": { api: { openLabel() {}, get: async () => ({}), post: async () => ({}) }, fetcher() {} },
     "@/lib/auth": { can: () => true, useMe: () => ({ me: { id: 1, permissions: ["management.approve"] } }) },
+    "@/lib/access": { packagingDepartmentForSession: (_me, requested) => requested?.trim().toUpperCase() || "PKG" },
     "@/components/ConfirmDialog": { default: "confirm-dialog" },
     "@/components/Modal": { default: "modal" },
     "@/components/PageHeader": { default: "page-header" },

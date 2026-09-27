@@ -10,7 +10,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine, event, select, text
+from sqlalchemy import create_engine, event, inspect, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
@@ -1187,6 +1187,12 @@ def test_postgres_reservation_locks_numbering_and_insert_transfers_are_batched(
     if line_count == 401:
         with sessions() as db:
             year = datetime.now(timezone.utc).year
+            unique_indexes = {
+                constraint["name"]
+                for constraint in inspect(db.get_bind()).get_unique_constraints("material_reservations")
+                if constraint["column_names"] == ["reservation_no"]
+            }
+            assert unique_indexes, "Reservation numbers need a unique B-tree index"
             statement = (
                 select(MaterialReservation.reservation_no)
                 .where(MaterialReservation.reservation_no.like(f"MR-{year}-%"))
@@ -1194,9 +1200,12 @@ def test_postgres_reservation_locks_numbering_and_insert_transfers_are_batched(
                 .limit(1)
             )
             compiled = statement.compile(bind=db.get_bind(), compile_kwargs={"literal_binds": True})
+            # Small disposable tables can legitimately get a sequential scan.
+            # Probe whether the numbering lookup can use its unique index.
+            db.execute(text("SET LOCAL enable_seqscan = off"))
             plan = db.execute(text(f"EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {compiled}")).scalar_one()
         plan_text = json.dumps(plan, sort_keys=True)
-        assert "ix_material_reservations_reservation_no" in plan_text
+        assert any(index_name in plan_text for index_name in unique_indexes)
         assert "Seq Scan" not in plan_text
 
 

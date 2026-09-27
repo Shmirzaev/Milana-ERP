@@ -52,7 +52,7 @@ function text(tree) {
   return (tree.props?.children || []).map(text).join("");
 }
 
-const module = { exports: {} };
+const loadedModule = { exports: {} };
 new Function("require", "exports", "module", output)(name => {
   if (name === "react") return { useState, useEffect, createElement };
   if (name === "swr/infinite") return { default: useSWRInfinite };
@@ -67,9 +67,9 @@ new Function("require", "exports", "module", output)(name => {
     usePositionDepartments: editing => { swrKey = editing === null ? null : "/api/departments"; calls.push(swrKey); return { data: swrKey ? [{ id: 4, name: "Cutting" }] : undefined }; },
   };
   throw new Error(`Unexpected dependency: ${name}`);
-}, module.exports, module);
+}, loadedModule.exports, loadedModule);
 
-const PositionsPage = module.exports.default;
+const PositionsPage = loadedModule.exports.default;
 state = [];
 function render() {
   cursor = 0;

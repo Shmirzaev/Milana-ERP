@@ -32,16 +32,19 @@ function useSWRInfinite(keyFactory, _fetcher, config) {
   };
 }
 
-const module = { exports: {} };
+const loadedModule = { exports: {} };
 new Function("require", "exports", "module", output)(name => {
   if (name === "swr/infinite") return { default: useSWRInfinite };
   if (name === "@/lib/api") return { fetcher: async () => ({}) };
   if (name === "@/lib/priceCalculationRequests") return {};
   throw new Error(`Unexpected dependency: ${name}`);
-}, module.exports, module);
+}, loadedModule.exports, loadedModule);
 
-const usePriceRequests = module.exports.usePriceRequests;
-let result = usePriceRequests();
+const usePriceRequests = loadedModule.exports.usePriceRequests;
+function PriceRequestsProbe() {
+  return usePriceRequests();
+}
+let result = PriceRequestsProbe();
 assert.equal(keyFactories.at(-1)(0, null), "/api/price-calculation/requests?page=1&page_size=100");
 assert.equal(keyFactories.at(-1)(1, pages[0]), "/api/price-calculation/requests?page=2&page_size=100");
 assert.equal(keyFactories.at(-1)(1, pages[1]), null, "completed page must stop further requests");
@@ -53,7 +56,7 @@ assert.equal(swrConfig.refreshWhenOffline, false);
 
 result.loadMore();
 assert.deepEqual(setSizeCalls, [2], "rendered load-more action requests the next page");
-result = usePriceRequests();
+result = PriceRequestsProbe();
 assert.deepEqual(result.requests.map(row => row.id), [1, 2, 3], "pages are aggregated in server order");
 assert.equal(result.hasMore, false);
 console.log("PASS: pricing hook executes SWR key pagination, bounded page size, aggregation, load-more, and hidden/offline polling guards.");

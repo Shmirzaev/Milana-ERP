@@ -545,7 +545,10 @@ def _serialize_customer_order(
         "invoice_total": float(invoice_total) if recorded_currency else None,
         "paid_total": float(paid_total) if recorded_currency else None,
         "balance_due": float(balance_due) if recorded_currency else None,
-        "payment_status": payment_status() if recorded_currency else "unavailable",
+        # No invoice is a currency-independent order state. For invoiced
+        # orders, payment totals/status remain unavailable when currencies
+        # cannot be proven compatible.
+        "payment_status": payment_status() if not invoices or recorded_currency else "unavailable",
         "last_payment_at": last_payment_at,
         "invoices": invoice_payloads,
     }

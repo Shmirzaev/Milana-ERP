@@ -53,6 +53,7 @@ def test_recent_invoice_report_projects_only_serialized_fields():
         "order_no": order.order_no,
         "customer": customer.name,
         "amount": 123.45,
+        "currency": None,
         "status": "paid",
         "date": "2026-09-20T00:00:00+00:00",
     }

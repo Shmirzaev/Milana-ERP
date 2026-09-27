@@ -1175,6 +1175,7 @@ def list_shipments(
                 Shipment.transport_details,
                 Shipment.dispatch_snapshot,
                 Shipment.created_at,
+                Shipment.deleted_at,
             ),
             load_only(SalesOrder.id, SalesOrder.customer_id, SalesOrder.order_no),
             load_only(Customer.id, Customer.name),

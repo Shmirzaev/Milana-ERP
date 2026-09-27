@@ -135,6 +135,20 @@ def test_legacy_reserve_locks_package_before_refreshing_stock(client, auth_heade
             assert omitted not in statement
 
 
+def test_reserve_package_after_damage_returns_state_conflict():
+    fixture = _legacy_stock()
+    with SessionLocal() as db:
+        package = db.get(Package, fixture["package_id"])
+        mark_damaged(db, package, None)
+        db.commit()
+
+    with SessionLocal() as db:
+        package = db.get(Package, fixture["package_id"])
+        with pytest.raises(HTTPException) as rejected:
+            reserve_package(db, package, None)
+        assert rejected.value.status_code == 409
+
+
 @pytest.fixture(scope="module")
 def reserve_postgres_sessions():
     raw_url = os.environ.get("STABILIZATION_POSTGRES_URL")

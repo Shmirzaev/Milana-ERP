@@ -49,7 +49,7 @@ function createElement(type, props, ...children) {
 }
 globalThis.React = { createElement };
 
-const module = { exports: {} };
+const loadedModule = { exports: {} };
 if (output) {
   new Function("require", "exports", "module", output)(name => {
     if (name === "react") return { useState };
@@ -62,7 +62,7 @@ if (output) {
       MetricGrid: props => createElement("metrics", props),
     };
     throw new Error(`Unexpected dependency: ${name}`);
-  }, module.exports, module);
+  }, loadedModule.exports, loadedModule);
 } else if (globalThis.Bun) {
   globalThis.__attendanceTest = { useState, useSWRInfinite, createElement };
   const mocks = {
@@ -88,7 +88,7 @@ if (output) {
   });
   assert.ok(result.success, result.logs.map(log => log.message).join("\n"));
   const bundle = await result.outputs[0].text();
-  module.exports.default = (await import(`data:text/javascript;base64,${Buffer.from(bundle).toString("base64")}`)).default;
+  loadedModule.exports.default = (await import(`data:text/javascript;base64,${Buffer.from(bundle).toString("base64")}`)).default;
 } else {
   throw new Error("Install frontend development dependencies to run this component behavior test.");
 }
@@ -114,7 +114,7 @@ function text(tree) {
 
 function render() {
   hookIndex = 0;
-  return module.exports.default();
+  return loadedModule.exports.default();
 }
 
 let tree = render();

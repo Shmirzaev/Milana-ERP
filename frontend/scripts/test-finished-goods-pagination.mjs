@@ -60,6 +60,7 @@ new Function("require", "exports", "module", output)(name => {
   if (name === "next/link") return noop;
   if (name === "@/lib/api") return { fetcher: async () => ({}) };
   if (name === "@/lib/i18n") return { useT: () => ({ lang: "en", t: key => key }) };
+  if (name === "@/lib/firstGradeText") return { firstGradeText: { en: { title: "1st Grade — singles" } } };
   if (name === "@/lib/orderRef") return { formatOrderReference: value => String(value) };
   if (name === "@/components/PageHeader") return { default: noop };
   if (name === "@/components/StocktakeLink") return { default: noop };

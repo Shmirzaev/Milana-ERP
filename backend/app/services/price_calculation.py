@@ -387,7 +387,10 @@ def create_price_request(db: Session, model_id: int, current: User) -> PriceCalc
         raise HTTPException(404, "Model not found")
     details = model.details_json if isinstance(model.details_json, dict) else {}
     costing = details.get("costing") if isinstance(details.get("costing"), dict) else {}
-    margin = _decimal(costing.get("target_margin_pct"))
+    raw_margin = costing.get("target_margin_pct")
+    margin = _decimal(raw_margin)
+    if raw_margin is not None and raw_margin != "" and margin is None:
+        raise HTTPException(422, "Model target margin must be a finite number")
     if margin is not None and (
         not margin.is_finite()
         or abs(margin) > Decimal("999999.99")
