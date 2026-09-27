@@ -291,7 +291,9 @@ export default function WastePage() {
                 </td>
                 <td>{w.sellable ? t("field.yes") : t("field.no")}</td>
                 <td><span className="badge">{statusLabel(w.status, t)}</span></td>
-                <td>${Number(w.estimated_value).toFixed(2)}</td>
+                <td>{w.estimated_value == null || !Number.isFinite(Number(w.estimated_value))
+                  ? "—"
+                  : `$${Number(w.estimated_value).toFixed(2)}`}</td>
                 <td className="flex gap-2 flex-wrap">
                   {w.status === "recorded" && <button className="text-brand-600 hover:underline" onClick={() => act(w.id, "receive")}>{t("btn.receive")}</button>}
                   {((w.status === "received_by_waste_department" && w.sellable) || hasPendingSale) && <button className="text-green-700 hover:underline" onClick={() => openSale(w.id)}>{hasPendingSale ? t("page.waste.retrySale") : t("page.waste.sell")}</button>}

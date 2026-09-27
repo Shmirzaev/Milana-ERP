@@ -124,6 +124,24 @@ def test_position_accepts_approved_count_database_boundary(client, auth_headers)
     assert response.json()["approved_count"] == 2_147_483_647
 
 
+@pytest.mark.parametrize("sort_order", [2_147_483_648, -2_147_483_649, True])
+def test_org_unit_rejects_unstorable_or_boolean_sort_order_without_writes(
+    client, auth_headers, sort_order,
+):
+    with SessionLocal() as db:
+        before = (db.query(HrOrgUnit.id).count(), db.query(AuditLog.id).count())
+
+    response = client.post(
+        "/api/hr/organization",
+        headers=auth_headers,
+        json={"unit_type": "section", "name": f"Bad sort order {uuid4().hex}", "sort_order": sort_order},
+    )
+
+    assert response.status_code == 422, response.text
+    with SessionLocal() as db:
+        assert (db.query(HrOrgUnit.id).count(), db.query(AuditLog.id).count()) == before
+
+
 def test_candidate_rejects_passport_expiry_before_issue(client, auth_headers):
     response = client.post(
         "/api/hr/recruitment",

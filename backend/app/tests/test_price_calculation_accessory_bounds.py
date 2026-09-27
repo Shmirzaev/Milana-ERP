@@ -21,3 +21,9 @@ def test_accessory_price_preserves_none_zero_and_finite_values():
 def test_accessory_price_rejects_values_above_other_price_calculation_inputs(value):
     with pytest.raises(ValidationError):
         PriceCalculationAccessoryIn(price=value)
+
+
+def test_accessory_price_rejects_sub_storage_precision():
+    with pytest.raises(ValidationError):
+        PriceCalculationAccessoryIn(price="12.34567")
+    assert PriceCalculationAccessoryIn(price="12.34560").price == pytest.approx(12.3456)

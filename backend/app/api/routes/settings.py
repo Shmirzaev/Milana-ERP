@@ -5,6 +5,7 @@ import logging
 import re
 from functools import partial
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.exceptions import RequestValidationError
@@ -50,6 +51,8 @@ _SCHEMAS = {
 }
 _SETTING_LOCK_KEYS = {"company_info": 1, "financial": 2, "preferences": 3}
 SYSTEM_LANGUAGES = frozenset({"en", "ru", "uz"})
+MAX_SETTING_MODEL_TYPES = 100
+MAX_SETTING_MODEL_TYPE_LENGTH = 64
 _logger = logging.getLogger(__name__)
 _MANAGED_COMPANY_LOGO_URL = re.compile(
     r"^/storage/model-files/(company_logo_[0-9a-f]{32}\.webp)$"
@@ -133,9 +136,51 @@ def _validate_settings_value_json_bounds(
         )
 
 
-def _validate_settings_types(section: str, payload: dict) -> None:
+def _validate_settings_types(section: str, payload: dict, *, previous: object = None) -> None:
+    previous_values = previous if isinstance(previous, dict) else {}
+    if section == "financial":
+        currency = payload.get("default_currency")
+        if currency != previous_values.get("default_currency") and (
+            not isinstance(currency, str) or re.fullmatch(r"[A-Z]{3}", currency) is None
+        ):
+            raise HTTPException(400, "Invalid default_currency")
+        return
     if section == "preferences" and payload.get("default_language") not in SYSTEM_LANGUAGES:
         raise HTTPException(400, "Invalid default_language")
+    if section != "preferences":
+        return
+
+    timezone_name = payload.get("timezone")
+    if timezone_name != previous_values.get("timezone"):
+        if not isinstance(timezone_name, str) or not timezone_name.strip() or len(timezone_name) > 64:
+            raise HTTPException(400, "Invalid timezone")
+        try:
+            ZoneInfo(timezone_name)
+        except (ValueError, ZoneInfoNotFoundError):
+            raise HTTPException(400, "Invalid timezone") from None
+
+    model_types = payload.get("model_types")
+    previous_types = previous_values.get("model_types")
+    if _json_values_equal(model_types, previous_types):
+        return
+    if not isinstance(model_types, list) or len(model_types) > MAX_SETTING_MODEL_TYPES:
+        raise HTTPException(
+            422,
+            f"model_types cannot exceed {MAX_SETTING_MODEL_TYPES} entries",
+        )
+    seen: set[str] = set()
+    for index, name in enumerate(model_types):
+        if not isinstance(name, str) or not name.strip():
+            raise HTTPException(422, f"model_types[{index}] must be nonblank text")
+        if len(name) > MAX_SETTING_MODEL_TYPE_LENGTH:
+            raise HTTPException(
+                422,
+                f"model_types[{index}] cannot exceed {MAX_SETTING_MODEL_TYPE_LENGTH} characters",
+            )
+        canonical_name = name.strip().casefold()
+        if canonical_name in seen:
+            raise HTTPException(422, "model_types entries must be unique")
+        seen.add(canonical_name)
 
 
 def _setting_for_update(db: DbSession, section: str) -> SystemSetting | None:
@@ -198,7 +243,7 @@ def save_settings_section(
         raise RequestValidationError([
             {**error, "loc": ("body", *error["loc"])} for error in exc.errors()
         ]) from exc
-    _validate_settings_types(section, validated)
+    _validate_settings_types(section, validated, previous=old_value)
     _validate_settings_value_json_bounds(
         validated,
         previous=old_value,

@@ -57,6 +57,14 @@ type PayrollRecord = {
   status: string;
 };
 
+type PayrollRecordPage = {
+  rows: PayrollRecord[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+};
+
 type PayrollSummaryOperation = {
   employee_id: number;
   operation_section?: string | null;
@@ -201,14 +209,13 @@ function buildPayrollQuery(filters: {
   departmentId: string;
   from: string;
   to: string;
-}, includeLimit = false): string {
+}): string {
   const params = new URLSearchParams();
   if (filters.periodId) params.set("period_id", filters.periodId);
   if (filters.employeeId) params.set("employee_id", filters.employeeId);
   if (filters.departmentId) params.set("department_id", filters.departmentId);
   if (filters.from) params.set("date_from", toStartIso(filters.from));
   if (filters.to) params.set("date_to", toEndIso(filters.to));
-  if (includeLimit) params.set("limit", "300");
   return params.toString();
 }
 
@@ -292,12 +299,22 @@ export default function PayrollPage() {
   useEffect(() => { void setEmployeeFilterSize(1); }, [debouncedEmployeeFilterSearch, filters.employeeId, setEmployeeFilterSize]);
   useEffect(() => { void setAdjustmentEmployeeSize(1); }, [debouncedAdjustmentEmployeeSearch, adjustmentForm.employee_id, setAdjustmentEmployeeSize]);
 
-  const recordsQuery = [buildPayrollQuery(filters, true), "status=active"].filter(Boolean).join("&");
+  const recordsQuery = [buildPayrollQuery(filters), "status=active"].filter(Boolean).join("&");
   const summaryQuery = buildPayrollQuery(filters);
-  const { data: records = [], mutate: mutateRecords } = useSWR<PayrollRecord[]>(
-    `/api/payroll/records?${recordsQuery}`,
-    fetcher,
-  );
+  const {
+    data: recordPages,
+    mutate: mutateRecords,
+    setSize: setRecordSize,
+    isLoading: recordsIsLoading,
+    isValidating: recordsIsValidating,
+  } = useSWRInfinite<PayrollRecordPage>((index, previousPage) => {
+    if (previousPage && !previousPage.has_more) return null;
+    return `/api/payroll/records?${recordsQuery}&page=${index + 1}&page_size=50`;
+  }, fetcher);
+  const records = useMemo(() => recordPages?.flatMap((page) => page.rows) || [], [recordPages]);
+  const recordsTotal = recordPages?.[0]?.total || 0;
+  const recordsHasMore = Boolean(recordPages?.[recordPages.length - 1]?.has_more);
+  useEffect(() => { void setRecordSize(1); }, [recordsQuery, setRecordSize]);
   const {
     data: summaryPages,
     mutate: mutateSummary,
@@ -405,7 +422,10 @@ export default function PayrollPage() {
   async function refreshAll() {
     await Promise.all([
       mutatePeriods(),
-      mutateRecords(),
+      (async () => {
+        await setRecordSize(1);
+        await mutateRecords();
+      })(),
       mutateSummary(),
       (async () => {
         await setAdjustmentSize(1);
@@ -1097,7 +1117,7 @@ export default function PayrollPage() {
               </tr>
             </thead>
             <tbody>
-              {records.length === 0 && (
+              {!recordsIsLoading && records.length === 0 && (
                 <tr><td colSpan={11} className="text-sm text-[#8a8472]">{t("page.payroll.noRecords")}</td></tr>
               )}
               {records.map((record) => {
@@ -1151,6 +1171,18 @@ export default function PayrollPage() {
             </tbody>
           </table>
         </div>
+        {recordsTotal > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#ecebe3] p-4">
+            <span className="text-sm text-[#8a8472]">
+              {t("common.showingRange", { start: 1, end: records.length, total: recordsTotal })}
+            </span>
+            {recordsHasMore && (
+              <button type="button" className="btn" disabled={recordsIsValidating} onClick={() => void setRecordSize((size) => size + 1)}>
+                {t("common.loadMore")}
+              </button>
+            )}
+          </div>
+        )}
       </section>
     </div>
   );

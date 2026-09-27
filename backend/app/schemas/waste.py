@@ -33,7 +33,7 @@ class WasteOut(ORMModel):
     unit: str
     reason: Optional[str] = None
     sellable: bool
-    estimated_value: float
+    estimated_value: Optional[float] = None
     status: str
     created_at: datetime
 

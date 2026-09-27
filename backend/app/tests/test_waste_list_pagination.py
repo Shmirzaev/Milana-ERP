@@ -61,7 +61,9 @@ def test_waste_pages_bound_rows_preserve_legacy_payload_and_query_growth(count):
     assert page["has_more"] is (baseline > 0)
     assert [row.id for row in page["rows"]] == list(reversed(created_ids))
     assert page["rows"] == legacy[:count]
-    assert all(float(row.estimated_value) == 0 for row in page["rows"])
+    assert [float(row.estimated_value) for row in page["rows"]] == [
+        number + 0.25 for number in reversed(range(count))
+    ]
     assert all(float(row.remaining_quantity) == float(row.quantity) for row in page["rows"])
     assert len(statements) == 3, statements
     page_query = next(statement for statement in statements if "from waste_records" in statement and "count(" not in statement)

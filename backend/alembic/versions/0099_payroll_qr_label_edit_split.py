@@ -47,11 +47,21 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    connection = op.get_bind()
+    destructive_evidence_count = int(connection.execute(sa.text(
+        "SELECT COUNT(*) FROM payroll_qr_labels "
+        "WHERE status = 'superseded' OR superseded_at IS NOT NULL "
+        "OR superseded_by IS NOT NULL OR split_from_label_id IS NOT NULL"
+    )).scalar_one())
+    if destructive_evidence_count:
+        raise RuntimeError(
+            "Refusing to downgrade 0099 while payroll QR split/supersession evidence exists; "
+            "preserve the labels and lineage before rollback"
+        )
+
     op.drop_index("ix_payroll_qr_labels_split_from_label_id", table_name="payroll_qr_labels")
     op.drop_constraint("fk_payroll_qr_labels_split_from", "payroll_qr_labels", type_="foreignkey")
     op.drop_constraint("fk_payroll_qr_labels_superseded_by_users", "payroll_qr_labels", type_="foreignkey")
-    op.execute("UPDATE payroll_qr_labels SET split_from_label_id = NULL")
-    op.execute("DELETE FROM payroll_qr_labels WHERE status = 'superseded'")
     op.drop_column("payroll_qr_labels", "split_from_label_id")
     op.drop_column("payroll_qr_labels", "superseded_by")
     op.drop_column("payroll_qr_labels", "superseded_at")

@@ -1,4 +1,4 @@
-"""Waste reads may project current estimates, but must never rewrite history."""
+"""Waste reads use the recorded valuation and never rewrite history."""
 
 from unittest.mock import patch
 from uuid import uuid4
@@ -54,7 +54,7 @@ def _stored_value(record_id: int) -> float:
         return float(db.get(WasteRecord, record_id).estimated_value)
 
 
-def test_list_projects_current_value_without_dirtying_or_committing_session():
+def test_list_uses_recorded_value_without_dirtying_or_committing_session():
     record_id, batch_id = _valued_waste()
     with SessionLocal() as db:
         db.get(StockBatch, batch_id).cost_per_unit = 9
@@ -64,7 +64,7 @@ def test_list_projects_current_value_without_dirtying_or_committing_session():
         rows = waste.list_waste(db, object(), status="sold", sellable=True)
         row = next(result for result in rows if result.id == record_id)
 
-        assert float(row.estimated_value) == 22.5
+        assert float(row.estimated_value) == 7.25
         assert list(db.dirty) == []
         commit.assert_not_called()
 
@@ -79,7 +79,7 @@ def test_list_get_keeps_filters_authorization_and_history_when_rate_changes(clie
     first = client.get("/api/waste?status=sold&sellable=true", headers=auth_headers)
     assert first.status_code == 200, first.text
     first_row = next(row for row in first.json() if row["id"] == record_id)
-    assert first_row["estimated_value"] == 10
+    assert first_row["estimated_value"] == 7.25
     assert first_row["status"] == "sold" and first_row["sellable"] is True
     assert _stored_value(record_id) == 7.25
 
@@ -90,7 +90,7 @@ def test_list_get_keeps_filters_authorization_and_history_when_rate_changes(clie
     second = client.get("/api/waste?status=sold&sellable=true", headers=auth_headers)
     assert second.status_code == 200, second.text
     second_row = next(row for row in second.json() if row["id"] == record_id)
-    assert second_row["estimated_value"] == 27.5
+    assert second_row["estimated_value"] == 7.25
     assert _stored_value(record_id) == 7.25
 
     assert all(row["status"] == "sold" and row["sellable"] is True for row in second.json())
@@ -114,7 +114,7 @@ def test_related_waste_summaries_keep_authorization_and_persisted_totals(client,
 
     projected = client.get("/api/waste?status=sold&sellable=true", headers=auth_headers)
     assert projected.status_code == 200, projected.text
-    assert next(row for row in projected.json() if row["id"] == record_id)["estimated_value"] == 27.5
+    assert next(row for row in projected.json() if row["id"] == record_id)["estimated_value"] == 7.25
 
     for path in ("/api/finance/waste-report", "/api/dashboard/waste"):
         assert client.get(path).status_code == 401
@@ -130,3 +130,23 @@ def test_related_waste_summaries_keep_authorization_and_persisted_totals(client,
     assert dashboard.status_code == 200, dashboard.text
     assert dashboard.json()["by_status"]["sold"] == expected_sold_quantity
     assert _stored_value(record_id) == 7.25
+
+
+def test_list_marks_missing_recorded_cost_unavailable(client, auth_headers):
+    with SessionLocal() as db:
+        record = WasteRecord(
+            waste_type="Historical cost unknown",
+            quantity=2,
+            unit="kg",
+            sellable=True,
+            estimated_value=0,
+            status="received_by_waste_department",
+        )
+        db.add(record)
+        db.commit()
+        record_id = int(record.id)
+
+    response = client.get("/api/waste?status=received_by_waste_department&sellable=true", headers=auth_headers)
+    assert response.status_code == 200, response.text
+    row = next(row for row in response.json() if row["id"] == record_id)
+    assert row["estimated_value"] is None

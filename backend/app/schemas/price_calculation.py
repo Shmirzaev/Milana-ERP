@@ -117,6 +117,13 @@ class PriceCalculationAccessoryIn(BaseModel):
     name: str | None = Field(default=None, max_length=128)
     price: float | None = Field(default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False)
 
+    @field_validator("price", mode="before")
+    @classmethod
+    def reject_fractional_price_precision(cls, value: object) -> object:
+        return _reject_storage_fractional_precision(
+            value, places=4, maximum=Decimal("9999999999.9999"), field_name="price",
+        )
+
     @field_validator("name")
     @classmethod
     def clean_name(cls, value: str | None) -> str | None:

@@ -714,6 +714,7 @@ def _apply_batch_tracked_stock_adjustment(
         .all()
     )
     warehouses_by_id: dict[int, Warehouse] = {}
+    reducible_by_batch: dict[int, float] = {}
     if delta < 0 and batches:
         warehouses_by_id = {
             int(warehouse.id): warehouse
@@ -721,6 +722,71 @@ def _apply_batch_tracked_stock_adjustment(
                 Warehouse.id.in_({int(batch.warehouse_id) for batch in batches})
             ).all()
         }
+        reservation_rows = db.query(
+            MaterialReservation.warehouse_id,
+            MaterialReservation.stock_batch_id,
+            func.sum(
+                MaterialReservation.reserved_quantity
+                - MaterialReservation.consumed_quantity
+                - MaterialReservation.released_quantity
+            ),
+        ).filter(
+            MaterialReservation.item_id == item.id,
+            MaterialReservation.status.in_(ACTIVE_RESERVATION_STATUSES),
+            or_(
+                MaterialReservation.warehouse_id.in_(warehouses_by_id),
+                MaterialReservation.warehouse_id.is_(None),
+            ),
+        ).group_by(
+            MaterialReservation.warehouse_id, MaterialReservation.stock_batch_id,
+        ).all()
+        reserved_by_batch: dict[int, float] = {}
+        reserved_by_warehouse: dict[int, float] = {}
+        for warehouse_id, batch_id, quantity in reservation_rows:
+            reserved_quantity = max(0.0, float(quantity or 0))
+            if batch_id is not None:
+                key = int(batch_id)
+                reserved_by_batch[key] = reserved_by_batch.get(key, 0.0) + reserved_quantity
+            if warehouse_id is not None:
+                key = int(warehouse_id)
+                reserved_by_warehouse[key] = reserved_by_warehouse.get(key, 0.0) + reserved_quantity
+        active_batch_stock_by_warehouse: dict[int, float] = {}
+        for batch in batches:
+            key = int(batch.warehouse_id)
+            active_batch_stock_by_warehouse[key] = active_batch_stock_by_warehouse.get(key, 0.0) + max(
+                0.0, float(batch.quantity or 0),
+            )
+        # This writer removes active batch stock. Do not let batchless ledger
+        # stock or an archived legacy balance mask a scoped warehouse claim.
+        warehouse_available = {
+            warehouse_id: max(
+                0.0,
+                active_batch_stock_by_warehouse.get(warehouse_id, 0.0)
+                - reserved_by_warehouse.get(warehouse_id, 0.0),
+            )
+            for warehouse_id in warehouses_by_id
+        }
+        left_to_remove = abs(delta)
+        for batch in batches:
+            batch_id = int(batch.id)
+            warehouse_id = int(batch.warehouse_id)
+            batch_unreserved = max(
+                0.0,
+                float(batch.quantity or 0) - reserved_by_batch.get(batch_id, 0.0),
+            )
+            removable = min(batch_unreserved, warehouse_available.get(warehouse_id, 0.0))
+            reducible_by_batch[batch_id] = removable
+            warehouse_available[warehouse_id] = max(
+                0.0, warehouse_available.get(warehouse_id, 0.0) - removable,
+            )
+            left_to_remove -= removable
+            if left_to_remove <= EPSILON:
+                break
+        if left_to_remove > EPSILON:
+            raise HTTPException(
+                409,
+                f"Batch stock cannot be reduced by {abs(delta):g} {item.unit} without consuming reserved stock",
+            )
     movements: list[StockMovement] = []
     if delta > 0:
         batch = batches[0] if batches else None
@@ -760,7 +826,7 @@ def _apply_batch_tracked_stock_adjustment(
     for batch in batches:
         if left <= EPSILON:
             break
-        available = float(batch.quantity or 0)
+        available = reducible_by_batch.get(int(batch.id), 0.0)
         if available <= EPSILON:
             continue
         warehouse = warehouses_by_id.get(int(batch.warehouse_id))

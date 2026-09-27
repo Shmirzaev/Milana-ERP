@@ -250,6 +250,24 @@ jobs:
           no-cache-filters: builder
           cache-from: type=gha,scope=milana-frontend-v1
           cache-to: type=gha,scope=milana-frontend-v1,mode=max
+      - name: Scan published backend image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0, signed release
+        with:
+          image-ref: ${{ steps.images.outputs.backend }}@${{ steps.backend_image.outputs.digest }}
+          scan-type: image
+          scanners: vuln
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+      - name: Scan published frontend image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0, signed release
+        with:
+          image-ref: ${{ steps.images.outputs.frontend }}@${{ steps.frontend_image.outputs.digest }}
+          scan-type: image
+          scanners: vuln
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          exit-code: "1"
       - uses: actions/upload-artifact@v4
         with:
           name: milana-erp-${{ inputs.release_id }}

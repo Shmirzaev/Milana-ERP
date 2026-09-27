@@ -93,6 +93,11 @@ def test_payroll_record_pages_preserve_legacy_and_bound_supporting_reads(count):
     assert len(employee_reads) == len(department_reads) == 1
     assert employee_reads[0].count("?") == returned_count
     assert department_reads[0].count("?") == 1
+    if count == 401:
+        last_page, _ = _read(status="recorded", page=9, page_size=50)
+        assert last_page["total"] == 401
+        assert [row["id"] for row in last_page["rows"]] == record_ids[:1]
+        assert last_page["has_more"] is False
 
 
 def test_payroll_record_page_filters_before_count(client, auth_headers):

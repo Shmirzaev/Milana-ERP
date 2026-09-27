@@ -54,48 +54,22 @@ def _unit_cost_for_waste(db: DbSession, item_id: int | None, batch_id: int | Non
     return Decimal("0")
 
 
-def _estimated_values_for_waste_page(db: DbSession, rows: list[WasteRecord]) -> dict[int, float]:
-    batch_ids = {row.batch_id for row in rows if row.batch_id is not None}
-    batch_costs = dict(
-        db.query(StockBatch.id, StockBatch.cost_per_unit)
-        .filter(StockBatch.id.in_(batch_ids))
-        .all()
-    ) if batch_ids else {}
-
-    fallback_item_ids = {
-        row.item_id for row in rows
-        if row.item_id is not None and row.batch_id not in batch_costs
-    }
-    latest_costs = {}
-    if fallback_item_ids:
-        latest_batch_ids = (
-            db.query(StockBatch.item_id, func.max(StockBatch.id).label("latest_id"))
-            .filter(StockBatch.item_id.in_(fallback_item_ids))
-            .group_by(StockBatch.item_id)
-            .subquery()
-        )
-        latest_costs = dict(
-            db.query(StockBatch.item_id, StockBatch.cost_per_unit)
-            .join(latest_batch_ids, StockBatch.id == latest_batch_ids.c.latest_id)
-            .all()
-        )
-    default_item_ids = fallback_item_ids - latest_costs.keys()
-    default_costs = dict(
-        db.query(Item.id, Item.default_cost)
-        .filter(Item.id.in_(default_item_ids))
-        .all()
-    ) if default_item_ids else {}
-
-    values = {}
-    for row in rows:
-        if row.batch_id in batch_costs:
-            unit_cost = batch_costs[row.batch_id]
-        elif row.item_id in latest_costs:
-            unit_cost = latest_costs[row.item_id]
-        else:
-            unit_cost = default_costs.get(row.item_id, 0)
-        values[row.id] = float(round(Decimal(str(row.quantity or 0)) * Decimal(str(unit_cost or 0)), 2))
-    return values
+def _recorded_estimated_value(record: WasteRecord) -> float | None:
+    """Use the stored cost snapshot; legacy zero/malformed values lack proof of cost."""
+    try:
+        quantity = Decimal(str(record.quantity))
+        value = Decimal(str(record.estimated_value))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    if (
+        not quantity.is_finite()
+        or quantity <= 0
+        or not value.is_finite()
+        or value <= 0
+        or value > MAX_WASTE_ESTIMATED_VALUE
+    ):
+        return None
+    return float(value)
 
 
 def _validated_waste_values(quantity_value, unit_cost: Decimal) -> tuple[Decimal, Decimal]:
@@ -166,13 +140,11 @@ def list_waste(
             .all()
         )
     } if row_ids else {}
-    estimated_values = _estimated_values_for_waste_page(db, rows)
-    # Preserve the existing live-estimate response without rewriting the
-    # valuation snapshot stored with the historical waste record.
+    # Display the value recorded when waste was created, never today's mutable item or batch price.
     payloads = [
         WasteOut.model_validate(row).model_copy(
             update={
-                "estimated_value": estimated_values[row.id],
+                "estimated_value": _recorded_estimated_value(row),
                 "remaining_quantity": float(_listed_remaining_quantity(
                     row.quantity,
                     sales_by_waste_id.get(row.id),
@@ -212,7 +184,7 @@ def create_waste(payload: WasteIn, db: DbSession, current: User = Depends(requir
     db.add(w); db.flush()
     log_action(db, current, "create", "WasteRecord", w.id, new_value={"type": w.waste_type, "qty": float(w.quantity)})
     db.commit(); db.refresh(w)
-    return w
+    return WasteOut.model_validate(w).model_copy(update={"estimated_value": _recorded_estimated_value(w)})
 
 
 @router.post("/{wid}/receive", response_model=WasteOut)
@@ -224,7 +196,7 @@ def receive_waste(wid: int, db: DbSession, current: User = Depends(require_permi
     w.status = "received_by_waste_department"
     log_action(db, current, "receive", "WasteRecord", w.id)
     db.commit(); db.refresh(w)
-    return w
+    return WasteOut.model_validate(w).model_copy(update={"estimated_value": _recorded_estimated_value(w)})
 
 
 @router.post("/{wid}/sell", response_model=WasteSaleOut)

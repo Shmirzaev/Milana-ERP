@@ -18,10 +18,6 @@ def _snapshot(section: str) -> tuple[dict | None, int]:
     ("section", "payload"),
     [
         (
-            "preferences",
-            {"model_types": ["Ж" * 32 for _ in range(300)]},
-        ),
-        (
             "company_info",
             {"address": "Ж" * (_MAX_SETTING_BYTES // 2 + 1)},
         ),
@@ -76,3 +72,28 @@ def test_settings_patch_allows_exact_oversized_legacy_value_but_rejects_changed_
     assert changed.status_code == 422, changed.text
     assert "UTF-8 bytes" in changed.text
     assert _snapshot(section) == before
+
+
+@pytest.mark.parametrize(
+    ("model_types", "message"),
+    [
+        (["Dress"] * 101, "cannot exceed 100 entries"),
+        (["D" * 65], "cannot exceed 64 characters"),
+        (["Dress", " dress "], "must be unique"),
+        (["  "], "must be nonblank text"),
+    ],
+)
+def test_settings_patch_rejects_malformed_model_type_lists_without_writes(
+    client, auth_headers, model_types, message,
+):
+    before = _snapshot("preferences")
+
+    response = client.patch(
+        "/api/settings/preferences",
+        headers=auth_headers,
+        json={"model_types": model_types},
+    )
+
+    assert response.status_code == 422, response.text
+    assert message in response.text
+    assert _snapshot("preferences") == before
