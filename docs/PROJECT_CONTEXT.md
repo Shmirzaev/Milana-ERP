@@ -1,6 +1,28 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-27
+Last updated: 2026-09-28
+
+## Develop-first collaboration policy prepared (2026-09-28)
+
+- At the user's request after review of the September 28 audio, `DEPLOYMENT.md`
+  defines task branches from fetched `origin/develop`, reviewed task PRs into
+  `develop`, and separately authorized tested release PRs from `develop` into
+  `main`. Direct pushes to `main` and production deployments from task branches
+  or `develop` are prohibited. `AGENTS.md` carries the same development base.
+- Production baseline verification, immutable artifacts, backup, QA, health,
+  observation and rollback rules remain in place. Deployment-record-only PRs
+  may update `main` after cutover and must synchronize into `develop`.
+- This documentation change does not configure GitHub branch protection or CI
+  enforcement. Required reviews, CI coverage of integrated `develop`, and
+  release-dispatch restrictions remain configuration follow-ups.
+- Read-only checks on both VMs found active source release `20260926_094041`
+  with manifest `def073f0125d614bb65172bf0f76a93ad8f08dd7edd5f42f883bfdfbdc53bf3a`,
+  matching fetched `origin/main`'s production baseline; both source manifest
+  checks passed. Slot-state access required elevated authentication and was not
+  reverified. Last recorded rollback remains `20260925_081526`.
+- No deployment, application, database or business-data change occurred. The
+  policy update was prepared from verified `origin/main` under the prior
+  worktree rule; subsequent feature/fix tasks use the new development base.
 
 ## Audit stabilization integration for develop (2026-09-27)
 
