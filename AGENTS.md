@@ -54,10 +54,12 @@ new worktree.
 
 1. Do not make deployable changes directly in the legacy `C:\ERP` checkout.
 2. Fetch and inspect current Git state, active production state, and
-   `deploy/production-base.json`. If they disagree, stop before editing and
-   report the mismatch.
+   `deploy/production-base.json` on `origin/main`. If the recorded and live
+   production baselines disagree, stop before editing and report the mismatch.
+   Unreleased changes on `develop` are expected; see `DEPLOYMENT.md` for baseline
+   synchronization and release checks.
 3. If the task is not already running in a clean Codex-managed worktree, create
-   `C:\ERP\.codex-work\<task-slug>` from verified `origin/main` on a dedicated
+   `C:\ERP\.codex-work\<task-slug>` from latest fetched `origin/develop` on a dedicated
    `codex/<task-slug>` branch. Create it before the first edit.
 4. Make, test, and review every task change only inside that worktree.
 5. Stage only explicitly intended paths. Never use `git add .`, `git add -A`,
@@ -66,7 +68,10 @@ new worktree.
    identify the exact relevant files/hunks, and port only that reviewed patch
    into the clean worktree. Never copy unrelated root-checkout changes.
 7. Commit and push the dedicated branch only after proportional tests pass.
-   Merge to `main` and deploy only when authorized by the user.
+   Open the task pull request into `develop`; require review, CI and user
+   authorization before merging. Promote tested releases through a separate
+   `develop` -> `main` pull request. Never push directly to `main`; deploy only
+   when authorized, following `DEPLOYMENT.md`.
 8. Production releases must come from the exact reviewed Git commit through
    the immutable-image and blue/green procedure in `DEPLOYMENT.md`; never from
    an uncommitted checkout.
