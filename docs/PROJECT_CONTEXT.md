@@ -2,6 +2,14 @@
 
 Last updated: 2026-09-28
 
+## Physical warehouse QR identities prepared (2026-09-28)
+
+- The user authorized fixing and deploying independent QR identity for warehouse counts and dispatch while retaining receiving-group behavior, and explicitly chose reconciliation of all consolidated legacy QR codes.
+- Candidate starts from verified origin/main `9fb3d07d`; both production VMs, complete manifests and slot states matched blue `20260926_094041`, rollback green `20260925_081526`, database `0133_storage_customers`. No source drift was found. This entry records preparation, not deployment completion.
+- Physical legacy sticker codes resolve only their exact package; receiving-group resolution stays separate. Shared ambiguous dispatch aliases no longer select the next unscanned package. Duplicate stocktake attempts retain their exact code in audit; shipment scan progress includes newly attached packages immediately.
+- Guarded receipt reconciliation examined 3,036 codes: 2,729 packages / 186,147 pieces eligible for restoration, 187 incorrect aliases to existing packages removable, and 120 exclusions requiring individual review. The full-data local rehearsal preserved all existing package/stock rows, receipts and shipment/reservation history, restored all nine photographed identities, corrected two unfinished-count identities and was idempotent. No per-size quantities are inferred: restored packs use ASSORTED until verified.
+- Details, safeguards and data rollback limits: `docs/PHYSICAL_PACKAGE_QR_RECONCILIATION.md`. Worktree `C:/ERP/.codex-work/warehouse-qr-identity-20260928`, branch `codex/warehouse-qr-identity-20260928`. Production repair and cutover have not yet occurred.
+
 ## Original deployment policy restored (2026-09-28)
 
 - At the user's explicit request, restored `DEPLOYMENT.md` and the matching

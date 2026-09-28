@@ -78,7 +78,7 @@ def test_legacy_profile_requires_unique_whole_piece_rows():
     assert display_color({"color": "RED", "variant": "V-22"}) == "RED · V-22"
 
 
-def test_reused_legacy_alias_selects_next_unscanned_attached_package():
+def test_reused_legacy_alias_cannot_verify_different_attached_packages():
     token = uuid4().hex[:10]
     db = SessionLocal()
     try:
@@ -127,9 +127,11 @@ def test_reused_legacy_alias_selects_next_unscanned_attached_package():
         )
         db.commit()
 
-        found, matched = _find_package_for_scan(db, shared_code, shipment_id=shipment.id)
-        assert found.id == first.id
-        assert matched == shared_code
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as rejected:
+            _find_package_for_scan(db, shared_code, shipment_id=shipment.id)
+        assert rejected.value.status_code == 409
+        assert _find_package_for_scan(db, first.barcode, shipment_id=shipment.id)[0].id == first.id
 
         db.add(
             ShipmentScanLog(
@@ -141,9 +143,9 @@ def test_reused_legacy_alias_selects_next_unscanned_attached_package():
         )
         db.commit()
 
-        found_next, matched_next = _find_package_for_scan(db, shared_code, shipment_id=shipment.id)
-        assert found_next.id == second.id
-        assert matched_next == shared_code
+        with pytest.raises(HTTPException):
+            _find_package_for_scan(db, shared_code, shipment_id=shipment.id)
+        assert _find_package_for_scan(db, second.barcode, shipment_id=shipment.id)[0].id == second.id
     finally:
         db.close()
 

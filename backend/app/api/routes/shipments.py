@@ -15,7 +15,6 @@ from app.models import (
     ShipmentScanLog,
     Package,
     PackageItem,
-    PackageBarcodeAlias,
     SalesOrder,
     SalesOrderItem,
     StockReservation,
@@ -34,6 +33,7 @@ from app.services.shipment_review import (
     invoice_for_frozen_delivery, review_shipment_amount, shipment_document,
 )
 from app.services.shipment_invoice import render_shipment_invoice
+from app.services.package_identity import resolve_warehouse_package, scan_candidates
 from app.services.audit import log_action
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 from app.services.numbering import next_shipment_no
@@ -478,71 +478,19 @@ def _ready_packages_for_sales_order(db: DbSession, sales_order_id: int) -> list[
     return [rows[k] for k in sorted(rows.keys())]
 
 
-def _scan_code_candidates(raw_code: str) -> list[str]:
-    code = (raw_code or "").strip()
-    if not code:
-        return []
-    candidates: list[str] = [code]
-    if "|" in code:
-        candidates.extend([p.strip() for p in code.split("|") if p.strip()])
-    upper = code.upper()
-    if upper.startswith("PACKAGE:"):
-        payload = code.split(":", 1)[1]
-        candidates.extend([p.strip() for p in payload.split("|") if p.strip()])
-
-    unique: list[str] = []
-    seen: set[str] = set()
-    for candidate in candidates:
-        token = candidate.strip()
-        if token and token not in seen:
-            seen.add(token)
-            unique.append(token)
-    return unique
-
-
 def _find_package_for_scan(
     db: DbSession,
     raw_code: str,
     *,
     shipment_id: int | None = None,
 ) -> tuple[Package | None, str]:
-    for candidate in _scan_code_candidates(raw_code):
-        pkg = db.query(Package).filter((Package.barcode == candidate) | (Package.package_no == candidate)).first()
-        if pkg:
-            return pkg, candidate
-
-        alias_package_ids = [
-            int(package_id)
-            for (package_id,) in (
-                db.query(PackageBarcodeAlias.package_id)
-                .filter(PackageBarcodeAlias.code == candidate)
-                .order_by(PackageBarcodeAlias.package_id.asc())
-                .all()
-            )
-        ]
-        if not alias_package_ids:
-            continue
-
-        if shipment_id is not None:
-            attached_ids = {
-                int(package_id)
-                for (package_id,) in (
-                    db.query(ShipmentPackage.package_id)
-                    .filter(
-                        ShipmentPackage.shipment_id == shipment_id,
-                        ShipmentPackage.package_id.in_(alias_package_ids),
-                    )
-                    .all()
-                )
-            }
-            already_scanned = _matched_package_ids_for_shipment(db, shipment_id)
-            remaining_ids = sorted(attached_ids - already_scanned)
-            if remaining_ids:
-                return db.get(Package, remaining_ids[0]), candidate
-
-        if len(alias_package_ids) == 1:
-            return db.get(Package, alias_package_ids[0]), candidate
-    return None, (raw_code or "").strip()
+    package_id, ambiguous = resolve_warehouse_package(db, raw_code)
+    if ambiguous:
+        raise HTTPException(409, "This code matches multiple packages. Scan the individual package QR label.")
+    package = db.get(Package, package_id) if package_id is not None else None
+    matched = next((code for code in scan_candidates(raw_code)
+                    if package and code in (package.barcode, package.package_no)), raw_code.strip())
+    return package, matched
 
 
 def _valid_matched_scan():
@@ -1574,6 +1522,7 @@ def scan_package(
     if not link:
         db.add(ShipmentPackage(shipment_id=sh.id, package_id=pkg.id, quantity=pkg.total_quantity))
         db.flush()
+        db.expire(sh, ["packages"])
         log_action(db, current, "add_package_scan", "Shipment", sh.id, new_value={"package_id": pkg.id})
 
     duplicate = pkg.id in _matched_package_ids_for_shipment(db, sh.id)
