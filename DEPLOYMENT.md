@@ -22,7 +22,7 @@ Nginx Proxy Manager continues routing the public domain to stable ports. It does
 ## Absolute rules
 
 1. Never deploy from a dirty worktree, `C:\ERP`, an old release, or unreconciled GitHub `main`.
-2. Every feature or fix begins from the latest fetched `origin/develop` in a clean, dedicated worktree. Never push development changes directly to `main`.
+2. Every change begins from the latest exact production-baseline commit.
 3. Never run `npm ci`, `next build`, `pip install`, or `docker build` on a serving production VM.
 4. Never edit `current`, a retained release, a running container, or `.next` in place.
 5. Never switch traffic before tests, backup/migration, health, warm-up, signed read-only QA, and the performance gate pass.
@@ -32,42 +32,11 @@ Nginx Proxy Manager continues routing the public domain to stable ports. It does
 9. A base-manifest mismatch, result-count change, median regression above 10%, p95 regression above 15%, or payload growth above 15% is an automatic stop.
 10. Keep active, rollback, and at least three additional releases.
 
-## Branching and release policy
-
-The normal flow is `origin/develop -> task branch -> develop -> main -> production`.
-
-- `develop` integrates features and fixes before release. Fetch it before each
-  new task; use one branch per issue or feature (`codex/<task-slug>` for Codex,
-  or `feat/<task-slug>` / `fix/<task-slug>` for other contributors).
-- Push only to the task branch and open a pull request targeting `develop`.
-  Require review and passing CI before merging. Resolve conflicts on the task
-  branch, then rerun affected checks against the updated integration base.
-- `main` holds reviewed, tested production release code. Promote an authorized
-  release through a separate `develop` -> `main` pull request after integration
-  tests pass. Review the complete release diff, including other contributors'
-  changes; approval for one task does not authorize unrelated changes.
-- Never push directly to `main`, force-push a shared branch, or deploy a task
-  branch or `develop` directly to production. Merge and deployment require user
-  authorization. A merge alone does not mean production has changed.
-- Production artifacts must identify the exact approved commit on `main`.
-  Retain the existing immutable-image, backup, validation and rollback gates.
-
-Repository enforcement must match this policy: protect `main` and `develop`
-with required review/CI, validate pull requests and integrated `develop`, and
-restrict production release dispatch to approved `main` commits. These are
-required configuration checks; this document alone does not configure GitHub
-branch protection or workflow restrictions.
-
 ## Source of truth
 
-`origin/develop` is the development starting point. The verified live release
-and `deploy/production-base.json` identify the production baseline. Development
-may contain unreleased changes; do not mistake them for production drift.
-The approved release commit on `main` must descend from the latest clean
-production baseline recorded in `deploy/production-base.json`.
+The deployable branch must descend from the latest clean production baseline recorded in `deploy/production-base.json`.
 
-Before work and again before deployment, verify both application VMs against
-the production baseline recorded on fetched `origin/main`:
+Before work, verify both application VMs:
 
 ```sh
 active="$(readlink -f /opt/milana-erp/current)"
@@ -78,19 +47,14 @@ sha256sum SOURCE_MANIFEST.sha256
 
 Both VMs must name the same release and manifest. If either differs from `deploy/production-base.json`, stop and create a new clean baseline from the exact active source archive. Preserve the legacy dirty checkout and port reviewed changes individually; never merge it wholesale.
 
-Keep the verified baseline record synchronized into `develop` through a reviewed
-pull request when it changes on `main`. A stale record must be reconciled before
-release; never rewrite it merely to make a candidate pass the drift gate.
-
 ## Make a change
 
-1. Fetch, verify the production baseline as above, and create a clean task
-   worktree from the latest `origin/develop`:
+1. Fetch and create a clean worktree from the latest production baseline:
 
-   ```powershell
+   ```sh
    git fetch origin
-   git worktree add "C:/ERP/.codex-work/<task-slug>" -b "codex/<task-slug>" origin/develop
-   cd "C:/ERP/.codex-work/<task-slug>"
+   git worktree add ../milana-change -b codex/<short-name> <production-baseline-commit>
+   cd ../milana-change
    git status --short
    ```
 
@@ -111,26 +75,16 @@ release; never rewrite it merely to make a candidate pass the drift gate.
    npm run build
    ```
 
-5. Review `git diff --check`, the task diff against `origin/develop`, and all previously deployed performance contracts.
-6. Commit and push the task branch, then open a pull request into `develop`.
-   Merge only after review, CI and authorization. Never copy uncommitted files
-   directly to production.
-7. For an authorized release, review the complete candidate-versus-production
-   diff, validate integrated `develop`, and promote it through a `develop` ->
-   `main` pull request. Reconcile the verified production baseline and record
-   the exact approved release commit before building production artifacts.
+5. Review `git diff --check`, the complete baseline diff, and all previously deployed performance contracts.
+6. Commit, push a change branch, and merge only after CI passes. Never copy uncommitted files directly to production.
 
 ## Build immutable artifacts
 
-Run `.github/workflows/ci.yml` for the exact approved release commit on `main`
-with **Run workflow** and provide:
+Run `.github/workflows/ci.yml` with **Run workflow** and provide:
 
 - `release_id`: unique UTC `YYYYMMDD_HHMMSS`;
 - `production_base_release`: currently active release;
 - `production_base_manifest`: SHA-256 of its `SOURCE_MANIFEST.sha256`.
-
-Confirm the workflow run's source SHA is the reviewed release commit, including
-when `main` moves after approval. A different SHA requires review before use.
 
 The workflow validates backend/frontend, verifies the production base, packages deterministic source, builds both images once outside production, pushes release-tagged images to GHCR, and retains the source/evidence artifact.
 
@@ -432,9 +386,4 @@ The one-time bootstrap has a short stable-port handoff because legacy processes 
 
 After every deployment update `docs/PROJECT_CONTEXT.md` and its Obsidian mirror with active/rollback releases and slots, source/image hashes, database backup/revision, performance comparison, tests, browser checks, data touched, and unresolved risks.
 
-Finally update `deploy/production-base.json` to the newly verified active release
-through a reviewed deployment-record pull request into `main`, then synchronize
-that record into `develop` through a pull request. This metadata-only record is
-an explicit exception to the feature/fix promotion route; it must describe the
-actual deployed artifact and contain no application changes. Never push the
-record directly to either shared branch.
+Finally update `deploy/production-base.json` in Git to the newly verified active release so the next change cannot start from stale production source.
