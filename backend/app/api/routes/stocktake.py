@@ -238,6 +238,11 @@ def scan(count_id: int, body: ScanCount, db: DbSession, current: User = Depends(
             count_id,
             new_value={"row_id": row.id, "code": code, "package_id": pid, "category": row.category},
         )
+    else:
+        log_action(
+            db, current, "scan_duplicate", "WarehouseStocktake", count_id,
+            new_value={"row_id": row.id, "code": code, "package_id": pid, "category": row.category},
+        )
     db.commit()
     return {"duplicate": duplicate, "row": row_payload(row, package_snapshots(db, [pid]) if pid else {})}
 

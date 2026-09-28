@@ -2,9 +2,10 @@
 
 from datetime import timezone
 
-from sqlalchemy import func, or_
+from sqlalchemy import func
 
-from app.models import FinishedGoodsStock, Model, Package, PackageBarcodeAlias, PackageItem
+from app.models import FinishedGoodsStock, Model, Package, PackageItem
+from app.services.package_identity import resolve_warehouse_package
 
 STORAGE_STATUSES = ("received_in_storage", "reserved", "damaged")
 
@@ -62,28 +63,7 @@ def package_snapshots(db, package_ids=None, *, expected_only=False, include_item
 
 
 def resolve_package(db, code):
-    # Resolve the whole QR consistently; conflicting tokens must never pick a random pack.
-    payload = code.split(":", 1)[1] if code.upper().startswith("PACKAGE:") else code
-    candidates = list(dict.fromkeys([code, *(part.strip() for part in payload.split("|") if part.strip())]))
-    direct = {
-        pid
-        for (pid,) in db.query(Package.id)
-        .filter(
-            or_(Package.barcode.in_(candidates), Package.package_no.in_(candidates)),
-        )
-        .all()
-    }
-    aliases = {
-        pid
-        for (pid,) in db.query(PackageBarcodeAlias.package_id)
-        .join(Package, Package.id == PackageBarcodeAlias.package_id)
-        .filter(
-            PackageBarcodeAlias.code.in_(candidates),
-        )
-        .all()
-    }
-    matches = direct | aliases
-    return next(iter(matches)) if len(matches) == 1 else None, len(matches) > 1
+    return resolve_warehouse_package(db, code)
 
 
 def scan_fields(row):
