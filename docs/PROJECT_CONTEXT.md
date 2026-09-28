@@ -2,6 +2,23 @@
 
 Last updated: 2026-09-28
 
+## Original deployment policy restored (2026-09-28)
+
+- At the user's explicit request, restored `DEPLOYMENT.md` and the matching
+  `AGENTS.md` rules to their versions before the September 28 audio-policy
+  update (`b0ea99b3` on main). This supersedes the develop-first policy recorded
+  below: clean task worktrees again start from verified `origin/main`, with
+  the exact production baseline checked before changes. Merge and production
+  deployment still require user authorization and the existing release gates.
+- This is a scoped documentation reversal. Unrelated development changes,
+  production artifacts, database schema, business data and GitHub settings
+  are unchanged. The restoration is being published through scoped PRs to
+  main and develop, preserving each branch's earlier operational guidance.
+- Both production source manifests were verified read-only against the recorded
+  baseline: active release `20260926_094041`, manifest
+  `def073f0125d614bb65172bf0f76a93ad8f08dd7edd5f42f883bfdfbdc53bf3a`.
+  No deployment occurred; last recorded rollback remains `20260925_081526`.
+
 ## Develop-first collaboration policy prepared (2026-09-28)
 
 - At the user's request after review of the September 28 audio, `DEPLOYMENT.md`
