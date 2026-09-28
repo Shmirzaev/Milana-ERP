@@ -72,6 +72,14 @@ Existing `test1` still has three scans / 174 pieces. Two are now correctly marke
 as absent from its original starting stock. Start a new count to include the
 restored packages in the expected starting list. No completed count was rewritten.
 
+A separate pre-existing quantity discrepancy was found during final photo review:
+`uzerp_ii_20719_1` / `OLD-20719-1` has 78 pieces in its existing package and stock
+(six sizes of 13), while its immutable approved receipt and the September 28 photo
+both say 60. The identity repair preserved those existing records as planned.
+Its quantity needs a separate reviewed stock correction; the other eight
+photographed package totals match their labels. The nine identities are distinct,
+but their current ERP total is 558 against 540 on the photographed labels.
+
 ## Rollback
 
 The data restoration is compatible with the previous application release because
