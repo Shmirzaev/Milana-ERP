@@ -58,6 +58,20 @@ task worktree's ignored `outputs/reconciliation` directory. Recheck this plan
 against production immediately before applying; the counts above are not proof
 that a later state is unchanged.
 
+## Production application, September 28
+
+Release `20260928_114232`, commit `d03227f3`, applied the exact reviewed production
+plan `c51318ab37016d50529871c799dc7c727bd5497046a5c32259383acbdf2a1e56` after a
+verified PostgreSQL backup. Actual results matched the rehearsal: 2,729 packages
+and 186,147 pieces restored, 187 obsolete aliases removed, two open scan identities
+corrected, and 120 codes excluded for the reasons above. All original protected
+business-record fingerprints were unchanged; all nine photographed labels resolve
+separately, and a repeated dry run has no applicable operations.
+
+Existing `test1` still has three scans / 174 pieces. Two are now correctly marked
+as absent from its original starting stock. Start a new count to include the
+restored packages in the expected starting list. No completed count was rewritten.
+
 ## Rollback
 
 The data restoration is compatible with the previous application release because
