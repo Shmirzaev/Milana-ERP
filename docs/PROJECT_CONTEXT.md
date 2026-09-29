@@ -1,6 +1,16 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-28
+Last updated: 2026-09-29
+
+## Process QR model-family paid-operation saves prepared (2026-09-29)
+
+- The user clarified that Process QR **Save to model** should apply paid operations to every variant of the same model. Read-only production diagnosis found PJ1236-V-6120 had 41 Milana operations, with a successful save at 2026-09-29 08:11:59 Asia/Tashkent, while PJ1236-V-6123 had none. The old endpoint persisted only the selected variant.
+- Prepared locally: the dedicated paid-operation PATCH now updates the exact catalog family (base plus variants) atomically under the existing family advisory lock and ordered row locks. Process QR sends the selected factory explicitly; session permissions remain authoritative. Each variant retains unrelated details and its other factories' operations. Legacy shared operations are materialized for unaffected factories so removing a selected factory's operations cannot resurrect them. Every affected model gets an audited family-save event.
+- Standard/Usluga catalog boundaries and internal legacy-import identities remain isolated. New variants created through the variant endpoint copy the saved operations after acquiring the family lock. Existing QR labels and payroll records retain their issued rate/quantity snapshots. The general model-detail editing endpoint is unchanged; this change applies to the Process QR save action.
+- The frontend clears/revalidates visited model-detail caches after a successful save, guards late responses after switching variants, and keeps the factory selector fixed while operation edits are unsaved. Existing layouts are retained; English/Russian/Uzbek success text and tooltips explain the family scope.
+- No automatic backfill or production business-data change was performed. After deployment, explicitly saving V-6120 once will apply its current Milana operations to the other PJ1236 variants. Previously differing operations for the selected factory are intentionally replaced by that save.
+- Production verification: backend/frontend current symlinks, complete manifests and runtime slots match green `20260928_114232`, source manifest `b95dcf4c46a00c1235efc56ff0966c824c2d5e9d4ac90f8428464fb0bfabf230`, exact application commit `d03227f30ea1a7d43ed0ed7f6fc0f1040e664a22`; rollback blue `20260926_094041`. Fetched `origin/main` `94f190df` differs from application source only in deployment/context records. Database baseline remains `0133_storage_customers`; no migration is needed.
+- Worktree `C:/ERP/.codex-work/model-family-paid-operations-20260929`, branch `codex/model-family-paid-operations-20260929`. Merge and deployment have not been authorized or performed. Local validation passed 1,044 backend tests (including five new family/workflow regressions), repository-wide Ruff/compilation, frontend lint (zero errors; four pre-existing unused-code warnings), strict TypeScript, all build contracts, the actual save-handler payload/cache/error/late-response regression, and the optimized 90-page Next.js build. The standalone i18n checker reports the same 22 missing-key references on untouched origin/main; no new locale finding was added. Signed-in production browser QA remains a deployment gate; no production write was used for testing.
 
 ## Physical warehouse QR identities deployed (2026-09-28)
 

@@ -43,6 +43,7 @@ from app.services.paid_operations import (
     merge_scoped_paid_operations,
     normalize_paid_operation_factory,
     paid_operations_from_details,
+    replace_factory_paid_operations,
     sewing_master_factory_scope,
 )
 
@@ -1853,6 +1854,8 @@ def create_model_variant(
     if db.query(Model.id).filter(Model.code == new_code).first():
         raise HTTPException(400, "Model variant already exists")
 
+    # Refresh the source under the family lock before copying paid operations.
+    approval = next((row for row in _approval_family(db, source) if row.status == "approved"), None)
     details = deepcopy(source.details_json or {})
     general = details.get("general")
     if not isinstance(general, dict):
@@ -1875,7 +1878,6 @@ def create_model_variant(
     general.pop("variant_stock_batch_id", None)
     details["general"] = general
 
-    approval = next((row for row in _approval_family(db, source) if row.status == "approved"), None)
     cloned = Model(
         code=new_code,
         name=source.name,
@@ -2210,25 +2212,22 @@ def update_model_paid_operations(
         raise HTTPException(404, "Model not found")
 
     factory_scope = _catalog_paid_operation_factory_scope(current, catalog_scope)
-    incoming_details = deepcopy(model.details_json) if isinstance(model.details_json, dict) else {}
-    incoming_details["paid_operations"] = deepcopy(payload.paid_operations)
-    incoming_details.pop("paidOperations", None)
-    if factory_scope:
-        next_details = merge_scoped_paid_operations(model.details_json, incoming_details, factory_scope)
-    else:
-        next_details = incoming_details
-
-    old_count = len(paid_operations_from_details(filter_paid_operations_for_factory(model.details_json, factory_scope)))
-    model.details_json = next_details
-    log_action(
-        db,
-        current,
-        "update_paid_operations",
-        "Model",
-        model.id,
-        old_value={"factory": factory_scope, "operation_count": old_count},
-        new_value={"factory": factory_scope, "operation_count": len(payload.paid_operations)},
-    )
+    if factory_scope and payload.sewing_factory and payload.sewing_factory != factory_scope:
+        raise HTTPException(403, "Cannot change another sewing factory's paid operations")
+    save_factory = factory_scope or payload.sewing_factory
+    # Use the catalog's exact family identity and the same advisory lock as
+    # variant creation; row locks also protect concurrent factory saves.
+    family_ids = [row.id for row in _approval_family(db, model)]
+    family = db.query(Model).filter(Model.id.in_(family_ids)).order_by(Model.id).with_for_update().populate_existing().all()
+    for member in family:
+        old_count = len(paid_operations_from_details(filter_paid_operations_for_factory(member.details_json, save_factory)))
+        member.details_json = replace_factory_paid_operations(member.details_json, payload.paid_operations, save_factory)
+        log_action(
+            db, current, "update_paid_operations", "Model", member.id,
+            old_value={"factory": save_factory, "operation_count": old_count},
+            new_value={"factory": save_factory, "operation_count": len(payload.paid_operations),
+                       "scope": "model_family", "requested_model_id": mid},
+        )
     db.commit()
     db.refresh(model)
     return _model_payload(model, factory_scope)
