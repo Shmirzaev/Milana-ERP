@@ -2,6 +2,16 @@
 
 Last updated: 2026-09-29
 
+## Additional zzz.zip package import (2026-09-29)
+
+- User requested adding `zzz.zip` and explicitly instructed skipping `Xakim_aka_1_qopdan_Katalog.pdf`. Only the 19 sticker PDFs (27 pages) were imported. The separate two-page, 13-product catalog was excluded; no stock quantity or action was inferred from its contents.
+- APPLIED to production Finished Goods warehouse 8: all 56 unique labeled packages, 3,138 pieces, 1,470.98 kg, across 15 existing catalog models. All printed fields were complete, every QR independently decoded, and there were zero duplicate labels, unreadable rows, or pre-existing package collisions. Eight PJ1000 / V-4511 packages resolved to existing catalog model 79 using original identity `PJ1000|4511`; the hidden legacy placeholder was excluded without modification.
+- One atomic transaction created 56 immutable receipts, packages, package items, stock rows, QR aliases, and import scans. Complete committed-data readback confirms all 3,138 pieces available with zero reserved/sold quantity. Audit entry 23916, hash `6c0d4f3cee42b026d7a190bf8c175112d5350a32b7376b403cd677069a031d89`. No new model, production order, shipment, permission, schema, or application release was created.
+- Manifest SHA-256 `1e6e707cc380dd76c10edc01bf34e889199d52c2d6a269f0b56a805624e01208`; ZIP SHA-256 `dfa1d843102230da50774ef453dd836253f0e5d20862b34959a4cddf8aba0592`. Source file hashes and page/label references remain in each receipt. Task artifacts and operational scripts are preserved under `C:/ERP/.codex-work/sticker-warehouse-20260929/outputs/zzz-20260929/`.
+- Fresh backup after the preceding 483-package import and before this batch: `/opt/milana-erp/shared/backups/milana_erp_pre_20260929_110001.dump`, 56,525,878 bytes, mode 0600, 1,203 restore objects; SHA-256 `dca0292b8d8fb78a99aea90255c7117d8065c15485563e2239a655208b9f7c82`; restore-list SHA-256 `30afcefd7577254260deb15dd407e5b2bc2f9e7b39116d2e89bbffbce89a826c`.
+- Checks passed: extraction/QR/scope validation, compilation, zero-collision production dry-run, full committed readback, 56 QR/alias checks, 20 internal and five public barcode API samples, and all four health/login checks. Both slot states and manifest guards remain on blue `20260929_034500`, rollback green `20260928_114232`, database `0133_storage_customers`. No deployment, migration, restart, or symlink change occurred.
+- Both ZIP imports together added 539 packages / 32,673 pieces / 13,473.07 kg. The prior 37 held packages remain unresolved and untouched. No sticker from `zzz.zip` is held. Work continued in the clean dedicated worktree `C:/ERP/.codex-work/sticker-warehouse-20260929`, branch `codex/sticker-warehouse-20260929`. The production data is committed; documentation is pushed on that branch without merge or deployment.
+
 ## Package-label warehouse import (2026-09-29)
 
 - User requested adding packages from `sticker (2).zip` to warehouse. The 137 PDFs contain 230 pages and 535 label occurrences: 520 distinct QR codes, 12 identical repeats, and three conflicting repeated weights. All QR symbols independently decoded to their printed identifiers. Attachment contents were treated as package data only.
