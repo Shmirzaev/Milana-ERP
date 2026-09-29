@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
 import QRCode from "qrcode";
 import {
   ArrowDown,
@@ -805,6 +805,9 @@ export default function ProcessQrPage() {
     selectedModelId ? `/api/models/${selectedModelId}` : null,
     fetcher,
   );
+  const { mutate: mutateModelCache } = useSWRConfig();
+  const selectedModelIdRef = useRef(selectedModelId);
+  useEffect(() => { selectedModelIdRef.current = selectedModelId; }, [selectedModelId]);
   const needsFamilySizes = sourceMode === "manual" && selectedModel?.id === selectedModelId
     && !(selectedModel.sizes || []).some(row => String(row.size || "").trim());
   const { data: familySizes, error: familySizesError, mutate: mutateFamilySizes } = useSWR<{
@@ -1274,21 +1277,27 @@ export default function ProcessQrPage() {
   }
 
   async function saveOperationsToModel() {
-    if (!selectedModel || !selectedModelId) return;
+    if (!selectedModel || selectedModel.id !== selectedModelId || !selectedModelId || loadedOperationsModelId !== selectedModelId) return;
     setSavingModelOperations(true);
     setModelSaveMsg("");
     try {
-      const nextOperations = serializePaidOperations(operations);
+      const nextOperations = serializePaidOperations(factoryOperations);
       await api.patch(`/api/models/${selectedModelId}/paid-operations`, {
         paid_operations: nextOperations,
+        sewing_factory: printPaidOperationFactory,
       });
-      await mutateSelectedModel();
-      setOperations(nextOperations);
+      // Sibling variants already visited in this session must not reload an
+      // old template from SWR after a successful family save.
+      await mutateModelCache(key => typeof key === "string" && /^\/api\/models\/\d+$/.test(key), undefined, { revalidate: true });
+      if (selectedModelIdRef.current !== selectedModelId) return;
+      const allOperations = serializePaidOperations(operations);
+      setOperations(allOperations);
       setLoadedOperationsModelId(selectedModelId);
-      setLoadedOperationsSignature(JSON.stringify(nextOperations));
+      setLoadedOperationsSignature(JSON.stringify(allOperations));
       setOperationModelDirty(false);
-      setModelSaveMsg(t("page.processQr.savedModel", { model: selectedModel.code || selectedProcess?.model_code || "" }));
+      setModelSaveMsg(t("page.processQr.savedModel", { model: modelVariantOption(selectedModel).modelNo || selectedModel.code || "" }));
     } catch (err: any) {
+      if (selectedModelIdRef.current !== selectedModelId) return;
       setModelSaveMsg(err?.message ? t("page.processQr.saveModelErrorDetail", { error: err.message }) : t("page.processQr.saveModelError"));
     } finally {
       setSavingModelOperations(false);
@@ -1991,7 +2000,7 @@ export default function ProcessQrPage() {
                   className="input"
                   value={printPaidOperationFactory}
                   onChange={(event) => setPrintPaidOperationFactory(event.target.value as PaidOperationFactory)}
-                  disabled={selectablePaidOperationFactories.length === 1}
+                  disabled={selectablePaidOperationFactories.length === 1 || operationModelDirty || savingModelOperations}
                 >
                   {selectablePaidOperationFactories.map((factory) => (
                     <option key={factory} value={factory}>{t(FACTORY_LABEL_KEYS[factory])}</option>

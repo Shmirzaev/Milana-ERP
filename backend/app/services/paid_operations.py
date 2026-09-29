@@ -136,3 +136,41 @@ def filter_operation_rows(rows: list[dict[str, Any]], factory_code: str | None) 
         return rows
     factory = normalize_paid_operation_factory(factory_code)
     return _rows_for_factory(rows, factory)
+
+
+def replace_factory_paid_operations(details: object, rows: list[dict], factory: str | None) -> dict:
+    """Replace one factory's template, retaining other factories' effective rows.
+
+    Materialize old shared rows for the other factories so clearing this factory
+    cannot make its deleted legacy operations reappear on the next load.
+    """
+    result = deepcopy(details) if isinstance(details, dict) else {}
+    incoming = deepcopy(rows)
+    if factory:
+        if any(has_explicit_paid_operation_factory(row) and paid_operation_factory(row) != factory for row in incoming):
+            raise HTTPException(403, "Cannot change another sewing factory's paid operations")
+        for row in incoming:
+            row["sewingFactory"] = factory
+        existing = paid_operations_from_details(details)
+        hidden = [deepcopy(row) for row in existing
+                  if has_explicit_paid_operation_factory(row) and paid_operation_factory(row) != factory]
+        used_ids = {str(row.get("id", "")) for row in [*incoming, *hidden]}
+        for other in FACTORY_BY_DEPARTMENT_CODE.values():
+            if other == factory:
+                continue
+            for row in _rows_for_factory(existing, other):
+                if has_explicit_paid_operation_factory(row):
+                    continue
+                copy = deepcopy(row)
+                source_id = str(row.get("id", ""))
+                base = f"{source_id}--{other}"
+                identity, suffix = base, 2
+                while identity in used_ids:
+                    identity, suffix = f"{base}-{suffix}", suffix + 1
+                used_ids.add(identity)
+                copy.update(id=identity, legacySourceId=source_id, sewingFactory=other)
+                hidden.append(copy)
+        incoming.extend(hidden)
+    result["paid_operations"] = incoming
+    result.pop("paidOperations", None)
+    return result
