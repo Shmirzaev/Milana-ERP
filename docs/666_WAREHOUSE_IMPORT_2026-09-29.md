@@ -1,5 +1,14 @@
 # 666.zip warehouse import — 2026-09-29
 
+## 666.zip held quantity resolved and applied (2026-09-29)
+
+- User confirmed **SJ4015 / V-896 contains 66 pieces**, superseding the earlier hold for QR `uzerp_ii_15714_6`. APPLIED directly to production Finished Goods warehouse 8: one package / **66 pieces / 24.25 kg**, package ID 12700, model ID 137, package number `OLD-15714-6`. All 66 pieces are available. The photo's conflicting handwritten 66/84 quantities and the user's resolution remain in immutable receipt provenance.
+- One atomic transaction created one receipt, package, ASSORTED item, stock row, QR alias, and import scan. Existing catalog identity was used; no model, production order, shipment, schema, permission, or application change. Audit 24369, hash `7dbc31c84cc2dc9774018beb1b33aee23c22979e0c13810a287cf9f75df44037`; manifest SHA-256 `73e1e768d3937263d7c4f8537607c320604fec2e3db3e0938f5c4ab934803011`. Evidence and task-only scripts: `outputs/666-held-20260929/`.
+- Final `666.zip` result: **93 added packages / 7,131 pieces / 2,279.68 kg**, four previously existing packages preserved, no remaining holds from this ZIP. Across all three ZIPs: **668 packages / 41,677 pieces / 16,575.93 kg known weight**, retaining the four previously authorized NULL weights. The earlier XJ3182 / V-5950 package with conflicting QR `uzerp_ii_21571_1` remains held; its existing PG10521 / V-6105 package was verified unchanged. Xakim catalog remains excluded.
+- Fresh pre-mutation backup `/opt/milana-erp/shared/backups/milana_erp_pre_20260929_110004.dump`: 57,904,515 bytes, 1,203 restore objects, mode 0600; SHA-256 `5c07840a8ce00ae9c2453b1e43e047e7acf62aff9a5920eabbe636d4656225ee`; restore-list SHA-256 `636575471f90e507aea96d5b10210fe3670fe0c742eff95464699d7c61bceee4`.
+- Required immediate checks passed: photo/hash and exact scope validation, unique approved catalog/zero-collision dry-run, atomic precommit and separate committed readback, internal and public QR lookup with exact quantity/weight, preservation of the earlier held QR, and four health/login probes (HTTP 200). No extra application test suite or monitoring window was run, per user instruction.
+- Production data is live. Active blue `20260929_034500`, rollback green `20260928_114232`, database head `0133_storage_customers`; both VM slots and pinned source manifest match `deploy/production-base.json`. No application deployment, rebuild, migration, restart, or release cutover was necessary. Dedicated worktree `C:/ERP/.codex-work/sticker-warehouse-20260929`, branch `codex/sticker-warehouse-20260929`; documentation record committed and pushed, not merged. Legacy checkout preserved; context mirrored to Obsidian.
+
 ## Additional 666.zip package import (2026-09-29)
 
 - APPLIED to production Finished Goods warehouse 8: **92 new packages / 7,065 pieces / 2,255.43 kg**, across 42 existing catalog models. All pieces are available. No blank weights or new catalog models in this batch.
