@@ -1,3 +1,4 @@
+import { formatModelVariantCode, formatVariantNumber } from "@/lib/variantDisplay";
 import { modelCodeParts } from "@/lib/modelCode";
 import { formatModelComposition } from "@/lib/modelComposition";
 
@@ -63,7 +64,7 @@ function naturalCompare(a: string, b: string): number {
 }
 
 export function modelVariantNo(model: ModelVariantModel | null | undefined): string {
-  return clean(model?.variant_no) || modelCodeParts(model).variantNo;
+  return formatVariantNumber(clean(model?.variant_no) || modelCodeParts(model).variantNo);
 }
 
 export function modelVariantFabric(model: ModelVariantModel | null | undefined): string {
@@ -92,7 +93,7 @@ export function modelVariantOption<T extends ModelVariantModel>(model: T): Model
     model,
     modelNo: clean(parts.modelNo),
     variantNo,
-    code: clean(parts.code || model.code),
+    code: variantNo ? formatModelVariantCode(parts.code || model.code) : clean(parts.code || model.code),
     name: clean(model.name),
     category: clean(model.category),
     fabric: modelVariantFabric(model),
@@ -147,7 +148,7 @@ export function modelGroupLabel(group: ModelVariantGroup): string {
 }
 
 export function modelVariantLabel(variant: ModelVariantOption): string {
-  const base = clean(variant.variantNo || variant.code || `#${variant.id}`);
+  const base = formatVariantNumber(variant.variantNo) || clean(variant.code || `#${variant.id}`);
   return variant.fabric ? `${base} - ${variant.fabric}` : base;
 }
 

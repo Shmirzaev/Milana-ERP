@@ -1,5 +1,6 @@
 "use client";
 
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import { useMemo } from "react";
 import SearchableSelect from "@/components/SearchableSelect";
 import { useModelOptions, type ModelOption } from "@/lib/useModelOptions";
@@ -41,7 +42,7 @@ export default function ModelAsyncSelect({
   const selectOptions = useMemo(
     () => options.map((option) => ({
       value: Number(option.id),
-      label: [option.code, option.name].filter(Boolean).join(" - "),
+      label: [formatModelVariantCode(option.code), option.name].filter(Boolean).join(" - "),
       searchText: `${option.code} ${option.name}`,
       imageUrl: option.thumbnail_url,
     })),

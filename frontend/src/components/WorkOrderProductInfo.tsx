@@ -1,4 +1,5 @@
 "use client";
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import { localizeError } from "@/lib/errorMessages";
 
 import { useEffect, useMemo, useState } from "react";
@@ -167,7 +168,7 @@ export default function WorkOrderProductInfo({
   const { modelImage, materialImage } = selectProductImages(model, po, wo);
   const qolipFiles = selectQolipFiles(model);
   const qolipNo = modelQolipNo(model);
-  const modelLabel = model ? `${model.code} - ${model.name}` : (po?.model_id ? `#${po.model_id}` : "-");
+  const modelLabel = model ? `${formatModelVariantCode(model.code)} - ${model.name}` : (po?.model_id ? `#${po.model_id}` : "-");
   const itemPlanTotal = Array.isArray(po?.items)
     ? po.items.reduce((sum: number, it: any) => sum + Math.max(0, Number(it?.planned_quantity || 0)), 0)
     : 0;

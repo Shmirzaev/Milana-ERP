@@ -1,4 +1,5 @@
 "use client";
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import { formatOrderReference } from "@/lib/orderRef";
 
 import { useMemo, useState } from "react";
@@ -132,7 +133,7 @@ export default function OrderQrStatusPage() {
               <datalist id="order-qr-options">
                 {orderOptions.map((option) => (
                   <option key={option.order_no} value={option.order_no}>
-                    {[...option.production_nos.map(value => formatOrderReference(value)), ...option.model_codes].join(" · ")}
+                    {[...option.production_nos.map(value => formatOrderReference(value)), ...option.model_codes.map(formatModelVariantCode)].join(" · ")}
                   </option>
                 ))}
               </datalist>
@@ -169,7 +170,7 @@ export default function OrderQrStatusPage() {
               </div>
               <div className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
                 <div><span className="text-[#817966]">{t("page.orderQr.productionOrder")}:</span> {compactList(data.production_nos.map(value => formatOrderReference(value)))}</div>
-                <div><span className="text-[#817966]">{t("page.orderQr.model")}:</span> {compactList(data.model_codes)}</div>
+                <div><span className="text-[#817966]">{t("page.orderQr.model")}:</span> {compactList(data.model_codes.map(formatModelVariantCode))}</div>
                 <div><span className="text-[#817966]">{t("page.orderQr.batch")}:</span> {compactList(data.batch_nos)}</div>
               </div>
             </div>

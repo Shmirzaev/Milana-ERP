@@ -1,5 +1,6 @@
 "use client";
 
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Fragment, useMemo, useState, type FormEvent } from "react";
@@ -318,7 +319,7 @@ export default function CuttingInventoryPage() {
                         <td>
                           <div className="flex items-center gap-2">
                             <FabricThumbnail imageUrl={row.material_image_url} label={row.model_code} size="sm" />
-                            <span>{row.model_code || row.model_id}</span>
+                            <span>{formatModelVariantCode(row.model_code) || row.model_id}</span>
                           </div>
                         </td>
                         <td>{row.quantity}</td>

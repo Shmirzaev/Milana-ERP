@@ -1,5 +1,6 @@
 "use client";
 
+import { formatVariantNumber } from "@/lib/variantDisplay";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
@@ -90,7 +91,7 @@ export default function CuttingOrderList({
     const words = search.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
     return rows.filter(row => {
       const text = [row.order_no, row.sales_order_no, row.production_no, row.planning_order_no,
-        row.planning_order_name, row.model_no, row.variant_no, row.model_name,
+        row.planning_order_name, row.model_no, row.variant_no, formatVariantNumber(row.variant_no), row.model_name,
         row.material_item_sku, row.material_item_name].filter(Boolean).join(" ").toLocaleLowerCase();
       return words.every(word => text.includes(word));
     });
@@ -191,7 +192,7 @@ export default function CuttingOrderList({
                             <td>
                               <ImageThumbnail
                                 imageUrl={row.material_image_url}
-                                label={displayValue(row.variant_no, materialLabel)}
+                                label={displayValue(formatVariantNumber(row.variant_no), materialLabel)}
                                 title={t("cuttingInbox.variantPicture")}
                                 emptyLabel={t("page.workOrder.noImage")}
                               />
@@ -199,7 +200,7 @@ export default function CuttingOrderList({
                             <td className="mono whitespace-nowrap font-semibold text-[#14110b]">{orderReference(row, `#${row.production_order_id}`)}</td>
                             <td className="whitespace-nowrap">{sewingFactoryLabel(row.sewing_factory_code, t)}</td>
                             <td className="whitespace-nowrap">{row.model_no || row.model_name || "-"}</td>
-                            <td className="whitespace-nowrap">{row.variant_no || "-"}</td>
+                            <td className="whitespace-nowrap">{formatVariantNumber(row.variant_no) || "-"}</td>
                             <td className="whitespace-nowrap">{row.size_summary || "-"}</td>
                             <td className="max-w-72 whitespace-nowrap" title={materialLabel}><span className="block max-w-72 truncate">{materialLabel}</span></td>
                             <td className="whitespace-nowrap">

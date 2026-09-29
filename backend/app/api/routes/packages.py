@@ -1,4 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Header
+from app.services.variant_display import format_variant_number
+
 from fastapi.responses import HTMLResponse, Response
 from typing import Literal
 from app.services.print_response import warehouse_print_response
@@ -399,7 +401,7 @@ def _package_label_card_html(db: DbSession, pkg: Package) -> str:
     <tr><th>Client</th><td class='value-right'>{_h(details['client'])}</td></tr>
     <tr><th>Order number</th><td class='value-right'>{_h(details['order'])}</td></tr>
     <tr class='h8'><th>Model number</th><td class='value-right value-large'>{_h(details['model'])}</td></tr>
-    <tr class='h8'><th>Article</th><td class='value-right value-large'>{_h(details['article'])}</td></tr>
+    <tr class='h8'><th>Article</th><td class='value-right value-large'>{_h(format_variant_number(details['article']))}</td></tr>
     <tr class='h8'><th>Color</th><td class='value-right'>{_h(pkg.color)}</td></tr>
     <tr class='h10'><th>Product</th><td>{_h(details['product'])}</td></tr>
     <tr class='h12'><th>Fabric</th><td>{_h(details['fabric'])}</td></tr>

@@ -1,4 +1,5 @@
 "use client";
+import { formatVariantNumber } from "@/lib/variantDisplay";
 import { ApiError } from "@/lib/errorMessages";
 import { useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
@@ -136,7 +137,7 @@ function WorkOrderMiniRow({
           </Link>
           <div className="mt-1 break-words text-xs font-medium text-[#494538]">
             <div>{t("field.modelNo")}: {workOrder.model_no || "—"}</div>
-            <div>{t("field.variantNo")}: {workOrder.variant_no || "—"}</div>
+            <div>{t("field.variantNo")}: {formatVariantNumber(workOrder.variant_no) || "—"}</div>
           </div>
           {batchLabel && <div className="mt-1 break-words text-[11px] text-[#6d6655]">{batchLabel}</div>}
           <span className="badge mt-1 max-w-full justify-center px-2 py-1 leading-tight">{statusLabel(workOrder.status, t)}</span>
@@ -193,7 +194,7 @@ function WorkOrderMiniRow({
         </Link>
         <div className="mt-1 break-words text-xs font-medium text-[#494538]">
           <div>{t("field.modelNo")}: {workOrder.model_no || "—"}</div>
-          <div>{t("field.variantNo")}: {workOrder.variant_no || "—"}</div>
+          <div>{t("field.variantNo")}: {formatVariantNumber(workOrder.variant_no) || "—"}</div>
         </div>
         {batchLabel && <div className="mt-1 min-w-0 break-words text-[11px] text-[#6d6655]">{batchLabel}</div>}
       </div>

@@ -1,4 +1,5 @@
 "use client";
+import { formatVariantNumber } from "@/lib/variantDisplay";
 import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
@@ -120,7 +121,7 @@ export default function PackagingQueuePage() {
                   <td>
                     <div className="font-medium text-[#14110b]">{row.model_name || row.model_code || "-"}</div>
                     <div className="text-xs text-[#8a8472]">
-                      {[row.model_code, row.variant_no && row.variant_no !== row.model_code ? row.variant_no : null]
+                      {[row.model_code, row.variant_no && row.variant_no !== row.model_code ? formatVariantNumber(row.variant_no) : null]
                         .filter(Boolean)
                         .join(" · ") || "-"}
                     </div>

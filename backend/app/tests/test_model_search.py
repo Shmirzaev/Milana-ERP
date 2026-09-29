@@ -57,3 +57,27 @@ def test_postgres_prefix_sort_casts_numeric_family_part():
     assert "^model:xj/?([0-9]+)" in sql
     assert "AS NUMERIC" in sql
     assert sql.endswith(" DESC")
+
+
+def test_displayed_variant_search_finds_plain_and_prefixed_catalog_codes(client, auth_headers):
+    from app.db import session as session_module
+    from app.models import Model
+
+    codes = ["PJ99101-009913", "PJ99102-V-009913"]
+    with session_module.SessionLocal() as db:
+        models = [Model(code=code, name="Variant search fixture", status="approved", created_by=1) for code in codes]
+        db.add_all(models)
+        db.commit()
+        ids = {model.id for model in models}
+    for query in ("V-009913", "V=009913", "009913"):
+        response = client.get("/api/model-options", params={"search": query}, headers=auth_headers)
+        assert response.status_code == 200, response.text
+        assert ids <= {row["id"] for row in response.json()["items"]}
+        response = client.get("/api/search", params={"q": query}, headers=auth_headers)
+        assert response.status_code == 200, response.text
+        results = [row for row in response.json() if row["type"] == "Model" and row["id"] in ids]
+        assert len(results) == 2 and all("V-009913" in row["label"] for row in results)
+    response = client.get("/api/model-options", params={"search": "PJ99101-V-009913"}, headers=auth_headers)
+    assert response.status_code == 200 and response.json()["items"][0]["code"] == codes[0]
+    with session_module.SessionLocal() as db:
+        assert {model.code for model in db.query(Model).filter(Model.id.in_(ids))} == set(codes)

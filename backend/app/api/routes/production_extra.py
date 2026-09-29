@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, or_
 from sqlalchemy.orm import selectinload
 
+from app.services.variant_display import format_model_variant_code
 from app.core.deps import DbSession, CurrentUser, require_permissions, is_admin
 from app.models import (
     WorkOrder, SewingFlow, SewingAssignment, ProductionOrder, Model, User,
@@ -556,7 +557,7 @@ def export_process_html(db: DbSession, current: CurrentUser, factory: str | None
             <td><b>{_h(po.production_no)}</b></td>
             <td>{_h(sales_order_no) or '&mdash;'}</td>
             <td>{_h(cust.name if cust else po.service_customer_name or '')}</td>
-            <td><div class='model-cell'>{model_image}<div>{_h(model.code if model else po.model_id)}<br><span class='sub'>{_h(model.name if model else '')}</span></div></div></td>
+            <td><div class='model-cell'>{model_image}<div>{_h(format_model_variant_code(model.code) if model else po.model_id)}<br><span class='sub'>{_h(model.name if model else '')}</span></div></div></td>
             <td style='text-align:right'>{_h(po.planned_quantity)}</td>
             <td>{_h(po.status)}</td>
             <td>{dl}</td>

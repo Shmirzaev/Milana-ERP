@@ -1,5 +1,7 @@
 """Excel export using the application's existing server-side workbook stack."""
 
+from app.services.variant_display import format_variant_number
+
 from datetime import date
 from io import BytesIO
 
@@ -188,7 +190,7 @@ def export_packaging_report(report: dict, lang: str) -> bytes:
             cell.alignment = Alignment(wrap_text=True, vertical="center")
         sheet.row_dimensions[3].height = 34
         for index, row in enumerate(report[kind], 1):
-            sheet.append([index, *[date.fromisoformat(row[c]) if c == "date" else row.get(c) for c in columns]])
+            sheet.append([index, *[date.fromisoformat(row[c]) if c == "date" else format_variant_number(row.get(c)) if c == "variant_no" else row.get(c) for c in columns]])
             for cell in sheet[sheet.max_row]:
                 # Business text must never be interpreted as an Excel formula.
                 if isinstance(cell.value, str):

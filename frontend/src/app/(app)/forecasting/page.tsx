@@ -1,5 +1,6 @@
 "use client";
 
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import Link from "next/link";
 import { useRef, useState } from "react";
 import useSWR from "swr";
@@ -154,7 +155,7 @@ export default function ForecastingPage() {
           <tbody>
             {branded.map((row: any) => (
               <tr key={`${row.model_id}-${row.brand_id}-${row.collection_id}-${row.color}-${row.size}`}>
-                <td><div className="font-medium">{row.model_code || row.model_name || "-"}</div><div className="text-xs text-[#8a8472]">{row.model_name || "-"}</div></td>
+                <td><div className="font-medium">{formatModelVariantCode(row.model_code) || row.model_name || "-"}</div><div className="text-xs text-[#8a8472]">{row.model_name || "-"}</div></td>
                 <td>{row.brand_name || "-"}</td>
                 <td>{row.color}</td>
                 <td>{row.size}</td>

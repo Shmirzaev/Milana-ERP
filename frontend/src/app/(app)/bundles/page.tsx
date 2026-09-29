@@ -1,4 +1,5 @@
 "use client";
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Fragment, useMemo, useState } from "react";
@@ -132,7 +133,7 @@ export default function BundlesPage() {
                         {b.tracking_passport_no && <div className="text-xs text-slate-500">{b.tracking_passport_no}</div>}
                       </td>
                       <td><code>{b.barcode}</code></td>
-                      <td>{b.model_code || b.model_id}</td>
+                      <td>{formatModelVariantCode(b.model_code) || b.model_id}</td>
                       <td>{b.color}</td>
                       <td>{b.size}</td>
                       <td>{b.quantity}</td>

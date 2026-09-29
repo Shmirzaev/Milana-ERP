@@ -1,4 +1,5 @@
 "use client";
+import { formatModelVariantCode, formatVariantNumber } from "@/lib/variantDisplay";
 import { useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR, { useSWRConfig } from "swr";
@@ -682,9 +683,9 @@ export default function CuttingPassportsPage() {
                   {/* Frozen left */}
                   <td className="bg-white group-hover:bg-stone-50 px-3 py-2 font-mono font-semibold whitespace-nowrap min-w-[88px] lg:sticky lg:left-0 lg:z-10 lg:shadow-[2px_0_0_0_#f1f5f9]">{p.passport_no}</td>
                   <td className="bg-white group-hover:bg-stone-50 px-3 py-2 whitespace-nowrap min-w-[90px] lg:sticky lg:left-[88px] lg:z-10">{p.date.slice(0, 10)}</td>
-                  <td className="bg-white group-hover:bg-stone-50 px-3 py-2 whitespace-nowrap min-w-[120px] lg:sticky lg:left-[178px] lg:z-10 lg:shadow-[2px_0_6px_-1px_rgba(0,0,0,0.08)]" title={p.model_name ?? ""}>{p.model_code ?? p.model_name ?? "—"}</td>
+                  <td className="bg-white group-hover:bg-stone-50 px-3 py-2 whitespace-nowrap min-w-[120px] lg:sticky lg:left-[178px] lg:z-10 lg:shadow-[2px_0_6px_-1px_rgba(0,0,0,0.08)]" title={p.model_name ?? ""}>{formatModelVariantCode(p.model_code) || p.model_name || "—"}</td>
                   {/* Scrollable */}
-                  <td className="px-3 py-2">{p.variant ?? "—"}</td>
+                  <td className="px-3 py-2">{formatVariantNumber(p.variant) || "—"}</td>
                   <td className="px-3 py-2">{p.mold_no ?? "—"}</td>
                   <td className="px-3 py-2">
                     {imageValue(p) ? (

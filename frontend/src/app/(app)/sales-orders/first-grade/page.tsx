@@ -1,4 +1,5 @@
 "use client";
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -28,7 +29,7 @@ export default function FirstGradeSale() {
     }}>
       <label className="block max-w-md"><span className="label">{copy.customer}</span><select className="input" required value={customer} disabled={busy} onChange={e => setCustomer(e.target.value)}><option value="">{copy.select}</option>{customers?.map(row => <option value={row.id} key={row.id}>{row.name}</option>)}</select></label>
       <div className="overflow-x-auto"><table className="table text-sm"><thead><tr><th>{copy.model}</th><th>{copy.contents}</th><th>{copy.available}</th><th>{copy.total}</th><th>{copy.price}</th></tr></thead><tbody>
-        {options?.map(row => <tr key={`${row.model_id}:${row.color}:${row.size}`}><td>{row.model_code}</td><td>{row.color} · {row.size}</td><td>{row.available}</td><td><input className="input w-28" aria-label={`${copy.total} ${row.model_code} ${row.size}`} type="number" min="0" max={row.available} step="1" disabled={busy} value={values[optionKey(row)]?.quantity || ""} onChange={e => setValues({ ...values, [optionKey(row)]: { price: values[optionKey(row)]?.price || "", quantity: e.target.value } })} /></td><td><input className="input w-32" aria-label={`${copy.price} ${row.model_code} ${row.size}`} type="number" min="0" step="0.01" required={Number(values[optionKey(row)]?.quantity) > 0} disabled={busy} value={values[optionKey(row)]?.price || ""} onChange={e => setValues({ ...values, [optionKey(row)]: { quantity: values[optionKey(row)]?.quantity || "", price: e.target.value } })} /></td></tr>)}
+        {options?.map(row => <tr key={`${row.model_id}:${row.color}:${row.size}`}><td>{formatModelVariantCode(row.model_code)}</td><td>{row.color} · {row.size}</td><td>{row.available}</td><td><input className="input w-28" aria-label={`${copy.total} ${row.model_code} ${row.size}`} type="number" min="0" max={row.available} step="1" disabled={busy} value={values[optionKey(row)]?.quantity || ""} onChange={e => setValues({ ...values, [optionKey(row)]: { price: values[optionKey(row)]?.price || "", quantity: e.target.value } })} /></td><td><input className="input w-32" aria-label={`${copy.price} ${row.model_code} ${row.size}`} type="number" min="0" step="0.01" required={Number(values[optionKey(row)]?.quantity) > 0} disabled={busy} value={values[optionKey(row)]?.price || ""} onChange={e => setValues({ ...values, [optionKey(row)]: { quantity: values[optionKey(row)]?.quantity || "", price: e.target.value } })} /></td></tr>)}
         {options?.length === 0 && <tr><td colSpan={5}>{copy.empty}</td></tr>}
       </tbody></table></div><button className="btn btn-primary" disabled={busy || !selected.length || !customer}>{copy.saveSale}</button>
     </form>

@@ -1,4 +1,5 @@
 "use client";
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import useSWR from "swr";
@@ -133,8 +134,8 @@ export default function StocktakeSession({ countId, userId, onBack }: { countId:
   const lastScan = feedback?.row;
   const lastSnapshot = lastScan?.scan_snapshot || lastScan?.snapshot;
   const contents = (snapshot: Snapshot | undefined) => snapshot?.items?.length ? <ul className="space-y-1 text-sm">{snapshot.items.map((item, index) => <li key={index}>
-    {item.model_code || item.model_name || text.unresolvedModel}{item.color ? ` · ${item.color}` : ""}{item.size ? ` · ${item.size}` : ""} · {text.qty}: {item.quantity ?? text.unresolvedPieces}
-  </li>)}</ul> : <span>{snapshot?.model_code || text.unresolvedModel}{snapshot?.color ? ` · ${snapshot.color}` : ""}</span>;
+    {formatModelVariantCode(item.model_code) || item.model_name || text.unresolvedModel}{item.color ? ` · ${item.color}` : ""}{item.size ? ` · ${item.size}` : ""} · {text.qty}: {item.quantity ?? text.unresolvedPieces}
+  </li>)}</ul> : <span>{formatModelVariantCode(snapshot?.model_code) || text.unresolvedModel}{snapshot?.color ? ` · ${snapshot.color}` : ""}</span>;
   return <section className="space-y-4">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <button className="btn" disabled={pending > 0 || busy} onClick={onBack}>{text.back}</button>

@@ -1,4 +1,5 @@
 "use client";
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import { formatOrderReference } from "@/lib/orderRef";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
@@ -500,7 +501,7 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
               </div>
               <div>
                 <dt>{t("field.model")}</dt>
-                <dd>{sewingBatch.model_code || "-"}</dd>
+                <dd>{formatModelVariantCode(sewingBatch.model_code) || "-"}</dd>
               </div>
               <div>
                 <dt>{t("nav.bundles")}</dt>
@@ -546,7 +547,7 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
             <dl className="scan-detail-grid">
               <div>
                 <dt>{t("field.model")}</dt>
-                <dd>{bundle.model_code || bundle.model_id || "-"}</dd>
+                <dd>{formatModelVariantCode(bundle.model_code) || bundle.model_id || "-"}</dd>
               </div>
               <div>
                 <dt>{t("field.color")} / {t("field.size")}</dt>
@@ -710,7 +711,7 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
                             label={option.model_code || option.model_name}
                           />
                           <div className="min-w-0">
-                            <div className="font-medium">{option.model_code || option.model_id || "-"}</div>
+                            <div className="font-medium">{formatModelVariantCode(option.model_code) || option.model_id || "-"}</div>
                             {option.model_name && <div className="truncate text-xs text-slate-500">{option.model_name}</div>}
                           </div>
                         </div>
@@ -767,7 +768,7 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
               </div>
               <div>
                 <dt className="text-[var(--erp-text-muted)]">{t("field.model")}</dt>
-                <dd className="font-medium text-[var(--erp-text)]">{sewingBatch.model_code || "-"}</dd>
+                <dd className="font-medium text-[var(--erp-text)]">{formatModelVariantCode(sewingBatch.model_code) || "-"}</dd>
               </div>
               <div>
                 <dt className="text-[var(--erp-text-muted)]">{t("nav.bundles")}</dt>

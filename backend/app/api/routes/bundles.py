@@ -1,3 +1,4 @@
+from app.services.variant_display import format_model_variant_code
 from app.core.order_reference import order_reference_contains
 from datetime import datetime, timezone
 
@@ -253,7 +254,7 @@ def _label_context(db: DbSession, b: Bundle) -> dict:
         "order_no": _h(row.get("order_no") or row.get("production_no") or b.production_order_id),
         "batch_label": _h(row.get("batch_label")),
         "tracking_passport_no": _h(row.get("tracking_passport_no")),
-        "model_code": _h(row.get("model_code") or b.model_id),
+        "model_code": _h(format_model_variant_code(row.get("model_code")) or b.model_id),
         "material_image_src": _h(material_label_image_src(model)),
         "color": _h(b.color),
         "size": _h(b.size),

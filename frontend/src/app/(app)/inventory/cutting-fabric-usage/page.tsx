@@ -1,5 +1,6 @@
 "use client";
 
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import { useState, type FormEvent } from "react";
 import { RefreshCw, Search } from "lucide-react";
 import useSWR from "swr";
@@ -125,7 +126,7 @@ export default function CuttingFabricUsagePage() {
                         {row.order_no && row.order_no !== row.production_no && <div className="mt-1 text-xs text-[#6d6758]">{row.order_no}</div>}
                       </td>
                       <td className="px-4 py-3">{row.cutting_batch_no ?? "—"}</td>
-                      <td className="min-w-40 px-4 py-3"><div>{row.model_code || "—"}</div><div className="mt-1 whitespace-normal text-xs text-[#6d6758]">{row.model_name}</div></td>
+                      <td className="min-w-40 px-4 py-3"><div>{formatModelVariantCode(row.model_code) || "—"}</div><div className="mt-1 whitespace-normal text-xs text-[#6d6758]">{row.model_name}</div></td>
                       <td className="min-w-48 px-4 py-3"><div className="whitespace-normal break-words">{row.item_name}</div><div className="mt-1 text-xs text-[#6d6758]">{row.item_sku}</div></td>
                       <td className="px-4 py-3">{row.batch_no || row.internal_batch_no || "—"}</td>
                       <td className="px-4 py-3">{row.color || "—"}</td>

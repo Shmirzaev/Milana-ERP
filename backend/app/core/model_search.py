@@ -82,7 +82,10 @@ def normalized_model_code_column(column):
 
 
 def normalized_model_code_pattern(value: object) -> str:
-    return f"%{normalized_model_code_key(value)}%"
+    # Displayed V- numbers also find historic unprefixed catalog codes. This is
+    # search-only; normalization keys used for identity/grouping stay unchanged.
+    query = re.sub(r"(^|-)V[-=](?=\d)", r"\1%", str(value or "").strip(), flags=re.IGNORECASE)
+    return f"%{normalized_model_code_key(query)}%"
 
 
 def model_code_contains(value: object, query: object) -> bool:

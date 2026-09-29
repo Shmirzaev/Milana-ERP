@@ -1,4 +1,5 @@
 "use client";
+import { formatVariantNumber } from "@/lib/variantDisplay";
 import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
@@ -542,7 +543,7 @@ export default function OrderHistoryPage() {
                             {product.picture_url ? (
                               <Image
                                 src={product.picture_url}
-                                alt={[product.model_no || product.code, product.variant_no].filter(Boolean).join(" ")}
+                                alt={[product.model_no || product.code, formatVariantNumber(product.variant_no)].filter(Boolean).join(" ")}
                                 width={44}
                                 height={44}
                                 unoptimized
@@ -553,7 +554,7 @@ export default function OrderHistoryPage() {
                             )}
                             <div className="min-w-0">
                               <div className="truncate font-medium text-[#14110b]">{product.model_no || product.code || "-"}</div>
-                              <div className="text-xs text-[#56503f]">{t("field.variantNo")}: {product.variant_no || "-"}</div>
+                              <div className="text-xs text-[#56503f]">{t("field.variantNo")}: {formatVariantNumber(product.variant_no) || "-"}</div>
                               {product.name ? <div className="truncate text-xs text-[#8a8472]">{product.name}</div> : null}
                               {(row.products?.length || 0) > 1 ? <div className="text-xs text-[#8a8472]">{t("page.orderHistory.moreProducts", { count: (row.products?.length || 1) - 1 })}</div> : null}
                             </div>

@@ -1,6 +1,7 @@
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
+import pytest
 
 from openpyxl import load_workbook
 
@@ -9,6 +10,7 @@ from app.db.session import SessionLocal
 from app.models import LegacyStockReceipt, Package, Shipment, ShipmentScanLog
 from app.services.shipment_invoice import build_invoice_rows, render_shipment_invoice
 from app.services.shipment_invoice_excel import shipment_invoice_workbook
+from app.services.variant_display import format_variant_number
 from app.tests.test_shipment_review import dispatch as dispatch, ship
 
 
@@ -28,7 +30,7 @@ def test_partial_weight_excel_shared_pack_and_literal_text():
         assert sheet["B10"].value == "=1+1" and sheet["B10"].data_type == "s"
         assert sheet["F13"].value == 2 and sheet["G13"].value == 10
         assert sheet["H13"].value == sheet["I13"].value == 12.5
-        assert sheet["H12"].value is None
+        assert sheet["H12"].value == "—"
         assert "H10:H11" in sheet.merged_cells
     assert document == original
 
@@ -68,3 +70,48 @@ def test_excel_endpoint_reuses_frozen_invoice_and_does_not_write(client, auth_he
     assert sheet["G11"].value == 8
     with SessionLocal() as db:
         assert db.get(Shipment, dispatch["shipment"]).dispatch_snapshot == before
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("3596", "V-3596"), ("V-5865", "V-5865"), (" v = 0052 ", "V-0052"),
+    ("V-V=6135", "V-6135"), ("Ф-2095", "V-Ф-2095"),
+    (None, ""), ("", ""), ("—", ""), ("-", ""), ("V-", ""),
+])
+def test_variant_presentation_is_idempotent(raw, expected):
+    assert format_variant_number(raw) == expected
+    assert format_variant_number(expected) == expected
+
+
+@pytest.mark.parametrize("lang", ["en", "ru", "uz"])
+@pytest.mark.parametrize("historical", [False, True])
+def test_invoice_pdf_excel_share_identity_metadata_notes_and_portrait_layout(lang, historical):
+    from app.services.shipment_invoice import LABELS, invoice_notes
+    document = {
+        "supplier": "Milana Tex", "shipment_no": "SH-2026-000011", "customer": "Customer",
+        "sales_order_no": None, "shipped_at": "2026-09-29T06:25:04Z", "warehouse_person": "Storage",
+        "transport_details": {"driver_name": "Driver", "vehicle_info": "Truck", "cargo_name": "Carrier", "driver_phone": "Phone"},
+        "package_details": [{"package_no": "A", "quantity": 60, "weight_kg": "29.96"}],
+        "lines": [{"package_no": "A", "model_no": "PJ1095", "variant_no": "5865", "quantity": 60,
+                   "description": "Original", "size": "ASSORTED", "amount": None}],
+        "packages_count": 1, "quantity": 60, "invoice_layout_version": 1 if historical else 2,
+        "historical_reconstruction": historical, "finance_posting_status": "pending_price",
+    }
+    original = deepcopy(document)
+    html = render_shipment_invoice(document, lang)
+    sheet = load_workbook(BytesIO(shipment_invoice_workbook(document, lang))).active
+    labels = LABELS[lang]
+    assert sheet["A1"].value == "Milana Tex"
+    assert sheet["A2"].value == labels["title"]
+    assert sheet["A3"].value == "SH-2026-000011"
+    assert sheet["A4"].value == labels["shipment"] and sheet["C4"].value == document["shipment_no"]
+    assert sheet["A5"].value == labels["date"] and sheet["C5"].value == "29/09/2026 11:25:04"
+    assert sheet["C6"].value == "Customer" and sheet["C7"].value == "—"
+    assert [sheet.cell(row, 6).value for row in range(4, 8)] == ["Driver", "Truck", "Carrier", "Phone"]
+    assert sheet["C10"].value == "V-5865" and "<td>V-5865</td>" in html
+    assert sheet.page_setup.orientation == "portrait" and sheet.page_setup.fitToWidth == 1
+    assert len(sheet._images) == 1
+    values = [cell.value for row in sheet for cell in row]
+    for note in invoice_notes(document, lang):
+        assert note in values and note in html
+    assert f'{labels["issued"]}: Storage' in values and labels["received"] in values
+    assert document == original
