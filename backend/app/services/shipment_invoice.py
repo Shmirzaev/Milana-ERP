@@ -9,6 +9,8 @@ from decimal import Decimal, InvalidOperation
 import re
 from types import SimpleNamespace
 
+from app.services.variant_display import format_variant_number
+
 
 def invoice_model_identity(model, source: dict | None = None) -> tuple[str | None, str | None]:
     if model is None:
@@ -108,6 +110,54 @@ WEIGHT_NOTE = {
 }
 
 
+def invoice_date(raw) -> str:
+    if not raw:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone(timedelta(hours=5))).strftime("%d/%m/%Y %H:%M:%S")
+    except ValueError:
+        return str(raw)
+
+
+def invoice_metadata(document: dict, text: dict) -> list[tuple]:
+    transport = document.get("transport_details") or {}
+    return [
+        (text["shipment"], document.get("shipment_no"), text["driver"], transport.get("driver_name")),
+        (text["date"], invoice_date(document.get("shipped_at")), text["vehicle"], transport.get("vehicle_info")),
+        (text["customer"], document.get("customer"), text["carrier"], transport.get("cargo_name")),
+        (text["order"], document.get("sales_order_no"), text["phone"], transport.get("driver_phone")),
+    ]
+
+
+def invoice_headers(lang: str) -> list[str]:
+    text = LABELS[lang]
+    return ["№", text["modelNo"], text["variant"], text["description"], text["size"],
+            {"en": "Packs", "ru": "Упак.", "uz": "Qadoq"}[lang],
+            text["qty"], text["weight"], text["totalWeight"]]
+
+
+def invoice_notes(document: dict, lang: str) -> list[str]:
+    text = LABELS[lang]
+    notes = []
+    if document.get("historical_reconstruction"):
+        notes.append(text["historical"])
+    if document.get("invoice_layout_version") != 2:
+        notes.append({"en": "Historical snapshot has no original transport, model description or weight details; missing values are blank.",
+                      "ru": "Исторический снимок не содержит исходные данные транспорта, описания модели или веса; пропуски оставлены пустыми.",
+                      "uz": "Tarixiy nusxada asl transport, model tavsifi yoki vazn tafsilotlari yo‘q; qiymatlar bo‘sh qoldirildi."}[lang])
+    packages = document.get("package_details")
+    package_count = len(packages) if packages is not None else len({line["package_no"] for line in document.get("lines", [])})
+    if document.get("missing_weight_packages", package_count if document.get("invoice_layout_version") != 2 else 0):
+        notes.append(WEIGHT_NOTE[lang])
+    notes.append(text["ledger"] + ": " + str(document.get("ledger_invoice_no") or "")
+                 if document.get("finance_posting_status") == "posted"
+                 else text.get(document.get("finance_posting_status"), text["posting"]))
+    return notes
+
+
 def recorded_weight(document: dict) -> Decimal:
     if document.get("known_weight_kg") is not None:
         return Decimal(str(document["known_weight_kg"]))
@@ -135,20 +185,6 @@ def render_shipment_invoice(document: dict, language: str) -> str:
     def weight(raw):
         return "—" if raw is None else number(raw)
 
-    def date(raw):
-        if not raw:
-            return ""
-        try:
-            parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
-            if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=timezone.utc)
-            return parsed.astimezone(timezone(timedelta(hours=5))).strftime("%d/%m/%Y %H:%M:%S")
-        except ValueError:
-            return value(raw)
-
-    posting = text.get(document.get("finance_posting_status"), text["posting"])
-    if document.get("finance_posting_status") == "posted":
-        posting = text["ledger"] + ": " + value(document.get("ledger_invoice_no"))
     packages = document.get("package_details")
     if packages is None:
         packages = list({line["package_no"]: {"package_no": line["package_no"], "weight_kg": None}
@@ -165,31 +201,17 @@ def render_shipment_invoice(document: dict, language: str) -> str:
         pack_cell = f'<td rowspan="{span}" class="numeric">{number(row["pack_count"], 0)}</td>' if span else ""
         weight_cells = f'<td rowspan="{span}" class="numeric">{weight(row.get("weight_kg"))}</td>' * 2 if span else ""
         body.append(f'<tr><td class="row-number">{index}</td><td class="identity">{value(row.get("model_no"))}</td>'
-                    f'<td>{value(row.get("variant_no"))}</td><td class="description">{value(row.get("description"))}</td>'
+                    f'<td>{value(format_variant_number(row.get("variant_no")))}</td><td class="description">{value(row.get("description"))}</td>'
                     f'<td class="sizes">{sizes}</td>{pack_cell}<td class="numeric">{number(row["quantity"], 0)}</td>'
                     f'{weight_cells}</tr>')
-    cautions = []
-    if document.get("historical_reconstruction"):
-        cautions.append(text["historical"])
-    if document.get("invoice_layout_version") != 2:
-        cautions.append({"en": "Historical snapshot has no original transport, model description or weight details; missing values are blank.",
-                         "ru": "Исторический снимок не содержит исходные данные транспорта, описания модели или веса; пропуски оставлены пустыми.",
-                         "uz": "Tarixiy nusxada asl transport, model tavsifi yoki vazn tafsilotlari yo‘q; qiymatlar bo‘sh qoldirildi."}[lang])
-    if document.get("missing_weight_packages", len(packages) if document.get("invoice_layout_version") != 2 else 0):
-        cautions.append(WEIGHT_NOTE[lang])
-    warning = "".join(f'<p class="warning">{value(caution)}</p>' for caution in cautions)
-    transport = document.get("transport_details") or {}
-    metadata = [
-        (text["shipment"], document.get("shipment_no"), text["driver"], transport.get("driver_name")),
-        (text["date"], date(document.get("shipped_at")), text["vehicle"], transport.get("vehicle_info")),
-        (text["customer"], document.get("customer"), text["carrier"], transport.get("cargo_name")),
-        (text["order"], document.get("sales_order_no"), text["phone"], transport.get("driver_phone")),
-    ]
+    notes = invoice_notes(document, lang)
+    warning = "".join(f'<p class="warning">{value(caution)}</p>' for caution in notes[:-1])
+    posting = value(notes[-1])
+    metadata = invoice_metadata(document, text)
     metadata_html = "".join(f'<tr><th>{value(left)}</th><td>{value(left_value) or "—"}</td>'
                             f'<th>{value(right)}</th><td>{value(right_value) or "—"}</td></tr>'
                             for left, left_value, right, right_value in metadata)
-    headers = ["№", text["modelNo"], text["variant"], text["description"], text["size"], {"en": "Packs", "ru": "Упак.", "uz": "Qadoq"}[lang],
-               text["qty"], text["weight"], text["totalWeight"]]
+    headers = invoice_headers(lang)
     columns = "".join(f'<col style="width:{width}%">' for width in [4, 10, 9, 22, 25, 6, 8, 8, 8])
     weights = number(recorded_weight(document))
     return f'''<!doctype html><html lang="{lang}"><head><meta charset="utf-8">

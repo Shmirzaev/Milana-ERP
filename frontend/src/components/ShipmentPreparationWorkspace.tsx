@@ -1,4 +1,5 @@
 "use client";
+import { formatVariantNumber } from "@/lib/variantDisplay";
 import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
@@ -292,14 +293,14 @@ export default function ShipmentPreparationWorkspace({
                         />
                         <ImageThumbnail
                           imageUrl={item.variant_image_url}
-                          label={item.variant_no || modelLabel(item)}
+                          label={formatVariantNumber(item.variant_no) || modelLabel(item)}
                           title={t("page.shipments.variantPicture")}
                           emptyLabel={t("page.workOrder.noImage")}
                         />
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="font-semibold text-[#14110b]">{modelLabel(item)}</div>
-                        <div className="text-xs text-[#56503f]">{t("field.variantNo")}: {item.variant_no || "-"}</div>
+                        <div className="text-xs text-[#56503f]">{t("field.variantNo")}: {formatVariantNumber(item.variant_no) || "-"}</div>
                         {item.model_name && item.model_name !== modelLabel(item) ? <div className="mt-0.5 text-xs text-[#6f6a5b]">{item.model_name}</div> : null}
                       </div>
                     </div>
@@ -362,14 +363,14 @@ export default function ShipmentPreparationWorkspace({
                       <td>
                         <ImageThumbnail
                           imageUrl={item.variant_image_url}
-                          label={item.variant_no || modelLabel(item)}
+                          label={formatVariantNumber(item.variant_no) || modelLabel(item)}
                           title={t("page.shipments.variantPicture")}
                           emptyLabel={t("page.workOrder.noImage")}
                         />
                       </td>
                       <td>
                         <div className="font-semibold text-[#14110b]">{modelLabel(item)}</div>
-                        <div className="text-xs text-[#56503f]">{t("field.variantNo")}: {item.variant_no || "-"}</div>
+                        <div className="text-xs text-[#56503f]">{t("field.variantNo")}: {formatVariantNumber(item.variant_no) || "-"}</div>
                         {item.model_name && item.model_name !== modelLabel(item) ? <div className="mt-0.5 max-w-64 text-xs text-[#6f6a5b]">{item.model_name}</div> : null}
                       </td>
                       <td>
@@ -422,7 +423,7 @@ export default function ShipmentPreparationWorkspace({
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="mono font-semibold text-[#14110b]">{pkg.package_no}</div>
-                      <div className="mt-1 text-xs text-[#56503f]">{modelLabel(pkg)} · {t("field.variantNo")}: {pkg.variant_no || "-"}</div>
+                      <div className="mt-1 text-xs text-[#56503f]">{modelLabel(pkg)} · {t("field.variantNo")}: {formatVariantNumber(pkg.variant_no) || "-"}</div>
                     </div>
                     <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${pkg.scanned ? "text-emerald-700" : "text-[#56503f]"}`}>
                       {pkg.scanned ? <Check className="h-4 w-4" aria-hidden="true" /> : <PackageCheck className="h-4 w-4" aria-hidden="true" />}
@@ -466,7 +467,7 @@ export default function ShipmentPreparationWorkspace({
                     <td className="mono whitespace-nowrap font-semibold text-[#14110b]">{pkg.package_no}</td>
                     <td>
                       <div className="font-medium text-[#14110b]">{modelLabel(pkg)}</div>
-                      <div className="text-xs text-[#56503f]">{t("field.variantNo")}: {pkg.variant_no || "-"}</div>
+                      <div className="text-xs text-[#56503f]">{t("field.variantNo")}: {formatVariantNumber(pkg.variant_no) || "-"}</div>
                     </td>
                     <td>
                       <div className="space-y-1 text-xs">

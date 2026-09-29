@@ -1,5 +1,6 @@
 "use client";
 
+import { formatVariantNumber } from "@/lib/variantDisplay";
 import Link from "next/link";
 import { useMemo } from "react";
 
@@ -162,7 +163,7 @@ export default function DepartmentOrderList({
                             : operationLabel(row.operation || "", t)}</div>
                         </td>
                         <td className="whitespace-nowrap">{row.model_no || row.model_name || "-"}</td>
-                        <td className="whitespace-nowrap">{row.variant_no || "-"}</td>
+                        <td className="whitespace-nowrap">{formatVariantNumber(row.variant_no) || "-"}</td>
                         <td className="whitespace-nowrap">{row.size_summary || row.size || "-"}</td>
                         <td className="max-w-64" title={material}>
                           <span className="block max-w-64 truncate">{material}</span>

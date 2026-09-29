@@ -1,3 +1,4 @@
+from app.services.variant_display import format_model_variant_code
 from app.core.order_reference import order_reference_contains
 from fastapi import APIRouter
 
@@ -69,7 +70,7 @@ def global_search(
         .all()
     )
     for bundle_id, bundle_no, barcode, model_id, model_code, model_name in bundle_rows:
-        model_label = f"{model_code} - {model_name}" if model_code else f"Model #{model_id}"
+        model_label = f"{format_model_variant_code(model_code)} - {model_name}" if model_code else f"Model #{model_id}"
         results.append(
             {
                 "type": "Bundle",
@@ -95,7 +96,7 @@ def global_search(
             {
                 "type": "Model",
                 "id": model_id,
-                "label": f"{model_code} - {model_name}",
+                "label": f"{format_model_variant_code(model_code)} - {model_name}",
                 "url": f"/models/{model_id}",
             }
         )

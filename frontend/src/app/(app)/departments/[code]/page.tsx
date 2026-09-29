@@ -1,4 +1,5 @@
 "use client";
+import { formatVariantNumber } from "@/lib/variantDisplay";
 import { localizeError } from "@/lib/errorMessages";
 
 import Link from "next/link";
@@ -54,7 +55,7 @@ function materialLine(row: any) {
 
 function orderContextLine(row: any, t: (key: string, vars?: Record<string, string | number>) => string) {
   const modelNo = String(row?.model_no || "").trim();
-  const variantNo = String(row?.variant_no || "").trim();
+  const variantNo = formatVariantNumber(row?.variant_no);
   const size = String(row?.size_summary || row?.size || "").trim();
   const parts = [
     modelNo ? { label: t("field.modelNo"), value: modelNo } : null,
@@ -304,10 +305,10 @@ export default function DepartmentInboxPage() {
               {data.awaiting_packaging.map((r: any) => (
                 <tr key={r.production_order_id}>
                   <td><ImageThumbnail imageUrl={r.model_image_url} label={r.model_no || r.model_name || ""} title={t("page.workOrder.modelPicture")} emptyLabel={t("page.workOrder.noImage")} /></td>
-                  <td><ImageThumbnail imageUrl={r.material_image_url} label={r.variant_no || ""} title={t("cuttingInbox.variantPicture")} emptyLabel={t("page.workOrder.noImage")} /></td>
+                  <td><ImageThumbnail imageUrl={r.material_image_url} label={formatVariantNumber(r.variant_no) || ""} title={t("cuttingInbox.variantPicture")} emptyLabel={t("page.workOrder.noImage")} /></td>
                   <td><Link href={`/production-orders/${r.production_order_id}`} className="mono hover:underline">{r.production_no || "-"}</Link></td>
                   <td>{r.model_no || r.model_code || "-"}</td>
-                  <td>{r.variant_no || "-"}</td>
+                  <td>{formatVariantNumber(r.variant_no) || "-"}</td>
                   <td>{r.ready_qty}</td>
                   <td>{r.sewn_passed}</td>
                   <td>{r.already_packed}</td>

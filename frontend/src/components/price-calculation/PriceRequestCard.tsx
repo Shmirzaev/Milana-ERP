@@ -1,3 +1,4 @@
+import { formatVariantNumber } from "@/lib/variantDisplay";
 import type { ReactNode } from "react";
 import ImageThumbnail from "@/components/ImageThumbnail";
 import { priceRequestSurface, type PriceCalculationRequest, type PriceRequestStatus } from "@/lib/priceCalculationRequests";
@@ -49,11 +50,11 @@ export function PriceRequestProductStrip({ product, labels, controls, showKroy =
       </div>
       <div className="min-w-0">
         <div className="mb-0.5 truncate text-[11px] font-medium leading-3.5 text-[var(--erp-text-muted)]">{labels.variantPicture}</div>
-        <ImageThumbnail imageUrl={product.variantImageUrl} label={`${product.variantNo} ${labels.variantPicture}`.trim()} title={pictureTitle(labels.variantPicture)} emptyLabel={labels.noPicture} />
+        <ImageThumbnail imageUrl={product.variantImageUrl} label={`${formatVariantNumber(product.variantNo)} ${labels.variantPicture}`.trim()} title={pictureTitle(labels.variantPicture)} emptyLabel={labels.noPicture} />
       </div>
       {showKroy ? (controls?.kroy || <ReadonlyField label={labels.kroy} value={product.kroyNo} />) : null}
       <ReadonlyField label={labels.model} value={[product.modelNo, product.modelName].filter(Boolean).join(" · ")} />
-      {controls?.variant || <ReadonlyField label={labels.variant} value={product.variantNo} />}
+      {controls?.variant || <ReadonlyField label={labels.variant} value={formatVariantNumber(product.variantNo)} />}
       <ReadonlyField label={labels.size} value={product.sizes} />
     </div>
   );

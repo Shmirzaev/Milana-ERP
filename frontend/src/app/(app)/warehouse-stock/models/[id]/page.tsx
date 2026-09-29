@@ -1,4 +1,5 @@
 "use client";
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import { useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -16,7 +17,7 @@ export default function WarehouseModelPackages() {
   const kind = search.get("stock_kind") === "first_grade" ? "first_grade" : "standard";
   const { data, error } = useSWR<Result>(`/api/packages/warehouse-model/${id}?stock_kind=${kind}&page=${page}`, fetcher);
   return <main className="space-y-4"><Link className="btn" href={`/warehouse-stock?stock_kind=${kind}`}>{copy.stock}</Link>
-    <h1 className="app-page-title">{data?.model_code} {data?.model_name}</h1><h2>{copy.packages} · {kind === "first_grade" ? copy.title : copy.standard} {data ? `(${data.total})` : ""}</h2>
+    <h1 className="app-page-title">{formatModelVariantCode(data?.model_code)} {data?.model_name}</h1><h2>{copy.packages} · {kind === "first_grade" ? copy.title : copy.standard} {data ? `(${data.total})` : ""}</h2>
     {error && <p role="alert" className="text-red-700">{error.message}</p>}{!data && !error && <p>{copy.loading}</p>}
     {data && <><div className="card overflow-x-auto"><table className="table text-sm"><thead><tr><th>{copy.packages}</th><th>{copy.production}</th><th>{copy.contents}</th><th>{copy.total}</th><th>{copy.available}</th><th>{copy.reserved}</th><th>{copy.weight}</th><th>{copy.location}</th><th>{copy.status}</th><th>{copy.received}</th></tr></thead><tbody>
       {data.packages.map(pkg => <tr key={pkg.id}><td><Link className="underline" href={`/packages/${pkg.id}`}>{pkg.package_no}</Link><div className="text-xs text-slate-500">{pkg.barcode}</div></td><td>{pkg.production_no || "—"}</td><td>{pkg.items.map((item, index) => <div key={index}>{item.color} · {item.size} × {item.quantity}</div>)}</td><td>{pkg.quantity}</td><td>{pkg.available}</td><td>{pkg.reserved}</td><td>{pkg.weight_kg ?? "—"}</td><td>{[pkg.cell, pkg.shelf].filter(Boolean).join(" / ") || "—"}</td><td>{statusLabel(pkg.status, t)}</td><td>{pkg.received_at ? new Date(pkg.received_at).toLocaleString(lang) : "—"}</td></tr>)}

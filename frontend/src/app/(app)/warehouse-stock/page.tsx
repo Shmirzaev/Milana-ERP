@@ -1,5 +1,6 @@
 "use client";
 
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import useSWR from "swr";
@@ -361,7 +362,7 @@ export default function WarehouseStockPage() {
                   )}
                 </div>
                 <div className="flex min-w-0 flex-col p-3">
-                  <div className="mono text-xs font-semibold uppercase text-[#8a8472]"><a className="underline" target="_blank" rel="noreferrer" href={`/warehouse-stock/models/${group.model_id}?stock_kind=${stockKind}`}>{group.model_code || group.model_id || "-"}</a></div>
+                  <div className="mono text-xs font-semibold uppercase text-[#8a8472]"><a className="underline" target="_blank" rel="noreferrer" href={`/warehouse-stock/models/${group.model_id}?stock_kind=${stockKind}`}>{formatModelVariantCode(group.model_code) || group.model_id || "-"}</a></div>
                   <div className="mt-1 line-clamp-2 text-sm font-semibold leading-snug text-[#14110b]">{group.model_name || t("page.models.noPreview")}</div>
                   <div className="mt-auto grid grid-cols-2 gap-2 pt-3 text-xs text-[#56503f]">
                     <div>
@@ -423,7 +424,7 @@ export default function WarehouseStockPage() {
                     )}
                   </td>
                   <td>
-                    <div className="mono font-semibold text-[#14110b]"><a className="underline" target="_blank" rel="noreferrer" href={`/warehouse-stock/models/${row.model_id}?stock_kind=${stockKind}`}>{row.model_code || row.model_id || "-"}</a></div>
+                    <div className="mono font-semibold text-[#14110b]"><a className="underline" target="_blank" rel="noreferrer" href={`/warehouse-stock/models/${row.model_id}?stock_kind=${stockKind}`}>{formatModelVariantCode(row.model_code) || row.model_id || "-"}</a></div>
                     <div className="max-w-[220px] truncate text-xs text-[#8a8472]">{row.model_name || "-"}</div>
                   </td>
                   <td className="mono">{formatOrderReference(row.order_no)}</td>

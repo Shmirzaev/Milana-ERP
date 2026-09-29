@@ -42,6 +42,7 @@ const MODEL_CODE_CONFUSABLES: Record<string, string> = {
 export function normalizeModelSearch(value: unknown): string {
   return clean(value)
     .toLocaleLowerCase()
+    .replace(/(^|-)v[-=](?=\d)/g, "$1")
     .replace(/[АаВвЕеКкМмНнОоРрСсТтХхУу]/g, (character) => MODEL_CODE_CONFUSABLES[character] || character)
     .replace(/-/g, "")
     .replace(/\s+/g, " ");
@@ -61,6 +62,10 @@ export function buildModelCode(modelNo: string, variantNo: string): string {
 
 export function splitModelCode(code: string | null | undefined): ModelCodeParts {
   const cleanCode = clean(code);
+  const prefixedVariant = cleanCode.match(/^(.*?)-(V[-=]\d[^\s]*)$/i);
+  if (prefixedVariant?.[1] && prefixedVariant[2]) {
+    return { modelNo: prefixedVariant[1], variantNo: prefixedVariant[2], code: cleanCode };
+  }
   const dashIndex = cleanCode.lastIndexOf("-");
   if (dashIndex > 0 && dashIndex < cleanCode.length - 1) {
     return {

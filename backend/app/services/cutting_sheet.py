@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.services.variant_display import format_variant_number
+
 from collections import defaultdict
 from datetime import timedelta, timezone
 from html import escape
@@ -444,7 +446,7 @@ th{{background:#e8ecea;text-align:left;font-weight:700}} td{{text-align:center}}
     <table class="identity">
       <colgroup><col class="identity-label"><col class="identity-value"><col class="detail-label"><col class="detail-value"></colgroup>
       <tr class="title-row"><th>Model</th><td>{_h(identity['model'])}</td><th>Qolip No</th><td>{_h(identity['qolip'])}</td></tr>
-      <tr><td class="photo-cell" rowspan="7" colspan="2"><div class="photo">{image_html}</div></td><th class="field-label">Artikul</th><td class="field-value">{_h(identity['article'])}</td></tr>
+      <tr><td class="photo-cell" rowspan="7" colspan="2"><div class="photo">{image_html}</div></td><th class="field-label">Artikul</th><td class="field-value">{_h(format_variant_number(identity['article']))}</td></tr>
       <tr><th class="field-label">Zakaz No</th><td class="field-value">{_h(order_no)}</td></tr>
       <tr><th class="field-label">Bichilgan sana</th><td class="field-value">{_h(cutting_date)}</td></tr>
       <tr><th class="field-label">Etiket</th><td class="field-value">{_h(etiket)}</td></tr>

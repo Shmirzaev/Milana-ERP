@@ -1,4 +1,5 @@
 "use client";
+import { formatVariantNumber } from "@/lib/variantDisplay";
 import { localizeError } from "@/lib/errorMessages";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -1552,8 +1553,8 @@ export default function ModelDetail() {
                       <tr key={variantId || v.code}>
                         <td>
                           {imageUrl ? (
-                            <a href={imagePreviewHref(v.picture_url, v.variant_no || v.code || "")} target="_blank" rel="noreferrer" className="block h-14 w-14 overflow-hidden rounded-md border border-[#ded9ca] bg-white">
-                              <img src={imageUrl} alt={v.variant_no || v.code || t("field.picture")} className="h-full w-full object-contain p-1" />
+                            <a href={imagePreviewHref(v.picture_url, formatVariantNumber(v.variant_no) || v.code || "")} target="_blank" rel="noreferrer" className="block h-14 w-14 overflow-hidden rounded-md border border-[#ded9ca] bg-white">
+                              <img src={imageUrl} alt={formatVariantNumber(v.variant_no) || v.code || t("field.picture")} className="h-full w-full object-contain p-1" />
                             </a>
                           ) : (
                             <div className="flex h-14 w-14 items-center justify-center rounded-md border border-dashed border-[#ded9ca] bg-[#f8f6ef] text-[10px] text-[#8a8472]">
@@ -1564,10 +1565,10 @@ export default function ModelDetail() {
                         <td>
                           {variantId ? (
                             <Link href={`${modelPageBase}/${variantId}`} className="font-medium text-brand-600 hover:underline">
-                              {v.variant_no || v.code || "-"}
+                              {formatVariantNumber(v.variant_no) || v.code || "-"}
                             </Link>
                           ) : (
-                            v.variant_no || v.code || "-"
+                            formatVariantNumber(v.variant_no) || v.code || "-"
                           )}
                         </td>
                         <td>{v.fabric || "-"}</td>
@@ -1696,7 +1697,7 @@ export default function ModelDetail() {
               <div className="space-y-3">
                 <div>
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    {t("field.modelNo")} {modelForm.model_no || "-"} / {t("field.variantNo")} {modelForm.variant_no || "-"}
+                    {t("field.modelNo")} {modelForm.model_no || "-"} / {t("field.variantNo")} {formatVariantNumber(modelForm.variant_no) || "-"}
                   </div>
                   <div className="text-2xl font-semibold text-[#14110b]">{translatedName}</div>
                   <div className="text-sm text-slate-600">{modelForm.category || "-"} · {modelForm.product_type || "-"}</div>

@@ -1,5 +1,6 @@
 "use client";
 
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import useSWR, { useSWRConfig } from "swr";
@@ -1694,7 +1695,7 @@ export default function ProcessQrPage() {
                 )}
                 {filteredProcesses.map((process) => (
                   <option key={process.production_order_id} value={process.production_order_id}>
-                    {orderReference(process, process.production_no)} - {process.model_code || t("page.processQr.noModel")}{process.customer_name ? ` - ${process.customer_name}` : ""} - {numberOrZero(process.sewing_completed_quantity).toLocaleString()} {t("field.unitPcs")}
+                    {orderReference(process, process.production_no)} - {formatModelVariantCode(process.model_code) || t("page.processQr.noModel")}{process.customer_name ? ` - ${process.customer_name}` : ""} - {numberOrZero(process.sewing_completed_quantity).toLocaleString()} {t("field.unitPcs")}
                   </option>
                 ))}
               </select>
@@ -1850,7 +1851,7 @@ export default function ProcessQrPage() {
               </div>
               <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
                 <dt className="text-[#8a8472]">{t("common.model")}</dt>
-                <dd>{selectedProcess.model_code || "-"}</dd>
+                <dd>{formatModelVariantCode(selectedProcess.model_code) || "-"}</dd>
                 <dt className="text-[#8a8472]">{t("field.variantNo")}</dt>
                 <dd>{selectedModel ? modelVariantOption(selectedModel).variantNo || "-" : "-"}</dd>
                 <dt className="text-[#8a8472]">{t("page.processQr.kroyNo")}</dt>
@@ -1871,7 +1872,7 @@ export default function ProcessQrPage() {
               </div>
               <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
                 <dt className="text-[#8a8472]">{t("common.model")}</dt>
-                <dd>{selectedProcess.model_code || "-"}</dd>
+                <dd>{formatModelVariantCode(selectedProcess.model_code) || "-"}</dd>
                 <dt className="text-[#8a8472]">{t("common.customer")}</dt>
                 <dd>{selectedProcess.customer_name || "-"}</dd>
                 <dt className="text-[#8a8472]">{t("page.processQr.sewingEnteredQty")}</dt>
@@ -3106,7 +3107,7 @@ function ProcessLabel({ label, qrToken }: { label: LabelRow; qrToken: string }) 
 
       <div className="process-label__body flex min-h-0 flex-1 gap-2">
         <div className="process-label__details min-w-0 flex-1 text-[10px] leading-tight">
-          <LabelLine label={t("common.model")} value={process.model_code || "-"} />
+          <LabelLine label={t("common.model")} value={formatModelVariantCode(process.model_code) || "-"} />
           <LabelLine label={t("field.orderNo")} value={orderReference(process)} valueClassName="process-label__identity-value" />
           <LabelLine label={t("page.processQr.kroyNo")} value={batch.cuttingPassportNo || process.cutting_passport_no || "-"} strong />
           <LabelLine label={t("field.batch")} value={batch.serial} />
@@ -3181,7 +3182,7 @@ function IssuedProcessLabel({
         <div className="process-label__details min-w-0 flex-1 text-[10px] leading-tight">
           <LabelLine
             label={t("common.model")}
-            value={label.model_code || "-"}
+            value={formatModelVariantCode(label.model_code) || "-"}
             valueClassName="process-label__identity-value"
           />
           <LabelLine label={t("field.orderNo")} value={orderReference(label)} valueClassName="process-label__identity-value" />

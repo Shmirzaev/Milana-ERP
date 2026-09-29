@@ -1,4 +1,5 @@
 "use client";
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import { formatOrderReference } from "@/lib/orderRef";
 import Link from "next/link";
 import { firstGradeText } from "@/lib/firstGradeText";
@@ -46,7 +47,7 @@ export default function FinishedGoodsPage() {
               <th>{t("field.size")}</th><th>{t("field.available")}</th><th>{t("field.reserved")}</th><th>{t("field.cost")}</th>
             </tr>
           </thead>
-          <tbody>{branded?.map((s) => <tr key={s.id}><td>{s.brand_name || s.brand_id || "-"}</td><td>{s.model_code || s.model_id}</td><td>{s.color}</td><td>{s.size}</td><td>{s.available_qty}</td><td>{s.reserved_qty}</td><td>${Number(s.cost_per_piece).toFixed(2)}</td></tr>)}</tbody>
+          <tbody>{branded?.map((s) => <tr key={s.id}><td>{s.brand_name || s.brand_id || "-"}</td><td>{formatModelVariantCode(s.model_code) || s.model_id}</td><td>{s.color}</td><td>{s.size}</td><td>{s.available_qty}</td><td>{s.reserved_qty}</td><td>${Number(s.cost_per_piece).toFixed(2)}</td></tr>)}</tbody>
         </table>
       </div>
       <h2 className="text-lg font-medium mt-2 mb-2">{t("page.finishedGoods.all")}</h2>
@@ -59,7 +60,7 @@ export default function FinishedGoodsPage() {
               <th>{t("field.sold")}</th><th>{t("field.status")}</th>
             </tr>
           </thead>
-          <tbody>{data?.map((s) => <tr key={s.id}><td>{s.model_code || s.model_id}</td><td>{s.color}</td><td>{s.size}</td><td>{s.quantity}</td><td>{s.available_qty}</td><td>{s.reserved_qty}</td><td>{s.sold_qty}</td><td>{statusLabel(s.status, t)}</td></tr>)}</tbody>
+          <tbody>{data?.map((s) => <tr key={s.id}><td>{formatModelVariantCode(s.model_code) || s.model_id}</td><td>{s.color}</td><td>{s.size}</td><td>{s.quantity}</td><td>{s.available_qty}</td><td>{s.reserved_qty}</td><td>{s.sold_qty}</td><td>{statusLabel(s.status, t)}</td></tr>)}</tbody>
         </table>
       </div>
       <h2 className="text-lg font-medium mt-6 mb-2">{t("page.finishedGoods.readyToShip")}</h2>

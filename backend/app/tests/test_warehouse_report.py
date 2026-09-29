@@ -32,15 +32,15 @@ def test_report_preserves_model_grain_exact_names_colors_and_ready_totals():
         workbook = load_workbook(BytesIO(export_warehouse_report(db, 'ru')))
         standard = workbook['Основной склад']
         rows = [row for row in standard.iter_rows(min_row=6, max_row=standard.max_row-1, values_only=True) if row[0] == 'REPORT']
-        assert rows == [('REPORT', model.name, '007', 'Синий\nКрасный ', 2, 20),
-                        ('REPORT', unknown.name, '008', '—', 1, 5)]
+        assert rows == [('REPORT', model.name, 'V-007', 'Синий\nКрасный ', 2, 20),
+                        ('REPORT', unknown.name, 'V-008', '—', 1, 5)]
         assert standard['B6'].data_type == 's'
         for row in standard.iter_rows(min_row=6, max_row=standard.max_row-1):
             if row[0].value == 'REPORT':
                 assert row[2].number_format == '@'
                 assert row[1].alignment.wrap_text and row[4].alignment.horizontal == 'right'
                 assert row[1].font.name == 'Calibri' and row[1].border.bottom.style == 'thin'
-                if row[2].value == '008':
+                if row[2].value == 'V-008':
                     assert standard.row_dimensions[row[1].row].height > 26
         assert standard.freeze_panes == 'A6'
         assert standard.auto_filter.ref == f'A5:F{standard.max_row-1}'
@@ -49,7 +49,7 @@ def test_report_preserves_model_grain_exact_names_colors_and_ready_totals():
         assert list(standard.values)[4] == ('Номер модели','Название товара','Номер варианта','Цвет','Упаковки','Штуки')
         single = workbook['Первый сорт']
         row = next(row for row in single.iter_rows(min_row=6, max_row=single.max_row-1, values_only=True) if row[0] == 'REPORT')
-        assert row == ('REPORT', model.name, '007', 'Синий\nКрасный ', 1, 1)
+        assert row == ('REPORT', model.name, 'V-007', 'Синий\nКрасный ', 1, 1)
 
 
 def test_empty_report_retains_source_headers_and_zero_totals():

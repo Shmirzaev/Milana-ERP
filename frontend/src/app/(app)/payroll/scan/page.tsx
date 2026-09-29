@@ -1,5 +1,6 @@
 "use client";
 
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Calculator,
@@ -1150,7 +1151,7 @@ export default function PayrollScanPage() {
       record.productionNo,
       record.salesOrderNo,
       record.batchNo,
-      record.modelCode,
+      formatModelVariantCode(record.modelCode),
       record.operationSection,
       record.operationCode,
       record.operationName,
@@ -1417,7 +1418,7 @@ export default function PayrollScanPage() {
                   <tr key={record.id}>
                     <td>{new Date(record.scannedAt).toLocaleString(lang)}</td>
                     <td>{record.employeeName}</td>
-                    <td>{record.modelCode}</td>
+                    <td>{formatModelVariantCode(record.modelCode)}</td>
                     <td>{formatOrderReference(record.productionNo)}</td>
                     <td>{record.batchNo}</td>
                     <td>

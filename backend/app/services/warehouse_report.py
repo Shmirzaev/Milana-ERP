@@ -9,6 +9,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from sqlalchemy import func
 from sqlalchemy.orm import load_only, raiseload, selectinload
 
+from app.services.variant_display import format_variant_number
 from app.models import Model, ModelColor, Package
 from app.services.model_identity import model_number_fields
 
@@ -85,7 +86,7 @@ def export_warehouse_report(db, lang: str) -> bytes:
         for index, (_, model_id, packages, pieces) in enumerate(rows):
             model = models.get(model_id)
             identity = model_number_fields(model)
-            values = [identity["model_no"], model.name if model else None, identity["variant_no"],
+            values = [identity["model_no"], model.name if model else None, format_variant_number(identity["variant_no"]),
                       model_colors(model), int(packages), int(pieces or 0)]
             sheet.append(values)
             row_number = sheet.max_row

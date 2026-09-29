@@ -1,4 +1,5 @@
 "use client";
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import { ApiError } from "@/lib/errorMessages";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -2015,7 +2016,7 @@ export default function InventoryPage() {
                     <tr key={`${row.production_order_id}-${row.item_id || row.item_sku || row.item_name}-${row.unit}`}>
                       <td className="mono font-semibold text-[#14110b]">{orderReference(row, row.production_no)}</td>
                       <td>
-                        <div className="mono font-semibold text-[#14110b]">{row.model_code || model?.code || row.model_id}</div>
+                        <div className="mono font-semibold text-[#14110b]">{formatModelVariantCode(row.model_code) || model?.code || row.model_id}</div>
                         <div className="max-w-[220px] truncate text-xs text-[#8a8472]">{modelLabel}</div>
                       </td>
                       <td>{itemPicture(row.item_image_url, row.item_name || t("field.picture"))}</td>
@@ -2082,7 +2083,7 @@ export default function InventoryPage() {
                     <tr key={`${row.production_order_id}-${row.item_id || row.item_sku || row.item_name}-${row.unit}`}>
                       <td className="mono font-semibold text-[#14110b]">{orderReference(row, row.production_no)}</td>
                       <td>
-                        <div className="mono font-semibold text-[#14110b]">{row.model_code || model?.code || row.model_id}</div>
+                        <div className="mono font-semibold text-[#14110b]">{formatModelVariantCode(row.model_code) || model?.code || row.model_id}</div>
                         <div className="max-w-[220px] truncate text-xs text-[#8a8472]">{modelLabel}</div>
                       </td>
                       <td>{itemPicture(row.item_image_url, row.item_name || t("field.picture"))}</td>

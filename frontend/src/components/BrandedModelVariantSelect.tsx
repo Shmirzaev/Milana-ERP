@@ -1,5 +1,6 @@
 "use client";
 
+import { formatVariantNumber } from "@/lib/variantDisplay";
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
@@ -102,14 +103,14 @@ export default function BrandedModelVariantSelect({ value, onChange }: {
         <SearchableSelect
           inputId="branded-variant-number"
           value={selectedVariant?.id || null}
-          options={variants.map((variant) => ({ value: variant.id, label: [variant.variant_no || variant.code, variant.fabric].filter(Boolean).join(" - "), searchText: variant.variant_no || variant.code, imageUrl: variant.picture_url, disabled: variant.status !== "approved", metaText: variant.status !== "approved" ? t("page.planning.variantApprovalRequired") : undefined }))}
+          options={variants.map((variant) => ({ value: variant.id, label: [formatVariantNumber(variant.variant_no) || variant.code, variant.fabric].filter(Boolean).join(" - "), searchText: formatVariantNumber(variant.variant_no) || variant.code, imageUrl: variant.picture_url, disabled: variant.status !== "approved", metaText: variant.status !== "approved" ? t("page.planning.variantApprovalRequired") : undefined }))}
           onChange={(id) => onChange(Number(id))}
           placeholder={t(group ? "page.planning.selectVariant" : "newso.selectModel")}
           noResultsText={t("page.search.noMatches")}
           disabled={!group || !variants.length}
           required={Boolean(group?.variants.length)}
         />
-        {preview(selectedVariant?.picture_url, selectedVariant?.variant_no || t("page.planning.variantNumber"))}
+        {preview(selectedVariant?.picture_url, formatVariantNumber(selectedVariant?.variant_no) || t("page.planning.variantNumber"))}
       </div>
     </div>
   );

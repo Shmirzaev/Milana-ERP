@@ -1,4 +1,5 @@
 "use client";
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
@@ -285,7 +286,7 @@ export default function UslugaPage() {
             <div className="h-24 w-[72px] shrink-0 overflow-hidden rounded-md border border-[#dedbd0] bg-[#f1efe8]">
               {selectedModel.images?.[0]?.file_url ? <VerticalModelPhoto src={storageThumbnailUrl(selectedModel.images[0].file_url, 240)} alt={selectedModel.name} className="h-full w-full" width={144} height={192} /> : null}
             </div>
-            <div className="min-w-0"><div className="mono text-xs text-[#8a8472]">{selectedModel.code}</div><div className="mt-1 font-semibold text-[#242117]">{selectedModel.name}</div><div className="mt-1 text-xs text-[#8a8472]">{selectedModel.category || "—"}</div></div>
+            <div className="min-w-0"><div className="mono text-xs text-[#8a8472]">{formatModelVariantCode(selectedModel.code)}</div><div className="mt-1 font-semibold text-[#242117]">{selectedModel.name}</div><div className="mt-1 text-xs text-[#8a8472]">{selectedModel.category || "—"}</div></div>
           </div> : <p className="mt-3 text-sm text-[#8a8472]">{t("usluga.selectModel")}</p>}
           <dl className="mt-4 space-y-3 text-sm">
             <div className="flex justify-between gap-4"><dt className="text-[#8a8472]">{t("field.quantity")}</dt><dd className="font-semibold tabular-nums">{totalQuantity.toLocaleString()}</dd></div>
@@ -317,7 +318,7 @@ export default function UslugaPage() {
               {filteredOrders.map((order) => <tr key={order.id}>
                 <td><Link href={`/usluga/orders/${order.id}`} className="font-medium text-[#242117] hover:underline">{formatOrderReference(order.order_no)}</Link><div className="mt-0.5 text-xs text-[#8a8472]">{order.customer_reference || "—"}</div></td>
                 <td>{order.customer_name}</td>
-                <td>{order.model ? <Link className="hover:underline" href={`/usluga/models/${order.model.id}`}>{order.model.code} · {order.model.name}</Link> : `#${order.model_id}`}</td>
+                <td>{order.model ? <Link className="hover:underline" href={`/usluga/models/${order.model.id}`}>{formatModelVariantCode(order.model.code)} · {order.model.name}</Link> : `#${order.model_id}`}</td>
                 <td className="tabular-nums">{order.planned_quantity}</td>
                 <td><div className="tabular-nums">{order.material_usage_kg ?? "—"} kg</div><div className="mt-0.5 max-w-48 truncate text-xs text-[#8a8472]">{order.material_description || "—"}</div></td>
                 <td><div className="flex items-center gap-2">{order.work_orders.map((workOrder) => <Link key={workOrder.id} href={workOrderLink(workOrder)} className="inline-flex items-center gap-1 text-xs font-medium text-[#4f493a] underline decoration-[#c8c1ae] underline-offset-2" title={`${workOrder.operation}: ${workOrder.status}`}>{workOrder.operation === "cutting" ? <Scissors className="h-3.5 w-3.5" /> : workOrder.operation === "sewing" ? <Shirt className="h-3.5 w-3.5" /> : <PackageCheck className="h-3.5 w-3.5" />}{workOrder.passed_quantity}/{workOrder.planned_quantity}</Link>)}</div></td>

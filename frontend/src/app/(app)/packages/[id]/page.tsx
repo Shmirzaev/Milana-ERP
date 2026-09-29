@@ -1,4 +1,5 @@
 "use client";
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import Link from "next/link";
 import { firstGradeText } from "@/lib/firstGradeText";
 import { useParams } from "next/navigation";
@@ -42,7 +43,7 @@ export default function PackageDetail() {
           <dl className="space-y-1 text-sm">
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.barcode")}</dt><dd><code>{p.barcode}</code></dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("page.packageDetail.productionOrder")}</dt><dd>{p.production_no || "—"}</dd></div>
-            <div className="flex justify-between"><dt className="text-slate-500">{t("page.packageDetail.mc")}</dt><dd>{p.model_code || "—"} / {p.color}</dd></div>
+            <div className="flex justify-between"><dt className="text-slate-500">{t("page.packageDetail.mc")}</dt><dd>{formatModelVariantCode(p.model_code) || "—"} / {p.color}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.totalQty")}</dt><dd>{p.total_quantity}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.capacity")}</dt><dd>{p.capacity}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.weightKg")}</dt><dd>{p.weight_kg != null ? `${p.weight_kg} kg` : "-"}</dd></div>

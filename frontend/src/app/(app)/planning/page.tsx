@@ -1,4 +1,5 @@
 "use client";
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import { localizeError } from "@/lib/errorMessages";
 import { formatOrderReference } from "@/lib/orderRef";
 import Link from "next/link";
@@ -1027,7 +1028,7 @@ export default function PlanningDashboard() {
                 className="rounded-md border border-[#ecebe3] p-3 text-sm transition hover:border-[#d6d0bf] hover:bg-[#fdf8f2]"
                 href={`/planning/branded-stock?model_id=${row.model_id}&color=${encodeURIComponent(row.color || "")}&size=${encodeURIComponent(row.size || "")}&qty=${row.suggested_quantity}`}
               >
-                <span className="block font-semibold text-[#14110b]">{row.model_code || row.model_id} - {row.color || "-"} / {row.size || "-"}</span>
+                <span className="block font-semibold text-[#14110b]">{formatModelVariantCode(row.model_code) || row.model_id} - {row.color || "-"} / {row.size || "-"}</span>
                 <span className="mt-1 block text-xs text-[#6f684f]">
                   {t("page.forecasting.suggested")}: {fmtQty(row.suggested_quantity)} {row.unit || "pcs"}
                 </span>
@@ -1921,7 +1922,7 @@ export default function PlanningDashboard() {
               </div>
               <div className="flex justify-between gap-4">
                 <span className="text-[#8a8472]">{t("field.model")}</span>
-                <span className="text-right">{selectedBrandedModel ? `${selectedBrandedModel.code} - ${selectedBrandedModel.name}` : "-"}</span>
+                <span className="text-right">{selectedBrandedModel ? `${formatModelVariantCode(selectedBrandedModel.code)} - ${selectedBrandedModel.name}` : "-"}</span>
               </div>
               <div className="flex justify-between gap-4">
                 <span className="text-[#8a8472]">{t("field.brand")}</span>

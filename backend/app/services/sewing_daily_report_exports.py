@@ -18,6 +18,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+from app.services.variant_display import format_variant_number
 from app.schemas.sewing_daily_report import SewingDailyReportListOut, SewingDailyReportOut
 
 
@@ -154,7 +155,7 @@ def _entry_values(row: SewingDailyReportOut, index: int, lang: ReportLanguage) -
         row.section_name or row.section_no or REPORT_TEXT[lang]["none"],
         row.order_no or row.production_no or row.sales_order_no or REPORT_TEXT[lang]["none"],
         row.model_no or row.model_code or REPORT_TEXT[lang]["none"],
-        row.variant_no or REPORT_TEXT[lang]["none"],
+        format_variant_number(row.variant_no) or REPORT_TEXT[lang]["none"],
         row.kroy_no or REPORT_TEXT[lang]["none"],
         int(row.sewn_qty or 0),
         int(row.defective_qty or 0),
@@ -358,7 +359,7 @@ def build_sewing_daily_report_pdf(
     ]]
     for line in report.summary:
         model_labels = sorted({
-            " / ".join(filter(None, [model.model_no or model.model_code, model.variant_no]))
+            " / ".join(filter(None, [model.model_no or model.model_code, format_variant_number(model.variant_no)]))
             for model in line.models
             if model.model_no or model.model_code or model.variant_no
         })

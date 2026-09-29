@@ -1,4 +1,5 @@
 "use client";
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import { formatOrderReference } from "@/lib/orderRef";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
@@ -557,7 +558,7 @@ function ModelCell({ process, showPictures = true }: { process: Process; showPic
         {showMaterial && <PictureThumb imageUrl={process.material_image_url} alt={fabricAlt} />}
       </div>}
       <div className="min-w-0">
-        <div className="break-words text-sm font-medium">{process.model_code || "-"}</div>
+        <div className="break-words text-sm font-medium">{formatModelVariantCode(process.model_code) || "-"}</div>
         <div className="break-words text-xs text-[#8a8472]">{process.model_name || "-"}</div>
         <div className="mt-1 space-y-0.5 text-[10px] leading-tight text-[#8a8472]">
           <div className="break-words">

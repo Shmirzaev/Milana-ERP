@@ -47,7 +47,10 @@ function descendants(node) {
   if (Array.isArray(node)) return node.flatMap(descendants);
   return [node, ...descendants(node.props?.children)];
 }
+const variantDisplay = {};
+vm.runInNewContext(ts.transpile(fs.readFileSync("src/lib/variantDisplay.ts", "utf8"), { module: ts.ModuleKind.CommonJS }), { exports: variantDisplay });
 const dependencies = {
+  "@/lib/variantDisplay": variantDisplay,
   react: hooks, "react/jsx-runtime": { jsx, jsxs: jsx },
   "@/lib/i18n": { useT: () => ({ t: (key) => key }) },
   "@/lib/modelCode": { modelCodeParts: () => ({ modelNo: "PJ1236" }), normalizeModelSearch: (value) => value.toLowerCase() },

@@ -1,4 +1,5 @@
 "use client";
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import { useState } from "react";
 import Link from "next/link";
 import useSWR from "swr";
@@ -74,7 +75,7 @@ export default function ProductionOrdersPage() {
                 <td className="font-medium">{orderReference(p, p.production_no)}</td>
                 <td><span className="badge badge-blue">{productionTypeLabel(p.production_type, t)}</span></td>
                 <td>
-                  <div className="font-medium text-sm">{modelMap.get(p.model_id)?.code ?? p.model_id}</div>
+                  <div className="font-medium text-sm">{formatModelVariantCode(modelMap.get(p.model_id)?.code) || p.model_id}</div>
                   <div className="text-xs text-slate-500">{modelMap.get(p.model_id)?.name ?? ""}</div>
                 </td>
                 <td>{p.planned_quantity}</td>
