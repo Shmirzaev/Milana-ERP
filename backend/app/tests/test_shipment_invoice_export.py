@@ -71,7 +71,8 @@ def test_excel_endpoint_reuses_frozen_invoice_and_does_not_write(client, auth_he
     assert sheet["J10"].value == 10 and sheet["K10"].value == sheet["K11"].value == 80
     hidden_excel = client.get(base + "/invoice.xlsx?lang=uz&show_prices=false", headers=auth_headers)
     hidden_sheet = load_workbook(BytesIO(hidden_excel.content)).active
-    assert hidden_sheet.max_column == 9 and hidden_sheet["G11"].value == 8
+    assert hidden_sheet.max_column == 11 and hidden_sheet["G11"].value == 8
+    assert hidden_sheet["J10"].value is hidden_sheet["K10"].value is hidden_sheet["K11"].value is None
     hidden_print = client.get(base + "/invoice/print?lang=uz&show_prices=false", headers=auth_headers)
     assert hidden_print.status_code == 200
     assert "80.00" not in hidden_print.text and "10.00" not in hidden_print.text
@@ -141,9 +142,10 @@ def test_price_columns_and_hidden_exports_preserve_saved_amounts(lang, price, am
     for visible in (True, False):
         html = render_shipment_invoice(document, lang, show_prices=visible)
         sheet = load_workbook(BytesIO(shipment_invoice_workbook(document, lang, show_prices=visible))).active
-        assert sheet.max_column == (11 if visible else 9)
-        assert (f"<th scope='col'>{LABELS[lang]['price']}</th>" in html) == visible
-        assert (f"<th scope='col'>{LABELS[lang]['amount']}</th>" in html) == visible
+        assert sheet.max_column == 11
+        assert f"<th scope='col'>{LABELS[lang]['price']}</th>" in html
+        assert f"<th scope='col'>{LABELS[lang]['amount']}</th>" in html
+        assert sheet["J9"].value == LABELS[lang]["price"] and sheet["K9"].value == LABELS[lang]["amount"]
         assert sheet["G11"].value == 3 and sheet["I11"].value == 1.25
         if visible:
             assert sheet["J10"].value == (float(price) if price is not None else "—")
@@ -151,6 +153,10 @@ def test_price_columns_and_hidden_exports_preserve_saved_amounts(lang, price, am
             assert sheet["K11"].value == 36500
             assert "36\u00a0500.00" in html and "&lt;review&gt;" in html
         else:
+            assert sheet["J10"].value is sheet["K10"].value is sheet["K11"].value is None
+            assert sheet["J10"].border.left.style and sheet["K10"].border.right.style
+            assert '<td class="numeric"></td><td class="numeric"></td></tr>' in html
+            assert '<td></td><td class="numeric"></td></tr>' in html
             assert "36500" not in html and "36\u00a0500.00" not in html
             assert "Agreed" not in html
             assert not any("Agreed" in str(cell.value) for row in sheet for cell in row)

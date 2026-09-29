@@ -24,7 +24,7 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Invoice"
-    widths = invoice_column_widths(show_prices)
+    widths = invoice_column_widths()
     last_column = len(widths)
     for column, width in enumerate(widths, 1):
         sheet.column_dimensions[get_column_letter(column)].width = width
@@ -64,7 +64,7 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
             sheet.cell(row, column).border = Border(bottom=Side(style="hair", color="E1E4E7"))
         sheet.row_dimensions[row].height = 20
     sheet.row_dimensions[8].height = 16
-    headers = invoice_headers(lang, show_prices)
+    headers = invoice_headers(lang)
     for column, title in enumerate(headers, 1):
         put(9, column, title, bold=True, fill="243446", color="FFFFFF", align="center", size=7)
     sheet.row_dimensions[9].height = 22
@@ -87,6 +87,8 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
                   item["pack_count"] if span else None, item["quantity"], displayed_weight, displayed_weight]
         if show_prices:
             values.extend(float(Decimal(str(item[key]))) if item.get(key) is not None else "—" for key in ("unit_price", "amount"))
+        else:
+            values.extend([None, None])
         for column, value in enumerate(values, 1):
             cell = put(row, column, value, fill="F3F6F8" if index % 2 == 0 else "FFFFFF",
                        align="right" if column >= 6 else "left" if column in (4, 5) else "center",
@@ -105,11 +107,10 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
     for column, value in enumerate([document["packages_count"], document["quantity"], float(recorded_weight(document)), float(recorded_weight(document))], 6):
         cell = put(total_row, column, value, bold=True, fill="E8F1EC", color="174A35", align="right")
         cell.number_format = '#,##0.00' if column >= 8 else '#,##0'
-    if show_prices:
-        put(total_row, 10, None, fill="E8F1EC")
-        amount = float(Decimal(str(document["amount"]))) if document.get("amount") is not None else "—"
-        cell = put(total_row, 11, amount, bold=True, fill="E8F1EC", color="174A35", align="right", size=7)
-        cell.number_format = '#,##0.00'
+    put(total_row, 10, None, fill="E8F1EC")
+    amount = (float(Decimal(str(document["amount"]))) if document.get("amount") is not None else "—") if show_prices else None
+    cell = put(total_row, 11, amount, bold=True, fill="E8F1EC", color="174A35", align="right", size=7)
+    cell.number_format = '#,##0.00'
     sheet.row_dimensions[total_row].height = 22
     notes = invoice_notes(document, lang)
     if show_prices:
