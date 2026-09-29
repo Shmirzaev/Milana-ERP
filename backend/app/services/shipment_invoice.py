@@ -66,7 +66,7 @@ def build_invoice_rows(lines: list[dict], packages: list[dict]) -> list[dict]:
 
 
 LABELS = {
-    "en": {"pending_price": "Price pending. Not posted to Finance.", "draft": "Draft invoice — shipment not dispatched.", "title": "Warehouse invoice", "posting": "Unposted to Finance until delivery.", "print": "Print", "order": "Sales order", "customer": "Customer",
+    "en": {"hide_prices": "Hide prices", "show_prices": "Show prices", "pending_price": "Price pending. Not posted to Finance.", "draft": "Draft invoice — shipment not dispatched.", "title": "Warehouse invoice", "posting": "Unposted to Finance until delivery.", "print": "Print", "order": "Sales order", "customer": "Customer",
            "date": "Shipped", "pack": "Package", "model": "Model / variant", "color": "Color", "size": "Size",
            "qty": "Pieces", "price": "Unit price", "amount": "Amount", "total": "Total", "packs": "Packages",
            "calculated": "Calculated amount", "adjustment": "Warehouse adjustment", "net": "Net prices. No tax calculation.",
@@ -75,7 +75,7 @@ LABELS = {
            "issued": "Warehouse keeper", "received": "Received by", "ledger": "Ledger invoice",
            "historical": "Historical shipment: reconstructed from current records; original financial snapshot unavailable.",
            "missing": "Price unavailable", "signature": "Issued by / Received by"},
-    "ru": {"pending_price": "Цена не указана. Не проведено в финансах.", "draft": "Черновик накладной — отгрузка не выполнена.", "title": "Складская накладная", "posting": "Не проведён в финансах до подтверждения доставки.", "print": "Печать", "order": "Заказ", "customer": "Клиент",
+    "ru": {"hide_prices": "Скрыть цены", "show_prices": "Показать цены", "pending_price": "Цена не указана. Не проведено в финансах.", "draft": "Черновик накладной — отгрузка не выполнена.", "title": "Складская накладная", "posting": "Не проведён в финансах до подтверждения доставки.", "print": "Печать", "order": "Заказ", "customer": "Клиент",
            "date": "Отгружено", "pack": "Упаковка", "model": "Модель / вариант", "color": "Цвет", "size": "Размер",
            "qty": "Штук", "price": "Цена", "amount": "Сумма", "total": "Итого", "packs": "Упаковок",
            "calculated": "Расчётная сумма", "adjustment": "Корректировка склада", "net": "Цены нетто. Налог не рассчитывается.",
@@ -84,7 +84,7 @@ LABELS = {
            "issued": "Кладовщик", "received": "Получил", "ledger": "Финансовый счёт",
            "historical": "Историческая отгрузка: данные восстановлены из текущих записей; исходный финансовый снимок отсутствует.",
            "missing": "Цена не указана", "signature": "Отпустил / Получил"},
-    "uz": {"pending_price": "Narx kutilmoqda. Moliyaga o‘tkazilmagan.", "draft": "Hisob-faktura qoralamasi — jo‘natma hali jo‘natilmagan.", "title": "Ombor hisob-fakturasi", "posting": "Yetkazish tasdiqlanmaguncha Moliyaga o‘tkazilmagan.", "print": "Chop etish", "order": "Buyurtma", "customer": "Mijoz",
+    "uz": {"hide_prices": "Narxlarni yashirish", "show_prices": "Narxlarni ko‘rsatish", "pending_price": "Narx kutilmoqda. Moliyaga o‘tkazilmagan.", "draft": "Hisob-faktura qoralamasi — jo‘natma hali jo‘natilmagan.", "title": "Ombor hisob-fakturasi", "posting": "Yetkazish tasdiqlanmaguncha Moliyaga o‘tkazilmagan.", "print": "Chop etish", "order": "Buyurtma", "customer": "Mijoz",
            "date": "Jo‘natilgan", "pack": "Qadoq", "model": "Model / variant", "color": "Rang", "size": "O‘lcham",
            "qty": "Dona", "price": "Narx", "amount": "Summa", "total": "Jami", "packs": "Qadoqlar",
            "calculated": "Hisoblangan summa", "adjustment": "Ombor tuzatishi", "net": "Sof narxlar. Soliq hisoblanmaydi.",
@@ -132,11 +132,26 @@ def invoice_metadata(document: dict, text: dict) -> list[tuple]:
     ]
 
 
-def invoice_headers(lang: str) -> list[str]:
+def invoice_headers(lang: str, show_prices: bool = True) -> list[str]:
     text = LABELS[lang]
     return ["№", text["modelNo"], text["variant"], text["description"], text["size"],
             {"en": "Packs", "ru": "Упак.", "uz": "Qadoq"}[lang],
-            text["qty"], text["weight"], text["totalWeight"]]
+            text["qty"], text["weight"], text["totalWeight"]] + ([text["price"], text["amount"]] if show_prices else [])
+
+
+def invoice_column_widths(show_prices: bool) -> list[int]:
+    return [3, 8, 8, 16, 16, 5, 7, 8, 8, 10, 11] if show_prices else [4, 10, 9, 22, 25, 6, 8, 8, 8]
+
+
+def invoice_price_notes(document: dict, lang: str) -> list[str]:
+    """Explain saved total overrides without inventing per-item prices."""
+    text = LABELS[lang]
+    notes = []
+    if document.get("adjustment_reason"):
+        calculated = document.get("calculated_amount")
+        amount = format(Decimal(str(calculated)), ",.2f").replace(",", "\u00a0") if calculated is not None else "—"
+        notes.extend([f'{text["calculated"]}: {amount}', f'{text["adjustment"]}: {document["adjustment_reason"]}'])
+    return notes
 
 
 def invoice_notes(document: dict, lang: str) -> list[str]:
@@ -166,7 +181,7 @@ def recorded_weight(document: dict) -> Decimal:
     return Decimal(str(document.get("total_weight_kg") or "0"))
 
 
-def render_shipment_invoice(document: dict, language: str) -> str:
+def render_shipment_invoice(document: dict, language: str, *, show_prices: bool = True) -> str:
     lang = language if language in LABELS else "en"
     text = LABELS[lang]
 
@@ -200,10 +215,12 @@ def render_shipment_invoice(document: dict, language: str) -> str:
         span = row["package_rowspan"]
         pack_cell = f'<td rowspan="{span}" class="numeric">{number(row["pack_count"], 0)}</td>' if span else ""
         weight_cells = f'<td rowspan="{span}" class="numeric">{weight(row.get("weight_kg"))}</td>' * 2 if span else ""
+        price_cells = (f'<td class="numeric">{weight(row.get("unit_price"))}</td>'
+                       f'<td class="numeric">{weight(row.get("amount"))}</td>') if show_prices else ""
         body.append(f'<tr><td class="row-number">{index}</td><td class="identity">{value(row.get("model_no"))}</td>'
                     f'<td>{value(format_variant_number(row.get("variant_no")))}</td><td class="description">{value(row.get("description"))}</td>'
                     f'<td class="sizes">{sizes}</td>{pack_cell}<td class="numeric">{number(row["quantity"], 0)}</td>'
-                    f'{weight_cells}</tr>')
+                    f'{weight_cells}{price_cells}</tr>')
     notes = invoice_notes(document, lang)
     warning = "".join(f'<p class="warning">{value(caution)}</p>' for caution in notes[:-1])
     posting = value(notes[-1])
@@ -211,14 +228,18 @@ def render_shipment_invoice(document: dict, language: str) -> str:
     metadata_html = "".join(f'<tr><th>{value(left)}</th><td>{value(left_value) or "—"}</td>'
                             f'<th>{value(right)}</th><td>{value(right_value) or "—"}</td></tr>'
                             for left, left_value, right, right_value in metadata)
-    headers = invoice_headers(lang)
-    columns = "".join(f'<col style="width:{width}%">' for width in [4, 10, 9, 22, 25, 6, 8, 8, 8])
+    headers = invoice_headers(lang, show_prices)
+    columns = "".join(f'<col style="width:{width}%">' for width in invoice_column_widths(show_prices))
+    money_total = f'<td></td><td class="numeric">{weight(document.get("amount"))}</td>' if show_prices else ""
+    price_notes = "".join(f'<p>{value(note)}</p>' for note in invoice_price_notes(document, lang)) if show_prices else ""
+    toggle_url = f'?lang={lang}&amp;show_prices={str(not show_prices).lower()}'
+    toggle_text = text["hide_prices" if show_prices else "show_prices"]
     weights = number(recorded_weight(document))
     return f'''<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>{text["title"]} {value(document["shipment_no"])}</title>
 <style>
 *{{box-sizing:border-box}}body{{font:400 8pt "Helvetica Neue",Arial,sans-serif;line-height:1.3;color:#202124;background:#fff;margin:20px auto;max-width:190mm;padding:0}}
-.controls{{margin-bottom:16px}}button{{font:inherit;padding:8px 16px;background:#fff;border:1px solid #b9bec4;border-radius:4px;cursor:pointer}}
+.controls{{margin-bottom:16px;display:flex;gap:8px}}button,.controls a{{color:inherit;text-decoration:none;font:inherit;padding:8px 16px;background:#fff;border:1px solid #b9bec4;border-radius:4px;cursor:pointer}}
 .masthead{{display:flex;align-items:center;justify-content:space-between;gap:10mm;padding:0 0 4mm;border-bottom:1.5pt solid #b82025;break-inside:avoid}}
 h1{{font-size:16pt;line-height:1.2;font-weight:700;margin:2mm 0;color:#243446}}.supplier{{margin:0;font-size:10pt}}.document-number{{margin:2mm 0 0;color:#9b242b;font-size:8pt;font-weight:700}}
 .logo{{width:38mm;height:auto;display:block;flex:none}}
@@ -241,13 +262,13 @@ thead{{display:table-header-group}}tr{{break-inside:avoid}}.items tbody:first-of
 @page{{size:A4 portrait;margin:10mm;@bottom-right{{content:counter(page) " / " counter(pages);font:8pt Arial,sans-serif;color:#67717a}}}}
 @media print{{body{{margin:0;max-width:none;width:100%}}.controls{{display:none}}*{{print-color-adjust:exact;-webkit-print-color-adjust:exact}}}}
 @media screen and (max-width:740px){{body{{min-width:700px;margin:16px}}}}
-</style></head><body><div class="controls"><button onclick="window.print()">{text["print"]}</button></div>
+</style></head><body><div class="controls"><button onclick="window.print()">{text["print"]}</button><a href="{toggle_url}">{toggle_text}</a></div>
 <header class="masthead"><div><p class="supplier">{value(document.get("supplier") or "Milana Tex")}</p><h1>{text["title"]}</h1>
 <p class="document-number">{value(document["shipment_no"])}</p></div><img class="logo" src="{invoice_logo_uri()}" alt="Milana Premium"></header>
 <table class="meta"><colgroup><col style="width:16%"><col style="width:34%"><col style="width:21%"><col style="width:29%"></colgroup><tbody>{metadata_html}</tbody></table>
 <table class="items"><colgroup>{columns}</colgroup><thead><tr>{"".join(f"<th scope='col'>{header}</th>" for header in headers)}</tr></thead>
 <tbody>{"".join(body)}</tbody><tbody><tr class="totals"><td class="total-label" colspan="5">{text["total"]}</td>
 <td class="numeric">{number(document["packages_count"], 0)}</td><td class="numeric">{number(document["quantity"], 0)}</td>
-<td class="numeric">{weights}</td><td class="numeric">{weights}</td></tr></tbody></table>
-<div class="accounting">{warning}<p>{posting}</p></div>
+<td class="numeric">{weights}</td><td class="numeric">{weights}</td>{money_total}</tr></tbody></table>
+<div class="accounting">{warning}{price_notes}<p>{posting}</p></div>
 <div class="signatures"><div>{text["issued"]}: {value(document.get("warehouse_person")) or "________________"}</div><div>{text["received"]}</div></div></body></html>'''

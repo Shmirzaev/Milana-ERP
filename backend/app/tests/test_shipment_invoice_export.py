@@ -68,6 +68,15 @@ def test_excel_endpoint_reuses_frozen_invoice_and_does_not_write(client, auth_he
     assert "spreadsheetml.sheet" in response.headers["content-type"]
     sheet = load_workbook(BytesIO(response.content)).active
     assert sheet["G11"].value == 8
+    assert sheet["J10"].value == 10 and sheet["K10"].value == sheet["K11"].value == 80
+    hidden_excel = client.get(base + "/invoice.xlsx?lang=uz&show_prices=false", headers=auth_headers)
+    hidden_sheet = load_workbook(BytesIO(hidden_excel.content)).active
+    assert hidden_sheet.max_column == 9 and hidden_sheet["G11"].value == 8
+    hidden_print = client.get(base + "/invoice/print?lang=uz&show_prices=false", headers=auth_headers)
+    assert hidden_print.status_code == 200
+    assert "80.00" not in hidden_print.text and "10.00" not in hidden_print.text
+    assert 'show_prices=true' in hidden_print.text
+    assert client.get(base + "/invoice/print?show_prices=false").status_code == 401
     with SessionLocal() as db:
         assert db.get(Shipment, dispatch["shipment"]).dispatch_snapshot == before
 
@@ -115,3 +124,34 @@ def test_invoice_pdf_excel_share_identity_metadata_notes_and_portrait_layout(lan
         assert note in values and note in html
     assert f'{labels["issued"]}: Storage' in values and labels["received"] in values
     assert document == original
+
+
+@pytest.mark.parametrize("lang", ["en", "ru", "uz"])
+@pytest.mark.parametrize("price,amount", [("12345.67", "37037.01"), ("0.00", "0.00"), (None, None)])
+def test_price_columns_and_hidden_exports_preserve_saved_amounts(lang, price, amount):
+    from app.services.shipment_invoice import LABELS
+    document = {
+        "shipment_no": "PRICE-CHECK", "invoice_layout_version": 2, "packages_count": 1, "quantity": 3,
+        "package_details": [{"package_no": "P", "quantity": 3, "weight_kg": "1.25"}],
+        "lines": [{"package_no": "P", "model_no": "PJ1", "variant_no": "007", "size": "M", "quantity": 3,
+                   "unit_price": price, "amount": amount}],
+        "amount": "36500.00", "calculated_amount": amount, "adjustment_reason": "Agreed 36500 total <review>",
+    }
+    before = deepcopy(document)
+    for visible in (True, False):
+        html = render_shipment_invoice(document, lang, show_prices=visible)
+        sheet = load_workbook(BytesIO(shipment_invoice_workbook(document, lang, show_prices=visible))).active
+        assert sheet.max_column == (11 if visible else 9)
+        assert (f"<th scope='col'>{LABELS[lang]['price']}</th>" in html) == visible
+        assert (f"<th scope='col'>{LABELS[lang]['amount']}</th>" in html) == visible
+        assert sheet["G11"].value == 3 and sheet["I11"].value == 1.25
+        if visible:
+            assert sheet["J10"].value == (float(price) if price is not None else "—")
+            assert sheet["K10"].value == (float(amount) if amount is not None else "—")
+            assert sheet["K11"].value == 36500
+            assert "36\u00a0500.00" in html and "&lt;review&gt;" in html
+        else:
+            assert "36500" not in html and "36\u00a0500.00" not in html
+            assert "Agreed" not in html
+            assert not any("Agreed" in str(cell.value) for row in sheet for cell in row)
+    assert document == before

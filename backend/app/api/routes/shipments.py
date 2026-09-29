@@ -1266,22 +1266,22 @@ def shipment_invoice(sid: int, db: DbSession,
 
 
 @router.get("/{sid}/invoice/print", response_class=HTMLResponse)
-def print_shipment_invoice(sid: int, db: DbSession, lang: str = "en",
+def print_shipment_invoice(sid: int, db: DbSession, lang: str = "en", show_prices: bool = True,
                             _: User = Depends(require_permissions("storage.shipment", "sales.orders", "finance.view", "*"))):
     shipment = db.get(Shipment, sid)
     if not shipment:
         raise HTTPException(404, "Shipment not found")
-    return warehouse_print_response(render_shipment_invoice(_printed_document(db, shipment), lang))
+    return warehouse_print_response(render_shipment_invoice(_printed_document(db, shipment), lang, show_prices=show_prices))
 
 
 @router.get("/{sid}/invoice.xlsx")
-def export_shipment_invoice(sid: int, db: DbSession, lang: str = "en",
+def export_shipment_invoice(sid: int, db: DbSession, lang: str = "en", show_prices: bool = True,
                             _: User = Depends(require_permissions("storage.shipment", "sales.orders", "finance.view", "*"))):
     from app.services.shipment_invoice_excel import shipment_invoice_workbook
     shipment = db.get(Shipment, sid)
     if not shipment:
         raise HTTPException(404, "Shipment not found")
-    return Response(shipment_invoice_workbook(_printed_document(db, shipment), lang),
+    return Response(shipment_invoice_workbook(_printed_document(db, shipment), lang, show_prices=show_prices),
                     media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     headers={"Content-Disposition": 'attachment; filename="shipment-invoice.xlsx"; filename*=UTF-8\'\'' + quote(shipment.shipment_no + "-invoice.xlsx", safe=""), "Cache-Control": "no-store"})
 
