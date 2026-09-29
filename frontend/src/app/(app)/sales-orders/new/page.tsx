@@ -8,6 +8,7 @@ import { modelOptionsByIdsFetcher, modelOptionsByIdsKey } from "@/lib/useModelOp
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import ModelAsyncSelect from "@/components/ModelAsyncSelect";
+import SalesLineThumbnails from "@/components/SalesLineThumbnails";
 import SearchableSelect from "@/components/SearchableSelect";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
@@ -592,6 +593,7 @@ export default function NewSalesOrderPage() {
                               />
                             </div>
                           )}
+                          <SalesLineThumbnails key={l.model_id} modelId={l.model_id} />
                         </td>
                         {!isBrandedOrder && <>
                           <td className="align-top"><input className="input min-w-28" value={l.color} onChange={(e) => updateLine(i, "color", e.target.value)} /></td>
