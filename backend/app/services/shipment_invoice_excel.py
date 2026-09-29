@@ -13,18 +13,19 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.page import PageMargins
 
 from app.services.shipment_invoice import (
-    LABELS, build_invoice_rows, invoice_headers,
-    invoice_metadata, invoice_notes, recorded_weight,
+    LABELS, build_invoice_rows, invoice_column_widths, invoice_headers,
+    invoice_metadata, invoice_notes, invoice_price_notes, recorded_weight,
 )
 
 
-def shipment_invoice_workbook(document: dict, language: str) -> bytes:
+def shipment_invoice_workbook(document: dict, language: str, *, show_prices: bool = True) -> bytes:
     lang = language if language in LABELS else "en"
     text = LABELS[lang]
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Invoice"
-    widths = [4, 10, 9, 22, 25, 6, 8, 8, 8]
+    widths = invoice_column_widths(show_prices)
+    last_column = len(widths)
     for column, width in enumerate(widths, 1):
         sheet.column_dimensions[get_column_letter(column)].width = width
 
@@ -43,27 +44,27 @@ def shipment_invoice_workbook(document: dict, language: str) -> bytes:
         sheet.merge_cells(start_row=row, start_column=first, end_row=row, end_column=last)
         put(row, first, value, **style)
 
-    merged(1, 1, 6, document.get("supplier") or "Milana Tex", size=10)
-    merged(2, 1, 6, text["title"], bold=True, color="243446", size=16)
-    merged(3, 1, 6, document["shipment_no"], bold=True, color="9B242B")
+    merged(1, 1, last_column - 3, document.get("supplier") or "Milana Tex", size=10)
+    merged(2, 1, last_column - 3, text["title"], bold=True, color="243446", size=16)
+    merged(3, 1, last_column - 3, document["shipment_no"], bold=True, color="9B242B")
     sheet.row_dimensions[1].height = 18
     sheet.row_dimensions[2].height = 28
     sheet.row_dimensions[3].height = 34
     logo = Image(Path(__file__).resolve().parents[1] / "assets" / "milana-premium-logo.png")
     logo.width, logo.height = 144, 83
-    sheet.add_image(logo, "G1")
-    for column in range(1, 10):
+    sheet.add_image(logo, f"{get_column_letter(last_column - 2)}1")
+    for column in range(1, last_column + 1):
         sheet.cell(3, column).border = Border(bottom=Side(style="medium", color="B82025"))
     for row, (left, lv, right, rv) in enumerate(invoice_metadata(document, text), 4):
         merged(row, 1, 2, left, color="575E66", size=7)
         merged(row, 3, 4, lv or "—", bold=True)
         put(row, 5, right, color="575E66", size=7)
-        merged(row, 6, 9, rv or "—", bold=True)
-        for column in range(1, 10):
+        merged(row, 6, last_column, rv or "—", bold=True)
+        for column in range(1, last_column + 1):
             sheet.cell(row, column).border = Border(bottom=Side(style="hair", color="E1E4E7"))
         sheet.row_dimensions[row].height = 20
     sheet.row_dimensions[8].height = 16
-    headers = invoice_headers(lang)
+    headers = invoice_headers(lang, show_prices)
     for column, title in enumerate(headers, 1):
         put(9, column, title, bold=True, fill="243446", color="FFFFFF", align="center", size=7)
     sheet.row_dimensions[9].height = 22
@@ -84,6 +85,8 @@ def shipment_invoice_workbook(document: dict, language: str) -> bytes:
         displayed_weight = weight if weight is not None else "—" if span else None
         values = [index, item.get("model_no"), format_variant_number(item.get("variant_no")), item.get("description"), size_text,
                   item["pack_count"] if span else None, item["quantity"], displayed_weight, displayed_weight]
+        if show_prices:
+            values.extend(float(Decimal(str(item[key]))) if item.get(key) is not None else "—" for key in ("unit_price", "amount"))
         for column, value in enumerate(values, 1):
             cell = put(row, column, value, fill="F3F6F8" if index % 2 == 0 else "FFFFFF",
                        align="right" if column >= 6 else "left" if column in (4, 5) else "center",
@@ -102,15 +105,22 @@ def shipment_invoice_workbook(document: dict, language: str) -> bytes:
     for column, value in enumerate([document["packages_count"], document["quantity"], float(recorded_weight(document)), float(recorded_weight(document))], 6):
         cell = put(total_row, column, value, bold=True, fill="E8F1EC", color="174A35", align="right")
         cell.number_format = '#,##0.00' if column >= 8 else '#,##0'
+    if show_prices:
+        put(total_row, 10, None, fill="E8F1EC")
+        amount = float(Decimal(str(document["amount"]))) if document.get("amount") is not None else "—"
+        cell = put(total_row, 11, amount, bold=True, fill="E8F1EC", color="174A35", align="right", size=7)
+        cell.number_format = '#,##0.00'
     sheet.row_dimensions[total_row].height = 22
     notes = invoice_notes(document, lang)
+    if show_prices:
+        notes = notes[:-1] + invoice_price_notes(document, lang) + notes[-1:]
     for row, note in enumerate(notes, total_row + 2):
-        merged(row, 1, 9, note, color="575E66")
+        merged(row, 1, last_column, note, color="575E66")
         sheet.row_dimensions[row].height = 24
     signature_row = total_row + len(notes) + 3
     merged(signature_row, 1, 4, f'{text["issued"]}: {document.get("warehouse_person") or "________________"}', color="51565D")
-    merged(signature_row, 6, 9, text["received"], color="51565D")
-    for column in (*range(1, 5), *range(6, 10)):
+    merged(signature_row, last_column - 3, last_column, text["received"], color="51565D")
+    for column in (*range(1, 5), *range(last_column - 3, last_column + 1)):
         sheet.cell(signature_row, column).border = Border(top=Side(style="thin", color="939BA3"))
     sheet.row_dimensions[signature_row].height = 24
     sheet.freeze_panes = "D10"
@@ -123,7 +133,7 @@ def shipment_invoice_workbook(document: dict, language: str) -> bytes:
     sheet.page_setup.fitToHeight = 0
     sheet.sheet_properties.pageSetUpPr.fitToPage = True
     sheet.page_margins = PageMargins(left=10 / 25.4, right=10 / 25.4, top=10 / 25.4, bottom=10 / 25.4, header=0, footer=5 / 25.4)
-    sheet.print_area = f"A1:I{sheet.max_row}"
+    sheet.print_area = f"A1:{get_column_letter(last_column)}{sheet.max_row}"
     sheet.oddFooter.right.text = "&P / &N"
     output = BytesIO()
     workbook.save(output)
