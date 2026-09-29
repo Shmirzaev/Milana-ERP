@@ -197,7 +197,7 @@ def test_selected_labels_after_shipment_keep_client_balance(client, warehouse):
     assert "Mixed" not in html and "Sof narxlar" not in html
     assert "Narx</th>" in html and "Summa</th>" in html
     hidden = client.get(f"/api/shipments/{sid}/invoice/print?lang=uz&show_prices=false", headers=warehouse).text
-    assert "Narx</th>" not in hidden and "Summa</th>" not in hidden
+    assert "Narx</th>" in hidden and "Summa</th>" in hidden
     assert "32.50" not in hidden and "2.50" not in hidden
     target = f"/api/packages/print-runs/{run['id']}/manual-packages?package_ids={first}"
     assert client.delete(target, headers=warehouse).status_code == 200

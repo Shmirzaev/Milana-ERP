@@ -132,15 +132,15 @@ def invoice_metadata(document: dict, text: dict) -> list[tuple]:
     ]
 
 
-def invoice_headers(lang: str, show_prices: bool = True) -> list[str]:
+def invoice_headers(lang: str) -> list[str]:
     text = LABELS[lang]
     return ["№", text["modelNo"], text["variant"], text["description"], text["size"],
             {"en": "Packs", "ru": "Упак.", "uz": "Qadoq"}[lang],
-            text["qty"], text["weight"], text["totalWeight"]] + ([text["price"], text["amount"]] if show_prices else [])
+            text["qty"], text["weight"], text["totalWeight"], text["price"], text["amount"]]
 
 
-def invoice_column_widths(show_prices: bool) -> list[int]:
-    return [3, 8, 8, 16, 16, 5, 7, 8, 8, 10, 11] if show_prices else [4, 10, 9, 22, 25, 6, 8, 8, 8]
+def invoice_column_widths() -> list[int]:
+    return [3, 8, 8, 16, 16, 5, 7, 8, 8, 10, 11]
 
 
 def invoice_price_notes(document: dict, lang: str) -> list[str]:
@@ -216,7 +216,7 @@ def render_shipment_invoice(document: dict, language: str, *, show_prices: bool 
         pack_cell = f'<td rowspan="{span}" class="numeric">{number(row["pack_count"], 0)}</td>' if span else ""
         weight_cells = f'<td rowspan="{span}" class="numeric">{weight(row.get("weight_kg"))}</td>' * 2 if span else ""
         price_cells = (f'<td class="numeric">{weight(row.get("unit_price"))}</td>'
-                       f'<td class="numeric">{weight(row.get("amount"))}</td>') if show_prices else ""
+                       f'<td class="numeric">{weight(row.get("amount"))}</td>') if show_prices else '<td class="numeric"></td><td class="numeric"></td>'
         body.append(f'<tr><td class="row-number">{index}</td><td class="identity">{value(row.get("model_no"))}</td>'
                     f'<td>{value(format_variant_number(row.get("variant_no")))}</td><td class="description">{value(row.get("description"))}</td>'
                     f'<td class="sizes">{sizes}</td>{pack_cell}<td class="numeric">{number(row["quantity"], 0)}</td>'
@@ -228,9 +228,9 @@ def render_shipment_invoice(document: dict, language: str, *, show_prices: bool 
     metadata_html = "".join(f'<tr><th>{value(left)}</th><td>{value(left_value) or "—"}</td>'
                             f'<th>{value(right)}</th><td>{value(right_value) or "—"}</td></tr>'
                             for left, left_value, right, right_value in metadata)
-    headers = invoice_headers(lang, show_prices)
-    columns = "".join(f'<col style="width:{width}%">' for width in invoice_column_widths(show_prices))
-    money_total = f'<td></td><td class="numeric">{weight(document.get("amount"))}</td>' if show_prices else ""
+    headers = invoice_headers(lang)
+    columns = "".join(f'<col style="width:{width}%">' for width in invoice_column_widths())
+    money_total = f'<td></td><td class="numeric">{weight(document.get("amount")) if show_prices else ""}</td>'
     price_notes = "".join(f'<p>{value(note)}</p>' for note in invoice_price_notes(document, lang)) if show_prices else ""
     toggle_url = f'?lang={lang}&amp;show_prices={str(not show_prices).lower()}'
     toggle_text = text["hide_prices" if show_prices else "show_prices"]
