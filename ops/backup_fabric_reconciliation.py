@@ -30,7 +30,7 @@ run(command, env=env)
 listing = run(['docker', 'run', '--rm', '--network', 'none', '-v', directory+':/backup:ro',
                'postgres:16-alpine', 'pg_restore', '--list', '/backup/'+name])
 objects = sum(bool(line.strip()) and not line.startswith(b';') for line in listing.splitlines())
-metadata = json.loads(run(['docker', 'run', '--rm', '--network', 'none', '--read-only',
+metadata = json.loads(run(['docker', 'run', '--rm', '--user', '0', '--network', 'none', '--read-only',
     '-v', directory+':/backup:ro', '--entrypoint', 'python',
     'ghcr.io/shmirzaev/milana-erp-backend:20260930_053552', '-c',
     'import json,hashlib,pathlib; p=pathlib.Path("/backup/'+name+'"); '
