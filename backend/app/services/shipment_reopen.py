@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models import (FinishedGoodsStock, IdempotencyRecord, Invoice, Package, PackageItem,
                         PackageScanLog, Payment, SalesOrder, Shipment, ShipmentPackage,
-                        ShipmentScanLog, StockReservation, User)
+                        StockReservation, User)
 from app.schemas.shipment_review import ShipmentReopen
 from app.services.audit import log_action
 from app.services.packages import _sync_package_production
@@ -100,9 +100,8 @@ def reopen_shipment(db: Session, sid: int, payload: ShipmentReopen, user: User) 
         package.status = "reserved" if any(reserved[s.id] for s in by_package[package.id]) else "received_in_storage"
         package.shipped_at = None
         db.add(PackageScanLog(package_id=package.id, scanned_by=user.id, scan_type="returned"))
-        # Preserve the original scans, but invalidate them for the next dispatch.
-        db.add(ShipmentScanLog(shipment_id=sid, package_id=package.id, scanned_code=package.barcode,
-                              scan_result="detached", message=payload.reason.strip(), scanned_by=user.id))
+        # The package stays attached, so its original verification remains valid.
+        # Actual package removal still invalidates scans in detach_shipment_package.
     for invoice in invoices:
         invoice.status = "void"
         invoice.amount = 0
@@ -128,6 +127,6 @@ def reopen_shipment(db: Session, sid: int, payload: ShipmentReopen, user: User) 
         _sync_package_production(db, production_id)
     log_action(db, user, "reopen_shipment", "Shipment", sid, old_value=before,
                new_value={"status": "created", "reason": payload.reason.strip(), "packages_returned": True,
-                          "pieces_restored": sum(s.quantity for s in stocks), "rescan_required": True})
+                          "pieces_restored": sum(s.quantity for s in stocks), "rescan_required": False})
     db.flush()
     return shipment

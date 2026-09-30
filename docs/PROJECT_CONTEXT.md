@@ -1,6 +1,14 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-29
+Last updated: 2026-09-30
+
+## Returned shipments retain package verification prepared (2026-09-30)
+
+- Prepared only; not merged or deployed. Returning a shipped/delivered shipment to preparation now preserves its original successful package scans instead of recording a false detachment for every retained package. Staff can edit quantities/notes and redispatch without rescanning retained packages. New packages and packages explicitly removed then reattached still require scanning. Original scan identity, actor, time and ordering remain intact; no synthetic successful scans are created.
+- Physical-return confirmation, stock/reservation reconciliation, invoice reversal, agreed-total review reset, permissions and stale request/idempotency checks remain in force. Return-dialog explanations were updated in English, Russian and Uzbek. This supersedes the rescan requirement in the September 24 implementation notes only once deployed.
+- Validation: 48 shipment return/review/manual-dispatch tests passed, including shipped/delivered and priced/unpriced returns, edits, repeated return/redispatch, added/removed packages, stock/invoice invariants and authorization. Scoped Ruff/ESLint, strict TypeScript, shipment preparation/invoice-toggle contracts and whitespace review passed. No full build or production browser QA was run for this prepared change.
+- Both live source manifests and slots were verified against the baseline: active blue `20260929_120503`, manifest `ffe4692e89549631a894eaca7f893a6ce95e333fd581a3c010478c5dd3b364f7`; rollback green `20260929_110044`. Recorded database revision remains `0133_storage_customers`. No production business data, schema, service or release was changed. Shipments already returned under the previous behavior, including the reported `SH-2026-000014`, still require an evidence-backed scan-state repair; this change does not rewrite historical detachments.
+- Worktree `C:/ERP/.codex-work/shipment-return-scans-20260930`, branch `codex/shipment-return-scans-20260930`, based on verified `origin/main` `0a2f98f27bb4f1f33c22380e7629703d4f0f7e62`. Legacy checkout preserved. Historical unrelated security/audit risks remain.
 
 ## Selected sales-order model and variant thumbnails deployed (2026-09-29)
 
