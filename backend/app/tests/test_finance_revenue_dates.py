@@ -1,10 +1,24 @@
 from datetime import datetime, timezone
+from uuid import uuid4
 
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import Invoice
-from app.tests.test_payment_integrity import _create_invoice
+from app.models import Customer, Invoice, SalesOrder
+
+
+def _create_invoice(session_factory, amount=100):
+    with session_factory() as db:
+        customer = Customer(name=f"Revenue dates {uuid4().hex}")
+        db.add(customer)
+        db.flush()
+        order = SalesOrder(order_no=f"REV-{uuid4().hex}", customer_id=customer.id, total_amount=amount)
+        db.add(order)
+        db.flush()
+        invoice = Invoice(sales_order_id=order.id, invoice_no=f"REV-{uuid4().hex}", amount=amount, status="unpaid")
+        db.add(invoice)
+        db.commit()
+        return customer.id, order.id, invoice.id
 
 
 @pytest.mark.parametrize("date_from,date_to", [

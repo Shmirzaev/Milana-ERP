@@ -13,6 +13,7 @@ from app.schemas.tracking import FinishedGoodsStockOut
 from app.services.audit import log_action
 router = APIRouter(prefix="/finished-goods", tags=["finished_goods"])
 PackageBrand = aliased(Brand)
+_DB_INTEGER_MAX = 2_147_483_647
 
 
 def _stock_payload(
