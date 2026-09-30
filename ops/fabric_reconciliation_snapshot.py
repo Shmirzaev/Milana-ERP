@@ -6,9 +6,7 @@ from sqlalchemy import text
 from app.db.session import SessionLocal
 from app.core.config import settings
 
-with SessionLocal() as db:
-    db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
-    db.execute(text("SET LOCAL statement_timeout = '30s'"))
+def capture(db):
     queries = {
         "snapshot_time": "SELECT current_timestamp AS captured_at",
         "revision": "SELECT version_num FROM alembic_version",
@@ -36,5 +34,12 @@ with SessionLocal() as db:
         p=Path(settings.MODEL_FILES_DIR)/Path(url).name
         if p.is_file():
             result['images'].append({'url':url,'sha256':hashlib.sha256(p.read_bytes()).hexdigest()})
-    print(json.dumps(result, default=str, ensure_ascii=False))
-    db.rollback()
+    return json.loads(json.dumps(result, default=str, ensure_ascii=False))
+
+
+if __name__ == '__main__':
+    with SessionLocal() as db:
+        db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
+        db.execute(text("SET LOCAL statement_timeout = '30s'"))
+        print(json.dumps(capture(db), ensure_ascii=False))
+        db.rollback()
