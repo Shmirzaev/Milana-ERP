@@ -2,6 +2,14 @@
 
 Last updated: 2026-09-30
 
+## SH-2026-000014 second pre-cutover return repaired (2026-09-30)
+
+- The user reported the shipment showed unscanned again. Read-only audit inspection confirmed a second ship/deliver/return cycle after the initial repair: return audit `24821` occurred at `05:49:54 UTC`, 13 seconds before fixed backend activation at `05:50:07 UTC`. That request used the old release and added erroneous detached scans `624`-`628`. The previous turn verified the first repair before this second return and did not recheck the shipment after cutover.
+- After a fresh validated backup, exactly those five return-generated results changed from `detached` to `returned`, restoring original matched scans `612`-`616`. Audit `24823` records this second correction. Original scan IDs/actors/timestamps/order, earlier return evidence, package links/quantities, stock and finance records were preserved. SH-2026-000014 remains created/editable with 5 packages / 270 pieces.
+- Signed read-only requests through the public domain to the shipment list, preparation and scan-status endpoints all returned HTTP 200, 5 scanned, 0 remaining and complete verification; every preparation package is marked scanned. The active container's return implementation was also verified to preserve scans. No extra test suite, shipment action or monitoring window was run.
+- Both source manifests and slot states still match active green `20260930_053552`, manifest `06b79d4e5eac33713c34b96a7a341cbef63df47afdac3ce4a9367e6dd32c08a8`; rollback blue `20260929_120503`. No new code deployment, schema, permission or unrelated business-data change. Historical security/audit risks remain.
+- Backup `/opt/milana-erp/shared/backups/milana_erp_pre_20260930_055343.dump`: 59298897 bytes, mode 0600, 1203 restore objects; dump SHA-256 `bd6aae3f309e0ca13baf2742d24489dd05d6fabf0e18c9bef551ae649382c7b2`, restore-list SHA-256 `b7394c268b24fd0397a2eb8e4429f29b5de393c553bc50383ad4a9fd43104abf`. Evidence: `outputs/repair/` in worktree `C:/ERP/.codex-work/shipment-return-repeat-20260930`, branch `codex/shipment-return-repeat-20260930`. Legacy checkout preserved; durable record mirrored to Obsidian.
+
 ## Returned shipment scan preservation deployed (2026-09-30)
 
 - LIVE: backend/frontend green release `20260930_053552`, exact application commit `4c4778824cc77f5470592400328dc621872bbf1c`, merged through PR #238 (`8307f65e4fabae372114d30c93b9915ffb9f3556`). Blue `20260929_120503` remains running for rollback. Both source manifests, image revisions, slot states and current symlinks agree. Frontend activation: `2026-09-30T05:50:08.873251+00:00`.
