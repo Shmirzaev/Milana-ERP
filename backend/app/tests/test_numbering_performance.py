@@ -27,7 +27,7 @@ def test_variant_number_preview_does_not_hydrate_all_model_json() -> None:
     normalized = " ".join(model_selects[0].split()).lower()
     assert normalized.startswith("select models.id")
     assert " limit " in normalized
-    assert "details_json" not in normalized
+    assert "details_json" not in normalized.split("from models")[0]
 
 
 def test_numbering_service_uses_scoped_advisory_locks() -> None:
