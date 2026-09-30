@@ -12,7 +12,7 @@ import { useT } from "@/lib/i18n";
 const translations = {
   en: {
     action: "Return to preparation", reason: "Reason", cancel: "Cancel", busy: "Returning…",
-    explanation: "This reverses the shipment and its unpaid invoice, restores the packages to warehouse stock, and opens it in Shipments. Scan the packages again before dispatch. Enter any agreed invoice total again after reviewing the contents.",
+    explanation: "This reverses the shipment and its unpaid invoice, restores the packages to warehouse stock, and opens it in Shipments. Previously scanned packages stay scanned so you can add or edit what you need. Scan any newly added packages before dispatch. Enter any agreed invoice total again after reviewing the contents.",
     confirm: "All packages in this shipment are back in the warehouse.",
     stale: "This shipment has changed. Refresh the page before returning it.",
     stock: "Package stock or reservations have changed. Reconcile the stock before returning this shipment.",
@@ -21,7 +21,7 @@ const translations = {
   },
   ru: {
     action: "Вернуть в подготовку", reason: "Причина", cancel: "Отмена", busy: "Возврат…",
-    explanation: "Отгрузка и её неоплаченный счёт будут отменены, упаковки вернутся на склад, а отгрузка откроется в разделе «Отгрузки». Перед отправкой отсканируйте упаковки заново. После проверки состава повторно укажите согласованную сумму счёта.",
+    explanation: "Отгрузка и её неоплаченный счёт будут отменены, упаковки вернутся на склад, а отгрузка откроется в разделе «Отгрузки». Ранее отсканированные упаковки сохранят отметку сканирования, и вы сможете внести нужные изменения. Новые добавленные упаковки нужно отсканировать перед отправкой. После проверки состава повторно укажите согласованную сумму счёта.",
     confirm: "Все упаковки этой отгрузки снова находятся на складе.",
     stale: "Отгрузка изменилась. Обновите страницу перед возвратом.",
     stock: "Остатки или резервы упаковок изменились. Сначала выполните сверку склада.",
@@ -30,7 +30,7 @@ const translations = {
   },
   uz: {
     action: "Tayyorlashga qaytarish", reason: "Sabab", cancel: "Bekor qilish", busy: "Qaytarilmoqda…",
-    explanation: "Jo‘natma va uning to‘lanmagan hisobi bekor qilinadi, qadoqlar ombor qoldig‘iga qaytariladi va jo‘natma «Jo‘natmalar» bo‘limida ochiladi. Jo‘natishdan oldin qadoqlarni qayta skanerlang. Tarkibni tekshirgach, kelishilgan hisob summasini qayta kiriting.",
+    explanation: "Jo‘natma va uning to‘lanmagan hisobi bekor qilinadi, qadoqlar ombor qoldig‘iga qaytariladi va jo‘natma «Jo‘natmalar» bo‘limida ochiladi. Avval skanerlangan qadoqlarning belgisi saqlanadi va kerakli o‘zgartirishlarni kiritishingiz mumkin. Yangi qo‘shilgan qadoqlarni jo‘natishdan oldin skanerlang. Tarkibni tekshirgach, kelishilgan hisob summasini qayta kiriting.",
     confirm: "Ushbu jo‘natmadagi barcha qadoqlar omborga qaytgan.",
     stale: "Jo‘natma o‘zgargan. Qaytarishdan oldin sahifani yangilang.",
     stock: "Qadoq qoldiqlari yoki rezervlari o‘zgargan. Avval ombor hisobini tekshiring.",

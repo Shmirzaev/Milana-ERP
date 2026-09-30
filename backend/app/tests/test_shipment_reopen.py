@@ -4,13 +4,13 @@ import pytest
 from fastapi import HTTPException
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, FinishedGoodsStock, Invoice, Package, Payment, SalesOrder, Shipment
+from app.models import AuditLog, FinishedGoodsStock, Invoice, Package, Payment, SalesOrder, Shipment, ShipmentScanLog
 from app.services.payments import create_invoice_payment
 from app.services.finance_1c import sync_from_1c
 from app.schemas.integrations import OneCSyncIn
 from app.tests.test_manual_pack_dispatch import receive, shipment
 from app.tests.test_package_workflows import warehouse, package_qr  # noqa: F401
-from app.tests.test_shipment_review import dispatch  # noqa: F401
+from app.tests.test_shipment_review import correct, dispatch, review_amount  # noqa: F401
 
 
 def payload(result):
@@ -33,12 +33,16 @@ def test_manual_return_and_redispatch(client, warehouse, price, delivered):
     with SessionLocal() as db:
         old_order = db.get(Shipment, sid).sales_order_id
         ids = [s.id for s in db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id.in_(run["package_ids"]))]
+        scans = [(s.id, s.package_id, s.scan_result, s.scanned_at, s.scanned_by)
+                 for s in db.query(ShipmentScanLog).filter_by(shipment_id=sid).order_by(ShipmentScanLog.id)]
     body = payload(shipped.json())
     result = client.post(url + "/reopen", headers=warehouse, json=body)
     assert result.status_code == 200, result.text
     assert result.json()["status"] == "created" and result.json()["shipment_type"] == "manual"
     assert result.json()["shipped_at"] is None and result.json()["delivered_at"] is None
-    assert result.json()["scanned_count"] == 0 and result.json()["packages_count"] == 2
+    assert result.json()["scanned_count"] == 2 and result.json()["packages_count"] == 2
+    preparation = client.get(url + "/preparation", headers=warehouse).json()
+    assert preparation["scanned_count"] == 2 and preparation["review"]["quantity"] == 30
     with SessionLocal() as db:
         stocks = db.query(FinishedGoodsStock).filter(FinishedGoodsStock.id.in_(ids)).all()
         assert sum(s.available_qty for s in stocks) == 30 and sum(s.sold_qty for s in stocks) == 0
@@ -46,6 +50,9 @@ def test_manual_return_and_redispatch(client, warehouse, price, delivered):
         assert db.get(Shipment, sid).sales_order_id is None
         evidence = db.query(AuditLog).filter_by(action="reopen_shipment", entity_id=sid).one()
         assert evidence.old_value_json["dispatch_snapshot"]["document"]["quantity"] == 30
+        assert evidence.new_value_json["rescan_required"] is False
+        assert scans == [(s.id, s.package_id, s.scan_result, s.scanned_at, s.scanned_by)
+                         for s in db.query(ShipmentScanLog).filter_by(shipment_id=sid).order_by(ShipmentScanLog.id)]
         if old_order:
             invoice = db.query(Invoice).filter_by(sales_order_id=old_order).one()
             assert invoice.status == "void" and invoice.amount == 0
@@ -59,11 +66,8 @@ def test_manual_return_and_redispatch(client, warehouse, price, delivered):
             assert len(synced["errors"]) == 2 and synced["payments_created"] == 0 and synced["invoices_created"] == 0
     assert client.post(url + "/reopen", headers=warehouse, json=body).status_code == 409
     assert client.post(url + "/ship", headers={**warehouse, "Idempotency-Key": "first-dispatch"}).status_code == 409
-    assert client.post(url + "/ship", headers=warehouse).status_code == 409
     for pid in run["package_ids"]:
         assert client.post(url + "/scan-package", headers={**warehouse, "Idempotency-Key": f"scan-{pid}"}, json={"code": package_qr(pid)}).status_code == 409
-        result = client.post(url + "/scan-package", headers=warehouse, json={"code": package_qr(pid)})
-        assert result.json()["ok"], result.text
     result = client.post(url + "/ship", headers=warehouse)
     assert result.status_code == 200, result.text
     assert client.post(url + "/reopen", headers=warehouse, json=body).status_code == 409
@@ -87,13 +91,61 @@ def test_order_return_preserves_reservations_and_can_invoice_again(client, auth_
         assert db.get(Shipment, dispatch["shipment"]).sales_order_id == dispatch["order"]
         assert db.get(SalesOrder, dispatch["order"]).status == "ready_to_ship"
         assert sum(s.reserved_qty for s in db.query(FinishedGoodsStock).filter_by(package_id=dispatch["package"])) == 8
-    assert client.post(url + "/scan-package", headers=auth_headers, json={"code": "REVIEW-QR"}).json()["ok"]
+    assert result.json()["scanned_count"] == 1
     assert client.post(url + "/ship", headers=auth_headers).status_code == 200
     result = client.post(url + "/deliver", headers=auth_headers)
     assert result.status_code == 200, result.text
     with SessionLocal() as db:
         invoices = db.query(Invoice).filter_by(sales_order_id=dispatch["order"]).all()
         assert len(invoices) == 2 and sum(i.amount for i in invoices) == 80
+
+
+def test_returned_shipment_edits_keep_scans_and_reset_agreed_total(client, auth_headers, dispatch):
+    url = f'/api/shipments/{dispatch["shipment"]}'
+    review_amount(client, auth_headers, dispatch)
+    first = client.post(url + "/ship", headers=auth_headers)
+    assert first.status_code == 200, first.text
+    assert client.post(url + "/reopen", headers=auth_headers, json=payload(first.json())).status_code == 200
+    edited = correct(client, auth_headers, dispatch)
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["scanned_count"] == 1
+    assert edited.json()["review"]["quantity"] == 7
+    assert edited.json()["review"]["amount"] == "70.00"
+    assert client.patch(url, headers=auth_headers, json={"notes": "Corrected after return"}).status_code == 200
+    result = client.post(url + "/ship", headers=auth_headers)
+    assert result.status_code == 200, result.text
+    assert client.get(url + "/invoice", headers=auth_headers).json()["quantity"] == 7
+
+
+@pytest.mark.parametrize("remove_existing", [False, True])
+def test_return_does_not_verify_added_or_removed_packages(client, warehouse, remove_existing):
+    run = receive(client, warehouse)
+    sid = shipment(client, warehouse)
+    url = f"/api/shipments/{sid}"
+    original, extra = run["package_ids"]
+    assert client.post(url + "/scan-package", headers=warehouse, json={"code": package_qr(original)}).json()["ok"]
+    first = client.post(url + "/ship", headers=warehouse)
+    assert first.status_code == 200, first.text
+    assert client.post(url + "/reopen", headers=warehouse, json=payload(first.json())).status_code == 200
+    target = extra
+    if remove_existing:
+        target = original
+        removed = client.post(url + f"/packages/{original}/remove", headers=warehouse,
+                              json={"reason": "Remove returned package"})
+        assert removed.status_code == 200, removed.text
+    assert client.post(url + f"/add-package?package_id={target}", headers=warehouse).status_code == 200
+    preparation = client.get(url + "/preparation", headers=warehouse).json()
+    assert preparation["scanned_count"] == (0 if remove_existing else 1)
+    assert client.post(url + "/ship", headers=warehouse).status_code == 409
+    scanned = client.post(url + "/scan-package", headers=warehouse, json={"code": package_qr(target)})
+    assert scanned.json()["ok"], scanned.text
+    second = client.post(url + "/ship", headers=warehouse)
+    assert second.status_code == 200, second.text
+    # A second complete return also preserves only the current verified links.
+    returned = client.post(url + "/reopen", headers=warehouse, json=payload(second.json()))
+    assert returned.status_code == 200, returned.text
+    assert returned.json()["scanned_count"] == (1 if remove_existing else 2)
+    assert client.post(url + "/ship", headers=warehouse).status_code == 200
 
 
 @pytest.mark.parametrize("block", ["payment", "external", "stock", "shared"])
