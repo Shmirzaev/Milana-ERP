@@ -18,7 +18,7 @@ The production catalog was updated additively from a fresh authenticated old-ERP
 | Image links added | 443 |
 | Original image files verified | 247 |
 
-New records are drafts. Of the 221 new records, 105 also have no operations in the source; no rates were invented. Source operation order, names, rates, currency, duration, stage, control direction and final-operation flags were retained. Recipes remain source documentation rather than invented inventory/BOM links. Existing populated operation lists, model names/codes, images and production links were preserved. All eight records belonging to TJ2189/V-4776, PJ1013/V-3846, PJ1118/V-2922 and BJ5007/V-2235 remain separate and unchanged.
+New records were imported as drafts; all 221 were subsequently approved on 30 September at the user's request (see the catalog-wide approval entry in `PROJECT_CONTEXT.md`). Of the 221 new records, 105 also have no operations in the source; no rates were invented. Source operation order, names, rates, currency, duration, stage, control direction and final-operation flags were retained. Recipes remain source documentation rather than invented inventory/BOM links. Existing populated operation lists, model names/codes, images and production links were preserved. All eight records belonging to TJ2189/V-4776, PJ1013/V-3846, PJ1118/V-2922 and BJ5007/V-2235 remain separate and unchanged.
 
 ## Numbering
 

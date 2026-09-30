@@ -2,6 +2,15 @@
 
 Last updated: 2026-09-30
 
+## Catalog-wide model and variant approval applied (2026-09-30)
+
+- The user explicitly requested approval of all models and variants. Through 85 normal authenticated family-approval API requests as System Admin, approved 232 draft records: 230 standard and two Usluga. All 221 records added by the earlier catalog import are now approved. Existing approvals were preserved.
+- Verified totals: 7,641/7,641 standard records approved; 10/13 Usluga records approved. Three Usluga records remain draft because the canonical approval action requires exactly one main fabric and they have none: `0560` (7188), `MB1470` (8169), and `MB1470-"19-4027 19-1875"` (8170). The user has been asked which main fabrics to assign or whether to leave them pending. No fabric was invented and no approval guard was bypassed.
+- Exactly 232 normal approval audit entries were created, IDs 27870-28101, with approver and timestamp. Independent readback verified every changed approval and preserved every pre-existing approval and the three blocked rows. Fingerprints for all non-approval model fields (including paid processes, identities and prices), model images, sizes, colors and BOMs matched before/after. All four internal/public health/login checks returned 200. No production order, stock, shipment, payroll or permission change was made.
+- Verified pre-approval backup `/opt/milana-erp/shared/backups/milana_erp_pre_20260930_152131.dump`: 62,579,608 bytes, mode 0600, 1203 restore objects; SHA-256 `41356e933d8bf14f23ed844d26cc092d7ba16a005e622633a72f01e08bd2da69`, restore-list SHA-256 `1ebe6eee7f5d35e2a5dba20150b3ba7eaa2aed6432d28feefa2c32f3c843c995`. Evidence: `outputs/approval/` in `C:/ERP/.codex-work/approve-catalog-20260930`.
+- Active blue `20260930_141107`, rollback green `20260930_053552`, and database revision `0133_storage_customers` are unchanged. Both live source manifests matched the production baseline before the operation. No application deployment or schema change occurred. Historical source-link conflicts and unrelated security/audit risks remain.
+- Dedicated worktree `C:/ERP/.codex-work/approve-catalog-20260930`, branch `codex/approve-catalog-20260930`; legacy checkout preserved. This documentation records the production data action; no application code was changed.
+
 ## Catalog numbering deployed; old ERP additions retained (2026-09-30)
 
 - LIVE: backend/frontend blue release `20260930_141107`, exact application/merge commit `b4277bbe55f10e2db45f46425c973d8d8a5220ee`, merged through PR #242. Green `20260930_053552` remains running for rollback. Both source manifests, image revisions, slots and current symlinks agree. Frontend activation: `2026-09-30T14:30:39.142044+00:00`.
