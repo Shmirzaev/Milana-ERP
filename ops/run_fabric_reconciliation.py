@@ -25,11 +25,7 @@ def remote(code, command):
     return json.loads(result.stdout)
 
 
-def prepare():
-    plan = json.loads((OUT/'reconciliation-plan.json').read_text(encoding='utf-8'))
-    raw = (OUT/'production-snapshot.json').read_bytes()
-    if hashlib.sha256(raw).hexdigest() != plan['snapshot_sha256']:
-        raise ValueError('Snapshot fingerprint changed')
+def collect_images(plan):
     images = {}
     ns = {'m': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main',
           'r': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
@@ -70,12 +66,22 @@ def prepare():
                 r = p['sources'][0]
                 if r['file'] != book['file']:
                     continue
-                matched = sheets.get(r['sheet'], {}).get(r['row'], [])
+                anchor_row = {6:5,66:65,78:77,82:81}.get(r['row'],r['row']) if r['sheet']=='Лист5' else r['row']
+                matched = sheets.get(r['sheet'], {}).get(anchor_row, [])
                 if len(matched) == 1:
                     raw_image = matched[0]
                     images[str(i)] = {'sha256': hashlib.sha256(raw_image).hexdigest(),
                                      'base64': base64.b64encode(raw_image).decode(),
                                      'file': r['file'], 'sheet': r['sheet'], 'row': r['row']}
+    return images
+
+
+def prepare():
+    plan = json.loads((OUT/'reconciliation-plan.json').read_text(encoding='utf-8'))
+    raw = (OUT/'production-snapshot.json').read_bytes()
+    if hashlib.sha256(raw).hexdigest() != plan['snapshot_sha256']:
+        raise ValueError('Snapshot fingerprint changed')
+    images = collect_images(plan)
     plan_hash = hashlib.sha256(json.dumps(plan, sort_keys=True, ensure_ascii=True).encode()).hexdigest()
     payload = {'plan': plan, 'plan_sha256': plan_hash, 'snapshot': json.loads(raw), 'images': images}
     (OUT/'application-payload.json').write_text(json.dumps(payload, ensure_ascii=True), encoding='utf-8')
