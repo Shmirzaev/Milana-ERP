@@ -1,0 +1,113 @@
+{
+  "source_date": "2026-09-30",
+  "policy": "Latest source model per prefix; preserve historical outliers and skip occupied identities. Approved by user.",
+  "models_sha256": "51f93121555f790bcd396d0f3fe48ee9cdcfebb08c6fe300de679702c77a5cf5",
+  "variants_sha256": "7c773bd1a287aff581a2b9a052dcba869a4598bc3b17a1cbae8bbdae80c16456",
+  "variant_last_assigned": 6427,
+  "models": {
+    "BJ": {
+      "number": 5036,
+      "source_id": 3346
+    },
+    "BM": {
+      "number": 8010,
+      "source_id": 3335
+    },
+    "BP": {
+      "number": 17001,
+      "source_id": 1764
+    },
+    "CJ": {
+      "number": 4017,
+      "source_id": 2010
+    },
+    "DB": {
+      "number": 20002,
+      "source_id": 2444
+    },
+    "DK": {
+      "number": 18002,
+      "source_id": 1973
+    },
+    "FB": {
+      "number": 14005,
+      "source_id": 3162
+    },
+    "FJ": {
+      "number": 6021,
+      "source_id": 3323
+    },
+    "HJ": {
+      "number": 11004,
+      "source_id": 3325
+    },
+    "HM": {
+      "number": 11506,
+      "source_id": 3271
+    },
+    "KJ": {
+      "number": 13050,
+      "source_id": 3349
+    },
+    "MF": {
+      "number": 9013,
+      "source_id": 3347
+    },
+    "MK": {
+      "number": 18005,
+      "source_id": 2157
+    },
+    "MP": {
+      "number": 16002,
+      "source_id": 1763
+    },
+    "MR": {
+      "number": 12002,
+      "source_id": 1858
+    },
+    "MV": {
+      "number": 15003,
+      "source_id": 2058
+    },
+    "PB": {
+      "number": 10014,
+      "source_id": 3308
+    },
+    "PG": {
+      "number": 10524,
+      "source_id": 3312
+    },
+    "PJ": {
+      "number": 1252,
+      "source_id": 3340
+    },
+    "PM": {
+      "number": 7016,
+      "source_id": 3266
+    },
+    "RJ": {
+      "number": 12000,
+      "source_id": 1275
+    },
+    "SJ": {
+      "number": 4072,
+      "source_id": 3320
+    },
+    "TJ": {
+      "number": 2219,
+      "source_id": 3332
+    },
+    "WP": {
+      "number": 3245,
+      "source_id": 2033
+    },
+    "WT": {
+      "number": 2321,
+      "source_id": 2031
+    },
+    "XJ": {
+      "number": 3200,
+      "source_id": 3348
+    }
+  }
+}

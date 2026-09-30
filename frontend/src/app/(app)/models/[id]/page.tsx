@@ -223,6 +223,11 @@ export default function ModelDetail() {
   const [deletingVariantId, setDeletingVariantId] = useState<number | null>(null);
   const [variantForm, setVariantForm] = useState({ variant_no: "", color: "", picture_url: "" });
   const [suggestedVariantNo, setSuggestedVariantNo] = useState("");
+  const [automaticModelPrefix, setAutomaticModelPrefix] = useState("");
+  const { data: modelNumberPreview, error: modelNumberError } = useSWR<{ model_no: string; prefixes: string[] }>(
+    isNewModel ? `${modelApiBase}/next-number?prefix=${encodeURIComponent(automaticModelPrefix || "XJ")}` : null,
+    fetcher,
+  );
   const [variantPictureFile, setVariantPictureFile] = useState<File | null>(null);
 
   const [modelForm, setModelForm] = useState<ModelFormState>({
@@ -242,6 +247,11 @@ export default function ModelDetail() {
     sam_minutes: "",
   });
   const [details, setDetails] = useState<ModelDetails>({});
+
+  useEffect(() => {
+    if (!isNewModel || !automaticModelPrefix || !modelNumberPreview || modelNumberError) return;
+    setModelForm((current) => ({ ...current, model_no: modelNumberPreview.model_no, variant_no: "" }));
+  }, [isNewModel, automaticModelPrefix, modelNumberPreview, modelNumberError]);
 
   const [bomRow, setBomRow] = useState<BomFormState>(() => emptyBomRow());
   const [editingBom, setEditingBom] = useState<{ id: number; section: BomSection } | null>(null);
@@ -580,6 +590,10 @@ export default function ModelDetail() {
   }
 
   async function saveModel() {
+    if (isNewModel && automaticModelPrefix && (!modelNumberPreview || modelNumberError)) {
+      await dialogs.notify(t("page.modelDetail.loadError"));
+      return;
+    }
     const selectedBrand = (brands || []).find((b) => Number(b.id) === Number(modelForm.brand_id));
     const constructor = (employees || []).find((e) => Number(e.id) === Number(modelForm.constructor_employee_id));
     const designer = (employees || []).find((e) => Number(e.id) === Number(modelForm.designer_employee_id));
@@ -652,6 +666,7 @@ export default function ModelDetail() {
     };
     const payload = {
       code: nextCode,
+      ...(isNewModel && automaticModelPrefix ? { automatic_model_prefix: automaticModelPrefix } : {}),
       name: modelForm.name,
       category: modelForm.category || null,
       description: modelForm.description || null,
@@ -1127,7 +1142,21 @@ export default function ModelDetail() {
         {tab === 1 && (
           <div className="space-y-3">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div><label className="label">{t("field.modelNo")}</label><input className="input" value={modelForm.model_no} onChange={(e) => setModelForm({ ...modelForm, model_no: e.target.value })} /></div>
+              <div>
+                <label className="label">{t("field.modelNo")}</label>
+                {isNewModel && (
+                  <select className="input mb-2" aria-label={lang === "ru" ? "Нумерация модели" : lang === "uz" ? "Model raqamlash" : "Model numbering"}
+                    value={automaticModelPrefix} onChange={(e) => {
+                      setAutomaticModelPrefix(e.target.value);
+                      if (e.target.value) setModelForm((current) => ({ ...current, model_no: "", variant_no: "" }));
+                    }}>
+                    <option value="">{lang === "ru" ? "Ввести номер вручную" : lang === "uz" ? "Raqamni qo‘lda kiritish" : "Enter number manually"}</option>
+                    {(modelNumberPreview?.prefixes || []).map(prefix => <option key={prefix} value={prefix}>{prefix} — {lang === "ru" ? "автоматически" : lang === "uz" ? "avtomatik" : "automatic"}</option>)}
+                  </select>
+                )}
+                <input className="input" aria-label={t("field.modelNo")} readOnly={isNewModel && Boolean(automaticModelPrefix)} value={modelForm.model_no} onChange={(e) => setModelForm({ ...modelForm, model_no: e.target.value })} />
+                {isNewModel && automaticModelPrefix && modelNumberError && <div role="alert" className="text-sm text-red-700">{t("page.modelDetail.loadError")}</div>}
+              </div>
               <div><label className="label">{t("common.name")}</label><input className="input" value={modelForm.name} onChange={(e) => setModelForm({ ...modelForm, name: e.target.value })} /></div>
               <div><label className="label">{t("field.category")}</label><input className="input" value={modelForm.category} onChange={(e) => setModelForm({ ...modelForm, category: e.target.value })} /></div>
             </div>

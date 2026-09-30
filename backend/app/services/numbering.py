@@ -1,9 +1,11 @@
 """Sequential business number generators."""
 from datetime import datetime, timezone
 import re
+import json
+from pathlib import Path
 
 from fastapi import HTTPException
-from sqlalchemy import Integer, Numeric, func, text
+from sqlalchemy import Integer, Numeric, func, text, or_
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -13,6 +15,10 @@ from app.models import (
 
 MODEL_VARIANT_START = 5648
 MODEL_VARIANT_SETTING_KEY = "model_variant_numbering"
+MODEL_NUMBER_SETTING_KEY = "model_numbering"
+CATALOG_NUMBERING_BASE = json.loads(
+    (Path(__file__).resolve().parents[2] / "data" / "catalog-numbering-20260930.json").read_text(encoding="utf-8")
+)
 _NUMBERING_LOCK_NAMESPACE = 1_297_047_632
 
 
@@ -31,10 +37,18 @@ def _acquire_numbering_lock(db: Session, resource: str) -> None:
 
 
 def _model_variant_number_is_occupied(db: Session, variant_no: str) -> bool:
-    """Check one candidate from the narrow code column, never the large model JSON."""
+    """Include legacy numeric suffixes and scalar identity metadata."""
+    number = int(variant_no.removeprefix("V-"))
+    configured = func.coalesce(
+        Model.details_json["general"]["variant_no"].as_string(),
+        Model.details_json["general"]["variantNo"].as_string(), "",
+    )
+    pattern = rf"(?i)^V?[- ]*0*{number}$"
+    code_pattern = rf"(?i)-V?[- ]*0*{number}$"
+    regex = "~" if _is_postgresql(db) else "REGEXP"
     return (
         db.query(Model.id)
-        .filter(Model.code.ilike(f"%{variant_no.strip()}"))
+        .filter(or_(configured.op(regex)(pattern), Model.code.op(regex)(code_pattern)))
         .first()
         is not None
     )
@@ -138,7 +152,7 @@ def next_branded_planning_order_no(db: Session) -> str:
 
 
 def next_model_variant_no(db: Session, *, reserve: bool = False) -> str:
-    """Return or reserve the next automatic V-number, starting at V-5648."""
+    """Continue the reviewed live source stream, ignoring historical outliers."""
     if reserve:
         _acquire_numbering_lock(db, MODEL_VARIANT_SETTING_KEY)
 
@@ -152,7 +166,7 @@ def next_model_variant_no(db: Session, *, reserve: bool = False) -> str:
     except (TypeError, ValueError):
         last_assigned = MODEL_VARIANT_START - 1
 
-    candidate = max(MODEL_VARIANT_START, last_assigned + 1)
+    candidate = max(MODEL_VARIANT_START, CATALOG_NUMBERING_BASE["variant_last_assigned"] + 1, last_assigned + 1)
     while _model_variant_number_is_occupied(db, f"V-{candidate}"):
         candidate += 1
 
@@ -164,6 +178,47 @@ def next_model_variant_no(db: Session, *, reserve: bool = False) -> str:
             db.add(SystemSetting(key=MODEL_VARIANT_SETTING_KEY, value_json=next_value))
         db.flush()
     return f"V-{candidate}"
+
+
+def next_model_no(db: Session, prefix: str, *, reserve: bool = False) -> str:
+    from app.core.model_search import normalized_model_code_column, normalized_model_code_key
+
+    prefix = normalized_model_code_key(prefix).upper()
+    if prefix not in CATALOG_NUMBERING_BASE["models"]:
+        raise HTTPException(400, "Select a supported model prefix")
+    if reserve:
+        _acquire_numbering_lock(db, MODEL_NUMBER_SETTING_KEY)
+    query = db.query(SystemSetting).filter_by(key=MODEL_NUMBER_SETTING_KEY)
+    if reserve and _is_postgresql(db):
+        query = query.with_for_update()
+    setting = query.one_or_none()
+    value = setting.value_json if setting and isinstance(setting.value_json, dict) else {}
+    assigned = value.get("last_assigned") if isinstance(value.get("last_assigned"), dict) else {}
+    try:
+        previous = int(assigned.get(prefix) or 0)
+    except (TypeError, ValueError):
+        previous = 0
+    candidate = max(previous, CATALOG_NUMBERING_BASE["models"][prefix]["number"]) + 1
+    general_no = func.coalesce(Model.details_json["general"]["model_no"].as_string(),
+                               Model.details_json["general"]["modelNo"].as_string(), "")
+    # A slash preserves the family/variant boundary while folding legacy dashes
+    # and Latin/Cyrillic look-alikes with the shared identity normalizer.
+    code = normalized_model_code_column(func.replace(Model.code, "-", "/"))
+    general = normalized_model_code_column(general_no)
+    regex = "~" if _is_postgresql(db) else "REGEXP"
+    while db.query(Model.id).filter(or_(
+        general.op(regex)(rf"^{prefix.lower()}0*{candidate}$"),
+        code.op(regex)(rf"^{prefix.lower()}/?0*{candidate}($|/)"),
+    )).first():
+        candidate += 1
+    if reserve:
+        updated = {**value, "last_assigned": {**assigned, prefix: candidate}}
+        if setting:
+            setting.value_json = updated
+        else:
+            db.add(SystemSetting(key=MODEL_NUMBER_SETTING_KEY, value_json=updated))
+        db.flush()
+    return f"{prefix}{candidate}"
 
 
 def next_bundle_no(db: Session) -> str:

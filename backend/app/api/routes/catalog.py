@@ -37,7 +37,7 @@ from app.schemas.inventory import ItemOut
 from app.services.audit import log_action
 from app.services.factory_scope import selected_factory_code
 from app.services.model_images import model_display_image_url
-from app.services.numbering import next_model_variant_no
+from app.services.numbering import next_model_variant_no, next_model_no, CATALOG_NUMBERING_BASE
 from app.services.paid_operations import (
     filter_paid_operations_for_factory,
     merge_scoped_paid_operations,
@@ -1532,6 +1532,15 @@ def list_model_bom_items(
     )
 
 
+@router.get("/models/next-number")
+def get_next_model_number(
+    db: DbSession,
+    prefix: str = Query(default="XJ", min_length=2, max_length=2),
+    _: User = Depends(require_permissions("modeling.models", "*")),
+):
+    return {"model_no": next_model_no(db, prefix), "prefixes": sorted(CATALOG_NUMBERING_BASE["models"])}
+
+
 @router.post("/models", response_model=ModelOut, status_code=201)
 def create_model(
     payload: ModelIn,
@@ -1541,7 +1550,14 @@ def create_model(
 ):
     catalog_scope = _normalize_catalog_scope(catalog_scope)
     model_data = payload.model_dump()
+    automatic_prefix = model_data.pop("automatic_model_prefix", None)
     details = deepcopy(model_data.get("details_json")) if isinstance(model_data.get("details_json"), dict) else {}
+    if automatic_prefix:
+        general = details.get("general") if isinstance(details.get("general"), dict) else {}
+        if general.get("variant_no") or general.get("variantNo") or details.get("legacy_import"):
+            raise HTTPException(400, "Automatic model numbering creates a base model")
+        model_data["code"] = next_model_no(db, automatic_prefix, reserve=True)
+        details["general"] = {**general, "model_no": model_data["code"]}
     model_data["code"] = (
         _clean_text(model_data.get("code"))
         if details.get("legacy_import") is True
@@ -2144,6 +2160,8 @@ def update_model(
     m = _catalog_model(db, mid, catalog_scope)
     if not m: raise HTTPException(404, "Model not found")
     update_data = payload.model_dump(exclude_unset=True)
+    if update_data.pop("automatic_model_prefix", None):
+        raise HTTPException(400, "Automatic model numbering is only available when creating a model")
     factory_scope = "eco_cotton" if catalog_scope == "usluga" else sewing_master_factory_scope(current)
     if factory_scope and "details_json" in update_data:
         update_data["details_json"] = merge_scoped_paid_operations(

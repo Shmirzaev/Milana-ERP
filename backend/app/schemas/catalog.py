@@ -208,6 +208,7 @@ class ModelBOMOut(ORMModel):
 
 class ModelIn(BaseModel):
     code: str
+    automatic_model_prefix: Optional[str] = Field(default=None, min_length=2, max_length=2)
     name: str
     category: Optional[str] = None
     description: Optional[str] = None

@@ -359,6 +359,16 @@ def list_usluga_model_bom_items(
     return catalog_routes.list_model_bom_items(db, current)
 
 
+@router.get("/models/next-number")
+def next_usluga_model_number(
+    db: DbSession,
+    prefix: str = Query(default="XJ", min_length=2, max_length=2),
+    current: User = Depends(require_permissions("usluga.manage", "*")),
+):
+    _require_eco(current)
+    return catalog_routes.get_next_model_number(db, prefix, current)
+
+
 @router.post("/models", response_model=ModelOut, status_code=201)
 def create_usluga_model(
     payload: ModelIn,
