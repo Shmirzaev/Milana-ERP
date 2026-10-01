@@ -1,6 +1,14 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-30
+Last updated: 2026-10-01
+
+## Compact model numbering and faster preview prepared (2026-10-01; not deployed)
+
+- In `C:/ERP/.codex-work/model-number-preview-20261001`, branch `codex/model-number-preview-20261001`, the new-model prefix selector is 6rem wide with the number beside it. Prefix choices remain available during another prefix's request; the number field shows localized loading feedback. Manual entry, the standard/Usluga shared form, and server-side reservation on save remain supported.
+- The slow PostgreSQL occupancy query evaluated large model details JSON across the catalog. It now gates exact metadata evaluation with the existing stored `model_group_key` through `CASE`, while preserving the independent code/variant collision check. No schema migration or counter change is required. Source-calibrated per-prefix streams, occupied-number skipping, preview read-only behavior and transaction locking are unchanged.
+- Read-only production service measurements for XJ/PJ/KJ improved from medians of 2,047/2,029/2,031 ms to 37/36/35 ms; the first candidate call including initialization was 198 ms. These measure the server calculation, not end-to-end browser latency. All 26 prefixes returned the same next number as the deployed implementation. Seventeen PostgreSQL inline identity fixtures passed, covering metadata precedence, empty keys, whitespace, Cyrillic look-alikes, leading zeros, historical outliers and code boundaries; the regression is included in CI.
+- Frontend lint (four inherited warnings), strict TypeScript, production build/contracts, backend Ruff/compilation and diff whitespace checks passed. Full backend regression results are recorded in the change's review. Automatic approval review blocked starting the local browser preview server without providing a more specific reason, so visual/responsive verification remains outstanding.
+- Production remains blue `20260930_141107`, application commit `b4277bbe55f10e2db45f46425c973d8d8a5220ee`, source manifest `0bd10137c9d7f1d35c53b8caa61d8ef159c0daf0901f8b6755257491a4d4a420`; green rollback `20260930_053552`. Both manifests/current symlinks/slots matched the Git baseline before edits. No production business records, counters, permissions or active files were changed. This fix has not been merged or deployed.
 
 ## Catalog numbering deployed; old ERP additions retained (2026-09-30)
 

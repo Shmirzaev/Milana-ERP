@@ -224,6 +224,7 @@ export default function ModelDetail() {
   const [variantForm, setVariantForm] = useState({ variant_no: "", color: "", picture_url: "" });
   const [suggestedVariantNo, setSuggestedVariantNo] = useState("");
   const [automaticModelPrefix, setAutomaticModelPrefix] = useState("");
+  const [modelNumberPrefixes, setModelNumberPrefixes] = useState<string[]>([]);
   const { data: modelNumberPreview, error: modelNumberError } = useSWR<{ model_no: string; prefixes: string[] }>(
     isNewModel ? `${modelApiBase}/next-number?prefix=${encodeURIComponent(automaticModelPrefix || "XJ")}` : null,
     fetcher,
@@ -249,6 +250,7 @@ export default function ModelDetail() {
   const [details, setDetails] = useState<ModelDetails>({});
 
   useEffect(() => {
+    if (modelNumberPreview) setModelNumberPrefixes(modelNumberPreview.prefixes);
     if (!isNewModel || !automaticModelPrefix || !modelNumberPreview || modelNumberError) return;
     setModelForm((current) => ({ ...current, model_no: modelNumberPreview.model_no, variant_no: "" }));
   }, [isNewModel, automaticModelPrefix, modelNumberPreview, modelNumberError]);
@@ -1144,17 +1146,22 @@ export default function ModelDetail() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
                 <label className="label">{t("field.modelNo")}</label>
-                {isNewModel && (
-                  <select className="input mb-2" aria-label={lang === "ru" ? "Нумерация модели" : lang === "uz" ? "Model raqamlash" : "Model numbering"}
-                    value={automaticModelPrefix} onChange={(e) => {
-                      setAutomaticModelPrefix(e.target.value);
-                      if (e.target.value) setModelForm((current) => ({ ...current, model_no: "", variant_no: "" }));
-                    }}>
-                    <option value="">{lang === "ru" ? "Ввести номер вручную" : lang === "uz" ? "Raqamni qo‘lda kiritish" : "Enter number manually"}</option>
-                    {(modelNumberPreview?.prefixes || []).map(prefix => <option key={prefix} value={prefix}>{prefix} — {lang === "ru" ? "автоматически" : lang === "uz" ? "avtomatik" : "automatic"}</option>)}
-                  </select>
-                )}
-                <input className="input" aria-label={t("field.modelNo")} readOnly={isNewModel && Boolean(automaticModelPrefix)} value={modelForm.model_no} onChange={(e) => setModelForm({ ...modelForm, model_no: e.target.value })} />
+                <div className={isNewModel ? "grid grid-cols-[6rem_minmax(0,1fr)] gap-2" : ""}>
+                  {isNewModel && (
+                    <select className="input" aria-label={lang === "ru" ? "Нумерация модели" : lang === "uz" ? "Model raqamlash" : "Model numbering"}
+                      value={automaticModelPrefix} onChange={(e) => {
+                        setAutomaticModelPrefix(e.target.value);
+                        if (e.target.value) setModelForm((current) => ({ ...current, model_no: "", variant_no: "" }));
+                      }}>
+                      <option value="">{lang === "ru" ? "Вручную" : lang === "uz" ? "Qo‘lda" : "Manual"}</option>
+                      {modelNumberPrefixes.map(prefix => <option key={prefix} value={prefix}>{prefix}</option>)}
+                    </select>
+                  )}
+                  <input className="input" aria-label={t("field.modelNo")} readOnly={isNewModel && Boolean(automaticModelPrefix)}
+                    aria-busy={isNewModel && Boolean(automaticModelPrefix) && !modelNumberPreview && !modelNumberError}
+                    placeholder={isNewModel && automaticModelPrefix && !modelNumberPreview && !modelNumberError ? t("common.loading") : undefined}
+                    value={modelForm.model_no} onChange={(e) => setModelForm({ ...modelForm, model_no: e.target.value })} />
+                </div>
                 {isNewModel && automaticModelPrefix && modelNumberError && <div role="alert" className="text-sm text-red-700">{t("page.modelDetail.loadError")}</div>}
               </div>
               <div><label className="label">{t("common.name")}</label><input className="input" value={modelForm.name} onChange={(e) => setModelForm({ ...modelForm, name: e.target.value })} /></div>
