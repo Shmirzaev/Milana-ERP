@@ -580,7 +580,7 @@ def _apply_batch_tracked_stock_adjustment(
 ) -> list[StockMovement]:
     if abs(delta) <= EPSILON:
         return []
-    batches = (
+    batches_query = (
         db.query(StockBatch)
         .filter(
             StockBatch.item_id == item.id,
@@ -588,8 +588,10 @@ def _apply_batch_tracked_stock_adjustment(
             StockBatch.archived_at.is_(None),
         )
         .order_by(StockBatch.id.desc())
-        .all()
     )
+    if db.bind and db.bind.dialect.name == "postgresql":
+        batches_query = batches_query.options(lazyload(StockBatch.item)).with_for_update(of=StockBatch)
+    batches = batches_query.populate_existing().all()
     movements: list[StockMovement] = []
     if delta > 0:
         batch = batches[0] if batches else None
@@ -658,9 +660,18 @@ def set_stock_quantity(
 ):
     inventory_access.require_item(db, current, item_id)
     _require_admin_force(current, force)
-    item = db.get(Item, item_id)
+    # Serialize item-wide adjustments, including items with no batch rows yet.
+    item_query = db.query(Item).filter(Item.id == item_id)
+    if db.bind and db.bind.dialect.name == "postgresql":
+        item_query = item_query.with_for_update(of=Item)
+    item = item_query.populate_existing().first()
     if not item:
         raise HTTPException(404, "Item not found")
+    # Lock batches before reading the total, using the reservation lock pattern.
+    batches_query = db.query(StockBatch).filter(StockBatch.item_id == item_id).order_by(StockBatch.id.desc())
+    if db.bind and db.bind.dialect.name == "postgresql":
+        batches_query = batches_query.options(lazyload(StockBatch.item)).with_for_update(of=StockBatch)
+    batches_query.populate_existing().all()
     unit = (payload.unit or item.unit or "").strip()
     if not unit:
         raise HTTPException(400, "Unit is required")
