@@ -21,7 +21,7 @@ import { normalizeBatchSerial } from "@/lib/batchSerial";
 import { formatOrderReference } from "@/lib/orderRef";
 import { useT, type CtxT } from "@/lib/i18n";
 import {
-  PAYROLL_SCAN_STORAGE_KEY,
+  payrollScanStorageKey,
   payrollScanRecordMatchesLabel,
 } from "@/lib/payrollScanStorage";
 
@@ -151,7 +151,6 @@ type PayrollSessionStats = {
   currency: string;
 };
 
-const STORAGE_KEY = PAYROLL_SCAN_STORAGE_KEY;
 const LEGACY_STORAGE_KEYS = ["milana_payroll_scan_records_v1"];
 const EMPTY_RECORDS: PayrollRecord[] = [];
 const HISTORY_RENDER_LIMIT = 100;
@@ -531,6 +530,13 @@ function looksCompleteScan(value: string): boolean {
 }
 
 export default function PayrollScanPage() {
+  const { me } = useMe();
+  if (!me) return null;
+  return <PayrollScanWorkspace key={me.factory_code} factoryCode={me.factory_code} />;
+}
+
+function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
+  const STORAGE_KEY = payrollScanStorageKey(factoryCode);
   const dialogs = useDialogs();
   const { t, lang } = useT();
   const { me } = useMe();
@@ -562,8 +568,8 @@ export default function PayrollScanPage() {
 
   useEffect(() => {
     try {
-      for (const key of LEGACY_STORAGE_KEYS) {
-        localStorage.removeItem(key);
+      if (factoryCode !== "ECO") {
+        for (const key of LEGACY_STORAGE_KEYS) localStorage.removeItem(key);
       }
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
@@ -577,7 +583,7 @@ export default function PayrollScanPage() {
       }
     } catch {}
     setRecordsLoaded(true);
-  }, []);
+  }, [STORAGE_KEY, factoryCode]);
 
   useEffect(() => {
     function syncScanHistory(event: StorageEvent) {
@@ -592,7 +598,7 @@ export default function PayrollScanPage() {
 
     window.addEventListener("storage", syncScanHistory);
     return () => window.removeEventListener("storage", syncScanHistory);
-  }, []);
+  }, [STORAGE_KEY]);
 
   useEffect(() => {
     recordsRef.current = records;
@@ -619,7 +625,7 @@ export default function PayrollScanPage() {
       if (idleHandle != null) idleWindow.cancelIdleCallback?.(idleHandle);
       if (timeoutHandle != null) window.clearTimeout(timeoutHandle);
     };
-  }, [records, recordsLoaded]);
+  }, [records, recordsLoaded, STORAGE_KEY]);
 
   useEffect(() => {
     if (!recordsLoaded) return;
@@ -634,7 +640,7 @@ export default function PayrollScanPage() {
       window.removeEventListener("pagehide", flushRecords);
       window.removeEventListener("beforeunload", flushRecords);
     };
-  }, [recordsLoaded]);
+  }, [recordsLoaded, STORAGE_KEY]);
 
   useEffect(() => {
     if (document.activeElement?.closest("[data-payroll-employee-search]")) return;

@@ -5,7 +5,7 @@ const page = fs.readFileSync("src/app/(app)/process-qr/page.tsx", "utf8");
 const translations = fs.readFileSync("src/lib/i18n/supplemental.ts", "utf8");
 
 assert.match(page, /sourceMode.*"erp".*"manual"/s, "Process QR must expose ERP and manual source modes");
-assert.match(page, /\/api\/model-options\?search=.*page=1&page_size=50/, "Manual variants must use bounded server-side model search");
+assert.match(page, /\$\{manualModelApiBase\}\/model-options\?search=.*page=1&page_size=50/, "Manual variants must use bounded factory-catalog model search");
 assert.match(page, /manualProductionReference\(selectedModelId, kroyNo\)/, "Manual jobs need a stable model-and-Kroy reference");
 assert.match(page, /paidOperationsFromDetails\(selectedModel\.details_json\)/, "Paid operations must load from the selected model variant");
 assert.match(page, /selectedModel\.sizes/, "Manual size inputs must come from the selected model variant");

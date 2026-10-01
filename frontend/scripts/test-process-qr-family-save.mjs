@@ -17,12 +17,13 @@ const javascript = ts.transpileModule(handler, { compilerOptions: { target: ts.S
 const operation = { id: "sew", sewingFactory: "milana", rate: "50.125", selected: true };
 const hidden = { id: "besttex", sewingFactory: "besttex", rate: "75", selected: true };
 
-function fixture({ fail = false, switchVariant = false, stale = false } = {}) {
+function fixture({ fail = false, switchVariant = false, stale = false, eco = false } = {}) {
   const writes = [];
   const refreshed = [];
   const state = { dirty: true };
   const selectedModelIdRef = { current: 8048 };
   const context = vm.createContext({
+    modelApiBase: eco ? "/api/usluga" : "/api",
     selectedModel: { id: stale ? 8051 : 8048, code: "PJ1236-V-6120" },
     selectedModelId: 8048, loadedOperationsModelId: 8048, selectedModelIdRef,
     selectedProcess: undefined, factoryOperations: [operation], operations: [operation, hidden],
@@ -43,7 +44,7 @@ function fixture({ fail = false, switchVariant = false, stale = false } = {}) {
     mutateModelCache: async (matches, data, options) => {
       assert.equal(data, undefined, "remove cached variant data before the next load");
       assert.equal(options.revalidate, true);
-      for (const key of ["/api/models/8048", "/api/models/8051", "/api/models/8051/process-qr-sizes", "/api/payroll/qr-labels", null]) {
+      for (const key of ["/api/models/8048", "/api/models/8051", "/api/usluga/models/8048", "/api/usluga/models/8051", "/api/models/8051/process-qr-sizes", "/api/payroll/qr-labels", null]) {
         if (matches(key)) refreshed.push(key);
       }
     },
@@ -70,6 +71,11 @@ assert.deepEqual(rejected.refreshed, []);
 assert.equal(rejected.state.dirty, true);
 assert.equal(rejected.state.saving, false);
 assert.match(rejected.state.message, /Save rejected/);
+
+const ecoSave = fixture({ eco: true });
+await ecoSave.run();
+assert.equal(ecoSave.writes[0].path, "/api/usluga/models/8048/paid-operations");
+assert.deepEqual(ecoSave.refreshed, ["/api/usluga/models/8048", "/api/usluga/models/8051"]);
 
 for (const fail of [false, true]) {
   const switched = fixture({ switchVariant: true, fail });

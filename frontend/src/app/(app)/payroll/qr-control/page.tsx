@@ -176,7 +176,7 @@ export default function PayrollQrControlPage() {
     setActionError("");
     try {
       await api.post(`/api/payroll/qr-labels/${row.id}/return`);
-      removePayrollScanHistoryForLabel(row.label_uid, window.localStorage);
+      removePayrollScanHistoryForLabel(row.label_uid, window.localStorage, me?.factory_code);
       setMessage(t("page.payrollQrControl.returned"));
       await mutate();
     } catch (err: any) {

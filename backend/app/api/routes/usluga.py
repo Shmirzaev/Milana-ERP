@@ -291,7 +291,7 @@ def _usluga_viewer(current: User) -> User:
 @router.get("/model-options", response_model=ModelOptionPage)
 def list_usluga_model_options(
     db: DbSession,
-    current: User = Depends(require_permissions("usluga.view", "usluga.manage", "*")),
+    current: User = Depends(require_permissions("usluga.view", "usluga.manage", "payroll.scan", "payroll.manage", "*")),
     status: str | None = Query(default=None, max_length=32),
     search: str | None = Query(default=None, max_length=100),
     page: int = Query(default=1, ge=1),
@@ -383,10 +383,20 @@ def create_usluga_model(
 def get_usluga_model(
     mid: int,
     db: DbSession,
-    current: User = Depends(require_permissions("usluga.view", "usluga.manage", "*")),
+    current: User = Depends(require_permissions("usluga.view", "usluga.manage", "payroll.scan", "payroll.manage", "*")),
 ):
     _usluga_viewer(current)
     return catalog_routes.get_model(mid, db, current, "usluga")
+
+
+@router.get("/models/{mid}/process-qr-sizes")
+def get_usluga_process_qr_sizes(
+    mid: int,
+    db: DbSession,
+    current: User = Depends(require_permissions("usluga.view", "usluga.manage", "payroll.scan", "payroll.manage", "*")),
+):
+    _require_eco(current)
+    return catalog_routes.get_process_qr_model_sizes(mid, db, current, "usluga")
 
 
 @router.post("/models/{mid}/clone", response_model=ModelOut, status_code=201)
@@ -464,7 +474,7 @@ def update_usluga_paid_operations(
     mid: int,
     payload: ModelPaidOperationsIn,
     db: DbSession,
-    current: User = Depends(require_permissions("usluga.manage", "*")),
+    current: User = Depends(require_permissions("usluga.manage", "payroll.manage", "*")),
 ):
     _require_eco(current)
     return catalog_routes.update_model_paid_operations(mid, payload, db, current, "usluga")
