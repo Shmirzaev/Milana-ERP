@@ -346,8 +346,11 @@ class SewingRecordIn(BaseModel):
         output_total = self.passed_qty + self.failed_qty + self.rejected_qty
         if self.input_qty > 0 and self.sewn_qty > self.input_qty:
             raise ValueError("Sewn quantity cannot exceed input quantity")
-        if output_total > self.sewn_qty:
-            raise ValueError("Passed, failed, and rejected quantities cannot exceed sewn quantity")
+        if self.passed_qty > self.sewn_qty:
+            raise ValueError("Passed quantity cannot exceed sewn quantity")
+        available = self.input_qty if self.input_qty > 0 else self.sewn_qty
+        if output_total > available:
+            raise ValueError("Passed, failed, and rejected quantities cannot exceed input quantity")
         return self
 
 

@@ -98,4 +98,3 @@ def test_stock_backed_accessory_issue_accepts_item_unit_and_records_matching_mov
         assert [movement.movement_type for movement in movements] == ["receive", "consume"]
         assert movements[-1].unit == "pcs"
         assert float(movements[-1].quantity) == 2
-

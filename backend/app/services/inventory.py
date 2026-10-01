@@ -1381,7 +1381,8 @@ def accessory_issue_plan(db: Session, production_order_id: int) -> dict:
             manual_key = (_accessory_match_key(value), unit)
             issued += manual_issued_by_label_unit.get(manual_key, 0.0)
         available = available_stock_for_item(db, int(row["item_id"]))
-        remaining = max(0.0, float(row["required_quantity"] or 0) - issued)
+        # This value is posted back as a Numeric(14, 4) issue quantity.
+        remaining = round(max(0.0, float(row["required_quantity"] or 0) - issued), 4)
         shortage = max(0.0, remaining - available)
         if remaining <= EPSILON:
             status = "ready"
