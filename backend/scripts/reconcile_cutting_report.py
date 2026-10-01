@@ -105,6 +105,10 @@ def execute(plan, apply=False):
         assert [p for p in before if p["id"] not in touched] == [p for p in after if p["id"] not in touched and p["id"] not in inserted_ids]
         assert len(after) == len(before) + len(inserts)
         assert preserved == fingerprints(db), "Operational data changed unexpectedly"
+        from app.api.routes.cutting_passports import _serialize
+        from app.schemas.cutting_passport import CuttingPassportOut
+        for passport_id in touched | set(inserted_ids):
+            CuttingPassportOut.model_validate(_serialize(db.get(CuttingPassport, passport_id), db))
         result.update(applied=True, inserted_ids=inserted_ids, audit_ids=audit_ids,
                       preserved_tables=preserved, protected_unchanged=sorted(PROTECTED))
         db.commit()
