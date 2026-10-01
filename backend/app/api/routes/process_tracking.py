@@ -1166,6 +1166,7 @@ def list_processes(
             "production_no": po.production_no,
             "order_no": po.order_no,
             "production_type": po.production_type,
+            **({"source_type": po.source_type} if factory and factory_code == "ECO" else {}),
             "po_status": po.status,
             "po_deadline": po.deadline,
             "po_overdue": po_overdue,

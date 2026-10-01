@@ -71,6 +71,7 @@ for (const [factory, oldHome, packingHome] of [["BST", "/departments/BST", "/dep
       window: { location: { search: `?packaging_department=${denied ? department : "PKG"}` } },
       require: (name) => {
         if (name === "react/jsx-runtime") return runtime;
+        if (name === "swr") return { SWRConfig: "SWRConfig" };
         if (name === "react") return { useEffect: (fn) => effects.push(fn), useState: (initial) => [initial, () => {}] };
         if (name === "next/navigation") return { usePathname: () => pathname, useSearchParams: () => new URLSearchParams(query), useRouter: () => ({ replace: (path) => redirects.push(path) }) };
         if (name === "@/lib/access") return access;

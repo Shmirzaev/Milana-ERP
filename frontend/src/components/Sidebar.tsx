@@ -359,7 +359,7 @@ export default function Sidebar() {
           "section.usluga",
           "section.attendance",
         ]);
-        if (factory === "ECO") return sec.titleKey === "section.hr" || sec.titleKey === "fabricScans.section" || ecoSections.has(sec.titleKey);
+        if (factory === "ECO") return sec.titleKey === "section.hr" || sec.titleKey === "section.payroll" || sec.titleKey === "fabricScans.section" || ecoSections.has(sec.titleKey);
         return sec.titleKey === "section.hr"
           || sec.titleKey === "section.attendance"
           || (sec.titleKey !== "section.besttexTextile" && !ecoSections.has(sec.titleKey));

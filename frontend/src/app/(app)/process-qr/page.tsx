@@ -94,6 +94,7 @@ type ProcessBatch = {
 
 type Process = {
   production_order_id: number;
+  source_type?: "standard" | "usluga";
   production_no: string;
   order_no?: string | null;
   sales_order_id: number | null;
@@ -702,6 +703,8 @@ export default function ProcessQrPage() {
     return () => window.clearTimeout(timer);
   }, [query]);
   const processUrl = `/api/process-tracking?page_size=100&sewing_completed_only=true${
+    me?.factory_code === "ECO" ? "&factory=ECO" : ""
+  }${
     processSearch ? `&q=${encodeURIComponent(processSearch)}` : ""
   }`;
   const { data = [], error, isLoading, mutate } = useSWR<Process[]>(
@@ -773,8 +776,9 @@ export default function ProcessQrPage() {
 
   const filteredProcesses = data;
   const manualModelSearch = manualModelQuery.trim();
+  const manualModelApiBase = me?.factory_code === "ECO" ? "/api/usluga" : "/api";
   const manualModelsUrl = sourceMode === "manual" && manualModelSearch
-    ? `/api/model-options?search=${encodeURIComponent(manualModelSearch)}&page=1&page_size=50`
+    ? `${manualModelApiBase}/model-options?search=${encodeURIComponent(manualModelSearch)}&page=1&page_size=50`
     : null;
   const {
     data: manualModelSearchResponse,
@@ -802,8 +806,10 @@ export default function ProcessQrPage() {
     : selectedTrackedProcess?.model_id
       ? Number(selectedTrackedProcess.model_id)
       : null;
+  const modelApiBase = sourceMode === "manual" ? manualModelApiBase
+    : me?.factory_code === "ECO" && selectedTrackedProcess?.source_type === "usluga" ? "/api/usluga" : "/api";
   const { data: selectedModel, mutate: mutateSelectedModel } = useSWR<ManualModel>(
-    selectedModelId ? `/api/models/${selectedModelId}` : null,
+    selectedModelId ? `${modelApiBase}/models/${selectedModelId}` : null,
     fetcher,
   );
   const { mutate: mutateModelCache } = useSWRConfig();
@@ -813,7 +819,7 @@ export default function ProcessQrPage() {
     && !(selectedModel.sizes || []).some(row => String(row.size || "").trim());
   const { data: familySizes, error: familySizesError, mutate: mutateFamilySizes } = useSWR<{
     model_id: number; sizes: string[]; resolution: "own" | "inherited" | "missing" | "conflict";
-  }>(needsFamilySizes ? `/api/models/${selectedModelId}/process-qr-sizes` : null, fetcher);
+  }>(needsFamilySizes ? `${modelApiBase}/models/${selectedModelId}/process-qr-sizes` : null, fetcher);
   const hasManualSizeOverride = sourceMode === "manual" && manualSizeOverride?.modelId === selectedModelId;
   const resolvedFamilySizes = needsFamilySizes && familySizes?.model_id === selectedModelId ? familySizes : undefined;
   const manualProcess = useMemo<Process | undefined>(() => {
@@ -1283,13 +1289,13 @@ export default function ProcessQrPage() {
     setModelSaveMsg("");
     try {
       const nextOperations = serializePaidOperations(factoryOperations);
-      await api.patch(`/api/models/${selectedModelId}/paid-operations`, {
+      await api.patch(`${modelApiBase}/models/${selectedModelId}/paid-operations`, {
         paid_operations: nextOperations,
         sewing_factory: printPaidOperationFactory,
       });
       // Sibling variants already visited in this session must not reload an
       // old template from SWR after a successful family save.
-      await mutateModelCache(key => typeof key === "string" && /^\/api\/models\/\d+$/.test(key), undefined, { revalidate: true });
+      await mutateModelCache(key => typeof key === "string" && key.startsWith(`${modelApiBase}/models/`) && /\/models\/\d+$/.test(key), undefined, { revalidate: true });
       if (selectedModelIdRef.current !== selectedModelId) return;
       const allOperations = serializePaidOperations(operations);
       setOperations(allOperations);

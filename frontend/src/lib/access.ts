@@ -36,6 +36,10 @@ export function factoryWorkspaceHome(me: Me | undefined): string {
       : "/departments/BST";
   }
   if (me?.factory_code === "ECO") {
+    if (!permits("cutting.records", "cutting.bundles", "planning.production") && !packaging) {
+      if (permits("payroll.view", "payroll.manage", "payroll.pay")) return "/payroll";
+      if (permits("payroll.scan")) return "/payroll/scan";
+    }
     return packaging && !permits("cutting.records", "cutting.bundles", "planning.production")
       ? "/departments/ECP"
       : "/departments/ECT";

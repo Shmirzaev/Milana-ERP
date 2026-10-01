@@ -1,5 +1,9 @@
 export const PAYROLL_SCAN_STORAGE_KEY = "milana_payroll_scan_records_v2";
 
+export function payrollScanStorageKey(factoryCode: string): string {
+  return factoryCode === "ECO" ? `${PAYROLL_SCAN_STORAGE_KEY}:ECO` : PAYROLL_SCAN_STORAGE_KEY;
+}
+
 type StoredPayrollScanRecord = {
   workKey?: unknown;
   scanUid?: unknown;
@@ -21,8 +25,9 @@ export function payrollScanRecordMatchesLabel(record: StoredPayrollScanRecord, l
     || rawLabelUid === normalizedLabelUid;
 }
 
-export function removePayrollScanHistoryForLabel(labelUid: string, storage: Storage): number {
-  const saved = storage.getItem(PAYROLL_SCAN_STORAGE_KEY);
+export function removePayrollScanHistoryForLabel(labelUid: string, storage: Storage, factoryCode = "MIL"): number {
+  const key = payrollScanStorageKey(factoryCode);
+  const saved = storage.getItem(key);
   if (!saved) return 0;
 
   let parsed: unknown;
@@ -40,7 +45,7 @@ export function removePayrollScanHistoryForLabel(labelUid: string, storage: Stor
   ));
   const removedCount = parsed.length - remaining.length;
   if (removedCount > 0) {
-    storage.setItem(PAYROLL_SCAN_STORAGE_KEY, JSON.stringify(remaining));
+    storage.setItem(key, JSON.stringify(remaining));
   }
   return removedCount;
 }
