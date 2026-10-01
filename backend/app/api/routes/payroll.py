@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, time
 from decimal import Decimal, InvalidOperation
 import hashlib
 import json
@@ -63,6 +63,7 @@ from app.schemas.payroll import (
     PayrollRecordIn,
     PayrollRecordOut,
     PayrollRecordReversalIn,
+    PayrollScanSplitIn,
     PayrollSummaryEmployeeOut,
     PayrollSummaryOperationOut,
     PayrollSummaryOut,
@@ -828,9 +829,16 @@ def _create_record_from_payload(
     period_id_override: int | None = None,
     audit_individual: bool = True,
     control_confirmed: bool = False,
+    preserve_unassigned_period: bool = False,
 ) -> tuple[PayrollRecord, bool]:
     factory_code = selected_factory_code(current)
     data = _normalize_record_payload(payload)
+    if payload.work_date is not None:
+        today = utcnow().astimezone(ZoneInfo("Asia/Tashkent")).date()
+        if payload.work_date > today:
+            raise HTTPException(400, "Payroll work date cannot be in the future")
+        # Normalize before enrichment so legacy deduplication uses the work date.
+        data["scanned_at"] = as_utc(datetime.combine(payload.work_date, time(12), ZoneInfo("Asia/Tashkent")))
     payload_period_id = payload.payroll_period_id or _to_int(_extra(payload, "payrollPeriodId"))
     if period_id_override is not None and data.get("payroll_period_id") is None:
         data["payroll_period_id"] = period_id_override
@@ -869,7 +877,25 @@ def _create_record_from_payload(
         if existing:
             return existing, False
 
-    period = _attach_period(db, data.get("payroll_period_id"), data["scanned_at"], factory_code)
+    if payload.work_date is not None:
+        # The accounting date is explicitly chosen; created_at retains the actual
+        # recording time. Never fall back to an unrelated open month.
+        periods = db.query(PayrollPeriod).filter(
+            PayrollPeriod.factory_code == factory_code,
+            PayrollPeriod.start_date <= data["scanned_at"],
+            PayrollPeriod.end_date >= data["scanned_at"],
+        ).order_by(PayrollPeriod.id).with_for_update().all()
+        if len(periods) > 1:
+            raise HTTPException(409, "Payroll work date matches overlapping periods; resolve the periods first")
+        period = periods[0] if periods else None
+        if data.get("payroll_period_id") and (not period or period.id != data["payroll_period_id"]):
+            raise HTTPException(409, "Payroll period does not contain the selected work date")
+        if period and period.status != "open":
+            raise HTTPException(409, f"Payroll period {period.period_no} is {period.status}")
+    elif preserve_unassigned_period and not data.get("payroll_period_id"):
+        period = None
+    else:
+        period = _attach_period(db, data.get("payroll_period_id"), data["scanned_at"], factory_code)
     _assert_period_accepts_records(period, current)
     data["payroll_period_id"] = period.id if period else None
 
@@ -2394,6 +2420,7 @@ def confirm_control_scan(
         db,
         PayrollRecordIn(
             scan_uid=label.label_uid, employee_id=payload.employee_id,
+            work_date=payload.work_date,
             work=jsonable_encoder(_qr_label_scan_payload(label)), source="payroll_control_confirm",
         ),
         current=current, control_confirmed=True,
@@ -2452,6 +2479,7 @@ def record_numeric_work_scan(
         employee=employee_payload,
         work=work_payload,
         scanned_at=payload.scanned_at,
+        work_date=payload.work_date,
         source="payroll_scan",
     )
     record, created = _create_record_from_payload(db, record_input, current=current)
@@ -2879,18 +2907,20 @@ def return_qr_label(
     label = db.query(PayrollQrLabel).filter(
         PayrollQrLabel.id == label_id,
         PayrollQrLabel.factory_code == factory_code,
-    ).first()
+    ).with_for_update().populate_existing().first()
     if not label:
         raise HTTPException(404, "Payroll QR label not found")
+    if label.status == "superseded":
+        raise HTTPException(409, "A split original QR cannot be returned or scanned again")
     record = db.query(PayrollRecord).filter(
         PayrollRecord.id == label.payroll_record_id,
         PayrollRecord.factory_code == factory_code,
-    ).first() if label.payroll_record_id else None
+    ).with_for_update().populate_existing().first() if label.payroll_record_id else None
     if not record:
         record = db.query(PayrollRecord).filter(
             PayrollRecord.factory_code == factory_code,
             PayrollRecord.scan_uid == label.label_uid,
-        ).first()
+        ).with_for_update().populate_existing().first()
     if not record:
         raise HTTPException(409, "This payroll QR is not assigned to an employee")
     if record.status == "paid" and not is_admin(current):
@@ -2898,7 +2928,7 @@ def return_qr_label(
     period = db.query(PayrollPeriod).filter(
         PayrollPeriod.id == record.payroll_period_id,
         PayrollPeriod.factory_code == factory_code,
-    ).first() if record.payroll_period_id else None
+    ).with_for_update().populate_existing().first() if record.payroll_period_id else None
     if period and period.status in MUTATION_LOCKED_PERIOD_STATUSES:
         raise HTTPException(409, f"Payroll period {period.period_no} is {period.status}")
 
@@ -2990,6 +3020,96 @@ def create_records_bulk(
         "created_count": created_count,
         "duplicate_count": duplicate_count,
     }
+
+
+@router.post("/records/{record_id}/split", response_model=list[PayrollRecordOut])
+def split_scanned_record(
+    record_id: int,
+    payload: PayrollScanSplitIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("payroll.scan", "payroll.manage", "*")),
+):
+    factory = selected_factory_code(current)
+    # Match scan/return lock order: label first, then its ledger record.
+    label = db.query(PayrollQrLabel).filter(
+        PayrollQrLabel.payroll_record_id == record_id,
+        PayrollQrLabel.factory_code == factory,
+    ).with_for_update().populate_existing().first()
+    record = db.query(PayrollRecord).filter(
+        PayrollRecord.id == record_id, PayrollRecord.factory_code == factory,
+    ).with_for_update().populate_existing().first()
+    if not record or not label:
+        raise HTTPException(404, "Issued payroll QR record not found")
+    children = db.query(PayrollQrLabel).filter(
+        PayrollQrLabel.split_from_label_id == label.id,
+        PayrollQrLabel.factory_code == factory,
+    ).order_by(PayrollQrLabel.id).all()
+    if label.status == "superseded" and record.status == "voided" and children:
+        records = [db.get(PayrollRecord, child.payroll_record_id) if child.payroll_record_id else None for child in children]
+        if (len(records) != len(payload.parts) or any(
+            not row or row.status != "recorded" or row.employee_id != part.employee_id or row.quantity != part.quantity
+            for row, part in zip(records, payload.parts)
+        )):
+            raise HTTPException(409, "This QR has already been split with different allocations")
+    else:
+        if record.status != "recorded" or label.status != "scanned":
+            raise HTTPException(409, "Only recorded, unpaid QR work can be split")
+        if sum(part.quantity for part in payload.parts) != record.quantity or label.quantity != record.quantity:
+            raise HTTPException(409, "Split pieces must equal the original QR quantity")
+        period = db.query(PayrollPeriod).filter_by(id=record.payroll_period_id).with_for_update().first() if record.payroll_period_id else None
+        if period and period.status != "open":
+            raise HTTPException(409, f"Payroll period {period.period_no} is {period.status}")
+        date_periods = db.query(PayrollPeriod).filter(
+            PayrollPeriod.factory_code == factory, PayrollPeriod.start_date <= record.scanned_at,
+            PayrollPeriod.end_date >= record.scanned_at,
+        ).order_by(PayrollPeriod.id).with_for_update().all()
+        if any(p.status != "open" for p in date_periods):
+            raise HTTPException(409, "The payroll period for this work date is no longer open")
+        employee_ids = {part.employee_id for part in payload.parts}
+        employees = db.query(Employee).filter(Employee.id.in_(employee_ids), Employee.factory_code == factory, Employee.status == "active").all()
+        if {employee.id for employee in employees} != employee_ids:
+            raise HTTPException(409, "Select active employees from this payroll factory")
+        fields = (
+            "production_order_id", "sales_order_id", "work_order_id", "production_batch_id", "model_id",
+            "production_no", "sales_order_no", "batch_no", "model_code", "operation_section", "operation_code",
+            "operation_name", "sewing_flow_id", "sewing_line_code", "sewing_line_name", "cutting_passport_id",
+            "cutting_passport_no", "size", "rate_per_piece", "currency", "copy_index",
+        )
+        records = []
+        for part in payload.parts:
+            child = PayrollQrLabel(
+                **{field: getattr(label, field) for field in fields}, factory_code=factory,
+                label_uid=f"OERP-SPLIT-{uuid4().hex.upper()}", split_from_label_id=label.id,
+                quantity=Decimal(part.quantity), status="available", issued_by=current.id, issued_at=utcnow(),
+            )
+            db.add(child)
+            db.flush()
+            row, _ = _create_record_from_payload(db, PayrollRecordIn(
+                scan_uid=child.label_uid, employee_id=part.employee_id,
+                work=jsonable_encoder(_qr_label_scan_payload(child)), scanned_at=record.scanned_at,
+                payroll_period_id=record.payroll_period_id, source="payroll_scan_split",
+            ), current=current, control_confirmed=True, preserve_unassigned_period=True)
+            # Preserve an unassigned source date as well as explicitly assigned periods.
+            row.payroll_period_id = record.payroll_period_id
+            records.append(row)
+        # Rounding is allocated once so a split never increases or loses salary.
+        records[-1].total_amount += record.total_amount - sum(row.total_amount for row in records)
+        if records[-1].total_amount < 0:
+            raise HTTPException(409, "These quantities cannot preserve the original rounded payroll amount")
+        record.status = "voided"
+        label.status = "superseded"
+        label.superseded_at = utcnow()
+        label.superseded_by = current.id
+        log_action(db, current, "split_scanned_qr", "PayrollRecord", record.id,
+                   old_value={"employee_id": record.employee_id, "quantity": record.quantity, "total_amount": record.total_amount},
+                   new_value={"record_ids": [row.id for row in records], "parts": payload.model_dump()["parts"]})
+    employees, departments = _load_employee_maps(db, {int(row.employee_id) for row in records})
+    db.flush()
+    for row in records:
+        db.refresh(row)
+    result = [_serialize_record(row, employees=employees, departments=departments) for row in records]
+    db.commit()
+    return result
 
 
 @router.post("/records/{record_id}/void", response_model=PayrollRecordOut)

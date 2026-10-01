@@ -5,7 +5,8 @@ from app.services.print_response import warehouse_print_response
 
 from app.core.deps import DbSession, require_permissions, user_permissions
 from app.models import Package, PackagePrintRun, PackagePrintRunMember, ProductionOrder, User
-from app.schemas.package_workflows import ManualPackageReceiptIn, PrintRunIn, PrintRunCreatePackagesIn, PrintRunReceiveIn
+from app.schemas.package_workflows import ManualPackageReceiptIn, PrintRunIn, PrintRunCreatePackagesIn, PrintRunReceiveIn, PackageReturnIn
+from app.schemas.tracking import PackageChangeRequestIn
 from app.services import package_workflows as service
 from app.services.audit import log_action
 from app.services.package_label_pages import label_document
@@ -74,6 +75,10 @@ def _write(db, current, operation, payload, action):
         body.pop("pack_quantities", None)
     replay = replay_idempotent_response(db, scope=scope, key=key, payload=body)
     if replay:
+        if operation in {"create-packages-run", "print-run", "resend-corrected"}:
+            run = db.get(PackagePrintRun, replay["id"])
+            if run:
+                service.require_active_run(run)
         if operation == "manual-receipt":
             run = db.get(PackagePrintRun, replay["print_run"]["id"])
             if run:
@@ -96,6 +101,61 @@ def _run(db, current, rid):
         packaging_department_scope(current, run.packaging_department_code)
     service.require_active_run(run)
     return run
+
+
+@router.get("/receiving-options")
+def receiving_options(db: DbSession, q: str = "", page: int = Query(1, ge=1),
+                      current: User = Depends(require_permissions("storage.packages", "*"))):
+    from sqlalchemy import or_
+    from app.models import Model, SalesOrder
+    from app.api.routes.packages import _package_context
+    candidates = db.query(Package.id).join(ProductionOrder, ProductionOrder.id == Package.production_order_id).join(
+        Model, Model.id == Package.model_id).outerjoin(SalesOrder, SalesOrder.id == Package.sales_order_id).filter(
+        Package.status == "packed", ProductionOrder.source_type != "usluga")
+    if q.strip():
+        term = q.strip()[:100]
+        candidates = candidates.filter(or_(*[column.icontains(term, autoescape=True) for column in
+                                             (Package.package_no, Package.barcode, Model.code, Model.name, ProductionOrder.production_no, SalesOrder.order_no)]))
+    active = service.active_members(db)
+    run_ids = active.filter(PackagePrintRunMember.package_id.in_(candidates)).with_entities(PackagePrintRunMember.run_id)
+    runs = db.query(PackagePrintRun).filter(PackagePrintRun.id.in_(run_ids), PackagePrintRun.received_at.is_(None),
+                                          PackagePrintRun.deleted_at.is_(None)).order_by(PackagePrintRun.id.desc()).offset((page - 1) * 20).limit(21).all()
+    singles = db.query(Package).filter(Package.id.in_(candidates), ~Package.id.in_(active.with_entities(PackagePrintRunMember.package_id))).order_by(Package.id.desc()).offset((page - 1) * 20).limit(21).all()
+    rows = []
+    for run in runs[:20]:
+        row = service.run_payload(db, run)
+        pkg = db.get(Package, row["package_ids"][0])
+        rows.append({**row, "key": f"run-{run.id}", "context": _package_context(db, pkg)})
+    for pkg in singles[:20]:
+        rows.append({"key": f"package-{pkg.id}", "id": None, "code": None, "run_no": pkg.package_no,
+                     "package_ids": [pkg.id], "packages": [{"id": pkg.id, "package_no": pkg.package_no}],
+                     "count": 1, "quantity": pkg.total_quantity, "context": _package_context(db, pkg)})
+    return {"rows": rows, "has_more": len(runs) > 20 or len(singles) > 20}
+
+
+@router.post("/return-to-packaging")
+def return_to_packaging(payload: PackageReturnIn, db: DbSession,
+                        current: User = Depends(require_permissions("storage.packages", "*"))):
+    from app.services.package_returns import return_packages
+    result = return_packages(db, current, payload)
+    db.commit()
+    return result
+
+
+@router.post("/{pid}/correct-return")
+def correct_return(pid: int, payload: PackageChangeRequestIn, db: DbSession,
+                   current: User = Depends(require_permissions("packaging.packages", "*"))):
+    from app.services.package_returns import correct_returned_package
+    result = correct_returned_package(db, current, pid, payload)
+    db.commit()
+    return result
+
+
+@router.post("/resend-corrected")
+def resend_corrected(payload: PrintRunIn, db: DbSession,
+                     current: User = Depends(require_permissions("packaging.packages", "*"))):
+    from app.services.package_returns import resend_packages
+    return _write(db, current, "resend-corrected", payload, lambda: resend_packages(db, current, payload))
 
 
 @router.post("/manual-receipt", status_code=201)
@@ -156,7 +216,7 @@ def create_packages_and_run(payload: PrintRunCreatePackagesIn, db: DbSession,
 @router.get("/print-runs")
 def list_print_runs(db: DbSession, production_order_id: int | None = None,
                     current: User = Depends(require_permissions("packaging.packages", "packaging.records", "storage.packages", "storage.shipment", "*"))):
-    query = db.query(PackagePrintRun).filter(PackagePrintRun.deleted_at.is_(None))
+    query = db.query(PackagePrintRun).filter(PackagePrintRun.deleted_at.is_(None), PackagePrintRun.returned_at.is_(None))
     if production_order_id:
         query = query.filter(PackagePrintRun.id.in_(db.query(PackagePrintRunMember.run_id).join(
             Package, Package.id == PackagePrintRunMember.package_id).filter(Package.production_order_id == production_order_id)))

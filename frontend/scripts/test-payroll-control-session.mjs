@@ -28,7 +28,7 @@ const env = {
   controlConfirmRef: { current: false }, scanSequenceRef: { current: 1 },
   controlReviewRef: { current: null }, currentEmployeeRef: { current: A },
   recordsRef: { current: [] }, workRecordByKeyRef: { current: new Map() },
-  canSavePayroll: true, lang: "en", inputRef: { current: { focus() {} } },
+  canSavePayroll: true, lang: "en", workDate: "2026-09-30", inputRef: { current: { focus() {} } },
   api: { post: (path, body) => { calls.push({ path, body }); return pending.promise; } },
   normalizeScanPayload: value => value, buildWorkKey: work => work.label_id,
   setControlReview: value => { state.review = value; }, setCurrentEmployee: value => { state.employee = value; },
@@ -43,6 +43,7 @@ const handlers = new Function(...Object.keys(env), `${js}; return {${names.join(
 
 // A scans Control, then selects B before the numeric response arrives.
 const scan = handlers.recordNumericWorkScan("200000001", A, 1);
+assert.equal(calls.at(-1).body.work_date, "2026-09-30");
 assert.equal(handlers.selectEmployee(B), true);
 pending.resolve({ work: preview.work, record: null, control_preview: preview });
 await scan;
@@ -62,6 +63,7 @@ handlers.showControlReview(preview, A, env.scanSequenceRef.current);
 pending = deferred();
 const confirmation = handlers.confirmControlReview();
 assert.equal(calls.at(-1).body.employee_id, 1);
+assert.equal(calls.at(-1).body.work_date, "2026-09-30", "Control confirmation preserves reviewed work date");
 assert.equal(handlers.selectEmployee(B), false);
 assert.equal(state.employee, A);
 assert.equal(state.review.employee, A);

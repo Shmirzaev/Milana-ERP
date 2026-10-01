@@ -42,7 +42,7 @@ VALID_STORAGE_CELLS = {
     for idx in range(1, size + 1)
 }
 VALID_STORAGE_SHELVES = {"S1", "S2"}
-PACKAGE_CHANGE_ALLOWED_STATUSES = {"packed", "received_in_storage"}
+PACKAGE_CHANGE_ALLOWED_STATUSES = {"packed", "received_in_storage", "returned_to_packaging"}
 PACKAGE_CHANGE_PENDING_STATUS = "pending"
 
 
@@ -779,9 +779,10 @@ def normalize_package_edit_payload(db: Session, pkg: Package, payload: dict | No
 
 def _ensure_package_can_change(db: Session, pkg: Package) -> list[FinishedGoodsStock]:
     from app.models.package_workflows import PackagePrintRunMember
+    from app.services.package_workflows import active_members
     if pkg.manual_receipt_id:
         raise HTTPException(409, "Manual receipt evidence cannot be edited or deleted through package correction")
-    if db.query(PackagePrintRunMember.id).filter(PackagePrintRunMember.package_id == pkg.id).first():
+    if active_members(db).filter(PackagePrintRunMember.package_id == pkg.id).first():
         raise HTTPException(409, "Printed package membership is immutable; review the receiving run before correction")
     if pkg.status not in PACKAGE_CHANGE_ALLOWED_STATUSES:
         raise HTTPException(400, f"Package in status '{pkg.status}' cannot be edited or deleted")
@@ -861,6 +862,8 @@ def create_package_change_request(
     reason: str | None,
     user_id: int | None,
 ) -> PackageChangeRequest:
+    if pkg.status == "returned_to_packaging":
+        raise HTTPException(409, "Use the returned-package correction workflow")
     if request_type not in {"edit", "delete"}:
         raise HTTPException(400, "request_type must be edit or delete")
     _ensure_package_can_change(db, pkg)
@@ -1102,8 +1105,9 @@ def receive_at_storage(
     print_run_id: int | None = None,
 ):
     from app.models.package_workflows import PackagePrintRunMember
+    from app.services.package_workflows import active_members
     pkg = db.query(Package).filter(Package.id == pkg.id).with_for_update().populate_existing().one()
-    member = db.query(PackagePrintRunMember).filter(PackagePrintRunMember.package_id == pkg.id).first()
+    member = active_members(db).filter(PackagePrintRunMember.package_id == pkg.id).first()
     if member and member.run_id != print_run_id:
         raise HTTPException(409, "Scan a package in this print run to receive the complete run together")
     _require_warehouse_package(db, pkg)

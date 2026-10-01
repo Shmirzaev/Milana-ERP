@@ -65,7 +65,7 @@ class Package(Base, PkMixin, TimestampMixin):
             name="ck_packages_packaging_department",
         ),
         CheckConstraint(
-            "status IN ('packed', 'handed_over', 'received_in_storage', 'reserved', 'shipped', 'delivered', 'damaged')",
+            "status IN ('packed', 'returned_to_packaging', 'handed_over', 'received_in_storage', 'reserved', 'shipped', 'delivered', 'damaged')",
             name="ck_packages_status",
         ),
         CheckConstraint(

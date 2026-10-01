@@ -71,6 +71,7 @@ for (const [factory, oldHome, packingHome] of [["BST", "/departments/BST", "/dep
       window: { location: { search: `?packaging_department=${denied ? department : "PKG"}` } },
       require: (name) => {
         if (name === "react/jsx-runtime") return runtime;
+        if (name === "swr") return { SWRConfig: "SWRConfig" };
         if (name === "react") return { useEffect: (fn) => effects.push(fn), useState: (initial) => [initial, () => {}] };
         if (name === "next/navigation") return { usePathname: () => pathname, useSearchParams: () => new URLSearchParams(query), useRouter: () => ({ replace: (path) => redirects.push(path) }) };
         if (name === "@/lib/access") return access;
@@ -108,7 +109,7 @@ for (const page of ["packages", "packaging/queue", "packaging/receive", "packagi
     for (const query of ["", `packaging_department=${department}`]) {
       const keys = [];
       vm.runInNewContext(queryCode, {
-        URLSearchParams, Intl, Date,
+        URLSearchParams, Intl, Date, packageReturnText: { en: {} },
         useT: () => ({ t: value => value, lang: "en" }),
         useMe: () => ({ me: { factory_code: factory, permissions: packingPermissions } }),
         useSearchParams: () => new URLSearchParams(query),

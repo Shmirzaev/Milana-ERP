@@ -8,6 +8,9 @@ import { can, useMe } from "@/lib/auth";
 import { packagingDepartmentForSession } from "@/lib/access";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import Modal from "@/components/Modal";
+import PendingPackageWorkflow from "@/components/PendingPackageWorkflow";
+import { packageReturnText } from "@/lib/packageReturnText";
+import { postPackageWorkflow, type PackagePrintRun } from "@/lib/packageWorkflow";
 import PageHeader from "@/components/PageHeader";
 import PaginationControls from "@/components/PaginationControls";
 import { productionTypeLabel, statusLabel } from "@/components/StagePipeline";
@@ -29,18 +32,20 @@ type EditForm = {
 };
 
 export default function PackagesPage() {
-  const { t } = useT();
+  const { lang, t } = useT();
   const searchParams = useSearchParams();
   const { me } = useMe();
   const requestedDepartment = searchParams.get("packaging_department");
   const packagingDepartment = packagingDepartmentForSession(me, requestedDepartment);
   const isEcoCotton = packagingDepartment === "ECP";
   const factoryLabel = isEcoCotton ? "Eco Cotton" : packagingDepartment === "BPK" ? "Besttex" : "Milana";
+  const returnText = packageReturnText[lang];
+  const [returnedOnly, setReturnedOnly] = useState(false);
   const canApprovePackageChange = can(me, "management.approve");
   const canTraceability = can(me, "traceability.view");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
-  const { data: pageData, mutate } = useSWR<any>(`/api/packages?include_total=true&page=${page}&page_size=${pageSize}&packaging_department_code=${packagingDepartment}`, fetcher);
+  const { data: pageData, mutate } = useSWR<any>(`/api/packages?include_total=true&page=${page}&page_size=${pageSize}${returnedOnly ? "&status=returned_to_packaging" : ""}&packaging_department_code=${packagingDepartment}`, fetcher);
   const { data: pendingRequests, mutate: mutatePendingRequests } = useSWR<any[]>(`/api/packages/change-requests?status=pending&packaging_department_code=${packagingDepartment}`, fetcher);
   const data = useMemo<any[]>(() => pageData?.rows || [], [pageData?.rows]);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
@@ -198,14 +203,14 @@ export default function PackagesPage() {
           quantity: Number(row.quantity || 0),
         }));
       }
-      await api.post(`/api/packages/${editing.id}/change-requests`, {
+      await api.post(`/api/packages/${editing.id}/${editing.status === "returned_to_packaging" ? "correct-return" : "change-requests"}`, {
         request_type: "edit",
         reason: editForm.reason.trim() || undefined,
         payload,
       });
       setEditing(null);
       setEditForm(null);
-      setMessage(t("page.packages.editRequestSent"));
+      setMessage(editing.status === "returned_to_packaging" ? returnText.corrected : t("page.packages.editRequestSent"));
       await refreshPackages();
     } catch (err: any) {
       setError(err?.message || t("page.packages.editRequestFailed"));
@@ -299,6 +304,8 @@ export default function PackagesPage() {
   return (
     <div>
       <PageHeader title={`${factoryLabel} - ${t("page.packages.title")}`} subtitle={t("page.packages.subtitle")} actions={<Link href={`/packaging/receive?packaging_department=${packagingDepartment}`} className="btn">{t("nav.receiveFromSewing")}</Link>} />
+      <label className="my-3 flex items-center gap-2"><input type="checkbox" checked={returnedOnly} onChange={e => { setReturnedOnly(e.target.checked); setPage(1); }} />{returnText.returnList}</label>
+      <PendingPackageWorkflow path="/api/packages/resend-corrected" onResolved={refreshPackages} />
       {message && <div className="mb-3 rounded border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">{message}</div>}
       {error && <div className="mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
       <div className="card overflow-x-auto">
@@ -397,7 +404,7 @@ export default function PackagesPage() {
                         <td>{p.total_quantity}</td>
                         <td>{p.storage_cell || "-"}</td>
                         <td>{p.storage_shelf || "-"}</td>
-                        <td><span className="badge">{statusLabel(p.status, t)}</span></td>
+                        <td><span className="badge">{p.status === "returned_to_packaging" ? returnText.returned : statusLabel(p.status, t)}</span>{p.return_reason && <p className="mt-1 text-sm">{returnText.reason}: {p.return_reason}</p>}</td>
                         <td className="flex flex-wrap gap-2">
                           <Link href={`/packages/${p.id}`} className="text-brand-600 hover:underline">{t("btn.view")}</Link>
                           {canTraceability && (
@@ -405,9 +412,18 @@ export default function PackagesPage() {
                               {t("page.traceability.passport")}
                             </Link>
                           )}
-                          <button type="button" className="text-slate-600 hover:underline" onClick={() => api.openLabel(`/api/packages/${p.id}/label`)}>{t("btn.label")}</button>
-                          <button type="button" className="text-blue-700 hover:underline disabled:text-slate-400 disabled:no-underline" disabled={!!pending || busy} onClick={() => openEdit(p)}>{t("common.edit")}</button>
-                          <button type="button" className="text-red-700 hover:underline disabled:text-slate-400 disabled:no-underline" disabled={!!pending || busy} onClick={() => setDeleting(p)}>{t("common.delete")}</button>
+                          <button type="button" disabled={p.status === "returned_to_packaging"} className="text-slate-600 hover:underline" onClick={() => api.openLabel(`/api/packages/${p.id}/label`)}>{t("btn.label")}</button>
+                          <button type="button" className="text-blue-700 hover:underline disabled:text-slate-400 disabled:no-underline" disabled={!!pending || busy || (p.status === "returned_to_packaging" && !can(me, "packaging.packages"))} onClick={() => openEdit(p)}>{t("common.edit")}</button>
+                          <button type="button" className="text-red-700 hover:underline disabled:text-slate-400 disabled:no-underline" disabled={!!pending || busy || p.status === "returned_to_packaging"} onClick={() => setDeleting(p)}>{t("common.delete")}</button>
+                          {p.status === "returned_to_packaging" && can(me, "packaging.packages") && <button type="button" className="btn" disabled={busy} onClick={async () => {
+                            setBusy(true); setError("");
+                            try {
+                              const run = await postPackageWorkflow<PackagePrintRun>("/api/packages/resend-corrected", { package_ids: [p.id] }, me!.id);
+                              await refreshPackages();
+                              await api.openLabel(`/api/packages/print-runs/${run.id}/label`);
+                            } catch (e: any) { setError(e.message); }
+                            finally { setBusy(false); }
+                          }}>{returnText.resend}</button>}
                           {pending && canApprovePackageChange && (
                             <>
                               <button type="button" className="text-green-700 hover:underline disabled:text-slate-400" disabled={busy} onClick={() => approveRequest(pending)}>{t("btn.approve")}</button>
@@ -516,7 +532,7 @@ export default function PackagesPage() {
             </div>
             <div className="flex justify-end gap-2">
               <button type="button" className="btn" onClick={() => { setEditing(null); setEditForm(null); }} disabled={busy}>{t("common.cancel")}</button>
-              <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? t("common.saving") : t("page.packages.requestApproval")}</button>
+              <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? t("common.saving") : editing?.status === "returned_to_packaging" ? returnText.save : t("page.packages.requestApproval")}</button>
             </div>
           </form>
         )}

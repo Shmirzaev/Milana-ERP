@@ -29,11 +29,14 @@ class PackagePrintRun(Base, PkMixin):
     receipt_location: Mapped[dict | None] = mapped_column(JSON)
     deleted_package_ids: Mapped[list] = mapped_column(JSON, default=list, server_default="[]", nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    returned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    returned_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    return_reason: Mapped[str | None] = mapped_column(String(1000))
 
 
 class PackagePrintRunMember(Base, PkMixin):
     __tablename__ = "package_print_run_members"
-    __table_args__ = (UniqueConstraint("package_id", name="uq_package_print_run_member_package"),)
+    __table_args__ = (UniqueConstraint("run_id", "package_id", name="uq_package_print_run_member_run_package"),)
     run_id: Mapped[int] = mapped_column(ForeignKey("package_print_runs.id"), index=True, nullable=False)
     # Historical identity: retained after a guarded manual-pack deletion.
     package_id: Mapped[int] = mapped_column(nullable=False)

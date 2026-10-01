@@ -20,9 +20,10 @@ const messages = {
   uz: { label: "Xodimni ismi bo‘yicha qidirish", placeholder: "Ism yoki xodim raqamini kiriting", start: "Kamida 2 ta belgi kiriting", empty: "Faol xodimlar topilmadi", loading: "Qidirilmoqda…", more: "Yana mos xodimlar bor. Ismni to‘liqroq kiriting.", error: "Xodimlarni qidirib bo‘lmadi. Qayta kiriting." },
 };
 
-export default function PayrollEmployeeSearch({ onSelect, disabled = false }: {
+export default function PayrollEmployeeSearch({ onSelect, disabled = false, inputId = "payroll-employee-search" }: {
   onSelect: (employee: PayrollSearchEmployee) => void;
   disabled?: boolean;
+  inputId?: string;
 }) {
   const { lang } = useT();
   const text = messages[lang];
@@ -56,10 +57,10 @@ export default function PayrollEmployeeSearch({ onSelect, disabled = false }: {
 
   return (
     <div className="mt-4" data-payroll-employee-search>
-      <label className="label" htmlFor="payroll-employee-search">{text.label}</label>
+      <label className="label" htmlFor={inputId}>{text.label}</label>
       <SearchableSelect<number>
         disabled={disabled}
-        inputId="payroll-employee-search"
+        inputId={inputId}
         value={null}
         options={items.map(employee => ({
           value: employee.employee_id,
