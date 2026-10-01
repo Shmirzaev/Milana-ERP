@@ -124,6 +124,7 @@ _PO_PRE_CUTTING_EDIT_FIELDS = {
     "estimated_material_amount",
     "estimated_material_unit",
 }
+_PO_PATCH_FIELDS = _PO_PRE_CUTTING_EDIT_FIELDS | {"status"}
 
 
 def _notify_accessory_issue_block(db: DbSession, wo: WorkOrder, plan: dict, stage: str) -> None:
@@ -1002,6 +1003,9 @@ def get_po(pid: int, db: DbSession, current: User = Depends(require_permissions(
 @router.patch("/production-orders/{pid}", response_model=ProductionOrderOut)
 def update_po(pid: int, payload: dict, db: DbSession, current: User = Depends(require_permissions("planning.production", "*"))):
     po = _require_standard_production_order(db, pid)
+    blocked_fields = payload.keys() - _PO_PATCH_FIELDS
+    if blocked_fields:
+        raise HTTPException(422, f"Fields are not editable: {', '.join(sorted(blocked_fields))}")
     if _PO_PRE_CUTTING_EDIT_FIELDS.intersection(payload.keys()):
         cutting_wo = (
             db.query(WorkOrder)
@@ -1011,11 +1015,8 @@ def update_po(pid: int, payload: dict, db: DbSession, current: User = Depends(re
         )
         if cutting_wo and cutting_wo.status not in _PRE_CUTTING_EDIT_STATUSES:
             raise HTTPException(409, "Production order planning fields are locked after cutting starts")
-    if "printing_attachments" in payload:
-        payload["printing_attachments"] = printing_attachments_for_storage(payload["printing_attachments"])
     for k, v in payload.items():
-        if hasattr(po, k):
-            setattr(po, k, v)
+        setattr(po, k, v)
     log_action(db, current, "update", "ProductionOrder", po.id)
     db.commit(); db.refresh(po)
     return po

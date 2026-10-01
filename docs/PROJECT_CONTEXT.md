@@ -1,6 +1,12 @@
 # Milana ERP Project Context
 
-Last updated: 2026-09-30
+Last updated: 2026-10-01
+
+## S-09 production-order PATCH allowlist prepared (2026-10-01)
+
+- Prepared on `codex/s09-production-patch` from `clone_main`; no production deployment or production data changes. Production release/slot records below remain unchanged.
+- `PATCH /api/production-orders/{pid}` rejects fields outside `model_id`, `sales_order_id`, `planned_quantity`, `deadline`, `estimated_material_code`, `estimated_material_amount`, `estimated_material_unit`, and `status` before assignment. Mixed allowed/blocked requests are rejected atomically, including identity, creator, timestamps, printing fields and relationship collections.
+- Status remains editable for the admin list page. Status-transition validation is a separate unresolved finding; existing cutting-stage planning locks and Usluga isolation remain in force.
 
 ## Catalog numbering deployed; old ERP additions retained (2026-09-30)
 
