@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from fastapi import HTTPException
-from sqlalchemy import Integer, Numeric, func, text, or_
+from sqlalchemy import Integer, Numeric, case, func, literal_column, text, or_
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -180,8 +180,32 @@ def next_model_variant_no(db: Session, *, reserve: bool = False) -> str:
     return f"V-{candidate}"
 
 
+def _model_number_occupied_clause(db: Session, prefix: str, candidate: int):
+    from app.core.model_search import normalized_model_code_column
+
+    general_no = func.coalesce(Model.details_json["general"]["model_no"].as_string(),
+                               Model.details_json["general"]["modelNo"].as_string(), "")
+    # A slash preserves the family/variant boundary while folding legacy dashes
+    # and Latin/Cyrillic look-alikes with the shared identity normalizer.
+    code = normalized_model_code_column(func.replace(Model.code, "-", "/"))
+    general = normalized_model_code_column(general_no)
+    regex = "~" if _is_postgresql(db) else "REGEXP"
+    general_match = general.op(regex)(rf"^{prefix.lower()}0*{candidate}$")
+    if _is_postgresql(db):
+        # The stored family key includes every explicit model number. Check
+        # it before extracting potentially large, toasted catalog JSON.
+        # CASE guarantees short-circuiting; an AND lets PostgreSQL reorder
+        # predicates. Retain the exact metadata check for identity parity.
+        group_key = normalized_model_code_column(literal_column("models.model_group_key"))
+        general_match = case(
+            (group_key.op("~")(rf"^model:{prefix.lower()}0*{candidate}$"), general_match),
+            else_=False,
+        )
+    return or_(general_match, code.op(regex)(rf"^{prefix.lower()}/?0*{candidate}($|/)"))
+
+
 def next_model_no(db: Session, prefix: str, *, reserve: bool = False) -> str:
-    from app.core.model_search import normalized_model_code_column, normalized_model_code_key
+    from app.core.model_search import normalized_model_code_key
 
     prefix = normalized_model_code_key(prefix).upper()
     if prefix not in CATALOG_NUMBERING_BASE["models"]:
@@ -199,17 +223,7 @@ def next_model_no(db: Session, prefix: str, *, reserve: bool = False) -> str:
     except (TypeError, ValueError):
         previous = 0
     candidate = max(previous, CATALOG_NUMBERING_BASE["models"][prefix]["number"]) + 1
-    general_no = func.coalesce(Model.details_json["general"]["model_no"].as_string(),
-                               Model.details_json["general"]["modelNo"].as_string(), "")
-    # A slash preserves the family/variant boundary while folding legacy dashes
-    # and Latin/Cyrillic look-alikes with the shared identity normalizer.
-    code = normalized_model_code_column(func.replace(Model.code, "-", "/"))
-    general = normalized_model_code_column(general_no)
-    regex = "~" if _is_postgresql(db) else "REGEXP"
-    while db.query(Model.id).filter(or_(
-        general.op(regex)(rf"^{prefix.lower()}0*{candidate}$"),
-        code.op(regex)(rf"^{prefix.lower()}/?0*{candidate}($|/)"),
-    )).first():
+    while db.query(Model.id).filter(_model_number_occupied_clause(db, prefix, candidate)).first():
         candidate += 1
     if reserve:
         updated = {**value, "last_assigned": {**assigned, prefix: candidate}}

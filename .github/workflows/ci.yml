@@ -62,7 +62,7 @@ jobs:
         run: python -m pytest -q
       - name: Deployment observation regression suite
         run: python -m unittest discover -s scripts -p 'test_observe_release.py' -v
-      - name: First Grade PostgreSQL migration and concurrency regression
+      - name: PostgreSQL migration, concurrency and model numbering regression
         env:
           PYTHONPATH: ./backend
           FIRST_GRADE_DISPOSABLE: "1"
@@ -75,7 +75,9 @@ jobs:
           SEED_SAMPLE_DATA: "true"
           IMPORT_LEGACY_MODELS: "false"
           BARCODE_STORAGE_DIR: /tmp/first-grade-test-barcodes
-        run: python scripts/test_first_grade_postgres.py
+        run: |
+          python scripts/test_first_grade_postgres.py
+          python scripts/test_model_numbering_postgres.py
 
   frontend:
     runs-on: ubuntu-latest
