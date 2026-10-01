@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import useSWR from "swr";
 import { Boxes, Grid2X2, ImageOff, PackageSearch, Search, Warehouse } from "lucide-react";
 
+import ReceivePackages from "@/components/ReceivePackages";
 import PageHeader from "@/components/PageHeader";
 import StocktakeLink from "@/components/StocktakeLink";
 import WarehouseReportDownload from "@/components/WarehouseReportDownload";
@@ -269,7 +270,7 @@ export default function WarehouseStockPage() {
 
   return (
     <div>
-      <PageHeader title={t("page.warehouseStock.title")} subtitle={t("page.warehouseStock.subtitle")} actions={<><WarehouseReportDownload /><StocktakeLink /></>} />
+      <PageHeader title={t("page.warehouseStock.title")} subtitle={t("page.warehouseStock.subtitle")} actions={<><ReceivePackages /><WarehouseReportDownload /><StocktakeLink /></>} />
 
       <div className="mb-4 flex flex-wrap gap-2">
         <button className={`btn ${stockKind === "standard" ? "btn-primary" : ""}`} onClick={() => setStockKind("standard")}>{copy.standard}</button>

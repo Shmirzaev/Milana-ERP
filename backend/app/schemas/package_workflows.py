@@ -54,3 +54,8 @@ class PrintRunCreatePackagesIn(BaseModel):
 class PrintRunReceiveIn(PackageReceiveStorageIn):
     model_config = ConfigDict(extra="forbid")
     code: str = Field(min_length=1, max_length=128)
+
+
+class PackageReturnIn(BaseModel):
+    package_ids: list[int] = Field(min_length=1, max_length=200)
+    reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=1000)]

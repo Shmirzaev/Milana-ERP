@@ -41,13 +41,29 @@ def contents(pkg):
     }
 
 
+def active_members(db):
+    return db.query(PackagePrintRunMember).join(PackagePrintRun, PackagePrintRun.id == PackagePrintRunMember.run_id).filter(PackagePrintRun.returned_at.is_(None))
+
+
+def require_current_code(db, pkg, code):
+    from app.api.routes.packages import _package_lookup_candidates
+    if pkg.status == "returned_to_packaging":
+        raise HTTPException(409, "Package is returned to Packaging for correction")
+    candidates = set(_package_lookup_candidates(code))
+    old = db.query(PackagePrintRunMember).join(PackagePrintRun).filter(
+        PackagePrintRunMember.package_id == pkg.id, PackagePrintRun.returned_at.is_not(None),
+    ).all()
+    if any(m.snapshot.get("barcode") in candidates and m.snapshot.get("barcode") != pkg.barcode for m in old):
+        raise HTTPException(409, "Outdated package label; use the corrected QR")
+
+
 def create_run(db, current, packages, *, received=False):
     if not packages or len({p.id for p in packages}) != len(packages):
         raise HTTPException(400, "Select distinct packages")
     owners = {p.packaging_department_code for p in packages}
     if len(owners) != 1:
         raise HTTPException(400, "A print run must belong to one packaging department")
-    if db.query(PackagePrintRunMember.id).filter(PackagePrintRunMember.package_id.in_([p.id for p in packages])).first():
+    if active_members(db).filter(PackagePrintRunMember.package_id.in_([p.id for p in packages])).first():
         raise HTTPException(409, "Package already belongs to a print run; reprint its existing run")
     checked_orders = set()
     for pkg in packages:
@@ -84,6 +100,8 @@ def run_members(db, run):
 
 
 def require_active_run(run):
+    if run.returned_at is not None:
+        raise HTTPException(409, "Print run was returned to Packaging; use the corrected print run")
     if run.deleted_at is not None:
         raise HTTPException(410, "This mistaken manual receipt was deleted")
 
@@ -94,7 +112,10 @@ def active_run_members(db, run):
 
 
 def require_active_label(db, package_id):
-    member = db.query(PackagePrintRunMember).filter_by(package_id=package_id).first()
+    pkg = db.get(Package, package_id)
+    if pkg and pkg.status == "returned_to_packaging":
+        raise HTTPException(409, "Package is returned to Packaging for correction")
+    member = active_members(db).filter(PackagePrintRunMember.package_id == package_id).first()
     if member:
         run = db.get(PackagePrintRun, member.run_id)
         if run.deleted_at is not None or package_id in (run.deleted_package_ids or []):
@@ -185,8 +206,9 @@ def resolve_run(db, code):
         raise HTTPException(409, "Ambiguous package code; scan the unique package QR")
     if not ids:
         raise HTTPException(404, "Package not found")
+    require_current_code(db, db.get(Package, next(iter(ids))), code)
     require_active_label(db, next(iter(ids)))
-    member = db.query(PackagePrintRunMember).filter(PackagePrintRunMember.package_id == next(iter(ids))).first()
+    member = active_members(db).filter(PackagePrintRunMember.package_id == next(iter(ids))).first()
     return db.get(PackagePrintRun, member.run_id) if member else None
 
 

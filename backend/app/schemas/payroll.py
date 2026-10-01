@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -51,6 +51,7 @@ class PayrollRecordIn(BaseModel):
     employee: Any = None
     work: Any = None
     scanned_at: datetime | None = None
+    work_date: date | None = None
     quantity: Decimal | float | int | str | None = None
     rate_per_piece: Decimal | float | int | str | None = None
     currency: str | None = "UZS"
@@ -81,6 +82,7 @@ class PayrollNumericWorkScanIn(BaseModel):
     token: str
     employee_id: int
     scanned_at: datetime | None = None
+    work_date: date | None = None
 
 
 class PayrollControlScanIn(BaseModel):
@@ -90,6 +92,16 @@ class PayrollControlScanIn(BaseModel):
 
 class PayrollControlConfirmIn(PayrollControlScanIn):
     review_token: str
+    work_date: date | None = None
+
+
+class PayrollScanSplitPartIn(BaseModel):
+    employee_id: int
+    quantity: int = Field(gt=0, strict=True)
+
+
+class PayrollScanSplitIn(BaseModel):
+    parts: list[PayrollScanSplitPartIn] = Field(min_length=2, max_length=50)
 
 
 class PayrollRecordOut(ORMModel):

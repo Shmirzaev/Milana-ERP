@@ -109,7 +109,7 @@ for (const page of ["packages", "packaging/queue", "packaging/receive", "packagi
     for (const query of ["", `packaging_department=${department}`]) {
       const keys = [];
       vm.runInNewContext(queryCode, {
-        URLSearchParams, Intl, Date,
+        URLSearchParams, Intl, Date, packageReturnText: { en: {} },
         useT: () => ({ t: value => value, lang: "en" }),
         useMe: () => ({ me: { factory_code: factory, permissions: packingPermissions } }),
         useSearchParams: () => new URLSearchParams(query),

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { firstGradeText } from "@/lib/firstGradeText";
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
+import ReceivePackages from "@/components/ReceivePackages";
 import PageHeader from "@/components/PageHeader";
 import StocktakeLink from "@/components/StocktakeLink";
 import WarehouseReportDownload from "@/components/WarehouseReportDownload";
@@ -30,7 +31,7 @@ export default function FinishedGoodsPage() {
         title={t("page.finishedGoods.title")}
         subtitle={t("page.finishedGoods.subtitle")}
         actions={(
-          <><WarehouseReportDownload /><StocktakeLink />
+          <><ReceivePackages /><WarehouseReportDownload /><StocktakeLink />
           <Link className="btn" href="/warehouse-stock?stock_kind=first_grade">{firstGradeText[lang].title}</Link>
           <Link className="btn btn-primary" href="/shipments?mode=warehouse_exit">
             {warehouseExitLabel[lang]}

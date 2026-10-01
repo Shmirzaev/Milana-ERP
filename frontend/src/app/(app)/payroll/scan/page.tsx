@@ -10,6 +10,7 @@ import {
   Trash2,
   UserCheck,
 } from "lucide-react";
+import ScanSplit, { scanAllocationText } from "@/components/payroll/ScanSplit";
 import PageHeader from "@/components/PageHeader";
 import PayrollEmployeeSearch from "@/components/PayrollEmployeeSearch";
 import ControlScanReview, { controlScanMessages, isControlWork, type ControlPreview } from "@/components/payroll/ControlScanReview";
@@ -80,6 +81,8 @@ type WorkPayload = {
 type PayrollRecord = {
   id: string;
   scannedAt: string;
+  workDate?: string;
+  totalAmount?: number;
   employeeId: number;
   employeeName: string;
   departmentName: string;
@@ -110,6 +113,8 @@ type BackendPayrollRecord = {
   scan_uid?: string | null;
   status: string;
   duplicate?: boolean;
+  scanned_at?: string;
+  total_amount?: string;
 };
 
 type NumericWorkScanResponse = {
@@ -488,6 +493,7 @@ function payrollPayloadFromRecord(record: PayrollRecord) {
     employee: record.rawEmployee,
     work: record.rawWork,
     scanned_at: record.scannedAt,
+    work_date: record.workDate,
     employee_id: record.employeeId,
     employee_user_id: record.rawEmployee.user_id ?? null,
     production_order_id: record.rawWork.production_order_id ?? null,
@@ -553,7 +559,11 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
   const lastScanRef = useRef<{ raw: string; at: number } | null>(null);
   const [inputHasText, setInputHasText] = useState(false);
   const [currentEmployee, setCurrentEmployee] = useState<EmployeePayload | null>(null);
-  const [controlReview, setControlReview] = useState<{ preview: ControlPreview; employee: EmployeePayload } | null>(null);
+  const workDateToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tashkent", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  const [workDate, setWorkDate] = useState(workDateToday);
+  const [splitRecord, setSplitRecord] = useState<{ record: PayrollRecord; session: number } | null>(null);
+  const allocationText = scanAllocationText[lang];
+  const [controlReview, setControlReview] = useState<{ preview: ControlPreview; employee: EmployeePayload; workDate: string } | null>(null);
   const controlReviewRef = useRef<typeof controlReview>(null);
   const controlConfirmRef = useRef(false);
   const scanSequenceRef = useRef(0);
@@ -678,7 +688,7 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
       const recordQuantity = numberOrZero(record.quantity);
       const recordRate = numberOrZero(record.ratePerPiece);
       quantity += recordQuantity;
-      pay += recordQuantity * recordRate;
+      pay += record.totalAmount ?? recordQuantity * recordRate;
       currency = currency || record.currency || "UZS";
 
       const current = employeeMap.get(record.employeeId) || {
@@ -693,7 +703,7 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
         records: [],
       };
       current.quantity += recordQuantity;
-      current.totalPay += recordQuantity * recordRate;
+      current.totalPay += record.totalAmount ?? recordQuantity * recordRate;
       current.records.push(record);
       employeeMap.set(record.employeeId, current);
     }
@@ -718,6 +728,8 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
   );
   const hiddenHistoryCount = Math.max(0, visibleRecords.length - visibleHistoryRows.length);
   const latestRemovableRecord = visibleRecords.find((record) => record.saveStatus !== "saved" && record.saveStatus !== "saving") || null;
+  const latestScan = visibleRecords[0];
+  const latestSplittableRecord = latestScan?.saveStatus === "saved" && latestScan.backendStatus === "recorded" && latestScan.backendId && numberOrZero(latestScan.quantity) >= 2 ? latestScan : null;
 
   const operationSummaries = useMemo<OperationSummary[]>(() => {
     const map = new Map<string, OperationSummary>();
@@ -733,7 +745,7 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
       const recordQuantity = numberOrZero(record.quantity);
       const recordRate = numberOrZero(record.ratePerPiece);
       current.quantity += recordQuantity;
-      current.totalPay += recordQuantity * recordRate;
+      current.totalPay += record.totalAmount ?? recordQuantity * recordRate;
       map.set(key, current);
     }
     return Array.from(map.values()).sort((a, b) => b.quantity - a.quantity);
@@ -829,9 +841,9 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
     }
   }
 
-  function showControlReview(preview: ControlPreview, employee: EmployeePayload, sequence: number) {
+  function showControlReview(preview: ControlPreview, employee: EmployeePayload, sequence: number, date = workDate) {
     if (sequence !== scanSequenceRef.current) return;
-    const review = { preview, employee };
+    const review = { preview, employee, workDate: date };
     controlReviewRef.current = review;
     setControlReview(review);
     setControlError("");
@@ -859,10 +871,11 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
         label_uid: review.preview.work.label_id,
         employee_id: review.employee.employee_id,
         review_token: review.preview.review_token,
+        work_date: review.workDate,
       }, 30_000);
       if (saved.status === "voided") throw new Error("Cancelled Control record");
       const work = review.preview.work as WorkPayload;
-      const nextRecord = { ...toPayrollRecord(review.employee, work, t), backendId: saved.id, backendStatus: saved.status, savedAt: new Date().toISOString(), saveStatus: "saved" as const };
+      const nextRecord = { ...toPayrollRecord(review.employee, work, t), workDate: review.workDate, scannedAt: saved.scanned_at || new Date().toISOString(), totalAmount: Number(saved.total_amount), backendId: saved.id, backendStatus: saved.status, savedAt: new Date().toISOString(), saveStatus: "saved" as const };
       replaceRecords([nextRecord, ...recordsRef.current.filter((record) => !payrollScanRecordMatchesLabel(record, work.label_id || ""))]);
       showSessionRecord(nextRecord, session);
       controlReviewRef.current = null;
@@ -878,11 +891,13 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
   }
 
   async function recordNumericWorkScan(raw: string, employee: EmployeePayload, sequence: number) {
+    const selectedWorkDate = workDate;
     const session = employeeSessionRef.current;
     const response = await api.post<NumericWorkScanResponse>("/api/payroll/scan/numeric-work", {
       token: raw,
       employee_id: employee.employee_id,
       scanned_at: new Date().toISOString(),
+      work_date: selectedWorkDate,
     }, 30_000);
     const payload = normalizeScanPayload(response.work);
     if (!payload || payload.type !== "process_payroll") {
@@ -890,7 +905,7 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
     }
 
     if (response.control_preview) {
-      showControlReview(response.control_preview, employee, sequence);
+      showControlReview(response.control_preview, employee, sequence, selectedWorkDate);
       return;
     }
     if (!response.record) throw new Error(t("page.payrollScan.readFailed"));
@@ -907,6 +922,9 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
 
     const nextRecord = {
       ...toPayrollRecord(employee, payload, t),
+      workDate: selectedWorkDate,
+      scannedAt: response.record.scanned_at || new Date().toISOString(),
+      totalAmount: Number(response.record.total_amount),
       backendId: response.record.id,
       backendStatus: response.record.status,
       savedAt: new Date().toISOString(),
@@ -993,7 +1011,7 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
         return;
       }
 
-      const nextRecord = toPayrollRecord(employee, payload, t);
+      const nextRecord = { ...toPayrollRecord(employee, payload, t), workDate };
       addRecord(nextRecord);
       showSessionRecord(nextRecord, session);
       await saveRecordsToPayroll([nextRecord], true);
@@ -1078,6 +1096,8 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
         }
         return {
           ...record,
+          scannedAt: result.scanned_at || record.scannedAt,
+          totalAmount: result.total_amount === undefined ? record.totalAmount : Number(result.total_amount),
           backendId: result.id,
           backendStatus: result.status,
           savedAt,
@@ -1163,7 +1183,7 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
       record.operationName,
       numberOrZero(record.quantity),
       numberOrZero(record.ratePerPiece),
-      numberOrZero(record.quantity) * numberOrZero(record.ratePerPiece),
+      record.totalAmount ?? numberOrZero(record.quantity) * numberOrZero(record.ratePerPiece),
       record.currency,
     ]);
     const csv = [headers, ...rows].map((row) => row.map(csvEscape).join(",")).join("\n");
@@ -1219,6 +1239,17 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
         )}
       />
 
+      {splitRecord && <ScanSplit recordId={splitRecord.record.backendId!} quantity={numberOrZero(splitRecord.record.quantity)} employee={splitRecord.record.rawEmployee} onClose={() => setSplitRecord(null)} onSaved={rows => {
+        const replacements = rows.map(row => {
+          const employee: EmployeePayload = { type: "employee_payroll", employee_id: row.employee_id, employee_name: row.employee_name, department_name: row.department_name };
+          const work = { ...row.raw_work_json, type: "process_payroll", label_id: row.scan_uid, quantity: Number(row.quantity), rate_per_piece: Number(row.rate_per_piece) } as WorkPayload;
+          return { ...toPayrollRecord(employee, work, t), scannedAt: row.scanned_at, totalAmount: Number(row.total_amount), backendId: row.id, backendStatus: row.status, saveStatus: "saved" as const, savedAt: new Date().toISOString() };
+        });
+        replaceRecords([...replacements, ...recordsRef.current.filter(row => row.backendId !== splitRecord.record.backendId)]);
+        replacements.forEach(row => showSessionRecord(row, splitRecord.session));
+        setSplitRecord(null);
+        setNotice(allocationText.saved, "success");
+      }} />}
       {controlReview ? <ControlScanReview preview={controlReview.preview} employeeName={controlReview.employee.employee_name} busy={controlBusy} error={controlError} onConfirm={() => void confirmControlReview()} onCancel={cancelControlReview} /> : null}
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(320px,440px)_minmax(0,1fr)]">
@@ -1231,6 +1262,8 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
             <ScanLine className="h-5 w-5 text-[#8a8472]" />
           </div>
 
+          <label className="label mb-3">{allocationText.workDate}<input type="date" className="input" value={workDate} max={workDateToday()} required disabled={controlBusy || !!controlReview} onChange={event => { if (event.target.value) setWorkDate(event.target.value); }} /></label>
+          {workDate !== workDateToday() && <p role="status" className="mb-3 text-sm">{allocationText.previous}</p>}
           <form onSubmit={submitScan} className="space-y-3">
             <div>
               <label className="label">{t("page.payrollScan.qrInput")}</label>
@@ -1256,6 +1289,10 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
             </button>
           </form>
 
+          {canSavePayroll && latestSplittableRecord && <div className="mt-3">
+            <button type="button" className="btn w-full" onClick={() => setSplitRecord({ record: latestSplittableRecord, session: employeeSessionRef.current })}>{allocationText.split}</button>
+            <p className="mt-1 text-sm">{latestSplittableRecord.operationName} · {latestSplittableRecord.quantity} {allocationText.pieces}</p>
+          </div>}
           {canSavePayroll && <PayrollEmployeeSearch disabled={controlBusy} onSelect={employee => {
             clearScanInput();
             if (!selectEmployee(employee)) return;
@@ -1452,7 +1489,7 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
                         onChange={(event) => updateRecord(record.id, { ratePerPiece: parseNumberInput(event.target.value) })}
                       />
                     </td>
-                    <td className="font-semibold">{formatMoney(numberOrZero(record.quantity) * numberOrZero(record.ratePerPiece), record.currency)}</td>
+                    <td className="font-semibold">{formatMoney(record.totalAmount ?? numberOrZero(record.quantity) * numberOrZero(record.ratePerPiece), record.currency)}</td>
                     <td>
                       <div className="space-y-1">
                         <span className={`badge ${saveStatusClass(record)}`}>{saveStatusLabel(record)}</span>
@@ -1466,6 +1503,9 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
                     </td>
                     <td>
                       <div className="flex items-center gap-2">
+                        {canSavePayroll && record.saveStatus === "saved" && record.backendStatus === "recorded" && record.backendId && numberOrZero(record.quantity) >= 2 && (
+                          <button type="button" className="btn" onClick={() => setSplitRecord({ record, session: employeeSessionRef.current })}>{allocationText.split}</button>
+                        )}
                         {record.saveStatus === "error" && (
                           <button
                             type="button"
