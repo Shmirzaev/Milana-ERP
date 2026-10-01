@@ -980,10 +980,13 @@ def department_inbox(
             int(so.id): so
             for so in db.query(SalesOrder).filter(SalesOrder.id.in_(packed_so_ids)).all()
         } if packed_so_ids else {}
+        packed_orders = {row.id: row for row in db.query(ProductionOrder).filter(ProductionOrder.id.in_({p.production_order_id for p in packed if p.production_order_id})).all()}
         pending_packages = [
             {
                 "id": p.id,
                 "package_no": p.package_no,
+                "production_order_id": p.production_order_id,
+                "production_no": packed_orders[p.production_order_id].production_no if p.production_order_id in packed_orders else None,
                 "sales_order_id": p.sales_order_id,
                 "sales_order_no": packed_sales_by_id.get(int(p.sales_order_id or 0)).order_no if packed_sales_by_id.get(int(p.sales_order_id or 0)) else None,
                 "order_no": packed_sales_by_id.get(int(p.sales_order_id or 0)).order_no if packed_sales_by_id.get(int(p.sales_order_id or 0)) else None,

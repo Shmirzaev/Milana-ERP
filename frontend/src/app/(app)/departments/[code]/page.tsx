@@ -8,6 +8,7 @@ import useSWR from "swr";
 import { Fragment, useEffect, useMemo, useState } from "react";
 
 import ImageThumbnail from "@/components/ImageThumbnail";
+import ReturnPackages from "@/components/ReturnPackages";
 import PageHeader from "@/components/PageHeader";
 import StocktakeLink from "@/components/StocktakeLink";
 import CuttingOrderList from "@/components/CuttingOrderList";
@@ -133,11 +134,11 @@ export default function DepartmentInboxPage() {
   const pendingPackagesByOrder = useMemo(() => {
     const groups = new Map<string, { key: string; sales_order_id: number | null; order_no: string | null; sales_order_no: string | null; packages: any[]; total_quantity: number }>();
     for (const p of pendingPackages) {
-      const key = p.sales_order_id == null ? "no-so" : `so-${p.sales_order_id}`;
+      const key = p.sales_order_id == null ? `po-${p.production_order_id || p.id}` : `so-${p.sales_order_id}`;
       const existing = groups.get(key) ?? {
         key,
         sales_order_id: p.sales_order_id == null ? null : Number(p.sales_order_id),
-        order_no: p.order_no || p.sales_order_no || null,
+        order_no: p.order_no || p.sales_order_no || p.production_no || null,
         sales_order_no: p.sales_order_no || p.order_no || null,
         packages: [],
         total_quantity: 0,
@@ -335,6 +336,7 @@ export default function DepartmentInboxPage() {
                       <td>{g.packages.length}</td>
                       <td>{g.total_quantity}</td>
                       <td className="text-right">
+                        <ReturnPackages packages={g.packages} onReturned={() => { void mutate(); }} />
                         <button
                           className="btn h-7 px-2 text-[11px]"
                           onClick={() => setExpandedPackageGroups((prev) => ({ ...prev, [g.key]: !prev[g.key] }))}

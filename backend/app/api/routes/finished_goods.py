@@ -60,6 +60,7 @@ def list_stock(db: DbSession, _: CurrentUser,
         .outerjoin(Brand, Brand.id == FinishedGoodsStock.brand_id)
         .outerjoin(Package, Package.id == FinishedGoodsStock.package_id)
         .filter(func.coalesce(Package.stock_kind, "standard") == stock_kind)
+        .filter(or_(Package.id.is_(None), Package.status != "returned_to_packaging"))
     )
     if model_id: qry = qry.filter(FinishedGoodsStock.model_id == model_id)
     if status: qry = qry.filter(FinishedGoodsStock.status == status)
@@ -91,6 +92,7 @@ def list_branded(db: DbSession, _: CurrentUser):
         .outerjoin(PackageBrand, PackageBrand.id == Package.brand_id)
         .filter(
             func.coalesce(Package.stock_kind, "standard") == "standard",
+            or_(Package.id.is_(None), Package.status != "returned_to_packaging"),
             FinishedGoodsStock.available_qty > 0,
             FinishedGoodsStock.status == "available",
             (
@@ -184,11 +186,15 @@ def reserve(stock_id: int, quantity: int, sales_order_id: int, db: DbSession,
     s = db.get(FinishedGoodsStock, stock_id)
     if not s: raise HTTPException(404, "Stock not found")
     if quantity <= 0: raise HTTPException(400, "Quantity must be > 0")
-    package = db.get(Package, s.package_id) if s.package_id else None
+    package = (db.query(Package).filter_by(id=s.package_id).with_for_update()
+               .populate_existing().first()) if s.package_id else None
+    if package and package.status == "returned_to_packaging":
+        raise HTTPException(409, "Package is awaiting correction in Packaging")
     if package and package.stock_kind == "first_grade":
         raise HTTPException(409, "FIRST_GRADE_SEPARATE_ORDER")
     if package and package.manual_receipt_id:
         return _reserve_manual_package(db, current, s, quantity, sales_order_id)
+    s = db.query(FinishedGoodsStock).filter_by(id=stock_id).with_for_update().populate_existing().one()
     if quantity > s.available_qty: raise HTTPException(400, "Not enough available")
     s.available_qty -= quantity
     s.reserved_qty += quantity

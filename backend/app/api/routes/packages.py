@@ -117,7 +117,8 @@ def _package_detail_payload(db: DbSession, pkg: Package) -> dict:
     data = PackageDetail.model_validate(pkg).model_dump(mode="json")
     data.update(_package_context(db, pkg))
     from app.models.package_workflows import ManualPackageReceipt, PackagePrintRunMember
-    member = db.query(PackagePrintRunMember).filter(PackagePrintRunMember.package_id == pkg.id).first()
+    from app.services.package_workflows import active_members
+    member = active_members(db).filter(PackagePrintRunMember.package_id == pkg.id).first()
     data["print_run_id"] = member.run_id if member else None
     if pkg.manual_receipt_id:
         manual = db.get(ManualPackageReceipt, pkg.manual_receipt_id)
@@ -169,6 +170,8 @@ def _package_for_receiving_scan(db: DbSession, raw_code: str) -> Package | None:
             .first()
         )
         if pkg:
+            from app.services.package_workflows import require_current_code
+            require_current_code(db, pkg, raw_code)
             return pkg
 
         alias_ids = [
@@ -513,6 +516,14 @@ def list_packages(db: DbSession, current: CurrentUser,
         for customer in db.query(Customer).filter(Customer.id.in_(customer_ids)).all()
     } if customer_ids else {}
 
+    from app.models import PackagePrintRun, PackagePrintRunMember
+    returned_ids = [p.id for p in rows if p.status == "returned_to_packaging"]
+    return_reasons = {}
+    if returned_ids:
+        for member, run in db.query(PackagePrintRunMember, PackagePrintRun).join(PackagePrintRun).filter(
+            PackagePrintRunMember.package_id.in_(returned_ids), PackagePrintRun.returned_at.is_not(None),
+        ).order_by(PackagePrintRun.id).all():
+            return_reasons[member.package_id] = run.return_reason
     out = []
     for p in rows:
         qr_url = _ensure_package_qr_url(db, p)
@@ -526,6 +537,7 @@ def list_packages(db: DbSession, current: CurrentUser,
         row["order_no"] = so.order_no if so else (po.order_no if po else None)
         row["customer_name"] = customer.name if customer else None
         row["order_type"] = so.order_type if so else (po.production_type if po else None)
+        row["return_reason"] = return_reasons.get(p.id)
         out.append(row)
     db.commit()
     if include_total:
