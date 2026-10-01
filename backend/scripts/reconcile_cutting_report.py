@@ -61,6 +61,7 @@ def execute(plan, apply=False):
             assert [r["stock_batch_id"] for r in before] == [r["stock_batch_id"] for r in after]
             for old, new in zip(before, after):
                 assert all(new.get(k) is not None for k, v in old.items() if v is not None)
+                assert "size_range" not in new, "Size range belongs to the passport, not a material"
     for item in inserts:
         assert set(item["values"]) <= EDITABLE | {"passport_no", "model_code", "variant", "mold_no", "order_no", "has_print"}
         assert "materials" not in item["values"]
@@ -108,6 +109,35 @@ def execute(plan, apply=False):
                       preserved_tables=preserved, protected_unchanged=sorted(PROTECTED))
         db.commit()
         return result
+
+
+def repair_material_shape(plan):
+    """Remove only the duplicate passport-size key introduced by this import."""
+    from app.api.routes.cutting_passports import _serialize
+    from app.schemas.cutting_passport import CuttingPassportOut
+
+    repaired = []
+    with Session(engine) as db:
+        db.execute(text("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"))
+        db.execute(text("SET LOCAL lock_timeout = '5s'"))
+        db.execute(text("LOCK TABLE cutting_passports IN SHARE ROW EXCLUSIVE MODE"))
+        db.execute(text("LOCK TABLE audit_logs IN SHARE ROW EXCLUSIVE MODE"))
+        for u in plan["updates"]:
+            if "materials" not in u["values"]:
+                continue
+            assert u["passport_no"] not in PROTECTED
+            assert all("size_range" not in row for row in u["expected"]["materials"])
+            p = db.get(CuttingPassport, u["id"])
+            assert p.materials == u["values"]["materials"], "Material data changed after import"
+            before = p.materials
+            p.materials = [{k: v for k, v in row.items() if k != "size_range"} for row in before]
+            db.flush()
+            CuttingPassportOut.model_validate(_serialize(p, db))
+            log_action(db, None, "repair_report_material_shape", "CuttingPassport", p.id,
+                       old_value={"materials": before}, new_value={"materials": p.materials})
+            repaired.append(p.passport_no)
+        db.commit()
+    return {"repaired_passports": repaired}
 
 
 if __name__ == "__main__":
