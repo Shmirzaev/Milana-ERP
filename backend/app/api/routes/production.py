@@ -1601,6 +1601,7 @@ def get_wo(wid: int, db: DbSession, current: User = Depends(require_permissions(
 def update_wo(wid: int, payload: WorkOrderUpdate, db: DbSession, current: User = Depends(require_permissions(*_PRODUCTION_FLOOR_PERMS))):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
+    require_work_order_factory_access(current, db, wo)
     if db.query(ProductionOrder.source_type).filter(ProductionOrder.id == wo.production_order_id).scalar() == "usluga":
         require_factory_access(current, "ECO")
     changes = payload.model_dump(exclude_unset=True)
@@ -1655,6 +1656,7 @@ def update_wo(wid: int, payload: WorkOrderUpdate, db: DbSession, current: User =
 def start_wo(wid: int, db: DbSession, current: User = Depends(require_permissions(*_PRODUCTION_FLOOR_PERMS))):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
+    require_work_order_factory_access(current, db, wo)
     if wo.operation == "storage_transfer":
         raise HTTPException(400, "Storage transfer starts automatically when packages are received into storage.")
     upstream = _upstream_work_order_for_start(db, wo)
@@ -1732,6 +1734,7 @@ def collect_printing_wo(
     wo = db.get(WorkOrder, wid)
     if not wo:
         raise HTTPException(404, "Work order not found")
+    require_work_order_factory_access(current, db, wo)
     if wo.operation != "printing":
         raise HTTPException(400, "Collect action is only allowed for printing work orders")
     if wo.status in ("in_progress", "completed", "rejected", "cancelled"):
@@ -1763,6 +1766,7 @@ def collect_printing_wo(
 def complete_wo(wid: int, db: DbSession, current: User = Depends(require_permissions(*_PRODUCTION_FLOOR_PERMS))):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
+    require_work_order_factory_access(current, db, wo)
     wo.status = "completed"
     wo.end_time = datetime.now(timezone.utc)
     log_action(db, current, "complete", "WorkOrder", wo.id)
@@ -1791,6 +1795,7 @@ def complete_cutting_with_shortage(
     )
     if not wo:
         raise HTTPException(404, "Work order not found")
+    require_work_order_factory_access(current, db, wo)
     if wo.operation != "cutting":
         raise HTTPException(400, "This action is only available for cutting work orders")
     if wo.status in ("completed", "rejected", "cancelled"):
@@ -1886,6 +1891,7 @@ def split_cutting_work_order_batches(
     wo = db.get(WorkOrder, wid)
     if not wo:
         raise HTTPException(404, "Work order not found")
+    require_work_order_factory_access(current, db, wo)
     if wo.operation != "cutting":
         raise HTTPException(400, "Only cutting work orders can be split into batches")
     if wo.production_batch_id is not None:
@@ -1958,6 +1964,7 @@ def add_extra_cutting_batch(
     wo = db.get(WorkOrder, wid)
     if not wo:
         raise HTTPException(404, "Work order not found")
+    require_work_order_factory_access(current, db, wo)
     if wo.operation != "cutting":
         raise HTTPException(400, "Only cutting work orders can add cutting batches")
     if wo.production_batch_id is not None:
