@@ -1853,6 +1853,8 @@ export default {
     "payment.status.partial": "Partial",
     "payment.status.unpaid": "Unpaid",
     "payment.status.noInvoice": "No invoice",
+    "payment.status.void": "Voided",
+    "payment.status.cancelled": "Cancelled",
     "payment.method.bankTransfer": "Bank transfer",
     "payment.method.cash": "Cash",
     "payment.method.card": "Card",

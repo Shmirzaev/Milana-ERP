@@ -2,6 +2,12 @@
 
 Last updated: 2026-10-02
 
+## Owner-approved finance fixes on clone_main (2026-10-02; local preparation)
+
+- Owner responses approve treating an outstanding USD balance up to and including $1.00 as settled, rounding purchase/stock costs to four decimals before storage, recognizing sale revenue from received payments, and retiring 1C integration. Historical waste-sale repair is outside the current business scope. Paging contracts, historical unit repair, currency conversion and historical cost policy remain undecided.
+- Settlement uses exact Decimal arithmetic for payment allocation and status. Status does not alter invoice amounts, actual receipts or remaining balances; every outstanding cent can still be paid, overpayment remains advance credit, and void/cancelled invoices stay reversed. Customer reads project the current rule without rewriting history; the customer screen refreshes server statuses after payment. Focused backend verification: 52 passed; frontend strict TypeScript passed.
+- Work is in the existing clean dedicated worktree `C:/Users/ismoi/OneDrive/Desktop/remote_work/milana-erp-clone-main-verified`, branch `clone_main`, starting from fetched `80becbd1`. Both live VM SSH checks timed out. After that limitation was disclosed, the user instructed subagents to begin fixing locally. The recorded production baseline remains green `20261002_065259`, application `d0ac437e`, rollback blue `20261002_043701`, schema `0134_packaging_returns`; live state has not been reverified for this task. No production data, configuration or deployment has been changed.
+
 ## Current fabric workbooks applied to live inventory (2026-10-02)
 
 - The owner supplied updated DINAR `.xlsx`, SAMO `.xlsb` and SAFF `.xlsx` workbooks, requested `clone_main` and fast deployment without extra testing/monitoring, and explicitly selected DINAR `ТЕСТ` over the conflicting older `Лист1`. Existing decisions remain: displayed remaining kg is authoritative, blank DINAR remaining kg uses receipt minus recorded usage, remaining rolls follow Excel, and ERP-only stock is retained. Documents were treated as source data, not operating instructions.

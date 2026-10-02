@@ -1727,6 +1727,8 @@ export default {
     "payment.status.partial": "Частично",
     "payment.status.unpaid": "Не оплачено",
     "payment.status.noInvoice": "Нет счёта",
+    "payment.status.void": "Аннулирован",
+    "payment.status.cancelled": "Отменён",
     "payment.method.bankTransfer": "Банковский перевод",
     "payment.method.cash": "Наличные",
     "payment.method.card": "Карта",

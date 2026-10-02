@@ -1,5 +1,6 @@
 from collections import defaultdict
 from datetime import date, datetime, timezone
+from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, Depends, Header
 from pydantic import BaseModel, Field
@@ -27,7 +28,14 @@ from app.models import (
 from app.schemas.catalog import PartyIn, PartyOut
 from app.services.audit import log_action
 from app.services.numbering import next_invoice_no
-from app.services.payments import create_customer_advance_payment, create_invoice_payment, invoice_paid_total
+from app.services.payments import (
+    REVERSED_INVOICE_STATUSES,
+    create_customer_advance_payment,
+    create_invoice_payment,
+    invoice_paid_total,
+    invoice_payment_status,
+    money_decimal,
+)
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 
 router = APIRouter(tags=["partners"])
@@ -170,7 +178,7 @@ def create_customer_payment(
 
     payment = None
     invoice = None
-    amount_remaining = float(payload.amount)
+    amount_remaining = money_decimal(payload.amount)
 
     if sales_order:
         invoice = _find_payable_invoice(db, sales_order)
@@ -178,7 +186,7 @@ def create_customer_payment(
             invoice = Invoice(
                 sales_order_id=sales_order.id,
                 invoice_no=next_invoice_no(db),
-                amount=float(sales_order.total_amount or 0),
+                amount=money_decimal(sales_order.total_amount),
                 status="unpaid",
                 issued_at=datetime.now(timezone.utc),
             )
@@ -186,7 +194,7 @@ def create_customer_payment(
             db.flush()
 
         if invoice:
-            invoice_balance = max(float(invoice.amount or 0) - invoice_paid_total(db, int(invoice.id)), 0)
+            invoice_balance = max(money_decimal(invoice.amount) - invoice_paid_total(db, int(invoice.id)), Decimal(0))
             invoice_amount = min(amount_remaining, invoice_balance) if invoice_balance > 0 else 0
             if invoice_amount > 0:
                 payment = create_invoice_payment(
@@ -198,9 +206,9 @@ def create_customer_payment(
                     paid_at=payload.paid_at,
                     notes=payload.notes,
                 )
-                amount_remaining = round(amount_remaining - invoice_amount, 2)
+                amount_remaining -= invoice_amount
 
-    if amount_remaining >= 0.01:
+    if amount_remaining >= Decimal("0.01"):
         advance_notes = payload.notes
         if sales_order and invoice and payment:
             suffix = f"Advance balance from overpayment on {sales_order.order_no}"
@@ -244,11 +252,17 @@ def _find_payable_invoice(db: DbSession, sales_order: SalesOrder) -> Invoice | N
         db.query(Invoice)
         .filter(Invoice.sales_order_id == sales_order.id)
         .order_by(Invoice.id.asc())
+        .populate_existing()
+        .with_for_update()
         .all()
     )
     for invoice in invoices:
-        balance_due = max(float(invoice.amount or 0) - invoice_paid_total(db, int(invoice.id)), 0)
-        if balance_due > 0.01:
+        if invoice.status in REVERSED_INVOICE_STATUSES:
+            continue
+        balance_due = money_decimal(invoice.amount) - invoice_paid_total(db, int(invoice.id))
+        # Settlement changes status only: every real outstanding cent remains
+        # payable, including a balance on an invoice displayed as paid.
+        if balance_due > 0:
             return invoice
     return None
 
@@ -280,64 +294,61 @@ def _serialize_customer_order(
     payments_by_invoice: dict[int, list[Payment]],
 ) -> dict:
     invoice_payloads: list[dict] = []
-    invoice_total = 0.0
-    paid_total = 0.0
+    invoice_total = Decimal(0)
+    paid_total = Decimal(0)
     last_payment_at = None
 
     for inv in invoices:
         payments = payments_by_invoice.get(int(inv.id), [])
         payment_payloads = []
-        raw_paid_amount = 0.0
+        raw_paid_amount = Decimal(0)
         for payment in payments:
-            amount = float(payment.amount or 0)
+            amount = money_decimal(payment.amount)
             raw_paid_amount += amount
             if payment.paid_at and (last_payment_at is None or payment.paid_at > last_payment_at):
                 last_payment_at = payment.paid_at
             payment_payloads.append(
                 {
                     "id": payment.id,
-                    "amount": amount,
+                    "amount": float(amount),
                     "payment_method": payment.payment_method,
                     "paid_at": payment.paid_at,
                     "notes": payment.notes,
                 }
             )
 
-        amount = float(inv.amount or 0)
+        amount = money_decimal(inv.amount)
         paid_amount = min(raw_paid_amount, amount)
         advance_amount = max(raw_paid_amount - amount, 0)
-        invoice_total += amount
-        paid_total += paid_amount
+        if inv.status not in REVERSED_INVOICE_STATUSES:
+            invoice_total += amount
+            paid_total += paid_amount
         invoice_payloads.append(
             {
                 "id": inv.id,
                 "invoice_no": inv.invoice_no,
-                "amount": amount,
-                "status": inv.status,
+                "amount": float(amount),
+                "status": invoice_payment_status(amount, raw_paid_amount, inv.status),
                 "issued_at": inv.issued_at,
                 "due_date": inv.due_date,
-                "paid_amount": round(paid_amount, 2),
-                "raw_paid_amount": round(raw_paid_amount, 2),
-                "advance_amount": round(advance_amount, 2),
-                "balance_due": round(max(amount - paid_amount, 0), 2),
+                "paid_amount": float(round(paid_amount, 2)),
+                "raw_paid_amount": float(round(raw_paid_amount, 2)),
+                "advance_amount": float(round(advance_amount, 2)),
+                "balance_due": float(round(max(amount - paid_amount, 0), 2)),
                 "payments": payment_payloads,
             }
         )
 
-    balance_due = max((invoice_total if invoices else float(so.total_amount or 0)) - paid_total, 0)
+    balance_due = max((invoice_total if invoices else money_decimal(so.total_amount)) - paid_total, 0)
 
     def payment_status() -> str:
         if not invoices:
             return "no_invoice"
-        if invoice_total <= 0 or paid_total >= invoice_total - 0.01:
-            return "paid"
-        if paid_total > 0.01:
-            return "partial"
-        if any(str(inv.status or "").lower() in {"partial", "partially_paid"} for inv in invoices):
-            return "partial"
-        if all(str(inv.status or "").lower() == "paid" for inv in invoices):
-            return "paid"
-        return "unpaid"
+        active_invoices = [inv for inv in invoices if inv.status not in REVERSED_INVOICE_STATUSES]
+        if not active_invoices:
+            return "cancelled" if any(inv.status == "cancelled" for inv in invoices) else "void"
+        status = invoice_payment_status(invoice_total, paid_total)
+        return "partial" if status == "partially_paid" else status
 
     return {
         "id": so.id,
@@ -345,9 +356,9 @@ def _serialize_customer_order(
         "date": so.created_at,
         "total": float(so.total_amount or 0),
         "status": so.status,
-        "invoice_total": round(invoice_total, 2),
-        "paid_total": round(paid_total, 2),
-        "balance_due": round(balance_due, 2),
+        "invoice_total": float(round(invoice_total, 2)),
+        "paid_total": float(round(paid_total, 2)),
+        "balance_due": float(round(balance_due, 2)),
         "payment_status": payment_status(),
         "last_payment_at": last_payment_at,
         "invoices": invoice_payloads,

@@ -1727,6 +1727,8 @@ export default {
     "payment.status.partial": "Qisman",
     "payment.status.unpaid": "To'lanmagan",
     "payment.status.noInvoice": "Hisob-faktura yo'q",
+    "payment.status.void": "Hisob bekor qilingan",
+    "payment.status.cancelled": "Bekor qilingan",
     "payment.method.bankTransfer": "Bank o'tkazmasi",
     "payment.method.cash": "Naqd",
     "payment.method.card": "Karta",

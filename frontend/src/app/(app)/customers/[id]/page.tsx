@@ -14,7 +14,7 @@ import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 
-type PaymentStatus = "paid" | "partial" | "unpaid" | "no_invoice";
+type PaymentStatus = "paid" | "partial" | "unpaid" | "no_invoice" | "void" | "cancelled";
 type PaymentRow = {
   id: number;
   amount: number;
@@ -72,6 +72,8 @@ function paymentStatusLabel(status: PaymentStatus, t: (key: string) => string) {
   if (status === "paid") return t("payment.status.paid");
   if (status === "partial") return t("payment.status.partial");
   if (status === "unpaid") return t("payment.status.unpaid");
+  if (status === "void") return t("payment.status.void");
+  if (status === "cancelled") return t("payment.status.cancelled");
   return t("payment.status.noInvoice");
 }
 
@@ -147,7 +149,7 @@ export default function CustomerDetailPage() {
         acc.appliedPaid += Number(order.paid_total || 0);
         acc.orderBalance += effectiveBalanceDue(order);
         if (order.payment_status === "paid") acc.paidOrders += 1;
-        if (effectiveBalanceDue(order) > 0.01) acc.openOrders += 1;
+        if (!["paid", "void", "cancelled"].includes(order.payment_status) && effectiveBalanceDue(order) > 0) acc.openOrders += 1;
         if (order.payment_status === "no_invoice") acc.noInvoiceOrders += 1;
         return acc;
       },
@@ -242,41 +244,6 @@ export default function CustomerDetailPage() {
     setPaymentMsg("");
   }
 
-  function applyOptimisticPayment(order: CustomerOrder, invoice: InvoiceRow, payment: PaymentRow): CustomerOrder {
-    const paidAmount = Number(payment.amount || 0);
-    const invoiceAmount = Number(invoice.amount || order.total || 0);
-    const rawPaidAmount = Number(invoice.raw_paid_amount || invoice.paid_amount || 0) + paidAmount;
-    const appliedPaidAmount = Math.min(rawPaidAmount, invoiceAmount);
-    const existingInvoices = order.invoices || [];
-    const foundInvoice = existingInvoices.some((row) => Number(row.id) === Number(invoice.id));
-    const updatedInvoice: InvoiceRow = {
-      ...invoice,
-      amount: invoiceAmount,
-      status: Math.max(invoiceAmount - appliedPaidAmount, 0) <= 0.01 ? "paid" : "partially_paid",
-      paid_amount: appliedPaidAmount,
-      raw_paid_amount: rawPaidAmount,
-      advance_amount: Math.max(rawPaidAmount - invoiceAmount, 0),
-      balance_due: Math.max(invoiceAmount - appliedPaidAmount, 0),
-      payments: [...(invoice.payments || []), payment],
-    };
-    const nextInvoices = foundInvoice
-      ? existingInvoices.map((row) => (Number(row.id) === Number(invoice.id) ? updatedInvoice : row))
-      : [...existingInvoices, updatedInvoice];
-    const invoiceTotal = nextInvoices.reduce((sum, row) => sum + Number(row.amount || 0), 0);
-    const paidTotal = nextInvoices.reduce((sum, row) => sum + Number(row.paid_amount || 0), 0);
-    const balanceDue = Math.max(invoiceTotal - paidTotal, 0);
-
-    return {
-      ...order,
-      invoices: nextInvoices,
-      invoice_total: invoiceTotal,
-      paid_total: paidTotal,
-      balance_due: balanceDue,
-      payment_status: balanceDue <= 0.01 ? "paid" : paidTotal > 0 ? "partial" : "unpaid",
-      last_payment_at: payment.paid_at || order.last_payment_at,
-    };
-  }
-
   async function recordPayment(e: React.FormEvent) {
     e.preventDefault();
     const targetOrder = selectedPaymentOrder;
@@ -314,33 +281,6 @@ export default function CustomerDetailPage() {
         invoice_no: savedPayment.invoice_no ?? null,
       };
       setLocalPaymentHistory((prev) => [optimisticPayment, ...prev.filter((row) => row.row_key !== optimisticPayment.row_key)]);
-      if (targetOrder && savedPayment.invoice_id) {
-        const matchingInvoice = targetOrder.invoices?.find((invoice) => Number(invoice.id) === Number(savedPayment.invoice_id));
-        const invoice: InvoiceRow = matchingInvoice || {
-          id: Number(savedPayment.invoice_id || 0),
-          invoice_no: savedPayment.invoice_no || `#${savedPayment.invoice_id}`,
-          amount: Number(savedPayment.invoice_amount || targetOrder.total || 0),
-          status: "unpaid",
-          issued_at: null,
-          due_date: null,
-          paid_amount: 0,
-          balance_due: Number(savedPayment.invoice_amount || targetOrder.total || 0),
-          payments: [],
-        };
-        const optimisticPaymentRow: PaymentRow = {
-          id: optimisticPayment.id,
-          amount: optimisticPayment.amount,
-          payment_method: optimisticPayment.payment_method,
-          paid_at: optimisticPayment.paid_at,
-          notes: optimisticPayment.notes,
-        };
-        const nextOrders = orderRows.map((order) => (
-          Number(order.id) === Number(targetOrder.id)
-            ? applyOptimisticPayment(order, invoice, optimisticPaymentRow)
-            : order
-        ));
-        mutateOrders(nextOrders, { revalidate: false });
-      }
       setPaymentOpen(false);
       setSelectedPaymentOrderId("");
       void mutateCustomerPayments();
