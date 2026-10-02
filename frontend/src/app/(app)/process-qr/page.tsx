@@ -740,7 +740,7 @@ export default function ProcessQrPage() {
   const [customSizeQuantities, setCustomSizeQuantities] = useState<Record<string, NumberInputValue>>({});
   const initializedSizeSourceKey = useRef("");
   const [manualSizeOverride, setManualSizeOverride] = useState<{ modelId: number; sizes: string[] } | null>(null);
-  const [operations, setOperations] = useState<PaidOperation[]>(() => clonePaidOperations());
+  const [operations, setOperations] = useState<PaidOperation[]>([]);
   const [loadedOperationsModelId, setLoadedOperationsModelId] = useState<number | null>(null);
   const [loadedOperationsSignature, setLoadedOperationsSignature] = useState("");
   const [operationModelDirty, setOperationModelDirty] = useState(false);
@@ -808,6 +808,7 @@ export default function ProcessQrPage() {
       : null;
   const modelApiBase = sourceMode === "manual" ? manualModelApiBase
     : me?.factory_code === "ECO" && selectedTrackedProcess?.source_type === "usluga" ? "/api/usluga" : "/api";
+  const isUslugaModel = modelApiBase === "/api/usluga";
   const { data: selectedModel, mutate: mutateSelectedModel } = useSWR<ManualModel>(
     selectedModelId ? `${modelApiBase}/models/${selectedModelId}` : null,
     fetcher,
@@ -879,7 +880,7 @@ export default function ProcessQrPage() {
   const inferredPaidOperationFactory = useMemo<PaidOperationFactory | undefined>(() => {
     if (selectedProcess?.is_manual && selectedModel) {
       const manualFactories = new Set(
-        materializeLegacyPaidOperations(paidOperationsFromDetails(selectedModel.details_json), [accountPaidOperationFactory])
+        materializeLegacyPaidOperations(paidOperationsFromDetails(selectedModel.details_json, !isUslugaModel), [accountPaidOperationFactory])
           .map((operation) => operation.sewingFactory || "milana"),
       );
       if (manualFactories.size === 1) return Array.from(manualFactories)[0];
@@ -887,7 +888,7 @@ export default function ProcessQrPage() {
     const factories = selectedProcess?.sewing_factories || [];
     if (factories.length !== 1) return undefined;
     return paidOperationFactoryFromDepartmentCode(factories[0].code);
-  }, [accountPaidOperationFactory, selectedModel, selectedProcess?.is_manual, selectedProcess?.sewing_factories]);
+  }, [accountPaidOperationFactory, isUslugaModel, selectedModel, selectedProcess?.is_manual, selectedProcess?.sewing_factories]);
 
   useEffect(() => {
     if (accountPaidOperationFactory) {
@@ -1016,7 +1017,7 @@ export default function ProcessQrPage() {
   useEffect(() => {
     if (!selectedModelId) {
       if (loadedOperationsModelId !== null) {
-        setOperations(clonePaidOperations());
+        setOperations(isUslugaModel ? [] : clonePaidOperations());
         setLoadedOperationsModelId(null);
         setLoadedOperationsSignature("");
         setOperationModelDirty(false);
@@ -1026,7 +1027,7 @@ export default function ProcessQrPage() {
     }
     if (!selectedModel) return;
 
-    const nextOperations = materializeLegacyPaidOperations(paidOperationsFromDetails(selectedModel.details_json), [accountPaidOperationFactory]);
+    const nextOperations = materializeLegacyPaidOperations(paidOperationsFromDetails(selectedModel.details_json, !isUslugaModel), [accountPaidOperationFactory]);
     const nextSignature = JSON.stringify(serializePaidOperations(nextOperations));
     const sameModel = loadedOperationsModelId === selectedModelId;
     if (sameModel && operationModelDirty) return;
@@ -1039,6 +1040,7 @@ export default function ProcessQrPage() {
     setModelSaveMsg(t("page.processQr.loadedModel", { model: selectedModel.code || selectedProcess?.model_code || t("common.model") }));
   }, [
     accountPaidOperationFactory,
+    isUslugaModel,
     loadedOperationsModelId,
     loadedOperationsSignature,
     operationModelDirty,
@@ -1274,7 +1276,7 @@ export default function ProcessQrPage() {
 
   function loadOperationsFromSelectedModel() {
     if (!selectedModel || !selectedModelId) return;
-    const nextOperations = materializeLegacyPaidOperations(paidOperationsFromDetails(selectedModel.details_json), [accountPaidOperationFactory]);
+    const nextOperations = materializeLegacyPaidOperations(paidOperationsFromDetails(selectedModel.details_json, !isUslugaModel), [accountPaidOperationFactory]);
     const nextSignature = JSON.stringify(serializePaidOperations(nextOperations));
     setOperations(nextOperations);
     setLoadedOperationsModelId(selectedModelId);
@@ -2040,7 +2042,7 @@ export default function ProcessQrPage() {
           </div>
 
           <div className={`process-qr-collapsible ${collapsedSections.paidOperations ? "is-collapsed" : ""}`}>
-          <div className="mb-3"><PaidProcessPicker key={selectedModelId} existing={factoryOperations} onSelect={addOperation} /></div>
+          <div className="mb-3"><PaidProcessPicker catalogScope={isUslugaModel ? "usluga" : "standard"} key={`${modelApiBase}:${selectedModelId}`} existing={factoryOperations} onSelect={addOperation} /></div>
           <div className="overflow-x-auto">
             <table className="table process-qr-operations">
               <colgroup>

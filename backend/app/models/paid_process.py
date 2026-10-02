@@ -13,3 +13,15 @@ class PaidProcess(Base, PkMixin, TimestampMixin):
     normalized_name: Mapped[str] = mapped_column(Text, nullable=False)
     normalized_key: Mapped[str] = mapped_column(String(64), nullable=False)
     section: Mapped[str] = mapped_column(String(32), nullable=False)
+
+
+class UslugaPaidProcess(Base, PkMixin, TimestampMixin):
+    """Manual Usluga catalog; kept separate from imported standard processes."""
+    __tablename__ = "usluga_paid_processes"
+    __table_args__ = (UniqueConstraint("factory_code", "normalized_key", "section", name="uq_usluga_paid_process_identity"),)
+    factory_code: Mapped[str] = mapped_column(String(3), nullable=False, index=True)
+    code: Mapped[str] = mapped_column(String(32), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    normalized_name: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    section: Mapped[str] = mapped_column(String(32), nullable=False)

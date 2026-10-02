@@ -2,6 +2,16 @@
 
 Last updated: 2026-10-02
 
+## Variant color and manual Usluga processes (2026-10-02; prepared)
+
+- Variant creation/editing now offers **Add color** beside the existing predefined color choices, with English, Russian and Uzbek labels. The typed color is saved on that exact variant and displays when reopened.
+- Usluga model and Payroll Process QR operations start empty when no operations have been saved. Standard model defaults and all explicitly saved model operations/rates remain intact. Usluga process selection/creation uses an independent, initially empty Eco Cotton catalog; users enter each new type manually and reuse it later. Standard imported processes cannot appear there. Backend permissions and the Eco factory boundary are enforced.
+- Migration `0135_usluga_paid_processes` adds only the empty reusable catalog. It does not rewrite model details, payroll, QR labels, orders or standard processes. The old application remains compatible for rollback.
+- Starting production verified on both VMs: green `20261002_065259`, source manifest `562c8aa9da713f2dd8e9eaf2df1e4778e731c9ad276b3a61f9c6754372434bc8`, rollback blue `20261002_043701`, database `0134_packaging_returns`. Requested `clone_main` contains the correct baseline while `main` is behind. Its already-committed owner-approved finance changes are included in the candidate, not dropped.
+- Focused validation: 21 paid-process catalog tests including isolation/reuse and migration preservation, strict frontend TypeScript, changed-file ESLint, model variant and factory-operation contracts, Ruff and diff review. Immutable release CI and immediate backup/cutover checks remain; extra production QA, benchmarks and extended monitoring are omitted at the owner's explicit request.
+- Worktree `C:/ERP/.codex-work/variant-color-usluga-processes-20261002`; branch `codex/variant-color-usluga-processes-20261002`; target `clone_main`. Deployment result will be recorded after cutover.
+
+
 ## Owner-approved finance fixes on clone_main (2026-10-02; local preparation)
 
 - Owner responses approve treating an outstanding USD balance up to and including $1.00 as settled, rounding purchase/stock costs to four decimals before storage, recognizing sale revenue from received payments, and retiring 1C integration. Historical waste-sale repair is outside the current business scope. Paging contracts, historical unit repair, currency conversion and historical cost policy remain undecided.

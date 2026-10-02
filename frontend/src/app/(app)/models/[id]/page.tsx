@@ -19,10 +19,10 @@ import { formatModelComposition } from "@/lib/modelComposition";
 import { oldErpModelInfoFromDetails } from "@/lib/oldErpModelInfo";
 import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
 import { prepareModelImageUpload } from "@/lib/imageUpload";
-import { MATERIAL_COLOR_OPTIONS } from "@/lib/materialColors";
 import { GARMENT_SIZE_OPTIONS, garmentSizeRange, garmentSizeRangeEndOptions } from "@/lib/garmentSizes";
 import { parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 import VerticalModelPhoto from "@/components/VerticalModelPhoto";
+import VariantColorSelect from "@/components/VariantColorSelect";
 import PaidOperationsEditor from "@/components/PaidOperationsEditor";
 import { useMe } from "@/lib/auth";
 import {
@@ -328,12 +328,12 @@ export default function ModelDetail() {
       };
     }
     nextDetails.paid_operations = serializePaidOperations(materializeLegacyPaidOperations(
-      withoutModelQuantities(paidOperationsFromDetails(nextDetails)),
+      withoutModelQuantities(paidOperationsFromDetails(nextDetails, !isUsluga)),
       visiblePaidOperationFactories,
     ));
     delete nextDetails.paidOperations;
     setDetails(nextDetails);
-  }, [m, visiblePaidOperationFactories]);
+  }, [m, visiblePaidOperationFactories, isUsluga]);
 
   const measurementJson = useMemo(() => buildMeasurementJson(measurementFields), [measurementFields]);
 
@@ -492,7 +492,7 @@ export default function ModelDetail() {
     () => (m?.images || []).filter((img: any) => String(img.image_type || "").toLowerCase() === "pattern"),
     [m?.images],
   );
-  const paidOperations = useMemo(() => withoutModelQuantities(paidOperationsFromDetails(details)), [details]);
+  const paidOperations = useMemo(() => withoutModelQuantities(paidOperationsFromDetails(details, !isUsluga)), [details, isUsluga]);
   const modelCompositionRows = useMemo(
     () => (details.composition || []).length ? details.composition || [] : [{ name: "", percentage: "" }],
     [details.composition],
@@ -539,7 +539,7 @@ export default function ModelDetail() {
 
   function updatePaidOperation(id: string, patch: Partial<PaidOperation>) {
     setDetails((current) => {
-      const rows = withoutModelQuantities(paidOperationsFromDetails(current)).map((operation) => (
+      const rows = withoutModelQuantities(paidOperationsFromDetails(current, !isUsluga)).map((operation) => (
         operation.id === id ? { ...operation, ...patch } : operation
       ));
       return withPaidOperations(current, rows);
@@ -548,7 +548,7 @@ export default function ModelDetail() {
 
   function addPaidOperation(sewingFactory: PaidOperationFactory, template?: { name: string; code: string; section: SectionCode }) {
     setDetails((current) => {
-      const existing = withoutModelQuantities(paidOperationsFromDetails(current));
+      const existing = withoutModelQuantities(paidOperationsFromDetails(current, !isUsluga));
       if (template && existing.some(operation => operation.sewingFactory === sewingFactory && samePaidProcess(operation, template))) return current;
       const rows = [
         ...existing,
@@ -561,7 +561,7 @@ export default function ModelDetail() {
 
   function removePaidOperation(id: string) {
     setDetails((current) => {
-      const rows = withoutModelQuantities(paidOperationsFromDetails(current));
+      const rows = withoutModelQuantities(paidOperationsFromDetails(current, !isUsluga));
       return withPaidOperations(current, rows.filter((operation) => operation.id !== id));
     });
   }
@@ -1507,17 +1507,10 @@ export default function ModelDetail() {
                     </div>
                     <div>
                       <label className="label" htmlFor="variant-material-color">{t("field.materialColor")}</label>
-                      <select
-                        id="variant-material-color"
-                        className="input"
+                      <VariantColorSelect
                         value={variantForm.color}
-                        onChange={(event) => setVariantForm((prev) => ({ ...prev, color: event.target.value }))}
-                      >
-                        <option value="">{t("page.receiveStock.selectMaterialColor")}</option>
-                        {MATERIAL_COLOR_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>{t(option.labelKey)}</option>
-                        ))}
-                      </select>
+                        onChange={(color) => setVariantForm((prev) => ({ ...prev, color }))}
+                      />
                     </div>
                     <div>
                       <label className="label" htmlFor="variant-material-picture">{t("page.modelDetail.variantMaterialPicture")}</label>
@@ -1818,6 +1811,7 @@ export default function ModelDetail() {
 
         {tab === 10 && (
           <PaidOperationsEditor
+            catalogScope={isUsluga ? "usluga" : "standard"}
             key={id}
             operations={paidOperations}
             visibleFactories={visiblePaidOperationFactories}

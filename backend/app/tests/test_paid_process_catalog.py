@@ -130,3 +130,36 @@ def test_catalog_migration_deduplicates_scope_and_preserves_every_model_snapshot
             assert connection.execute(sa.select(models.c.details_json).order_by(models.c.id)).scalars().all() == snapshots
             with pytest.raises(RuntimeError, match="Preserve"):
                 migration.downgrade()
+
+
+def test_usluga_catalog_starts_empty_and_reuses_only_manual_eco_processes(client, auth_headers):
+    eco = _create_user_with_permissions(client, auth_headers, email="usluga-catalog@example.com", permissions=["payroll.manage"], factory_code="ECO")
+    standard = _create(client, eco, "Shared-looking seam").json()
+    url = "/api/paid-processes?catalog_scope=usluga"
+    assert client.get(url, headers=eco).json()["items"] == []
+    response = client.post(url, headers=eco, json={"name": "Shared-looking seam", "section": "sewing"})
+    assert response.status_code == 200, response.text
+    manual = response.json()
+    assert manual["code"].startswith("UOP-")
+    assert manual["code"] != standard["code"]
+    assert client.post(url, headers=eco, json={"name": " shared-looking SEAM ", "section": "sewing"}).json() == manual
+    assert client.get(url, headers=eco).json()["items"] == [manual]
+    assert client.get("/api/paid-processes", headers=eco).json()["items"] == [standard]
+    assert client.get(url, headers=auth_headers).status_code == 403
+    assert client.post(url, headers=auth_headers, json={"name": "Other factory", "section": "sewing"}).status_code == 403
+
+
+def test_usluga_catalog_migration_is_empty_and_preserves_standard_catalog():
+    path = Path(__file__).parents[2] / "alembic" / "versions" / "0135_usluga_paid_processes.py"
+    spec = importlib.util.spec_from_file_location("usluga_catalog_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    engine = sa.create_engine("sqlite://")
+    with engine.begin() as connection:
+        connection.execute(sa.text("CREATE TABLE paid_processes (id integer primary key, name text)"))
+        connection.execute(sa.text("INSERT INTO paid_processes VALUES (1, 'Existing process')"))
+        with Operations.context(MigrationContext.configure(connection)):
+            migration.upgrade()
+            assert connection.execute(sa.text("SELECT count(*) FROM usluga_paid_processes")).scalar() == 0
+            assert connection.execute(sa.text("SELECT name FROM paid_processes")).scalar() == "Existing process"
+            migration.downgrade()
