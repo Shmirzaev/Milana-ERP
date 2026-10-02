@@ -578,7 +578,7 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
 
   useEffect(() => {
     try {
-      if (factoryCode !== "ECO") {
+      if (factoryCode === "MIL") {
         for (const key of LEGACY_STORAGE_KEYS) localStorage.removeItem(key);
       }
       const saved = localStorage.getItem(STORAGE_KEY);

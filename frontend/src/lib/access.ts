@@ -31,6 +31,10 @@ export function factoryWorkspaceHome(me: Me | undefined): string {
   ));
   const packaging = permits("packaging.records", "packaging.packages", "planning.production");
   if (me?.factory_code === "BST") {
+    if (!permits("sewing.records", "sewing.bundles", "planning.production") && !packaging) {
+      if (permits("payroll.view", "payroll.manage", "payroll.pay")) return "/payroll";
+      if (permits("payroll.scan")) return "/payroll/scan";
+    }
     return packaging && !permits("sewing.records", "sewing.bundles", "planning.production")
       ? "/departments/BPK"
       : "/departments/BST";

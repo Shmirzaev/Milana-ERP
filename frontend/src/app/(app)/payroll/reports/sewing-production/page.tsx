@@ -104,7 +104,7 @@ function downloadBlob(filename: string, blob: Blob) {
 export default function SewingProductionReportPage() {
   const { t, lang } = useT();
   const { me } = useMe();
-  const isEcoCotton = me?.factory_code === "ECO";
+  const scopedFactory = me?.factory_code === "ECO" || me?.factory_code === "BST" ? me.factory_code : "";
   const [draft, setDraft] = useState<SewingProductionReportFilters>(initialFilters);
   const [applied, setApplied] = useState<SewingProductionReportFilters>(initialFilters);
   const [reportView, setReportView] = useState<"details" | "salary">("details");
@@ -309,11 +309,11 @@ export default function SewingProductionReportPage() {
           />
           <label>
             <span className="label">{t("page.sewingReport.factory")}</span>
-            <select className="input" value={isEcoCotton ? "ECO" : draft.factoryCode} disabled={isEcoCotton} onChange={(e) => updateFactory(e.target.value)}>
-              {!isEcoCotton && <option value="">{t("common.all")}</option>}
-              {!isEcoCotton && <option value="MIL">Milana</option>}
-              {!isEcoCotton && <option value="BST">Besttex</option>}
-              <option value="ECO">Eco Cotton</option>
+            <select className="input" value={scopedFactory || draft.factoryCode} disabled={Boolean(scopedFactory)} onChange={(e) => updateFactory(e.target.value)}>
+              {!scopedFactory && <option value="">{t("common.all")}</option>}
+              {!scopedFactory && <option value="MIL">Milana</option>}
+              {scopedFactory !== "ECO" && <option value="BST">Besttex</option>}
+              {scopedFactory !== "BST" && <option value="ECO">Eco Cotton</option>}
             </select>
           </label>
           <ReportFilterSelect

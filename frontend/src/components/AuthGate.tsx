@@ -10,7 +10,7 @@ import { useT } from "@/lib/i18n";
 import { isAbbosbekPricingUser, isAccessoryPricingUser } from "@/lib/priceCalculationRequests";
 
 const SUPER_ADMIN_PERMISSION = "admin.super";
-const ECO_PAYROLL_CACHE = { provider: () => new Map() };
+const FACTORY_PAYROLL_CACHE = { provider: () => new Map() };
 
 type RouteGuard = {
   prefix: string;
@@ -198,10 +198,10 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   if (!hasInventoryPathAccess(me, `${pathname}?${searchParams}`) || !hasRouteAccess(me, pathname) || (operationalFactory && operationalFactory !== me?.factory_code)) {
     return <div className="p-6 text-slate-600">{t("auth.accessDenied")}</div>;
   }
-  if (me?.factory_code === "ECO" && (pathname === "/process-qr" || pathname === "/payroll" || pathname.startsWith("/payroll/"))) {
+  if ((me?.factory_code === "ECO" || me?.factory_code === "BST") && (pathname === "/process-qr" || pathname === "/payroll" || pathname.startsWith("/payroll/"))) {
     // Shared URLs must never reuse another factory's cached salaries, labels,
-    // employees or model data after switching into the Eco workspace.
-    return <SWRConfig key={`ECO:${me.id}`} value={ECO_PAYROLL_CACHE}>{children}</SWRConfig>;
+    // employees or model data after switching into the factory workspace.
+    return <SWRConfig key={`${me.factory_code}:${me.id}`} value={FACTORY_PAYROLL_CACHE}>{children}</SWRConfig>;
   }
   return <>{children}</>;
 }

@@ -18,17 +18,24 @@ const milKey = storage.payrollScanStorageKey("MIL");
 const ecoKey = storage.payrollScanStorageKey("ECO");
 assert.notEqual(milKey, ecoKey);
 assert.equal(milKey, storage.PAYROLL_SCAN_STORAGE_KEY);
-assert.equal(storage.payrollScanStorageKey("BST"), milKey, "Besttex behavior is unchanged");
+const bstKey = storage.payrollScanStorageKey("BST");
+assert.notEqual(bstKey, milKey);
+assert.notEqual(bstKey, ecoKey);
+store.setItem(bstKey, JSON.stringify([{ scanUid: "shared-label" }, { scanUid: "bst-keep" }]));
 store.setItem(milKey, JSON.stringify([{ scanUid: "shared-label" }]));
 store.setItem(ecoKey, JSON.stringify([{ scanUid: "shared-label" }, { scanUid: "eco-keep" }]));
 assert.equal(storage.removePayrollScanHistoryForLabel("shared-label", store, "ECO"), 1);
 assert.equal(JSON.parse(store.getItem(milKey)).length, 1);
 assert.equal(JSON.parse(store.getItem(ecoKey))[0].scanUid, "eco-keep");
+assert.equal(JSON.parse(store.getItem(bstKey)).length, 2);
+assert.equal(storage.removePayrollScanHistoryForLabel("shared-label", store, "BST"), 1);
+assert.equal(JSON.parse(store.getItem(bstKey))[0].scanUid, "bst-keep");
+assert.equal(JSON.parse(store.getItem(milKey)).length, 1);
 assert.equal(storage.removePayrollScanHistoryForLabel("eco-keep", store, "MIL"), 0);
 assert.equal(access.factoryWorkspaceHome({ factory_code: "ECO", permissions: ["payroll.view"] }), "/payroll");
 assert.equal(access.factoryWorkspaceHome({ factory_code: "ECO", permissions: ["payroll.scan"] }), "/payroll/scan");
 assert.equal(access.factoryWorkspaceHome({ factory_code: "MIL", permissions: ["payroll.view"] }), "/");
-assert.equal(access.factoryWorkspaceHome({ factory_code: "BST", permissions: ["payroll.view"] }), "/departments/BST");
+assert.equal(access.factoryWorkspaceHome({ factory_code: "BST", permissions: ["payroll.view"] }), "/payroll");
 
 // Evaluate the actual sidebar's section and item filtering for each session.
 const source = fs.readFileSync("src/components/Sidebar.tsx", "utf8");
@@ -52,7 +59,10 @@ function links(factory, permissions) {
 }
 assert.deepEqual(links("ECO", ["*"]), expected);
 assert.deepEqual(links("MIL", ["*"]), expected);
-assert.deepEqual(links("BST", ["*"]), []);
+assert.deepEqual(links("BST", ["*"]), expected);
+assert.deepEqual(links("BST", ["sewing.records"]), []);
+assert.deepEqual(links("BST", ["payroll.scan"]), ["/process-qr", "/payroll/scan"]);
+assert.equal(access.factoryWorkspaceHome({ factory_code: "BST", permissions: ["payroll.scan"] }), "/payroll/scan");
 assert.deepEqual(links("ECO", ["cutting.records"]), []);
 assert.deepEqual(links("ECO", ["payroll.scan"]), ["/process-qr", "/payroll/scan"]);
 
@@ -76,12 +86,12 @@ for (const factory of ["ECO", "MIL", "BST"]) {
       throw Error(name);
     } });
     const rendered = exports.default({ children: "payroll" });
-    assert.equal(rendered.type === "SWRConfig", factory === "ECO");
-    if (factory === "ECO") {
-      assert.equal(rendered.key, "ECO:1");
+    assert.equal(rendered.type === "SWRConfig", factory !== "MIL");
+    if (factory !== "MIL") {
+      assert.equal(rendered.key, `${factory}:1`);
       const first = rendered.props.value.provider(), second = rendered.props.value.provider();
       first.set("/api/payroll/records", [{ factory_code: "MIL" }]);
-      assert.equal(second.size, 0, "Each Eco session starts with its own response cache");
+      assert.equal(second.size, 0, "Each factory session starts with its own response cache");
     }
   }
 }
@@ -109,4 +119,4 @@ for (const factory of ["ECO", "MIL", "BST"]) {
     }
   }
 }
-console.log("Eco payroll: six routes, permission filtering, factory landing, and isolated scan/return history passed.");
+console.log("Eco/Besttex payroll: six routes, permission filtering, factory landing, and isolated scan/return history passed.");

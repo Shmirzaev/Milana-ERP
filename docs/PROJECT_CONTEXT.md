@@ -2,6 +2,17 @@
 
 Last updated: 2026-10-02
 
+
+## Besttex payroll prepared for clone_main deployment (2026-10-02)
+
+- Besttex now exposes the same six permission-filtered Payroll entries as Milana: Summary, Sewing Production Report, Order QR Status, Process QR, Payroll Scan and QR Control. Payroll-only Besttex sessions land on Summary or Scan; existing sewing/packaging destinations remain intact.
+- Existing server-side selected-factory authorization covers periods, employees, records, adjustments, approvals/payments, QR labels, returns, reports and operation rates. Besttex gains separate browser scan/return history and a user/factory-keyed payroll response cache. Its report factory selector is fixed to Besttex. No Milana salary, employee, rate or period data is copied, and no permissions or business records are changed.
+- Focused validation: 24 backend payroll parity/operation-scope checks passed, including ten established workflows in Besttex and Eco with other-factory row preservation; payroll frontend contracts, strict TypeScript, scoped ESLint, Ruff and diff whitespace checks passed. Immutable-release CI remains required before cutover.
+- User explicitly authorized pushing to `clone_main` and fast deployment without extra tests or monitoring. Extended observation, extra production browser QA and performance benchmarking are omitted for this request; do not describe them as completed.
+- Verified starting release: backend/frontend blue `20261002_043701`, manifest `a2d1ac2e812ff199e0d3edb598f1b5fc2e53c71b2a9b3e49d6f7ab7a11aaf8ca`, rollback green `20261001_115129`, database `0134_packaging_returns`. Fresh origin/main and live manifests agree. `clone_main` is an ancestor; fast-forwarding includes the already-live bootstrap-test correction and deployment record, without overwriting divergent work.
+- Worktree `C:/ERP/.codex-work/besttex-payroll-20261002`, branch `codex/besttex-payroll-20261002`. Legacy checkout preserved. Deployment result will be recorded after cutover.
+
+
 ## clone_main reactivated at the owner's request (2026-10-02)
 
 - LIVE: backend/frontend blue `20261002_043701`, reactivated at 05:47 UTC from the same reviewed immutable images and exact application commit `f731bb9568254562494da218ea378276d3f312b5`. Both active source manifests, image identities, slot states and current symlinks agree. Source manifest is `a2d1ac2e812ff199e0d3edb598f1b5fc2e53c71b2a9b3e49d6f7ab7a11aaf8ca`. The user explicitly said "It is fine now deploy the clone_main" after the latency investigation, superseding the earlier instruction to keep the previous release. No application rebuild or code substitution occurred.

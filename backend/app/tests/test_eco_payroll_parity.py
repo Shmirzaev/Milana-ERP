@@ -1,4 +1,4 @@
-"""Run the established payroll workflows as an Eco Cotton session."""
+"""Run established payroll workflows in isolated Eco Cotton and Besttex sessions."""
 from uuid import uuid4
 
 import pytest
@@ -22,9 +22,10 @@ from app.tests.conftest import TestSessionLocal
     "test_returned_payroll_qr_can_be_scanned_for_another_employee",
     "test_void_payroll_record",
 ])
-def test_eco_payroll_workflow_preserves_other_factories(client, auth_headers, workflow):
+@pytest.mark.parametrize("factory_code", ["ECO", "BST"])
+def test_factory_payroll_workflow_preserves_other_factories(client, auth_headers, workflow, factory_code):
     eco_headers = payroll._create_user_with_permissions(
-        client, auth_headers, email=f"eco.parity.{uuid4().hex}@example.com", factory_code="ECO",
+        client, auth_headers, email=f"{factory_code.lower()}.parity.{uuid4().hex}@example.com", factory_code=factory_code,
         permissions=["hr.employees", "payroll.view", "payroll.manage", "payroll.scan", "payroll.approve", "payroll.pay"],
     )
 
@@ -33,7 +34,7 @@ def test_eco_payroll_workflow_preserves_other_factories(client, auth_headers, wo
             result = {}
             for name in ["employees", "payroll_periods", "payroll_records", "payroll_qr_labels", "payroll_adjustments"]:
                 table = Base.metadata.tables[name]
-                result[name] = [dict(r) for r in db.execute(select(table).where(table.c.factory_code != "ECO").order_by(table.c.id)).mappings()]
+                result[name] = [dict(r) for r in db.execute(select(table).where(table.c.factory_code != factory_code).order_by(table.c.id)).mappings()]
             return result
 
     before = other_factories()

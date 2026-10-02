@@ -350,7 +350,7 @@ export default function Sidebar() {
     () =>
       SECTIONS.filter((sec) => {
         const factory = me?.factory_code || "MIL";
-        if (factory === "BST") return sec.titleKey === "section.besttexTextile" || sec.titleKey === "section.hr";
+        if (factory === "BST") return sec.titleKey === "section.besttexTextile" || sec.titleKey === "section.hr" || sec.titleKey === "section.payroll";
         const ecoSections = new Set([
           "section.ecoCottonCutting",
           "section.ecoCottonSewing",
