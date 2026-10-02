@@ -2268,7 +2268,12 @@ def approve_model(
     family = _approval_family(db, m)
     pending = [row for row in family if row.status != "approved"]
     if _normalize_catalog_scope(catalog_scope) == "usluga":
+        has_variants = any(_clean_text(_model_code_parts(row)[1]) for row in family)
         for row in pending:
+            # A family header can have no BOM; its variants own the fabrics.
+            # Standalone models and every variant still require a main fabric.
+            if has_variants and not _clean_text(_model_code_parts(row)[1]) and not row.bom:
+                continue
             main_count = db.query(ModelBOM.id).filter(
                 ModelBOM.model_id == row.id,
                 ModelBOM.material_role == "main",

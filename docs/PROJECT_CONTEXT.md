@@ -2,6 +2,13 @@
 
 Last updated: 2026-10-02
 
+## Usluga family main-fabric approval fix prepared (2026-10-02)
+
+- Read-only production diagnosis found TR1480's empty family header and V-2 with exactly one manual main fabric plus one secondary fabric. Family approval incorrectly required a main fabric on the empty header as well as its variant.
+- Approval now skips only BOM-empty family headers when the same family has variants. Every pending variant, standalone model and nonempty header still requires exactly one main fabric. Family approval, permissions and inventory isolation remain unchanged; no fabric is copied or business data edited.
+- Focused validation passed three Usluga tests, including approval from either the header or variant and rejection of missing variant/standalone fabrics, plus scoped Ruff. The requested target is `clone_main`, retaining its already-prepared Besttex payroll change. Extended monitoring and extra tests are omitted at the user's request; immutable build and immediate cutover checks remain.
+- Worktree: `C:/ERP/.codex-work/usluga-main-fabric-20261002`; branch `codex/usluga-main-fabric-20261002`. Active release was verified as blue `20261002_043701` on both VMs before edits, with the recorded manifest matching. Deployment outcome will be recorded after cutover.
+
 
 ## Besttex payroll prepared for clone_main deployment (2026-10-02)
 

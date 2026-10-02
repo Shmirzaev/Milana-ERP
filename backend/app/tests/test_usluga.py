@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+import pytest
+
 from app.models import (
     AuditLog,
     Department,
@@ -717,6 +719,39 @@ def test_usluga_model_fabric_name_is_manual_and_inventory_independent(client):
         json={"item_id": accessory_id, "quantity_per_piece": 1, "unit": accessory_unit},
     )
     assert accessory_response.status_code == 201, accessory_response.text
+
+
+@pytest.mark.parametrize("approve_variant", [False, True])
+def test_usluga_family_approval_validates_variants_without_requiring_header_fabric(client, approve_variant):
+    _login_eco(client)
+    model_no = f"USL{uuid4().hex[:8].upper()}"
+    created = client.post("/api/usluga/models", json={
+        "code": model_no, "name": "Customer garment",
+        "details_json": {"general": {"model_no": model_no}},
+    })
+    assert created.status_code == 201, created.text
+    base_id = created.json()["id"]
+    # An empty standalone model must still be rejected.
+    assert client.post(f"/api/usluga/models/{base_id}/approve").status_code == 409
+    variants = []
+    for number in ("1", "2"):
+        response = client.post(f"/api/usluga/models/{base_id}/variants", json={"variant_no": number})
+        assert response.status_code == 201, response.text
+        variants.append(response.json()["id"])
+    target = variants[0] if approve_variant else base_id
+    for variant_id in variants:
+        # Another valid variant cannot hide a variant with no main fabric.
+        assert client.post(f"/api/usluga/models/{target}/approve").status_code == 409
+        response = client.post(f"/api/usluga/models/{variant_id}/bom", json={
+            "material_name": "Customer cotton", "material_role": "main",
+            "quantity_per_piece": 0.6, "unit": "kg",
+        })
+        assert response.status_code == 201, response.text
+    response = client.post(f"/api/usluga/models/{target}/approve")
+    assert response.status_code == 200, response.text
+    with TestSessionLocal() as db:
+        assert all(db.get(Model, mid).status == "approved" for mid in [base_id, *variants])
+        assert not db.get(Model, base_id).bom
 
 
 def test_usluga_variant_uses_main_fabric_for_color_and_variant_summary(client):
