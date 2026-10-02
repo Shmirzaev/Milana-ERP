@@ -2,6 +2,16 @@
 
 Last updated: 2026-10-02
 
+## Besttex employees imported from Yangi tabel (2026-10-02)
+
+- LIVE DATA: imported exactly 423 active Besttex (`BST`) employees from the 24 sheets of `Yangi tabel.xlsx` in one transaction. Besttex previously had zero employees. There were no duplicate normalized names in the source; no existing employee was updated. The other factories' 473 employee records retained an identical full-row SHA-256 fingerprint.
+- Preserved each sheet's group in the HR profile Section field and its band/group in Position. For the nine `Band masterlari` entries, separated the explicit master-role suffix from the person's name and stored it in Position. The 16 `Paket` employees belong to existing Besttex Packaging (`BPK`); the other 407 belong to existing Besttex Sewing Factory (`BST`). No department, sewing line, manager relationship, login account or permission was created.
+- Source row numbers restart on every sheet and are not employee numbers. Employee number, salary, phone, joined date and other absent personal fields remain blank. Attendance and payroll records were not imported. Source SHA-256: `f9ce1ce7cf00d509af885298b94b58bb8ef8076ae479d927f1f064012ca75f1b`.
+- Used the live application's employee schema/reference validation and audit service. Exact committed name/department/position/section readback passed for all 423 rows. Audit entries `31999` through `32421` passed hash-chain verification for this new segment; this does not repair or clear the historical audit-chain issue. System audit entries record owner-authorized import provenance without impersonating an ERP user.
+- Fresh verified PostgreSQL backup: `/opt/milana-erp/shared/backups/milana_erp_pre_20261002_085914.dump`, 63,598,565 bytes, 1,206 restore objects, dump SHA-256 `8e410970f6042d48e40e3c239adc7dd8461cf7a666bbaff300b597e6017e054f`, restore-list SHA-256 `da685e61f8912b968d5a5e65ed61c1c1f3aab2d34a013a9ae0c9483305916c7b`.
+- Active application remains green `20261002_065259`, rollback blue `20261002_043701`, database `0134_packaging_returns`. Both VM release/manifest/slot states matched the requested `clone_main` baseline before import. `origin/main` remains behind that production baseline. All four immediate internal/public health/login checks returned HTTP 200 after import. This was a live data import with no application rebuild, deployment, restart or schema change; extra tests and extended monitoring were omitted at the user's request.
+- Worktree: `C:/ERP/.codex-work/besttex-employees-20261002`, branch `codex/besttex-employees-20261002`, destination `clone_main`. Private import input and detailed evidence remain in ignored `outputs/import/`; employee names are not committed to Git. Legacy checkout preserved.
+
 ## Combined Usluga approval fix and Besttex payroll deployed (2026-10-02)
 
 - LIVE: backend/frontend green `20261002_065259`, exact reviewed `clone_main` application commit `d0ac437e4f9a8f99b5b11809e2c9e2e634560257`. Rollback blue `20261002_043701` remains running. Both immutable source manifests, image revisions, slot states and current symlinks agree. Source manifest `562c8aa9da713f2dd8e9eaf2df1e4778e731c9ad276b3a61f9c6754372434bc8`; source archive `5a4f5981c2d68ab6f8c4cf383135e0ac64d81a268f7d138252702aa24be7f711`; 1033 source files verified against Git.
