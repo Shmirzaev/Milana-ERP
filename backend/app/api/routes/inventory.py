@@ -8,6 +8,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import lazyload
 
 from app.core.dt import date_filter_bounds
+from app.core.costs import round_unit_cost
 from app.core.deps import (
     DbSession,
     INVENTORY_READ_PERMISSIONS,
@@ -201,6 +202,7 @@ def _validate_item_image_url(image_url: str | None) -> str | None:
 
 def _item_payload(payload: ItemIn) -> dict:
     data = payload.model_dump()
+    data["default_cost"] = round_unit_cost(data["default_cost"])
     data["name"] = str(data.get("name") or "").strip()
     data["image_url"] = _validate_item_image_url(data.get("image_url"))
     composition = []
@@ -601,7 +603,7 @@ def _apply_batch_tracked_stock_adjustment(
                 batch_no=_unique_adjustment_batch_no(db, item),
                 quantity=0,
                 unit=item.unit,
-                cost_per_unit=float(item.default_cost or 0),
+                cost_per_unit=round_unit_cost(item.default_cost or 0),
                 warehouse_id=_stock_adjustment_warehouse_id(db, item, batches),
                 qc_status="passed",
             )
@@ -812,6 +814,7 @@ def receive_stock(
         raise HTTPException(404, "Warehouse not found")
     _validate_receiving_warehouse(item, warehouse)
     batch_data = payload.model_dump()
+    batch_data["cost_per_unit"] = round_unit_cost(batch_data["cost_per_unit"])
     batch_data["order_no"] = canonical_business_order_reference(db, payload.order_no)
     roll_weights, piece_count = normalize_material_roll_weights(
         item_category=item.category,
@@ -910,6 +913,7 @@ def collect_back_accessory(
         )
 
     batch_data = payload.model_dump(exclude={"production_order_id", "return_condition"})
+    batch_data["cost_per_unit"] = round_unit_cost(batch_data["cost_per_unit"])
     batch_data["roll_lengths_m"] = normalize_material_roll_lengths(
         item_category=item.category, roll_lengths_m=payload.roll_lengths_m, piece_count=payload.piece_count,
     )
@@ -1403,6 +1407,8 @@ def update_batch(
         raise HTTPException(400, "Quantity is required")
     if "cost_per_unit" in values and values["cost_per_unit"] is None:
         raise HTTPException(400, "Cost per unit is required")
+    if "cost_per_unit" in values:
+        values["cost_per_unit"] = round_unit_cost(values["cost_per_unit"])
     if "received_date" in values and values["received_date"] is None:
         raise HTTPException(400, "Received date is required")
     if "unit" in values:

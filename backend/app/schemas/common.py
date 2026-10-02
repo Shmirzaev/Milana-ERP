@@ -1,5 +1,10 @@
-from typing import Generic, TypeVar, Optional
-from pydantic import BaseModel, ConfigDict
+from decimal import Decimal
+from typing import Annotated, Generic, TypeVar, Optional
+from pydantic import BaseModel, BeforeValidator, ConfigDict
+
+from app.core.costs import validate_unit_cost
+
+StoredUnitCost = Annotated[Decimal, BeforeValidator(validate_unit_cost)]
 
 T = TypeVar("T")
 

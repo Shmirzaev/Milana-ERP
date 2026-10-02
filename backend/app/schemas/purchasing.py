@@ -1,9 +1,10 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import Optional
 
 from pydantic import BaseModel, Field
 
-from app.schemas.common import ORMModel
+from app.schemas.common import ORMModel, StoredUnitCost
 
 
 class PurchaseRequestLineIn(BaseModel):
@@ -66,7 +67,7 @@ class PurchaseOrderLineIn(BaseModel):
     item_id: int
     ordered_quantity: float
     unit: Optional[str] = None
-    unit_cost: float = 0
+    unit_cost: StoredUnitCost = Decimal("0")
     warehouse_id: Optional[int] = None
     supplier_id: Optional[int] = None
     material_name: Optional[str] = None
@@ -124,7 +125,7 @@ class PurchaseOrderReceiveLineIn(BaseModel):
     batch_no: str
     warehouse_id: Optional[int] = None
     supplier_id: Optional[int] = None
-    cost_per_unit: Optional[float] = None
+    cost_per_unit: Optional[StoredUnitCost] = None
     color: Optional[str] = None
     old_code: Optional[str] = None
     color_code: Optional[str] = None

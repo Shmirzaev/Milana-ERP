@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session, lazyload
 
 from app.core.order_reference import canonical_business_order_reference
+from app.core.costs import round_unit_cost
 
 from app.models import (
     Item,
@@ -36,6 +38,13 @@ ORDER_RECEIVABLE_STATUSES = {"sent", "approved", "partially_received"}
 
 def _num(value) -> float:
     return float(value or 0)
+
+
+def _stored_cost(value: object, field: str) -> Decimal:
+    try:
+        return round_unit_cost(value)
+    except ValueError as exc:
+        raise HTTPException(400, f"{field}: {exc}") from exc
 
 
 def _require_item(db: Session, item_id: int) -> Item:
@@ -279,6 +288,10 @@ def create_purchase_order(db: Session, *, data: dict, current: User) -> Purchase
     if not line_inputs:
         raise HTTPException(400, "At least one purchase order line is required")
 
+    # Validate every cost before adding the order or any of its lines. Direct
+    # service callers must not retain partial writes if they catch the error.
+    line_costs = [_stored_cost(raw.get("unit_cost", 0), "unit_cost") for raw in line_inputs]
+
     order = PurchaseOrder(
         po_no=next_purchase_order_no(db),
         purchase_request_id=purchase_request_id,
@@ -293,7 +306,7 @@ def create_purchase_order(db: Session, *, data: dict, current: User) -> Purchase
     db.add(order)
     db.flush()
 
-    for raw in line_inputs:
+    for raw, unit_cost in zip(line_inputs, line_costs):
         item = _require_item(db, int(raw.get("item_id") or 0))
         ordered_quantity = _num(raw.get("ordered_quantity"))
         if ordered_quantity <= 0:
@@ -311,7 +324,7 @@ def create_purchase_order(db: Session, *, data: dict, current: User) -> Purchase
                 ordered_quantity=ordered_quantity,
                 received_quantity=0,
                 unit=unit,
-                unit_cost=_num(raw.get("unit_cost")),
+                unit_cost=unit_cost,
                 warehouse_id=warehouse_id,
                 supplier_id=line_supplier_id,
                 material_name=str(raw.get("material_name") or item.name or "").strip() or item.name,
@@ -448,7 +461,22 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
     _require_supplier(db, int(default_supplier_id) if default_supplier_id else None)
     old_status = order.status
 
+    line_costs = []
+    effective_costs = {line_id: line.unit_cost for line_id, line in order_lines_by_id.items()}
     for raw in line_inputs:
+        line_id = int(raw.get("purchase_order_line_id") or 0)
+        line = order_lines_by_id.get(line_id)
+        if not line:
+            raise HTTPException(404, f"Purchase order line {line_id} not found")
+        value = raw.get("cost_per_unit")
+        cost = _stored_cost(effective_costs[line_id] if value is None else value, "cost_per_unit")
+        line_costs.append(cost)
+        # Repeated receipts for one line retain the preceding explicit price,
+        # without mutating the ORM line during validation.
+        if value is not None:
+            effective_costs[line_id] = cost
+
+    for raw, cost_per_unit in zip(line_inputs, line_costs):
         line_id = int(raw.get("purchase_order_line_id") or 0)
         line = order_lines_by_id.get(line_id)
         if not line:
@@ -469,7 +497,6 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
 
         item = _require_item(db, int(line.item_id))
         unit = str(line.unit or item.unit or "").strip() or item.unit
-        cost_per_unit = _num(raw.get("cost_per_unit")) if raw.get("cost_per_unit") is not None else _num(line.unit_cost)
         roll_weights, piece_count = normalize_material_roll_weights(
             item_category=item.category,
             unit=unit,

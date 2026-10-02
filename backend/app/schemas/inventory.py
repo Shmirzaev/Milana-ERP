@@ -1,9 +1,9 @@
 from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Literal, Optional
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
-from app.schemas.common import ORMModel
+from app.schemas.common import ORMModel, StoredUnitCost
 
 
 class ItemComposition(BaseModel):
@@ -11,10 +11,7 @@ class ItemComposition(BaseModel):
     percentage: float = Field(ge=0, le=100)
 
 
-ItemDefaultCost = Annotated[
-    Decimal,
-    Field(ge=0, le=Decimal("99999999.9999"), allow_inf_nan=False),
-]
+ItemDefaultCost = StoredUnitCost
 ItemReorderLevel = Annotated[
     Decimal,
     Field(ge=0, le=Decimal("9999999999.9999"), allow_inf_nan=False),
@@ -97,10 +94,16 @@ class StockBatchIn(BaseModel):
     roll_weights_kg: list[float] = Field(default_factory=list)
     processes: Optional[str] = None
     unit: str
-    cost_per_unit: float = 0
+    cost_per_unit: StoredUnitCost = Decimal("0")
     image_url: Optional[str] = None
     warehouse_id: int
     qc_status: str = "pending"
+
+    @field_serializer("cost_per_unit", when_used="json")
+    def serialize_cost_per_unit(self, value: Decimal) -> float | int:
+        # Existing receipt idempotency records fingerprint float request costs,
+        # including integer zero when the original float default was omitted.
+        return float(value) if "cost_per_unit" in self.model_fields_set else 0
 
 
 class StockBatchRestoreIn(BaseModel):
@@ -126,7 +129,7 @@ class StockBatchUpdate(BaseModel):
     piece_count: Optional[int] = Field(default=None, ge=0)
     processes: Optional[str] = None
     unit: Optional[str] = None
-    cost_per_unit: Optional[float] = Field(default=None, ge=0)
+    cost_per_unit: Optional[StoredUnitCost] = None
     image_url: Optional[str] = None
     received_date: Optional[datetime] = None
     warehouse_id: Optional[int] = None
