@@ -343,7 +343,7 @@ export default {
     "dash.sewing": "Tikuv",
     "dash.packaging": "Qadoqlash",
     "dash.finance": "Moliyaviy holat",
-    "dash.revenue": "Hisob-faktura summasi",
+    "dash.revenue": "To‘langan savdo tushumi",
     "dash.payments": "Toʻlovlar",
     "dash.brandedValue": "Brend mahsulot qiymati",
     "dash.wasteIncome": "Chiqindidan daromad",
@@ -1371,7 +1371,7 @@ export default {
     "field.wasteType": "Tur",
 
     "page.finance.title": "Moliya",
-    "page.finance.revenue": "Hisob-faktura summasi",
+    "page.finance.revenue": "To‘langan savdo tushumi",
     "page.finance.paymentsReceived": "Toʻlovlar",
     "page.finance.brandedValue": "Brend ombor qiymati",
     "page.finance.wasteCostIncome": "Chiqindi: xarajat / daromad",

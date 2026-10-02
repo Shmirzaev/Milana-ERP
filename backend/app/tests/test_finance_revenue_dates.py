@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import Customer, Invoice, SalesOrder
+from app.models import Customer, Invoice, Payment, SalesOrder
 
 
 def _create_invoice(session_factory, amount=100):
@@ -30,8 +30,9 @@ def test_revenue_date_bounds_accept_equivalent_utc_instants(client, auth_headers
     _, _, invoice_id = _create_invoice(SessionLocal)
     with SessionLocal() as db:
         invoice = db.get(Invoice, invoice_id)
-        invoice.issued_at = datetime(2089, 2, 3, tzinfo=timezone.utc)
+        invoice.issued_at = datetime(2088, 1, 1, tzinfo=timezone.utc)
         invoice.amount = 123.45
+        db.add(Payment(invoice_id=invoice_id, amount=123.45, paid_at=datetime(2089, 2, 3, tzinfo=timezone.utc)))
         db.commit()
     response = client.get("/api/finance/revenue-by-period", headers=auth_headers,
                           params={"from": date_from, "to": date_to})
@@ -43,9 +44,10 @@ def test_revenue_date_bounds_use_created_date_fallback_and_exclude_outside(clien
     _, _, invoice_id = _create_invoice(SessionLocal)
     with SessionLocal() as db:
         invoice = db.get(Invoice, invoice_id)
-        invoice.issued_at = None
-        invoice.created_at = datetime(2089, 2, 3, tzinfo=timezone.utc)
+        invoice.issued_at = datetime(2088, 1, 1, tzinfo=timezone.utc)
         invoice.amount = 50
+        db.add(Payment(invoice_id=invoice_id, amount=50, paid_at=None,
+                       created_at=datetime(2089, 2, 3, tzinfo=timezone.utc)))
         db.commit()
     selected = client.get("/api/finance/revenue-by-period", headers=auth_headers,
                           params={"from": "2089-02-01T00:00:00Z", "to": "2089-02-28T00:00:00Z"})

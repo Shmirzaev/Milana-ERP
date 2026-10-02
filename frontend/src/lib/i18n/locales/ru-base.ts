@@ -343,7 +343,7 @@ export default {
     "dash.sewing": "Пошив",
     "dash.packaging": "Упаковка",
     "dash.finance": "Финансовый обзор",
-    "dash.revenue": "Выставленная выручка",
+    "dash.revenue": "Оплаченная выручка",
     "dash.payments": "Поступления",
     "dash.brandedValue": "Стоимость брендового склада",
     "dash.wasteIncome": "Доход от отходов",
@@ -1371,7 +1371,7 @@ export default {
     "field.wasteType": "Тип",
 
     "page.finance.title": "Финансы",
-    "page.finance.revenue": "Выручка (выставлена)",
+    "page.finance.revenue": "Оплаченная выручка",
     "page.finance.paymentsReceived": "Поступления",
     "page.finance.brandedValue": "Стоимость брендов",
     "page.finance.wasteCostIncome": "Отходы: расход / доход",

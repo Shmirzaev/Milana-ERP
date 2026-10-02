@@ -417,7 +417,7 @@ export default {
     "dash.sewing": "Sewing",
     "dash.packaging": "Packaging",
     "dash.finance": "Finance snapshot",
-    "dash.revenue": "Revenue Invoiced",
+    "dash.revenue": "Payments applied to sales",
     "dash.payments": "Payments",
     "dash.brandedValue": "Branded Stock Value",
     "dash.wasteIncome": "Waste Income",
@@ -1465,7 +1465,7 @@ export default {
 
     // ----- Finance -----
     "page.finance.title": "Finance",
-    "page.finance.revenue": "Revenue (invoiced)",
+    "page.finance.revenue": "Payments applied to sales",
     "page.finance.paymentsReceived": "Payments received",
     "page.finance.brandedValue": "Branded stock value",
     "page.finance.wasteCostIncome": "Waste cost / income",

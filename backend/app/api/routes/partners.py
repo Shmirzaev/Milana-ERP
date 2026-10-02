@@ -108,8 +108,16 @@ def get_customer_orders(cid: int, db: DbSession, _: User = Depends(require_permi
     order_ids = [int(so.id) for so in rows]
     invoices_by_order: dict[int, list[Invoice]] = defaultdict(list)
     payments_by_invoice: dict[int, list[Payment]] = defaultdict(list)
+    shipped_order_ids: set[int] = set()
 
     if order_ids:
+        shipped_order_ids = {
+            order_id for (order_id,) in db.query(Shipment.sales_order_id).filter(
+                Shipment.sales_order_id.in_(order_ids),
+                Shipment.status.in_(("shipped", "delivered")),
+                Shipment.deleted_at.is_(None),
+            ).distinct().all()
+        }
         invoices = (
             db.query(Invoice)
             .filter(Invoice.sales_order_id.in_(order_ids))
@@ -131,7 +139,8 @@ def get_customer_orders(cid: int, db: DbSession, _: User = Depends(require_permi
                 payments_by_invoice[int(payment.invoice_id)].append(payment)
 
     return [
-        _serialize_customer_order(so, invoices_by_order[int(so.id)], payments_by_invoice)
+        _serialize_customer_order(so, invoices_by_order[int(so.id)], payments_by_invoice,
+                                  has_shipped_goods=so.id in shipped_order_ids)
         for so in rows
     ]
 
@@ -292,6 +301,8 @@ def _serialize_customer_order(
     so: SalesOrder,
     invoices: list[Invoice],
     payments_by_invoice: dict[int, list[Payment]],
+    *,
+    has_shipped_goods: bool = False,
 ) -> dict:
     invoice_payloads: list[dict] = []
     invoice_total = Decimal(0)
@@ -343,7 +354,9 @@ def _serialize_customer_order(
 
     def payment_status() -> str:
         if not invoices:
-            return "no_invoice"
+            if so.status == "cancelled":
+                return "cancelled"
+            return "unpaid" if has_shipped_goods and balance_due > 0 else "no_invoice"
         active_invoices = [inv for inv in invoices if inv.status not in REVERSED_INVOICE_STATUSES]
         if not active_invoices:
             return "cancelled" if any(inv.status == "cancelled" for inv in invoices) else "void"

@@ -1,7 +1,7 @@
 """Finance/reporting service."""
 from datetime import datetime
 from decimal import Decimal
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app.core.dt import as_utc
@@ -9,11 +9,50 @@ from app.models import (
     SalesOrder, ProductionOrder, FinishedGoodsStock,
     WasteRecord, Invoice, Payment, ModelBOM, StockBatch, Customer, Item,
 )
+from app.services.payments import REVERSED_INVOICE_STATUSES, invoice_payment_status, money_decimal
+
+
+def _sale_receipts(db: Session, *, sales_order_id: int | None = None):
+    """Allocate received money to active sales, leaving excess as advance credit.
+
+    Earlier receipts consume the invoice balance before any report date filter.
+    Payment ID breaks timestamp ties consistently, including historical rows.
+    """
+    received_at = func.coalesce(Payment.paid_at, Payment.created_at)
+    prior_paid = func.coalesce(func.sum(Payment.amount).over(
+        partition_by=Payment.invoice_id,
+        order_by=(received_at, Payment.id),
+        rows=(None, -1),
+    ), 0)
+    allocations = (
+        db.query(
+            received_at.label("received_at"),
+            Payment.amount.label("payment_amount"),
+            (Invoice.amount - prior_paid).label("remaining_amount"),
+        )
+        .select_from(Payment)
+        .join(Invoice, Invoice.id == Payment.invoice_id)
+        .join(SalesOrder, SalesOrder.id == Invoice.sales_order_id)
+        .filter(Invoice.status.notin_(REVERSED_INVOICE_STATUSES), SalesOrder.status != "cancelled")
+    )
+    if sales_order_id is not None:
+        allocations = allocations.filter(Invoice.sales_order_id == sales_order_id)
+    allocations = allocations.subquery()
+    applied_amount = case(
+        (allocations.c.remaining_amount <= 0, 0),
+        (allocations.c.payment_amount > allocations.c.remaining_amount, allocations.c.remaining_amount),
+        else_=allocations.c.payment_amount,
+    )
+    return db.query(allocations.c.received_at, applied_amount.label("amount")).subquery()
+
+
+def _received_sale_total(db: Session, *, sales_order_id: int | None = None) -> Decimal:
+    receipts = _sale_receipts(db, sales_order_id=sales_order_id)
+    return money_decimal(db.query(func.coalesce(func.sum(receipts.c.amount), 0)).scalar())
 
 
 def revenue_total(db: Session) -> float:
-    val = db.query(func.coalesce(func.sum(Invoice.amount), 0)).scalar()
-    return float(val or 0)
+    return float(_received_sale_total(db))
 
 
 def payments_total(db: Session) -> float:
@@ -47,11 +86,7 @@ def order_profit(db: Session, sales_order_id: int) -> dict:
         return {}
     # Keep intermediate money arithmetic exact; the public response remains
     # JSON-compatible floats for the existing finance clients.
-    revenue = sum(
-        (Decimal(str(i.quantity or 0)) * Decimal(str(i.unit_price or 0))
-         for i in so.items),
-        Decimal("0"),
-    )
+    revenue = _received_sale_total(db, sales_order_id=sales_order_id)
     # cost = sum over production orders linked to SO: estimated material cost via BOM
     cost = Decimal("0")
     pos = db.query(ProductionOrder).filter(ProductionOrder.sales_order_id == sales_order_id).all()
@@ -118,6 +153,10 @@ def list_recent_invoices(db: Session, limit: int = 50) -> list[dict]:
         .limit(safe_limit)
         .all()
     )
+    invoice_ids = [invoice.id for invoice, _, _ in rows]
+    paid_by_invoice = dict(db.query(Payment.invoice_id, func.sum(Payment.amount))
+                           .filter(Payment.invoice_id.in_(invoice_ids))
+                           .group_by(Payment.invoice_id).all()) if invoice_ids else {}
     out: list[dict] = []
     for invoice, so, customer in rows:
         dt = invoice.issued_at or invoice.created_at
@@ -129,7 +168,7 @@ def list_recent_invoices(db: Session, limit: int = 50) -> list[dict]:
                 "order_no": so.order_no,
                 "customer": customer.name if customer else None,
                 "amount": float(invoice.amount or 0),
-                "status": invoice.status,
+                "status": invoice_payment_status(invoice.amount, paid_by_invoice.get(invoice.id, 0), invoice.status),
                 "date": dt.isoformat() if dt else None,
             }
         )
@@ -137,22 +176,22 @@ def list_recent_invoices(db: Session, limit: int = 50) -> list[dict]:
 
 
 def revenue_by_period(db: Session, *, from_dt: datetime | None = None, to_dt: datetime | None = None) -> list[dict]:
-    """Aggregate invoice revenue by month for charting."""
+    """Aggregate received sale revenue by UTC payment month for charting."""
     from_dt, to_dt = as_utc(from_dt), as_utc(to_dt)
-    invoices = db.query(Invoice).order_by(Invoice.id.asc()).all()
-    buckets: dict[str, float] = {}
-    for invoice in invoices:
-        dt = invoice.issued_at or invoice.created_at
-        if not dt:
+    receipts = _sale_receipts(db)
+    buckets: dict[str, Decimal] = {}
+    for received_at, amount in db.query(receipts.c.received_at, receipts.c.amount).all():
+        dt = as_utc(received_at)
+        amount = money_decimal(amount)
+        if not dt or amount <= 0:
             continue
-        comparison_dt = as_utc(dt)
-        if from_dt and comparison_dt < from_dt:
+        if from_dt and dt < from_dt:
             continue
-        if to_dt and comparison_dt > to_dt:
+        if to_dt and dt > to_dt:
             continue
         key = dt.strftime("%Y-%m")
-        buckets[key] = buckets.get(key, 0.0) + float(invoice.amount or 0)
-    return [{"period": k, "amount": round(v, 2)} for k, v in sorted(buckets.items(), key=lambda x: x[0])]
+        buckets[key] = buckets.get(key, Decimal("0")) + amount
+    return [{"period": k, "amount": float(round(v, 2))} for k, v in sorted(buckets.items())]
 
 
 def cost_breakdown(db: Session) -> dict:

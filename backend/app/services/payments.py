@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.core.dt import as_utc
 from app.models import Invoice, Payment, SalesOrder
 
 
@@ -66,7 +67,7 @@ def create_invoice_payment(
         customer_id=customer_id,
         amount=money_decimal(amount),
         payment_method=payment_method,
-        paid_at=paid_at or datetime.now(timezone.utc),
+        paid_at=as_utc(paid_at) or datetime.now(timezone.utc),
         notes=notes,
     )
     db.add(payment)
@@ -89,7 +90,7 @@ def create_customer_advance_payment(
         customer_id=customer_id,
         amount=money_decimal(amount),
         payment_method=payment_method,
-        paid_at=paid_at or datetime.now(timezone.utc),
+        paid_at=as_utc(paid_at) or datetime.now(timezone.utc),
         notes=notes,
     )
     db.add(payment)

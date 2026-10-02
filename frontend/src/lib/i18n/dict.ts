@@ -422,7 +422,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "dash.sewing": "Sewing",
     "dash.packaging": "Packaging",
     "dash.finance": "Finance snapshot",
-    "dash.revenue": "Revenue Invoiced",
+    "dash.revenue": "Payments applied to sales",
     "dash.payments": "Payments",
     "dash.brandedValue": "Branded Stock Value",
     "dash.wasteIncome": "Waste Income",
@@ -1454,7 +1454,7 @@ export const dict: Record<Lang, Record<string, string>> = {
 
     // ----- Finance -----
     "page.finance.title": "Finance",
-    "page.finance.revenue": "Revenue (invoiced)",
+    "page.finance.revenue": "Payments applied to sales",
     "page.finance.paymentsReceived": "Payments received",
     "page.finance.brandedValue": "Branded stock value",
     "page.finance.wasteCostIncome": "Waste cost / income",
@@ -2565,7 +2565,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "dash.sewing": "Пошив",
     "dash.packaging": "Упаковка",
     "dash.finance": "Финансовый обзор",
-    "dash.revenue": "Выставленная выручка",
+    "dash.revenue": "Оплаченная выручка",
     "dash.payments": "Поступления",
     "dash.brandedValue": "Стоимость брендового склада",
     "dash.wasteIncome": "Доход от отходов",
@@ -3577,7 +3577,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "field.wasteType": "Тип",
 
     "page.finance.title": "Финансы",
-    "page.finance.revenue": "Выручка (выставлена)",
+    "page.finance.revenue": "Оплаченная выручка",
     "page.finance.paymentsReceived": "Поступления",
     "page.finance.brandedValue": "Стоимость брендов",
     "page.finance.wasteCostIncome": "Отходы: расход / доход",
@@ -4656,7 +4656,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "dash.sewing": "Tikuv",
     "dash.packaging": "Qadoqlash",
     "dash.finance": "Moliyaviy holat",
-    "dash.revenue": "Hisob-faktura summasi",
+    "dash.revenue": "To‘langan savdo tushumi",
     "dash.payments": "Toʻlovlar",
     "dash.brandedValue": "Brend mahsulot qiymati",
     "dash.wasteIncome": "Chiqindidan daromad",
@@ -5668,7 +5668,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "field.wasteType": "Tur",
 
     "page.finance.title": "Moliya",
-    "page.finance.revenue": "Hisob-faktura summasi",
+    "page.finance.revenue": "To‘langan savdo tushumi",
     "page.finance.paymentsReceived": "Toʻlovlar",
     "page.finance.brandedValue": "Brend ombor qiymati",
     "page.finance.wasteCostIncome": "Chiqindi: xarajat / daromad",

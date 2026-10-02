@@ -1,7 +1,7 @@
 from uuid import uuid4
 
 from app.db.session import SessionLocal
-from app.models import Customer, SalesOrder, SalesOrderItem
+from app.models import Customer, Invoice, Payment, SalesOrder, SalesOrderItem
 from app.services.finance import order_profit
 
 
@@ -35,6 +35,12 @@ def test_order_profit_uses_decimal_for_fractional_revenue():
                 size="L",
             ),
         ])
+        invoice = Invoice(invoice_no=f"PROFIT-{uuid4().hex}", sales_order_id=order.id,
+                          amount="1.30", status="paid")
+        db.add(invoice)
+        db.flush()
+        db.add_all([Payment(invoice_id=invoice.id, amount="0.70"),
+                    Payment(invoice_id=invoice.id, amount="0.60")])
         db.commit()
 
         result = order_profit(db, order.id)
