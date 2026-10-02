@@ -1,6 +1,6 @@
 {
-  "release": "20261002_065259",
-  "source_manifest_sha256": "562c8aa9da713f2dd8e9eaf2df1e4778e731c9ad276b3a61f9c6754372434bc8",
-  "database_revision": "0134_packaging_returns",
-  "git_baseline_commit": "d0ac437e4f9a8f99b5b11809e2c9e2e634560257"
+  "release": "20261002_124419",
+  "source_manifest_sha256": "290fdd26cb6f583ab20a2ae77c4ad699d0c3164d63349b3b4ad88a9fe972002f",
+  "database_revision": "0135_usluga_paid_processes",
+  "git_baseline_commit": "e2b58cd35c5c10647cd789aceb54132a7432c00f"
 }
