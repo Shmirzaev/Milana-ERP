@@ -2,6 +2,14 @@
 
 Last updated: 2026-10-02
 
+## Besttex employee groups linked to masters (2026-10-02)
+
+- Corrected the preceding import's interpretation of workbook tabs: pairs of source bands belong to the eight existing active Besttex sewing bands, not sixteen independent employee bands. Source 1–2 maps to Band 1 (37 employees), 3–4 to Band 2 (43), 5–6 to Band 3 (32), 7–8 to Band 4 (37), 9–10 to Band 5 (33), 11–12 to Band 6 (38), 13–14 to Band 7 (26), and 15–16 to Band 8 (29).
+- Set actual `manager_employee_id` links for all 275 sewing employees to the eight imported masters identified by their explicit paired-band roles. Position now displays the canonical band plus existing sewing-line master name; HR Section and Workplace match. Eight master profiles use the canonical band, and the two names explicitly corrected by the user now match the existing Band 1/Band 2 names. The 14 Kroy employees are linked to their spreadsheet's Kroy master. Other support groups remain unchanged because no master mapping was provided.
+- Exactly 297 existing employee rows updated atomically; no employee was added or removed, and all 423 Besttex employees remain. Readback verified every intended field, unrelated employee rows retained their full-row fingerprint, and all 297 new audit entries (`32431`–`32727`) passed hash-chain verification. Existing source spellings for the other master employee names were retained. No sewing flow, supervisor user, login, permission, salary, attendance or payroll row was changed.
+- Fresh verified backup `/opt/milana-erp/shared/backups/milana_erp_pre_20261002_090425.dump`: 63,636,725 bytes, 1,206 restore objects; dump SHA-256 `44d2a1ef093c536e49dca4e352a8bb5ea917f78c663af6f08bf81a835b86888a`, restore-list SHA-256 `47c5919fc3838afbd15203e75a3e41eb63f2caaf624aa863cbc9649adbc91a51`.
+- Active application remains green `20261002_065259`, rollback blue `20261002_043701`, database `0134_packaging_returns`. All four immediate internal/public health/login checks returned HTTP 200. This is a data correction with no application deployment or schema change. Existing extra-test/monitoring opt-out remains. Worktree and branch remain `C:/ERP/.codex-work/besttex-employees-20261002` and `codex/besttex-employees-20261002`; record destination is `clone_main`. Private before/after evidence is in ignored `outputs/import/master-assignment/`.
+
 ## Besttex employees imported from Yangi tabel (2026-10-02)
 
 - LIVE DATA: imported exactly 423 active Besttex (`BST`) employees from the 24 sheets of `Yangi tabel.xlsx` in one transaction. Besttex previously had zero employees. There were no duplicate normalized names in the source; no existing employee was updated. The other factories' 473 employee records retained an identical full-row SHA-256 fingerprint.
