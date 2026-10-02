@@ -21,7 +21,7 @@ Of 435 fix-labeled `develop` commits reviewed against the earlier `main` base, 1
 
 The first sequential cherry-pick conflict was `13400e81` (stock-adjustment bounds). A prior whole-branch merge also conflicted in 25 files; neither result proves that an individual fix is impossible to port. Port by bug with its dependencies, then test affected workflows and PostgreSQL races/migrations where relevant.
 
-## Decisions needed to finish known findings
+## Original decision requests (2026-10-01)
 
 The [audit ledger at `develop`](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/docs/audit_backlog.json) records **106 fixed, 15 partial and 6 open** findings (21 incomplete). Its status is for `develop`, **not** `clone_main`. These questions need a business, data, security or operations owner; coding alone cannot settle them.
 
@@ -37,4 +37,25 @@ The [audit ledger at `develop`](https://github.com/Shmirzaev/Milana-ERP/blob/2f5
 | **OPS09 — 1C integration** | Decide whether external 1C IDs are globally unique or client-scoped; approve caller credential/proxy configuration and rollout. |
 | **OPS11 — secrets** | Assign vault ownership and approve rotation/revocation of credentials that appeared in handover documents. |
 
-The other incomplete ledger entries—**PERF40, DB02, DB03, DB06, OPS01, OPS02, OPS05, OPS07, OPS08**—primarily need implementation, measurement or environment verification; DB06 index changes also need migration approval. See the [QA/evidence notes](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/docs/stabilization_qa.md) for the exact partial-work boundaries. No further fixes were merged by this report.
+The other incomplete ledger entries—**PERF40, DB02, DB03, DB06, OPS01, OPS02, OPS05, OPS07, OPS08**—primarily need implementation, measurement or environment verification; DB06 index changes also need migration approval. See the [QA/evidence notes](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/docs/stabilization_qa.md) for the exact partial-work boundaries. The original report did not merge further fixes.
+
+## Owner answers and implementation (2026-10-02)
+
+The supplied owner responses supersede the original questions only where explicitly answered. A dash means **pending**. New fixes were implemented against pulled `clone_main` `80becbd1`, reviewed and committed individually; the historical commit counts and `develop` audit ledger above have not been reassessed. No historical data deletion was approved.
+
+| Finding | Approved answer / current result | Still needed |
+| --- | --- | --- |
+| **FN07 — settlement** | Outstanding USD balance **<= $1.00**, inclusive, is displayed as settled. Implemented `6c5bf63c`: exact Decimal allocation, shared status rule and server-refreshed customer display. Actual debt/receipts remain unchanged; remaining cents can still be paid. | Production rollout. |
+| **FN07 — cost precision** | Round purchase/stock unit costs to **four decimals before storage**. Implemented `40baf767`: HALF_UP rounding, finite/nonnegative/range guards, preserved retry fingerprints and purchase fallback behavior. | Production rollout; historical cost rewriting was not approved. |
+| **FN08 — cash revenue/debt** | Shipped unpaid sales remain customer debt; revenue comes from received payments. Implemented `ece87130`: receipts applied to active sales, capped by invoice value before period filtering, UTC dates and localized labels. Advances/excess and reversed sales are excluded from sale revenue. | Historical/current cost and currency conversion/source policy; production rollout. |
+| **OPS09 — 1C** | Unused integration removed from active scope. Implemented `561a0393`: sync endpoint/config/modules removed, endpoint returns 404. Historical imported records/origin identifiers, manual payments and generic idempotency remain. | Production rollout; remove obsolete environment entries during authorized configuration update. |
+| **WF08 — waste history** | Historical duplicate/value repair and backfill are **outside current scope** because the section is inactive and records unreliable. | Preserve history; reassess only if scope changes. |
+| **PERF35 / legacy PERF22** | No answer provided. | Lazy loading/paging and legacy unpaged Usluga contract decision. |
+| **DB01 / DB05** | No answer provided. | Historical unit treatment, affected rows and migration/recovery approval. |
+| **OPS03 / OPS04** | Continue on the company's existing server for now. | Workload owners, limits, schedules and verified availability/failure model. |
+| **OPS06 / OPS10** | **RTO 24 hours, RPO zero, retention seven days** recorded in `docs/DISASTER_RECOVERY.md`. | Coordinated database/files protection, capacity/owners and isolated restore drill; periodic dumps alone cannot prove zero RPO. |
+| **OPS11 — secrets** | Replacement and old-credential revocation approved; procedure updated in `docs/SECURITY_RUNBOOK.md`. | Vault/rotation owner and private affected-account inventory, then live rotation/revocation and evidence. No credentials changed by this task. |
+
+**Delivery boundary:** these are source changes on `clone_main`; no production deployment, configuration change or historical backfill occurred. Live VM verification was unavailable (SSH timeout); the recorded baseline was retained. Operational approvals are requirements, not verified live capabilities.
+
+**Verification:** combined affected-workflow gate **318 passed, two optional PostgreSQL tests skipped**; separate disposable PostgreSQL 17.11 allocation/date/precision checks passed. Scoped Ruff, compilation, strict TypeScript and changed-file lint passed. Global i18n still reports the same 22 missing-key references as the starting commit; the complete backend suite was not completed.
