@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.deps import DbSession, require_permissions
-from app.models import ForecastRecommendation, User
+from app.models import Brand, Collection, ForecastRecommendation, Item, Model, User
 from app.schemas.forecasting import (
     ForecastRecommendationIn,
     ForecastRecommendationOut,
@@ -36,13 +36,30 @@ def _recommendation_payload(row: ForecastRecommendation) -> dict:
         "unit": row.unit,
         "confidence": row.confidence,
         "reason": row.reason,
-        "source_json": row.source_json,
+        "source_json": row.source_json if isinstance(row.source_json, dict) else None,
         "created_by": int(row.created_by) if row.created_by else None,
         "reviewed_by": int(row.reviewed_by) if row.reviewed_by else None,
         "reviewed_at": row.reviewed_at,
         "created_at": row.created_at,
         "updated_at": row.updated_at,
     }
+
+
+def _validate_recommendation_references(payload: ForecastRecommendationIn, db: DbSession) -> None:
+    """Reject dangling references before creating a recommendation.
+
+    These are existence checks only; visibility and cross-entity business rules
+    remain the responsibility of the forecasting policy layer.
+    """
+    references = (
+        ("model_id", Model, payload.model_id),
+        ("item_id", Item, payload.item_id),
+        ("brand_id", Brand, payload.brand_id),
+        ("collection_id", Collection, payload.collection_id),
+    )
+    for field, entity, value in references:
+        if value is not None and db.get(entity, value) is None:
+            raise HTTPException(400, f"{field} references a missing record")
 
 
 @router.get("/dashboard")
@@ -75,6 +92,7 @@ def create_forecast_recommendation(
     db: DbSession,
     current: User = Depends(require_permissions("forecasting.manage", "*")),
 ):
+    _validate_recommendation_references(payload, db)
     row = ForecastRecommendation(
         recommendation_type=payload.recommendation_type,
         status="open",

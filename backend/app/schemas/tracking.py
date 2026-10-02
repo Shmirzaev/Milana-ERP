@@ -15,7 +15,7 @@ class BundleIn(SchemaModel):
     model_id: int
     color: str
     size: str
-    quantity: int
+    quantity: int = Field(le=2_147_483_647)
     notes: Optional[str] = None
 
 
@@ -74,7 +74,7 @@ class PackageItemIn(SchemaModel):
     model_id: int
     color: str
     size: str
-    quantity: int
+    quantity: int = Field(le=2_147_483_647)
 
 
 class PackageItemOut(ORMModel):
@@ -88,7 +88,7 @@ class PackageItemOut(ORMModel):
 
 class PackageBatchAllocationIn(BaseModel):
     production_batch_id: int
-    quantity: int
+    quantity: int = Field(le=2_147_483_647)
 
 
 class PackageBatchAllocationOut(ORMModel):

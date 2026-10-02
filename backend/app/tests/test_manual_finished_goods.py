@@ -58,6 +58,17 @@ def _reserve(client, headers, fixture, quantity):
                                "sales_order_id": fixture["sales_order_id"]})
 
 
+@pytest.mark.parametrize("stock_id", [2_147_483_648, -2_147_483_649])
+def test_reserve_returns_missing_for_unrepresentable_stock_id(client, auth_headers, stock_id):
+    response = client.post(
+        "/api/finished-goods/reserve",
+        headers=auth_headers,
+        params={"stock_id": stock_id, "quantity": 1, "sales_order_id": 1},
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Stock not found"
+
+
 def _balances(fixture):
     with SessionLocal() as db:
         stocks = [(s.id, s.quantity, s.available_qty, s.reserved_qty, s.sold_qty, s.status)

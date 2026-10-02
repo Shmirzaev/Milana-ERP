@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Optional
+from typing import Annotated, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.common import ORMModel
@@ -11,13 +11,23 @@ class ItemComposition(BaseModel):
     percentage: float = Field(ge=0, le=100)
 
 
+ItemDefaultCost = Annotated[
+    Decimal,
+    Field(ge=0, le=Decimal("99999999.9999"), allow_inf_nan=False),
+]
+ItemReorderLevel = Annotated[
+    Decimal,
+    Field(ge=0, le=Decimal("9999999999.9999"), allow_inf_nan=False),
+]
+
+
 class ItemIn(BaseModel):
     sku: str
     name: str
     category: str
     unit: str
-    default_cost: float = 0
-    reorder_level: float = 0
+    default_cost: ItemDefaultCost = Decimal("0")
+    reorder_level: ItemReorderLevel = Decimal("0")
     track_batch: bool = False
     is_active: bool = True
     image_url: Optional[str] = None
@@ -44,7 +54,19 @@ class ItemOut(ORMModel):
 
 class WarehouseIn(BaseModel):
     name: str
-    type: str
+    type: Literal[
+        "fabric_storage",
+        "accessory_storage",
+        "packaging",
+        "cutting",
+        "eco_cotton_cutting",
+        "printing",
+        "sewing",
+        "besttex_packaging",
+        "eco_cotton_packaging",
+        "finished_goods",
+        "waste",
+    ]
     department_id: Optional[int] = None
 
 
@@ -68,7 +90,9 @@ class StockBatchIn(BaseModel):
     order_no: Optional[str] = None
     width: Optional[float] = None
     gsm: Optional[float] = None
-    quantity: float
+    quantity: float = Field(
+        gt=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
     piece_count: Optional[int] = None
     roll_weights_kg: list[float] = Field(default_factory=list)
     processes: Optional[str] = None
@@ -96,7 +120,9 @@ class StockBatchUpdate(BaseModel):
     order_no: Optional[str] = None
     width: Optional[float] = None
     gsm: Optional[float] = None
-    quantity: Optional[float] = Field(default=None, ge=0)
+    quantity: Optional[float] = Field(
+        default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
     piece_count: Optional[int] = Field(default=None, ge=0)
     processes: Optional[str] = None
     unit: Optional[str] = None
@@ -238,7 +264,9 @@ class MaterialReservationIn(BaseModel):
     item_id: int
     stock_batch_id: Optional[int] = None
     warehouse_id: Optional[int] = None
-    reserved_quantity: float = Field(gt=0)
+    reserved_quantity: float = Field(
+        gt=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
     unit: str
     reservation_type: str = "material"
     notes: Optional[str] = None
@@ -246,14 +274,16 @@ class MaterialReservationIn(BaseModel):
 
 class MaterialReservationAutoIn(BaseModel):
     production_order_id: int
-    mode: str = "full_remaining"
+    mode: Literal["shortage_only", "full_remaining"] = "full_remaining"
     reserve_accessories: bool = True
     reserve_materials: bool = True
     reserve_packaging: bool = True
 
 
 class MaterialReservationConsumeIn(BaseModel):
-    quantity: float = Field(gt=0)
+    quantity: float = Field(
+        gt=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
 
 
 class ReservationBatchSuggestion(BaseModel):
@@ -352,7 +382,7 @@ class AccessoryIssueLineIn(BaseModel):
     item_id: Optional[int] = None
     item_sku: Optional[str] = None
     item_name: Optional[str] = None
-    quantity: float
+    quantity: Decimal = Field(gt=0, max_digits=14, decimal_places=4, allow_inf_nan=False)
     unit: Optional[str] = None
     manual: bool = False
 

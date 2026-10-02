@@ -77,6 +77,7 @@ from app.core.config import settings
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
 EPSILON = 1e-9
+_STOCK_BATCH_QC_STATUSES = frozenset({"pending", "passed", "failed", "rejected", "hold"})
 
 
 @router.get("/cutting-fabric-usage")
@@ -113,6 +114,13 @@ def _validate_receiving_warehouse(item: Item, warehouse: Warehouse) -> None:
         expected_name = "Accessory Storage"
     if expected_type and warehouse.type != expected_type:
         raise HTTPException(400, f"{item.name} must be received into {expected_name}")
+
+
+def _normalize_stock_batch_qc_status(value: str | None) -> str:
+    status = str(value or "").strip().lower()
+    if status not in _STOCK_BATCH_QC_STATUSES:
+        raise HTTPException(400, "Invalid QC status")
+    return status
 
 
 def _require_admin_force(current: User, force: bool) -> None:
@@ -572,7 +580,7 @@ def _apply_batch_tracked_stock_adjustment(
 ) -> list[StockMovement]:
     if abs(delta) <= EPSILON:
         return []
-    batches = (
+    batches_query = (
         db.query(StockBatch)
         .filter(
             StockBatch.item_id == item.id,
@@ -580,8 +588,10 @@ def _apply_batch_tracked_stock_adjustment(
             StockBatch.archived_at.is_(None),
         )
         .order_by(StockBatch.id.desc())
-        .all()
     )
+    if db.bind and db.bind.dialect.name == "postgresql":
+        batches_query = batches_query.options(lazyload(StockBatch.item)).with_for_update(of=StockBatch)
+    batches = batches_query.populate_existing().all()
     movements: list[StockMovement] = []
     if delta > 0:
         batch = batches[0] if batches else None
@@ -650,9 +660,18 @@ def set_stock_quantity(
 ):
     inventory_access.require_item(db, current, item_id)
     _require_admin_force(current, force)
-    item = db.get(Item, item_id)
+    # Serialize item-wide adjustments, including items with no batch rows yet.
+    item_query = db.query(Item).filter(Item.id == item_id)
+    if db.bind and db.bind.dialect.name == "postgresql":
+        item_query = item_query.with_for_update(of=Item)
+    item = item_query.populate_existing().first()
     if not item:
         raise HTTPException(404, "Item not found")
+    # Lock batches before reading the total, using the reservation lock pattern.
+    batches_query = db.query(StockBatch).filter(StockBatch.item_id == item_id).order_by(StockBatch.id.desc())
+    if db.bind and db.bind.dialect.name == "postgresql":
+        batches_query = batches_query.options(lazyload(StockBatch.item)).with_for_update(of=StockBatch)
+    batches_query.populate_existing().all()
     unit = (payload.unit or item.unit or "").strip()
     if not unit:
         raise HTTPException(400, "Unit is required")
@@ -807,6 +826,7 @@ def receive_stock(
         item_category=item.category, roll_lengths_m=payload.roll_lengths_m, piece_count=piece_count,
     )
     batch_data["image_url"] = _validate_item_image_url(batch_data.get("image_url"))
+    batch_data["qc_status"] = _normalize_stock_batch_qc_status(payload.qc_status)
     batch = StockBatch(**batch_data)
     db.add(batch); db.flush()
     mv = StockMovement(
@@ -1402,9 +1422,7 @@ def update_batch(
         if not db.get(Supplier, int(values["supplier_id"])):
             raise HTTPException(404, "Supplier not found")
     if "qc_status" in values:
-        values["qc_status"] = str(values["qc_status"] or "").strip().lower()
-        if values["qc_status"] not in {"pending", "passed", "failed", "rejected", "hold"}:
-            raise HTTPException(400, "Invalid QC status")
+        values["qc_status"] = _normalize_stock_batch_qc_status(values["qc_status"])
     if "image_url" in values:
         values["image_url"] = _validate_item_image_url(values["image_url"])
 

@@ -99,6 +99,21 @@ def _create_usluga_order(client, *, quantity: int = 12, size: str = "M") -> tupl
     return model, order_response.json()
 
 
+def test_create_usluga_order_rejects_unrepresentable_model_id_as_missing(client):
+    _login_eco(client)
+    response = client.post(
+        "/api/usluga/orders",
+        json={
+            "customer_name": "Outside Customer LLC",
+            "model_id": 2_147_483_648,
+            "color": "Natural",
+            "sizes": [{"size": "M", "quantity": 1}],
+        },
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Usluga model not found"
+
+
 def test_usluga_combined_model_size_remains_one_cutting_size(client):
     _login_eco(client)
     _, order = _create_usluga_order(client, quantity=360, size="40-42")
@@ -432,7 +447,7 @@ def test_usluga_cutting_batch_name_remains_editable_while_quantity_locks_after_b
         f"/api/work-orders/{cutting['id']}/batches/{batch_id}",
         json={"name": "Still initial", "planned_quantity": 0},
     )
-    assert invalid_quantity.status_code == 400, invalid_quantity.text
+    assert invalid_quantity.status_code == 422, invalid_quantity.text
 
     # A report-only secondary fabric entry creates no product bundles and must
     # not lock correction of the production-batch name or piece count.

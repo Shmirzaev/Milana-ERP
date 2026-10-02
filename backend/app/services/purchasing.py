@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, lazyload
 
 from app.core.order_reference import canonical_business_order_reference
 
@@ -184,8 +184,15 @@ def create_purchase_request_from_sales_order(db: Session, *, sales_order_id: int
     )
 
 
+def _locked_purchase_request(db: Session, request_id: int) -> PurchaseRequest | None:
+    return (
+        db.query(PurchaseRequest).filter(PurchaseRequest.id == request_id)
+        .with_for_update(of=PurchaseRequest).populate_existing().first()
+    )
+
+
 def approve_purchase_request(db: Session, *, request_id: int, data: dict, current: User) -> PurchaseRequest:
-    request = db.get(PurchaseRequest, request_id)
+    request = _locked_purchase_request(db, request_id)
     if not request:
         raise HTTPException(404, "Purchase request not found")
     if request.status == "approved":
@@ -239,7 +246,7 @@ def approve_purchase_request(db: Session, *, request_id: int, data: dict, curren
 
 
 def reject_purchase_request(db: Session, *, request_id: int, current: User) -> PurchaseRequest:
-    request = db.get(PurchaseRequest, request_id)
+    request = _locked_purchase_request(db, request_id)
     if not request:
         raise HTTPException(404, "Purchase request not found")
     if request.status not in REQUEST_REJECTABLE_STATUSES:
@@ -334,7 +341,7 @@ def create_purchase_order(db: Session, *, data: dict, current: User) -> Purchase
 
 
 def convert_purchase_request_to_order(db: Session, *, request_id: int, data: dict, current: User) -> PurchaseOrder:
-    request = db.get(PurchaseRequest, request_id)
+    request = _locked_purchase_request(db, request_id)
     if not request:
         raise HTTPException(404, "Purchase request not found")
     if request.status != "approved":
@@ -415,7 +422,15 @@ def _purchase_order_status(order: PurchaseOrder) -> str:
 
 
 def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: User) -> PurchaseOrder:
-    order = db.get(PurchaseOrder, order_id)
+    order_query = db.query(PurchaseOrder).options(
+        lazyload(PurchaseOrder.purchase_request), lazyload(PurchaseOrder.supplier),
+    ).filter(PurchaseOrder.id == order_id).populate_existing()
+    if db.bind and db.bind.dialect.name == "postgresql":
+        # Serialize every receipt for an order before reading its cumulative
+        # line quantities or status; otherwise concurrent batches can both be
+        # received while the line keeps only one of their increments.
+        order_query = order_query.with_for_update(of=PurchaseOrder)
+    order = order_query.one_or_none()
     if not order:
         raise HTTPException(404, "Purchase order not found")
     if order.status not in ORDER_RECEIVABLE_STATUSES:
@@ -425,6 +440,9 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
     if not line_inputs:
         raise HTTPException(400, "At least one receive line is required")
 
+    # The relationship may have been loaded earlier in this session, before
+    # the order lock waited for a different receiver to commit.
+    db.expire(order, ["lines"])
     order_lines_by_id = {int(line.id): line for line in order.lines}
     default_supplier_id = data.get("supplier_id") or order.supplier_id
     _require_supplier(db, int(default_supplier_id) if default_supplier_id else None)

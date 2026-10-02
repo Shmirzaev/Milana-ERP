@@ -10,25 +10,43 @@ class PriceCalculationCreateIn(BaseModel):
 
 class PriceCalculationFinanceIn(BaseModel):
     cost_price_uzs: float | None = Field(default=None, ge=0)
-    selling_price: float | None = Field(default=None, ge=0)
-    profit_percentage: float | None = Field(default=None, ge=0)
-    exchange_rate: float | None = Field(default=None, ge=0)
+    selling_price: float | None = Field(
+        default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
+    profit_percentage: float | None = Field(
+        default=None, ge=0, le=999_999.99, allow_inf_nan=False,
+    )
+    exchange_rate: float | None = Field(
+        default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
 
 
 class PriceCalculationPurchasingIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    fabric_price: float | None = Field(default=None, ge=0)
-    sewing_cost: float | None = Field(default=None, ge=0)
+    fabric_price: float | None = Field(
+        default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
+    sewing_cost: float | None = Field(
+        default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
 
 
 class PriceCalculationCuttingIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     kroy_no: str = Field(min_length=1, max_length=32)
-    fabric_width_m: float | None = Field(default=None, gt=0)
-    lay_length_m: float | None = Field(default=None, gt=0)
-    size_count: int | None = Field(default=None, gt=0)
-    gramage: float | None = Field(default=None, gt=0)
-    binding_kg_per_piece: float | None = Field(default=None, ge=0)
+    fabric_width_m: float | None = Field(
+        default=None, gt=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
+    lay_length_m: float | None = Field(
+        default=None, gt=0, le=9_999_999_999.9999, allow_inf_nan=False,
+    )
+    size_count: int | None = Field(default=None, gt=0, le=2_147_483_647)
+    gramage: float | None = Field(
+        default=None, gt=0, le=99_999_999.999999, allow_inf_nan=False,
+    )
+    binding_kg_per_piece: float | None = Field(
+        default=None, ge=0, le=99_999_999.999999, allow_inf_nan=False,
+    )
 
     @field_validator("kroy_no")
     @classmethod
@@ -41,7 +59,7 @@ class PriceCalculationCuttingIn(BaseModel):
 
 class PriceCalculationAccessoryIn(BaseModel):
     name: str | None = Field(default=None, max_length=128)
-    price: float | None = Field(default=None, ge=0)
+    price: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
     @field_validator("name")
     @classmethod

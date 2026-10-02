@@ -17,14 +17,14 @@ class ManualSizeIn(BaseModel):
 class ManualPackageReceiptIn(BaseModel):
     model_config = ConfigDict(extra="forbid", protected_namespaces=())
     request_key: UUID
-    model_id: int = Field(gt=0)
+    model_id: int = Field(gt=0, le=2_147_483_647)
     color: Text
     weight_kg: float = Field(ge=0.0001, le=10000, allow_inf_nan=False)
     count: int = Field(gt=0, le=200, strict=True)
     sizes: list[ManualSizeIn] = Field(default_factory=list, max_length=50)
     pack_quantities: list[Annotated[int, Field(gt=0, le=10000, strict=True)]] | None = Field(default=None, min_length=1, max_length=200)
     reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=1000)] | None = None
-    warehouse_id: int | None = Field(default=None, gt=0)
+    warehouse_id: int | None = Field(default=None, gt=0, le=2_147_483_647)
     storage_cell: str | None = Field(default=None, max_length=32)
     storage_shelf: str | None = Field(default=None, max_length=8)
 

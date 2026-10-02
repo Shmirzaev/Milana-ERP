@@ -4,6 +4,7 @@ from decimal import Decimal
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.core.dt import as_utc
 from app.models import (
     SalesOrder, ProductionOrder, FinishedGoodsStock,
     WasteRecord, Invoice, Payment, ModelBOM, StockBatch, Customer, Item,
@@ -44,9 +45,15 @@ def order_profit(db: Session, sales_order_id: int) -> dict:
     so = db.get(SalesOrder, sales_order_id)
     if not so:
         return {}
-    revenue = sum(float(i.quantity) * float(i.unit_price) for i in so.items)
+    # Keep intermediate money arithmetic exact; the public response remains
+    # JSON-compatible floats for the existing finance clients.
+    revenue = sum(
+        (Decimal(str(i.quantity or 0)) * Decimal(str(i.unit_price or 0))
+         for i in so.items),
+        Decimal("0"),
+    )
     # cost = sum over production orders linked to SO: estimated material cost via BOM
-    cost = 0.0
+    cost = Decimal("0")
     pos = db.query(ProductionOrder).filter(ProductionOrder.sales_order_id == sales_order_id).all()
     if pos:
         model_ids = {p.model_id for p in pos}
@@ -56,7 +63,7 @@ def order_profit(db: Session, sales_order_id: int) -> dict:
             boms_by_model.setdefault(row.model_id, []).append(row)
 
         item_ids = {row.item_id for row in bom_rows}
-        latest_cost_by_item: dict[int, float] = {}
+        latest_cost_by_item: dict[int, Decimal] = {}
         if item_ids:
             latest_rows = (
                 db.query(StockBatch)
@@ -66,22 +73,27 @@ def order_profit(db: Session, sales_order_id: int) -> dict:
             )
             for r in latest_rows:
                 if r.item_id not in latest_cost_by_item:
-                    latest_cost_by_item[r.item_id] = float(r.cost_per_unit or 0)
+                    latest_cost_by_item[r.item_id] = Decimal(str(r.cost_per_unit or 0))
 
         for po in pos:
             for b in boms_by_model.get(po.model_id, []):
-                unit_cost = latest_cost_by_item.get(b.item_id, 0.0)
-                cost += float(b.quantity_per_piece) * po.planned_quantity * unit_cost * (1.0 + float(b.waste_percent) / 100.0)
-    waste = float(db.query(func.coalesce(func.sum(WasteRecord.estimated_value), 0)).filter(
+                unit_cost = latest_cost_by_item.get(b.item_id, Decimal("0"))
+                cost += (
+                    Decimal(str(b.quantity_per_piece or 0))
+                    * Decimal(str(po.planned_quantity or 0))
+                    * unit_cost
+                    * (Decimal("1") + Decimal(str(b.waste_percent or 0)) / Decimal("100"))
+                )
+    waste = Decimal(str(db.query(func.coalesce(func.sum(WasteRecord.estimated_value), 0)).filter(
         WasteRecord.production_order_id.in_([p.id for p in pos]) if pos else False
-    ).scalar() or 0)
+    ).scalar() or 0))
     return {
         "sales_order_id": sales_order_id,
         "order_no": so.order_no,
-        "revenue": revenue,
-        "material_cost": cost,
-        "waste_cost": waste,
-        "gross_profit": revenue - cost - waste,
+        "revenue": float(revenue),
+        "material_cost": float(cost),
+        "waste_cost": float(waste),
+        "gross_profit": float(revenue - cost - waste),
     }
 
 
@@ -126,15 +138,17 @@ def list_recent_invoices(db: Session, limit: int = 50) -> list[dict]:
 
 def revenue_by_period(db: Session, *, from_dt: datetime | None = None, to_dt: datetime | None = None) -> list[dict]:
     """Aggregate invoice revenue by month for charting."""
+    from_dt, to_dt = as_utc(from_dt), as_utc(to_dt)
     invoices = db.query(Invoice).order_by(Invoice.id.asc()).all()
     buckets: dict[str, float] = {}
     for invoice in invoices:
         dt = invoice.issued_at or invoice.created_at
         if not dt:
             continue
-        if from_dt and dt < from_dt:
+        comparison_dt = as_utc(dt)
+        if from_dt and comparison_dt < from_dt:
             continue
-        if to_dt and dt > to_dt:
+        if to_dt and comparison_dt > to_dt:
             continue
         key = dt.strftime("%Y-%m")
         buckets[key] = buckets.get(key, 0.0) + float(invoice.amount or 0)

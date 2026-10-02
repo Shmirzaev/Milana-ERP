@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     ENV: str = "development"
     DEBUG: bool = False
     DATABASE_URL: str = "postgresql+psycopg2://erp:erp@db:5432/erp"
+    DB_POOL_SIZE: int | None = None
+    DB_MAX_OVERFLOW: int | None = None
     JWT_SECRET: str = "dev-secret"
     FILE_SIGNING_SECRET: str = ""
     JWT_ALGORITHM: str = "HS256"
@@ -55,6 +57,7 @@ class Settings(BaseSettings):
     MODEL_FILES_DIR: str = "/app/storage/model_files"
     SALES_ORDER_FILES_DIR: str = "/app/storage/sales_order_files"
     INTEGRATION_1C_TOKEN: str = ""
+    INTEGRATION_1C_CLIENTS_JSON: str = ""
     ATTENDANCE_INTEGRATION_TOKEN: str = ""
     ATTENDANCE_INTEGRATION_FACTORY_CODE: str = "MIL"
     ATTENDANCE_PHOTOS_DIR: str = "/app/storage/attendance_photos"
@@ -74,6 +77,20 @@ class Settings(BaseSettings):
                 return True
             if normalized in {"0", "false", "f", "no", "n", "off", "falce", "fasle", "flase"}:
                 return False
+        return value
+
+    @field_validator("DB_POOL_SIZE")
+    @classmethod
+    def validate_db_pool_size(cls, value):
+        if value is not None and value <= 0:
+            raise ValueError("DB_POOL_SIZE must be positive")
+        return value
+
+    @field_validator("DB_MAX_OVERFLOW")
+    @classmethod
+    def validate_db_max_overflow(cls, value):
+        if value is not None and value < 0:
+            raise ValueError("DB_MAX_OVERFLOW must be non-negative")
         return value
 
     @property
@@ -114,6 +131,15 @@ class Settings(BaseSettings):
         return self.FILE_SIGNING_SECRET.strip() or self.JWT_SECRET.strip()
 
     def validate_runtime_security(self) -> None:
+        from app.core.integration_auth import parse_onec_client_credentials
+
+        try:
+            parse_onec_client_credentials(
+                self.INTEGRATION_1C_CLIENTS_JSON,
+                minimum_secret_length=32 if self.strict_security_required else 1,
+            )
+        except ValueError as exc:
+            raise RuntimeError(f"Invalid 1C integration client configuration: {exc}") from exc
         if not self.strict_security_required:
             return
         errors: list[str] = []

@@ -84,8 +84,10 @@ from app.services.model_identity import model_number_fields
 from app.services.model_images import material_preview_image_url, model_preview_image_url
 from app.services.cutting_sheet import render_cutting_sheet_html
 from app.services.factory_scope import require_factory_access, selected_factory_code
+from app.services.factory_scope import require_work_order_factory_access
 
 router = APIRouter(tags=["production"])
+_MAX_SEWING_SIZE_QUANTITY_ROWS = 1000
 
 # Anyone who legitimately runs the production floor: planners plus the four
 # stage operator roles (and admins). Blocks unrelated staff (HR, Finance, Sales)
@@ -156,7 +158,7 @@ class PrintingCollectIn(BaseModel):
 
 class SplitBatchLineIn(BaseModel):
     name: str | None = None
-    planned_quantity: int
+    planned_quantity: int = Field(strict=True, gt=0, le=2_147_483_647)
     start_date: datetime | None = None
     deadline: datetime | None = None
     notes: str | None = None
@@ -218,7 +220,7 @@ class CuttingRecordDetailsUpdateIn(BaseModel):
 
 class CuttingBatchUpdateIn(BaseModel):
     name: str | None = None
-    planned_quantity: int | None = None
+    planned_quantity: int | None = Field(default=None, strict=True, gt=0, le=2_147_483_647)
     start_date: datetime | None = None
     deadline: datetime | None = None
     notes: str | None = None
@@ -1599,6 +1601,7 @@ def get_wo(wid: int, db: DbSession, current: User = Depends(require_permissions(
 def update_wo(wid: int, payload: WorkOrderUpdate, db: DbSession, current: User = Depends(require_permissions(*_PRODUCTION_FLOOR_PERMS))):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
+    require_work_order_factory_access(current, db, wo)
     if db.query(ProductionOrder.source_type).filter(ProductionOrder.id == wo.production_order_id).scalar() == "usluga":
         require_factory_access(current, "ECO")
     changes = payload.model_dump(exclude_unset=True)
@@ -1653,6 +1656,7 @@ def update_wo(wid: int, payload: WorkOrderUpdate, db: DbSession, current: User =
 def start_wo(wid: int, db: DbSession, current: User = Depends(require_permissions(*_PRODUCTION_FLOOR_PERMS))):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
+    require_work_order_factory_access(current, db, wo)
     if wo.operation == "storage_transfer":
         raise HTTPException(400, "Storage transfer starts automatically when packages are received into storage.")
     upstream = _upstream_work_order_for_start(db, wo)
@@ -1730,6 +1734,7 @@ def collect_printing_wo(
     wo = db.get(WorkOrder, wid)
     if not wo:
         raise HTTPException(404, "Work order not found")
+    require_work_order_factory_access(current, db, wo)
     if wo.operation != "printing":
         raise HTTPException(400, "Collect action is only allowed for printing work orders")
     if wo.status in ("in_progress", "completed", "rejected", "cancelled"):
@@ -1761,6 +1766,7 @@ def collect_printing_wo(
 def complete_wo(wid: int, db: DbSession, current: User = Depends(require_permissions(*_PRODUCTION_FLOOR_PERMS))):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
+    require_work_order_factory_access(current, db, wo)
     wo.status = "completed"
     wo.end_time = datetime.now(timezone.utc)
     log_action(db, current, "complete", "WorkOrder", wo.id)
@@ -1789,6 +1795,7 @@ def complete_cutting_with_shortage(
     )
     if not wo:
         raise HTTPException(404, "Work order not found")
+    require_work_order_factory_access(current, db, wo)
     if wo.operation != "cutting":
         raise HTTPException(400, "This action is only available for cutting work orders")
     if wo.status in ("completed", "rejected", "cancelled"):
@@ -1884,6 +1891,7 @@ def split_cutting_work_order_batches(
     wo = db.get(WorkOrder, wid)
     if not wo:
         raise HTTPException(404, "Work order not found")
+    require_work_order_factory_access(current, db, wo)
     if wo.operation != "cutting":
         raise HTTPException(400, "Only cutting work orders can be split into batches")
     if wo.production_batch_id is not None:
@@ -1956,6 +1964,7 @@ def add_extra_cutting_batch(
     wo = db.get(WorkOrder, wid)
     if not wo:
         raise HTTPException(404, "Work order not found")
+    require_work_order_factory_access(current, db, wo)
     if wo.operation != "cutting":
         raise HTTPException(400, "Only cutting work orders can add cutting batches")
     if wo.production_batch_id is not None:
@@ -2720,6 +2729,7 @@ _MAX_BUNDLES_PER_CUTTING_RECORD = 1000
 def _parse_cutting_bundle_specs(specs: list[dict]) -> list[dict]:
     parsed: list[dict] = []
     total = 0
+    total_quantity = 0
     for i, spec in enumerate(specs or [], start=1):
         try:
             count = int(spec.get("count", 1))
@@ -2728,6 +2738,8 @@ def _parse_cutting_bundle_specs(specs: list[dict]) -> list[dict]:
             raise HTTPException(400, f"Bundle plan row {i}: 'count' and 'quantity' must be whole numbers")
         if count < 0 or qty < 0:
             raise HTTPException(400, f"Bundle plan row {i}: 'count' and 'quantity' cannot be negative")
+        if qty > 2_147_483_647:
+            raise HTTPException(400, f"Bundle plan row {i}: 'quantity' is too large")
         if count == 0:
             continue
         color = str(spec.get("color") or "").strip()
@@ -2737,6 +2749,9 @@ def _parse_cutting_bundle_specs(specs: list[dict]) -> list[dict]:
         total += count
         if total > _MAX_BUNDLES_PER_CUTTING_RECORD:
             raise HTTPException(400, f"Bundle plan would create more than {_MAX_BUNDLES_PER_CUTTING_RECORD} bundles")
+        total_quantity += count * qty
+        if total_quantity > 2_147_483_647:
+            raise HTTPException(400, "Bundle plan total quantity is too large")
         raw_next = str(spec.get("next") or "").strip().lower()
         raw_factory = spec.get("sewing_factory") or spec.get("sewingFactory") or spec.get("factory")
         if not raw_factory and is_sewing_department_code(raw_next):
@@ -4435,6 +4450,11 @@ def _validated_sewing_size_quantities(
     production_batch_id: int | None,
     payload: SewingRecordIn,
 ) -> list[dict[str, int | str]]:
+    if len(payload.size_quantities) > _MAX_SEWING_SIZE_QUANTITY_ROWS:
+        raise HTTPException(
+            422,
+            f"size_quantities cannot exceed {_MAX_SEWING_SIZE_QUANTITY_ROWS} rows",
+        )
     if not payload.size_quantities:
         return []
 
@@ -4975,6 +4995,8 @@ def receive_packaging_from_sewing(
         raise HTTPException(400, "Receiving quantity must be greater than zero")
     # Serialize handoff against edits/deletion of the source sewing ledger.
     db.query(WorkOrder).filter_by(id=source.id).with_for_update().populate_existing().one()
+    db.refresh(target, with_for_update=True)
+    require_packaging_work_order_access(current, db, target, department_code)
     sewing_passed, received = _packaging_sewing_totals(db, int(source.id), production_batch_id)
     available = max(0, sewing_passed - received)
     if quantity > available:
@@ -5025,7 +5047,7 @@ def post_packaging(payload: PackagingRecordIn, db: DbSession, current: User = De
         source = _context_work_order(db, target, "sewing")
         if source:
             db.query(WorkOrder).filter_by(id=source.id).with_for_update().populate_existing().one()
-    wo = db.get(WorkOrder, payload.work_order_id)
+    wo = db.query(WorkOrder).filter(WorkOrder.id == payload.work_order_id).with_for_update(of=WorkOrder).populate_existing().first()
     if not wo: raise HTTPException(404, "Work order not found")
     if wo.operation != "packaging": raise HTTPException(400, "Work order is not a packaging operation")
     require_packaging_work_order_access(current, db, wo)
@@ -5138,8 +5160,10 @@ def post_packaging(payload: PackagingRecordIn, db: DbSession, current: User = De
 # ===== Quality =====
 @router.post("/quality/checks", response_model=QualityCheckOut, status_code=201)
 def post_quality(payload: QualityCheckIn, db: DbSession, current: User = Depends(require_permissions(*_PRODUCTION_FLOOR_PERMS))):
-    if not db.get(WorkOrder, payload.work_order_id):
+    work_order = db.get(WorkOrder, payload.work_order_id)
+    if not work_order:
         raise HTTPException(404, "Work order not found")
+    require_work_order_factory_access(current, db, work_order)
     q = QualityCheck(**payload.model_dump(), checked_by=current.id, checked_at=datetime.now(timezone.utc))
     db.add(q); db.flush()
     log_action(db, current, "create", "QualityCheck", q.id)

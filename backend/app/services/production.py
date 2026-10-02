@@ -1,5 +1,6 @@
 """Production service: build production orders and work orders, manage flow."""
 from datetime import datetime, timezone
+import math
 import re
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -23,6 +24,7 @@ DEPT_OPS = [
 ]
 
 _NUMERIC_SIZE_RANGE = re.compile(r"^\s*(\d+)\s*[-\u2013\u2014]\s*(\d+)\s*$")
+_MAX_ESTIMATED_MATERIAL_AMOUNT = 9_999_999_999.9999
 
 
 def expand_production_size_range_items(items: list[dict] | None) -> list[dict]:
@@ -219,6 +221,11 @@ def create_production_order(
             material_amount = float(estimated_material_amount)
             if material_amount < 0:
                 raise HTTPException(400, "Estimated material amount cannot be negative")
+            if (
+                not math.isfinite(material_amount)
+                or material_amount > _MAX_ESTIMATED_MATERIAL_AMOUNT
+            ):
+                raise HTTPException(422, "Estimated material amount exceeds storage limits")
             material_unit = material_unit or "kg"
 
     production_no = (
@@ -295,9 +302,19 @@ def create_production_batches(db: Session, production_order_id: int, batches: li
     used_nos: set[str] = set()
     created: list[ProductionBatch] = []
     for idx, raw in enumerate(batches, start=1):
-        qty = int(raw.get("planned_quantity", 0))
+        raw_quantity = raw.get("planned_quantity", 0)
+        if isinstance(raw_quantity, bool):
+            raise HTTPException(400, f"Batch #{idx} planned_quantity must be an integer")
+        try:
+            qty = int(raw_quantity)
+        except (TypeError, ValueError, OverflowError):
+            raise HTTPException(400, f"Batch #{idx} planned_quantity must be an integer") from None
+        if not isinstance(raw_quantity, str) and raw_quantity != qty:
+            raise HTTPException(400, f"Batch #{idx} planned_quantity must be an integer")
         if qty <= 0:
             raise HTTPException(400, f"Batch #{idx} planned_quantity must be > 0")
+        if qty > 2_147_483_647:
+            raise HTTPException(400, f"Batch #{idx} planned_quantity exceeds the supported maximum")
 
     for idx, raw in enumerate(batches, start=1):
         qty = int(raw.get("planned_quantity", 0))

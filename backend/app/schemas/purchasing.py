@@ -24,7 +24,7 @@ class PurchaseRequestIn(BaseModel):
     production_order_id: Optional[int] = None
     status: str = "pending_approval"
     notes: Optional[str] = None
-    lines: list[PurchaseRequestLineIn]
+    lines: list[PurchaseRequestLineIn] = Field(max_length=1000)
 
 
 class PurchaseRequestLineOut(ORMModel):
@@ -79,7 +79,7 @@ class PurchaseOrderIn(BaseModel):
     supplier_id: Optional[int] = None
     expected_date: Optional[datetime] = None
     notes: Optional[str] = None
-    lines: list[PurchaseOrderLineIn]
+    lines: list[PurchaseOrderLineIn] = Field(max_length=1000)
 
 
 class PurchaseOrderLineOut(ORMModel):
@@ -133,7 +133,7 @@ class PurchaseOrderReceiveLineIn(BaseModel):
     width: Optional[float] = None
     gsm: Optional[float] = None
     piece_count: Optional[int] = None
-    roll_weights_kg: list[float] = Field(default_factory=list)
+    roll_weights_kg: list[float] = Field(default_factory=list, max_length=1000)
     processes: Optional[str] = None
     qc_status: str = "passed"
 
@@ -141,7 +141,7 @@ class PurchaseOrderReceiveLineIn(BaseModel):
 class PurchaseOrderReceiveIn(BaseModel):
     supplier_id: Optional[int] = None
     close_order: bool = False
-    lines: list[PurchaseOrderReceiveLineIn]
+    lines: list[PurchaseOrderReceiveLineIn] = Field(max_length=1000)
 
 
 class PurchaseRequestApprovalLineIn(BaseModel):
@@ -152,7 +152,7 @@ class PurchaseRequestApprovalLineIn(BaseModel):
 
 
 class PurchaseRequestApprovalIn(BaseModel):
-    lines: list[PurchaseRequestApprovalLineIn]
+    lines: list[PurchaseRequestApprovalLineIn] = Field(max_length=1000)
 
 
 class PurchaseRequestOrderLineIn(BaseModel):
@@ -162,4 +162,4 @@ class PurchaseRequestOrderLineIn(BaseModel):
 
 class PurchaseRequestOrderIn(BaseModel):
     expected_date: datetime
-    lines: list[PurchaseRequestOrderLineIn]
+    lines: list[PurchaseRequestOrderLineIn] = Field(max_length=1000)

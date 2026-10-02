@@ -1155,7 +1155,7 @@ def accessory_issue_summary(
     model_by_id = {int(model.id): model for model in models}
 
     item_by_id: dict[int, Item] = {}
-    grouped: dict[tuple[int, int, str], dict] = {}
+    grouped: dict[tuple[int, int, str] | tuple[int, int, str, str], dict] = {}
     for movement, item in movements_with_items:
         po_id = po_ids_by_movement_id.get(int(movement.id))
         if not po_id:
@@ -1217,11 +1217,14 @@ def accessory_issue_summary(
         item_id = int(issue.item_id or 0)
         item_sku = str(issue.item_sku or "").strip()
         item_name = str(issue.item_name or "").strip() or item_sku or "Manual accessory"
-        key = (int(po.id), item_id, unit, _accessory_match_key(item_sku or item_name))
+        # Returns identify the order, catalog item and unit, not the issue source
+        # or historical label. Merge linked manual issues before applying returns.
+        key = ((int(po.id), item_id, unit) if item_id > 0 else
+               (int(po.id), item_id, unit, _accessory_match_key(item_sku or item_name)))
         model = model_by_id.get(int(po.model_id))
         first_at = issue.created_at
         last_at = issue.created_at
-        existing = grouped.get(key)  # type: ignore[arg-type]
+        existing = grouped.get(key)
         if not existing:
             existing = {
                 "production_order_id": int(po.id),
@@ -1243,7 +1246,7 @@ def accessory_issue_summary(
                 "first_issued_at": first_at,
                 "last_issued_at": last_at,
             }
-            grouped[key] = existing  # type: ignore[index]
+            grouped[key] = existing
         existing["issued_quantity"] += float(issue.quantity or 0)
         existing["movement_count"] += 1
         if first_at and (not existing["first_issued_at"] or first_at < existing["first_issued_at"]):
@@ -1378,7 +1381,8 @@ def accessory_issue_plan(db: Session, production_order_id: int) -> dict:
             manual_key = (_accessory_match_key(value), unit)
             issued += manual_issued_by_label_unit.get(manual_key, 0.0)
         available = available_stock_for_item(db, int(row["item_id"]))
-        remaining = max(0.0, float(row["required_quantity"] or 0) - issued)
+        # This value is posted back as a Numeric(14, 4) issue quantity.
+        remaining = round(max(0.0, float(row["required_quantity"] or 0) - issued), 4)
         shortage = max(0.0, remaining - available)
         if remaining <= EPSILON:
             status = "ready"
@@ -1563,7 +1567,7 @@ def issue_accessories_to_production_order(
     issued = []
     for raw in lines:
         item_id = int(raw.get("item_id") or 0)
-        quantity = float(raw.get("quantity") or 0)
+        quantity = Decimal(str(raw.get("quantity") or 0))
         if quantity <= 0:
             continue
 
@@ -1591,10 +1595,12 @@ def issue_accessories_to_production_order(
                 "item_sku": item_sku or item_name,
                 "item_name": item_name,
                 "item_image_url": item.image_url if item else None,
-                "quantity": quantity,
+                "quantity": float(quantity),
                 "unit": unit,
             })
             continue
+
+        quantity = float(quantity)
 
         item = db.get(Item, item_id)
         if not item or item.category not in ACCESSORY_CATEGORIES:
@@ -1617,6 +1623,8 @@ def issue_accessories_to_production_order(
             )
 
         unit = str(raw.get("unit") or (plan_row or {}).get("unit") or item.unit or "").strip() or item.unit
+        if unit != item.unit:
+            raise HTTPException(409, "Accessory issue unit must match the item unit")
         consumed = consume_item_from_batches(
             db,
             item_id=item.id,
