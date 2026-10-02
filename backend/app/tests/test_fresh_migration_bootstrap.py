@@ -269,7 +269,7 @@ def test_postgres_fresh_head_rerun_and_known_drift_baseline(postgres_migrations)
 
     command.upgrade(config, "head")
 
-    assert _current_revision(engine) == ScriptDirectory.from_config(config).get_current_head() == "0131_sewing_corrections"
+    assert _current_revision(engine) == ScriptDirectory.from_config(config).get_current_head()
     tables = set(sa.inspect(engine).get_table_names())
     assert {"manual_accessory_issues", "eco_fabric_dispatches", "sewing_records"} <= tables
     mutations = []
@@ -313,7 +313,7 @@ def test_postgres_upgrade_from_0130_preserves_existing_rows(postgres_migrations)
 
     command.upgrade(config, "head")
 
-    assert _current_revision(engine) == "0131_sewing_corrections"
+    assert _current_revision(engine) == ScriptDirectory.from_config(config).get_current_head()
     with engine.connect() as connection:
         current = sa.Table("sewing_records", sa.MetaData(), autoload_with=connection)
         after = dict(connection.execute(sa.select(current).where(current.c.id == record_id)).mappings().one())
