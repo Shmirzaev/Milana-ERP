@@ -1,6 +1,6 @@
 # Bugs to fix on clone_main
 
-**Updated: 2026-10-02. Target: `clone_main`. All rows below are open.** These are source-checked gaps on this branch; runtime regression checks remain pending. Develop commits are implementation/test references, not status evidence.
+**Updated: 2026-10-02. Target: `clone_main`. 68 open implementation tasks.** These are source-checked gaps on this branch; runtime regression checks remain pending. Develop commits are implementation/test references, not status evidence.
 
 **Source paths:** `B:` = `backend/app/`, `F:` = `frontend/src/`. Locations refer to source snapshot `942801b0`, unchanged in `d857478a`. Pick a task ID, assign it in your issue/PR, and close it here only after the verified fix lands on `clone_main`.
 
@@ -84,10 +84,21 @@
 
 ## Fix constraints and completion
 
-- Preserve approved USD <= $1.00 settlement display, four-decimal HALF_UP unit costs and received-payment revenue; retain factory isolation, work dates/split allocation, first-grade and package-return/shipment workflows.
-- Port donor helpers and narrow hunks with their dependencies. Clone migration head is `0134_packaging_returns`; adapt additive migrations to it. Failed pieces must not create replacement work.
+- Preserve approved settlement display (`6c5bf63c`): outstanding USD <= $1.00 is settled, but actual debt/receipts remain unchanged and remaining cents are payable. Preserve four-decimal HALF_UP purchase/stock unit costs (`40baf767`); historical cost rewriting is not approved.
+- Preserve received-payment revenue (`ece87130`): apply receipts to active invoices, cap by invoice value before period filtering, use UTC dates and exclude advances/excess/reversed sales. Shipped unpaid sales remain debt. Retain factory isolation, work dates/split allocation, first-grade and package-return/shipment workflows.
+- Port donor helpers and narrow hunks with their dependencies. Clone migration head is `0135_usluga_paid_processes`; adapt additive migrations to it. Failed pieces must not create replacement work.
 - Reuse/adapt donor regressions. Verify rejection/success, permission/factory boundaries, retry/rollback and side effects; use isolated migrated PostgreSQL for races/schema checks. For paging/performance, verify exact totals and bounded query/hydration/memory growth. Record fix commit and actual pass/fail/skip results in the PR.
-- Owner decisions still needed: historical unit/data repair, cost/currency policy, legacy unpaged Usluga contract and data/permission migration approvals. Recovery targets are RTO 24h/RPO zero/seven-day retention; restore proof and credential rotation remain operational work.
-- Keep 1C retired, historical waste repair outside scope and authorized dashboard presentation mode unchanged. Historical audit-chain break #744 requires separate evidence-backed investigation. Already-present fixes and history-only candidates are excluded from this list.
+- Keep 1C retired (`561a0393`), preserving historical origin data, manual payments and generic idempotency. Remove obsolete environment entries only during an authorized configuration update. Historical waste repair/backfill is outside scope; preserve history and authorized dashboard presentation mode. Historical audit-chain break #744 requires separate evidence-backed investigation. Already-present fixes and history-only candidates are excluded from the task list.
 
-Reference: [develop implementation/tests](https://github.com/Shmirzaev/Milana-ERP/tree/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab) and [owner decisions](REMAINING_DEVELOP_BUGS.md).
+## Pending decisions and operational work
+
+| ID | Required action |
+| --- | --- |
+| **FN08** | Decide historical/current cost and currency source/conversion for profit and combined totals. |
+| **PERF35 / PERF22** | Confirm lazy loading/paging contracts and support for the legacy unpaged Usluga array. |
+| **DB01 / DB05 / DB06** | Approve historical unit treatment, affected rows, data/permission/index migrations and recovery/rollback before changing data. |
+| **OPS03 / OPS04** | Existing company server is approved for now; assign workload owners, limits and schedules, and verify availability/failure behavior. |
+| **OPS06 / OPS10** | Meet approved RTO 24h, RPO zero and seven-day retention: assign owners/capacity, protect database plus uploads together and prove an isolated restore. Periodic dumps alone do not prove zero RPO. |
+| **OPS11** | Rotation/revocation is approved; assign vault/rotation owner, privately inventory affected accounts, replace/revoke credentials and record evidence. Live rotation remains unverified. |
+
+Reference: [develop implementation/tests](https://github.com/Shmirzaev/Milana-ERP/tree/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab). Source implementation does not establish production rollout; no deployment, configuration change or historical backfill was performed by this documentation update.
