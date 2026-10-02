@@ -78,5 +78,3 @@ def collect_images(plan):
                                      'base64': base64.b64encode(raw_image).decode(),
                                      'file': r['file'], 'sheet': r['sheet'], 'row': r['row']}
     return images
-
-

@@ -133,7 +133,8 @@ def verify(before,after,plan,changes,new_items):
     return {'before_kg':str(total_before),'after_kg':str(total_after),'net_change_kg':str(total_after-total_before),
         'updated_batches':sum(c['kind']=='update' for c in changes),'new_receipts':sum(c['kind']=='receive' for c in changes),
         'archived_batches':sum(bool(new[c['id']]['archived_at']) and c['kind']=='update' for c in changes),
-        'new_ledger_movements':len(added),'kept_erp_only':len(plan['preserved_ids']),
+        'new_ledger_movements':len(added),'untouched_existing_batches':len(plan['preserved_ids']),
+        'kept_erp_only':len(plan['omitted_positive_ids']),
         'source_group_kg_matches':len(plan['outcomes']),'new_items':len(new_items),
         'supplemental_verified':len(plan['supplemental']),'exceptions':len(plan['exceptions']),
         'hard_deletions':0,'historical_records_preserved':True}

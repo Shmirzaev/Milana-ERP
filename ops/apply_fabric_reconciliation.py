@@ -35,5 +35,3 @@ def assert_unchanged(expected, actual):
     for key in expected:
         if key != 'snapshot_time' and expected[key] != actual[key]:
             raise ValueError('Live evidence changed: ' + key)
-
-
