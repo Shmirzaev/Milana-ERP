@@ -15,7 +15,6 @@ os.environ["MODEL_FILES_DIR"] = os.path.join(_tmpdir, "model_files")
 os.environ["JWT_SECRET"] = "test-secret"
 os.environ["FILE_SIGNING_SECRET"] = "test-file-signing-secret-abcdefghijklmnopqrstuvwxyz"
 os.environ["CORS_ORIGINS"] = "http://localhost:3000"
-os.environ["INTEGRATION_1C_TOKEN"] = "test-1c-token"
 os.environ["ATTENDANCE_INTEGRATION_TOKEN"] = "test-attendance-token"
 os.environ["ATTENDANCE_INTEGRATION_FACTORY_CODE"] = "MIL"
 os.environ["ATTENDANCE_PHOTOS_DIR"] = os.path.join(_tmpdir, "attendance_photos")

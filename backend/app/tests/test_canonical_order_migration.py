@@ -94,7 +94,6 @@ def test_migration_updates_live_orders_references_payload_and_preserves_label_id
             migration.upgrade()
     from app.core.order_reference import canonical_order_reference, resolve_order_id, order_reference_variants
     from app.api.routes.traceability import _find_production_order
-    from app.services.finance_1c import _resolve_sales_order
     with TestSessionLocal() as db:
         assert db.get(ProductionOrder, po_id).production_no == "PO-0202"
         assert db.get(SalesOrder, sale_id).order_no == "SO-0606"
@@ -115,7 +114,7 @@ def test_migration_updates_live_orders_references_payload_and_preserves_label_id
         assert bundle.qr_code_url == f"/api/barcode/bundle-image/{bundle_id}"
         assert db.query(BrandedPlanningOrder.order_no).all() == before_bso
         assert _find_production_order(db, "PO-2026-000202").id == po_id
-        assert _resolve_sales_order(db, None, "SO-2026-000606").id == sale_id
+        assert db.get(SalesOrder, resolve_order_id(db, "SO", "SO-2026-000606")).id == sale_id
         assert canonical_order_reference(db, "SO", "SO-2026-000202") == "PO-0202"
         assert resolve_order_id(db, "SO", "SO-2026-000202") is None
         assert order_reference_variants(db, "SO", "PO-0202", production_order_id=po_id) == {"SO-2026-000202", "PO-0202"}

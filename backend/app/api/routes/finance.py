@@ -1,16 +1,12 @@
-import hmac
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends, Header, Query
 
-from app.core.config import settings
 from app.core.deps import DbSession, require_permissions
 from app.models import Invoice, SalesOrder, User
-from app.schemas.integrations import OneCSyncIn
 from app.schemas.sales import InvoiceIn, InvoiceOut, PaymentIn, PaymentOut
 from app.services.audit import log_action
-from app.services.finance_1c import sync_from_1c
 from app.services.numbering import next_invoice_no
-from app.services.payments import create_invoice_payment
+from app.services.payments import create_invoice_payment, invoice_payment_status
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 from app.services.finance import (
     dashboard_summary, order_profit, branded_stock_value, waste_cost, waste_income,
@@ -76,7 +72,7 @@ def create_invoice(payload: InvoiceIn, db: DbSession, current: User = Depends(re
         sales_order_id=payload.sales_order_id,
         invoice_no=next_invoice_no(db),
         amount=float(payload.amount if payload.amount is not None else so.total_amount or 0),
-        status="unpaid",
+        status=invoice_payment_status(payload.amount if payload.amount is not None else so.total_amount or 0, 0),
         issued_at=datetime.now(timezone.utc),
     )
     db.add(inv); db.flush()
@@ -119,19 +115,3 @@ def create_payment(
     )
     db.commit(); db.refresh(p)
     return response
-
-
-@router.post("/integrations/1c/sync")
-def sync_1c_finance(
-    payload: OneCSyncIn,
-    db: DbSession,
-    x_1c_token: str | None = Header(default=None, alias="X-1C-Token"),
-):
-    expected = settings.INTEGRATION_1C_TOKEN.strip()
-    if not expected:
-        raise HTTPException(503, "1C integration token is not configured")
-    if not hmac.compare_digest(str(x_1c_token or ""), expected):
-        raise HTTPException(401, "Invalid 1C token")
-    result = sync_from_1c(db, payload)
-    db.commit()
-    return result

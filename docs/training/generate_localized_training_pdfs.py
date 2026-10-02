@@ -2023,16 +2023,11 @@ LOCALIZED = {
 
                 Finance expected spend va material commitmentni tushunish uchun Purchasing va Inventory Reservationsni ko'rishi mumkin. Purchasing operation purchasing permissionli foydalanuvchilarga tegishli.
 
-                ## 1C Integration
+                ## Oldin import qilingan yozuvlar
 
-                Backend `X-1C-Token` bilan `POST /api/finance/integrations/1c/sync`ni qo'llaydi. Bu system integration flow, oddiy user workflow emas.
-
-                Finance/Admin qoidalari:
-
-                1. 1C tokenni private saqlang.
-                2. Tokenni chat yoki screenshot orqali yubormang.
-                3. Configuration change'dan keyin synced recordlarni validate qiling.
-                4. Integration failure bo'lsa IT/Super Adminga report qiling.
+                Oddiy hisob-faktura va to'lov jarayonlaridan foydalaning. Ishlatilmaydigan 1C
+                integratsiyasi olib tashlangan. Oldin import qilingan hisob-fakturalar, to'lovlar
+                va manba identifikatorlari solishtirish uchun saqlanadi; bu yozuvlar o'zgarmaydi.
 
                 ## Muammolar
 

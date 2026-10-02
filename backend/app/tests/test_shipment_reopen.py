@@ -6,8 +6,6 @@ from fastapi import HTTPException
 from app.db.session import SessionLocal
 from app.models import AuditLog, FinishedGoodsStock, Invoice, Package, Payment, SalesOrder, Shipment, ShipmentScanLog
 from app.services.payments import create_invoice_payment
-from app.services.finance_1c import sync_from_1c
-from app.schemas.integrations import OneCSyncIn
 from app.tests.test_manual_pack_dispatch import receive, shipment
 from app.tests.test_package_workflows import warehouse, package_qr  # noqa: F401
 from app.tests.test_shipment_review import correct, dispatch, review_amount  # noqa: F401
@@ -19,7 +17,7 @@ def payload(result):
 
 
 @pytest.mark.parametrize("price,delivered", [(None, False), (None, True), (Decimal("2.5"), False), (Decimal("2.5"), True)])
-def test_manual_return_and_redispatch(client, warehouse, price, delivered):
+def test_manual_return_and_redispatch(client, auth_headers, warehouse, price, delivered):
     run = receive(client, warehouse)
     sid = shipment(client, warehouse, price)
     url = f"/api/shipments/{sid}"
@@ -59,11 +57,13 @@ def test_manual_return_and_redispatch(client, warehouse, price, delivered):
             assert db.get(SalesOrder, old_order).total_amount == 0
             with pytest.raises(HTTPException):
                 create_invoice_payment(db, invoice, amount=1)
-            synced = sync_from_1c(db, OneCSyncIn(
-                invoices=[{"external_id": "late-invoice", "sales_order_id": old_order, "amount": 75}],
-                payments=[{"external_id": "late-payment", "invoice_id": invoice.id, "amount": 1}],
-            ))
-            assert len(synced["errors"]) == 2 and synced["payments_created"] == 0 and synced["invoices_created"] == 0
+            assert db.query(Payment).filter_by(invoice_id=invoice.id).count() == 0
+    if old_order:
+        rejected = client.post("/api/finance/payments", headers=auth_headers,
+                               json={"invoice_id": invoice.id, "amount": 1})
+        assert rejected.status_code == 409, rejected.text
+        with SessionLocal() as db:
+            assert db.query(Payment).filter_by(invoice_id=invoice.id).count() == 0
     assert client.post(url + "/reopen", headers=warehouse, json=body).status_code == 409
     assert client.post(url + "/ship", headers={**warehouse, "Idempotency-Key": "first-dispatch"}).status_code == 409
     for pid in run["package_ids"]:

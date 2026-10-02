@@ -13,7 +13,6 @@ flowchart LR
     db["PostgreSQL VM · 172.16.10.3"]
     storage["Backend local file storage"]
     email["Email provider or SMTP"]
-    onec["1C integration client"]
 
     user --> browser
     browser --> frontend
@@ -21,7 +20,6 @@ flowchart LR
     api --> db
     api --> storage
     api --> email
-    onec -->|X-1C-Token| api
 ```
 
 ## Authentication Flow
@@ -44,6 +42,10 @@ sequenceDiagram
 ```
 
 Machine clients use `POST /api/auth/token` and send `Authorization: Bearer <token>`. Browser login does not expose the bearer token to JavaScript.
+
+Finance uses the manual invoice and payment workflows. The unused 1C connector
+has been retired: its sync API and credential configuration are removed.
+Historical invoice/payment import identifiers remain stored for traceability.
 
 ## Request Trust Boundaries
 
