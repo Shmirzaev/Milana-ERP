@@ -2,6 +2,14 @@
 
 Last updated: 2026-10-03
 
+## Five held SAMO batches added after fabric confirmation (2026-10-03)
+
+- Owner confirmed `30/1 COMPACT PENYA SUPREM` for SAMO batches 15785_1, 15798, 18336, 16939 and 21089. Used existing active item 81, catalog spelling `30/1 COMPACT PENYE SUPREM`, following the established PENYA alias. This resolves these five previously documented missing-material exceptions without creating a duplicate fabric master.
+- Applied five receipts through the ERP receiving handler at 05:33:51 UTC: 15785_1 = 561.20 kg / 24 rolls; 15798 = 257.65 kg / 12 rolls; 18336 = 827.60 kg / 37 rolls; 16939 = 121.14 kg / 7 rolls; 21089 = 1,378.98 kg / 43 rolls. Total added 3,146.57 kg / 123 rolls, with three exact source-row photos. Preserved workbook dates and color codes. All 1,323 pre-existing batches, history and reservations were unchanged. Fabric/semi-finished total is now 187,245.65 kg.
+- Source is the previously captured and hash-rechecked `SAMO 2025 (4) (2) (version 1) (4).xlsb`. Plan SHA-256 `1a62dd7819699905974daadd964343f0437ed511a350d4ff1bf2ccb158c7f49b`; completion audit 34283. Fresh database and signed public API readback verified all five receipts; audit segment passed (14 entries), and all four internal/public health/login checks returned HTTP 200. No extra testing or monitoring.
+- Verified backup `/opt/milana-erp/shared/backups/milana_erp_pre_fabric_reconcile_20261003_053313.dump`: 64,681,214 bytes, mode 0600, 1,216 restore objects; SHA-256 `4e596c8f23b7a94512b794d882c66ec4d859e09c004f8872ec1209b3726ecdb0`; restore-list SHA-256 `846f8b14d14a8b97d5b9e1d39c648f21e2224093938a6a451384b6597803f94f`.
+- Data is live with no application deployment. Both production manifests still match active blue `20261002_124419`; rollback green `20261002_065259` and schema `0135_usluga_paid_processes` remain. Operation commit `d93c0287` pushed to `clone_main` and `codex/samo-held-batches-20261003`. Clean dedicated worktree `C:/ERP/.codex-work/samo-held-batches-20261003`; private evidence in ignored `outputs/fabric-reconciliation/`. Context mirrored to Obsidian. Other previously held DINAR/auxiliary rows and the six Xitoy negative balances remain unchanged.
+
 ## Xitoy fabric inventory reconciled live (2026-10-03)
 
 - Applied the owner's four current workbooks at 05:25:47 UTC through the existing ERP receiving, batch-update and catalog-update handlers in one guarded transaction. `clone_main` and `codex/xitoy-fabric-20261003` contain operation commit `47b3950a`. Worktree: `C:/ERP/.codex-work/xitoy-fabric-20261003`; the legacy checkout and unrelated work were preserved.
