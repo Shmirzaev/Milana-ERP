@@ -1,6 +1,6 @@
 # Team bug tracker — clone_main
 
-**Updated: 2026-10-04. Target: `clone_main`.** **100 open implementation tasks**, 7 operations follow-ups, 4 pending policy groups and 14 completed owner-approved changes. **All 127 develop audit findings are accounted for below**; tasks and original findings are different counts. Assessments are source-based; current regressions, performance measurements and live operations remain to be verified. **`clone_main` is shared** — other engineers merge into it concurrently, so re-sync and rebase before landing and re-run affected tests afterwards.
+**Updated: 2026-10-04. Target: `clone_main`.** **98 open implementation tasks**, 7 operations follow-ups, 4 pending policy groups, 15 completed owner-approved changes and 1 partial. **All 127 develop audit findings are accounted for below**; tasks and original findings are different counts. Assessments are source-based; current regressions, performance measurements and live operations remain to be verified. **`clone_main` is shared**: other engineers merge into it concurrently, so re-sync and rebase before landing and re-run affected tests afterwards.
 
 ## How the team updates this file
 
