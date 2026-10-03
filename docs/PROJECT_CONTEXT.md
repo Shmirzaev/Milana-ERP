@@ -1,6 +1,17 @@
 # Milana ERP Project Context
 
-Last updated: 2026-10-02
+Last updated: 2026-10-03
+
+## Xitoy fabric inventory reconciled live (2026-10-03)
+
+- Applied the owner's four current workbooks at 05:25:47 UTC through the existing ERP receiving, batch-update and catalog-update handlers in one guarded transaction. `clone_main` and `codex/xitoy-fabric-20261003` contain operation commit `47b3950a`. Worktree: `C:/ERP/.codex-work/xitoy-fabric-20261003`; the legacy checkout and unrelated work were preserved.
+- Added 25 stock receipts and updated 55 existing batches, including 32 archives. Seven unused receipts were replaced with the workbook's individual roll weights/lengths while retaining the original records. Existing fabric names were reused; LAPSHA item 80 was reactivated through the catalog handler. New VISCON receipts use active item 91; existing item-79 receipts retain their identity where applicable. No hard deletions, reservation releases, historical movement rewrites or downstream-link changes occurred.
+- User explicitly selected BAMBUK for the SUPER SOFFT workbook. User explicitly held six negative balances unchanged: Xitoy A#4 (-30.2 kg), A#8 (-133 kg), and SUPER SOFFT/BAMBUK C#118 and C#13 (-0.3 kg each), C#3 and C#65 (-0.2 kg each). `VISCOM  (2).xlsx` contains headers only. Other populated sources were `XITOY 10.09.2026.xlsx`, `XITOY VISKON (7) (8).xlsx`, and `XITOY SUPER SOFFT 2025 (5) (10).xlsx`.
+- All 128 reconciled supplier/batch groups match the source balances and applicable roll counts. Packing lists use individual net-roll kg less recorded cutting kg and retain receipt roll counts where remaining counts are absent. A#5's actual roll sum is 527 kg despite its 524.8 kg subtotal. Preserved 368 positive ERP-only rows and all six held groups. Total fabric/semi-finished stock changed from 196,028.03 kg to 184,099.08 kg (-11,928.95 kg). Full ERP and workbook totals intentionally differ because retained and held stock remains.
+- Backup `/opt/milana-erp/shared/backups/milana_erp_pre_fabric_reconcile_20261003_052425.dump`: 64,643,786 bytes, mode 0600, 1,216 restore objects; SHA-256 `9987cb6203607d00569e230c10953a9d5053b7d592b59aeef1217968a4fcc77b`; restore-list SHA-256 `f5662dc2446b4130af6f3f84c0df3e73fcd3ad6bb495d06da0920687c0697e01`.
+- Plan SHA-256 `c2e91977bfe1482ed73bf7a041a20d58bff93095e4fa2e007d0d2a682990d885`, completion audit 34267. Immediate committed database and signed public API readback verified all 80 changes, 75 new ledger movements, preserved records/photos and the new audit-chain segment (216 entries). All four internal/public health/login checks returned HTTP 200. Validation was limited to source arithmetic, compilation, diff review, transaction guards and immediate readback; no extra test suite or extended monitoring was run, as requested.
+- Data is live. No application rebuild, restart or schema migration was needed: active blue `20261002_124419`, application commit `e2b58cd35c5c10647cd789aceb54132a7432c00f`, manifest `290fdd26cb6f583ab20a2ae77c4ad699d0c3164d63349b3b4ad88a9fe972002f`, schema `0135_usluga_paid_processes`; rollback green `20261002_065259`. Both production baselines matched before work. Application rollback does not reverse inventory data changes.
+- Private source evidence, before/after snapshots and `Fabric inventory update - 2026-10-03.xlsx` remain in ignored `outputs/fabric-reconciliation/`. The report lists every added/updated/archived row, all held negative rows and retained ERP-only stock. Durable context mirrored to Obsidian. Earlier unresolved DINAR/SAMO source rows and historical unrelated risks remain.
 
 ## Variant colors and separate Usluga processes deployed (2026-10-02)
 
