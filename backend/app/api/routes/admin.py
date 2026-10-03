@@ -540,11 +540,15 @@ def get_user(user_id: int, db: DbSession, _: User = Depends(require_permissions(
 
 @router.patch("/users/{user_id}", response_model=UserOut)
 def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User = Depends(require_permissions("admin.users", "*"))):
+    # Lock memberships in stable order before taking a target credential lock.
     if {"role_id", "extra_permissions", "access_policy", "is_active"} & payload.model_fields_set:
         _lock_active_user_memberships(db)
-        db.query(User).filter(User.is_active.is_(True)).order_by(User.id).with_for_update(of=User).populate_existing().all()
-        credential_change = bool(payload.password)
-        u = lock_user_for_credential_change(db, user_id, require_active=False) if credential_change else db.get(User, user_id)
+    credential_change = bool(payload.password)
+    u = (
+        lock_user_for_credential_change(db, user_id, require_active=False)
+        if credential_change
+        else db.get(User, user_id)
+    )
     if not u:
         raise HTTPException(404, "User not found")
     data = payload.model_dump(exclude_unset=True)

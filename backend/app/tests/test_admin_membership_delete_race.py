@@ -12,8 +12,10 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import admin
+from app.core.security import verify_password
 from app.db.base import Base
-from app.models import User
+from app.models import PasswordResetToken, User
+from app.services.password_reset import create_password_reset_token
 
 
 @pytest.fixture(scope="module")
@@ -202,3 +204,47 @@ def test_membership_patch_does_not_block_audit_actor_key_share(membership_postgr
             holder.rollback()
         future.result(timeout=20)
     assert compatible, "Membership UPDATE lock blocked an audit's compatible actor KEY SHARE lock"
+
+
+def test_concurrent_membership_and_password_changes_preserve_admin_and_credentials(membership_postgres_sessions):
+    from app.schemas.catalog import UserUpdate
+
+    actor_id, target_ids = _create_membership_case(membership_postgres_sessions, 2)
+    replacement = "MembershipReplacement!2026"
+    with membership_postgres_sessions.begin() as db:
+        for target_id in target_ids:
+            create_password_reset_token(db, db.get(User, target_id))
+    start = Barrier(3)
+
+    def change(target_id):
+        with membership_postgres_sessions() as db:
+            actor = db.get(User, actor_id)
+            start.wait(timeout=10)
+            try:
+                admin.update_user(target_id, UserUpdate(is_active=False, password=replacement), db, actor)
+                return target_id, "changed"
+            except HTTPException as exc:
+                db.rollback()
+                assert exc.status_code == 400
+                return target_id, "protected"
+
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        futures = [workers.submit(change, target_id) for target_id in target_ids]
+        start.wait(timeout=10)
+        results = dict(future.result(timeout=20) for future in futures)
+
+    assert sorted(results.values()) == ["changed", "protected"]
+    with membership_postgres_sessions() as db:
+        for target_id, outcome in results.items():
+            user = db.get(User, target_id)
+            token = db.query(PasswordResetToken).filter_by(user_id=target_id).one()
+            if outcome == "changed":
+                assert user.is_active is False
+                assert verify_password(replacement, user.password_hash)
+                assert user.tokens_valid_from is not None
+                assert token.used_at is not None
+            else:
+                assert user.is_active is True
+                assert user.password_hash == "unused"
+                assert user.tokens_valid_from is None
+                assert token.used_at is None
