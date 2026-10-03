@@ -16,6 +16,7 @@
     "test:fabric-inventory-archive": "node scripts/check-fabric-inventory-archive.mjs",
     "test:purchase-orders-by-supplier": "node scripts/check-purchase-orders-by-supplier.mjs",
     "test:purchase-receipt-batch-identity": "node scripts/check-purchase-receipt-batch-identity.mjs",
+    "test:purchase-receipt-idempotency-key": "node scripts/test-purchase-receipt-idempotency-key.mjs",
     "test:forecasting-charts": "node scripts/check-forecasting-charts.mjs",
     "test:warehouse-map-bulk-move": "node scripts/check-warehouse-map-bulk-move.mjs",
     "test:purchasing-clean-ui": "node scripts/check-purchasing-clean-ui.mjs",
