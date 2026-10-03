@@ -1,6 +1,6 @@
 # Team bug tracker — clone_main
 
-**Updated: 2026-10-04. Target: `clone_main`.** **98 open implementation tasks**, 7 operations follow-ups, 4 pending policy groups, 15 completed owner-approved changes and 1 partial. **All 127 develop audit findings are accounted for below**; tasks and original findings are different counts. Assessments are source-based; current regressions, performance measurements and live operations remain to be verified. **`clone_main` is shared**: other engineers merge into it concurrently, so re-sync and rebase before landing and re-run affected tests afterwards.
+**Updated: 2026-10-04. Target: `clone_main`.** **93 open implementation tasks**, 7 operations follow-ups, 3 pending policy groups, 15 completed owner-approved changes and 2 partial. **All 127 develop audit findings are accounted for below**; tasks and original findings are different counts. Assessments are source-based; current regressions, performance measurements and live operations remain to be verified. **`clone_main` is shared**: other engineers merge into it concurrently, so re-sync and rebase before landing and re-run affected tests afterwards.
 
 ## How the team updates this file
 
@@ -16,12 +16,12 @@
 
 ## Team ownership
 
-Assignments set on 2026-10-03. Each implementation task has one engineering owner responsible for its backend, frontend and regression checks. Names below are team names, not inferred GitHub handles. Assignment alone does not mean work has started: all 110 implementation tasks remain Open.
+Assignments set on 2026-10-03. Each implementation task has one engineering owner responsible for its backend, frontend and regression checks. Names below are team names, not inferred GitHub handles. Open counts below are live per-status tallies of the Tracking cells, not the original allocation; all 110 implementation tasks started Open, and 15 are now Done and 2 Partial.
 
 | Owner | Responsibility | Open implementation tasks | Operations follow-ups |
 | --- | --- | --- | --- |
 | **Dilmurod** | People and platform: payroll, attendance, HR, authentication, admin security, tasks/notifications and shared API/retry infrastructure. | **38** | `OPS04`, `OPS10`, `OPS11` |
-| **Ismail** | Stock and commercial: inventory, purchasing, sales, finance, catalog, schema/migration tooling and uploads. | **37** | `OPS02`, `OPS03` |
+| **Ismail** | Stock and commercial: inventory, purchasing, sales, finance, catalog, schema/migration tooling and uploads. | **20** | `OPS02`, `OPS03` |
 | **Mirshoir** | Production and fulfillment: production, cutting, sewing, bundles, packages, finished goods, forecasting, traceability and shipment package locking. | **35** | `OPS01`, `OPS07` |
 | **Shavkat** | Business logic decisions and expected business behavior only. Clarifies policy and acceptance criteria with the responsible engineer; no engineering, migration, testing or operations tasks assigned. | **0** | None |
 
@@ -79,7 +79,7 @@ The Tracking cells below are the authoritative per-task assignments; refer to st
 | 36 | **WF01** | Generic production PATCH changes internal fields/status. | Replace raw setattr PATCH with typed field/reference allowlist and legal workflow-status guards. | `B:api/routes/production.py:1003`; `859b7ca`, `d11fb7aa` | Open · Mirshoir |
 | 37 | **WF02** | Generic work-order commands miss stage/factory boundaries. | Enforce stage authorization and factory scope on update/start/complete/block/unblock commands. | `B:api/routes/production.py:1601`; `84c322a`, `62a3544`, `d8cd060` | Open · Mirshoir |
 | 38 | **WF03** | Ordinary packages can be created without production evidence. | Require packaging evidence for ordinary standard packages; preserve valid first-grade/batch receipts. | `B:services/packages.py:220`; `37258c7` | Open · Mirshoir |
-| 39 | **WF08** | Waste sales overdraw capacity, close partial stock and lack safe retries. | Bound Decimal quantities/money, lock remaining capacity and restore scoped retry/reconciliation plus UI balance recovery. Preserve history; do not reactivate excluded business work. | `B:api/routes/waste.py:89`; `B:schemas/waste.py:46`; `6cb2d3a`, `2948674`, `c13d638`, `01e0ee1`, `5638b8a`, `24003a0e`, `8aebf877`; [regression](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/backend/app/tests/test_waste_sale_integrity.py) | Open · Ismail |
+| 39 | **WF08** | Waste sales overdraw capacity, close partial stock and lack safe retries. | Bound Decimal quantities/money, lock remaining capacity and restore scoped retry/reconciliation plus UI balance recovery. Preserve history; do not reactivate excluded business work. | `B:api/routes/waste.py:89`; `B:schemas/waste.py:46`; `6cb2d3a`, `2948674`, `c13d638`, `01e0ee1`, `5638b8a`, `24003a0e`, `8aebf877`; [regression](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/backend/app/tests/test_waste_sale_integrity.py) | Done · @Ismail · [`96169417`](https://github.com/Shmirzaev/Milana-ERP/commit/96169417) · three defects in one path, all reproduced: `sell_waste` read the record with `db.get` and **no lock**, never compared the requested quantity to what was left, and set `status='sold'` after *any* sale. A partial sale (4 of 10 kg) stranded the remaining 6 kg permanently; 11 kg could be sold from a 10 kg record; two concurrent callers could both pass the status check and both sell, and a response lost after commit returned a misleading 400 on an already-sold record. Sales now serialize on the waste parent with `FOR UPDATE`, replay the caller-and-record-scoped `Idempotency-Key` before **and** after the lock, validate each partial sale against the remaining quantity, and close the record only at a zero remainder. The replay record is stored **in the same commit as the sale**, so a lost response retries into a replay rather than a second physical sale; a request with no key keeps its previous behaviour. Money/quantity bounded against the real column widths (NUMERIC(14,4)/(12,2)/(14,2)), not assumed. 14 failed / 2 passed → 16 passed; adjacent waste, disposal, audit and idempotency slice with PostgreSQL enabled: 201 passed, 0 failed, 0 skipped. |
 
 ## P2 — validation, reliability and performance
 
