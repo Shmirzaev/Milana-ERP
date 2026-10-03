@@ -10,18 +10,18 @@ import openpyxl
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'outputs/fabric-reconciliation'
 sys.path.insert(0, str(OUT / 'python-deps'))
-from pyxlsb import open_workbook
 
 FILES = ['DINAR 2026 (5) (6).xlsx', 'SAMO 2025 (4) (2) (version 1) (4).xlsb',
          'Cафф милана  2025 (4) (2) (2) (4).xlsx']
 
 
-def extract():
+def extract(files=None):
     result = []
-    for name in FILES:
+    for name in files or FILES:
         path = Path('C:/Users/User/Downloads/Telegram Desktop') / name
         book = dict(file=name, sha256=hashlib.sha256(path.read_bytes()).hexdigest(), sheets=[])
         if path.suffix == '.xlsb':
+            from pyxlsb import open_workbook
             with open_workbook(str(path)) as wb:
                 for title in wb.sheets:
                     rows = []
@@ -60,4 +60,4 @@ def extract():
 
 
 if __name__ == '__main__':
-    extract()
+    extract(sys.argv[1:] or None)

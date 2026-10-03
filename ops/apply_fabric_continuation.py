@@ -7,10 +7,10 @@ from decimal import Decimal
 from pathlib import Path
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from app.api.routes.inventory import create_item, receive_stock, update_batch, release_reservation
+from app.api.routes.inventory import create_item, update_item, receive_stock, update_batch, release_reservation
 from app.core.config import settings
 from app.core.deps import user_permissions
-from app.models import AuditLog, User, StockBatch, MaterialReservation
+from app.models import AuditLog, User, StockBatch, MaterialReservation, Item
 from app.schemas.inventory import ItemIn, StockBatchIn, StockBatchUpdate
 from app.services.audit import log_action
 from app.services.image_storage import convert_image_to_webp, prebuild_webp_thumbnails
@@ -20,6 +20,12 @@ from apply_fabric_reconciliation import AtomicSession, digest, assert_unchanged
 
 def execute(db, actor, plan, plan_hash, image_urls):
     item_ids={};changes=[];released=[]
+    for iid in plan.get('reactivate_items',[]):
+        item=db.get(Item,iid)
+        assert item and not item.is_active
+        data={k:getattr(item,k) for k in ItemIn.model_fields}
+        data['is_active']=True
+        update_item(iid,ItemIn(**data),db,actor)
     for row in plan['new_items']:
         item=create_item(ItemIn(**row),db,actor)
         item_ids[row['sku']]=item.id
@@ -44,6 +50,7 @@ def execute(db, actor, plan, plan_hash, image_urls):
             response=receive_stock(StockBatchIn(item_id=iid,batch_no=a['batch_no'],supplier_id=a['supplier_id'],
                 quantity=float(a['quantity']),piece_count=a['piece_count'],unit='kg',warehouse_id=1,
                 cost_per_unit=float(a['cost_per_unit']),qc_status='pending',color=a['color'],color_code=a['color_code'],
+                roll_weights_kg=a.get('roll_weights_kg',[]),roll_lengths_m=a.get('roll_lengths_m',[]),
                 image_url=image_urls.get(str(index))),db,actor,idempotency_key=f'fabric-current:{plan_hash[:24]}:{index}')
             bid=response['id'];before_kg='0'
             if a['received_date']:
@@ -80,12 +87,17 @@ def verify(before,after,plan,changes,new_items):
             assert Decimal(b['quantity'])==Decimal(a['quantity']) and b['piece_count']==a['piece_count']
             assert b['supplier_id']==a['supplier_id'] and b['batch_no']==a['batch_no']
             assert b['item_id']==new_items.get(a['item_ref'],a['item_ref'])
-            assert b['roll_weights_kg']==[] and b['roll_lengths_m']==[]
+            assert b['roll_weights_kg']==a.get('roll_weights_kg',[]) and b['roll_lengths_m']==a.get('roll_lengths_m',[])
         if Decimal(b['quantity'])==0:assert b['archived_at']
     for key in ('suppliers','warehouses','revision','batch_references','linked_rows','fabric_scans'):
         assert before[key]==after[key],key
     ai={i['id']:i for i in after['items']}
-    assert all(ai[r['id']]==r for r in before['items'])
+    for r in before['items']:
+        expected=dict(r)
+        if r['id'] in plan.get('reactivate_items',[]):
+            expected['is_active']=True
+            expected['updated_at']=ai[r['id']]['updated_at']
+        assert ai[r['id']]==expected
     assert len(ai)==len(before['items'])+len(new_items)
     old_movements={m['id']:m for m in before['movements']};new_movements={m['id']:m for m in after['movements']}
     assert all(new_movements.get(mid)==m for mid,m in old_movements.items()),'Historical ledger changed'
@@ -151,7 +163,7 @@ def apply(engine,capture,payload):
     for index,record in payload['images'].items():
         raw=base64.b64decode(record['base64'],validate=True);assert hashlib.sha256(raw).hexdigest()==record['sha256']
         converted=convert_image_to_webp(raw)
-        name='fabric-current-20261002-'+record['sha256'][:24]+'.webp';p=Path(settings.MODEL_FILES_DIR)/name
+        name='fabric-current-20261003-'+record['sha256'][:24]+'.webp';p=Path(settings.MODEL_FILES_DIR)/name
         if p.exists():assert p.read_bytes()==converted.data
         else:
             with p.open('xb') as f:f.write(converted.data)

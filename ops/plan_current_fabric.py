@@ -64,8 +64,8 @@ def read(evidence,dinar_sheet):
     return records
 
 
-def build(evidence,snapshot,dinar_sheet):
-    rows=read(evidence,dinar_sheet)
+def build(evidence,snapshot,dinar_sheet=None,external_rows=None):
+    rows=read(evidence,dinar_sheet) if external_rows is None else external_rows
     names={key(i['name']):i['id'] for i in snapshot['items'] if i['is_active']}
     aliases={87:['30/1 P_CMP SUPREM','30/1 P-CMP SUPREM'],12:['36/1 P_CMP 20 DEN 8% LYC SUPREM','36/1P_CMP 20 DEN 8% LYC SUPREM','36/1 P_CMP 20 DEN LYC 8% SUPREM','36/1 P_CMP 20 DEN 8% LUC SUPREM'],81:['30/1 COMPACT PENYA SUPREM'],82:['30/1 COMPACT SUPREM'],7:['36/1 PENYA COMPACT 5*2 INTERLOK'],14:['36/1 PENYA COMPACT 12*12 INTERLOK','12*12 inerlok'],122:['30/1 PENYA SUPREM'],112:['75/36 COMPACT/SIYAH POL W FACE INTERLOK'],115:['36/1 VOSKON 20 DEN 8% LYC SUPREM']}
     for iid,variants in aliases.items():
@@ -106,7 +106,7 @@ def build(evidence,snapshot,dinar_sheet):
         positive=[r for r in source if r['remaining_kg']>0]
         resolved=[]
         for r in positive:
-            iid=names.get(key(r['fabric']))
+            iid=r.get('item_id') or names.get(key(r['fabric']))
             if not r['fabric'] or key(r['fabric']) in (',,,','BEYAZKASAR'):
                 identities={b['item_id'] for b in active or existing}
                 iid=next(iter(identities)) if len(identities)==1 else None
@@ -144,6 +144,15 @@ def build(evidence,snapshot,dinar_sheet):
             outcomes.append(dict(ref=ref,target_kg=str(target),sources=source,target_rolls=str(sum(r['remaining_rolls'] for r in positive))))
             continue
         # An unresolved subgroup leaves the whole supplier/batch group unchanged.
+    if external_rows is not None:
+        changed={a['id'] for a in actions if a['kind']=='update'}
+        assert len(changed)==sum(a['kind']=='update' for a in actions)
+        needed={a['item_ref'] for a in actions if a['kind']=='receive'}
+        return json.loads(json.dumps(dict(version=3,workbooks=[{k:b[k] for k in ('file','sha256')} for b in evidence],
+            actions=actions,outcomes=outcomes,new_items=[v for k,v in new_items.items() if k in needed],
+            reservation_releases=list(releases.values()),exceptions=exceptions,supplemental=[],auxiliary=[],source_records=rows,
+            preserved_ids=[b['id'] for b in snapshot['batches'] if b['id'] not in changed],
+            omitted_positive_ids=[b['id'] for b in snapshot['batches'] if num(b['quantity'])>0 and (b['supplier_id'],key(b['batch_no'])) not in grouped]),default=str))
     # Preserve existing supplemental BAMBUK using the previously verified source row mapping.
     prior=Path('C:/ERP/.codex-work/fabric-reconcile-20260930/outputs/fabric-reconciliation')
     old_plan=json.loads((prior/'continuation-plan.json').read_text(encoding='utf-8'))
