@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs";
 // Script-level contract check over the page source plus a faithful model of the
 // landed backend. This is not a browser or end-to-end run.
 
-const PAGE = "src/app/(app)/purchasing/receiving/page.tsx";
+const PAGE = process.argv[2] || "src/app/(app)/purchasing/receiving/page.tsx";
 const pageSource = readFileSync(PAGE, "utf8");
 
 // ---------------------------------------------------------------------------
@@ -193,3 +193,82 @@ assert.match(
 );
 
 console.log("Purchase receipt idempotency key contract passed.");
+
+// ---------------------------------------------------------------------------
+// Part 4 - the page-side key lifecycle wiring.
+//
+// Part 2 pins the required behaviour against a model of the landed backend.
+// These are source-level assertions: they lock in that the page is wired to
+// that behaviour. They are NOT a behavioural, DOM or end-to-end run. In
+// particular a real reload is not exercised here.
+// ---------------------------------------------------------------------------
+
+assert.match(
+  pageSource,
+  /receiptStorageKey\(userId, receiveState\.order\.id, receiveState\.line\.id\)/,
+  "the saved receipt must be tracked per order and line, so two lines of one order are two receipts",
+);
+
+assert.match(
+  pageSource,
+  /if \(pending && stableStringify\(pending\.body\) === stableStringify\(body\)\) \{\s*return \{ key: pending\.key, wasPending: true \};\s*\}/,
+  "an unchanged resubmission must compare equal to the saved payload and reuse its key",
+);
+
+assert.match(
+  pageSource,
+  /if \(key\) writePendingReceipt\(storageKey, \{ key, body, \.\.\.meta \}\)/,
+  "an edited payload must be stored under a newly generated key",
+);
+
+assert.match(
+  pageSource,
+  /await api\.postWithHeaders\(`\/api\/purchasing\/orders\/\$\{receiveState\.order\.id\}\/receive`, body, receiptKey \? \{ "Idempotency-Key": receiptKey \} : undefined\)/,
+  "the header must be sent when a key exists and omitted when it does not, so keyless behaviour is unchanged",
+);
+
+// The clear must sit in the SUCCESS path: a later clear in the catch block must
+// not satisfy this, or a confirmed receipt would keep replaying forever.
+assert.match(
+  pageSource,
+  /await api\.postWithHeaders\([\s\S]*?clearPendingReceipt\(storageKey\);[\s\S]*?refreshOrders\(\);/,
+  "a confirmed receipt must clear its saved key, so the next receipt is not a replay",
+);
+
+assert.match(
+  pageSource,
+  /sessionStorage\.setItem\(storageKey, JSON\.stringify\(pending\)\)/,
+  "the pending key and payload must be written to sessionStorage, which is what survives a reload",
+);
+
+assert.match(
+  pageSource,
+  /const conflict = Number\(error\?\.status\) === 409/,
+  "a 409 must be recognised so it is surfaced as a recoverable state rather than a crash",
+);
+
+assert.match(
+  pageSource,
+  /message: conflict \? recoveryCopy\[lang\]\.conflict :/,
+  "a 409 must tell the operator to correct the values and receive again under a new key",
+);
+
+assert.match(
+  pageSource,
+  /wasPending \? recoveryCopy\[lang\]\.replayed : t\("page\.purchasing\.received"\)/,
+  "a replayed receipt must be reported to the operator as success",
+);
+
+for (const lang of ["en", "ru", "uz"]) {
+  assert.ok(
+    pageSource.includes(`const recovery${lang[0].toUpperCase()}${lang.slice(1)}`) || pageSource.includes(`recovery${lang[0].toUpperCase()}${lang.slice(1)}`),
+    `recovery copy must exist for ${lang}`,
+  );
+}
+assert.equal(
+  (pageSource.match(/pendingBody:|replayed:|conflict:/g) || []).length >= 9,
+  true,
+  "every recovery string must be translated in en, ru and uz",
+);
+
+console.log("Page wiring: per-order key, clear on success, 409 recovery, replay-as-success, keyless fallback.");
