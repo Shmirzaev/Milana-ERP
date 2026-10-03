@@ -472,6 +472,50 @@ def _lock_batch_query(db: Session, stock_batch_id: int):
     return qry
 
 
+def _lock_item_query(db: Session, item_id: int):
+    """Lock the one item row that carries the capacity both claim paths read.
+
+    `key_share=True` renders FOR NO KEY UPDATE, the narrowest row lock that still
+    serializes the capacity read. A blanket FOR UPDATE would also conflict with
+    the FOR KEY SHARE PostgreSQL takes for material_reservations.item_id, so a
+    concurrent reservation for the same item could deadlock against this
+    transaction's own INSERT instead of merely waiting for it.
+    """
+    qry = db.query(Item).filter(Item.id == item_id)
+    if db.bind and db.bind.dialect.name == "postgresql":
+        qry = qry.with_for_update(of=Item, key_share=True)
+    return qry
+
+
+def _lock_reservation_resources(db: Session, lines: list[dict]) -> dict[int, StockBatch]:
+    """Lock every batch and item this request will claim, in one global order.
+
+    An item-only reservation and a batched reservation both draw on the same
+    item, so both must take the same item lock or one path can bypass the other.
+    Order is stock batches (ascending id) then items (ascending id): cutting
+    callers such as `replace_cutting_material_batch` already hold batch locks
+    when they reach here, and a total order inside each tier cannot form a cycle.
+    """
+    # Preserve pending stock changes before refreshing any already-loaded row.
+    db.flush()
+
+    batches: dict[int, StockBatch] = {}
+    batch_ids = sorted({int(line["stock_batch_id"]) for line in lines if line.get("stock_batch_id")})
+    for batch_id in batch_ids:
+        batch = _lock_batch_query(db, batch_id).populate_existing().first()
+        if batch:
+            batches[batch_id] = batch
+
+    # One item key across warehouses and batched/unbatched reservations: an
+    # unbatched availability check includes reservations recorded against its
+    # batches, so all of them contend for the same capacity row.
+    item_ids = sorted({int(line["item_id"]) for line in lines if line.get("item_id")})
+    for item_id in item_ids:
+        _lock_item_query(db, item_id).populate_existing().first()
+
+    return batches
+
+
 def create_material_reservations(
     db: Session,
     *,
@@ -487,6 +531,8 @@ def create_material_reservations(
         raise HTTPException(400, "Invalid reservation source")
     if not lines:
         raise HTTPException(400, "No reservation lines provided")
+
+    locked_batches = _lock_reservation_resources(db, lines)
 
     created: list[MaterialReservation] = []
     for idx, raw in enumerate(lines, start=1):
@@ -509,7 +555,7 @@ def create_material_reservations(
             raise HTTPException(400, "Invalid reservation_type")
 
         if stock_batch_id is not None:
-            batch = _lock_batch_query(db, stock_batch_id).first()
+            batch = locked_batches.get(stock_batch_id)
             if not batch:
                 raise HTTPException(404, f"Stock batch #{stock_batch_id} not found")
             if int(batch.item_id) != int(item_id):

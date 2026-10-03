@@ -259,7 +259,7 @@ def test_super_data_console_requires_true_super_admin(client, auth_headers):
     assert r.status_code == 403, r.text
 
 
-def test_super_admin_can_edit_and_delete_rows_from_super_data_console(client, auth_headers):
+def test_super_admin_named_rename_keeps_rows_and_raw_delete_is_blocked(client, auth_headers):
     r = client.post(
         "/api/departments",
         json={"name": "Super Data Temporary", "code": "SDC"},
@@ -281,11 +281,11 @@ def test_super_admin_can_edit_and_delete_rows_from_super_data_console(client, au
     assert any(row["id"] == department_id for row in r.json()["rows"])
 
     r = client.delete(f"/api/admin/super-data/tables/departments/rows/{department_id}", headers=auth_headers)
-    assert r.status_code == 204, r.text
+    assert r.status_code == 409, r.text
 
     r = client.get("/api/admin/super-data/tables/departments?q=Super%20Data%20Edited", headers=auth_headers)
     assert r.status_code == 200, r.text
-    assert not any(row["id"] == department_id for row in r.json()["rows"])
+    assert any(row["id"] == department_id for row in r.json()["rows"])
 
 
 # ---------- H2: permission gating on state changes ----------
@@ -418,8 +418,13 @@ def test_login_sets_httponly_cookie_and_cookie_auth_works(client):
     assert client.get("/api/auth/me").status_code == 401
 
 
-def test_https_forwarded_login_cookie_is_secure(client):
-    r = client.post(
+def test_https_forwarded_login_cookie_is_secure(client, monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    monkeypatch.setenv("TRUSTED_PROXY_CIDRS", "127.0.0.1/32")
+    proxy_client = TestClient(app, client=("127.0.0.1", 50000))
+    r = proxy_client.post(
         "/api/auth/login",
         data={"username": "admin@example.com", "password": "test-admin-password-123!"},
         headers={"x-forwarded-proto": "https"},
