@@ -418,8 +418,13 @@ def test_login_sets_httponly_cookie_and_cookie_auth_works(client):
     assert client.get("/api/auth/me").status_code == 401
 
 
-def test_https_forwarded_login_cookie_is_secure(client):
-    r = client.post(
+def test_https_forwarded_login_cookie_is_secure(client, monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    monkeypatch.setenv("TRUSTED_PROXY_CIDRS", "127.0.0.1/32")
+    proxy_client = TestClient(app, client=("127.0.0.1", 50000))
+    r = proxy_client.post(
         "/api/auth/login",
         data={"username": "admin@example.com", "password": "test-admin-password-123!"},
         headers={"x-forwarded-proto": "https"},
