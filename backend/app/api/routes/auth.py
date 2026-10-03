@@ -1,4 +1,3 @@
-import ipaddress
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -9,6 +8,7 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.proxy_trust import client_ip, effective_request_scheme
 from app.core.deps import DbSession, CurrentUser, user_permissions
 from app.core.dt import as_utc, utcnow
 from app.core.shared_store import get_shared_counter_store
@@ -55,32 +55,7 @@ class ChangePasswordIn(BaseModel):
 
 
 def _client_ip(request: Request) -> str:
-    """Resolve the real client IP. Behind HF Spaces / Vercel the socket peer is
-    the platform proxy (identical for every user), so rate-limit buckets keyed on
-    it collapse into one global bucket. The platform sets X-Forwarded-For with the
-    originating client as the left-most entry. Only trust proxy headers when the
-    socket peer is a private/loopback proxy; otherwise a direct client could
-    spoof X-Forwarded-For and bypass throttling."""
-    peer = request.client.host if request.client else "unknown"
-    peer_is_trusted_proxy = False
-    try:
-        peer_ip = ipaddress.ip_address(peer)
-        peer_is_trusted_proxy = peer_ip.is_private or peer_ip.is_loopback
-    except ValueError:
-        peer_is_trusted_proxy = False
-
-    if not peer_is_trusted_proxy:
-        return peer
-
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        first = forwarded.split(",")[0].strip()
-        if first:
-            return first
-    real_ip = request.headers.get("x-real-ip")
-    if real_ip and real_ip.strip():
-        return real_ip.strip()
-    return peer
+    return client_ip(request)
 
 
 def _login_key(request: Request, email: str) -> str:
@@ -154,16 +129,9 @@ def _authenticate(request: Request, db: Session, email: str, password: str) -> U
 
 
 def _is_https_request(request: Request) -> bool:
-    proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
-    forwarded_ssl = request.headers.get("x-forwarded-ssl", "").strip().lower()
-    host = request.headers.get("host", "").split(":", 1)[0].strip().lower()
     return (
         settings.strict_security_required
-        or request.url.scheme == "https"
-        or proto == "https"
-        or forwarded_ssl == "on"
-        or host.endswith(".vercel.app")
-        or host.endswith(".hf.space")
+        or effective_request_scheme(request) == "https"
     )
 
 
