@@ -30,13 +30,9 @@ def is_price_purchaser(user: User) -> bool:
     if permission_denied(user, PURCHASING_PERMISSION):
         return False
     granted = user_permissions(user)
-    if "*" in granted or PURCHASING_PERMISSION in granted:
-        return True
-    if access_configured(user):
-        return False
-    name = _normalized(user.name)
-    email_local = _normalized(user.email).split("@", 1)[0]
-    return name == "abbosbek" or name.startswith("abbosbek ") or email_local == "abbosbek"
+    # Effective permissions only. A mutable display name or email must never
+    # imply purchasing-price access.
+    return "*" in granted or PURCHASING_PERMISSION in granted
 
 
 def is_accessory_pricing_user(user: User) -> bool:
