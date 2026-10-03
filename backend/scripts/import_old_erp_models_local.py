@@ -44,11 +44,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+from fastapi import HTTPException
 from sqlalchemy import func, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import flag_modified
 
+# Bound the imported document with the same guard the catalog write paths use.
+# ``catalog`` is not owned by this script, so this reaches into a private name;
+# the name should become public in a shared module (see the DB03 follow-up).
+from app.api.routes.catalog import _validate_model_details_json_bounds
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models import Model, ModelBOM, ModelColor, ModelImage, ModelSize, User
@@ -2393,6 +2398,35 @@ def merge_provenance(details: dict[str, Any], incoming: dict[str, Any]) -> None:
     current["validated_images"] = current_validated
 
 
+def validate_imported_details_json(details: dict[str, Any], model: Model) -> None:
+    """Refuse a document the rest of the ERP could not read back.
+
+    The catalog write paths bound ``details_json`` since DB03-MODEL, but this
+    import reaches the column through its own ``apply_details`` and so had no
+    ceiling of its own: an unbounded legacy payload, or a NaN that
+    ``json.dumps`` emits but Pydantic serializes as ``null``, could be stored
+    and then read back as something the import never wrote.
+
+    Unlike a catalog client edit this is not grandfathered. The caller is not
+    re-submitting a document it read, it is building the authoritative one out
+    of the legacy payload, so "the document happens to be unchanged" is not a
+    reason to skip the check -- that is precisely the case in which an
+    unbounded payload would stay blessed across re-runs unnoticed.
+
+    The guard speaks ``HTTPException`` because it was written for a request
+    handler. Translating it here keeps the script's error strategy unchanged:
+    ``MigrationError`` is what ``main`` and ``apply_plan`` already handle, and
+    ``apply_plan`` rolls the transaction back on it.
+    """
+    try:
+        _validate_model_details_json_bounds(details)
+    except HTTPException as exc:
+        raise MigrationError(
+            f"Imported Model.details_json is invalid for model {model.code!r} "
+            f"(id={model.id}): {exc.detail}"
+        ) from exc
+
+
 def apply_details(model: Model, patch: dict[str, Any], provenance: dict[str, Any], *, created: bool) -> None:
     details = copy.deepcopy(model.details_json) if isinstance(model.details_json, dict) else {}
     general = details.get("general")
@@ -2409,6 +2443,7 @@ def apply_details(model: Model, patch: dict[str, Any], provenance: dict[str, Any
         # Existing nonblank ERP data is authoritative and remains untouched.
     details["general"] = general
     merge_provenance(details, provenance)
+    validate_imported_details_json(details, model)
     model.details_json = details
     flag_modified(model, "details_json")
 
