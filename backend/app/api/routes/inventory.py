@@ -864,6 +864,34 @@ def receive_stock(
     return response
 
 
+def _lock_accessory_return_allowance(db: DbSession, production_order_id: int) -> None:
+    """Serialize the shared issue allowance behind an accessory return.
+
+    `returnable_quantity` is an aggregate, not a row: it is the order's issued
+    movements plus its manual accessory issues, minus every return already
+    recorded against the order. No single row carries it, so the production
+    order is the narrowest row that scopes all of it, and locking it is what
+    makes the read and the return the request records one decision.
+
+    `key_share=True` renders FOR NO KEY UPDATE, the narrowest row lock that
+    still serializes the read. A blanket FOR UPDATE would also conflict with the
+    FOR KEY SHARE PostgreSQL takes for the production_order_id foreign key that
+    reservation, work-order and movement writers insert under, so a return would
+    block those writers against this order row for no added safety.
+
+    The lock is a no-op when the order does not exist, so the route keeps its
+    own 404, and PostgreSQL releases it on commit or rollback.
+    """
+    if db.bind and db.bind.dialect.name == "postgresql":
+        (
+            db.query(ProductionOrder)
+            .filter(ProductionOrder.id == production_order_id)
+            .populate_existing()
+            .with_for_update(of=ProductionOrder, key_share=True)
+            .first()
+        )
+
+
 @router.post("/accessory-returns", response_model=StockBatchOut, status_code=201)
 def collect_back_accessory(
     payload: AccessoryReturnIn,
@@ -872,6 +900,8 @@ def collect_back_accessory(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     inventory_access.require_accessories(current)
+    # The allowance read below must not race the return this request records.
+    _lock_accessory_return_allowance(db, payload.production_order_id)
     fingerprint_payload = payload.model_dump(mode="json")
     if payload.length_m is None:
         fingerprint_payload.pop("length_m", None)
