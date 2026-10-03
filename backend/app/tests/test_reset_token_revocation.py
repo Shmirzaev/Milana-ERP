@@ -16,7 +16,7 @@ from sqlalchemy.orm import sessionmaker
 from app.api.routes import auth
 from app.core.security import create_access_token, hash_password, verify_password
 from app.db.base import Base
-from app.models import Department, PasswordResetToken, Role, User
+from app.models import AuditLog, Department, PasswordResetToken, Role, User
 from app.schemas.auth import ResetPasswordIn
 from app.services.password_reset import create_password_reset_token, password_reset_hash
 from app.tests.conftest import TestSessionLocal
@@ -190,7 +190,7 @@ def reset_postgres_engine():
         connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
     try:
         Base.metadata.create_all(
-            engine, tables=[Role.__table__, Department.__table__, User.__table__, PasswordResetToken.__table__],
+            engine, tables=[Role.__table__, Department.__table__, User.__table__, PasswordResetToken.__table__, AuditLog.__table__],
         )
         yield engine
     finally:
