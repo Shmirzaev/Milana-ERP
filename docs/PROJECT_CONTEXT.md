@@ -2,6 +2,15 @@
 
 Last updated: 2026-10-03
 
+## UCH IP workbook reconciled live (2026-10-03)
+
+- Reconciled `XITOY UCH IP (2).xlsx` at 05:49:08 UTC. Its seven actual rows uniquely match existing UCH IP item 93 receipts A1-A7 from 2026-08-19 by color/date and receipt evidence. Blank workbook batch/supplier cells were not invented: retained existing batch numbers and QIRGIZISTON supplier 17. IZUMRUT's historical 8,337 kg receipt had already been corrected by a 7,503.3 kg ledger adjustment to the source 833.7 kg receipt quantity. History was preserved.
+- Updated six batches through the existing ERP batch handler: A1 QORA 2,027 kg / 108 rolls; A2 IZUMRUT 333.7 / 37; A3 GOLUBOY 680 / 49; A4 GRAFIT 407 / 39; A5 OKIAN 374 / 35; A7 SERY 224 / 37. A6 HAKI already matched 819 kg / 36 rolls. Corrected GALUBOY/OKEAN color spellings to source GOLUBOY/OKIAN. No additions, archives, deletions or reservation changes. Existing receipt arrays, dates, supplier links, photos and historical movements remain unchanged; Excel has no individual roll weights/lengths.
+- The seven rows total 4,864.70 kg / 341 rolls, down 1,872.20 kg from ERP's 6,736.90 kg. The workbook's final 12,619.4 kg formula double-counts the 7,754.7 kg receipt subtotal in row 9 and is not used as physical stock. Blank formula-only rows were excluded. Overall fabric/semi-finished inventory is now 185,373.45 kg.
+- Verified backup `/opt/milana-erp/shared/backups/milana_erp_pre_fabric_reconcile_20261003_054838.dump`: 64,694,247 bytes, mode 0600, 1,216 restore objects; SHA-256 `213e7ad6344597574bc94a9d94b55da1a1297c1ff49690ca3356a45ba1bb83c0`; restore-list SHA-256 `86af545922addb4f69a2eb58db4a77f8cecae6574148632a654c453445b0d576`. Plan SHA-256 `45bcca35278f12b1861fda8a048b32dcea24805cd92dd217f9f8c4d4b4a1a1a8`; completion audit 34305.
+- Immediate database and signed public API readback verified all six updates and seven source groups, all 1,322 untouched batches, and the new audit segment (12 entries). All four health/login checks returned HTTP 200. Source arithmetic, executed planner assertions and diff review passed; no extra testing or extended monitoring. No application deployment: active blue `20261002_124419`, rollback green `20261002_065259`, schema `0135_usluga_paid_processes` unchanged; both production manifests matched before work.
+- Operation commit `2a4684b6` pushed to `clone_main` and `codex/uch-ip-fabric-20261003`. Dedicated worktree `C:/ERP/.codex-work/uch-ip-fabric-20261003`; private evidence in ignored `outputs/fabric-reconciliation/`. Legacy checkout preserved; context mirrored to Obsidian. Earlier held exceptions are unaffected.
+
 ## Five held SAMO batches added after fabric confirmation (2026-10-03)
 
 - Owner confirmed `30/1 COMPACT PENYA SUPREM` for SAMO batches 15785_1, 15798, 18336, 16939 and 21089. Used existing active item 81, catalog spelling `30/1 COMPACT PENYE SUPREM`, following the established PENYA alias. This resolves these five previously documented missing-material exceptions without creating a duplicate fabric master.
