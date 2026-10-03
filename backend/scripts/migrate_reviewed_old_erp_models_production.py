@@ -75,11 +75,13 @@ from decimal import Decimal
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
+from fastapi import HTTPException
 from sqlalchemy import func, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.api.routes import catalog
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models import Model, ModelBOM, ModelColor, ModelImage, ModelSize, User
@@ -1562,7 +1564,55 @@ def compile_plan(
         },
     }
     plan["plan_sha256"] = object_sha256(plan)
+    _preflight_details_bounds(plan)
     return plan
+
+
+def _preflight_details_bounds(plan: dict[str, Any]) -> None:
+    """Refuse to hand back a plan whose stored documents would be out of bounds.
+
+    ``apply_plan`` validates per record, but by the time it reaches an offending
+    record it has already materialised media and mutated the rows before it.
+    Compiling a plan has no such side effect, so the whole plan is checked here
+    and one that cannot be applied safely never becomes reviewable.
+
+    Each document is built exactly as ``apply_plan`` builds it, because
+    ``_append_receipt`` is pure -- the result is discarded and only the refusal
+    is used. The receipt carries the plan hash, so this runs once the plan
+    exists. ``existing_details`` is deliberately left unset: pre-flight may only
+    ever block, and the only way to know the stored document at this point would
+    be to add it to the reviewed plan artifact.
+    """
+    for action_index, action in enumerate(plan["actions"], start=1):
+        if action["action"] == "update_existing":
+            details = action["details_after"]
+        elif action["action"] == "create_model":
+            details = action["record"]["details_json"]
+        else:
+            raise MigrationError(f"Unsupported production action {action['action']!r}")
+        _append_receipt(
+            details,
+            plan=plan,
+            identity=action["identity"],
+            action=action["action"],
+            action_index=action_index,
+        )
+
+
+def _validate_details_bounds(details: object, *, existing_details: object, label: str) -> None:
+    """Apply the shared model-details bounds to a document this import stores.
+
+    The ceilings themselves live in the catalog routes so every write path
+    shares one definition. They are enforced here, after merging and after the
+    receipt is attached, because the size of the stored document is not the size
+    of either input. The shared validator reports by raising ``HTTPException``;
+    this importer reports every other failure as ``MigrationError``, so the
+    refusal is translated rather than leaking a web error out of a migration.
+    """
+    try:
+        catalog._validate_model_details_json_bounds(details, existing_details=existing_details)
+    except HTTPException as exc:
+        raise MigrationError(f"{label} details_json out of bounds: {exc.detail}") from exc
 
 
 def _append_receipt(
@@ -1572,6 +1622,7 @@ def _append_receipt(
     identity: str,
     action: str,
     action_index: int,
+    existing_details: object = None,
 ) -> dict[str, Any]:
     result = copy.deepcopy(details)
     current = result.get(RECEIPTS_KEY)
@@ -1599,6 +1650,11 @@ def _append_receipt(
     ):
         receipts.append(receipt)
     result[RECEIPTS_KEY] = receipts
+    _validate_details_bounds(
+        result,
+        existing_details=existing_details,
+        label=f"Model {identity} ({action})",
+    )
     return result
 
 
@@ -1776,6 +1832,10 @@ def apply_plan(
                     identity=action["identity"],
                     action="update_existing",
                     action_index=action_index,
+                    # The row this import is updating, already proven unchanged
+                    # by the details hash compared above, so a document that
+                    # predates the ceilings is still re-saved as it stands.
+                    existing_details=model.details_json,
                 )
                 flag_modified(model, "details_json")
                 result["added_sizes"] += _add_sizes(db, model, action["add_sizes"])
