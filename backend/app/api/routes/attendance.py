@@ -24,6 +24,7 @@ from app.services.factory_scope import normalize_factory_code, selected_factory_
 from app.services.image_storage import convert_image_to_webp
 from app.services.attendance_reports import ReportLanguage, build_daily_attendance_xlsx
 from app.services.audit import log_action
+from app.services.attendance_event_policy import accepted_attendance_result
 
 
 router = APIRouter(prefix="/attendance", tags=["attendance"])
@@ -429,6 +430,7 @@ def _attendance_people_query(
         AttendanceEvent.occurred_at >= start,
         AttendanceEvent.occurred_at <= end,
         AttendanceEvent.external_person_id.is_not(None),
+        accepted_attendance_result(AttendanceEvent.result),
     ).group_by(AttendanceEvent.external_person_id).subquery()
 
     # Hikvision commonly replicates the same employee profile to every lane.
@@ -664,6 +666,7 @@ def attendance_overview(
         AttendanceEvent.occurred_at >= start,
         AttendanceEvent.occurred_at <= end,
         AttendanceEvent.external_person_id.is_not(None),
+        accepted_attendance_result(AttendanceEvent.result),
     ).scalar() or 0
     events_today = db.query(func.count(AttendanceEvent.id)).filter(
         AttendanceEvent.factory_code == factory_code,
