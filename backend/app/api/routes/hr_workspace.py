@@ -26,8 +26,8 @@ from app.models import (
     User,
 )
 from app.services.audit import log_action
-from app.services.attendance_event_policy import accepted_attendance_result
 from app.services.factory_scope import factory_for_department, selected_factory_code
+from app.services.attendance_event_policy import accepted_attendance_result
 
 
 router = APIRouter(prefix="/hr", tags=["hr-workspace"])

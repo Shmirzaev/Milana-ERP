@@ -20,11 +20,11 @@ from app.core.config import settings
 from app.core.deps import DbSession, require_permissions
 from app.core.dt import as_utc, utcnow
 from app.models import AttendanceDevice, AttendanceEvent, AttendancePerson, User
-from app.services.attendance_event_policy import accepted_attendance_result
 from app.services.factory_scope import normalize_factory_code, selected_factory_code
 from app.services.image_storage import convert_image_to_webp
 from app.services.attendance_reports import ReportLanguage, build_daily_attendance_xlsx
 from app.services.audit import log_action
+from app.services.attendance_event_policy import accepted_attendance_result
 
 
 router = APIRouter(prefix="/attendance", tags=["attendance"])
