@@ -26,6 +26,7 @@ from app.models import (
     User,
 )
 from app.services.audit import log_action
+from app.services.attendance_event_policy import accepted_attendance_result
 from app.services.factory_scope import factory_for_department, selected_factory_code
 
 
@@ -449,7 +450,12 @@ def hr_attendance(db: DbSession, current: User = HrUser, day: date | None = None
     factory = _factory(current); selected = day or datetime.now(timezone.utc).date()
     start = datetime.combine(selected, datetime.min.time(), tzinfo=timezone.utc); end = start + timedelta(days=1)
     employees = db.query(Employee).filter(Employee.factory_code == factory, Employee.status == "active").all()
-    events = db.query(AttendanceEvent).filter(AttendanceEvent.factory_code == factory, AttendanceEvent.occurred_at >= start, AttendanceEvent.occurred_at < end).order_by(AttendanceEvent.occurred_at).all()
+    events = db.query(AttendanceEvent).filter(
+        AttendanceEvent.factory_code == factory,
+        AttendanceEvent.occurred_at >= start,
+        AttendanceEvent.occurred_at < end,
+        accepted_attendance_result(AttendanceEvent.result),
+    ).order_by(AttendanceEvent.occurred_at).all()
     grouped: dict[str, list[AttendanceEvent]] = {}
     for event in events:
         if event.external_person_id: grouped.setdefault(event.external_person_id, []).append(event)
