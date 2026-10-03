@@ -259,7 +259,7 @@ def test_super_data_console_requires_true_super_admin(client, auth_headers):
     assert r.status_code == 403, r.text
 
 
-def test_super_admin_can_edit_and_delete_rows_from_super_data_console(client, auth_headers):
+def test_super_admin_named_rename_keeps_rows_and_raw_delete_is_blocked(client, auth_headers):
     r = client.post(
         "/api/departments",
         json={"name": "Super Data Temporary", "code": "SDC"},
@@ -281,11 +281,11 @@ def test_super_admin_can_edit_and_delete_rows_from_super_data_console(client, au
     assert any(row["id"] == department_id for row in r.json()["rows"])
 
     r = client.delete(f"/api/admin/super-data/tables/departments/rows/{department_id}", headers=auth_headers)
-    assert r.status_code == 204, r.text
+    assert r.status_code == 409, r.text
 
     r = client.get("/api/admin/super-data/tables/departments?q=Super%20Data%20Edited", headers=auth_headers)
     assert r.status_code == 200, r.text
-    assert not any(row["id"] == department_id for row in r.json()["rows"])
+    assert any(row["id"] == department_id for row in r.json()["rows"])
 
 
 # ---------- H2: permission gating on state changes ----------
