@@ -27,6 +27,7 @@ from app.services.factory_scope import normalize_factory_code, selected_factory_
 from app.schemas.catalog import (
     UserIn, UserUpdate, UserOut, RoleIn, RoleOut, DepartmentIn, DepartmentOut,
 )
+from app.services.credentials import apply_password_credential_change, lock_user_for_credential_change
 from app.services.audit import export_audit_hash_chain, log_action, verify_audit_hash_chain
 from app.services.password_reset import create_password_reset_token, password_reset_url, send_password_email_safely
 from app.db.reset_demo import reset_to_seed
@@ -532,7 +533,8 @@ def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User 
     # SQLite ignores FOR UPDATE in disposable tests.
     if {"role_id", "extra_permissions", "access_policy", "is_active"} & payload.model_fields_set:
         db.query(User).filter(User.is_active.is_(True)).order_by(User.id).with_for_update(of=User).populate_existing().all()
-    u = db.get(User, user_id)
+    credential_change = bool(payload.password)
+    u = lock_user_for_credential_change(db, user_id, require_active=False) if credential_change else db.get(User, user_id)
     if not u:
         raise HTTPException(404, "User not found")
     data = payload.model_dump(exclude_unset=True)
@@ -586,13 +588,15 @@ def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User 
     if data.get("email") is not None and len(data["email"]) > 255:
         raise HTTPException(422, "User email must be at most 255 characters")
     if "password" in data and data["password"]:
-        u.password_hash = hash_password(data.pop("password"))
-        u.tokens_valid_from = datetime.now(timezone.utc)
+        apply_password_credential_change(db, u, data.pop("password"))
     elif "password" in data:
         data.pop("password")
     for k, v in data.items():
         setattr(u, k, v)
-    log_action(db, current, "update", "User", u.id, old_value=old_access, new_value=data)
+    audit_new_value = dict(data)
+    if credential_change:
+        audit_new_value.update({"credential_changed": True, "reset_links_invalidated": True})
+    log_action(db, current, "update", "User", u.id, old_value=old_access, new_value=audit_new_value)
     db.commit()
     db.refresh(u)
     return u

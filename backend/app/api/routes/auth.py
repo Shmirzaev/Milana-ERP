@@ -25,6 +25,7 @@ from app.models import (
 )
 from app.schemas.auth import ForgotPasswordIn, LoginIn, LoginOk, ResetPasswordIn, TokenOut, UserMe
 from app.services.audit import log_action
+from app.services.credentials import apply_password_credential_change, lock_user_for_credential_change
 from app.services.factory_scope import assigned_factory_code, authorize_login_factory, available_factory_codes, selected_factory_code
 from app.services.password_reset import (
     create_password_reset_token,
@@ -260,20 +261,39 @@ def reset_password(payload: ResetPasswordIn, db: DbSession):
         raise HTTPException(400, str(e)) from e
 
     token_hash = password_reset_hash(payload.token.strip())
-    reset_token = db.query(PasswordResetToken).filter(PasswordResetToken.token_hash == token_hash).first()
+    user_id = db.query(PasswordResetToken.user_id).filter(PasswordResetToken.token_hash == token_hash).scalar()
+    if user_id is None:
+        raise HTTPException(400, "Invalid or expired reset link")
+
+    # Sibling links must serialize on the same account, not individual tokens.
+    # Re-read the token after acquiring the lock so a waiting reset observes the
+    # first reset's invalidation even if this session already loaded the token.
+    user = lock_user_for_credential_change(db, user_id, require_active=True)
+    reset_token = (
+        db.query(PasswordResetToken)
+        .filter(PasswordResetToken.token_hash == token_hash)
+        .populate_existing()
+        .first()
+    )
     now = datetime.now(timezone.utc)
     if (
         not reset_token
         or reset_token.used_at is not None
         or as_utc(reset_token.expires_at) < now
-        or not reset_token.user
-        or not reset_token.user.is_active
+        or not user
+        or not user.is_active
     ):
         raise HTTPException(400, "Invalid or expired reset link")
 
-    reset_token.user.password_hash = hash_password(payload.new_password)
-    reset_token.user.tokens_valid_from = now
-    reset_token.used_at = now
+    apply_password_credential_change(db, user, payload.new_password, changed_at=now)
+    log_action(
+        db,
+        user,
+        "reset_password",
+        "User",
+        user.id,
+        new_value={"credential_changed": True, "reset_links_invalidated": True},
+    )
     db.commit()
     return {"message": "password_reset"}
 
@@ -334,13 +354,7 @@ def update_me(payload: ProfileUpdateIn, db: DbSession, user: CurrentUser):
 def change_password(payload: ChangePasswordIn, db: DbSession, user: CurrentUser):
     if payload.new_password != payload.confirm_new_password:
         raise HTTPException(400, "New passwords do not match")
-    locked_user = (
-        db.query(User)
-        .filter(User.id == user.id, User.is_active.is_(True))
-        .populate_existing()
-        .with_for_update(of=User)
-        .first()
-    )
+    locked_user = lock_user_for_credential_change(db, user.id, require_active=True)
     if not locked_user:
         raise HTTPException(401, "Invalid credentials")
     if not verify_password(payload.current_password, locked_user.password_hash):
@@ -349,9 +363,15 @@ def change_password(payload: ChangePasswordIn, db: DbSession, user: CurrentUser)
         validate_password_strength(payload.new_password)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
-    locked_user.password_hash = hash_password(payload.new_password)
-    locked_user.tokens_valid_from = datetime.now(timezone.utc)
-    log_action(db, locked_user, "change_password", "User", locked_user.id)
+    apply_password_credential_change(db, locked_user, payload.new_password)
+    log_action(
+        db,
+        locked_user,
+        "change_password",
+        "User",
+        locked_user.id,
+        new_value={"credential_changed": True, "reset_links_invalidated": True},
+    )
     db.commit()
     return {"message": "password_updated"}
 
