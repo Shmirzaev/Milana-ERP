@@ -1,11 +1,13 @@
 
-from fastapi import APIRouter, Depends, File, UploadFile
-from sqlalchemy.orm import joinedload
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
+from sqlalchemy.orm import joinedload, lazyload, selectinload
 
 from app.core.deps import DbSession, require_permissions
 from app.core.config import settings
 from app.models import Item, PurchaseOrder, PurchaseOrderLine, PurchaseRequest, PurchaseRequestLine, User
 from app.services import inventory_access
+from app.services.factory_scope import selected_factory_code
+from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 from app.schemas.purchasing import (
     PurchaseOrderIn,
     PurchaseOrderOut,
@@ -170,14 +172,48 @@ def receive_order(
     payload: PurchaseOrderReceiveIn,
     db: DbSession,
     current: User = Depends(require_permissions("purchasing.receive", "*")),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    if inventory_access.materials_only(current):
-        order_items = db.query(PurchaseOrderLine.item_id).filter(PurchaseOrderLine.purchase_order_id == order_id).all()
-        for (item_id,) in order_items:
-            inventory_access.require_item(db, current, item_id)
+    # Lock and refresh the order before any replay check. Serializing here is
+    # what makes a retry observe the first receipt's replay record instead of
+    # racing past it and creating a second stock batch for the same receipt.
+    # Eager joins are disabled so PostgreSQL locks only the purchase order row.
+    order_query = (
+        db.query(PurchaseOrder)
+        .options(lazyload("*"), selectinload(PurchaseOrder.lines))
+        .filter(PurchaseOrder.id == order_id)
+        .populate_existing()
+    )
+    if db.bind and db.bind.dialect.name == "postgresql":
+        order_query = order_query.with_for_update(of=PurchaseOrder)
+    locked_order = order_query.one_or_none()
+    if not locked_order:
+        raise HTTPException(404, "Purchase order not found")
+
+    # Authorize before replay: a stored response must not bypass the caller's
+    # current inventory access to the order's items.
+    for line in locked_order.lines:
+        inventory_access.require_item(db, current, line.item_id)
+
+    # Replay is scoped to factory, caller and order, so a key cannot be
+    # borrowed across any of them.
+    scope = f"purchasing.receive:{selected_factory_code(current)}:{current.id}:{order_id}"
+    fingerprint_payload = payload.model_dump(mode="json")
+    replay = replay_idempotent_response(
+        db, scope=scope, key=idempotency_key, payload=fingerprint_payload,
+    )
+    if replay is not None:
+        return replay
+
     order = receive_purchase_order(db, order_id=order_id, data=payload.model_dump(), current=current)
     for line in order.lines:
         inventory_access.require_item(db, current, line.item_id)
+    # The receipt, its stock, its audit trail and the replay record are written
+    # by one commit; a failure here must leave no stock and no replay row.
+    response = PurchaseOrderOut.model_validate(order).model_dump(mode="json")
+    store_idempotent_response(
+        db, scope=scope, key=idempotency_key, payload=fingerprint_payload,
+        response=response, user=current, status_code=200,
+    )
     db.commit()
-    db.refresh(order)
-    return order
+    return response
