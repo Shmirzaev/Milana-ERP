@@ -1,10 +1,24 @@
+import math
+from decimal import Decimal
 from uuid import UUID
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.common import ORMModel, SchemaModel
 from app.schemas.shipment_review import ShipmentTransportDetails
+
+
+def _swap_nonfinite_amount(value: object) -> object:
+    """Replace a nonfinite number with a serializable stand-in before validation.
+
+    FastAPI echoes the offending input into the 422 body, and `inf`/`nan` cannot be
+    JSON-encoded, so rejecting such a value directly makes the error response itself
+    fail to serialize and the caller sees a 500 instead of a validation error.
+    """
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and not math.isfinite(value):
+        return "non-finite number"
+    return value
 
 
 class SalesOrderItemIn(SchemaModel):
@@ -161,7 +175,16 @@ class ShipmentScanOut(BaseModel):
 
 class InvoiceIn(BaseModel):
     sales_order_id: int
-    amount: Optional[float] = None
+    # `invoices.amount` is NUMERIC(14, 2) with `amount >= 0`; max_digits/decimal_places
+    # mirror that column so nonfinite, sub-cent and out-of-range values never reach a write.
+    amount: Optional[Decimal] = Field(
+        default=None, ge=0, max_digits=14, decimal_places=2, allow_inf_nan=False
+    )
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def _swap_nonfinite_invoice_amount(cls, value: object) -> object:
+        return _swap_nonfinite_amount(value)
 
 
 class InvoiceOut(ORMModel):
@@ -176,7 +199,14 @@ class InvoiceOut(ORMModel):
 
 class PaymentIn(BaseModel):
     invoice_id: int
-    amount: float
+    # `payments.amount` is NUMERIC(14, 2) with `amount > 0`, so the smallest
+    # representable payment is one cent and nothing wider than the column is accepted.
+    amount: Decimal = Field(ge=0.01, max_digits=14, decimal_places=2, allow_inf_nan=False)
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def _swap_nonfinite_payment_amount(cls, value: object) -> object:
+        return _swap_nonfinite_amount(value)
     paid_at: Optional[datetime] = None
     payment_method: Optional[str] = None
     notes: Optional[str] = None
