@@ -99,6 +99,16 @@ export const api = {
     request<T>(p, { method: "GET", signal }, timeoutMs),
   post: <T = any>(p: string, body?: any, timeoutMs?: number) =>
     request<T>(p, { method: "POST", body: body !== undefined ? JSON.stringify(body) : undefined }, timeoutMs),
+  // Additive: a POST that can carry request headers, for endpoints whose
+  // contract is header-based rather than body-based (e.g. Idempotency-Key on
+  // purchase receipt). `request` already merges init.headers, so this cannot
+  // change the behaviour of any existing caller.
+  postWithHeaders: <T = any>(p: string, body?: any, headers?: Record<string, string>, timeoutMs?: number) =>
+    request<T>(
+      p,
+      { method: "POST", headers, body: body !== undefined ? JSON.stringify(body) : undefined },
+      timeoutMs,
+    ),
   postForm: async <T = any>(p: string, form: FormData, timeoutMs = 60_000): Promise<T> => {
     const res = await fetchWithTimeout(resolveUrl(p), { method: "POST", body: form }, timeoutMs);
     if (!res.ok) {
