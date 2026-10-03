@@ -2,6 +2,12 @@
 
 Last updated: 2026-10-03
 
+## DINAR 5132 balance override applied (2026-10-03)
+
+- Owner explicitly selected `DINAR 2026 (5) (6).xlsx`, Лист1 row 310, for batch 5132 only, overriding the prior ТЕСТ zero balance. Existing batch 817 now has 243.5 kg / 10 rolls, applied at 10:02:03 UTC through the ERP batch-update handler. All other fields, photos, fabric identity, history, reservations and 1,327 other batches are unchanged. One adjustment ledger entry was added; no duplicate receipt was created.
+- Verified backup `/opt/milana-erp/shared/backups/milana_erp_pre_fabric_reconcile_20261003_100137.dump`: 64,839,469 bytes, mode 0600, 1,216 restore objects, SHA-256 `051ed0ca36ccf24aac62a1eb8402aace4b91c1c134ee23cb28b88e4da27071d2`, restore-list SHA-256 `848aa2878aefff32b4c03648105860bd4d29a09ffcfbf74bffc94588bd9a215c`. Completion audit 34433, plan SHA-256 `474a3387695495f2377a1548cfb09346e1a413809f02cf4a2609146f892c98d4`.
+- Database/public API readback, transaction preservation checks, new audit segment and all four health checks passed. No extra test suite or monitoring. No application deployment: verified active blue `20261003_071825`, rollback green `20261003_065351`, schema `0135_usluga_paid_processes`. Operation commit `390df68f` pushed to `clone_main` and `codex/dinar-5132-20261003`. Worktree `C:/ERP/.codex-work/dinar-5132-20261003`; evidence in ignored `outputs/fabric-reconciliation/`. Context mirrored to Obsidian.
+
 ## Separate partial Packaging sidebar page deployed (20261003_071825; 2026-10-03)
 
 - LIVE: backend/frontend blue `20261003_071825`, exact application commit `d7d083def8bd190eff92b46562319e2735ce10cc`. Green `20261003_065351` remains running for rollback. Source manifests, image revisions, current symlinks and slot states agree. Database stays `0135_usluga_paid_processes`; migration-to-head was a no-op and startup seeding was disabled. No business data was created or changed by deployment.
