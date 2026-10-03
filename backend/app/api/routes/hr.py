@@ -7,8 +7,13 @@ from app.services.audit import log_action
 from app.services.factory_scope import factory_for_department, selected_factory_code
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.exc import IntegrityError
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from datetime import datetime
 from typing import Optional
+
+
+MAX_EMPLOYEE_SALARY = Decimal("9999999999.99")
+EMPLOYEE_SALARY_STEP = Decimal("0.0001")
 
 
 class EmployeeIn(BaseModel):
@@ -18,7 +23,7 @@ class EmployeeIn(BaseModel):
     department_id: Optional[int] = None
     position: Optional[str] = None
     phone: Optional[str] = None
-    salary: Optional[float] = None
+    salary: Optional[Decimal] = Field(default=None, allow_inf_nan=True)
     status: str = "active"
     joined_at: Optional[datetime] = None
     manager_employee_id: Optional[int] = None
@@ -39,7 +44,7 @@ class EmployeeUpdate(BaseModel):
     department_id: Optional[int] = None
     position: Optional[str] = None
     phone: Optional[str] = None
-    salary: Optional[float] = None
+    salary: Optional[Decimal] = Field(default=None, allow_inf_nan=True)
     status: Optional[str] = None
     joined_at: Optional[datetime] = None
     manager_employee_id: Optional[int] = None
@@ -60,6 +65,21 @@ def _normalize_employee_no(value) -> str | None:
         return None
     normalized = str(value).strip()
     return normalized or None
+
+
+def _validated_employee_salary(value: Decimal | None) -> Decimal | None:
+    if value is None:
+        return None
+    if not value.is_finite():
+        raise HTTPException(422, "Employee salary must be a finite number")
+    if value < 0:
+        raise HTTPException(422, "Employee salary must be nonnegative")
+    if value > MAX_EMPLOYEE_SALARY:
+        raise HTTPException(422, f"Employee salary must be no more than {MAX_EMPLOYEE_SALARY}")
+    try:
+        return value.quantize(EMPLOYEE_SALARY_STEP, rounding=ROUND_HALF_UP)
+    except InvalidOperation as exc:
+        raise HTTPException(422, "Employee salary must be a finite number") from exc
 
 
 def _ensure_employee_no_available(
@@ -96,7 +116,7 @@ def _serialize(r: Employee, *, include_private: bool = False) -> dict:
     }
     if include_private:
         payload["phone"] = r.phone
-        payload["salary"] = float(r.salary) if r.salary else None
+        payload["salary"] = float(r.salary) if r.salary is not None else None
         payload["hr_profile_json"] = r.hr_profile_json or {}
     return payload
 
@@ -165,6 +185,7 @@ def create_employee(payload: EmployeeIn, db: DbSession, current: User = Depends(
     )
     values = payload.model_dump()
     _ensure_employee_no_available(db, factory_code, values.get("employee_no"))
+    values["salary"] = _validated_employee_salary(values["salary"])
     e = Employee(factory_code=factory_code, **values)
     db.add(e)
     try:
@@ -202,6 +223,8 @@ def update_employee(eid: int, payload: EmployeeUpdate, db: DbSession, current: U
     )
     if "employee_no" in changes:
         _ensure_employee_no_available(db, factory_code, changes["employee_no"], exclude_id=e.id)
+    if "salary" in changes:
+        changes["salary"] = _validated_employee_salary(changes["salary"])
     for k, v in changes.items():
         setattr(e, k, v)
     try:
