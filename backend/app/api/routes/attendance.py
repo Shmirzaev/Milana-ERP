@@ -13,13 +13,13 @@ from anyio import CancelScope, to_thread
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import case, func, or_
+from sqlalchemy import case, func, or_, text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.deps import DbSession, require_permissions
 from app.core.dt import as_utc, utcnow
-from app.models import AttendanceDevice, AttendanceEvent, AttendancePerson, User
+from app.models import AttendanceDevice, AttendanceEvent, AttendancePerson, SystemSetting, User
 from app.services.factory_scope import normalize_factory_code, selected_factory_code
 from app.services.image_storage import convert_image_to_webp
 from app.services.attendance_reports import ReportLanguage, build_daily_attendance_xlsx
@@ -29,6 +29,8 @@ from app.services.attendance_event_policy import accepted_attendance_result
 
 router = APIRouter(prefix="/attendance", tags=["attendance"])
 TASHKENT = ZoneInfo("Asia/Tashkent")
+ATTENDANCE_IMPORT_LOCK_NAMESPACE = 1096043342
+ATTENDANCE_SOURCE_SETTING_PREFIX = "att_src:"
 
 
 class DeviceIn(BaseModel):
@@ -70,6 +72,14 @@ class PeopleSnapshotIn(BaseModel):
     device: DeviceIn
     people: list[PersonIn] = Field(max_length=5_000)
     full_snapshot: bool = True
+    source_snapshot_at: datetime | None = None
+
+    @field_validator("source_snapshot_at")
+    @classmethod
+    def validate_source_snapshot_at(cls, value: datetime | None) -> datetime | None:
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            raise ValueError("source_snapshot_at must include a timezone offset")
+        return value.astimezone(timezone.utc) if value is not None else None
 
 
 class EventIn(BaseModel):
@@ -98,6 +108,12 @@ class EventIn(BaseModel):
 class EventBatchIn(BaseModel):
     device: DeviceIn
     events: list[EventIn] = Field(max_length=2_000)
+    source_snapshot_at: datetime | None = None
+
+    @field_validator("source_snapshot_at")
+    @classmethod
+    def validate_source_snapshot_at(cls, value: datetime | None) -> datetime | None:
+        return PeopleSnapshotIn.validate_source_snapshot_at(value)
 
 
 class ManagedDeviceIn(BaseModel):
@@ -163,49 +179,213 @@ def _integration_factory() -> str:
     return normalize_factory_code(settings.ATTENDANCE_INTEGRATION_FACTORY_CODE, default="MIL")
 
 
+def _lock_attendance_import(db: Session, factory_code: str, device_key: str) -> None:
+    if db.get_bind().dialect.name == "postgresql":
+        db.execute(
+            text("SELECT pg_advisory_xact_lock(:namespace, hashtext(:resource))"),
+            {
+                "namespace": ATTENDANCE_IMPORT_LOCK_NAMESPACE,
+                "resource": f"{factory_code}:{device_key}",
+            },
+        )
+
+
+def _source_setting_key(factory_code: str, device_key: str) -> str:
+    identity = f"{factory_code}:{device_key}".encode("utf-8")
+    return ATTENDANCE_SOURCE_SETTING_PREFIX + hashlib.sha256(identity).hexdigest()[:56]
+
+
+def _source_checkpoint(value: object, field: str) -> datetime | None:
+    if not isinstance(value, dict) or not value.get(field):
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value[field]).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise RuntimeError(f"Invalid attendance source checkpoint: {field}") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise RuntimeError(f"Attendance source checkpoint lacks timezone: {field}")
+    return parsed.astimezone(timezone.utc)
+
+
+def _source_state(
+    db: Session,
+    factory_code: str,
+    device_key: str,
+) -> tuple[SystemSetting | None, dict[str, object]]:
+    query = db.query(SystemSetting).filter(
+        SystemSetting.key == _source_setting_key(factory_code, device_key),
+    )
+    if db.get_bind().dialect.name == "postgresql":
+        query = query.with_for_update(of=SystemSetting)
+    row = query.one_or_none()
+    if row is None:
+        return None, {"factory_code": factory_code, "device_key": device_key}
+    state = dict(row.value_json) if isinstance(row.value_json, dict) else {}
+    if state.get("factory_code") not in {None, factory_code} or state.get("device_key") not in {None, device_key}:
+        raise RuntimeError("Attendance source checkpoint identity mismatch")
+    state.update(factory_code=factory_code, device_key=device_key)
+    return row, state
+
+
+def _store_source_state(
+    db: Session,
+    row: SystemSetting | None,
+    state: dict[str, object],
+) -> None:
+    if row is None:
+        db.add(SystemSetting(
+            key=_source_setting_key(str(state["factory_code"]), str(state["device_key"])),
+            value_json=state,
+        ))
+    else:
+        row.value_json = state
+
+
+def _source_snapshot_at(
+    source_snapshot_at: datetime | None,
+    sync_started_at: datetime,
+) -> datetime | None:
+    if source_snapshot_at is None:
+        return None
+    normalized = as_utc(source_snapshot_at)
+    if normalized is None:
+        raise HTTPException(400, "source_snapshot_at must include a timezone offset")
+    maximum = sync_started_at + timedelta(seconds=settings.ATTENDANCE_SOURCE_MAX_FUTURE_SECONDS)
+    if normalized > maximum:
+        raise HTTPException(400, "source_snapshot_at is too far in the future")
+    return normalized
+
+
+def _advance_source_checkpoint(
+    state: dict[str, object],
+    field: str,
+    source_snapshot_at: datetime,
+    legacy_checkpoint: datetime | None,
+) -> tuple[bool, datetime | None]:
+    checkpoint = _source_checkpoint(state, field)
+    baseline = checkpoint if checkpoint is not None else as_utc(legacy_checkpoint)
+    if baseline is not None and source_snapshot_at <= baseline:
+        state[field] = baseline.isoformat()
+        return False, baseline
+    state[field] = source_snapshot_at.isoformat()
+    return True, baseline
+
+
 def _upsert_device(
     db: Session,
     payload: DeviceIn,
     identity: AttendanceDevice | None,
     *,
+    sync_started_at: datetime,
+    source_snapshot_at: datetime | None = None,
     people_sync: bool = False,
     event_sync: bool = False,
-) -> AttendanceDevice:
+) -> tuple[AttendanceDevice, str | None, str | None]:
     if identity is not None:
         if identity.device_key != payload.device_key:
             raise HTTPException(403, "Connector token does not belong to this attendance device")
         factory_code = identity.factory_code
-        device = identity
     else:
         factory_code = _integration_factory()
-        device = db.query(AttendanceDevice).filter(
-            AttendanceDevice.factory_code == factory_code,
-            AttendanceDevice.device_key == payload.device_key,
-        ).one_or_none()
-    now = utcnow()
+    _lock_attendance_import(db, factory_code, payload.device_key)
+    device_query = db.query(AttendanceDevice).filter(
+        AttendanceDevice.factory_code == factory_code,
+        AttendanceDevice.device_key == payload.device_key,
+    ).populate_existing()
+    if db.get_bind().dialect.name == "postgresql":
+        device_query = device_query.with_for_update(of=AttendanceDevice)
+    device = device_query.one_or_none()
+    if identity is not None and device is None:
+        raise HTTPException(404, "Attendance device not found")
+    source_snapshot_at = _source_snapshot_at(source_snapshot_at, sync_started_at)
+    source_row, source_state = _source_state(db, factory_code, payload.device_key)
+
+    if people_sync and device is not None:
+        source_people_checkpoint = _source_checkpoint(source_state, "people_snapshot_at")
+        source_metadata_checkpoint = _source_checkpoint(source_state, "metadata_snapshot_at")
+        if source_snapshot_at is None and (
+            source_people_checkpoint is not None or source_metadata_checkpoint is not None
+        ):
+            return device, "missing_source_version", "missing_source_version"
+        if source_snapshot_at is not None:
+            people_is_newer, _baseline = _advance_source_checkpoint(
+                source_state,
+                "people_snapshot_at",
+                source_snapshot_at,
+                device.last_people_sync_at,
+            )
+            if not people_is_newer:
+                if (
+                    _source_checkpoint(source_state, "metadata_snapshot_at") is None
+                    and as_utc(device.last_seen_at) is not None
+                ):
+                    source_state["metadata_snapshot_at"] = as_utc(device.last_seen_at).isoformat()
+                _store_source_state(db, source_row, source_state)
+                return device, "stale_source_version", "stale_source_version"
+        else:
+            previous_people_sync = as_utc(device.last_people_sync_at)
+            if previous_people_sync is not None and previous_people_sync >= sync_started_at:
+                return device, "stale_receipt", "stale_receipt"
+
+    vendor = payload.vendor
     if device is None:
         device = AttendanceDevice(
             factory_code=factory_code,
             device_key=payload.device_key,
             name=payload.name,
-            vendor=payload.vendor,
+            vendor=vendor,
             read_only=True,
         )
         db.add(device)
         db.flush()
-    device.name = payload.name
-    device.vendor = payload.vendor
-    device.model = payload.model
-    device.serial_no = payload.serial_no
-    device.source_host = payload.source_host
-    device.reported_person_count = payload.reported_person_count
-    device.read_only = True
-    device.last_seen_at = now
+        if people_sync and source_snapshot_at is not None:
+            source_state["people_snapshot_at"] = source_snapshot_at.isoformat()
+
+    metadata_ignored_reason = None
+    previous_seen = as_utc(device.last_seen_at)
+    if source_snapshot_at is not None:
+        metadata_is_newer, _baseline = _advance_source_checkpoint(
+            source_state,
+            "metadata_snapshot_at",
+            source_snapshot_at,
+            previous_seen,
+        )
+        if not metadata_is_newer:
+            metadata_ignored_reason = "stale_source_version"
+    elif _source_checkpoint(source_state, "metadata_snapshot_at") is not None:
+        metadata_is_newer = False
+        metadata_ignored_reason = "missing_source_version"
+    else:
+        metadata_is_newer = previous_seen is None or sync_started_at > previous_seen
+        if not metadata_is_newer:
+            metadata_ignored_reason = "stale_receipt"
+
+    if metadata_is_newer:
+        device.name = payload.name
+        device.vendor = vendor
+        device.model = payload.model
+        device.serial_no = payload.serial_no
+        device.source_host = payload.source_host
+        device.reported_person_count = payload.reported_person_count
+        device.read_only = True
+    if previous_seen is None or sync_started_at > previous_seen:
+        device.last_seen_at = sync_started_at
     if people_sync:
-        device.last_people_sync_at = now
+        device.last_people_sync_at = sync_started_at
     if event_sync:
-        device.last_event_sync_at = now
-    return device
+        previous_event_sync = as_utc(device.last_event_sync_at)
+        if previous_event_sync is None or sync_started_at > previous_event_sync:
+            device.last_event_sync_at = sync_started_at
+    if source_snapshot_at is not None:
+        if event_sync:
+            _advance_source_checkpoint(
+                source_state,
+                "event_snapshot_at",
+                source_snapshot_at,
+                None,
+            )
+        _store_source_state(db, source_row, source_state)
+    return device, None, metadata_ignored_reason
 
 
 @router.post("/integration/people")
@@ -214,16 +394,45 @@ def import_people_snapshot(
     db: DbSession,
     identity: AttendanceDevice | None = Depends(_require_integration_token),
 ):
-    device = _upsert_device(db, payload.device, identity, people_sync=True)
-    now = utcnow()
     seen: set[str] = set()
-    created = 0
-    updated = 0
     for incoming in payload.people:
         external_id = incoming.external_person_id
         if external_id in seen:
             raise HTTPException(400, f"Duplicate person ID in snapshot: {external_id}")
         seen.add(external_id)
+    if payload.full_snapshot and not seen and (payload.device.reported_person_count or 0) != 0:
+        raise HTTPException(400, "Refusing an empty full snapshot for a non-empty device")
+
+    sync_started_at = utcnow()
+    device, ignored_reason, _metadata_ignored_reason = _upsert_device(
+        db,
+        payload.device,
+        identity,
+        sync_started_at=sync_started_at,
+        source_snapshot_at=payload.source_snapshot_at,
+        people_sync=True,
+    )
+    if ignored_reason is not None:
+        device_id = device.id
+        db.commit()
+        response = {
+            "device_id": device_id,
+            "received": len(payload.people),
+            "created": 0,
+            "updated": 0,
+            "marked_absent": 0,
+            "reported_person_count": payload.device.reported_person_count,
+            "ignored": True,
+        }
+        if ignored_reason != "stale_receipt":
+            response["ignored_reason"] = ignored_reason
+        return response
+    now = sync_started_at
+    created = 0
+    updated = 0
+
+    for incoming in payload.people:
+        external_id = incoming.external_person_id
         person = db.query(AttendancePerson).filter(
             AttendancePerson.device_id == device.id,
             AttendancePerson.external_person_id == external_id,
@@ -254,8 +463,6 @@ def import_people_snapshot(
 
     marked_absent = 0
     if payload.full_snapshot:
-        if not seen and (payload.device.reported_person_count or 0) != 0:
-            raise HTTPException(400, "Refusing an empty full snapshot for a non-empty device")
         absent_query = db.query(AttendancePerson).filter(
             AttendancePerson.device_id == device.id,
             AttendancePerson.present_on_device.is_(True),
@@ -271,6 +478,7 @@ def import_people_snapshot(
         "updated": updated,
         "marked_absent": marked_absent,
         "reported_person_count": payload.device.reported_person_count,
+        "ignored": False,
     }
 
 
@@ -280,7 +488,15 @@ def import_events(
     db: DbSession,
     identity: AttendanceDevice | None = Depends(_require_integration_token),
 ):
-    device = _upsert_device(db, payload.device, identity, event_sync=True)
+    sync_started_at = utcnow()
+    device, _ignored_reason, metadata_ignored_reason = _upsert_device(
+        db,
+        payload.device,
+        identity,
+        sync_started_at=sync_started_at,
+        source_snapshot_at=payload.source_snapshot_at,
+        event_sync=True,
+    )
     incoming_uids = [event.event_uid for event in payload.events]
     if len(incoming_uids) != len(set(incoming_uids)):
         raise HTTPException(400, "Duplicate event UID in batch")
@@ -325,7 +541,15 @@ def import_events(
         ))
         inserted += 1
     db.commit()
-    return {"received": len(payload.events), "inserted": inserted, "duplicates": len(payload.events) - inserted}
+    response = {
+        "received": len(payload.events),
+        "inserted": inserted,
+        "duplicates": len(payload.events) - inserted,
+        "metadata_ignored": metadata_ignored_reason is not None,
+    }
+    if metadata_ignored_reason is not None:
+        response["metadata_ignored_reason"] = metadata_ignored_reason
+    return response
 
 
 def _write_new_attendance_photo(destination: Path, content: bytes) -> bool:
