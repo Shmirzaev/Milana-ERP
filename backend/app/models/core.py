@@ -52,7 +52,7 @@ class Employee(Base, PkMixin, TimestampMixin):
     department_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id"), nullable=True)
     position: Mapped[str | None] = mapped_column(String(128))
     phone: Mapped[str | None] = mapped_column(String(64))
-    salary: Mapped[float | None] = mapped_column(Numeric(12, 2))
+    salary: Mapped[float | None] = mapped_column(Numeric(14, 4))
     status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
     joined_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Additive HR profile data. Existing operational columns above stay the
