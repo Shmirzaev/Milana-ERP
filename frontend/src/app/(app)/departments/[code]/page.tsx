@@ -275,12 +275,6 @@ export default function DepartmentInboxPage() {
         </div>
       ) : null}
 
-      {["PKG", "BPK", "ECP"].includes(code) && !isLoading && (
-        <div className="mt-4">
-          <DepartmentOrderList rows={data?.partially_packaged || []} title={t("floor.partiallyPackaged")} emptyLabel={t("floor.noPartialOrders")} partialPackaging t={t} />
-        </div>
-      )}
-
       {(code === "PKG" || code === "BPK" || code === "ECP") && data?.awaiting_packaging?.length > 0 && (
         <div className="card mt-4 overflow-x-auto p-4">
           <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">{t("page.deptInbox.awaitingPackaging")}</h3>
