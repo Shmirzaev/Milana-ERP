@@ -208,6 +208,12 @@ def receive_order(
     order = receive_purchase_order(db, order_id=order_id, data=payload.model_dump(), current=current)
     for line in order.lines:
         inventory_access.require_item(db, current, line.item_id)
+    # Flush so the database evaluates updated_at (onupdate=func.now()), then
+    # read it back. Without this the response, and the replay record stored
+    # from it, would carry the pre-receipt timestamp. Refreshing only this
+    # column keeps the loaded lines and preserves the single commit below.
+    db.flush()
+    db.refresh(order, ["updated_at"])
     # The receipt, its stock, its audit trail and the replay record are written
     # by one commit; a failure here must leave no stock and no replay row.
     response = PurchaseOrderOut.model_validate(order).model_dump(mode="json")
