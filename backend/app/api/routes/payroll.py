@@ -91,6 +91,8 @@ PERIOD_MANAGE_STATUS_TRANSITIONS = {
 RECORD_STATUSES = {"recorded", "voided", "approved", "paid"}
 MUTATION_LOCKED_PERIOD_STATUSES = {"locked", "approved", "paid", "cancelled"}
 ADJUSTMENT_TYPES = {"bonus", "deduction"}
+PAYROLL_RECORD_COMPONENT_MAX = Decimal("9999999999.9999")
+PAYROLL_RECORD_TOTAL_MAX = Decimal("999999999999.99")
 PAYROLL_ADJUSTMENT_MAX_AMOUNT = Decimal("999999999999.99")
 PAYROLL_WORK_UNITS = {"piece", "work_unit"}
 PAYROLL_QR_TOKEN_LENGTH = 9
@@ -126,9 +128,26 @@ def _to_decimal(value: Any, default: Decimal = Decimal("0")) -> Decimal:
         amount = Decimal(str(value))
     except (InvalidOperation, ValueError, TypeError):
         raise HTTPException(400, f"Invalid numeric value: {value}")
+    if not amount.is_finite():
+        raise HTTPException(400, "Payroll numeric values must be finite")
     if amount < 0:
         raise HTTPException(400, "Payroll quantity and rates must be non-negative")
     return amount
+
+
+def _assert_record_numeric_components(quantity: Decimal, rate: Decimal) -> None:
+    if quantity > PAYROLL_RECORD_COMPONENT_MAX:
+        raise HTTPException(400, "Payroll quantity exceeds the supported maximum of 9999999999.9999")
+    if rate > PAYROLL_RECORD_COMPONENT_MAX:
+        raise HTTPException(400, "Payroll rate exceeds the supported maximum of 9999999999.9999")
+
+
+def _validated_record_total_amount(quantity: Decimal, rate: Decimal) -> Decimal:
+    _assert_record_numeric_components(quantity, rate)
+    total = (quantity * rate).quantize(Decimal("0.01"))
+    if total > PAYROLL_RECORD_TOTAL_MAX:
+        raise HTTPException(400, "Payroll total exceeds the supported maximum of 999999999999.99")
+    return total
 
 
 def _numeric_qr_token(prefix: str, record_id: int) -> str:
@@ -482,7 +501,7 @@ def _normalize_record_payload(payload: PayrollRecordIn) -> dict[str, Any]:
         "quantity": quantity,
         "rate_per_piece": rate,
         "currency": currency,
-        "total_amount": (quantity * rate).quantize(Decimal("0.01")),
+        "total_amount": None,
         "scanned_at": scanned_at,
         "source": _to_text(payload.source) or "payroll_scan",
         "notes": _to_text(payload.notes),
@@ -699,7 +718,6 @@ def _validate_and_enrich_record(db: DbSession, data: dict[str, Any], factory_cod
             "rate_per_piece": _to_decimal(issued_label.rate_per_piece),
             "currency": issued_label.currency,
         })
-        data["total_amount"] = (data["quantity"] * data["rate_per_piece"]).quantize(Decimal("0.01"))
         raw_work = dict(data.get("raw_work_json") or {})
         raw_work.update({
             "sewing_flow_id": issued_label.sewing_flow_id,
@@ -712,6 +730,7 @@ def _validate_and_enrich_record(db: DbSession, data: dict[str, Any], factory_cod
         })
         data["raw_work_json"] = raw_work
 
+    data["total_amount"] = _validated_record_total_amount(data["quantity"], data["rate_per_piece"])
     data["factory_code"] = factory_code
     data["operation_name"] = data.get("operation_name") or data.get("operation_code") or data.get("operation_section")
     data["dedupe_key"] = _dedupe_key(data)
