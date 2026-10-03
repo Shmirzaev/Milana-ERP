@@ -682,7 +682,9 @@ def set_stock_quantity(
     target_quantity = float(payload.quantity or 0)
     previous_quantity = current_stock_for_item(db, item_id)
     reserved_quantity = reserved_stock_for_item(db, item_id)
-    if target_quantity + EPSILON < reserved_quantity and not force:
+    # Force permits legacy batch selection behavior, but a correction must
+    # never leave active reservations backed by less physical stock.
+    if target_quantity + EPSILON < reserved_quantity:
         raise HTTPException(409, f"Stock quantity cannot be lower than reserved quantity ({reserved_quantity:g} {item.unit})")
     delta = target_quantity - previous_quantity
     if abs(delta) <= EPSILON:
@@ -1433,7 +1435,9 @@ def update_batch(
         values["image_url"] = _validate_item_image_url(values["image_url"])
 
     target_quantity = float(values.get("quantity", old_quantity))
-    if target_quantity + EPSILON < reserved_quantity and not force:
+    # Force permits linked-record overrides, but a correction must never leave
+    # active reservations on this batch backed by less physical stock.
+    if target_quantity + EPSILON < reserved_quantity:
         raise HTTPException(
             409,
             f"Quantity cannot be lower than reserved stock ({reserved_quantity:g} {old_unit})",
