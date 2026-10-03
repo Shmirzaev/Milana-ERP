@@ -93,6 +93,7 @@ MUTATION_LOCKED_PERIOD_STATUSES = {"locked", "approved", "paid", "cancelled"}
 ADJUSTMENT_TYPES = {"bonus", "deduction"}
 PAYROLL_RECORD_COMPONENT_MAX = Decimal("9999999999.9999")
 PAYROLL_RECORD_TOTAL_MAX = Decimal("999999999999.99")
+PAYROLL_ADJUSTMENT_MAX_AMOUNT = Decimal("999999999999.99")
 PAYROLL_WORK_UNITS = {"piece", "work_unit"}
 PAYROLL_QR_TOKEN_LENGTH = 9
 PAYROLL_EMPLOYEE_TOKEN_PREFIX = "1"
@@ -176,13 +177,21 @@ def _to_money_decimal(value: Any) -> Decimal:
     if not _present(value):
         raise HTTPException(400, "amount is required")
     try:
-        return Decimal(str(value)).quantize(Decimal("0.01"))
+        amount = Decimal(str(value))
+        if not amount.is_finite():
+            raise HTTPException(400, f"Invalid numeric value: {value}")
+        cents = amount.quantize(Decimal("0.01"))
+        if amount != cents:
+            raise HTTPException(400, "Adjustment amount supports at most 2 decimal places")
+        return cents
     except (InvalidOperation, ValueError, TypeError):
         raise HTTPException(400, f"Invalid numeric value: {value}")
 
 
 def _normalize_adjustment_amount(payload: PayrollAdjustmentIn) -> tuple[Decimal, str]:
     raw_amount = _to_money_decimal(payload.amount)
+    if abs(raw_amount) > PAYROLL_ADJUSTMENT_MAX_AMOUNT:
+        raise HTTPException(400, "Adjustment amount exceeds the supported maximum of 999999999999.99")
     adjustment_type = (payload.adjustment_type or "").strip().lower()
     if adjustment_type and adjustment_type not in ADJUSTMENT_TYPES:
         raise HTTPException(400, "adjustment_type must be bonus or deduction")
