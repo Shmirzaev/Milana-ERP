@@ -1254,6 +1254,33 @@ def build_corrected_details(
     }
 
 
+def validate_corrected_details_bounds(
+    details: dict[str, Any],
+    *,
+    existing_details: dict[str, Any],
+) -> None:
+    """Reuse the live size/depth guard while preserving exact legacy pass-through.
+
+    The correction pass writes ``details_json`` straight from
+    ``plan_model_correction``, so without this the script can store a document
+    the catalog write paths refuse.  The shared validator is imported lazily so
+    an offline correction run only pulls the web framework in once it actually
+    has a document to check, and its ``HTTPException`` is translated into this
+    script's own ``MigrationError`` so ``compile_correction_plan`` records the
+    model as a blocking issue instead of an unhandled failure.
+    """
+    from fastapi import HTTPException
+
+    from app.api.routes.catalog import _validate_model_details_json_bounds
+
+    try:
+        _validate_model_details_json_bounds(details, existing_details=existing_details)
+    except HTTPException as exc:
+        raise MigrationError(
+            f"Corrected Model.details_json is invalid: {exc.detail}"
+        ) from exc
+
+
 def product_name_decision(
     *,
     created: bool,
@@ -1383,6 +1410,15 @@ def plan_model_correction(
     )
     details_after = details_result.pop("details_after")
     details_changed = details_after != current_details
+    # Every ``details_json`` write in this script is fed from this function, so
+    # bounding the corrected document here covers both the dry-run plan and the
+    # apply pass that persists it.  An unchanged document is grandfathered by
+    # the shared validator, which keeps a row that predates the ceilings
+    # planable without letting a correction grow it further.
+    validate_corrected_details_bounds(
+        details_after,
+        existing_details=current_details,
+    )
     image_snapshot = copy.deepcopy(state.get("images") or [])
     return {
         "model_id": model_id,
