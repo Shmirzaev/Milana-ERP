@@ -540,14 +540,7 @@ def _attach_period(
         .order_by(PayrollPeriod.id.desc())
         .first()
     )
-    if period:
-        return period
-    return (
-        db.query(PayrollPeriod)
-        .filter(PayrollPeriod.factory_code == factory_code, PayrollPeriod.status == "open")
-        .order_by(PayrollPeriod.id.desc())
-        .first()
-    )
+    return period
 
 
 def _assert_period_accepts_records(period: PayrollPeriod | None, user: User) -> None:
@@ -3476,4 +3469,3 @@ def delete_adjustment(
     db.delete(adjustment)
     db.commit()
     return Response(status_code=204)
-
