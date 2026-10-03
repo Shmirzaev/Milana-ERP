@@ -1,10 +1,26 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Annotated, Optional
 
 from pydantic import BaseModel, Field
 
 from app.schemas.common import ORMModel, StoredUnitCost
+
+# Storage bound for purchase and receipt quantities. Matches the bound already
+# used by the cutting and passport quantity inputs, so a quantity that is
+# individually in range still cannot overflow its column once receipts
+# accumulate; the service re-checks the running total against this value.
+MAX_PURCHASE_QUANTITY = Decimal("9999999999.9999")
+
+PurchaseQuantity = Annotated[
+    Decimal,
+    Field(gt=0, le=MAX_PURCHASE_QUANTITY, allow_inf_nan=False),
+]
+PurchaseReceiptQuantity = Annotated[
+    float,
+    Field(gt=0, le=float(MAX_PURCHASE_QUANTITY), allow_inf_nan=False),
+]
+
 
 
 class PurchaseRequestLineIn(BaseModel):
@@ -65,7 +81,7 @@ class PurchaseRequestOut(ORMModel):
 
 class PurchaseOrderLineIn(BaseModel):
     item_id: int
-    ordered_quantity: float
+    ordered_quantity: PurchaseQuantity
     unit: Optional[str] = None
     unit_cost: StoredUnitCost = Decimal("0")
     warehouse_id: Optional[int] = None
@@ -121,7 +137,7 @@ class PurchaseOrderOut(ORMModel):
 
 class PurchaseOrderReceiveLineIn(BaseModel):
     purchase_order_line_id: int
-    received_quantity: float
+    received_quantity: PurchaseReceiptQuantity
     batch_no: str
     warehouse_id: Optional[int] = None
     supplier_id: Optional[int] = None
@@ -158,7 +174,7 @@ class PurchaseRequestApprovalIn(BaseModel):
 
 class PurchaseRequestOrderLineIn(BaseModel):
     purchase_request_line_id: int
-    ordered_quantity: float
+    ordered_quantity: PurchaseQuantity
 
 
 class PurchaseRequestOrderIn(BaseModel):

@@ -23,6 +23,7 @@ from app.models import (
     Warehouse,
     ProductionOrder,
 )
+from app.schemas.purchasing import MAX_PURCHASE_QUANTITY
 from app.services.audit import log_action
 from app.services.material_rolls import normalize_material_roll_weights
 from app.services.numbering import next_purchase_order_no, next_purchase_request_no
@@ -38,6 +39,16 @@ ORDER_RECEIVABLE_STATUSES = {"sent", "approved", "partially_received"}
 
 def _num(value) -> float:
     return float(value or 0)
+
+
+def _purchase_quantity(value) -> Decimal:
+    """Exact quantity arithmetic for bound checks.
+
+    A per-request quantity can be in range and still overflow its storage
+    column once receipts accumulate on the line, so the running total is
+    compared in Decimal rather than float.
+    """
+    return Decimal(str(value or 0))
 
 
 def _stored_cost(value: object, field: str) -> Decimal:
@@ -485,6 +496,9 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
         quantity = _num(raw.get("received_quantity"))
         if quantity <= 0:
             raise HTTPException(400, "Received quantity must be greater than zero")
+        total_received = _purchase_quantity(line.received_quantity) + _purchase_quantity(quantity)
+        if total_received > MAX_PURCHASE_QUANTITY:
+            raise HTTPException(400, "Total received quantity exceeds the supported maximum")
 
         batch_no = str(raw.get("batch_no") or "").strip()
         if not batch_no:
@@ -542,7 +556,7 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
             created_by=current.id,
         )
         db.add(movement)
-        line.received_quantity = _num(line.received_quantity) + quantity
+        line.received_quantity = float(total_received)
         if raw.get("cost_per_unit") is not None:
             line.unit_cost = cost_per_unit
         if not line.warehouse_id:
