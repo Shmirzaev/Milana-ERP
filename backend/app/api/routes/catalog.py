@@ -1,5 +1,7 @@
 from copy import deepcopy
 from datetime import date, datetime, timezone
+import json
+import math
 import os
 import re
 from uuid import uuid4
@@ -49,6 +51,108 @@ from app.services.paid_operations import (
 
 router = APIRouter(tags=["catalog"])
 COLLECTION_STATUSES = frozenset({"draft", "approved", "archived"})
+
+# A model's details_json is per-model modelling metadata: identity, costing and
+# paid operations. Sizes, measurements, BOM and images live in their own tables,
+# so 64 KiB is far above any real document while still bounding one stored row.
+_MAX_MODEL_DETAILS_JSON_BYTES = 64 * 1024
+# Real documents are general -> costing -> layers -> trimming, so about five
+# levels. 16 leaves room to extend the shape without ever approaching a depth
+# that a JSON encoder or decoder would have to recurse through.
+_MAX_MODEL_DETAILS_JSON_DEPTH = 16
+
+
+def _is_finite_json_number(value: object) -> bool:
+    """Reject NaN/Infinity, which ``json.dumps`` emits but JSON cannot read back."""
+    if isinstance(value, float):
+        return math.isfinite(value)
+    return True
+
+
+def _json_values_equal(left: object, right: object) -> bool:
+    """Compare JSON-shaped values iteratively and without bool/int aliasing.
+
+    ``{"a": 1} == {"a": True}`` in Python, so a plain ``==`` would treat a
+    changed document as identical and let it past the ceilings. A NaN compares
+    unequal to itself, so a document holding one is never grandfathered.
+    """
+    pending = [(left, right)]
+    while pending:
+        current_left, current_right = pending.pop()
+        if type(current_left) is not type(current_right):
+            return False
+        if isinstance(current_left, dict):
+            if current_left.keys() != current_right.keys():
+                return False
+            pending.extend((current_left[key], current_right[key]) for key in current_left)
+        elif isinstance(current_left, list):
+            if len(current_left) != len(current_right):
+                return False
+            pending.extend(zip(current_left, current_right))
+        elif current_left != current_right:
+            return False
+    return True
+
+
+def _validate_model_details_json_bounds(details: object, *, existing_details: object = None) -> None:
+    """Bound a model-detail document while keeping exact stored values editable.
+
+    Shared by every write path that persists ``details_json`` -- catalog
+    create/update, clone, variant create/update, model-number rename and the
+    family paid-operations save -- so none of them can store a document the
+    rest of the system cannot read back.
+
+    ``existing_details`` is the document already stored for the same row. An
+    exact re-submit of it is grandfathered, because rows that predate these
+    ceilings must stay editable and a client can only ever save the whole
+    document. Any changed document is checked, so the exemption cannot be used
+    to grow a row further; shrinking one is an ordinary validated save.
+
+    The walk is iterative on purpose: deeply nested input is exactly what the
+    depth ceiling exists to refuse, and a recursive walker would blow the Python
+    stack on the very payload it is meant to reject. The depth is bounded
+    before the byte ceiling is measured, so the recursive ``json.dumps`` below
+    never sees a document deep enough to overflow it.
+    """
+    if details is None or _json_values_equal(details, existing_details):
+        return
+
+    pending = [(details, 0)]
+    while pending:
+        value, parent_depth = pending.pop()
+        if isinstance(value, (dict, list)):
+            depth = parent_depth + 1
+            if depth > _MAX_MODEL_DETAILS_JSON_DEPTH:
+                raise HTTPException(
+                    422,
+                    f"details_json cannot exceed {_MAX_MODEL_DETAILS_JSON_DEPTH} nested container levels",
+                )
+            if isinstance(value, dict):
+                if any(not isinstance(key, str) for key in value):
+                    raise HTTPException(422, "details_json must contain JSON-compatible values")
+                pending.extend((child, depth) for child in value.values())
+            else:
+                pending.extend((child, depth) for child in value)
+        elif value is not None and (
+            type(value) not in (str, bool, int, float) or not _is_finite_json_number(value)
+        ):
+            raise HTTPException(422, "details_json must contain finite JSON-compatible values")
+
+    try:
+        # Measured in UTF-8 bytes of the stored form, not Python object size.
+        serialized = json.dumps(
+            details,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError):
+        raise HTTPException(422, "details_json must contain finite JSON-compatible values") from None
+    if len(serialized) > _MAX_MODEL_DETAILS_JSON_BYTES:
+        raise HTTPException(
+            422,
+            f"details_json cannot exceed {_MAX_MODEL_DETAILS_JSON_BYTES} UTF-8 bytes",
+        )
 
 
 def _standard_catalog_scope() -> str:
@@ -976,10 +1080,10 @@ def _build_model_code(model_no: str, variant_no: str) -> str:
     return clean_model_no or clean_variant_no
 
 
-def _set_model_identity(model: Model, *, model_no: str, variant_no: str) -> None:
-    model.code = _build_model_code(model_no, variant_no)
-    details = deepcopy(model.details_json or {})
-    general = details.get("general")
+def _model_identity_details(details: object, *, model_no: str, variant_no: str) -> dict:
+    """Build the details document a model carries after an identity rewrite."""
+    result = deepcopy(details) if isinstance(details, dict) else {}
+    general = result.get("general")
     if not isinstance(general, dict):
         general = {}
     general["model_no"] = _clean_text(model_no)
@@ -988,8 +1092,15 @@ def _set_model_identity(model: Model, *, model_no: str, variant_no: str) -> None
     else:
         general.pop("variant_no", None)
         general.pop("variantNo", None)
-    details["general"] = general
-    model.details_json = details
+    result["general"] = general
+    return result
+
+
+def _set_model_identity(model: Model, *, model_no: str, variant_no: str) -> None:
+    model.code = _build_model_code(model_no, variant_no)
+    model.details_json = _model_identity_details(
+        model.details_json, model_no=model_no, variant_no=variant_no
+    )
 
 
 def _rename_model_group(
@@ -1035,6 +1146,17 @@ def _rename_model_group(
                 409,
                 f"Model number change conflicts with existing variant {variant_no or next_code}",
             )
+
+    # Bound every rewrite before mutating any model, so a rejected rename leaves
+    # the whole group untouched rather than half-renamed.
+    for model, variant_no, _ in planned:
+        _validate_model_details_json_bounds(model.details_json)
+        _validate_model_details_json_bounds(
+            _model_identity_details(
+                model.details_json, model_no=clean_new_model_no, variant_no=variant_no
+            ),
+            existing_details=model.details_json,
+        )
 
     renamed: list[tuple[Model, str]] = []
     for model, variant_no, _ in planned:
@@ -1588,6 +1710,7 @@ def create_model(
         general.pop("variantNo", None)
     details["general"] = general
     model_data["details_json"] = details
+    _validate_model_details_json_bounds(model_data["details_json"])
 
     m = Model(
         **model_data,
@@ -1722,6 +1845,11 @@ def clone_model(
         raise HTTPException(404, "Model not found")
 
     new_code = _unique_model_copy_code(db, source.code)
+    # The copy is built, not received, so both the stored source and the document
+    # this clone will persist have to clear the ceilings before anything is added.
+    _validate_model_details_json_bounds(source.details_json)
+    cloned_details = _clone_details_for_code(source.details_json, new_code)
+    _validate_model_details_json_bounds(cloned_details, existing_details=source.details_json)
     cloned = Model(
         code=new_code,
         name=f"{source.name} Copy",
@@ -1733,7 +1861,7 @@ def clone_model(
         season=source.season,
         constructor_employee_id=source.constructor_employee_id,
         designer_employee_id=source.designer_employee_id,
-        details_json=_clone_details_for_code(source.details_json, new_code),
+        details_json=cloned_details,
         status="draft",
         created_by=current.id,
         sam_minutes=source.sam_minutes or 0,
@@ -1877,6 +2005,7 @@ def create_model_variant(
 
     # Refresh the source under the family lock before copying paid operations.
     approval = next((row for row in _approval_family(db, source) if row.status == "approved"), None)
+    _validate_model_details_json_bounds(source.details_json)
     details = deepcopy(source.details_json or {})
     general = details.get("general")
     if not isinstance(general, dict):
@@ -1898,6 +2027,7 @@ def create_model_variant(
         general.pop("variant_color", None)
     general.pop("variant_stock_batch_id", None)
     details["general"] = general
+    _validate_model_details_json_bounds(details, existing_details=source.details_json)
 
     cloned = Model(
         code=new_code,
@@ -2055,6 +2185,10 @@ def update_model_variant(
         "fabric_item_id": _variant_fabric_item_id_for_model(target),
         "color": getattr(_primary_material_bom_row(target), "color", None),
     }
+    # Snapshot the stored document first: the helpers below rewrite it in place,
+    # and the bounds must be judged against what the variant actually had.
+    _validate_model_details_json_bounds(target.details_json)
+    original_details = deepcopy(target.details_json)
     target.code = new_code
     _set_variant_general_details(
         target,
@@ -2071,6 +2205,7 @@ def update_model_variant(
             general.pop("variant_color", None)
         details["general"] = general
         target.details_json = details
+    _validate_model_details_json_bounds(target.details_json, existing_details=original_details)
     fabric_row = _primary_material_bom_row(target)
     if fabric_row and parent_fabric_item:
         _apply_variant_fabric_item(
@@ -2174,6 +2309,9 @@ def update_model(
             update_data.get("details_json"),
             factory_scope,
         )
+    if "details_json" in update_data:
+        # Bound the merged document, not the raw one: the merge is what is stored.
+        _validate_model_details_json_bounds(update_data["details_json"], existing_details=m.details_json)
     if "code" in update_data:
         update_data["code"] = _normalize_model_number(update_data.get("code"))
     incoming_details = update_data.get("details_json")
@@ -2242,9 +2380,16 @@ def update_model_paid_operations(
     # variant creation; row locks also protect concurrent factory saves.
     family_ids = [row.id for row in _approval_family(db, model)]
     family = db.query(Model).filter(Model.id.in_(family_ids)).order_by(Model.id).with_for_update().populate_existing().all()
+    # Rebuild and bound every member before writing any of them, so a rejected
+    # save leaves the whole family as it was instead of only its first rows.
+    pending_details: list[tuple[Model, dict]] = []
     for member in family:
+        next_details = replace_factory_paid_operations(member.details_json, payload.paid_operations, save_factory)
+        _validate_model_details_json_bounds(next_details, existing_details=member.details_json)
+        pending_details.append((member, next_details))
+    for member, next_details in pending_details:
         old_count = len(paid_operations_from_details(filter_paid_operations_for_factory(member.details_json, save_factory)))
-        member.details_json = replace_factory_paid_operations(member.details_json, payload.paid_operations, save_factory)
+        member.details_json = next_details
         log_action(
             db, current, "update_paid_operations", "Model", member.id,
             old_value={"factory": save_factory, "operation_count": old_count},
