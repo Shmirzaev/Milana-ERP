@@ -109,6 +109,7 @@ def _record(employee_id, period_id: int | None, label_uid):
         payroll_period_id=period_id,
         scan_uid=label_uid,
         employee_id=employee_id,
+        scanned_at=datetime(2026, 9, 20, tzinfo=timezone.utc),
         quantity=1,
         rate_per_piece=1,
     )

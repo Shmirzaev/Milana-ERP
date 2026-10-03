@@ -91,6 +91,9 @@ PERIOD_MANAGE_STATUS_TRANSITIONS = {
 RECORD_STATUSES = {"recorded", "voided", "approved", "paid"}
 MUTATION_LOCKED_PERIOD_STATUSES = {"locked", "approved", "paid", "cancelled"}
 ADJUSTMENT_TYPES = {"bonus", "deduction"}
+PAYROLL_RECORD_COMPONENT_MAX = Decimal("9999999999.9999")
+PAYROLL_RECORD_TOTAL_MAX = Decimal("999999999999.99")
+PAYROLL_ADJUSTMENT_MAX_AMOUNT = Decimal("999999999999.99")
 PAYROLL_WORK_UNITS = {"piece", "work_unit"}
 PAYROLL_QR_TOKEN_LENGTH = 9
 PAYROLL_EMPLOYEE_TOKEN_PREFIX = "1"
@@ -125,9 +128,26 @@ def _to_decimal(value: Any, default: Decimal = Decimal("0")) -> Decimal:
         amount = Decimal(str(value))
     except (InvalidOperation, ValueError, TypeError):
         raise HTTPException(400, f"Invalid numeric value: {value}")
+    if not amount.is_finite():
+        raise HTTPException(400, "Payroll numeric values must be finite")
     if amount < 0:
         raise HTTPException(400, "Payroll quantity and rates must be non-negative")
     return amount
+
+
+def _assert_record_numeric_components(quantity: Decimal, rate: Decimal) -> None:
+    if quantity > PAYROLL_RECORD_COMPONENT_MAX:
+        raise HTTPException(400, "Payroll quantity exceeds the supported maximum of 9999999999.9999")
+    if rate > PAYROLL_RECORD_COMPONENT_MAX:
+        raise HTTPException(400, "Payroll rate exceeds the supported maximum of 9999999999.9999")
+
+
+def _validated_record_total_amount(quantity: Decimal, rate: Decimal) -> Decimal:
+    _assert_record_numeric_components(quantity, rate)
+    total = (quantity * rate).quantize(Decimal("0.01"))
+    if total > PAYROLL_RECORD_TOTAL_MAX:
+        raise HTTPException(400, "Payroll total exceeds the supported maximum of 999999999999.99")
+    return total
 
 
 def _numeric_qr_token(prefix: str, record_id: int) -> str:
@@ -157,13 +177,21 @@ def _to_money_decimal(value: Any) -> Decimal:
     if not _present(value):
         raise HTTPException(400, "amount is required")
     try:
-        return Decimal(str(value)).quantize(Decimal("0.01"))
+        amount = Decimal(str(value))
+        if not amount.is_finite():
+            raise HTTPException(400, f"Invalid numeric value: {value}")
+        cents = amount.quantize(Decimal("0.01"))
+        if amount != cents:
+            raise HTTPException(400, "Adjustment amount supports at most 2 decimal places")
+        return cents
     except (InvalidOperation, ValueError, TypeError):
         raise HTTPException(400, f"Invalid numeric value: {value}")
 
 
 def _normalize_adjustment_amount(payload: PayrollAdjustmentIn) -> tuple[Decimal, str]:
     raw_amount = _to_money_decimal(payload.amount)
+    if abs(raw_amount) > PAYROLL_ADJUSTMENT_MAX_AMOUNT:
+        raise HTTPException(400, "Adjustment amount exceeds the supported maximum of 999999999999.99")
     adjustment_type = (payload.adjustment_type or "").strip().lower()
     if adjustment_type and adjustment_type not in ADJUSTMENT_TYPES:
         raise HTTPException(400, "adjustment_type must be bonus or deduction")
@@ -473,7 +501,7 @@ def _normalize_record_payload(payload: PayrollRecordIn) -> dict[str, Any]:
         "quantity": quantity,
         "rate_per_piece": rate,
         "currency": currency,
-        "total_amount": (quantity * rate).quantize(Decimal("0.01")),
+        "total_amount": None,
         "scanned_at": scanned_at,
         "source": _to_text(payload.source) or "payroll_scan",
         "notes": _to_text(payload.notes),
@@ -514,6 +542,10 @@ def _can_period_override(user: User) -> bool:
     return is_admin(user) or "management.approve" in perms or "payroll.approve" in perms
 
 
+def _can_set_payable_values(user: User) -> bool:
+    return is_admin(user) or "payroll.manage" in user_permissions(user)
+
+
 def _find_period(
     db: DbSession,
     period_id: int | None,
@@ -542,13 +574,7 @@ def _find_period(
         )
         .order_by(PayrollPeriod.id.desc())
     )
-    if period:
-        return period
-    return first(
-        db.query(PayrollPeriod)
-        .filter(PayrollPeriod.factory_code == factory_code, PayrollPeriod.status == "open")
-        .order_by(PayrollPeriod.id.desc())
-    )
+    return period
 
 
 def _attach_period(
@@ -613,7 +639,11 @@ def _dedupe_key(data: dict[str, Any]) -> str:
 
 
 def _validate_and_enrich_record(
-    db: DbSession, data: dict[str, Any], factory_code: str, *,
+    db: DbSession,
+    data: dict[str, Any],
+    factory_code: str,
+    *,
+    allow_manual_payable_values: bool,
     locked_labels: dict[str, PayrollQrLabel] | None = None,
     issued_label_validator: Callable[[PayrollQrLabel], None] | None = None,
 ) -> dict[str, Any]:
@@ -692,13 +722,13 @@ def _validate_and_enrich_record(
             .with_for_update()
             .one_or_none()
         )
+    if not issued_label and not allow_manual_payable_values:
+        raise HTTPException(403, "Payroll scan requires an issued payroll QR with server-approved pay values")
     if issued_label:
         if issued_label.status == "superseded":
             raise HTTPException(409, "This payroll QR was replaced by split labels and can no longer be scanned")
         if issued_label.status != "available":
             raise HTTPException(409, "This payroll QR is not available for scanning")
-        if issued_label_validator:
-            issued_label_validator(issued_label)
         if issued_label_validator:
             issued_label_validator(issued_label)
         data.update({
@@ -718,7 +748,6 @@ def _validate_and_enrich_record(
             "rate_per_piece": _to_decimal(issued_label.rate_per_piece),
             "currency": issued_label.currency,
         })
-        data["total_amount"] = (data["quantity"] * data["rate_per_piece"]).quantize(Decimal("0.01"))
         raw_work = dict(data.get("raw_work_json") or {})
         raw_work.update({
             "sewing_flow_id": issued_label.sewing_flow_id,
@@ -731,6 +760,7 @@ def _validate_and_enrich_record(
         })
         data["raw_work_json"] = raw_work
 
+    data["total_amount"] = _validated_record_total_amount(data["quantity"], data["rate_per_piece"])
     data["factory_code"] = factory_code
     data["operation_name"] = data.get("operation_name") or data.get("operation_code") or data.get("operation_section")
     data["dedupe_key"] = _dedupe_key(data)
@@ -931,7 +961,12 @@ def _create_record_from_payload(
             raise HTTPException(409, "Payroll period does not contain the selected work date")
         raise HTTPException(404, "Payroll period not found")
     data = _validate_and_enrich_record(
-        db, data, factory_code, locked_labels=locked_labels, issued_label_validator=issued_label_validator,
+        db,
+        data,
+        factory_code,
+        allow_manual_payable_values=_can_set_payable_values(current),
+        locked_labels=locked_labels,
+        issued_label_validator=issued_label_validator,
     )
     if _is_control_operation(data) and not control_confirmed:
         raise HTTPException(409, "Control operation requires review and confirmation before payroll is recorded")
@@ -2148,7 +2183,7 @@ def sewing_production_report_excel(
 def issue_qr_labels(
     payload: PayrollQrLabelsIssueIn,
     db: DbSession,
-    current: User = Depends(require_permissions("payroll.scan", "payroll.manage", "*")),
+    current: User = Depends(require_permissions("payroll.manage", "*")),
 ):
     if not payload.labels:
         raise HTTPException(400, "At least one payroll QR label is required")

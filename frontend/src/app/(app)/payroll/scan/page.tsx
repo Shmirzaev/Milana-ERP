@@ -567,6 +567,7 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
   const controlReviewRef = useRef<typeof controlReview>(null);
   const controlConfirmRef = useRef(false);
   const scanSequenceRef = useRef(0);
+  const scanQueueRef = useRef<Promise<void>>(Promise.resolve());
   const [controlBusy, setControlBusy] = useState(false);
   const [controlError, setControlError] = useState("");
   const [records, setRecords] = useState<PayrollRecord[]>([]);
@@ -946,12 +947,23 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
     );
   }
 
+  function enqueueScanAction(action: () => void | Promise<void>) {
+    const pending = scanQueueRef.current.then(action);
+    scanQueueRef.current = pending.catch(() => {});
+    return pending;
+  }
+
   async function submitScan(event?: React.FormEvent) {
     event?.preventDefault();
     clearAutoSubmitTimer();
     const raw = inputRef.current?.value.trim() || "";
     if (!raw) return;
     clearScanInput();
+    // Capture input immediately, then resolve badges and work in arrival order.
+    await enqueueScanAction(() => processScan(raw));
+  }
+
+  async function processScan(raw: string) {
     if (controlReviewRef.current) {
       setNotice(controlScanMessages[lang].pending, "warning");
       return;
@@ -970,6 +982,13 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
         await recordNumericWorkScan(raw, selectedEmployee, sequence);
         return;
       }
+      // A failed employee lookup must not leave the previous worker selected.
+      let employeeLookup = !/^2\d{8}$/.test(raw);
+      try { employeeLookup = parseScanPayload(raw, t).type === "employee_payroll"; } catch {}
+      if (employeeLookup) {
+        currentEmployeeRef.current = null;
+        setCurrentEmployee(null);
+      }
       const payload = await resolveScanPayload(raw, t);
       if (payload.type === "employee_payroll") {
         if (sequence !== scanSequenceRef.current) return;
@@ -979,7 +998,7 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
       }
 
       if (session !== employeeSessionRef.current) return;
-      const controlEmployee = currentEmployeeRef.current;
+      const controlEmployee = selectedEmployee;
       if (controlEmployee && isControlWork(payload)) {
         const preview = await api.post<ControlPreview>("/api/payroll/scan/control-preview", {
           label_uid: payload.label_id,
@@ -1005,7 +1024,7 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
         return;
       }
 
-      const employee = currentEmployeeRef.current;
+      const employee = selectedEmployee;
       if (!employee) {
         setNotice(t("page.payrollScan.scanEmployeeFirst"), "warning");
         return;
@@ -1295,8 +1314,11 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
           </div>}
           {canSavePayroll && <PayrollEmployeeSearch disabled={controlBusy} onSelect={employee => {
             clearScanInput();
-            if (!selectEmployee(employee)) return;
-            setNotice(t("page.payrollScan.employeeSelected", { name: employee.employee_name }), "success");
+            if (controlConfirmRef.current) return;
+            void enqueueScanAction(() => {
+              if (!selectEmployee(employee)) return;
+              setNotice(t("page.payrollScan.employeeSelected", { name: employee.employee_name }), "success");
+            });
           }} />}
 
           {message && (
