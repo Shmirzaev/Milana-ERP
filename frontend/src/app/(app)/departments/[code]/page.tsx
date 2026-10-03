@@ -84,8 +84,6 @@ export default function DepartmentInboxPage() {
   const code = String(params.code || "").toUpperCase();
   const deptLabel = DEPT_LABELS[code] ? t(DEPT_LABELS[code]) : code;
   const [clientTz, setClientTz] = useState("UTC");
-  const [startingWoId, setStartingWoId] = useState<number | null>(null);
-  const [startError, setStartError] = useState("");
   const [creatingShipmentFor, setCreatingShipmentFor] = useState<string | null>(null);
   const [shipmentError, setShipmentError] = useState("");
 
@@ -219,19 +217,6 @@ export default function DepartmentInboxPage() {
     }));
   }, [data?.ready_to_ship, readyPackagesByOrder]);
 
-  async function movePendingToInProgress(workOrderId: number) {
-    setStartingWoId(workOrderId);
-    setStartError("");
-    try {
-      await api.post(`/api/work-orders/${workOrderId}/start`, {});
-      await mutate();
-    } catch (e: any) {
-      setStartError(e?.message || localizeError("Failed to move work order to in progress"));
-    } finally {
-      setStartingWoId(null);
-    }
-  }
-
   async function createShipmentForOrder(salesOrderId: number | null | undefined) {
     const soId = Number(salesOrderId || 0);
     if (!soId) return;
@@ -276,24 +261,25 @@ export default function DepartmentInboxPage() {
       {!isLoading && (code === "CUT" || code === "ECT") ? (
         <CuttingOrderList
           rows={cuttingWorkOrders}
-          startingWorkOrderId={startingWoId}
-          startError={startError}
-          onMoveToInProgress={movePendingToInProgress}
+          cuttingDepartment={code}
           t={t}
         />
       ) : !isLoading ? (
         <div className="min-w-0 space-y-2">
-          {startError ? <div role="alert" className="text-sm text-red-700">{startError}</div> : null}
           <DepartmentOrderList
             rows={departmentOrders}
             title={t("page.deptInbox.orders", { count: departmentOrders.length })}
             emptyLabel={t("page.deptInbox.noOrders")}
-            startingWorkOrderId={startingWoId}
-            onMoveToInProgress={movePendingToInProgress}
             t={t}
           />
         </div>
       ) : null}
+
+      {["PKG", "BPK", "ECP"].includes(code) && !isLoading && (
+        <div className="mt-4">
+          <DepartmentOrderList rows={data?.partially_packaged || []} title={t("floor.partiallyPackaged")} emptyLabel={t("floor.noPartialOrders")} partialPackaging t={t} />
+        </div>
+      )}
 
       {(code === "PKG" || code === "BPK" || code === "ECP") && data?.awaiting_packaging?.length > 0 && (
         <div className="card mt-4 overflow-x-auto p-4">

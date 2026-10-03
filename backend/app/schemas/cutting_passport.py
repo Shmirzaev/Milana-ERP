@@ -24,7 +24,7 @@ class CuttingPassportIn(BaseModel):
 
     materials: list[PassportMaterial] = Field(default_factory=list)
     additional_materials: list[PassportAdditionalMaterial] = Field(default_factory=list)
-    passport_no: str
+    passport_no: str = Field(default="", max_length=32)
     date: datetime
     production_order_id: Optional[int] = None
     operator_id: Optional[int] = None

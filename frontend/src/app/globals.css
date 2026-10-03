@@ -298,6 +298,9 @@ dd {
 .table tbody tr:hover {
   background-color: var(--erp-surface-hover);
 }
+:root[data-theme="night"] .table tbody tr:hover {
+  background-color: var(--erp-surface-hover) !important;
+}
 .table code {
   background-color: var(--erp-surface-muted);
   color: var(--erp-text-soft);
@@ -336,6 +339,7 @@ dd {
 :root[data-theme="night"] [class~="bg-[#f7f6f1]"] {
   background-color: var(--erp-bg) !important;
 }
+:root[data-theme="night"] [class~="bg-white"],
 :root[data-theme="night"] [class~="bg-[#fdfcf8]"],
 :root[data-theme="night"] [class~="bg-[#fdfcf8]/95"] {
   background-color: var(--erp-surface) !important;

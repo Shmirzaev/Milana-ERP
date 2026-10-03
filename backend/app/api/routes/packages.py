@@ -334,6 +334,7 @@ def _package_label_details(db: DbSession, pkg: Package, model: Model | None) -> 
     product = (model.product_type or model.name) if model else ""
     order_no = (so.order_no if so else None) or (po.production_no if po else None)
     return {
+        "factory": {"PKG": "Milana", "BPK": "Besttex", "ECP": "Eco Cotton"}.get(pkg.packaging_department_code, "Milana"),
         "client": customer.name if customer else "MILANA",
         "order": str(order_no or "-"),
         "model": str(model_code or "-"),
@@ -399,7 +400,7 @@ def _package_label_card_html(db: DbSession, pkg: Package) -> str:
             label_sizes = receipt.evidence.get("configured_sizes") or None
     return f"""
 <article class='label' data-package='{_h(pkg.package_no)}'>
-  <header class='label-head'><span>MILANA ERP</span><span>{"1st Grade / 1-й сорт / 1-nav" if pkg.stock_kind == "first_grade" else "PACKAGE LABEL"}</span></header>
+  <header class='label-head'><span>{_h(details['factory'])}</span><span>{"1st Grade / 1-й сорт / 1-nav" if pkg.stock_kind == "first_grade" else "PACKAGE LABEL"}</span><!--label-ordinal--></header>
   <table class='details'>
     <tr><th>Client</th><td class='value-right'>{_h(details['client'])}</td></tr>
     <tr><th>Order number</th><td class='value-right'>{_h(details['order'])}</td></tr>

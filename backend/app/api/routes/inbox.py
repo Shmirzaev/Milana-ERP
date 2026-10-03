@@ -10,6 +10,7 @@ from app.models import (
     BrandedPlanningOrder,
     Bundle,
     Customer,
+    CuttingPassport,
     Department,
     Package,
     ProductionOrder,
@@ -908,6 +909,12 @@ def department_inbox(
     )
     material_by_po = _material_payload_by_production_order(db, work_order_po_ids)
     production_context_by_po = _production_context_by_production_order(db, work_order_po_ids)
+    if d.code in {"CUT", DEPT_ECO_COTTON_CUTTING}:
+        passport_ids = dict(db.query(CuttingPassport.production_order_id, func.max(CuttingPassport.id))
+                            .filter(CuttingPassport.production_order_id.in_(work_order_po_ids))
+                            .group_by(CuttingPassport.production_order_id).all())
+        for po_id, context in production_context_by_po.items():
+            context["cutting_passport_id"] = passport_ids.get(po_id)
     blocked = [w for w in queue_work_orders if bool(w.is_blocked)]
     overdue = [
         w
@@ -926,6 +933,7 @@ def department_inbox(
         and as_utc(w.end_time).astimezone(client_tz).date() == today_client
     ]
     awaiting_packaging = []
+    partially_packaged = []
     if d.code in {"PKG", DEPT_BESTTEX_PACKAGING, DEPT_ECO_COTTON_PACKAGING}:
         packaging_dept_id = int(d.id)
         sewing_rows = (
@@ -953,6 +961,15 @@ def department_inbox(
             if not packaging_wo:
                 continue
             already_packed = int(packaging_wo.passed_qty or 0)
+            planned = max(int(packaging_wo.planned_output_qty or 0), sewn)
+            if 0 < already_packed < planned:
+                partially_packaged.append({
+                    **_work_order_card_payload(packaging_wo, {}, None, packaging_material_by_po, packaging_context_by_po),
+                    "already_packed": already_packed,
+                    "sewn_passed": sewn,
+                    "remaining_qty": planned - already_packed,
+                    "ready_qty": max(0, sewn - already_packed),
+                })
             if sewn - already_packed <= 0:
                 continue
             context = _production_context_for_po(packaging_context_by_po, int(po_id))
@@ -1140,6 +1157,7 @@ def department_inbox(
 
     return {
         "department": {"id": d.id, "code": d.code, "name": d.name},
+        "partially_packaged": partially_packaged,
         "incoming_bundles": [
             {
                 "id": b.id,

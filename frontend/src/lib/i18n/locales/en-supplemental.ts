@@ -1,5 +1,10 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "floor.addPassport": "Add passport",
+    "floor.passportCreated": "Passport created",
+    "floor.partiallyPackaged": "Partially packaged orders",
+    "floor.remaining": "Remaining to package",
+    "floor.noPartialOrders": "No partially packaged orders",
     "page.inventory.arrivalDate": "Arrival date",
     "qrOrders.none": "No QR codes scanned",
     "qrOrders.partial": "Partially scanned",

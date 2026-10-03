@@ -1,6 +1,6 @@
 "use client";
 import { formatModelVariantCode, formatVariantNumber } from "@/lib/variantDisplay";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR, { useSWRConfig } from "swr";
 import SearchableSelect from "@/components/SearchableSelect";
@@ -441,7 +441,6 @@ export default function CuttingPassportsPage() {
     e.preventDefault();
     if (saving) return;
     setErr("");
-    if (!form.passport_no) { setErr(t("page.cuttingPassports.error.passportRequired")); return; }
     setSaving(true);
     try {
       const payload = { ...buildPayload(), additional_materials: additionalMaterials.map((row) => ({ ...row, estimated_quantity: row.unit === "kg" ? Number(materialForms.find((material) => material.stock_batch_id === row.stock_batch_id)?.planned_kg || 0) : row.estimated_quantity })), materials: materialForms.map((row) => ({ ...buildPayload(row), stock_batch_id: row.stock_batch_id })) };
@@ -451,7 +450,7 @@ export default function CuttingPassportsPage() {
         await api.post("/api/cutting-passports", payload);
       }
       await mutate();
-      await refreshCache((key) => typeof key === "string" && (key.startsWith("/api/production-orders") || key.startsWith("/api/inventory/reservations") || key.startsWith("/api/inventory/batches")), undefined, { revalidate: true });
+      await refreshCache((key) => typeof key === "string" && (key.startsWith("/api/inbox") || key.startsWith("/api/production-orders") || key.startsWith("/api/inventory/reservations") || key.startsWith("/api/inventory/batches")), undefined, { revalidate: true });
       resetMaterialPicker();
       setShowForm(false);
     } catch (e: any) {
@@ -478,8 +477,7 @@ export default function CuttingPassportsPage() {
   const sf = (k: keyof typeof EMPTY_FORM) => (e: React.ChangeEvent<any>) =>
     setForm((prev) => ({ ...prev, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value }));
 
-  async function selectProductionOrder(e: React.ChangeEvent<HTMLSelectElement>) {
-    const value = e.target.value;
+  async function selectProductionOrder(value: string) {
     resetMaterialPicker();
     const request = ++orderRequest.current;
     setMaterialForms([]);
@@ -532,6 +530,23 @@ export default function CuttingPassportsPage() {
       // Some older orders may not have a received material batch yet; keep manual entry available.
     }
   }
+
+  const openedRequest = useRef("");
+  const requestedOrder = searchParams.get("production_order_id");
+  const requestedPassport = searchParams.get("passport_id");
+  useEffect(() => {
+    const key = `${cuttingDepartment}:${requestedOrder || ""}:${requestedPassport || ""}`;
+    if (openedRequest.current === key || (!requestedOrder && !requestedPassport)) return;
+    openedRequest.current = key;
+    if (requestedPassport && /^\d+$/.test(requestedPassport)) {
+      void api.get<Passport>(`/api/cutting-passports/${requestedPassport}`).then(openEdit).catch((error) => setErr(error.message));
+    } else if (requestedOrder && /^\d+$/.test(requestedOrder)) {
+      openCreate();
+      void selectProductionOrder(requestedOrder);
+    }
+    // URL navigation initializes once; cache refreshes must not reset entered details.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cuttingDepartment, requestedOrder, requestedPassport]);
 
   async function openMaterialPicker() {
     if (!form.production_order_id) return;
@@ -768,8 +783,8 @@ export default function CuttingPassportsPage() {
 
           <Sec label={t("page.cuttingPassports.section.basicInfo")}>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field label={t("page.cuttingPassports.field.passportNoRequired")}>
-                <input className="input" placeholder={t("page.cuttingPassports.placeholder.exampleNumber")} value={f.passport_no} onChange={sf("passport_no")} required />
+              <Field label={t("page.cuttingPassports.field.passportNo")}>
+                <input className="input" placeholder={t("page.cuttingPassports.placeholder.exampleNumber")} value={f.passport_no} onChange={sf("passport_no")} />
               </Field>
               <Field label={t("page.cuttingPassports.field.date")}>
                 <input className="input" type="date" value={f.date} onChange={sf("date")} />
@@ -780,7 +795,7 @@ export default function CuttingPassportsPage() {
           <Sec label={t("page.cuttingPassports.section.modelIdentification")}>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
               <Field label={t("page.cuttingPassports.field.erpOrderModel")}>
-                <select className="input" value={f.production_order_id} onChange={selectProductionOrder}>
+                <select className="input" value={f.production_order_id} onChange={(event) => void selectProductionOrder(event.target.value)}>
                   <option value="">{t("page.cuttingPassports.placeholder.chooseNone")}</option>
                   {prodOrdersArr.map((po: any) => {
                     return (

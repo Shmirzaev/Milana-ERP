@@ -1,5 +1,10 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "floor.addPassport": "Pasport qo‘shish",
+    "floor.passportCreated": "Pasport yaratilgan",
+    "floor.partiallyPackaged": "Qisman qadoqlangan buyurtmalar",
+    "floor.remaining": "Qadoqlash uchun qoldiq",
+    "floor.noPartialOrders": "Qisman qadoqlangan buyurtmalar yo‘q",
     "page.inventory.arrivalDate": "Kelgan sana",
     "qrOrders.none": "QR kodlar skanerlanmagan",
     "qrOrders.partial": "Qisman skanerlangan",

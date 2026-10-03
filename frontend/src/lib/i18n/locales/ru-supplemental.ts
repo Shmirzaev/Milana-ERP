@@ -1,5 +1,10 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "floor.addPassport": "Добавить паспорт",
+    "floor.passportCreated": "Паспорт создан",
+    "floor.partiallyPackaged": "Частично упакованные заказы",
+    "floor.remaining": "Осталось упаковать",
+    "floor.noPartialOrders": "Нет частично упакованных заказов",
     "page.inventory.arrivalDate": "Дата поступления",
     "qrOrders.none": "QR-коды не отсканированы",
     "qrOrders.partial": "Частично отсканировано",

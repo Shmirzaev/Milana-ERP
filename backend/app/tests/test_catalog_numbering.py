@@ -6,15 +6,15 @@ from app.tests.conftest import TestSessionLocal
 def test_variant_stream_skips_legacy_codes_and_metadata_without_following_outliers():
     with TestSessionLocal() as db:
         db.add_all([
-            Model(code="XJ3200-06428", name="Legacy numeric suffix"),
-            Model(code="SPECIAL", name="Explicit variant", details_json={"general": {"variant_no": "V6429"}}),
+            Model(code="XJ3200-06455", name="Legacy numeric suffix"),
+            Model(code="SPECIAL", name="Explicit variant", details_json={"general": {"variant_no": "V6456"}}),
             Model(code="PJ1164-43891", name="Historical outlier"),
         ])
         db.commit()
-        assert next_model_variant_no(db) == "V-6430"
-        assert next_model_variant_no(db, reserve=True) == "V-6430"
+        assert next_model_variant_no(db) == "V-6457"
+        assert next_model_variant_no(db, reserve=True) == "V-6457"
         db.commit()
-        assert next_model_variant_no(db) == "V-6431"
+        assert next_model_variant_no(db) == "V-6458"
 
 
 def test_model_prefix_stream_skips_existing_variants_and_keeps_other_prefixes():

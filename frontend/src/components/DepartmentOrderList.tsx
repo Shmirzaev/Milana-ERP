@@ -38,6 +38,9 @@ export type DepartmentOrder = {
   status?: string;
   planned_output_qty?: number | null;
   passed_qty?: number | null;
+  already_packed?: number;
+  remaining_qty?: number;
+  sewn_passed?: number;
   ready_qty?: number | null;
   expected_qty?: number | null;
   received_qty?: number | null;
@@ -86,14 +89,13 @@ function rowTone(state: ReturnType<typeof departmentStateFor>) {
 }
 
 export default function DepartmentOrderList({
-  rows, title, emptyLabel, t, startingWorkOrderId, onMoveToInProgress,
+  rows, title, emptyLabel, t, partialPackaging = false,
 }: {
   rows: DepartmentOrder[];
   title: string;
   emptyLabel: string;
   t: CtxT;
-  startingWorkOrderId?: number | null;
-  onMoveToInProgress?: (workOrderId: number) => void;
+  partialPackaging?: boolean;
 }) {
   const groups = useMemo(() => {
     const grouped = new Map<string, DepartmentOrder[]>();
@@ -142,6 +144,7 @@ export default function DepartmentOrderList({
                     <th>{t("field.size")}</th>
                     <th>{t("cuttingInbox.material")}</th>
                     <th>{t("field.qty")}</th>
+                    {partialPackaging ? <><th>{t("field.packed")}</th><th>{t("floor.remaining")}</th><th>{t("field.readyQty")}</th><th>{t("field.sewn")}</th></> : null}
                     <th>{t("field.deadline")}</th>
                     <th>{t("field.status")}</th>
                     <th className="text-right">{t("field.actions")}</th>
@@ -179,11 +182,11 @@ export default function DepartmentOrderList({
                           {row.operation === "sewing" ? <div className="text-xs text-[#56503f]">{t("field.received")}: {Number(row.received_bundle_count || 0)} {t("nav.bundles").toLowerCase()} / {Number(row.received_bundle_qty || row.actual_input_qty || 0)} {t("field.qty").toLowerCase()}</div> : null}
                           {row.bundle_count ? <div className="text-xs text-[#56503f]">{row.bundle_count} {t("nav.bundles").toLowerCase()}</div> : null}
                         </td>
+                        {partialPackaging ? <><td>{row.already_packed}</td><td className="font-semibold">{row.remaining_qty}</td><td>{row.ready_qty}</td><td>{row.sewn_passed}</td></> : null}
                         <td className="whitespace-nowrap">{row.deadline ? new Date(row.deadline).toLocaleDateString() : "-"}</td>
                         <td className="whitespace-nowrap font-medium">{t(`page.deptInbox.state.${state}`)}</td>
                         <td>
                           <div className="flex items-center justify-end gap-2 whitespace-nowrap">
-                            {kind === "pending" && row.id && onMoveToInProgress ? <button type="button" className="btn h-8 px-2.5 text-[11px]" disabled={startingWorkOrderId === row.id} onClick={() => onMoveToInProgress(row.id!)}>{startingWorkOrderId === row.id ? t("common.loading") : t("btn.moveToInProgress")}</button> : null}
                             <Link className="btn btn-primary h-8 px-3 text-[11px]" href={kind === "completed" ? `/production-orders/${row.production_order_id}` : actionHref(row)}>{kind === "completed" ? t("page.deptInbox.viewOrder") : t("btn.open")}</Link>
                           </div>
                         </td>

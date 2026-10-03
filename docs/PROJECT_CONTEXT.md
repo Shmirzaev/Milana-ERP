@@ -2,6 +2,14 @@
 
 Last updated: 2026-10-03
 
+## Cutting passports, partial packaging and floor display (2026-10-03; prepared)
+
+- Automatic variant allocation now has a V-6455 floor, preserves its saved sequence and skips occupied codes without renumbering existing variants.
+- Cutting Floor opens a new passport with the selected order and material defaults; saved passports replace the create action with an accessible checkmark linking to the passport. Kroy number can be blank. Existing cutting permissions and factory checks remain authoritative; opening the form creates no business record.
+- Packaging floors include partially packaged orders with full existing order/model/variant/material/size details, packed quantity, total remaining quantity, currently ready quantity and sewing output. A partially packed order stays visible when it awaits more sewing output.
+- Package labels include their packaging factory and small display-only 1-based ordinals, restarted for every opened label document. No ordinal is persisted or included in QR/package identity. Department lists no longer offer the manual start button. Night-mode white surfaces and table hover colors use the theme palette.
+- Owner authorized push to clone_main and fast deployment without extra tests or extended monitoring. Dedicated worktree: C:/ERP/.codex-work/floor-passports-packaging-20261003; branch codex/floor-passports-packaging-20261003. Legacy checkout preserved. Preflight found both production manifests on blue 20261002_124419, rollback green 20261002_065259, schema 0135_usluga_paid_processes, matching clone_main; main has an older baseline. Deployment is pending; this section is not a live-release claim.
+
 ## UCH IP workbook reconciled live (2026-10-03)
 
 - Reconciled `XITOY UCH IP (2).xlsx` at 05:49:08 UTC. Its seven actual rows uniquely match existing UCH IP item 93 receipts A1-A7 from 2026-08-19 by color/date and receipt evidence. Blank workbook batch/supplier cells were not invented: retained existing batch numbers and QIRGIZISTON supplier 17. IZUMRUT's historical 8,337 kg receipt had already been corrected by a 7,503.3 kg ledger adjustment to the source 833.7 kg receipt quantity. History was preserved.

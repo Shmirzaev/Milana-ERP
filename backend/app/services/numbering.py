@@ -13,7 +13,7 @@ from app.models import (
     PurchaseRequest, PurchaseOrder, MaterialReservation, SystemSetting,
 )
 
-MODEL_VARIANT_START = 5648
+MODEL_VARIANT_START = 6455
 MODEL_VARIANT_SETTING_KEY = "model_variant_numbering"
 MODEL_NUMBER_SETTING_KEY = "model_numbering"
 CATALOG_NUMBERING_BASE = json.loads(

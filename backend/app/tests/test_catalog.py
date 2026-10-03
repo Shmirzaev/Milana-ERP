@@ -1095,7 +1095,7 @@ def test_new_model_variants_receive_the_next_global_v_number(client, auth_header
 
     preview = client.get(f"/api/models/{model_id}/variants/next-number", headers=auth_headers)
     assert preview.status_code == 200, preview.text
-    assert preview.json()["variant_no"] == "V-6428"
+    assert preview.json()["variant_no"] == "V-6455"
 
     first = client.post(
         f"/api/models/{model_id}/variants",
@@ -1103,8 +1103,8 @@ def test_new_model_variants_receive_the_next_global_v_number(client, auth_header
         headers=auth_headers,
     )
     assert first.status_code == 201, first.text
-    assert first.json()["code"] == f"{model_no}-V-6428"
-    assert first.json()["details_json"]["general"]["variant_no"] == "V-6428"
+    assert first.json()["code"] == f"{model_no}-V-6455"
+    assert first.json()["details_json"]["general"]["variant_no"] == "V-6455"
 
     deleted = client.delete(
         f"/api/models/{model_id}/variants/{first.json()['id']}",
@@ -1114,7 +1114,7 @@ def test_new_model_variants_receive_the_next_global_v_number(client, auth_header
 
     next_preview = client.get(f"/api/models/{model_id}/variants/next-number", headers=auth_headers)
     assert next_preview.status_code == 200, next_preview.text
-    assert next_preview.json()["variant_no"] == "V-6429"
+    assert next_preview.json()["variant_no"] == "V-6456"
 
     second = client.post(
         f"/api/models/{model_id}/variants",
@@ -1122,8 +1122,8 @@ def test_new_model_variants_receive_the_next_global_v_number(client, auth_header
         headers=auth_headers,
     )
     assert second.status_code == 201, second.text
-    assert second.json()["code"] == f"{model_no}-V-6429"
-    assert second.json()["details_json"]["general"]["variant_no"] == "V-6429"
+    assert second.json()["code"] == f"{model_no}-V-6456"
+    assert second.json()["details_json"]["general"]["variant_no"] == "V-6456"
 
 
 def test_model_number_removes_only_prefix_digit_separator(client, auth_headers):

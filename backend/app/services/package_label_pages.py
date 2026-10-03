@@ -3,6 +3,10 @@ from html import escape
 
 
 def label_document(title: str, cards: list[str], label_css: str, summary: str = "") -> str:
+    # Presentation-only sequence: restarts for every opened document and never
+    # changes package identity, QR payloads or persisted print-run membership.
+    cards = [card.replace("<!--label-ordinal-->", f"<b class='label-ordinal'>{index}</b>")
+             for index, card in enumerate(cards, 1)]
     total = max(1, (len(cards) + 3) // 4)
     pages = []
     for index in range(total):
@@ -17,6 +21,8 @@ def label_document(title: str, cards: list[str], label_css: str, summary: str = 
 .label-page:last-of-type{{break-after:auto;page-break-after:auto}}
 .sheet{{display:grid;grid-template-columns:repeat(2,98.5mm);gap:3mm}}
 .label-page .label{{height:139mm}}
+.label-head{{position:relative;padding-right:9mm}}
+.label-ordinal{{position:absolute;right:2mm;top:1.5mm;font-size:8pt;line-height:1}}
 .page-number{{margin-top:auto;height:6mm;text-align:center;font-size:8pt;line-height:6mm}}
 .run-summary{{padding:3mm;font-size:9pt}}
 @media print{{.run-summary{{display:none}}}}

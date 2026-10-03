@@ -42,3 +42,13 @@ def test_package_label_shows_sizes_without_piece_counts():
     assert "<th>Size</th>" in card_source
     assert "Size / quantity" not in card_source
     assert "<th>Quantity</th>" in card_source
+
+
+def test_label_ordinals_restart_for_each_document_without_changing_cards():
+    from app.services.package_label_pages import label_document
+    cards = ["<article class='label'><header><!--label-ordinal--></header></article>"] * 6
+    first = label_document("Labels", cards, "")
+    assert first == label_document("Labels", cards, "")
+    for number in range(1, 7):
+        assert first.count(f"class='label-ordinal'>{number}</b>") == 1
+    assert "<!--label-ordinal-->" in cards[0]

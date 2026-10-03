@@ -2,6 +2,8 @@
 
 import { formatVariantNumber } from "@/lib/variantDisplay";
 import Link from "next/link";
+import { Check } from "lucide-react";
+import { useMe, can } from "@/lib/auth";
 import { useMemo, useState } from "react";
 
 import ImageThumbnail from "@/components/ImageThumbnail";
@@ -11,6 +13,7 @@ import { orderReference } from "@/lib/orderRef";
 
 type CuttingOrder = {
   id: number;
+  cutting_passport_id?: number | null;
   production_order_id: number;
   planning_order_id?: number | null;
   planning_order_no?: string | null;
@@ -74,17 +77,14 @@ function sewingFactoryLabel(code: string | null | undefined, t: CtxT) {
 
 export default function CuttingOrderList({
   rows,
-  startingWorkOrderId,
-  startError,
-  onMoveToInProgress,
+  cuttingDepartment,
   t,
 }: {
   rows: CuttingOrder[];
-  startingWorkOrderId: number | null;
-  startError: string;
-  onMoveToInProgress: (workOrderId: number) => void;
+  cuttingDepartment: string;
   t: CtxT;
 }) {
+  const { me } = useMe();
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
   const filteredRows = useMemo(() => {
@@ -135,7 +135,7 @@ export default function CuttingOrderList({
         <input type="search" className="input min-w-0 flex-1" aria-label={t("common.search")} placeholder={t("common.search")} value={query} onChange={event => { setQuery(event.target.value); if (!event.target.value) setSearch(""); }} />
         <button className="btn" type="submit">{t("common.search")}</button>
       </form>
-      {startError ? <div className="border-b border-[#e3dfd3] px-4 py-2 text-sm text-red-700">{startError}</div> : null}
+
 
       {groups.length ? (
         <div className="divide-y divide-[#d8d2c2]">
@@ -178,7 +178,6 @@ export default function CuttingOrderList({
                         const state = cuttingStateFor(row);
                         const modelLabel = displayValue(row.model_no, row.model_name);
                         const materialLabel = displayValue(row.material_item_sku, row.material_item_name);
-                        const canStart = !["in_progress", "completed"].includes(String(row.status || ""));
                         return (
                           <tr key={row.id} className={rowTone(state)}>
                             <td>
@@ -210,15 +209,14 @@ export default function CuttingOrderList({
                             <td className="whitespace-nowrap font-medium">{stateLabel(state, row, t)}</td>
                             <td>
                               <div className="flex items-center justify-end gap-2 whitespace-nowrap">
-                                {canStart ? (
-                                  <button
-                                    type="button"
-                                    className="btn h-8 px-2.5 text-[11px]"
-                                    onClick={() => onMoveToInProgress(Number(row.id))}
-                                    disabled={startingWorkOrderId === Number(row.id)}
-                                  >
-                                    {startingWorkOrderId === Number(row.id) ? t("common.loading") : t("btn.moveToInProgress")}
-                                  </button>
+                                {row.cutting_passport_id ? (
+                                  <Link className="btn btn-ghost h-8 px-2" title={t("floor.passportCreated")} aria-label={t("floor.passportCreated")} href={`/cutting-passports?cutting_department=${cuttingDepartment}&passport_id=${row.cutting_passport_id}`}>
+                                    <Check className="h-5 w-5" />
+                                  </Link>
+                                ) : can(me, "cutting.records") ? (
+                                  <Link className="btn h-8 px-2.5 text-[11px]" href={`/cutting-passports?cutting_department=${cuttingDepartment}&production_order_id=${row.production_order_id}`}>
+                                    {t("floor.addPassport")}
+                                  </Link>
                                 ) : null}
                                 <Link className="btn btn-primary h-8 px-3 text-[11px]" href={`/work-orders/${row.id}/cutting`}>
                                   {t("btn.open")}

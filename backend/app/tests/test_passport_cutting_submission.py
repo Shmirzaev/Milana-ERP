@@ -126,6 +126,35 @@ def test_awaiting_packaging_has_business_identity(client, auth_headers, passport
     assert row["ready_qty"] == 7
 
 
+def test_partial_packaging_keeps_total_and_ready_remainders_separate(client, auth_headers, passport_cutting):
+    _, order, _, _ = passport_cutting
+    with SessionLocal() as db:
+        sew = db.query(WorkOrder).filter_by(production_order_id=order["id"], operation="sewing").one()
+        pack = db.query(WorkOrder).filter_by(production_order_id=order["id"], operation="packaging").one()
+        sew.passed_qty = 7
+        pack.passed_qty = 7
+        pack.planned_output_qty = 10
+        db.commit()
+    result = client.get("/api/inbox?dept=PKG", headers=auth_headers)
+    assert result.status_code == 200, result.text
+    row = next(row for row in result.json()["partially_packaged"] if row["production_order_id"] == order["id"])
+    assert row["remaining_qty"] == 3 and row["ready_qty"] == 0 and row["already_packed"] == 7
+    assert row["id"] and row["operation"] == "packaging" and row["model_no"]
+
+
+def test_optional_passport_number_and_cutting_inbox_link(client, auth_headers, passport_cutting):
+    _, order, _, _ = passport_cutting
+    result = client.post("/api/cutting-passports", headers=auth_headers, json={
+        "date": "2026-10-03T00:00:00Z", "production_order_id": order["id"], "pieces": 10,
+    })
+    assert result.status_code == 201, result.text
+    assert result.json()["passport_no"] == ""
+    inbox = client.get("/api/inbox?dept=CUT", headers=auth_headers)
+    assert inbox.status_code == 200, inbox.text
+    row = next(row for row in inbox.json()["cutting_work_orders"] if row["production_order_id"] == order["id"])
+    assert row["cutting_passport_id"] == result.json()["id"]
+
+
 def test_saved_passport_shortage_keeps_sheet_and_pending_stock_evidence(client, auth_headers, passport_cutting):
     batches, order, work, payload = passport_cutting
     with SessionLocal() as db:
