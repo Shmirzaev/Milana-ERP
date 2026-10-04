@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func
-from sqlalchemy.orm import lazyload
+from sqlalchemy.orm import defer, lazyload
 from app.core.deps import DbSession, require_permissions
 from app.models import EcoFabricDispatch, EcoFabricRoll, Item, StockBatch, StockMovement, User
 from app.api.routes.fabric_scans import parse_roll, TASHKENT
@@ -78,8 +78,9 @@ def roll_data(row):
             "returned_at": utc(row.returned_at), "return_operator_name": row.return_operator_name}
 
 
-def dispatch_data(db, dispatch):
-    rows = db.query(EcoFabricRoll).filter_by(dispatch_id=dispatch.id).order_by(EcoFabricRoll.id).all()
+def dispatch_data(db, dispatch, *, rows=None):
+    if rows is None:
+        rows = db.query(EcoFabricRoll).filter_by(dispatch_id=dispatch.id).order_by(EcoFabricRoll.id).all()
     return {"id": dispatch.id, "number": f"ECO-{dispatch.id:06d}", "sent_at": utc(dispatch.sent_at),
             "operator_name": dispatch.operator_name, "rows": [roll_data(row) for row in rows],
             "sent_rolls": len(rows), "outstanding_rolls": sum(row.returned_at is None for row in rows),
@@ -197,9 +198,20 @@ def report(db: DbSession, user: User = Depends(access), report_date: date | None
         start = datetime.combine(report_date, time.min, TASHKENT).astimezone(timezone.utc)
         query = query.filter(EcoFabricDispatch.sent_at >= start, EcoFabricDispatch.sent_at < start + timedelta(days=1))
     outstanding = db.query(func.count(EcoFabricRoll.id), func.coalesce(func.sum(EcoFabricRoll.quantity), 0)).filter_by(returned_at=None).one()
-    rows = query.order_by(EcoFabricDispatch.sent_at.desc(), EcoFabricDispatch.id.desc()).offset((page-1)*page_size).limit(page_size).all()
+    # The history page never serialises the immutable remaining-inventory snapshot, so defer it.
+    # raiseload=True: a plain defer() would silently re-fetch per dispatch, reintroducing the
+    # N+1 this batching removes. This makes any future read of it here fail loudly instead.
+    rows = query.options(defer(EcoFabricDispatch.remaining_inventory, raiseload=True)).order_by(
+        EcoFabricDispatch.sent_at.desc(), EcoFabricDispatch.id.desc(),
+    ).offset((page-1)*page_size).limit(page_size).all()
+    rolls_by_dispatch = {row.id: [] for row in rows}
+    if rows:
+        for roll in db.query(EcoFabricRoll).filter(
+            EcoFabricRoll.dispatch_id.in_(list(rolls_by_dispatch)),
+        ).order_by(EcoFabricRoll.id).all():
+            rolls_by_dispatch[roll.dispatch_id].append(roll)
     return {"total": query.count(), "outstanding_rolls": outstanding[0], "outstanding_kg": outstanding[1],
-            "items": [dispatch_data(db, row) for row in rows]}
+            "items": [dispatch_data(db, row, rows=rolls_by_dispatch[row.id]) for row in rows]}
 
 
 @router.get("/{dispatch_id}/pdf")
