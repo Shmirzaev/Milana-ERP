@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import selectinload
 
 from app.api.routes import catalog as catalog_routes
@@ -46,6 +47,11 @@ from app.schemas.catalog import (
 
 
 router = APIRouter(prefix="/usluga", tags=["usluga"])
+
+# Bound the usluga directory so it can never materialize an unbounded order
+# history.  Callers page through the rest with limit/offset.
+USLUGA_ORDERS_DEFAULT_LIMIT = 50
+USLUGA_ORDERS_MAX_LIMIT = 200
 
 
 def _require_eco(current: User) -> None:
@@ -631,12 +637,50 @@ def list_usluga_orders(
     db: DbSession,
     current: User = Depends(require_permissions("usluga.view", "usluga.manage", "usluga.handover", "*")),
     status: str | None = Query(default=None, max_length=32),
+    search: str | None = Query(default=None, max_length=120),
+    limit: int = Query(default=USLUGA_ORDERS_DEFAULT_LIMIT),
+    offset: int = Query(default=0),
 ):
     _require_eco(current)
     query = db.query(ProductionOrder).filter(ProductionOrder.source_type == "usluga")
     if status:
         query = query.filter(ProductionOrder.status == status)
-    return [_order_payload(db, row) for row in query.order_by(ProductionOrder.id.desc()).all()]
+    # The directory filters on the server so a bounded page still searches the
+    # whole order history instead of only the rows already loaded.
+    term = (search or "").strip()
+    if term:
+        pattern = f"%{term.lower()}%"
+        query = query.outerjoin(
+            Model,
+            and_(
+                Model.id == ProductionOrder.model_id,
+                Model.catalog_scope == "usluga",
+                Model.factory_code == "ECO",
+            ),
+        ).filter(
+            or_(
+                func.lower(func.coalesce(ProductionOrder.production_no, "")).like(pattern),
+                func.lower(func.coalesce(ProductionOrder.service_customer_name, "")).like(pattern),
+                func.lower(func.coalesce(ProductionOrder.service_customer_reference, "")).like(pattern),
+                func.lower(func.coalesce(Model.code, "")).like(pattern),
+                func.lower(func.coalesce(Model.name, "")).like(pattern),
+            )
+        )
+    total = int(query.count())
+    safe_limit = max(1, min(limit, USLUGA_ORDERS_MAX_LIMIT))
+    safe_offset = max(0, offset)
+    rows = (
+        query.order_by(ProductionOrder.id.desc())
+        .offset(safe_offset)
+        .limit(safe_limit)
+        .all()
+    )
+    return {
+        "items": [_order_payload(db, row) for row in rows],
+        "total": total,
+        "limit": safe_limit,
+        "offset": safe_offset,
+    }
 
 
 @router.get("/orders/{order_id}")
