@@ -15,18 +15,15 @@ Set STABILIZATION_POSTGRES_URL to run them.
 """
 
 import os
-import subprocess
-import sys
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.engine import make_url
-from sqlalchemy.orm import sessionmaker
 
 from app.db.base import Base
-from app.models import CuttingBeikaMaterialUsage, CuttingMaterialUsage, CuttingRecord
+from app.models import CuttingBeikaMaterialUsage, CuttingRecord
 import app.models  # noqa: F401  - registers every mapped table
 
 BACKEND = Path(__file__).resolve().parents[2]

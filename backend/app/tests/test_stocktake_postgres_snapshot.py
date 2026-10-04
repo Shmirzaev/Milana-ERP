@@ -26,9 +26,9 @@ import os
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, event, func, select, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import stocktake as stocktake_routes
 from app.db.base import Base
