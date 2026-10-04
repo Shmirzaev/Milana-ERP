@@ -191,6 +191,18 @@ def _reference_metadata(
     return metadata
 
 
+def _first_set(*values):
+    """The first value that is not None, mirroring the resolver's own checks.
+
+    Deliberately not `or`: the resolver tests `is None` throughout, and the two
+    differ for a falsy-but-present value.
+    """
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
 def _prefetch_reference_metadata(
     db: Session,
     rows: list[FinishedGoodsStock],
@@ -254,17 +266,22 @@ def _prefetch_reference_metadata(
     collection_ids: set[int] = set()
     for row in rows:
         package = _package_for(row)
-        production_order_id = row.production_order_id
-        sales_order_id = row.sales_order_id
-        collection_id = row.collection_id
-        if package is not None:
-            production_order_id = production_order_id or package.production_order_id
-            sales_order_id = sales_order_id or package.sales_order_id
-            collection_id = collection_id or package.collection_id
+        production_order_id = _first_set(
+            row.production_order_id,
+            package.production_order_id if package is not None else None,
+        )
+        sales_order_id = _first_set(
+            row.sales_order_id,
+            package.sales_order_id if package is not None else None,
+        )
+        collection_id = _first_set(
+            row.collection_id,
+            package.collection_id if package is not None else None,
+        )
         production_order = _production_order_for(row, production_order_id)
         if production_order is not None:
-            sales_order_id = sales_order_id or production_order.sales_order_id
-            collection_id = collection_id or production_order.collection_id
+            sales_order_id = _first_set(sales_order_id, production_order.sales_order_id)
+            collection_id = _first_set(collection_id, production_order.collection_id)
         if sales_order_id is not None:
             sales_order_pairs.add((int(sales_order_id), int(row.model_id)))
         if collection_id is not None:
@@ -315,31 +332,33 @@ def _prefetch_reference_metadata(
     model_ids_needing_fallback: set[int] = set()
     for row in rows:
         package = _package_for(row)
-        production_order_id = row.production_order_id
-        sales_order_id = row.sales_order_id
-        brand_id = row.brand_id
-        collection_id = row.collection_id
-        if package is not None:
-            production_order_id = production_order_id or package.production_order_id
-            sales_order_id = sales_order_id or package.sales_order_id
-            brand_id = brand_id or package.brand_id
-            collection_id = collection_id or package.collection_id
+        production_order_id = _first_set(
+            row.production_order_id,
+            package.production_order_id if package is not None else None,
+        )
+        sales_order_id = _first_set(
+            row.sales_order_id,
+            package.sales_order_id if package is not None else None,
+        )
+        brand_id = _first_set(row.brand_id, package.brand_id if package is not None else None)
+        collection_id = _first_set(
+            row.collection_id,
+            package.collection_id if package is not None else None,
+        )
         production_order = _production_order_for(row, production_order_id)
         if production_order is not None:
-            sales_order_id = sales_order_id or production_order.sales_order_id
-            collection_id = collection_id or production_order.collection_id
+            sales_order_id = _first_set(sales_order_id, production_order.sales_order_id)
+            collection_id = _first_set(collection_id, production_order.collection_id)
         if brand_id is None and collection_id is not None:
             collection = entity_cache.get((Collection.__name__, int(collection_id)))
-            brand_id = collection.brand_id if collection is not None and collection.brand_id is not None else None
+            brand_id = collection.brand_id if collection is not None else None
         if sales_order_id is not None and (brand_id is None or collection_id is None):
             metadata = reference_cache[("sales_order", int(sales_order_id), int(row.model_id))]
-            if brand_id is None and metadata.brand_id is not None:
-                brand_id = int(metadata.brand_id)
-            if collection_id is None and metadata.collection_id is not None:
-                collection_id = int(metadata.collection_id)
+            brand_id = _first_set(brand_id, metadata.brand_id)
+            collection_id = _first_set(collection_id, metadata.collection_id)
         if brand_id is None and collection_id is not None:
             collection = entity_cache.get((Collection.__name__, int(collection_id)))
-            brand_id = collection.brand_id if collection is not None and collection.brand_id is not None else None
+            brand_id = collection.brand_id if collection is not None else None
         if brand_id is None or collection_id is None:
             model_ids_needing_fallback.add(int(row.model_id))
 

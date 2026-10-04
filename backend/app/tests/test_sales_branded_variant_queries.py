@@ -173,8 +173,13 @@ def _seed_warehouse(session_factory, *, prefix, order=True):
     with session_factory.begin() as db:
         customer = Customer(name=f"PERF26 customer {prefix}")
         brand = Brand(name=f"PERF26 brand {prefix}")
-        collection = Collection(name=f"PERF26 collection {prefix}", brand_id=brand.id)
-        db.add_all([customer, brand, collection])
+        db.add_all([customer, brand])
+        # Flush first: Collection.brand_id is NOT NULL and needs the brand's id.
+        db.flush()
+        collection = Collection(
+            name=f"PERF26 collection {prefix}", brand_id=brand.id, year=2026
+        )
+        db.add(collection)
         db.flush()
         model = Model(code=f"PERF26-MODEL{prefix}", name=f"PERF26 model{prefix}", status="approved")
         db.add(model)
@@ -202,7 +207,6 @@ def _seed_warehouse(session_factory, *, prefix, order=True):
                     brand_id=brand.id,
                     collection_id=collection.id,
                     color=color,
-                    size=size,
                     total_quantity=CELL_QTY,
                     capacity=CELL_QTY,
                     stock_kind="standard",
@@ -233,9 +237,9 @@ def _seed_warehouse(session_factory, *, prefix, order=True):
         user = None
         if order:
             user = User(
-                username=f"perf26user{prefix}",
-                full_name=f"PERF26 user {prefix}",
-                hashed_password="x",
+                name=f"PERF26 user {prefix}",
+                email=f"perf26-{prefix.lower()}@example.test",
+                password_hash="x",
                 is_active=True,
             )
             sales_order = SalesOrder(
@@ -321,46 +325,47 @@ def warehouse(perf26_postgres_sessions):
 # --------------------------------------------------------------------------- #
 def test_variant_candidate_rows_do_not_grow_with_the_variant_count(warehouse):
     engine, session_factory = warehouse
-    case = _seed_warehouse(session_factory, prefix="A", order=True)
     probe = _RowProbe(engine)
 
-    # Measurement 1: a single wildcard variant, which matches every grid cell.
+    # Measurement 1: one wildcard variant, which matches every grid cell.
+    case_a = _seed_warehouse(session_factory, prefix="A", order=True)
     with session_factory.begin() as db:
         with probe.measure() as measured:
-            reservations, _ = _reserve(db, case, [_line(case, "*", "*", CELL_QTY)])
+            reservations, _ = _reserve(
+                db, case_a, [_line(case_a, "*", "*", CELL_QTY * case_a["cells"])]
+            )
         small_stock_rows = measured.total("finished_goods_stock")
-    assert reservations, "the wildcard variant must be able to reserve stock"
-    assert len(reservations) == case["cells"]
+    assert len(reservations) == case_a["cells"], "the wildcard variant must reserve every cell"
 
-    # Grow *between* the measurements: six more variants, each a strict subset of
-    # the wildcard, so a per-variant read delivers the shared rows again.
+    # Grow *between* the measurements: a second, identically sized warehouse whose
+    # order requests seven variants, each a subset of the same grid. A per-variant
+    # read delivers the shared rows again for every variant; a batched read
+    # delivers the union once. A separate warehouse keeps the second
+    # measurement's eligible set the same size as the first.
+    case_b = _seed_warehouse(session_factory, prefix="B", order=True)
     overlapping = [
-        _line(case, "white", "*", CELL_QTY),
-        _line(case, "black", "*", CELL_QTY),
-        _line(case, "navy", "*", CELL_QTY),
-        _line(case, "*", "S", CELL_QTY),
-        _line(case, "*", "M", CELL_QTY),
-        _line(case, "*", "L", CELL_QTY),
+        _line(case_b, "*", "*", CELL_QTY * case_b["cells"]),
+        _line(case_b, "white", "*", CELL_QTY * len(SIZES)),
+        _line(case_b, "black", "*", CELL_QTY * len(SIZES)),
+        _line(case_b, "navy", "*", CELL_QTY * len(SIZES)),
+        _line(case_b, "*", "S", CELL_QTY * len(COLORS)),
+        _line(case_b, "*", "M", CELL_QTY * len(COLORS)),
+        _line(case_b, "*", "L", CELL_QTY * len(COLORS)),
     ]
-    assert len(overlapping) == LARGE_VARIANTS - 1
+    assert len(overlapping) == LARGE_VARIANTS
     with session_factory.begin() as db:
         with probe.measure() as measured:
-            reservations, _ = _reserve(db, case, overlapping)
+            reservations, _ = _reserve(db, case_b, overlapping)
         large_stock_rows = measured.total("finished_goods_stock")
 
     print(
         f"\nPERF26 variant candidates: finished_goods_stock rows delivered="
         f"{small_stock_rows}->{large_stock_rows} for {SMALL_VARIANTS}->{LARGE_VARIANTS} variants"
     )
+    assert reservations, "the seven-variant order must still reserve stock"
 
-    # The second reservation really did read more variants, so not vacuous.
-    assert len(reservations) > 0
-
-    # A batched read delivers the union of the requested variants' rows once. The
-    # grid is 3 colours x 3 sizes, all already reserved by the first call, so the
-    # second call's *eligible* set is empty; what must not grow is the total
-    # delivered, which stays at the size of the eligible set rather than a
-    # multiple of the variant count.
+    # A batched read delivers the eligible set once, whatever the variant count.
+    assert small_stock_rows == case_a["cells"]
     assert large_stock_rows == small_stock_rows, (
         f"delivered stock rows grew from {small_stock_rows} to {large_stock_rows} "
         f"when the variant count grew from {SMALL_VARIANTS} to {LARGE_VARIANTS}"
@@ -400,32 +405,55 @@ def test_variant_candidate_rows_are_not_a_multiple_of_the_variant_count(warehous
 # --------------------------------------------------------------------------- #
 # 2. Locked packages are reused, so each package row is read once
 # --------------------------------------------------------------------------- #
-def test_package_rows_are_delivered_once_per_reservation(warehouse):
+def test_package_rows_do_not_grow_with_the_variant_count(warehouse):
+    """Each package row is read once per package-lock statement, not per variant.
+
+    The reservation takes the package-first locks in two statements: the
+    order-wide pre-lock, then the batched variant lock. Re-reading the packages in
+    `_package_allocation_candidates` — once for the shortage pre-check and again
+    for the allocation — is what made the delivered rows scale with the variant
+    count, and the `package_cache` is what removes it.
+    """
     engine, session_factory = warehouse
-    case = _seed_warehouse(session_factory, prefix="C", order=True)
     probe = _RowProbe(engine)
 
-    lines = [
-        _line(case, "white", "*", CELL_QTY),
-        _line(case, "black", "*", CELL_QTY),
-        _line(case, "navy", "*", CELL_QTY),
+    # Measurement 1: one wildcard variant covering the whole grid.
+    case_a = _seed_warehouse(session_factory, prefix="C", order=True)
+    with session_factory.begin() as db:
+        with probe.measure() as measured:
+            reservations, _ = _reserve(
+                db, case_a, [_line(case_a, "*", "*", CELL_QTY * case_a["cells"])]
+            )
+        small = measured.total("packages")
+        small_statements = len(measured.locking(PACKAGE_LOCK))
+    assert reservations
+
+    # Measurement 2: four variants over the same grid, one wildcard plus three
+    # colour subsets, on a separate identically sized warehouse.
+    case_b = _seed_warehouse(session_factory, prefix="D", order=True)
+    four = [_line(case_b, "*", "*", CELL_QTY * case_b["cells"])] + [
+        _line(case_b, color, "*", CELL_QTY * len(SIZES)) for color in COLORS
     ]
     with session_factory.begin() as db:
         with probe.measure() as measured:
-            reservations, _ = _reserve(db, case, lines)
-        package_rows = measured.total("packages")
+            reservations, _ = _reserve(db, case_b, four)
+        large = measured.total("packages")
+        large_statements = len(measured.locking(PACKAGE_LOCK))
 
     print(
-        f"\nPERF26 package rows delivered={package_rows} for {case['cells']} packages "
-        f"over 3 variants"
+        f"\nPERF26 package rows delivered={small}->{large} for "
+        f"{case_a['cells']} packages, package-lock statements="
+        f"{small_statements}->{large_statements}"
     )
     assert reservations
-    # The reservation locks the grid's packages once up front, then reuses them.
-    # Re-reading them per variant and again for the allocation pass would deliver
-    # several times this many rows.
-    assert package_rows == case["cells"], (
-        f"delivered {package_rows} package rows for {case['cells']} packages; "
-        f"each package should be read once"
+
+    # Two package-first lock statements regardless of the variant count: the
+    # order-wide pre-lock and one batched variant lock.
+    assert small_statements == large_statements == 2
+    assert small == 2 * case_a["cells"]
+    assert large == small, (
+        f"delivered package rows grew from {small} to {large} when the variant "
+        f"count grew; the locked packages are reused, not re-read"
     )
 
 
@@ -686,10 +714,13 @@ def test_metadata_repair_still_repairs_exactly_the_legacy_rows(warehouse):
     assert after == 0
 
     with session_factory() as db:
+        # Only the seeded legacy rows: the warehouse rows already carry metadata.
         rows = db.query(FinishedGoodsStock).filter(
-            FinishedGoodsStock.model_id == case["model_id"]
+            FinishedGoodsStock.model_id == case["model_id"],
+            FinishedGoodsStock.package_id.is_(None),
         ).all()
         repaired = [r for r in rows if r.brand_id is not None and r.collection_id is not None]
+        assert len(rows) == 5
         assert len(repaired) == 5
         assert {int(r.brand_id) for r in repaired} == {case["brand_id"]}
         assert {int(r.collection_id) for r in repaired} == {case["collection_id"]}
