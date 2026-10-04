@@ -36,6 +36,9 @@ REQUEST_REJECTABLE_STATUSES = {"draft", "pending_approval", "approved"}
 ORDER_CREATE_STATUSES = {"draft", "sent"}
 ORDER_RECEIVABLE_STATUSES = {"sent", "approved", "partially_received"}
 
+# One bound parameter per id, so keep each batch well under the driver's limit.
+_REFERENCE_CHUNK = 400
+
 
 def _num(value) -> float:
     return float(value or 0)
@@ -83,6 +86,81 @@ def _require_warehouse(db: Session, warehouse_id: int | None) -> Warehouse:
     return warehouse
 
 
+def _reference_map(db: Session, model, ids) -> dict[int, object | None]:
+    """Read one reference table in batches and key the rows by id.
+
+    A purchasing payload names the same item, supplier and warehouse on many
+    lines. Reading each reference with its own ``db.get`` made the number of
+    reference statements grow with the number of lines, so the ids are
+    collected first and fetched in one statement per table instead.
+
+    Only ids that were asked for are present in the map; a row that does not
+    exist is simply absent, which the ``_require_*`` helpers below treat
+    exactly like a missing row.
+    """
+    ordered = sorted({int(value) for value in ids if value is not None})
+    rows: dict[int, object | None] = {}
+    for start in range(0, len(ordered), _REFERENCE_CHUNK):
+        chunk = ordered[start:start + _REFERENCE_CHUNK]
+        for row in db.query(model).filter(model.id.in_(chunk)).all():
+            rows[int(row.id)] = row
+    return rows
+
+
+def _reference(db: Session, model, rows: dict[int, object | None], entity_id: int):
+    """Resolve one id from a pre-read map, falling back to a single-row read.
+
+    The map is only ever a cache: anything it does not hold is read the
+    original way, so a reference that only becomes resolvable later in the
+    loop still works and still raises the original error.
+    """
+    if entity_id in rows:
+        return rows[entity_id]
+    return db.get(model, entity_id)
+
+
+def _require_mapped_item(db: Session, items: dict[int, object | None], item_id: int) -> Item:
+    item = _reference(db, Item, items, item_id)
+    if not item:
+        raise HTTPException(404, f"Item {item_id} not found")
+    return item
+
+
+def _require_mapped_supplier(db: Session, suppliers: dict[int, object | None], supplier_id: int | None) -> Supplier | None:
+    if supplier_id is None:
+        return None
+    supplier = _reference(db, Supplier, suppliers, supplier_id)
+    if not supplier:
+        raise HTTPException(404, f"Supplier {supplier_id} not found")
+    return supplier
+
+
+def _require_mapped_warehouse(db: Session, warehouses: dict[int, object | None], warehouse_id: int | None) -> Warehouse:
+    if not warehouse_id:
+        raise HTTPException(400, "warehouse_id is required")
+    warehouse = _reference(db, Warehouse, warehouses, int(warehouse_id))
+    if not warehouse:
+        raise HTTPException(404, f"Warehouse {warehouse_id} not found")
+    return warehouse
+
+
+def _optional_ids(values) -> list[int]:
+    """Coerce ids for pre-reading, leaving bad values to the original parse.
+
+    A value the request never coerced successfully is skipped here so the
+    later in-loop ``int()`` still raises the same error at the same line.
+    """
+    ids: list[int] = []
+    for value in values:
+        if not value:
+            continue
+        try:
+            ids.append(int(value))
+        except (TypeError, ValueError):
+            continue
+    return ids
+
+
 def create_purchase_request(db: Session, *, data: dict, current: User) -> PurchaseRequest:
     status = str(data.get("status") or "pending_approval").strip() or "pending_approval"
     if status not in REQUEST_CREATE_STATUSES:
@@ -110,10 +188,18 @@ def create_purchase_request(db: Session, *, data: dict, current: User) -> Purcha
     db.add(request)
     db.flush()
 
+    items = _reference_map(
+        db, Item, _optional_ids(raw.get("item_id") for raw in line_inputs)
+    )
+    suppliers = _reference_map(
+        db, Supplier, _optional_ids(raw.get("preferred_supplier_id") for raw in line_inputs)
+    )
     for raw in line_inputs:
-        item = _require_item(db, int(raw.get("item_id") or 0))
+        item = _require_mapped_item(db, items, int(raw.get("item_id") or 0))
         preferred_supplier_id = raw.get("preferred_supplier_id")
-        _require_supplier(db, int(preferred_supplier_id) if preferred_supplier_id else None)
+        _require_mapped_supplier(
+            db, suppliers, int(preferred_supplier_id) if preferred_supplier_id else None
+        )
 
         required_quantity = _num(raw.get("required_quantity"))
         available_quantity = _num(raw.get("available_quantity"))
@@ -293,9 +379,29 @@ def create_purchase_order(db: Session, *, data: dict, current: User) -> Purchase
         raise HTTPException(404, "Purchase request not found")
 
     supplier_id = data.get("supplier_id")
-    _require_supplier(db, int(supplier_id) if supplier_id else None)
-
     line_inputs = data.get("lines") or []
+
+    # Read every item, warehouse and supplier this payload names in one
+    # statement per table, so a long order does not re-read the same reference
+    # table once per line. The header supplier is still checked first and
+    # still fails before anything is written; only the read is shared.
+    items = _reference_map(
+        db, Item, _optional_ids(raw.get("item_id") for raw in line_inputs)
+    )
+    warehouses = _reference_map(
+        db, Warehouse, _optional_ids(raw.get("warehouse_id") for raw in line_inputs)
+    )
+    # A line may name its own supplier, so the header supplier is only one of
+    # the ids this payload can reference.
+    suppliers = _reference_map(
+        db,
+        Supplier,
+        _optional_ids(
+            [supplier_id]
+            + [raw.get("supplier_id") or supplier_id for raw in line_inputs]
+        ),
+    )
+    _require_mapped_supplier(db, suppliers, int(supplier_id) if supplier_id else None)
     if not line_inputs:
         raise HTTPException(400, "At least one purchase order line is required")
 
@@ -318,16 +424,16 @@ def create_purchase_order(db: Session, *, data: dict, current: User) -> Purchase
     db.flush()
 
     for raw, unit_cost in zip(line_inputs, line_costs):
-        item = _require_item(db, int(raw.get("item_id") or 0))
+        item = _require_mapped_item(db, items, int(raw.get("item_id") or 0))
         ordered_quantity = _num(raw.get("ordered_quantity"))
         if ordered_quantity <= 0:
             raise HTTPException(400, "Ordered quantity must be greater than zero")
         warehouse_id = raw.get("warehouse_id")
         if warehouse_id:
-            _require_warehouse(db, int(warehouse_id))
+            _require_mapped_warehouse(db, warehouses, int(warehouse_id))
         unit = str(raw.get("unit") or item.unit or "").strip() or item.unit
         line_supplier_id = raw.get("supplier_id") or supplier_id
-        _require_supplier(db, int(line_supplier_id) if line_supplier_id else None)
+        _require_mapped_supplier(db, suppliers, int(line_supplier_id) if line_supplier_id else None)
         db.add(
             PurchaseOrderLine(
                 purchase_order_id=order.id,
