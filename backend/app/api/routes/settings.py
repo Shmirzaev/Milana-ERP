@@ -111,7 +111,7 @@ async def upload_company_logo(
     file: UploadFile = File(...),
     current: User = Depends(require_permissions("*")),
 ):
-    from app.services.image_storage import store_uploaded_image
+    from app.services.image_storage import discard_replaced_managed_image, store_uploaded_image
 
     stored = await store_uploaded_image(
         file,
@@ -125,6 +125,7 @@ async def upload_company_logo(
 
     row = _setting_for_update(db, "company_info")
     company = CompanyInfo(**(row.value_json if row and isinstance(row.value_json, dict) else {})).model_dump()
+    previous_logo_url = str(company.get("logo_url") or "").strip() or None
     company["logo_url"] = logo_url
     if row:
         row.value_json = CompanyInfo(**company).model_dump()
@@ -134,4 +135,9 @@ async def upload_company_logo(
         db.flush()
     log_action(db, current, "upload_logo", "SystemSetting", row.id, new_value={"logo_url": logo_url})
     db.commit()
+    # Only after the commit, and only once the new URL is the referenced one, is
+    # the old managed file unreachable. Re-uploading the identical file, or a
+    # failed commit, must leave the previous logo in place.
+    if previous_logo_url and previous_logo_url != logo_url:
+        discard_replaced_managed_image(previous_logo_url, storage_root=app_settings.MODEL_FILES_DIR)
     return {"logo_url": logo_url}

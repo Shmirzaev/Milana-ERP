@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Depends, Header
 from fastapi import UploadFile, File
-from sqlalchemy import or_, func, literal
+from sqlalchemy import and_, or_, func, literal
 from sqlalchemy.orm import joinedload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
@@ -42,6 +42,9 @@ from app.services.model_images import material_preview_image_url, model_display_
 
 router = APIRouter(prefix="/sales-orders", tags=["sales"])
 _SHIPMENT_READY_PACKAGE_STATUSES = ("received_in_storage", "reserved")
+# Variants per stock round trip. Bounds the parameter list of the batched
+# eligibility query without changing which rows are eligible.
+_STOCK_VARIANT_QUERY_CHUNK_SIZE = 200
 
 
 def _attachments_for_storage(attachments) -> list[dict]:
@@ -64,20 +67,48 @@ def _sign_attachment_urls(payload: dict) -> dict:
     return payload
 
 
+def _customer_name_map(db: DbSession, customer_ids: set[int]) -> dict[int, str]:
+    """Read only the customer names a list payload renders.
+
+    Selecting the two display columns keeps the read bounded by the distinct
+    customers on the page, instead of hydrating one full ``Customer`` entity per
+    row. A customer whose name is NULL is still a key in the map, so callers can
+    tell "no such customer" apart from "customer without a name".
+    """
+    if not customer_ids:
+        return {}
+    rows = (
+        db.query(Customer.id, Customer.name)
+        .filter(Customer.id.in_(sorted({int(customer_id) for customer_id in customer_ids})))
+        .all()
+    )
+    return {int(customer_id): name for customer_id, name in rows}
+
+
 def _serialize_sales_order(
     db: DbSession,
     so: SalesOrder,
     *,
     include_items: bool = False,
+    customer_names: dict[int, str] | None = None,
 ) -> dict:
     """Shape sales-order payloads with customer/model names for frontend display."""
     schema_cls = SalesOrderDetail if include_items else SalesOrderOut
     payload = schema_cls.model_validate(so).model_dump()
 
-    customer = db.get(Customer, so.customer_id) if so.customer_id else None
-    if customer:
-        payload["customer_name"] = customer.name
-        payload["customer"] = {"id": customer.id, "name": customer.name}
+    customer_id = int(so.customer_id) if so.customer_id else None
+    if customer_names is not None:
+        # The bounded map is only a lookup: presence decides the shape of
+        # `customer`, and the stored name is passed through unchanged.
+        customer_found = customer_id is not None and customer_id in customer_names
+        customer_name = customer_names.get(customer_id) if customer_found else None
+    else:
+        customer = db.get(Customer, customer_id) if customer_id else None
+        customer_found = customer is not None
+        customer_name = customer.name if customer is not None else None
+    if customer_found:
+        payload["customer_name"] = customer_name
+        payload["customer"] = {"id": customer_id, "name": customer_name}
     else:
         payload["customer_name"] = None
         payload["customer"] = None
@@ -1115,52 +1146,104 @@ def _stock_variant_key(model_id: int, color: str, size: str, brand_id: int | Non
     return (int(model_id), str(color or "").strip(), str(size or "").strip(), brand_id)
 
 
-def _stock_rows_for_variant(
+def _stock_rows_by_variant(
     db: DbSession,
+    variant_keys: list[tuple[int, str, str, int | None]],
     *,
-    model_id: int,
-    color: str,
-    size: str,
-    brand_id: int | None,
     stock_kind: str = "standard",
-) -> list[FinishedGoodsStock]:
-    qry = (
-        db.query(FinishedGoodsStock)
-        .outerjoin(Package, Package.id == FinishedGoodsStock.package_id)
-        .filter(
-            FinishedGoodsStock.model_id == model_id,
-            FinishedGoodsStock.status == "available",
-            FinishedGoodsStock.available_qty > 0,
-            or_(
-                FinishedGoodsStock.package_id.is_(None),
-                Package.status.in_(_SHIPMENT_READY_PACKAGE_STATUSES),
-            ),
-            ~db.query(ShipmentPackage.id).join(Shipment, Shipment.id == ShipmentPackage.shipment_id).filter(
-                ShipmentPackage.package_id == FinishedGoodsStock.package_id,
-                Shipment.status != "cancelled",
-            ).exists(),
-        )
+) -> dict[tuple[int, str, str, int | None], list[FinishedGoodsStock]]:
+    """Load the eligible stock for many requested variants in bounded batches.
+
+    One reserved line per variant used to run its own `SELECT ... FOR UPDATE`
+    and hydrate its own stock entities, so an order with many variants paid for
+    the same shared rows once per variant. This loads a whole chunk of variants
+    per round trip and splits the hydrated rows in Python.
+
+    Eligibility is unchanged: the same filters run in SQL, and the per-variant
+    colour/size/brand restrictions are re-applied in Python with the exact
+    comparisons the SQL used, so a batched row is admitted to a variant only
+    when the single-variant query would have returned it.
+
+    Locking is unchanged too: within a chunk the eligible packages are locked
+    first, ordered by package id, and the stock rows are locked only afterwards.
+    Variants are processed in a fixed sorted order so two reservations that
+    request the same variants in opposite line order take the same locks in the
+    same sequence.
+    """
+    unique_keys = sorted(
+        set(variant_keys),
+        key=lambda key: (key[0], key[1], key[2], -1 if key[3] is None else key[3]),
     )
-    qry = qry.filter(func.coalesce(Package.stock_kind, "standard") == stock_kind)
-    if not _is_any_stock_token(color):
-        qry = qry.filter(FinishedGoodsStock.color == color)
-    if not _is_any_stock_token(size):
-        qry = qry.filter(FinishedGoodsStock.size == size)
-    if brand_id is not None:
-        qry = qry.filter(FinishedGoodsStock.brand_id == brand_id)
-    if db.bind and db.bind.dialect.name == "postgresql":
-        # Keep the same package -> stock lock order as warehouse dispatch.
-        package_ids = qry.with_entities(FinishedGoodsStock.package_id).filter(FinishedGoodsStock.package_id.isnot(None))
-        db.query(Package).filter(Package.id.in_(package_ids)).order_by(Package.id).with_for_update(of=Package).all()
-        qry = qry.with_for_update(of=FinishedGoodsStock)
-    return qry.order_by(FinishedGoodsStock.id.asc()).all()
+    rows_by_variant: dict[tuple[int, str, str, int | None], list[FinishedGoodsStock]] = {
+        key: [] for key in unique_keys
+    }
+    for offset in range(0, len(unique_keys), _STOCK_VARIANT_QUERY_CHUNK_SIZE):
+        chunk = unique_keys[offset:offset + _STOCK_VARIANT_QUERY_CHUNK_SIZE]
+        keys_by_model: dict[int, list[tuple[int, str, str, int | None]]] = defaultdict(list)
+        variant_predicates = []
+        for key in chunk:
+            model_id, color, size, brand_id = key
+            keys_by_model[model_id].append(key)
+            parts = [FinishedGoodsStock.model_id == model_id]
+            if not _is_any_stock_token(color):
+                parts.append(FinishedGoodsStock.color == color)
+            if not _is_any_stock_token(size):
+                parts.append(FinishedGoodsStock.size == size)
+            if brand_id is not None:
+                parts.append(FinishedGoodsStock.brand_id == brand_id)
+            variant_predicates.append(and_(*parts))
+
+        qry = (
+            db.query(FinishedGoodsStock)
+            .outerjoin(Package, Package.id == FinishedGoodsStock.package_id)
+            .filter(
+                FinishedGoodsStock.status == "available",
+                FinishedGoodsStock.available_qty > 0,
+                or_(
+                    FinishedGoodsStock.package_id.is_(None),
+                    Package.status.in_(_SHIPMENT_READY_PACKAGE_STATUSES),
+                ),
+                ~db.query(ShipmentPackage.id).join(Shipment, Shipment.id == ShipmentPackage.shipment_id).filter(
+                    ShipmentPackage.package_id == FinishedGoodsStock.package_id,
+                    Shipment.status != "cancelled",
+                ).exists(),
+                or_(*variant_predicates),
+            )
+            .filter(func.coalesce(Package.stock_kind, "standard") == stock_kind)
+        )
+        if db.bind and db.bind.dialect.name == "postgresql":
+            # Keep the same package -> stock lock order as warehouse dispatch.
+            package_ids = qry.with_entities(FinishedGoodsStock.package_id).filter(FinishedGoodsStock.package_id.isnot(None))
+            db.query(Package).filter(Package.id.in_(package_ids)).order_by(Package.id).with_for_update(key_share=True, of=Package).all()
+            qry = qry.with_for_update(key_share=True, of=FinishedGoodsStock)
+        for row in qry.order_by(FinishedGoodsStock.id.asc()).all():
+            for key in keys_by_model.get(int(row.model_id), ()):
+                _model_id, color, size, brand_id = key
+                if not _is_any_stock_token(color) and row.color != color:
+                    continue
+                if not _is_any_stock_token(size) and row.size != size:
+                    continue
+                if brand_id is not None and row.brand_id != brand_id:
+                    continue
+                rows_by_variant[key].append(row)
+    return rows_by_variant
 
 
 def _package_allocation_candidates(
     db: DbSession,
     stock_rows: list[FinishedGoodsStock],
+    *,
+    package_cache: dict[int, Package] | None = None,
 ) -> tuple[dict[int, tuple[Package, list[FinishedGoodsStock]]], list[FinishedGoodsStock]]:
-    """Split physical whole bags from legacy stock that permits piece allocation."""
+    """Split physical whole bags from legacy stock that permits piece allocation.
+
+    `package_cache` reuses ``Package`` rows that a caller has already locked, so
+    a package referenced by several variants is not read and locked again. Only
+    the package identity is cached: the whole-bag eligibility tests below read
+    the mutable stock quantities (`available_qty`, `reserved_qty`, `sold_qty`),
+    so the groups are rebuilt from the current row state on every call and a
+    package consumed by an earlier allocation cannot be handed out twice.
+    """
     rows_by_package: dict[int, list[FinishedGoodsStock]] = defaultdict(list)
     for stock in stock_rows:
         if stock.package_id is not None:
@@ -1168,10 +1251,16 @@ def _package_allocation_candidates(
     if not rows_by_package:
         return {}, [row for row in stock_rows if row.package_id is None]
 
-    package_query = db.query(Package).filter(Package.id.in_(rows_by_package))
-    if db.bind and db.bind.dialect.name == "postgresql":
-        package_query = package_query.with_for_update(of=Package)
-    packages = {int(package.id): package for package in package_query.order_by(Package.id).all()}
+    packages = package_cache if package_cache is not None else {}
+    missing_package_ids = sorted(set(rows_by_package) - set(packages))
+    if missing_package_ids:
+        package_query = db.query(Package).filter(Package.id.in_(missing_package_ids))
+        if db.bind and db.bind.dialect.name == "postgresql":
+            package_query = package_query.with_for_update(key_share=True, of=Package)
+        packages.update({
+            int(package.id): package
+            for package in package_query.order_by(Package.id).all()
+        })
 
     partial_rows = [
         row
@@ -1358,16 +1447,18 @@ def _reserve_branded_stock(
         key = _stock_variant_key(line.model_id, line.color, line.size, line.brand_id)
         requested_by_variant[key] += int(line.quantity or 0)
 
+    package_cache: dict[int, Package] = {}
     if db.bind and db.bind.dialect.name == "postgresql":
         # Lock across all lines before metadata repair or any stock lock, so
         # opposite model-line ordering cannot invert the package lock order.
-        db.query(Package).filter(
+        locked_packages = db.query(Package).filter(
             Package.model_id.in_({key[0] for key in requested_by_variant}),
             Package.status.in_(_SHIPMENT_READY_PACKAGE_STATUSES),
             ~db.query(ShipmentPackage.id).join(Shipment, Shipment.id == ShipmentPackage.shipment_id).filter(
                 ShipmentPackage.package_id == Package.id, Shipment.status != "cancelled",
             ).exists(),
-        ).order_by(Package.id).with_for_update(of=Package).all()
+        ).order_by(Package.id).with_for_update(key_share=True, of=Package).all()
+        package_cache.update({int(package.id): package for package in locked_packages})
 
     # Legacy rows need inferred metadata only when a requested brand must be
     # matched. Keep that repair scoped to the models in this order instead of
@@ -1409,21 +1500,21 @@ def _reserve_branded_stock(
         raise HTTPException(409, "Stock has already been fully reserved for this sales order")
 
     shortages_precheck: list[dict] = []
-    stock_rows_by_variant: dict[tuple[int, str, str, int | None], list[FinishedGoodsStock]] = {}
+    stock_rows_by_variant = _stock_rows_by_variant(
+        db,
+        [key for key, requested_qty in outstanding_by_variant.items() if requested_qty > 0],
+        stock_kind=stock_kind,
+    )
     for key, requested_qty in outstanding_by_variant.items():
         if requested_qty <= 0:
             continue
         model_id, color, size, brand_id = key
-        stock_rows = _stock_rows_for_variant(
+        stock_rows = stock_rows_by_variant[key]
+        package_groups, partial_stocks = _package_allocation_candidates(
             db,
-            model_id=model_id,
-            color=color,
-            size=size,
-            brand_id=brand_id,
-            stock_kind=stock_kind,
+            stock_rows,
+            package_cache=package_cache,
         )
-        stock_rows_by_variant[key] = stock_rows
-        package_groups, partial_stocks = _package_allocation_candidates(db, stock_rows)
         available_qty = sum(
             int(package.total_quantity or 0)
             for package, _rows in package_groups.values()
@@ -1461,7 +1552,11 @@ def _reserve_branded_stock(
         model_id, color, size, brand_id = key
         needed = int(requested_qty)
         stocks = stock_rows_by_variant[key]
-        package_groups, partial_stocks = _package_allocation_candidates(db, stocks)
+        package_groups, partial_stocks = _package_allocation_candidates(
+            db,
+            stocks,
+            package_cache=package_cache,
+        )
         selected_package_ids = _select_whole_packages(package_groups, needed)
         for package_id in selected_package_ids:
             package, package_stocks = package_groups[package_id]
@@ -1658,7 +1753,11 @@ def list_sales_orders(
     safe_page = max(1, page)
     safe_size = max(1, min(page_size, 500))
     rows = qry.order_by(SalesOrder.id.desc()).offset((safe_page - 1) * safe_size).limit(safe_size).all()
-    payload = [_serialize_sales_order(db, so, include_items=False) for so in rows]
+    customer_names = _customer_name_map(db, {so.customer_id for so in rows if so.customer_id})
+    payload = [
+        _serialize_sales_order(db, so, include_items=False, customer_names=customer_names)
+        for so in rows
+    ]
     if include_total:
         return {"rows": payload, "total": total, "page": safe_page, "page_size": safe_size}
     return payload
