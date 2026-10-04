@@ -11,7 +11,7 @@ from app.core.pagination import clamp_pagination
 from app.models import Department, Notification, Role, User
 from app.schemas.tasks import NotificationOut
 from app.services.audit import log_action
-from app.services.notifications import notify
+from app.services.notifications import notify_many
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -45,11 +45,18 @@ def _safe_link(link: str | None) -> str | None:
     return value
 
 
-def _resolve_recipients(payload: NotificationSendIn, db: DbSession) -> list[User]:
+def _resolve_recipients(
+    payload: NotificationSendIn,
+    db: DbSession,
+    *,
+    max_recipients: int | None = None,
+) -> list[User]:
     if payload.target_type == "user_id":
         if payload.user_id is None:
             raise HTTPException(400, "user_id is required for target_type=user_id")
-        user = db.get(User, payload.user_id)
+        if payload.user_id > 2_147_483_647:
+            raise HTTPException(404, "Recipient user not found")
+        user = _recipient_user_query(db).filter(User.id == payload.user_id).first()
         if not user or not user.is_active:
             raise HTTPException(404, "Recipient user not found")
         return [user]
@@ -58,19 +65,22 @@ def _resolve_recipients(payload: NotificationSendIn, db: DbSession) -> list[User
         value = (payload.department or "").strip().lower()
         if not value:
             raise HTTPException(400, "department is required for target_type=department")
-        department = (
-            db.query(Department)
+        department_id = (
+            db.query(Department.id)
             .filter((func.lower(Department.code) == value) | (func.lower(Department.name) == value))
-            .first()
+            .limit(1)
+            .scalar()
         )
-        if not department:
+        if department_id is None:
             raise HTTPException(404, "Recipient department not found")
-        return (
-            db.query(User)
-            .filter(User.department_id == department.id, User.is_active.is_(True))
+        query = (
+            _recipient_user_query(db)
+            .filter(User.department_id == department_id, User.is_active.is_(True))
             .order_by(User.id.asc())
-            .all()
         )
+        if max_recipients is not None:
+            query = query.limit(max_recipients + 1)
+        return query.all()
 
     if payload.target_type == "safe_group":
         group = payload.safe_group
@@ -80,15 +90,18 @@ def _resolve_recipients(payload: NotificationSendIn, db: DbSession) -> list[User
             role_names = ["Admin", "Super Admin"]
         else:
             raise HTTPException(400, "safe_group must be management or admins")
-        return (
-            db.query(User)
+        query = (
+            _recipient_user_query(db)
             .join(Role, Role.id == User.role_id)
             .filter(Role.name.in_(role_names), User.is_active.is_(True))
             .order_by(User.id.asc())
-            .all()
         )
+        if max_recipients is not None:
+            query = query.limit(max_recipients + 1)
+        return query.all()
 
     raise HTTPException(400, "Unsupported recipient target")
+
 
 
 @router.get("", response_model=list[NotificationOut])
@@ -134,23 +147,27 @@ def send_notification(
     db: DbSession,
     current: User = Depends(require_permissions("management.view", "*")),
 ):
-    recipients = _resolve_recipients(payload, db)
+    max_recipients = _max_bulk_recipients()
+    recipients = _resolve_recipients(payload, db, max_recipients=max_recipients)
     if not recipients:
         raise HTTPException(404, "No active recipients found")
-    max_recipients = _max_bulk_recipients()
     if len(recipients) > max_recipients:
         raise HTTPException(
             400,
-            f"Recipient count {len(recipients)} exceeds ERP_MCP_MAX_BULK_RECIPIENTS={max_recipients}",
+            f"Recipient count exceeds ERP_MCP_MAX_BULK_RECIPIENTS={max_recipients}",
         )
 
     title = payload.title.strip()
     message = payload.message.strip() if payload.message else None
     link = _safe_link(payload.link)
-    created_ids: list[int] = []
-    for recipient in recipients:
-        created = notify(db, user_id=recipient.id, title=title, message=message, link=link)
-        created_ids.append(int(created.id))
+    created = notify_many(
+        db,
+        [int(recipient.id) for recipient in recipients],
+        title=title,
+        message=message,
+        link=link,
+    )
+    created_ids = [int(row.id) for row in created]
 
     linked_entity = None
     if payload.entity_type or payload.entity_id:
@@ -187,6 +204,7 @@ def send_notification(
     }
 
 
+
 @router.post("/{nid}/read", response_model=NotificationOut)
 def mark_read(nid: int, db: DbSession, current: CurrentUser):
     n = db.get(Notification, nid)
@@ -204,3 +222,8 @@ def mark_all_read(db: DbSession, current: CurrentUser):
     ).update({Notification.is_read: True})
     db.commit()
     return {"message": "all read"}
+
+
+def _recipient_user_query(db: DbSession):
+    # Fan-out only needs recipient identity and the public response name.
+    return db.query(User.id, User.name, User.is_active)
