@@ -1,5 +1,6 @@
 // Generated mechanically from dict.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "auth.connectionFailed": "Не удалось проверить сеанс. Проверьте соединение и повторите попытку.",
     "fabricRollEntry.method": "Ввод веса",
     "fabricRollEntry.individual": "Вес каждого рулона в кг",
     "fabricRollEntry.totalOnly": "Только общий вес",
