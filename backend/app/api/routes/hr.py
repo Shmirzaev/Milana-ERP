@@ -1,11 +1,15 @@
+import json
+from math import isfinite
+
 from fastapi import APIRouter, HTTPException, Depends
+from fastapi.exceptions import RequestValidationError
 
 from app.core.config import settings
 from app.core.deps import DbSession, CurrentUser, require_permissions, user_permissions
 from app.models import Employee, User
 from app.services.audit import log_action
 from app.services.factory_scope import factory_for_department, selected_factory_code
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from typing import Literal, Optional
@@ -59,6 +63,38 @@ class EmployeeUpdate(BaseModel):
         return _normalize_employee_no(value)
 
 
+_MAX_HR_PROFILE_JSON_BYTES = 16 * 1024
+_MAX_HR_PROFILE_JSON_DEPTH = 16
+
+
+class EmployeeProfileJson(BaseModel):
+    """Persisted fields supported by the employee profile editor and reports."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    photo_url: str | None = None
+    date_of_birth: str | None = None
+    gender: str | None = None
+    email: str | None = None
+    address: str | None = None
+    emergency_contact: str | None = None
+    nationality: str | None = None
+    company: str | None = None
+    branch: str | None = None
+    section: str | None = None
+    grade_level: str | None = None
+    employment_type: str | None = None
+    probation_end: str | None = None
+    work_schedule: str | None = None
+    shift: str | None = None
+    workplace: str | None = None
+    scheduled_daily_hours: str | int | float | None = None
+    rate_type: str | None = None
+    bonus_scheme: str | None = None
+    bank_details: str | None = None
+    payroll_id: str | None = None
+
+
 router = APIRouter(tags=["hr"])
 
 
@@ -67,6 +103,113 @@ def _normalize_employee_no(value) -> str | None:
         return None
     normalized = str(value).strip()
     return normalized or None
+
+
+def _same_json_value(left: object, right: object) -> bool:
+    pending = [(left, right)]
+    while pending:
+        current_left, current_right = pending.pop()
+        if type(current_left) is not type(current_right):
+            return False
+        if isinstance(current_left, dict):
+            if current_left.keys() != current_right.keys():
+                return False
+            pending.extend((current_left[key], current_right[key]) for key in current_left)
+        elif isinstance(current_left, list):
+            if len(current_left) != len(current_right):
+                return False
+            pending.extend(zip(current_left, current_right))
+        elif current_left != current_right:
+            return False
+    return True
+
+
+def _validate_hr_profile_json_bounds(value: dict, existing_profile: object) -> None:
+    pending = [(value, 1)]
+    exceeds_depth = False
+    while pending:
+        current, depth = pending.pop()
+        if isinstance(current, dict):
+            if depth > _MAX_HR_PROFILE_JSON_DEPTH:
+                exceeds_depth = True
+            pending.extend((nested, depth + 1) for nested in current.values())
+        elif isinstance(current, list):
+            if depth > _MAX_HR_PROFILE_JSON_DEPTH:
+                exceeds_depth = True
+            pending.extend((nested, depth + 1) for nested in current)
+
+    if _same_json_value(value, existing_profile):
+        return
+    if exceeds_depth:
+        raise HTTPException(422, "hr_profile_json exceeds the maximum nesting depth")
+
+    try:
+        encoded = json.dumps(
+            value,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError, RecursionError) as exc:
+        raise HTTPException(422, "hr_profile_json must contain valid JSON values") from exc
+    if len(encoded) > _MAX_HR_PROFILE_JSON_BYTES:
+        raise HTTPException(422, "hr_profile_json exceeds the 16 KiB limit")
+
+
+def _validate_hr_profile_json(
+    value: dict,
+    *,
+    existing_profile: object = None,
+) -> dict:
+    if not isinstance(value, dict):
+        raise HTTPException(422, "hr_profile_json must be a JSON object")
+    _validate_hr_profile_json_bounds(value, existing_profile)
+    if _same_json_value(value, existing_profile):
+        return value
+    existing = existing_profile if isinstance(existing_profile, dict) else {}
+    known_fields = EmployeeProfileJson.model_fields.keys()
+    unknown_keys = set(value) - known_fields
+    unchanged_unknown = bool(unknown_keys) and all(
+        key in existing and _same_json_value(value[key], existing[key])
+        for key in unknown_keys
+    )
+    schema_value = (
+        {key: item for key, item in value.items() if key in known_fields}
+        if unchanged_unknown
+        else value
+    )
+    try:
+        EmployeeProfileJson.model_validate(schema_value)
+    except ValidationError as exc:
+        raise RequestValidationError([
+            {**error, "loc": ("body", "hr_profile_json", *error["loc"])}
+            for error in exc.errors()
+        ]) from exc
+    if "scheduled_daily_hours" in value:
+        raw_hours = value["scheduled_daily_hours"]
+        valid_hours = raw_hours is None or (type(raw_hours) is str and raw_hours == "")
+        if not valid_hours:
+            if type(raw_hours) not in (str, int, float):
+                hours = float("nan")
+            else:
+                try:
+                    hours = float(raw_hours)
+                except (OverflowError, TypeError, ValueError):
+                    hours = float("nan")
+            valid_hours = isfinite(hours) and 0 < hours <= 24
+        if not valid_hours:
+            old_hours = existing.get("scheduled_daily_hours")
+            if not (
+                "scheduled_daily_hours" in existing
+                and _same_json_value(raw_hours, old_hours)
+            ):
+                raise HTTPException(
+                    422,
+                    "scheduled_daily_hours must be finite and greater than 0 and no more than 24",
+                )
+    # Validation is intentionally write-only. Keep the caller's scalar types
+    # and sparse keys unchanged so existing API responses remain compatible.
+    return value
 
 
 def _ensure_employee_no_available(
@@ -172,6 +315,7 @@ def create_employee(payload: EmployeeIn, db: DbSession, current: User = Depends(
     )
     values = payload.model_dump()
     _ensure_employee_no_available(db, factory_code, values.get("employee_no"))
+    values["hr_profile_json"] = _validate_hr_profile_json(values["hr_profile_json"])
     e = Employee(factory_code=factory_code, **values)
     db.add(e)
     try:
@@ -209,6 +353,8 @@ def update_employee(eid: int, payload: EmployeeUpdate, db: DbSession, current: U
     )
     if "employee_no" in changes:
         _ensure_employee_no_available(db, factory_code, changes["employee_no"], exclude_id=e.id)
+    if "hr_profile_json" in changes:
+        changes["hr_profile_json"] = _validate_hr_profile_json(changes["hr_profile_json"], existing_profile=e.hr_profile_json)
     for k, v in changes.items():
         setattr(e, k, v)
     try:
