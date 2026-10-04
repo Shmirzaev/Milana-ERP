@@ -46,12 +46,14 @@ def _find_order(db, namespace, reference=None, entity_id=None, *, lookup=None):
     return lookup.by_id(namespace, entity_id) if lookup is not None else query.filter(model.id == entity_id).first()
 
 
-def resolve_order_id(db, namespace: str, reference: str | None) -> int | None:
+
+def resolve_order_id(db, namespace: str, reference: str | None, *, lookup=None) -> int | None:
     """Resolve only the requested entity type; public factory SO labels are not sales."""
     if namespace == "PUBLIC_PO":
         raise ValueError("Public order labels do not identify sales records")
-    row = _find_order(db, namespace, reference)
+    row = _find_order(db, namespace, reference, lookup=lookup)
     return row.id if row else None
+
 
 
 def _public_order(db, reference, production_order_id=None, *, lookup=None):
@@ -71,6 +73,7 @@ def _public_order(db, reference, production_order_id=None, *, lookup=None):
         return db.query(ProductionOrder).filter(ProductionOrder.production_no == reference,
                                                 ProductionOrder.sales_order_id.is_(None)).first()
     return None
+
 
 
 def canonical_order_reference(db, namespace: str, reference: str | None, *,
@@ -95,6 +98,7 @@ def canonical_order_reference(db, namespace: str, reference: str | None, *,
     if row is None:
         return reference
     return str(getattr(row, _entity(namespace)[1]))
+
 
 
 def order_reference_variants(db, namespace: str, reference: str | None, *,
@@ -123,6 +127,7 @@ def order_reference_variants(db, namespace: str, reference: str | None, *,
     elif reference:
         values.add(reference)
     return values
+
 
 
 def order_reference_contains(column, pattern: str):

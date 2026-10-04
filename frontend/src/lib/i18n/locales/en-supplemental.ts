@@ -763,6 +763,7 @@ export default {
     "page.payroll.netTotal": "Net total",
     "page.payroll.noTotals": "No payroll totals match these filters.",
     "page.payroll.operationTotals": "Operation totals",
+    "page.payroll.operationTotalsScope": "For {count} of {total} employee groups loaded",
     "page.payroll.noOperationTotals": "No operation totals match these filters.",
     "page.payroll.payrollRecords": "Payroll records",
     "page.payroll.time": "Time",
@@ -1083,4 +1084,9 @@ export default {
     "attendance.empty": "No device profiles match these filters.",
     "attendance.resultCount": "{count} profiles",
     "page.processQr.correctedIdentityReview": "An edited label no longer matches a model operation. Review its operation identity before issuing additional labels. Existing labels remain available to print.",
+    "page.hrEmployees.managerSearch": "Find manager",
+    "page.hrEmployees.positionSearch": "Search positions",
+    "page.hrEmployees.manager": "Manager",
+    "page.hrEmployees.refineManagerSearch": "More than 50 matches. Refine the manager search.",
+    "page.hrEmployees.loadMore": "Load more employees",
   } as Record<string, string>;

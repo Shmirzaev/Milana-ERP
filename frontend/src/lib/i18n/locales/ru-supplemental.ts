@@ -763,6 +763,7 @@ export default {
     "page.payroll.netTotal": "Итого",
     "page.payroll.noTotals": "Нет итогов по выбранным фильтрам.",
     "page.payroll.operationTotals": "Итоги по операциям",
+    "page.payroll.operationTotalsScope": "Загружено по группам сотрудников: {count} из {total}",
     "page.payroll.noOperationTotals": "Нет итогов по операциям для выбранных фильтров.",
     "page.payroll.payrollRecords": "Записи зарплаты",
     "page.payroll.time": "Время",
@@ -1197,4 +1198,9 @@ export default {
     "attendance.empty": "\u041d\u0435\u0442 \u043f\u0440\u043e\u0444\u0438\u043b\u0435\u0439, \u0441\u043e\u043e\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0443\u044e\u0449\u0438\u0445 \u0444\u0438\u043b\u044c\u0442\u0440\u0430\u043c.",
     "attendance.resultCount": "\u041f\u0440\u043e\u0444\u0438\u043b\u0435\u0439: {count}",
     "page.processQr.correctedIdentityReview": "Изменённая этикетка не соответствует операции модели. Проверьте её операцию перед выпуском новых этикеток. Существующие этикетки доступны для печати.",
+    "page.hrEmployees.managerSearch": "Найти руководителя",
+    "page.hrEmployees.positionSearch": "Поиск должностей",
+    "page.hrEmployees.manager": "Руководитель",
+    "page.hrEmployees.refineManagerSearch": "Найдено более 50 совпадений. Уточните поиск руководителя.",
+    "page.hrEmployees.loadMore": "Загрузить ещё сотрудников",
   } as Record<string, string>;
