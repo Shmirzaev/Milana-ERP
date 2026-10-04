@@ -6,6 +6,7 @@ import useSWR from "swr";
 import ModelAsyncSelect from "@/components/ModelAsyncSelect";
 import PageHeader from "@/components/PageHeader";
 import { useDialogs } from "@/components/DialogProvider";
+import { useSharedPolling } from "@/hooks/useSharedPolling";
 import PriceRequestCard, { PriceRequestProductStrip } from "@/components/price-calculation/PriceRequestCard";
 import { api, fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
@@ -39,10 +40,11 @@ export default function SalesPriceRequestsPage() {
   const dialogs = useDialogs();
   const nextDraftId = useRef(2);
   const requestSequence = useRef(new Map<string, number>());
+  const polling = useSharedPolling();
   const { data: requests, error, isLoading, mutate } = useSWR<PriceCalculationRequest[]>(
     "/api/price-calculation/requests",
     fetcher,
-    { refreshInterval: 5_000 },
+    polling,
   );
   const [drafts, setDrafts] = useState<SalesDraft[]>([emptyDraft("sales-price-draft-1")]);
   const [savingId, setSavingId] = useState<string | null>(null);
