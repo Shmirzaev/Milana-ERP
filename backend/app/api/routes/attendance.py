@@ -431,12 +431,20 @@ def import_people_snapshot(
     created = 0
     updated = 0
 
+    # AT06 acquires the device import lock and rejects stale snapshots above.
+    # Read the roster only after that gate, refreshing any preloaded ORM rows.
+    existing_people = {}
+    incoming_ids = sorted(seen)
+    for offset in range(0, len(incoming_ids), 400):
+        rows = db.query(AttendancePerson).filter(
+            AttendancePerson.device_id == device.id,
+            AttendancePerson.external_person_id.in_(incoming_ids[offset:offset + 400]),
+        ).populate_existing().all()
+        existing_people.update({person.external_person_id: person for person in rows})
+
     for incoming in payload.people:
         external_id = incoming.external_person_id
-        person = db.query(AttendancePerson).filter(
-            AttendancePerson.device_id == device.id,
-            AttendancePerson.external_person_id == external_id,
-        ).one_or_none()
+        person = existing_people.get(external_id)
         if person is None:
             person = AttendancePerson(
                 factory_code=device.factory_code,
