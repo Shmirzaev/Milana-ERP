@@ -13,6 +13,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security.utils import get_authorization_scheme_param
 from starlette.middleware.gzip import GZipMiddleware
+from starlette.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import text
@@ -224,7 +225,10 @@ def _request_origin_allowed(request: Request) -> bool:
 @app.middleware("http")
 async def _global_rate_limit(request: Request, call_next):
     if request.method.upper() != "OPTIONS" and request.url.path not in _RATE_LIMIT_EXEMPT_PATHS:
-        allowed, retry_after = _rate_limit_allowed(_rate_limit_identity_key(request))
+        # Counter I/O and SQLite contention belong in Starlette's bounded pool.
+        allowed, retry_after = await run_in_threadpool(
+            _rate_limit_allowed, _rate_limit_identity_key(request)
+        )
         if not allowed:
             return JSONResponse(
                 status_code=429,
