@@ -48,11 +48,6 @@ type Warehouse = {
   type?: string | null;
 };
 
-type Supplier = {
-  id: number;
-  name: string;
-};
-
 type ReceiveState = {
   order: PurchaseOrder;
   line: PurchaseOrderLine;
@@ -267,7 +262,28 @@ export default function PurchaseReceivingPage() {
     fetcher,
   );
   const { data: warehouses } = useSWR<Warehouse[]>(canReceive ? "/api/inventory/warehouses" : null, fetcher);
-  const { data: suppliers } = useSWR<Supplier[]>(canReceive ? "/api/suppliers" : null, fetcher);
+
+  // The receive dialog only needs the suppliers these orders already name, so the whole
+  // supplier directory is not fetched. Derived from `orders` rather than the receivable
+  // queue on purpose: `openPendingReceipt` resolves its order out of `orders` and reopens
+  // a saved receipt even for an order that is no longer receivable. Deriving from the
+  // filtered queue would drop that supplier from the options and the select would fall
+  // back to the placeholder, quietly sending a different supplier_id on retry.
+  const supplierOptions = useMemo(() => {
+    const options = new Map<number, string>();
+    for (const order of orders || []) {
+      for (const [supplierId, supplierName] of [
+        [order.supplier_id, order.supplier_name],
+        ...(order.lines || []).map((line) => [line.supplier_id, line.supplier_name] as const),
+      ]) {
+        const id = Number(supplierId || 0);
+        if (id > 0 && !options.has(id)) options.set(id, String(supplierName || `#${id}`));
+      }
+    }
+    return [...options.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [orders]);
 
   const openOrders = useMemo(
     () => (orders || []).filter((order) => RECEIVABLE_ORDER_STATUSES.has(order.status) && order.lines.some((line) => Number(line.remaining_quantity || 0) > 0)),
@@ -635,7 +651,7 @@ export default function PurchaseReceivingPage() {
                   <label className="label">{t("field.supplier")}</label>
                   <select className="input" value={receiveState.supplier_id} onChange={(event) => setReceiveState({ ...receiveState, supplier_id: Number(event.target.value) })}>
                     <option value={0}>{t("ph.supplier")}</option>
-                    {suppliers?.map((supplier) => (
+                    {supplierOptions.map((supplier) => (
                       <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
                     ))}
                   </select>
