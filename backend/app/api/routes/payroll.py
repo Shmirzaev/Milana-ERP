@@ -1481,6 +1481,7 @@ def _serialize_qr_label(
     records: dict[int, PayrollRecord],
     employees: dict[int, Employee],
     departments: dict[int, Department],
+    order_lookup=None,
 ) -> dict[str, Any]:
     record = records.get(int(label.payroll_record_id)) if label.payroll_record_id else None
     employee = employees.get(int(record.employee_id)) if record else None
@@ -1490,14 +1491,14 @@ def _serialize_qr_label(
         "factory_code": label.factory_code,
         "label_uid": label.label_uid,
         "qr_token": _work_qr_token(int(label.id)),
-        "payload": _canonical_payroll_snapshot(object_session(label), label.payload, production_order_id=label.production_order_id, sales_order_id=label.sales_order_id),
+        "payload": _canonical_payroll_snapshot(object_session(label), label.payload, production_order_id=label.production_order_id, sales_order_id=label.sales_order_id, lookup=order_lookup),
         "production_order_id": label.production_order_id,
         "sales_order_id": label.sales_order_id,
         "work_order_id": label.work_order_id,
         "production_batch_id": label.production_batch_id,
         "model_id": label.model_id,
-        "production_no": _canonical_payroll_reference(object_session(label), "PO", label.production_no, entity_id=label.production_order_id),
-        "sales_order_no": _canonical_payroll_reference(object_session(label), "SO", label.sales_order_no, entity_id=label.sales_order_id, production_order_id=label.production_order_id),
+        "production_no": _canonical_payroll_reference(object_session(label), "PO", label.production_no, entity_id=label.production_order_id, lookup=order_lookup),
+        "sales_order_no": _canonical_payroll_reference(object_session(label), "SO", label.sales_order_no, entity_id=label.sales_order_id, production_order_id=label.production_order_id, lookup=order_lookup),
         "batch_no": _normalize_production_batch_no(label.batch_no),
         "model_code": label.model_code,
         "operation_section": label.operation_section,
@@ -2917,6 +2918,29 @@ def resolve_qr_token(
     raise HTTPException(400, "Unknown payroll QR token type")
 
 
+
+
+def _qr_label_order_lookup(db, count_rows, labels):
+    requests, snapshots = set(), set()
+
+    def collect(namespace, reference, *, entity_id=None, production_order_id=None):
+        # Match the payroll wrapper's early return for empty, unlinked references.
+        if reference or entity_id is not None:
+            snapshots.add((namespace, reference, entity_id, production_order_id))
+        return reference
+
+    for row in count_rows:
+        sales_no, production_no, sales_id, production_id = row[:4]
+        requests.add(("SO", sales_no, sales_id, production_id))
+        requests.add(("PO", production_no, production_id, None))
+    for label in labels:
+        requests.add(("SO", label.sales_order_no, label.sales_order_id, label.production_order_id))
+        requests.add(("PO", label.production_no, label.production_order_id, None))
+        _map_payroll_snapshot_references(label.payload, collect, production_order_id=label.production_order_id,
+                                        sales_order_id=label.sales_order_id)
+    return _PayrollOrderLookup(db, requests | snapshots, snapshots)
+
+
 @router.get("/qr-labels", response_model=PayrollQrControlOut)
 def list_qr_labels(
     db: DbSession,
@@ -2989,17 +3013,18 @@ def list_qr_labels(
         PayrollQrLabel.factory_code == selected_factory_code(current),
         PayrollQrLabel.status.in_(["available", "scanned"]),
     ).group_by(*count_columns).all()
+    order_lookup = _qr_label_order_lookup(db, count_rows, labels)
     counts = {}
     for sales_no, production_no, sales_id, production_id, count, scanned in count_rows:
-        key = (_canonical_payroll_reference(db, "SO", sales_no, entity_id=sales_id, production_order_id=production_id)
-               or _canonical_payroll_reference(db, "PO", production_no, entity_id=production_id) or "No order")
+        key = (_canonical_payroll_reference(db, "SO", sales_no, entity_id=sales_id, production_order_id=production_id, lookup=order_lookup)
+               or _canonical_payroll_reference(db, "PO", production_no, entity_id=production_id, lookup=order_lookup) or "No order")
         entry = counts.setdefault(key, {"order_no": key, "total": 0, "scanned": 0})
         entry["total"] += count
         entry["scanned"] += scanned
     return {
         "order_counts": list(counts.values()),
         "items": [
-            _serialize_qr_label(label, records=records, employees=employees, departments=departments)
+            _serialize_qr_label(label, records=records, employees=employees, departments=departments, order_lookup=order_lookup)
             for label in labels
         ],
         "total": total,
