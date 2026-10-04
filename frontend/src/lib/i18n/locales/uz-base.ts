@@ -1,5 +1,6 @@
 // Generated mechanically from dict.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "auth.connectionFailed": "Seansni tekshirib bo‘lmadi. Internet aloqasini tekshirib, qayta urinib ko‘ring.",
     "fabricRollEntry.method": "Vazn kiritish",
     "fabricRollEntry.individual": "Har bir rulon uchun kg kiritish",
     "fabricRollEntry.totalOnly": "Faqat umumiy vazn",

@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from dataclasses import dataclass
 from urllib.parse import quote
 from fastapi import APIRouter, HTTPException, Depends, Header
 from fastapi.responses import HTMLResponse, Response
@@ -60,11 +61,84 @@ _SHIPMENT_ORDER_STATUSES = {
 }
 
 
-def _shipment_payload(db: DbSession, sh: Shipment, *, scanned_count: int | None = None) -> dict:
+@dataclass(frozen=True)
+class _ShipmentOrderRef:
+    """The only sales-order fields a shipment payload renders."""
+
+    order_no: str | None
+    customer_id: int | None
+
+
+def _shipment_order_ref_map(db: DbSession, shipments: list[Shipment]) -> dict[int, _ShipmentOrderRef]:
+    """Read only the sales-order fields a shipment payload renders."""
+    order_ids = {int(sh.sales_order_id) for sh in shipments if sh.sales_order_id}
+    if not order_ids:
+        return {}
+    rows = (
+        db.query(SalesOrder.id, SalesOrder.order_no, SalesOrder.customer_id)
+        .filter(SalesOrder.id.in_(sorted(order_ids)))
+        .all()
+    )
+    return {
+        int(order_id): _ShipmentOrderRef(order_no=order_no, customer_id=customer_id)
+        for order_id, order_no, customer_id in rows
+    }
+
+
+def _shipment_customer_name_map(
+    db: DbSession,
+    shipments: list[Shipment],
+    sales_orders: dict[int, _ShipmentOrderRef],
+) -> dict[int, str]:
+    """Read only the customer names these shipments render.
+
+    A shipment-level ``customer_id`` overrides its sales order's customer, so the
+    effective id is resolved through the same bounded order map the payload uses
+    instead of re-reading the order per row.
+    """
+    customer_ids: set[int] = set()
+    for sh in shipments:
+        customer_id = sh.customer_id
+        if not customer_id and sh.sales_order_id:
+            order_ref = sales_orders.get(int(sh.sales_order_id))
+            customer_id = order_ref.customer_id if order_ref else None
+        if customer_id:
+            customer_ids.add(int(customer_id))
+    if not customer_ids:
+        return {}
+    rows = (
+        db.query(Customer.id, Customer.name)
+        .filter(Customer.id.in_(sorted(customer_ids)))
+        .all()
+    )
+    return {int(customer_id): name for customer_id, name in rows}
+
+
+def _shipment_payload(
+    db: DbSession,
+    sh: Shipment,
+    *,
+    scanned_count: int | None = None,
+    sales_orders: dict[int, _ShipmentOrderRef] | None = None,
+    customer_names: dict[int, str] | None = None,
+) -> dict:
     if sh.deleted_at:
         raise HTTPException(404, "Shipment not found")
-    so = db.get(SalesOrder, sh.sales_order_id) if sh.sales_order_id else None
-    customer = db.get(Customer, sh.customer_id or (so.customer_id if so else None)) if (sh.customer_id or (so.customer_id if so else None)) else None
+    sales_order_id = int(sh.sales_order_id) if sh.sales_order_id else None
+    so = (
+        sales_orders.get(sales_order_id)
+        if sales_orders is not None
+        else db.get(SalesOrder, sales_order_id) if sales_order_id else None
+    )
+    customer_id = sh.customer_id or (so.customer_id if so else None)
+    if customer_names is not None:
+        customer_key = int(customer_id) if customer_id else None
+        customer_found = customer_key is not None and customer_key in customer_names
+        customer_name = customer_names.get(customer_key) if customer_found else None
+    else:
+        customer = db.get(Customer, customer_id) if customer_id else None
+        customer_found = customer is not None
+        customer_name = customer.name if customer is not None else None
     packages_count = len(sh.packages or [])
     total_qty = sum(int(sp.quantity or 0) for sp in (sh.packages or []))
     if scanned_count is None:
@@ -85,7 +159,7 @@ def _shipment_payload(db: DbSession, sh: Shipment, *, scanned_count: int | None 
         "transport_details": sh.transport_details or {},
         "created_at": sh.created_at,
         "sales_order_no": so.order_no if so else None,
-        "customer_name": customer.name if customer else None,
+        "customer_name": customer_name if customer_found else None,
         "shipment_type": "manual" if (sh.dispatch_snapshot or {}).get("manual") else "sales_order" if sh.sales_order_id else "warehouse_exit",
         "packages_count": packages_count,
         "total_qty": total_qty,
@@ -784,6 +858,8 @@ def list_shipments(db: DbSession, _: CurrentUser, sales_order_id: int | None = N
     if sales_order_id:
         qry = qry.filter(Shipment.sales_order_id == sales_order_id)
     rows = qry.order_by(Shipment.id.desc()).all()
+    sales_orders = _shipment_order_ref_map(db, rows)
+    customer_names = _shipment_customer_name_map(db, rows, sales_orders)
     shipment_ids = [int(sh.id) for sh in rows]
     scanned_by_shipment = (
         {
@@ -812,7 +888,12 @@ def list_shipments(db: DbSession, _: CurrentUser, sales_order_id: int | None = N
         else {}
     )
     return [
-        _shipment_payload(db, sh, scanned_count=scanned_by_shipment.get(int(sh.id), 0))
+        _shipment_payload(
+            db, sh,
+            scanned_count=scanned_by_shipment.get(int(sh.id), 0),
+            sales_orders=sales_orders,
+            customer_names=customer_names,
+        )
         for sh in rows
     ]
 

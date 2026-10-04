@@ -170,13 +170,86 @@ def correct_received_quantity(db: Session, shipment: Shipment, package_id: int,
     db.flush()
 
 
-def manual_invoice_sizes(db, package, size):
+def manual_invoice_sizes(db, package, size, *, receipts=None):
+    """Configured sizes for a manual "mixed" package.
+
+    ``receipts`` is a per-document memo keyed by receipt id. Without it every call
+    re-reads the receipt; with it a receipt referenced by many package items is
+    resolved once, through the same ``db.get`` (identity map included) as before.
+    """
     if str(size).lower() != "mixed" or not package.manual_receipt_id:
         return None
     from app.models import ManualPackageReceipt
-    receipt = db.get(ManualPackageReceipt, package.manual_receipt_id)
+    receipt_id = package.manual_receipt_id
+    if receipts is None:
+        receipt = db.get(ManualPackageReceipt, receipt_id)
+    elif receipt_id in receipts:
+        receipt = receipts[receipt_id]
+    else:
+        receipt = receipts.setdefault(receipt_id, db.get(ManualPackageReceipt, receipt_id))
     sizes = receipt.evidence.get("configured_sizes", []) if receipt else []
     return ", ".join(dict.fromkeys(str(s) for s in sizes)) or None
+
+
+WILDCARD_COLORS = {"mixed", "any", "*", ""}
+WILDCARD_SIZES = {"any", "mixed", "*", "", "bag"}
+
+
+def _is_wildcard_order_line(line) -> bool:
+    color = line.color.lower()
+    size = line.size.lower()
+    return color in WILDCARD_COLORS and (size in WILDCARD_SIZES or size.startswith("pack"))
+
+
+class OrderPriceIndex:
+    """Exact-then-wildcard order prices for a shipment document.
+
+    The previous code re-scanned every order line for every package item, so price
+    resolution was O(items x order lines). This groups the lines by model once and
+    memoises the two candidate sets per model.
+
+    Two properties of the original expression are kept deliberately, because both
+    are observable:
+
+    * ``exact or wildcard`` short-circuits, so the wildcard candidates of a model
+      are derived only once some item of that model has no exact match. An order
+      line whose colour/size cannot be coerced therefore still raises exactly
+      where it raised before, instead of at the first unrelated line.
+    * ``{Decimal(str(unit_price)) for line in ...}`` is evaluated only over the
+      selected candidates, so a line that is never selected is never coerced.
+    """
+
+    __slots__ = ("_by_model", "_exact", "_wildcard")
+
+    def __init__(self, order_items):
+        self._by_model: dict = defaultdict(list)
+        for line in order_items:
+            self._by_model[line.model_id].append(line)
+        self._exact: dict = {}
+        self._wildcard: dict = {}
+
+    def _exact_groups(self, model_id) -> dict:
+        groups = self._exact.get(model_id)
+        if groups is None:
+            groups = defaultdict(list)
+            for line in self._by_model.get(model_id, ()):
+                groups[(line.color, line.size)].append(line)
+            self._exact[model_id] = groups
+        return groups
+
+    def _wildcard_lines(self, model_id) -> list:
+        lines = self._wildcard.get(model_id)
+        if lines is None:
+            lines = [line for line in self._by_model.get(model_id, ()) if _is_wildcard_order_line(line)]
+            self._wildcard[model_id] = lines
+        return lines
+
+    def prices(self, model_id, color, size) -> set:
+        """Distinct exact prices, or distinct wildcard prices when none is exact."""
+        exact = self._exact_groups(model_id).get((color, size))
+        if exact:
+            return {Decimal(str(line.unit_price)) for line in exact}
+        return {Decimal(str(line.unit_price)) for line in self._wildcard_lines(model_id)}
 
 
 def shipment_document(db: Session, shipment: Shipment, *, scanned_ids: set[int] | None = None) -> dict:
@@ -192,6 +265,13 @@ def shipment_document(db: Session, shipment: Shipment, *, scanned_ids: set[int] 
     package_ids = [package.id for _, package in rows]
     contents = db.query(PackageItem).filter(PackageItem.package_id.in_(package_ids)).order_by(PackageItem.id).all() if package_ids else []
     models = {model.id: model for model in db.query(Model).filter(Model.id.in_({i.model_id for i in contents})).all()} if contents else {}
+    # One pass over the loaded rows, so the per-package content and per-item price
+    # lookups below no longer rescan the whole list.
+    contents_by_package = defaultdict(list)
+    for item in contents:
+        contents_by_package[item.package_id].append(item)
+    prices_by_item = OrderPriceIndex(order_items)
+    manual_receipts: dict = {}
     lines = []
     total = Decimal("0")
     unknown_prices = False
@@ -205,16 +285,12 @@ def shipment_document(db: Session, shipment: Shipment, *, scanned_ids: set[int] 
         pieces += link.quantity
         package_details.append({"package_no": package.package_no, "quantity": link.quantity,
                                 "weight_kg": str(package.weight_kg) if package.weight_kg is not None else None})
-        package_items = [item for item in contents if item.package_id == package.id]
+        package_items = contents_by_package.get(package.id, ())
         balanced = sum(item.quantity for item in package_items) == link.quantity
         if not balanced:
             unknown_prices = True
         for item in package_items:
-            candidates = [line for line in order_items if line.model_id == item.model_id]
-            exact = [line for line in candidates if line.color == item.color and line.size == item.size]
-            wildcard = [line for line in candidates if (line.color.lower() in {"mixed", "any", "*", ""}) and
-                        (line.size.lower() in {"any", "mixed", "*", "", "bag"} or line.size.lower().startswith("pack"))]
-            prices = {Decimal(str(line.unit_price)) for line in (exact or wildcard)}
+            prices = prices_by_item.prices(item.model_id, item.color, item.size)
             price = next(iter(prices)) if len(prices) == 1 and balanced else None
             if not order and (shipment.dispatch_snapshot or {}).get("manual") and balanced:
                 model_price = models.get(item.model_id)
@@ -233,7 +309,9 @@ def shipment_document(db: Session, shipment: Shipment, *, scanned_ids: set[int] 
             lines.append({"package_no": package.package_no, "model_code": model.code if model else "",
                           "model_no": model_no, "variant_no": variant_no,
                           "description": description,
-                          "color": item.color, "size": item.size, "size_display": manual_invoice_sizes(db, package, item.size), "quantity": item.quantity,
+                          "color": item.color, "size": item.size,
+                          "size_display": manual_invoice_sizes(db, package, item.size, receipts=manual_receipts),
+                          "quantity": item.quantity,
                           "unit_price": str(price) if price is not None else None,
                           "amount": str(amount) if amount is not None else None})
     document = {"shipment_no": shipment.shipment_no, "sales_order_no": order.order_no if order else None,
@@ -413,10 +491,15 @@ def post_manual_shipment_invoice(db: Session, shipment: Shipment, user: User) ->
     grouped = defaultdict(int)
     for item in items:
         grouped[(item.model_id, item.color, item.size)] += item.quantity
+    # Index the frozen lines once instead of rescanning them for every group; the
+    # document is frozen evidence, so this only reads it, never rebuilds it.
+    frozen_prices_by_line = defaultdict(set)
+    if grouped:
+        for line in document["lines"]:
+            frozen_prices_by_line[(line["model_code"], line["color"], line["size"])].add(line["unit_price"])
     for (model_id, color, size), quantity in grouped.items():
         model = db.get(Model, model_id)
-        frozen_prices = {line["unit_price"] for line in document["lines"]
-                         if line["model_code"] == model.code and line["color"] == color and line["size"] == size}
+        frozen_prices = frozen_prices_by_line.get((model.code, color, size), set())
         frozen_price = next(iter(frozen_prices)) if len(frozen_prices) == 1 else None
         db.add(SalesOrderItem(sales_order_id=order.id, model_id=model_id, color=color, size=size,
                              quantity=quantity, unit_price=Decimal(frozen_price or "0"),

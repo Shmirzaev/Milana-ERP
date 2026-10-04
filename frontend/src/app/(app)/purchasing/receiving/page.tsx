@@ -4,6 +4,7 @@ import { formatOrderReference } from "@/lib/orderRef";
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import { ArrowLeft, ChevronDown, ChevronRight, PackageCheck, X } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import { useDialogs } from "@/components/DialogProvider";
@@ -40,6 +41,14 @@ type PurchaseOrder = {
   status: string;
   expected_date?: string | null;
   lines: PurchaseOrderLine[];
+};
+
+/** The orders route returns a page plus the exact filtered total. */
+type PurchaseOrderPage = {
+  items: PurchaseOrder[];
+  total: number;
+  limit: number;
+  offset: number;
 };
 
 type Warehouse = {
@@ -257,10 +266,43 @@ export default function PurchaseReceivingPage() {
   useEffect(() => {
     refreshPendingReceipts();
   }, [refreshPendingReceipts]);
-  const { data: orders, mutate: refreshOrders } = useSWR<PurchaseOrder[]>(
-    canView ? "/api/purchasing/orders" : null,
+  const ORDER_PAGE_SIZE = 50;
+  const {
+    data: orderPages,
+    mutate: refreshOrders,
+    setSize: setOrderPageCount,
+    size: orderPageCount,
+  } = useSWRInfinite<PurchaseOrderPage>(
+    (pageIndex) =>
+      canView
+        ? `/api/purchasing/orders?limit=${ORDER_PAGE_SIZE}&offset=${pageIndex * ORDER_PAGE_SIZE}`
+        : null,
     fetcher,
   );
+  // Pages ACCUMULATE rather than replace. `openPendingReceipt` resolves a saved
+  // receipt out of this list, so a single page would silently fail to resume a
+  // receipt for an order further down the directory.
+  const orders = useMemo(
+    () => (orderPages ?? []).flatMap((page) => page.items ?? []),
+    [orderPages],
+  );
+  const ordersTotal = orderPages?.[0]?.total ?? 0;
+  const hasMoreOrders = orders.length < ordersTotal;
+  const growOrders = useCallback(() => setOrderPageCount(orderPageCount + 1), [
+    orderPageCount,
+    setOrderPageCount,
+  ]);
+
+  // A saved pending receipt can name an order that is not on the first page.
+  // Grow the loaded window until every pending order is present, bounded, so
+  // resuming a receipt never silently degrades into a recovery message.
+  useEffect(() => {
+    if (!canView || !hasMoreOrders || pendingReceipts.length === 0) return;
+    const missing = pendingReceipts.some(
+      (pending) => !orders.some((order) => order.id === pending.orderId),
+    );
+    if (missing) growOrders();
+  }, [canView, hasMoreOrders, pendingReceipts, orders, growOrders]);
   const { data: warehouses } = useSWR<Warehouse[]>(canReceive ? "/api/inventory/warehouses" : null, fetcher);
 
   // The receive dialog only needs the suppliers these orders already name, so the whole
@@ -594,6 +636,14 @@ export default function PurchaseReceivingPage() {
               </tbody>
             )}
           </table>
+          {hasMoreOrders && (
+            <div className="flex flex-wrap items-center justify-center gap-3 border-t border-[#ecebe3] p-4">
+              <span className="text-sm text-[#8a8472]">{orders.length} / {ordersTotal}</span>
+              <button className="btn" type="button" onClick={growOrders}>
+                {t("common.loadMore")}
+              </button>
+            </div>
+          )}
         </div>
       </section>
 
