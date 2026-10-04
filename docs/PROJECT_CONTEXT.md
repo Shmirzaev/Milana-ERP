@@ -1,6 +1,11 @@
 # Milana ERP Project Context
 
-Last updated: 2026-10-03
+Last updated: 2026-10-04
+
+## PERF37 rate-store scheduling (2026-10-04; branch validation only)
+
+- Global rate-counter I/O runs in Starlette's bounded worker pool. Shared-store creation and test reset use a process-local initialization RLock so concurrent workers receive one store. SQLite increment RLock/BEGIN IMMEDIATE and PostgreSQL application locks are unchanged. Local SQLite concurrency and PostgreSQL attendance-lock tests passed.
+- Prepared from `origin/clone_main` on `codex/perf37` for review; no merge, deployment or production data change. Production access/verification is excluded by the owner. Last recorded active blue `20261003_071825` and rollback green `20261003_065351` above are historical context, not newly verified slot state. Production-volume behavior remains unverified.
 
 ## DINAR 5132 balance override applied (2026-10-03)
 
