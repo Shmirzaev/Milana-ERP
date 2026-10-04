@@ -1,6 +1,11 @@
 # Milana ERP Project Context
 
-Last updated: 2026-10-03
+Last updated: 2026-10-04
+
+## PERF38 office rate budgets (2026-10-04; branch validation only)
+
+- Global request budgets use the canonical positive user ID from a valid, unexpired bearer token or session cookie. Public login/reset routes and invalid/missing credentials retain IP budgets; route authorization still validates the user independently. Signed-token, shared-IP, cookie, proxy and login regression tests cover the change.
+- Prepared from `origin/clone_main` on `codex/perf38` for review; no merge, deployment or production data change. Production access/verification is excluded by the owner. Last recorded active blue `20261003_071825` and rollback green `20261003_065351` above are historical context, not newly verified slot state. Production-volume behavior remains unverified.
 
 ## DINAR 5132 balance override applied (2026-10-03)
 

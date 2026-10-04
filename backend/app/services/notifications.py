@@ -20,3 +20,20 @@ def notify(
     else:
         db.flush()
     return n
+
+
+def notify_many(
+    db: Session,
+    user_ids: list[int],
+    title: str,
+    message: str | None = None,
+    link: str | None = None,
+) -> list[Notification]:
+    """Create an ordered notification fan-out with one flush boundary."""
+    rows = [
+        Notification(user_id=user_id, title=title, message=message, link=link)
+        for user_id in user_ids
+    ]
+    db.add_all(rows)
+    db.flush()
+    return rows
