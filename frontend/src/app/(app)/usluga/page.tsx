@@ -105,7 +105,6 @@ export default function UslugaPage() {
     error,
     isLoading,
     isValidating,
-    isLoadingMore,
     mutate: mutateOrders,
     size: orderPageCount,
     setSize: setOrderPageCount,
@@ -120,6 +119,9 @@ export default function UslugaPage() {
       return `/api/usluga/orders?${params.toString()}`;
     },
     fetcher,
+  );
+  const isLoadingMore = isLoading || Boolean(
+    isValidating && orderPageCount > 0 && orderPages?.[orderPageCount - 1] === undefined,
   );
   // The API filters server-side, so the accumulated pages are already the full
   // filtered set; `total` is the true match count, not the loaded row count.

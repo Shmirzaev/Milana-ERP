@@ -4,6 +4,7 @@ import { useState } from "react";
 import useSWR from "swr";
 import PageHeader from "@/components/PageHeader";
 import PriceRequestCard from "@/components/price-calculation/PriceRequestCard";
+import { useSharedPolling } from "@/hooks/useSharedPolling";
 import { api, fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { numberInputValue, type PriceCalculationRequest, type PriceRequestStatus } from "@/lib/priceCalculationRequests";
@@ -78,7 +79,8 @@ function FormField({ label, value, disabled, text = false, integer = false, onCh
 
 export default function CuttingPriceCalculationPage() {
   const { t } = useT();
-  const { data, error, isLoading, mutate } = useSWR<PriceCalculationRequest[]>("/api/price-calculation/requests", fetcher, { refreshInterval: 5_000 });
+  const polling = useSharedPolling();
+  const { data, error, isLoading, mutate } = useSWR<PriceCalculationRequest[]>("/api/price-calculation/requests", fetcher, polling);
   const [drafts, setDrafts] = useState<Record<number, CuttingDraft>>({});
   const [editing, setEditing] = useState<Set<number>>(() => new Set());
   const [savingId, setSavingId] = useState<number | null>(null);

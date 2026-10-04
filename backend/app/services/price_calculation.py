@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.deps import user_permissions
 from app.services.user_access import access_configured, permission_denied
@@ -20,6 +20,37 @@ FIXED_PACKAGING_COST = Decimal("0.1")
 PURCHASING_PERMISSION = "price_calculation.purchasing"
 ACCESSORIES_PERMISSION = "price_calculation.accessories"
 CUTTING_PERMISSION = "price_calculation.cutting"
+
+# ``serialize_price_request`` reads all three of these on every row: ``sizes``
+# directly, and ``images``/``bom`` through the model image helpers. All three are
+# default lazy relationships, so leaving them out of a query re-reads the same
+# model assets once per request row instead of once per page.
+PRICE_MODEL_ASSET_RELATIONS = (Model.sizes, Model.images, Model.bom)
+
+
+def model_asset_load_options() -> tuple:
+    """Eager-load the model assets needed to serialize a price calculation.
+
+    Used wherever a price request is produced from a freshly loaded model so the
+    asset set is defined in exactly one place.
+    """
+    return tuple(selectinload(relation) for relation in PRICE_MODEL_ASSET_RELATIONS)
+
+
+def price_request_load_options() -> tuple:
+    """Shared eager-load options for price calculation request rows.
+
+    The list route and every request mutation go through this so a list read and
+    a single-row write hydrate the same model assets, and so the per-row lazy
+    asset reads are batched into one query per asset collection.
+    """
+    return (
+        *(
+            joinedload(PriceCalculationRequest.model).selectinload(relation)
+            for relation in PRICE_MODEL_ASSET_RELATIONS
+        ),
+        joinedload(PriceCalculationRequest.cutting_passport),
+    )
 
 
 def _normalized(value: object) -> str:
@@ -343,7 +374,12 @@ def _passport_for_kroy(db: Session, request: PriceCalculationRequest, kroy_no: s
 
 
 def create_price_request(db: Session, model_id: int, current: User) -> PriceCalculationRequest:
-    model = db.get(Model, model_id)
+    model = (
+        db.query(Model)
+        .options(*model_asset_load_options())
+        .filter(Model.id == model_id)
+        .one_or_none()
+    )
     if not model:
         raise HTTPException(404, "Model not found")
     details = model.details_json if isinstance(model.details_json, dict) else {}
