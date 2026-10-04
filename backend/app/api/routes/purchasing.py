@@ -1,5 +1,5 @@
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile
 from sqlalchemy.orm import joinedload, lazyload, selectinload
 
 from app.core.deps import DbSession, require_permissions
@@ -136,20 +136,55 @@ async def upload_request_photo(
     return {"file_url": stored.file_url}
 
 
-@router.get("/orders", response_model=list[PurchaseOrderOut])
+def _purchase_orders_query(db: DbSession, user: User):
+    """Base query for the order directory, shared by the page and its count.
+
+    The count MUST be derived from this same query or `total` stops describing
+    the list the UI is showing.
+    """
+    return db.query(PurchaseOrder).filter(
+        ~PurchaseOrder.lines.any(PurchaseOrderLine.item_id.in_(
+            db.query(Item.id).filter(Item.category.notin_(inventory_access.MATERIAL_CATEGORIES))
+        )) if inventory_access.materials_only(user) else True
+    )
+
+
+PURCHASE_ORDER_LIST_MAX_LIMIT = 200
+
+
+@router.get("/orders")
 def list_purchase_orders(
     db: DbSession,
     _: User = Depends(require_permissions("purchasing.view", "*")),
+    status: str | None = Query(None, max_length=32),
+    limit: int = Query(50, ge=1, le=PURCHASE_ORDER_LIST_MAX_LIMIT),
+    offset: int = Query(0, ge=0),
 ):
-    return (
-        db.query(PurchaseOrder)
-        .filter(~PurchaseOrder.lines.any(PurchaseOrderLine.item_id.in_(
-            db.query(Item.id).filter(Item.category.notin_(inventory_access.MATERIAL_CATEGORIES))
-        )) if inventory_access.materials_only(_) else True)
-        .options(joinedload(PurchaseOrder.lines))
+    """One page of purchase orders plus the exact filtered total.
+
+    `total` is the true count for the same filters, not the page length, so the
+    receiving screen can page instead of silently showing a truncated list.
+    Ordering is unchanged (`PurchaseOrder.id.desc()`).
+    """
+    query = _purchase_orders_query(db, _)
+    term = str(status or "").strip()
+    if term:
+        query = query.filter(PurchaseOrder.status == term)
+
+    total = int(query.with_entities(PurchaseOrder.id).count())
+    orders = (
+        query.options(joinedload(PurchaseOrder.lines))
         .order_by(PurchaseOrder.id.desc())
+        .limit(limit)
+        .offset(offset)
         .all()
     )
+    return {
+        "items": [PurchaseOrderOut.model_validate(order) for order in orders],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @router.post("/orders", response_model=PurchaseOrderOut, status_code=201)

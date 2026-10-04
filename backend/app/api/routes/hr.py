@@ -1,7 +1,7 @@
 import json
 from math import isfinite
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.exceptions import RequestValidationError
 
 from app.core.config import settings
@@ -10,6 +10,7 @@ from app.models import Employee, User
 from app.services.audit import log_action
 from app.services.factory_scope import factory_for_department, selected_factory_code
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from datetime import datetime
@@ -306,12 +307,43 @@ def _backfill_employees_from_users(db: DbSession) -> int:
     return created
 
 
+EMPLOYEE_LIST_MAX_LIMIT = 500
+
+
 @router.get("/employees")
-def list_employees(db: DbSession, current: CurrentUser):
+def list_employees(
+    db: DbSession,
+    current: CurrentUser,
+    q: str | None = Query(None, max_length=120),
+    limit: int | None = Query(None, ge=1, le=EMPLOYEE_LIST_MAX_LIMIT),
+):
+    """Employee list for pickers.
+
+    `q` and `limit` are optional and additive: with neither, this returns
+    exactly the full factory list it always did, so existing callers are
+    unchanged. A screen that only needs a picker for one entity can now pass
+    `q` instead of hydrating every employee.
+    """
     if settings.BACKFILL_EMPLOYEES_FROM_USERS:
         _backfill_employees_from_users(db)
     factory_code = selected_factory_code(current)
-    rows = db.query(Employee).filter(Employee.factory_code == factory_code).order_by(Employee.id.desc()).all()
+    query = db.query(Employee).filter(Employee.factory_code == factory_code)
+    term = str(q or "").strip()
+    if term:
+        pattern = f"%{term.lower()}%"
+        # `Employee` has no free-text department column (only department_id),
+        # so the searchable fields are the ones a picker would actually type.
+        query = query.filter(or_(
+            func.lower(func.coalesce(Employee.full_name, "")).like(pattern),
+            func.lower(func.coalesce(Employee.employee_no, "")).like(pattern),
+            func.lower(func.coalesce(Employee.position, "")).like(pattern),
+        ))
+    # `order_by` must be applied BEFORE `limit`; the reverse leaves the row
+    # order undefined and SQLAlchemy warns about it.
+    query = query.order_by(Employee.id.desc())
+    if limit is not None:
+        query = query.limit(limit)
+    rows = query.all()
     include_private = _can_view_private_employee_fields(current)
     return [_serialize(r, include_private=include_private) for r in rows]
 

@@ -144,7 +144,11 @@ def test_material_scope_blocks_accessory_purchase_receipt(client, scoped_headers
     order = response.json()
     visible = client.get("/api/purchasing/orders", headers=scoped_headers)
     assert visible.status_code == 200, visible.text
-    assert all(row["id"] != order["id"] for row in visible.json())
+    # The orders route returns a paginated envelope; the scope assertion is
+    # about which rows the materials-only caller can see, not the shape.
+    visible_body = visible.json()
+    assert all(row["id"] != order["id"] for row in visible_body["items"])
+    assert order["id"] not in [row["id"] for row in visible_body["items"]]
     blocked = client.post(f"/api/purchasing/orders/{order['id']}/receive", headers=scoped_headers, json={
         "lines": [{"purchase_order_line_id": order["lines"][0]["id"], "received_quantity": 1, "batch_no": "BLOCKED"}],
     })
