@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import secrets
 from datetime import date, datetime, time, timedelta, timezone
+from functools import partial
 from math import isfinite
 from pathlib import Path
 
@@ -440,6 +441,61 @@ def list_documents(db: DbSession, current: User = HrUser):
     return [_document_dict(row, names.get(row.employee_id)) for row in rows]
 
 
+def _write_new_hr_document(target: Path, content: bytes) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("xb") as stream:
+        stream.write(content)
+
+
+def _require_hr_upload_employee(db, factory: str, employee_id: int) -> None:
+    """Re-verify the employee and its factory on the session that writes."""
+    _employee(db, factory, employee_id)
+
+
+def _create_hr_upload_document(
+    db,
+    *,
+    factory: str,
+    employee_id: int,
+    category: str,
+    title: str,
+    original_name: str,
+    stored_name: str,
+    content_type: str | None,
+    size_bytes: int,
+    expires_on: date | None,
+    actor_id: int,
+) -> dict:
+    _require_hr_upload_employee(db, factory, employee_id)
+    actor = db.get(User, actor_id)
+    if not actor:
+        raise HTTPException(401, "Inactive or unknown user")
+    row = HrEmployeeDocument(
+        factory_code=factory,
+        employee_id=employee_id,
+        category=category,
+        title=title,
+        original_name=original_name,
+        stored_name=stored_name,
+        content_type=content_type,
+        size_bytes=size_bytes,
+        expires_on=expires_on,
+        uploaded_by=actor_id,
+    )
+    db.add(row)
+    db.flush()
+    log_action(
+        db,
+        actor,
+        "create",
+        "HrEmployeeDocument",
+        row.id,
+        new_value={"employee_id": employee_id, "category": category, "title": title},
+    )
+    db.refresh(row)
+    return _document_dict(row)
+
+
 @router.post("/documents", status_code=201)
 async def upload_document(
     db: DbSession,
@@ -450,22 +506,66 @@ async def upload_document(
     expires_on: date | None = Form(default=None),
     file: UploadFile = File(...),
 ):
-    factory = _factory(current); _employee(db, factory, employee_id)
+    from app.services.image_storage import (
+        UploadCommitState,
+        UploadFileWriteState,
+        run_blocking_to_completion,
+        run_upload_db_work,
+        run_upload_file_write,
+        upload_processing_slot,
+        upload_session_factory,
+    )
+
+    factory = _factory(current)
+    actor_id = int(current.id)
+    worker_sessions = upload_session_factory(db)
+    # Pre-flight: an employee outside this factory must fail before a body is
+    # buffered or written.
+    await run_upload_db_work(
+        worker_sessions,
+        partial(_require_hr_upload_employee, factory=factory, employee_id=employee_id),
+    )
     allowed_categories = {"employment_contract", "passport_id", "diploma", "certificate", "employment_order", "salary_amendment", "leave", "disciplinary", "training", "resignation", "other"}
     if category not in allowed_categories: raise HTTPException(422, "Unsupported HR document category")
     title = title.strip()
     if not title: raise HTTPException(422, "Document title is required")
     if len(title) > 255: raise HTTPException(422, "Document title is too long")
-    content = await file.read(settings.HR_DOCUMENT_MAX_BYTES + 1)
-    if not content or len(content) > settings.HR_DOCUMENT_MAX_BYTES: raise HTTPException(413, "Document is empty or too large")
     safe_original = re.sub(r"[^A-Za-z0-9._ -]", "_", Path(file.filename or "document").name)[:255]
     stored = f"{factory.lower()}_{employee_id}_{secrets.token_hex(16)}{Path(safe_original).suffix.lower()[:12]}"
-    root = Path(settings.HR_DOCUMENTS_DIR); root.mkdir(parents=True, exist_ok=True)
-    target = root / stored
-    with target.open("xb") as stream: stream.write(content)
-    row = HrEmployeeDocument(factory_code=factory, employee_id=employee_id, category=category, title=title, original_name=safe_original, stored_name=stored, content_type=file.content_type, size_bytes=len(content), expires_on=expires_on, uploaded_by=current.id)
-    db.add(row); db.flush(); log_action(db, current, "create", "HrEmployeeDocument", row.id, new_value={"employee_id": employee_id, "category": category, "title": title}); db.commit(); db.refresh(row)
-    return _document_dict(row)
+    target = Path(settings.HR_DOCUMENTS_DIR) / stored
+    write_state = UploadFileWriteState()
+    commit_state = UploadCommitState()
+    try:
+        async with upload_processing_slot():
+            content = await file.read(settings.HR_DOCUMENT_MAX_BYTES + 1)
+            if not content or len(content) > settings.HR_DOCUMENT_MAX_BYTES:
+                raise HTTPException(413, "Document is empty or too large")
+            await run_upload_file_write(partial(_write_new_hr_document, target, content), write_state)
+        # The write re-checks the employee on the worker's own session, so an
+        # employee moved to another factory mid-upload cannot receive a file.
+        document = await run_upload_db_work(
+            worker_sessions,
+            partial(
+                _create_hr_upload_document,
+                factory=factory,
+                employee_id=employee_id,
+                category=category,
+                title=title,
+                original_name=safe_original,
+                stored_name=stored,
+                content_type=file.content_type,
+                size_bytes=len(content),
+                expires_on=expires_on,
+                actor_id=actor_id,
+            ),
+            commit=True,
+            commit_state=commit_state,
+        )
+    except BaseException:
+        if write_state.created and not commit_state.committed:
+            await run_blocking_to_completion(partial(target.unlink, True))
+        raise
+    return document
 
 
 @router.get("/documents/{document_id}/download")

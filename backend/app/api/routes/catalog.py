@@ -1,9 +1,11 @@
 from copy import deepcopy
 from datetime import date, datetime, timezone
+from functools import partial
 import json
 import math
 import os
 import re
+from pathlib import Path
 from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Depends, Query, Response
 from fastapi import UploadFile, File, Form
@@ -2535,6 +2537,93 @@ def add_image(
     return {"id": img.id}
 
 
+def _write_new_model_document(target: Path, content: bytes) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(content)
+
+
+async def _discard_model_document(target: Path) -> None:
+    from app.services.image_storage import run_blocking_to_completion
+
+    await run_blocking_to_completion(partial(target.unlink, True))
+
+
+def _require_catalog_upload_model(db, model_id: int, catalog_scope: str) -> None:
+    """Re-verify the model and its catalog scope on the session that writes."""
+    if not _catalog_model(db, model_id, catalog_scope):
+        raise HTTPException(404, "Model not found")
+
+
+def _upload_actor(db, actor_id: int) -> User:
+    actor = db.get(User, actor_id)
+    if not actor:
+        raise HTTPException(401, "Inactive or unknown user")
+    return actor
+
+
+def _create_uploaded_model_image(
+    db,
+    *,
+    model_id: int,
+    catalog_scope: str,
+    actor_id: int,
+    file_url: str,
+    original_name: str,
+    stored_content_type: str,
+    image_type: str | None,
+) -> int:
+    _require_catalog_upload_model(db, model_id, catalog_scope)
+    actor = _upload_actor(db, actor_id)
+    is_primary = image_type == "model"
+    if is_primary:
+        db.query(ModelImage).filter(
+            ModelImage.model_id == model_id,
+            ModelImage.is_primary.is_(True),
+        ).update({"is_primary": False}, synchronize_session=False)
+    image = ModelImage(
+        model_id=model_id,
+        file_url=file_url,
+        file_name=original_name,
+        content_type=stored_content_type,
+        # The file is already persisted in MODEL_FILES_DIR. Keeping another
+        # multi-megabyte copy in PostgreSQL makes remote uploads needlessly slow.
+        file_data=None,
+        image_type=image_type,
+        is_primary=is_primary,
+    )
+    db.add(image)
+    db.flush()
+    log_action(
+        db,
+        actor,
+        "create",
+        "ModelImage",
+        image.id,
+        new_value={"model_id": model_id, "file_url": file_url},
+    )
+    return int(image.id)
+
+
+def _audit_uploaded_bom_photo(
+    db,
+    *,
+    model_id: int,
+    catalog_scope: str,
+    actor_id: int,
+    file_url: str,
+) -> None:
+    _require_catalog_upload_model(db, model_id, catalog_scope)
+    actor = _upload_actor(db, actor_id)
+    log_action(
+        db,
+        actor,
+        "upload",
+        "ModelBOM",
+        model_id,
+        new_value={"model_id": model_id, "file_url": file_url},
+    )
+
+
 @router.post("/models/{mid}/images/upload", status_code=201)
 async def upload_image(
     mid: int,
@@ -2544,55 +2633,82 @@ async def upload_image(
     current: User = Depends(require_permissions("modeling.models", "*")),
     catalog_scope: str = Depends(_standard_catalog_scope),
 ):
-    if not _catalog_model(db, mid, catalog_scope):
-        raise HTTPException(404, "Model not found")
+    from app.services.image_storage import (
+        UploadCommitState,
+        UploadFileWriteState,
+        discard_stored_image,
+        run_upload_db_work,
+        run_upload_file_write,
+        upload_processing_slot,
+        upload_session_factory,
+    )
+
+    actor_id = int(current.id)
+    worker_sessions = upload_session_factory(db)
+    # Pre-flight: refuse an unknown or out-of-scope model before reading a body.
+    await run_upload_db_work(
+        worker_sessions,
+        partial(_require_catalog_upload_model, model_id=mid, catalog_scope=catalog_scope),
+    )
     ext = extension_for_upload(file, SAFE_IMAGE_EXTENSIONS | SAFE_DOCUMENT_EXTENSIONS)
     normalized_image_type = _normalize_image_type(image_type)
-    if ext in SAFE_IMAGE_EXTENSIONS:
-        from app.services.image_storage import store_uploaded_image
+    stored_image = None
+    document_target = None
+    document_state = UploadFileWriteState()
+    commit_state = UploadCommitState()
+    try:
+        if ext in SAFE_IMAGE_EXTENSIONS:
+            from app.services.image_storage import store_uploaded_image
 
-        stored = await store_uploaded_image(
-            file,
-            target_dir=settings.MODEL_FILES_DIR,
-            file_url_base="/storage/model-files",
-            name_prefix=f"model_{mid}",
-            max_bytes=20 * 1024 * 1024,
-            prebuild_thumbnails=True,
+            stored_image = await store_uploaded_image(
+                file,
+                target_dir=settings.MODEL_FILES_DIR,
+                file_url_base="/storage/model-files",
+                name_prefix=f"model_{mid}",
+                max_bytes=20 * 1024 * 1024,
+                prebuild_thumbnails=True,
+            )
+            safe_name = stored_image.file_name
+            file_url = stored_image.file_url
+            stored_content_type = stored_image.content_type
+        else:
+            safe_name = f"model_{mid}_{uuid4().hex}{ext}"
+            document_target = Path(settings.MODEL_FILES_DIR) / safe_name
+            async with upload_processing_slot():
+                content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
+                await run_upload_file_write(
+                    partial(_write_new_model_document, document_target, content),
+                    document_state,
+                )
+            file_url = f"/storage/model-files/{safe_name}"
+            stored_content_type = safe_content_type(ext)
+        # The write re-checks the model and its scope on the worker's own
+        # session, so a model that moved scope while the file was being
+        # processed cannot be written to.
+        image_id = await run_upload_db_work(
+            worker_sessions,
+            partial(
+                _create_uploaded_model_image,
+                model_id=mid,
+                catalog_scope=catalog_scope,
+                actor_id=actor_id,
+                file_url=file_url,
+                original_name=file.filename or safe_name,
+                stored_content_type=stored_content_type,
+                image_type=normalized_image_type,
+            ),
+            commit=True,
+            commit_state=commit_state,
         )
-        safe_name = stored.file_name
-        file_url = stored.file_url
-        stored_content_type = stored.content_type
-    else:
-        os.makedirs(settings.MODEL_FILES_DIR, exist_ok=True)
-        safe_name = f"model_{mid}_{uuid4().hex}{ext}"
-        abs_path = os.path.join(settings.MODEL_FILES_DIR, safe_name)
-        content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
-        with open(abs_path, "wb") as f:
-            f.write(content)
-        file_url = f"/storage/model-files/{safe_name}"
-        stored_content_type = safe_content_type(ext)
-    is_primary = normalized_image_type == "model"
-    if is_primary:
-        db.query(ModelImage).filter(ModelImage.model_id == mid, ModelImage.is_primary.is_(True)).update(
-            {"is_primary": False},
-            synchronize_session=False,
-        )
-    img = ModelImage(
-        model_id=mid,
-        file_url=file_url,
-        file_name=file.filename or safe_name,
-        content_type=stored_content_type,
-        # The file is already persisted in MODEL_FILES_DIR. Keeping another
-        # multi-megabyte copy in PostgreSQL makes remote uploads needlessly slow.
-        file_data=None,
-        image_type=normalized_image_type,
-        is_primary=is_primary,
-    )
-    db.add(img)
-    db.flush()
-    log_action(db, current, "create", "ModelImage", img.id, new_value={"model_id": mid, "file_url": file_url})
-    db.commit()
-    return {"id": img.id, "file_url": file_url}
+    except BaseException:
+        if commit_state.committed:
+            raise
+        if stored_image is not None:
+            await discard_stored_image(stored_image)
+        elif document_state.created and document_target is not None:
+            await _discard_model_document(document_target)
+        raise
+    return {"id": image_id, "file_url": file_url}
 
 
 @router.delete("/models/{mid}/images/{image_id}", status_code=204)
@@ -2695,10 +2811,20 @@ async def upload_bom_photo(
     current: User = Depends(require_permissions("modeling.bom", "modeling.models", "*")),
     catalog_scope: str = Depends(_standard_catalog_scope),
 ):
-    if not _catalog_model(db, mid, catalog_scope):
-        raise HTTPException(404, "Model not found")
-    from app.services.image_storage import store_uploaded_image
+    from app.services.image_storage import (
+        UploadCommitState,
+        discard_stored_image,
+        run_upload_db_work,
+        store_uploaded_image,
+        upload_session_factory,
+    )
 
+    actor_id = int(current.id)
+    worker_sessions = upload_session_factory(db)
+    await run_upload_db_work(
+        worker_sessions,
+        partial(_require_catalog_upload_model, model_id=mid, catalog_scope=catalog_scope),
+    )
     stored = await store_uploaded_image(
         file,
         target_dir=settings.MODEL_FILES_DIR,
@@ -2708,8 +2834,24 @@ async def upload_bom_photo(
         prebuild_thumbnails=True,
     )
     file_url = stored.file_url
-    log_action(db, current, "upload", "ModelBOM", mid, new_value={"model_id": mid, "file_url": file_url})
-    db.commit()
+    commit_state = UploadCommitState()
+    try:
+        await run_upload_db_work(
+            worker_sessions,
+            partial(
+                _audit_uploaded_bom_photo,
+                model_id=mid,
+                catalog_scope=catalog_scope,
+                actor_id=actor_id,
+                file_url=file_url,
+            ),
+            commit=True,
+            commit_state=commit_state,
+        )
+    except BaseException:
+        if not commit_state.committed:
+            await discard_stored_image(stored)
+        raise
     return {"file_url": file_url}
 
 
