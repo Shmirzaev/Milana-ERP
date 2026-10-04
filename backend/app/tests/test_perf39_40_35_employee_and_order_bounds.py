@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.models import Customer, Item, PurchaseOrder, PurchaseOrderLine, Supplier, Employee
+from app.models import Item, PurchaseOrder, PurchaseOrderLine, Supplier, Employee
 from app.tests.conftest import TestSessionLocal
 
 
