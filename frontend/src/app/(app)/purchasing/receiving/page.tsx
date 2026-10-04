@@ -288,8 +288,8 @@ export default function PurchaseReceivingPage() {
   );
   const ordersTotal = orderPages?.[0]?.total ?? 0;
   const hasMoreOrders = orders.length < ordersTotal;
-  const growOrders = useCallback(() => setOrderPageCount(orderPageCount + 1), [
-    orderPageCount,
+  const isLoadingOrders = orderPageCount > (orderPages?.length ?? 0);
+  const growOrders = useCallback(() => setOrderPageCount((count) => count + 1), [
     setOrderPageCount,
   ]);
 
@@ -297,12 +297,12 @@ export default function PurchaseReceivingPage() {
   // Grow the loaded window until every pending order is present, bounded, so
   // resuming a receipt never silently degrades into a recovery message.
   useEffect(() => {
-    if (!canView || !hasMoreOrders || pendingReceipts.length === 0) return;
+    if (!canView || isLoadingOrders || !hasMoreOrders || pendingReceipts.length === 0) return;
     const missing = pendingReceipts.some(
       (pending) => !orders.some((order) => order.id === pending.orderId),
     );
     if (missing) growOrders();
-  }, [canView, hasMoreOrders, pendingReceipts, orders, growOrders]);
+  }, [canView, isLoadingOrders, hasMoreOrders, pendingReceipts, orders, growOrders]);
   const { data: warehouses } = useSWR<Warehouse[]>(canReceive ? "/api/inventory/warehouses" : null, fetcher);
 
   // The receive dialog only needs the suppliers these orders already name, so the whole
@@ -639,7 +639,7 @@ export default function PurchaseReceivingPage() {
           {hasMoreOrders && (
             <div className="flex flex-wrap items-center justify-center gap-3 border-t border-[#ecebe3] p-4">
               <span className="text-sm text-[#8a8472]">{orders.length} / {ordersTotal}</span>
-              <button className="btn" type="button" onClick={growOrders}>
+              <button className="btn" type="button" onClick={growOrders} disabled={isLoadingOrders}>
                 {t("common.loadMore")}
               </button>
             </div>

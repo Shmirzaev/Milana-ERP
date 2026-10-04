@@ -499,7 +499,11 @@ def _reservation_plan_stock_context(db: Session, requirement_rows: list[dict]) -
         candidates = (
             db.query(StockBatch)
             .options(lazyload(StockBatch.item))
-            .filter(StockBatch.item_id.in_(chunk), StockBatch.quantity > 0)
+            .filter(
+                StockBatch.item_id.in_(chunk),
+                StockBatch.quantity > 0,
+                StockBatch.archived_at.is_(None),
+            )
             .order_by(StockBatch.item_id, StockBatch.received_date, StockBatch.id)
             .all()
         )
@@ -521,7 +525,8 @@ def _reservation_plan_stock_context(db: Session, requirement_rows: list[dict]) -
             )
         })
 
-    claim_batch_ids = sorted(candidate_ids)
+    # Archived pinned batches still need their claim totals for ledger balance.
+    claim_batch_ids = sorted(set(candidate_ids) | set(exact_batch_ids))
     for start in range(0, len(claim_batch_ids), _PLAN_CHUNK):
         chunk = claim_batch_ids[start:start + _PLAN_CHUNK]
         reserved_by_batch.update({
