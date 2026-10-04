@@ -7,6 +7,7 @@ import useSWR from "swr";
 import ImageThumbnail from "@/components/ImageThumbnail";
 import PageHeader from "@/components/PageHeader";
 import { useDialogs } from "@/components/DialogProvider";
+import { useSharedPolling } from "@/hooks/useSharedPolling";
 import { api, fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { priceRequestSurface, type PriceCalculationRequest, type PriceRequestStatus } from "@/lib/priceCalculationRequests";
@@ -110,7 +111,8 @@ function PriceCalculationField({ column, row, calculated, formatter, label, onCh
 export default function PriceCalculationPage() {
   const { lang, t } = useT();
   const dialogs = useDialogs();
-  const { data: requests, error, isLoading, mutate } = useSWR<PriceCalculationRequest[]>("/api/price-calculation/requests", fetcher, { refreshInterval: 5_000 });
+  const polling = useSharedPolling();
+  const { data: requests, error, isLoading, mutate } = useSWR<PriceCalculationRequest[]>("/api/price-calculation/requests", fetcher, polling);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(() => new Set());
   const [editingRequests, setEditingRequests] = useState<Set<number>>(() => new Set());
   const [financeDrafts, setFinanceDrafts] = useState<Record<number, Partial<PriceCalculationRow>>>({});

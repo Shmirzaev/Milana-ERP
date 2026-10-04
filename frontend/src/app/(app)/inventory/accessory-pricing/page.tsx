@@ -5,6 +5,7 @@ import { Plus, Trash2 } from "lucide-react";
 import useSWR from "swr";
 import PageHeader from "@/components/PageHeader";
 import PriceRequestCard from "@/components/price-calculation/PriceRequestCard";
+import { useSharedPolling } from "@/hooks/useSharedPolling";
 import { api, fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import {
@@ -39,10 +40,11 @@ function optionalNumber(value: string): number | null {
 
 export default function AccessoryPricingPage() {
   const { t } = useT();
+  const polling = useSharedPolling();
   const { data, error, isLoading, mutate } = useSWR<PriceCalculationRequest[]>(
     "/api/price-calculation/requests",
     fetcher,
-    { refreshInterval: 5_000 },
+    polling,
   );
   const [drafts, setDrafts] = useState<Record<number, AccessoryDraft[]>>({});
   const [editing, setEditing] = useState<Set<number>>(() => new Set());
