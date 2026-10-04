@@ -606,6 +606,22 @@ def _model_group_key(model: Model) -> str:
     )
 
 
+# Migration 0084 stores the family identity as a generated, indexed column computed
+# with the same normalization `_model_group_key` applies in Python. Family-scoped reads
+# use it so they touch the index instead of hydrating the whole catalogue. SQLite test
+# metadata has no generated columns, so those runs keep the Python path.
+_GROUP_KEY_COLUMN = literal_column("models.model_group_key")
+
+
+def _has_generated_family_columns(db: DbSession) -> bool:
+    return db.get_bind().dialect.name == "postgresql"
+
+
+def _normalized_code_sql():
+    """SQL form of `_normalized_key` over the stored model code."""
+    return func.lower(func.regexp_replace(func.btrim(Model.code), r"\s+", " ", "g"))
+
+
 def _group_display_name(models: list[Model]) -> str:
     counts: dict[str, int] = {}
     original: dict[str, str] = {}
@@ -720,7 +736,7 @@ def _approval_family(db: DbSession, model: Model) -> list[Model]:
         general=(model.details_json or {}).get("general"),
     )
     query = db.query(Model).filter(Model.catalog_scope == model.catalog_scope)
-    if db.get_bind().dialect.name == "postgresql":
+    if _has_generated_family_columns(db):
         # Serialize creation and approval, including families with no base row.
         db.execute(select(func.pg_advisory_xact_lock(func.hashtext(f"model-approval:{model.catalog_scope}:{key}"))))
         return query.filter(
@@ -1118,11 +1134,19 @@ def _rename_model_group(
         return []
 
     old_group_key = _normalized_key(old_model_no)
-    group = [
-        model
-        for model in db.query(Model).filter(Model.catalog_scope == _normalize_catalog_scope(catalog_scope)).all()
-        if _normalized_key(_model_code_parts(model)[0]) == old_group_key
-    ]
+    group_query = db.query(Model).filter(Model.catalog_scope == _normalize_catalog_scope(catalog_scope))
+    if _has_generated_family_columns(db):
+        # Indexed family lookup; the generated key is the same identity
+        # `_model_group_key` computes, so the same variants are renamed.
+        group = group_query.filter(
+            _GROUP_KEY_COLUMN == f"model:{old_group_key}"
+        ).order_by(Model.id).all()
+    else:
+        group = [
+            model
+            for model in group_query.order_by(Model.id).all()
+            if _normalized_key(_model_code_parts(model)[0]) == old_group_key
+        ]
     if not group:
         group = [source]
 
@@ -1138,10 +1162,21 @@ def _rename_model_group(
         planned.append((model, variant_no, next_code))
 
     group_ids = [int(model.id) for model in group]
-    external_models = db.query(Model).filter(~Model.id.in_(group_ids)).all()
-    external_by_code = {_normalized_key(model.code): model for model in external_models}
+    if _has_generated_family_columns(db):
+        # Only the planned codes can collide, so probe for exactly those instead of
+        # hydrating every other model in the scope.
+        clash = db.query(Model.code).filter(
+            ~Model.id.in_(group_ids),
+            _normalized_code_sql().in_(sorted(planned_codes)),
+        ).all()
+        # Re-key with the exact Python normalization the guard has always used, so a
+        # stored code that differs in case or spacing still raises the same 409.
+        external_keys = {_normalized_key(code) for (code,) in clash}
+    else:
+        external_models = db.query(Model).filter(~Model.id.in_(group_ids)).all()
+        external_keys = {_normalized_key(model.code) for model in external_models}
     for _, variant_no, next_code in planned:
-        if _normalized_key(next_code) in external_by_code:
+        if _normalized_key(next_code) in external_keys:
             raise HTTPException(
                 409,
                 f"Model number change conflicts with existing variant {variant_no or next_code}",
@@ -1166,13 +1201,42 @@ def _rename_model_group(
     return renamed
 
 
+def _copy_code_candidate(source_code: str, index: int) -> str:
+    suffix = "-COPY" if index == 1 else f"-COPY-{index}"
+    base = source_code[: max(1, 64 - len(suffix))]
+    return f"{base}{suffix}"
+
+
+# Candidate clone codes are probed in batches: the common case is one statement,
+# instead of one statement per rejected suffix.
+_COPY_CODE_PROBE_BATCH = 400
+_COPY_CODE_LIMIT = 10_000
+
+
 def _unique_model_copy_code(db: DbSession, source_code: str) -> str:
-    for index in range(1, 10_000):
-        suffix = "-COPY" if index == 1 else f"-COPY-{index}"
-        base = source_code[: max(1, 64 - len(suffix))]
-        candidate = f"{base}{suffix}"
-        if not db.query(Model.id).filter(Model.code == candidate).first():
-            return candidate
+    if _has_generated_family_columns(db):
+        # Serialize allocation of this code namespace. `models.code` is unique, but
+        # without the lock two concurrent clones can read the same free code and only
+        # one insert survives. Mirrors the approval family's advisory lock.
+        db.execute(
+            select(
+                func.pg_advisory_xact_lock(
+                    func.hashtext(f"model-copy-code:{_copy_code_candidate(source_code, 1)}")
+                )
+            )
+        )
+    for start in range(1, _COPY_CODE_LIMIT, _COPY_CODE_PROBE_BATCH):
+        candidates = [
+            _copy_code_candidate(source_code, index)
+            for index in range(start, min(start + _COPY_CODE_PROBE_BATCH, _COPY_CODE_LIMIT))
+        ]
+        taken = {
+            code
+            for (code,) in db.query(Model.code).filter(Model.code.in_(candidates)).all()
+        }
+        for candidate in candidates:
+            if candidate not in taken:
+                return candidate
     raise HTTPException(409, "Could not create a unique cloned model code")
 
 
@@ -2414,16 +2478,26 @@ def approve_model(
     pending = [row for row in family if row.status != "approved"]
     if _normalize_catalog_scope(catalog_scope) == "usluga":
         has_variants = any(_clean_text(_model_code_parts(row)[1]) for row in family)
+        # One grouped read for the whole family instead of a count per pending row.
+        # Rows with no main fabric are simply absent from the map, so their count is 0.
+        pending_ids = [row.id for row in pending]
+        main_counts: dict[int, int] = {}
+        if pending_ids:
+            main_counts = {
+                model_id: count
+                for model_id, count in db.query(
+                    ModelBOM.model_id, func.count(ModelBOM.id)
+                ).filter(
+                    ModelBOM.model_id.in_(pending_ids),
+                    ModelBOM.material_role == "main",
+                ).group_by(ModelBOM.model_id).all()
+            }
         for row in pending:
             # A family header can have no BOM; its variants own the fabrics.
             # Standalone models and every variant still require a main fabric.
             if has_variants and not _clean_text(_model_code_parts(row)[1]) and not row.bom:
                 continue
-            main_count = db.query(ModelBOM.id).filter(
-                ModelBOM.model_id == row.id,
-                ModelBOM.material_role == "main",
-            ).count()
-            if main_count != 1:
+            if main_counts.get(row.id, 0) != 1:
                 raise HTTPException(409, "Usluga model approval requires exactly one main fabric")
     approved_at = datetime.now(timezone.utc)
     for row in pending:
