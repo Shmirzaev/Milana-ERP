@@ -118,7 +118,17 @@ def test_reported_preview_never_claims_to_execute():
 # --------------------------------------------------------------------------- #
 
 def test_lineage_resolves_this_branch_head(script):
-    assert sorted(script.get_heads()) == ["0136_employee_salary_precision"]
+    """The preflight must read the head dynamically, not assume one.
+
+    Pinning a literal revision id here broke the moment another engineer added
+    a migration, while testing nothing about dynamism. What actually matters is
+    that there is exactly ONE head - a forked lineage is the real bug - and
+    that the resolved head is a revision the script really contains.
+    """
+    heads = sorted(script.get_heads())
+    assert len(heads) == 1, f"expected a single head, got {heads}"
+    head = heads[0]
+    assert script.get_revision(head) is not None, f"resolved head {head} is not in the script"
 
 
 def test_target_predecessor_comes_from_this_branch(script):
