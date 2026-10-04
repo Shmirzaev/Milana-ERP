@@ -36,7 +36,7 @@ def _seed_summary_rows(count):
         employees = [
             Employee(
                 factory_code="ECO",
-                employee_no=f"PERF35-{marker}-{index:04d}",
+                employee_no=f"SUMMARY-{index:04d}",
                 full_name=f"Summary employee {index}",
                 department_id=department.id,
                 status="active",
