@@ -35,9 +35,9 @@ from __future__ import annotations
 
 import ast
 import re
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import sqlalchemy as sa
 from alembic.config import Config
