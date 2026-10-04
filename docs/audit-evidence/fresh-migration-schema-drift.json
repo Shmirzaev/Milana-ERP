@@ -39,7 +39,7 @@
     "preexisting_missing_hr_index": 9,
     "preexisting_nullable_contract": 3,
     "preexisting_type_contract": 1,
-    "preexisting_unmapped_legacy_schema": 8
+    "preexisting_unmapped_legacy_schema": 5
   },
   "category_explanation": {
     "migration_owned_index": "34 explicit indexes from 0028, 0084, 0097, 0098, 0102, 0107, 0111. Performance and integrity additions are not bootstrap omissions.",
@@ -56,46 +56,6 @@
   "differences": [
     {
       "number": 1,
-      "classification": "preexisting_unmapped_legacy_schema",
-      "difference": [
-        "remove_index",
-        {
-          "expressions": [
-            "cutting_beika_material_usages.cutting_record_id"
-          ],
-          "index": "ix_cutting_beika_material_usages_cutting_record_id",
-          "options": {},
-          "table": "cutting_beika_material_usages",
-          "unique": false
-        }
-      ]
-    },
-    {
-      "number": 2,
-      "classification": "preexisting_unmapped_legacy_schema",
-      "difference": [
-        "remove_index",
-        {
-          "expressions": [
-            "cutting_beika_material_usages.stock_batch_id"
-          ],
-          "index": "ix_cutting_beika_material_usages_stock_batch_id",
-          "options": {},
-          "table": "cutting_beika_material_usages",
-          "unique": false
-        }
-      ]
-    },
-    {
-      "number": 3,
-      "classification": "preexisting_unmapped_legacy_schema",
-      "difference": [
-        "remove_table",
-        "cutting_beika_material_usages"
-      ]
-    },
-    {
-      "number": 4,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -112,7 +72,7 @@
       ]
     },
     {
-      "number": 5,
+      "number": 2,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -129,7 +89,7 @@
       ]
     },
     {
-      "number": 6,
+      "number": 3,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -148,7 +108,7 @@
       ]
     },
     {
-      "number": 7,
+      "number": 4,
       "classification": "migration_owned_unique_constraint",
       "difference": [
         "remove_constraint",
@@ -163,7 +123,7 @@
       ]
     },
     {
-      "number": 8,
+      "number": 5,
       "classification": "preexisting_default_contract",
       "difference": [
         [
@@ -182,7 +142,7 @@
       ]
     },
     {
-      "number": 9,
+      "number": 6,
       "classification": "preexisting_type_contract",
       "difference": [
         [
@@ -201,7 +161,7 @@
       ]
     },
     {
-      "number": 10,
+      "number": 7,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -220,7 +180,7 @@
       ]
     },
     {
-      "number": 11,
+      "number": 8,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -239,7 +199,7 @@
       ]
     },
     {
-      "number": 12,
+      "number": 9,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -258,7 +218,7 @@
       ]
     },
     {
-      "number": 13,
+      "number": 10,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -277,7 +237,7 @@
       ]
     },
     {
-      "number": 14,
+      "number": 11,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -294,7 +254,7 @@
       ]
     },
     {
-      "number": 15,
+      "number": 12,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -313,7 +273,7 @@
       ]
     },
     {
-      "number": 16,
+      "number": 13,
       "classification": "preexisting_nullable_contract",
       "difference": [
         [
@@ -332,7 +292,7 @@
       ]
     },
     {
-      "number": 17,
+      "number": 14,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -350,7 +310,7 @@
       ]
     },
     {
-      "number": 18,
+      "number": 15,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -366,7 +326,7 @@
       ]
     },
     {
-      "number": 19,
+      "number": 16,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -385,7 +345,7 @@
       ]
     },
     {
-      "number": 20,
+      "number": 17,
       "classification": "preexisting_missing_hr_index",
       "difference": [
         "add_index",
@@ -401,7 +361,7 @@
       ]
     },
     {
-      "number": 21,
+      "number": 18,
       "classification": "preexisting_missing_hr_index",
       "difference": [
         "add_index",
@@ -417,7 +377,7 @@
       ]
     },
     {
-      "number": 22,
+      "number": 19,
       "classification": "preexisting_missing_hr_index",
       "difference": [
         "add_index",
@@ -433,7 +393,7 @@
       ]
     },
     {
-      "number": 23,
+      "number": 20,
       "classification": "preexisting_missing_hr_index",
       "difference": [
         "add_index",
@@ -449,7 +409,7 @@
       ]
     },
     {
-      "number": 24,
+      "number": 21,
       "classification": "preexisting_missing_hr_index",
       "difference": [
         "add_index",
@@ -465,7 +425,7 @@
       ]
     },
     {
-      "number": 25,
+      "number": 22,
       "classification": "preexisting_missing_hr_index",
       "difference": [
         "add_index",
@@ -481,7 +441,7 @@
       ]
     },
     {
-      "number": 26,
+      "number": 23,
       "classification": "preexisting_missing_hr_index",
       "difference": [
         "add_index",
@@ -497,7 +457,7 @@
       ]
     },
     {
-      "number": 27,
+      "number": 24,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -516,7 +476,7 @@
       ]
     },
     {
-      "number": 28,
+      "number": 25,
       "classification": "preexisting_missing_hr_index",
       "difference": [
         "add_index",
@@ -532,7 +492,7 @@
       ]
     },
     {
-      "number": 29,
+      "number": 26,
       "classification": "preexisting_missing_hr_index",
       "difference": [
         "add_index",
@@ -548,7 +508,7 @@
       ]
     },
     {
-      "number": 30,
+      "number": 27,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -567,7 +527,7 @@
       ]
     },
     {
-      "number": 31,
+      "number": 28,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -583,7 +543,7 @@
       ]
     },
     {
-      "number": 32,
+      "number": 29,
       "classification": "migration_owned_unique_constraint",
       "difference": [
         "remove_constraint",
@@ -599,7 +559,7 @@
       ]
     },
     {
-      "number": 33,
+      "number": 30,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -618,7 +578,7 @@
       ]
     },
     {
-      "number": 34,
+      "number": 31,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -637,7 +597,7 @@
       ]
     },
     {
-      "number": 35,
+      "number": 32,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -656,7 +616,7 @@
       ]
     },
     {
-      "number": 36,
+      "number": 33,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -675,7 +635,7 @@
       ]
     },
     {
-      "number": 37,
+      "number": 34,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -694,7 +654,7 @@
       ]
     },
     {
-      "number": 38,
+      "number": 35,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -713,7 +673,7 @@
       ]
     },
     {
-      "number": 39,
+      "number": 36,
       "classification": "migration_owned_unique_constraint",
       "difference": [
         "remove_constraint",
@@ -728,7 +688,7 @@
       ]
     },
     {
-      "number": 40,
+      "number": 37,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -745,7 +705,7 @@
       ]
     },
     {
-      "number": 41,
+      "number": 38,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -763,7 +723,7 @@
       ]
     },
     {
-      "number": 42,
+      "number": 39,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -780,7 +740,7 @@
       ]
     },
     {
-      "number": 43,
+      "number": 40,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -797,7 +757,7 @@
       ]
     },
     {
-      "number": 44,
+      "number": 41,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -814,7 +774,7 @@
       ]
     },
     {
-      "number": 45,
+      "number": 42,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -833,7 +793,7 @@
       ]
     },
     {
-      "number": 46,
+      "number": 43,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -851,7 +811,7 @@
       ]
     },
     {
-      "number": 47,
+      "number": 44,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -870,7 +830,7 @@
       ]
     },
     {
-      "number": 48,
+      "number": 45,
       "classification": "preexisting_fk_contract",
       "difference": [
         "remove_fk",
@@ -890,7 +850,7 @@
       ]
     },
     {
-      "number": 49,
+      "number": 46,
       "classification": "preexisting_fk_contract",
       "difference": [
         "add_fk",
@@ -910,7 +870,7 @@
       ]
     },
     {
-      "number": 50,
+      "number": 47,
       "classification": "preexisting_nullable_contract",
       "difference": [
         [
@@ -929,7 +889,7 @@
       ]
     },
     {
-      "number": 51,
+      "number": 48,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -946,7 +906,7 @@
       ]
     },
     {
-      "number": 52,
+      "number": 49,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -965,7 +925,7 @@
       ]
     },
     {
-      "number": 53,
+      "number": 50,
       "classification": "preexisting_nullable_contract",
       "difference": [
         [
@@ -984,7 +944,7 @@
       ]
     },
     {
-      "number": 54,
+      "number": 51,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -1002,7 +962,7 @@
       ]
     },
     {
-      "number": 55,
+      "number": 52,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -1019,7 +979,7 @@
       ]
     },
     {
-      "number": 56,
+      "number": 53,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -1036,7 +996,7 @@
       ]
     },
     {
-      "number": 57,
+      "number": 54,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -1053,7 +1013,7 @@
       ]
     },
     {
-      "number": 58,
+      "number": 55,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -1071,7 +1031,7 @@
       ]
     },
     {
-      "number": 59,
+      "number": 56,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1090,7 +1050,7 @@
       ]
     },
     {
-      "number": 60,
+      "number": 57,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -1107,7 +1067,7 @@
       ]
     },
     {
-      "number": 61,
+      "number": 58,
       "classification": "migration_owned_unique_constraint",
       "difference": [
         "remove_constraint",
@@ -1123,7 +1083,7 @@
       ]
     },
     {
-      "number": 62,
+      "number": 59,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1142,7 +1102,7 @@
       ]
     },
     {
-      "number": 63,
+      "number": 60,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1161,7 +1121,7 @@
       ]
     },
     {
-      "number": 64,
+      "number": 61,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1180,7 +1140,7 @@
       ]
     },
     {
-      "number": 65,
+      "number": 62,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1199,7 +1159,7 @@
       ]
     },
     {
-      "number": 66,
+      "number": 63,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1218,7 +1178,7 @@
       ]
     },
     {
-      "number": 67,
+      "number": 64,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1237,7 +1197,7 @@
       ]
     },
     {
-      "number": 68,
+      "number": 65,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1256,7 +1216,7 @@
       ]
     },
     {
-      "number": 69,
+      "number": 66,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1275,7 +1235,7 @@
       ]
     },
     {
-      "number": 70,
+      "number": 67,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1294,7 +1254,7 @@
       ]
     },
     {
-      "number": 71,
+      "number": 68,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1313,7 +1273,7 @@
       ]
     },
     {
-      "number": 72,
+      "number": 69,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1332,7 +1292,7 @@
       ]
     },
     {
-      "number": 73,
+      "number": 70,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1351,7 +1311,7 @@
       ]
     },
     {
-      "number": 74,
+      "number": 71,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1370,7 +1330,7 @@
       ]
     },
     {
-      "number": 75,
+      "number": 72,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1389,7 +1349,7 @@
       ]
     },
     {
-      "number": 76,
+      "number": 73,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1408,7 +1368,7 @@
       ]
     },
     {
-      "number": 77,
+      "number": 74,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1427,7 +1387,7 @@
       ]
     },
     {
-      "number": 78,
+      "number": 75,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -1444,7 +1404,7 @@
       ]
     },
     {
-      "number": 79,
+      "number": 76,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -1461,7 +1421,7 @@
       ]
     },
     {
-      "number": 80,
+      "number": 77,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -1478,7 +1438,7 @@
       ]
     },
     {
-      "number": 81,
+      "number": 78,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1497,7 +1457,7 @@
       ]
     },
     {
-      "number": 82,
+      "number": 79,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1516,7 +1476,7 @@
       ]
     },
     {
-      "number": 83,
+      "number": 80,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1535,7 +1495,7 @@
       ]
     },
     {
-      "number": 84,
+      "number": 81,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1554,7 +1514,7 @@
       ]
     },
     {
-      "number": 85,
+      "number": 82,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1573,7 +1533,7 @@
       ]
     },
     {
-      "number": 86,
+      "number": 83,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1592,7 +1552,7 @@
       ]
     },
     {
-      "number": 87,
+      "number": 84,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1611,7 +1571,7 @@
       ]
     },
     {
-      "number": 88,
+      "number": 85,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1630,7 +1590,7 @@
       ]
     },
     {
-      "number": 89,
+      "number": 86,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1649,7 +1609,7 @@
       ]
     },
     {
-      "number": 90,
+      "number": 87,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1668,7 +1628,7 @@
       ]
     },
     {
-      "number": 91,
+      "number": 88,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -1685,7 +1645,7 @@
       ]
     },
     {
-      "number": 92,
+      "number": 89,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1704,7 +1664,7 @@
       ]
     },
     {
-      "number": 93,
+      "number": 90,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1723,7 +1683,7 @@
       ]
     },
     {
-      "number": 94,
+      "number": 91,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1742,7 +1702,7 @@
       ]
     },
     {
-      "number": 95,
+      "number": 92,
       "classification": "equivalent_index_name",
       "difference": [
         "remove_index",
@@ -1758,7 +1718,7 @@
       ]
     },
     {
-      "number": 96,
+      "number": 93,
       "classification": "equivalent_index_name",
       "difference": [
         "remove_index",
@@ -1774,7 +1734,7 @@
       ]
     },
     {
-      "number": 97,
+      "number": 94,
       "classification": "equivalent_index_name",
       "difference": [
         "remove_index",
@@ -1790,7 +1750,7 @@
       ]
     },
     {
-      "number": 98,
+      "number": 95,
       "classification": "equivalent_index_name",
       "difference": [
         "remove_index",
@@ -1806,7 +1766,7 @@
       ]
     },
     {
-      "number": 99,
+      "number": 96,
       "classification": "equivalent_index_name",
       "difference": [
         "remove_index",
@@ -1822,7 +1782,7 @@
       ]
     },
     {
-      "number": 100,
+      "number": 97,
       "classification": "equivalent_index_name",
       "difference": [
         "add_index",
@@ -1838,7 +1798,7 @@
       ]
     },
     {
-      "number": 101,
+      "number": 98,
       "classification": "equivalent_index_name",
       "difference": [
         "add_index",
@@ -1854,7 +1814,7 @@
       ]
     },
     {
-      "number": 102,
+      "number": 99,
       "classification": "equivalent_index_name",
       "difference": [
         "add_index",
@@ -1870,7 +1830,7 @@
       ]
     },
     {
-      "number": 103,
+      "number": 100,
       "classification": "equivalent_index_name",
       "difference": [
         "add_index",
@@ -1886,7 +1846,7 @@
       ]
     },
     {
-      "number": 104,
+      "number": 101,
       "classification": "equivalent_index_name",
       "difference": [
         "add_index",
@@ -1902,7 +1862,7 @@
       ]
     },
     {
-      "number": 105,
+      "number": 102,
       "classification": "preexisting_unmapped_legacy_schema",
       "difference": [
         "remove_fk",
@@ -1922,7 +1882,7 @@
       ]
     },
     {
-      "number": 106,
+      "number": 103,
       "classification": "preexisting_unmapped_legacy_schema",
       "difference": [
         "remove_column",
@@ -1937,7 +1897,7 @@
       ]
     },
     {
-      "number": 107,
+      "number": 104,
       "classification": "preexisting_unmapped_legacy_schema",
       "difference": [
         "remove_column",
@@ -1952,7 +1912,7 @@
       ]
     },
     {
-      "number": 108,
+      "number": 105,
       "classification": "preexisting_unmapped_legacy_schema",
       "difference": [
         "remove_column",
@@ -1967,7 +1927,7 @@
       ]
     },
     {
-      "number": 109,
+      "number": 106,
       "classification": "preexisting_unmapped_legacy_schema",
       "difference": [
         "remove_column",
@@ -1982,7 +1942,7 @@
       ]
     },
     {
-      "number": 110,
+      "number": 107,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -1999,7 +1959,7 @@
       ]
     },
     {
-      "number": 111,
+      "number": 108,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -2016,7 +1976,7 @@
       ]
     },
     {
-      "number": 112,
+      "number": 109,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -2033,7 +1993,7 @@
       ]
     },
     {
-      "number": 113,
+      "number": 110,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -2052,7 +2012,7 @@
       ]
     },
     {
-      "number": 114,
+      "number": 111,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -2069,7 +2029,7 @@
       ]
     },
     {
-      "number": 115,
+      "number": 112,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -2086,7 +2046,7 @@
       ]
     },
     {
-      "number": 116,
+      "number": 113,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -2103,7 +2063,7 @@
       ]
     },
     {
-      "number": 117,
+      "number": 114,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -2122,7 +2082,7 @@
       ]
     },
     {
-      "number": 118,
+      "number": 115,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -2141,7 +2101,7 @@
       ]
     },
     {
-      "number": 119,
+      "number": 116,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -2158,7 +2118,7 @@
       ]
     },
     {
-      "number": 120,
+      "number": 117,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -2185,11 +2145,11 @@
     ],
     "assertion_contract": "Compare the full normalized remaining differences to differences[].difference using canonical key ordering and top-level sorting. Any added, changed, duplicated, or disappearing difference fails until reviewed. Generated columns retain explicit existence, type and persisted-expression checks.",
     "counts": {
-      "raw_difference_entries": 122,
-      "reviewed_difference_entries": 120,
+      "raw_difference_entries": 119,
+      "reviewed_difference_entries": 117,
       "explicit_generated_columns": 2,
       "explained_migration_owned_or_representation_entries": 98,
-      "unresolved_preexisting_drift_entries": 24
+      "unresolved_preexisting_drift_entries": 21
     },
     "unresolved_followup": "DB08: review the 24 pre-existing ORM/schema drift entries as one tracked risk; this DB04 change neither fixes nor silently suppresses them. Six further entries (former 90-95) were resolved by 187933b9, which aligned the sales order item ORM to shipped migration 0071; see resolved_by_db08.",
     "non_claims": [
@@ -2313,6 +2273,54 @@
       }
     ],
     "verification": "Post-fix rerun of the real migration chain on PostgreSQL reports exactly these six differences gone and adds none. Baseline edited deliberately, not regenerated.",
-    "still_unresolved": "Twenty-four entries remain, including the Beyka table cutting_beika_material_usages, which has no ORM model at all and is reached only by raw SQL. DB08 is not complete."
+    "still_unresolved": "21 entries remain: HR indexes, packages and package_items nullability, and the sewing replacement request entries. The Beyka table is no longer among them; see `resolved_by_db08_beyka`. DB08's two named halves are now Done, but ORM parity is still not claimed."
+  },
+  "resolved_by_db08_beyka": {
+    "commit": "25192d17",
+    "reason": "Migration 0076 created cutting_beika_material_usages but no ORM class or relationship was ever added, so the table read as 'remove_table' drift with both its indexes. Adding CuttingBeikaMaterialUsage and the CuttingRecord.beika_materials relationship removed exactly those three entries and introduced none. Verified by a fresh migration bootstrap on PostgreSQL 17.11: 3 disappeared, 0 appeared.",
+    "removed_entries": [
+      {
+        "number": 1,
+        "classification": "preexisting_unmapped_legacy_schema",
+        "difference": [
+          "remove_index",
+          {
+            "expressions": [
+              "cutting_beika_material_usages.cutting_record_id"
+            ],
+            "index": "ix_cutting_beika_material_usages_cutting_record_id",
+            "options": {},
+            "table": "cutting_beika_material_usages",
+            "unique": false
+          }
+        ]
+      },
+      {
+        "number": 2,
+        "classification": "preexisting_unmapped_legacy_schema",
+        "difference": [
+          "remove_index",
+          {
+            "expressions": [
+              "cutting_beika_material_usages.stock_batch_id"
+            ],
+            "index": "ix_cutting_beika_material_usages_stock_batch_id",
+            "options": {},
+            "table": "cutting_beika_material_usages",
+            "unique": false
+          }
+        ]
+      },
+      {
+        "number": 3,
+        "classification": "preexisting_unmapped_legacy_schema",
+        "difference": [
+          "remove_table",
+          "cutting_beika_material_usages"
+        ]
+      }
+    ],
+    "verification": "Alembic autogenerate against a database built by running the full migration chain, compared entry by entry against this baseline. Only the three entries listed here disappeared; nothing was added, changed or reclassified.",
+    "still_unresolved": "Not a claim of ORM parity. The remaining 21 entries are untouched."
   }
 }

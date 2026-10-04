@@ -204,7 +204,7 @@ def _assert_known_drift_baseline(actual, expected):
 
 def test_known_drift_baseline_ignores_only_order():
     expected = _known_drift_baseline()
-    assert len(expected) == 120
+    assert len(expected) == 117
     _assert_known_drift_baseline(list(reversed(expected)), expected)
 
 
@@ -228,12 +228,14 @@ def _assert_schema_contract_with_known_drift(engine):
     """Check mapped storage and the exact reviewed known-drift baseline.
 
     Generated model lookup columns are deliberately migration-owned (0084);
-    they are queried as SQL and have no ORM Columns. All 120 remaining diffs,
-    including defaults, must match the reviewed report exactly. Twenty-four
+    they are queried as SQL and have no ORM Columns. All 117 remaining diffs,
+    including defaults, must match the reviewed report exactly. Twenty-one
     entries remain unresolved under DB08; passing this check does not claim ORM
     parity. Entries 90-95 of the previous baseline were removed deliberately by
-    187933b9, which aligned the sales order item ORM to shipped migration 0071;
-    see the `resolved_by_db08` block in the baseline for exactly what was removed.
+    187933b9, which aligned the sales order item ORM to shipped migration 0071,
+    and the Beyka table plus its two indexes were removed by 25192d17, which
+    mapped cutting_beika_material_usages; see the `resolved_by_db08` and
+    `resolved_by_db08_beyka` blocks in the baseline for exactly what was removed.
     """
     from app.db.base import Base
     import app.models  # noqa: F401 - register model metadata for comparison
