@@ -53,7 +53,7 @@ class SalesOrderItem(Base, PkMixin, TimestampMixin):
             name="ck_sales_order_items_product_reference",
         ),
     )
-    sales_order_id: Mapped[int] = mapped_column(ForeignKey("sales_orders.id"), nullable=False)
+    sales_order_id: Mapped[int] = mapped_column(ForeignKey("sales_orders.id"), nullable=False, index=True)
     model_id: Mapped[int | None] = mapped_column(ForeignKey("models.id"))
     finished_goods_stock_id: Mapped[int | None] = mapped_column(
         ForeignKey(
