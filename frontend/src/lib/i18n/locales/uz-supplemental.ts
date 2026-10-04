@@ -763,6 +763,7 @@ export default {
     "page.payroll.netTotal": "Sof jami",
     "page.payroll.noTotals": "Bu filtrlarga mos ish haqi jamisi yo‘q.",
     "page.payroll.operationTotals": "Amallar bo‘yicha jami",
+    "page.payroll.operationTotalsScope": "Xodimlar guruhlaridan {count} / {total} yuklandi",
     "page.payroll.noOperationTotals": "Bu filtrlarga mos amal jamisi yo‘q.",
     "page.payroll.payrollRecords": "Ish haqi yozuvlari",
     "page.payroll.time": "Vaqt",
@@ -1214,4 +1215,9 @@ export default {
     "attendance.empty": "Bu filtrlarga mos qurilma profillari yo'q.",
     "attendance.resultCount": "{count} ta profil",
     "page.processQr.correctedIdentityReview": "Tahrirlangan yorliq model amaliga mos kelmayapti. Yangi yorliqlar chiqarishdan oldin uning amalini tekshiring. Mavjud yorliqlarni chop etish mumkin.",
+    "page.hrEmployees.managerSearch": "Rahbarni topish",
+    "page.hrEmployees.positionSearch": "Lavozimlarni qidirish",
+    "page.hrEmployees.manager": "Rahbar",
+    "page.hrEmployees.refineManagerSearch": "50 dan ortiq natija topildi. Rahbar qidiruvini aniqlashtiring.",
+    "page.hrEmployees.loadMore": "Yana xodimlarni yuklash",
   } as Record<string, string>;
