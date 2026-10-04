@@ -1,7 +1,7 @@
 """Finance/reporting service."""
 from datetime import datetime
 from decimal import Decimal
-from sqlalchemy import case, func
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
 from app.core.dt import as_utc
@@ -142,15 +142,62 @@ def dashboard_summary(db: Session) -> dict:
     }
 
 
-def list_recent_invoices(db: Session, limit: int = 50) -> list[dict]:
-    """Return recent invoices with sales-order and customer labels for finance UI."""
-    safe_limit = max(1, min(int(limit or 50), 200))
-    rows = (
+INVOICE_LIST_MAX_LIMIT = 200
+
+
+def _invoice_search_filter(search: str | None):
+    """Match the free-text invoice search over invoice no, order no and customer.
+
+    The page query and the count MUST share this filter or `total` stops
+    describing the list the UI is showing.
+    """
+    term = str(search or "").strip()
+    if not term:
+        return None
+    pattern = f"%{term}%"
+    return or_(
+        Invoice.invoice_no.ilike(pattern),
+        SalesOrder.order_no.ilike(pattern),
+        Customer.name.ilike(pattern),
+    )
+
+
+def count_invoices(db: Session, search: str | None = None) -> int:
+    """Total invoices matching the same filter `list_recent_invoices` pages over."""
+    qry = db.query(func.count(Invoice.id)).join(
+        SalesOrder, SalesOrder.id == Invoice.sales_order_id
+    ).outerjoin(Customer, Customer.id == SalesOrder.customer_id)
+    cond = _invoice_search_filter(search)
+    if cond is not None:
+        qry = qry.filter(cond)
+    return int(qry.scalar() or 0)
+
+
+def list_recent_invoices(
+    db: Session,
+    limit: int = 50,
+    offset: int = 0,
+    search: str | None = None,
+) -> list[dict]:
+    """Return a page of recent invoices with sales-order and customer labels.
+
+    Still returns a plain list so existing direct callers keep working; the
+    route wraps it with `count_invoices` for the exact total.
+    """
+    safe_limit = max(1, min(int(limit or 50), INVOICE_LIST_MAX_LIMIT))
+    safe_offset = max(0, int(offset or 0))
+    qry = (
         db.query(Invoice, SalesOrder, Customer)
         .join(SalesOrder, SalesOrder.id == Invoice.sales_order_id)
         .outerjoin(Customer, Customer.id == SalesOrder.customer_id)
-        .order_by(Invoice.id.desc())
+    )
+    cond = _invoice_search_filter(search)
+    if cond is not None:
+        qry = qry.filter(cond)
+    rows = (
+        qry.order_by(Invoice.id.desc())
         .limit(safe_limit)
+        .offset(safe_offset)
         .all()
     )
     invoice_ids = [invoice.id for invoice, _, _ in rows]

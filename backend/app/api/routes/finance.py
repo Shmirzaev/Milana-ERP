@@ -11,7 +11,8 @@ from app.services.payments import create_invoice_payment, invoice_payment_status
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 from app.services.finance import (
     dashboard_summary, order_profit, branded_stock_value, waste_cost, waste_income,
-    list_recent_invoices, revenue_by_period, cost_breakdown,
+    list_recent_invoices, count_invoices, INVOICE_LIST_MAX_LIMIT, revenue_by_period,
+    cost_breakdown,
 )
 
 router = APIRouter(prefix="/finance", tags=["finance"])
@@ -66,8 +67,23 @@ def list_invoices(
     db: DbSession,
     _: User = Depends(require_permissions("finance.view", "*")),
     limit: int = 50,
+    offset: int = 0,
+    search: str | None = Query(None, max_length=120),
 ):
-    return list_recent_invoices(db, limit=limit)
+    """One page of invoices plus the exact filtered total.
+
+    `total` is the true count for the same filter, not the page length, so the
+    UI can say how many rows exist past the current page instead of silently
+    stopping at `limit`.
+    """
+    safe_limit = max(1, min(int(limit or 50), INVOICE_LIST_MAX_LIMIT))
+    safe_offset = max(0, int(offset or 0))
+    return {
+        "items": list_recent_invoices(db, limit=safe_limit, offset=safe_offset, search=search),
+        "total": count_invoices(db, search=search),
+        "limit": safe_limit,
+        "offset": safe_offset,
+    }
 
 
 @router.get("/revenue-by-period")

@@ -56,7 +56,9 @@ def test_historical_import_origin_survives_manual_payment(client, auth_headers):
         invoice_id, historical_id = invoice.id, historical.id
     response = client.get("/api/finance/invoices", headers=auth_headers)
     assert response.status_code == 200, response.text
-    assert any(row["id"] == invoice_id for row in response.json())
+    # The list route returns a paginated envelope since PERF35-FINANCE; this
+    # test only cares that the historical invoice is present in the page.
+    assert any(row["id"] == invoice_id for row in response.json()["items"])
     response = client.post("/api/finance/payments", headers={**auth_headers, "Idempotency-Key": "retirement-manual-payment"},
                            json={"invoice_id": invoice_id, "amount": 30, "payment_method": "cash"})
     assert response.status_code == 201, response.text
