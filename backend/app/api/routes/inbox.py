@@ -3,6 +3,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import func, or_
+from sqlalchemy.orm import load_only, selectinload
 
 from app.core.deps import CurrentUser, DbSession, user_permissions
 from app.core.dt import as_utc
@@ -25,6 +26,7 @@ from app.models import (
     ProductionOrderItem,
     Item,
     FinishedGoodsStock,
+    StockBatch,
 )
 from app.services.bundles import (
     DEFAULT_SEWING_FACTORY_CODE,
@@ -81,6 +83,7 @@ _WORKFLOW_SEQUENCE = ["cutting", "printing", "sewing", "packaging", "storage_tra
 _MATERIAL_CATEGORIES = ("fabric", "semi_finished")
 _CANCELLED_PRODUCTION_STATUSES = ("cancelled",)
 _CUTTING_PRODUCTION_STATUSES = ("planning", "cutting")
+_REFERENCE_BATCH_SIZE = 400
 _DOWNSTREAM_BUNDLE_STATUSES = (
     "sent_to_printing",
     "received_printing",
@@ -493,12 +496,22 @@ def _material_payload_for_po(material_by_po: dict[int, dict] | None, production_
     return material_by_po.get(int(production_order_id), _empty_material_payload())
 
 
-def _bom_material_image_url(bom: ModelBOM, item: Item) -> str | None:
-    stock_batch = getattr(bom, "stock_batch", None)
+def _reference_id_chunks(values: set[int]):
+    ordered = sorted(values)
+    for start in range(0, len(ordered), _REFERENCE_BATCH_SIZE):
+        yield ordered[start:start + _REFERENCE_BATCH_SIZE]
+
+
+def _bom_material_image_url(
+    bom_photo_url: str | None,
+    stock_batch_id: int | None,
+    item_image_url: str | None,
+    stock_batch_images: dict[int, str | None],
+) -> str | None:
     return (
-        bom.photo_url
-        or getattr(stock_batch, "image_url", None)
-        or item.image_url
+        bom_photo_url
+        or stock_batch_images.get(int(stock_batch_id or 0))
+        or item_image_url
     )
 
 
@@ -506,47 +519,82 @@ def _material_payload_by_production_order(db: DbSession, production_order_ids: l
     po_ids = sorted({int(po_id) for po_id in production_order_ids if po_id})
     if not po_ids:
         return {}
-    po_rows = db.query(ProductionOrder.id, ProductionOrder.model_id).filter(ProductionOrder.id.in_(po_ids)).all()
+    po_rows = []
+    for ids in _reference_id_chunks(set(po_ids)):
+        po_rows.extend(
+            db.query(ProductionOrder.id, ProductionOrder.model_id)
+            .filter(ProductionOrder.id.in_(ids))
+            .all()
+        )
     model_by_po = {int(po_id): int(model_id) for po_id, model_id in po_rows if model_id}
     model_ids = sorted(set(model_by_po.values()))
     if not model_ids:
         return {}
 
     by_model: dict[int, dict] = {}
-    bom_rows = (
-        db.query(ModelBOM, Item)
-        .join(Item, Item.id == ModelBOM.item_id)
-        .filter(ModelBOM.model_id.in_(model_ids), Item.category.in_(_MATERIAL_CATEGORIES))
-        .order_by(ModelBOM.id.asc())
-        .all()
-    )
-    for bom, item in bom_rows:
-        image_url = _bom_material_image_url(bom, item)
+    bom_rows = []
+    for ids in _reference_id_chunks(set(model_ids)):
+        bom_rows.extend(
+            db.query(
+                ModelBOM.id,
+                ModelBOM.model_id,
+                ModelBOM.stock_batch_id,
+                ModelBOM.photo_url,
+                Item.id.label("item_id"),
+                Item.sku.label("item_sku"),
+                Item.name.label("item_name"),
+                Item.image_url.label("item_image_url"),
+            )
+            .join(Item, Item.id == ModelBOM.item_id)
+            .filter(ModelBOM.model_id.in_(ids), Item.category.in_(_MATERIAL_CATEGORIES))
+            .order_by(ModelBOM.id.asc())
+            .all()
+        )
+    stock_batch_images: dict[int, str | None] = {}
+    stock_batch_ids = {int(row.stock_batch_id) for row in bom_rows if row.stock_batch_id}
+    for ids in _reference_id_chunks(stock_batch_ids):
+        stock_batch_images.update({
+            int(batch_id): image_url
+            for batch_id, image_url in db.query(StockBatch.id, StockBatch.image_url)
+            .filter(StockBatch.id.in_(ids))
+            .all()
+        })
+
+    for bom in bom_rows:
+        image_url = _bom_material_image_url(
+            bom.photo_url,
+            bom.stock_batch_id,
+            bom.item_image_url,
+            stock_batch_images,
+        )
         payload = {
-            "material_item_id": int(item.id),
-            "material_item_sku": item.sku,
-            "material_item_name": item.name,
+            "material_item_id": int(bom.item_id),
+            "material_item_sku": bom.item_sku,
+            "material_item_name": bom.item_name,
             "material_image_url": image_url,
         }
         existing = by_model.get(int(bom.model_id))
         if not existing or (not existing.get("material_image_url") and image_url):
             by_model[int(bom.model_id)] = payload
 
-    material_images = (
-        db.query(ModelImage)
-        .filter(ModelImage.model_id.in_(model_ids))
-        .order_by(ModelImage.id.desc())
-        .all()
-    )
+    material_images = []
+    for ids in _reference_id_chunks(set(model_ids)):
+        material_images.extend(
+            db.query(ModelImage.model_id, ModelImage.file_url)
+            .filter(
+                ModelImage.model_id.in_(ids),
+                func.lower(func.coalesce(ModelImage.image_type, "")) == "material",
+            )
+            .order_by(ModelImage.id.desc())
+            .all()
+        )
     material_image_models: set[int] = set()
-    for image in material_images:
-        if str(image.image_type or "").lower() != "material":
-            continue
-        model_id = int(image.model_id)
+    for model_id_value, file_url in material_images:
+        model_id = int(model_id_value)
         if model_id in material_image_models:
             continue
         payload = by_model.setdefault(model_id, _empty_material_payload())
-        payload["material_image_url"] = image.file_url
+        payload["material_image_url"] = file_url
         material_image_models.add(model_id)
 
     return {
@@ -686,7 +734,36 @@ def _production_context_by_production_order(db: DbSession, production_order_ids:
     model_ids = sorted(set(model_by_po.values()))
     model_by_id = {
         int(model.id): model
-        for model in db.query(Model).filter(Model.id.in_(model_ids)).all()
+        for model in (
+            db.query(Model)
+            .options(
+                load_only(Model.id, Model.code, Model.name, Model.details_json),
+                selectinload(Model.images).load_only(
+                    ModelImage.id,
+                    ModelImage.model_id,
+                    ModelImage.file_url,
+                    ModelImage.file_name,
+                    ModelImage.content_type,
+                    ModelImage.image_type,
+                    ModelImage.is_primary,
+                ),
+                selectinload(Model.bom).load_only(
+                    ModelBOM.id,
+                    ModelBOM.model_id,
+                    ModelBOM.item_id,
+                    ModelBOM.stock_batch_id,
+                    ModelBOM.photo_url,
+                ),
+                selectinload(Model.bom)
+                .joinedload(ModelBOM.item)
+                .load_only(Item.id, Item.category, Item.image_url),
+                selectinload(Model.bom)
+                .joinedload(ModelBOM.stock_batch)
+                .load_only(StockBatch.id, StockBatch.image_url),
+            )
+            .filter(Model.id.in_(model_ids))
+            .all()
+        )
     } if model_ids else {}
 
     sizes_by_po: dict[int, list[str]] = {}
@@ -991,7 +1068,17 @@ def department_inbox(
     ready_packages = []
     ready_to_ship = []
     if d.code == "FGS":
-        packed = db.query(Package).filter(Package.status == "packed").order_by(Package.id.desc()).limit(200).all()
+        package_list_columns = (
+            Package.id,
+            Package.package_no,
+            Package.production_order_id,
+            Package.sales_order_id,
+            Package.total_quantity,
+            Package.status,
+        )
+        packed = db.query(Package).options(
+            load_only(*package_list_columns)
+        ).filter(Package.status == "packed").order_by(Package.id.desc()).limit(200).all()
         packed_so_ids = {int(p.sales_order_id) for p in packed if p.sales_order_id}
         packed_sales_by_id = {
             int(so.id): so
@@ -1011,7 +1098,9 @@ def department_inbox(
             }
             for p in packed
         ]
-        ready = db.query(Package).filter(Package.status.in_(["received_in_storage", "reserved"])).all()
+        ready = db.query(Package).options(
+            load_only(*package_list_columns)
+        ).filter(Package.status.in_(["received_in_storage", "reserved"])).all()
         ready_so_ids = {int(p.sales_order_id) for p in ready if p.sales_order_id}
         ready_sales_by_id = {
             int(so.id): so
