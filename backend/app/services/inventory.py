@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from fastapi import HTTPException
-from sqlalchemy import and_, case, func, or_
+from sqlalchemy import and_, case, func, or_, text
 from sqlalchemy.orm import Session, lazyload
 
 from app.core.pagination import clamp_pagination
@@ -1463,15 +1463,13 @@ def accessory_issue_plan(db: Session, production_order_id: int) -> dict:
     }
 
 
-def accessory_issue_requests(
+def _accessory_issue_requests_rows(
     db: Session,
     *,
     production_order_id: int | None = None,
     model_id: int | None = None,
     q: str | None = None,
     include_complete: bool = False,
-    page: int | None = None,
-    page_size: int | None = None,
 ) -> list[dict]:
     qry = db.query(ProductionOrder)
     if production_order_id is not None:
@@ -1535,10 +1533,691 @@ def accessory_issue_requests(
             row["item_sku"],
         )
     )
-    if page is not None or page_size is not None:
-        safe_page, safe_size, offset = clamp_pagination(page or 1, page_size or 50)
-        return rows[offset: offset + safe_size]
     return rows
+
+
+# PERF02: one set-based statement for the accessory issue-request queue.
+#
+# The queue used to walk every candidate production order and build a full
+# accessory issue plan for each one, so both the eligibility test and the exact
+# total were computed in Python over the whole candidate set before a single row
+# was paged. This statement keeps the arithmetic of the per-order plan - BOM
+# requirement, linked and label-only manual issues, batch and batchless stock,
+# active reservations, the EPSILON status ladder - but evaluates it set-wise and
+# orders and counts it before LIMIT/OFFSET, projecting only queue columns.
+#
+# Fidelity notes, because the numbers are posted back as stock quantities:
+#
+# * Every quantity is computed in ``double precision`` in the same order the
+#   Python plan used. A bare ``1.0 + waste / 100.0`` would resolve through
+#   PostgreSQL's numeric rules and silently switch to exact decimal arithmetic,
+#   so each literal is cast explicitly.
+# * ``remaining`` reproduces ``round(max(0.0, required - issued), 4)``.
+#   PostgreSQL's ``round(numeric, 4)`` rounds the shortest decimal rendering
+#   half away from zero, while Python rounds the exact binary value half to
+#   even. They can only disagree on a half step, which for a non-negative double
+#   is exactly a value of the form ``odd / 32``; those are detected exactly in
+#   float8 and given the half-to-even answer.
+# * Accessory units are never coerced: a requirement keeps its own BOM unit and
+#   only matches issued quantities, manual aliases and returns recorded in that
+#   same unit.
+# * Recorded returns keep their existing meaning. They reduce the returnable
+#   allowance in ``accessory_issue_summary`` and never the queued remainder.
+# * Manual issues without a catalog item are matched on the normalized label
+#   against both the requirement's SKU and its name, exactly as the plan did.
+_ACCESSORY_REQUEST_SQL = r"""
+WITH eligible_orders AS MATERIALIZED (
+    SELECT
+        po.id AS production_order_id,
+        po.production_no,
+        COALESCE(
+            NULLIF(so.order_no, ''),
+            NULLIF(BTRIM(po.production_no), ''),
+            po.production_no
+        ) AS order_no,
+        po.model_id,
+        po.planned_quantity AS order_planned_quantity,
+        model.code AS model_code,
+        model.name AS model_name
+    FROM production_orders AS po
+    LEFT JOIN sales_orders AS so ON so.id = po.sales_order_id
+    LEFT JOIN models AS model ON model.id = po.model_id
+    WHERE (
+            (
+                CAST(:production_order_id AS bigint) IS NULL
+                AND po.status NOT IN ('finished_storage', 'cancelled', 'rejected')
+            )
+            OR (
+                CAST(:production_order_id AS bigint) IS NOT NULL
+                AND po.id = CAST(:production_order_id AS bigint)
+            )
+        )
+      AND (
+            CAST(:model_id AS bigint) IS NULL
+            OR po.model_id = CAST(:model_id AS bigint)
+        )
+),
+planning_rows AS MATERIALIZED (
+    SELECT
+        eligible.production_order_id,
+        eligible.production_no,
+        eligible.order_no,
+        eligible.model_id,
+        eligible.model_code,
+        eligible.model_name,
+        eligible.order_planned_quantity,
+        poi.id AS planning_position,
+        poi.model_id AS planning_model_id,
+        poi.size AS planning_size,
+        poi.color AS planning_color,
+        poi.planned_quantity,
+        TRUE AS has_order_items
+    FROM eligible_orders AS eligible
+    JOIN production_order_items AS poi
+      ON poi.production_order_id = eligible.production_order_id
+    UNION ALL
+    SELECT
+        eligible.production_order_id,
+        eligible.production_no,
+        eligible.order_no,
+        eligible.model_id,
+        eligible.model_code,
+        eligible.model_name,
+        eligible.order_planned_quantity,
+        0::bigint AS planning_position,
+        eligible.model_id AS planning_model_id,
+        NULL::varchar AS planning_size,
+        NULL::varchar AS planning_color,
+        eligible.order_planned_quantity AS planned_quantity,
+        FALSE AS has_order_items
+    FROM eligible_orders AS eligible
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM production_order_items AS poi
+        WHERE poi.production_order_id = eligible.production_order_id
+    )
+),
+requirements AS MATERIALIZED (
+    SELECT
+        planning.production_order_id,
+        planning.production_no,
+        planning.order_no,
+        planning.model_id,
+        planning.model_code,
+        planning.model_name,
+        planning.order_planned_quantity,
+        item.id AS item_id,
+        item.sku AS item_sku,
+        item.name AS item_name,
+        item.image_url AS item_image_url,
+        item.category,
+        COALESCE(
+            NULLIF(BTRIM(bom.unit), ''),
+            NULLIF(BTRIM(item.unit), ''),
+            item.unit
+        ) AS unit,
+        bom.stock_batch_id,
+        MIN(bom.id) AS source_position,
+        SUM(
+            CAST(bom.quantity_per_piece AS double precision)
+            * CAST(GREATEST(planning.planned_quantity, 0) AS double precision)
+            * (
+                CAST(1.0 AS double precision)
+                + CAST(bom.waste_percent AS double precision) / CAST(100.0 AS double precision)
+            )
+        ) AS required_quantity
+    FROM planning_rows AS planning
+    JOIN model_bom AS bom
+      ON bom.model_id = COALESCE(NULLIF(planning.planning_model_id, 0), planning.model_id)
+     AND (
+            NOT planning.has_order_items
+            OR COALESCE(bom.size, '') = ''
+            OR bom.size = planning.planning_size
+        )
+     AND (
+            NOT planning.has_order_items
+            OR COALESCE(bom.color, '') = ''
+            OR bom.color = planning.planning_color
+        )
+    JOIN items AS item ON item.id = bom.item_id
+    WHERE item.category IN ('accessory', 'packaging')
+      AND (
+            CAST(bom.quantity_per_piece AS double precision)
+            * CAST(GREATEST(planning.planned_quantity, 0) AS double precision)
+            * (
+                CAST(1.0 AS double precision)
+                + CAST(bom.waste_percent AS double precision) / CAST(100.0 AS double precision)
+            )
+        ) > CAST(0.0 AS double precision)
+    GROUP BY
+        planning.production_order_id,
+        planning.production_no,
+        planning.order_no,
+        planning.model_id,
+        planning.model_code,
+        planning.model_name,
+        planning.order_planned_quantity,
+        item.id,
+        item.sku,
+        item.name,
+        item.image_url,
+        item.category,
+        COALESCE(
+            NULLIF(BTRIM(bom.unit), ''),
+            NULLIF(BTRIM(item.unit), ''),
+            item.unit
+        ),
+        bom.stock_batch_id
+),
+required_items AS MATERIALIZED (
+    SELECT DISTINCT item_id FROM requirements
+),
+movement_references AS MATERIALIZED (
+    SELECT
+        eligible.production_order_id,
+        kind.reference_type,
+        eligible.production_order_id AS reference_id
+    FROM eligible_orders AS eligible
+    CROSS JOIN (VALUES ('ProductionOrder'), ('ProductionOrderAccessoryIssue')) AS kind(reference_type)
+    UNION ALL
+    SELECT eligible.production_order_id, 'WorkOrder', work_order.id
+    FROM eligible_orders AS eligible
+    JOIN work_orders AS work_order
+      ON work_order.production_order_id = eligible.production_order_id
+    UNION ALL
+    SELECT eligible.production_order_id, 'CuttingRecord', record.id
+    FROM eligible_orders AS eligible
+    JOIN work_orders AS work_order
+      ON work_order.production_order_id = eligible.production_order_id
+    JOIN cutting_records AS record ON record.work_order_id = work_order.id
+    UNION ALL
+    SELECT eligible.production_order_id, 'SewingRecord', record.id
+    FROM eligible_orders AS eligible
+    JOIN work_orders AS work_order
+      ON work_order.production_order_id = eligible.production_order_id
+    JOIN sewing_records AS record ON record.work_order_id = work_order.id
+    UNION ALL
+    SELECT eligible.production_order_id, 'PackagingRecord', record.id
+    FROM eligible_orders AS eligible
+    JOIN work_orders AS work_order
+      ON work_order.production_order_id = eligible.production_order_id
+    JOIN packaging_records AS record ON record.work_order_id = work_order.id
+),
+movement_issues AS MATERIALIZED (
+    SELECT
+        reference.production_order_id,
+        movement.item_id,
+        COALESCE(
+            NULLIF(BTRIM(movement.unit), ''),
+            NULLIF(BTRIM(item.unit), ''),
+            item.unit
+        ) AS unit,
+        SUM(movement.quantity) AS quantity
+    FROM movement_references AS reference
+    JOIN stock_movements AS movement
+      ON movement.reference_type = reference.reference_type
+     AND movement.reference_id = reference.reference_id
+    JOIN items AS item ON item.id = movement.item_id
+    WHERE item.category IN ('accessory', 'packaging')
+      AND movement.movement_type IN ('consume', 'issue')
+    GROUP BY
+        reference.production_order_id,
+        movement.item_id,
+        COALESCE(
+            NULLIF(BTRIM(movement.unit), ''),
+            NULLIF(BTRIM(item.unit), ''),
+            item.unit
+        )
+),
+linked_manual_issues AS MATERIALIZED (
+    SELECT
+        issue.production_order_id,
+        issue.item_id,
+        COALESCE(NULLIF(BTRIM(issue.unit), ''), 'pcs') AS unit,
+        SUM(issue.quantity) AS quantity
+    FROM manual_accessory_issues AS issue
+    JOIN eligible_orders AS eligible
+      ON eligible.production_order_id = issue.production_order_id
+    WHERE issue.item_id IS NOT NULL
+    GROUP BY
+        issue.production_order_id,
+        issue.item_id,
+        COALESCE(NULLIF(BTRIM(issue.unit), ''), 'pcs')
+),
+item_issues AS MATERIALIZED (
+    SELECT
+        source.production_order_id,
+        source.item_id,
+        source.unit,
+        SUM(source.quantity) AS quantity
+    FROM (
+        SELECT production_order_id, item_id, unit, quantity FROM movement_issues
+        UNION ALL
+        SELECT production_order_id, item_id, unit, quantity FROM linked_manual_issues
+    ) AS source
+    GROUP BY source.production_order_id, source.item_id, source.unit
+),
+itemless_manual_issues AS MATERIALIZED (
+    SELECT
+        grouped.production_order_id,
+        grouped.unit,
+        grouped.label_key,
+        grouped.name_key,
+        grouped.quantity
+    FROM (
+        SELECT
+            source.production_order_id,
+            source.unit,
+            source.label_key,
+            (
+                ARRAY_AGG(
+                    REGEXP_REPLACE(LOWER(BTRIM(source.item_name)), '^\s+|\s+$', '', 'g')
+                    ORDER BY source.created_at DESC, source.id DESC
+                )
+            )[1] AS name_key,
+            SUM(source.quantity) AS quantity
+        FROM (
+            SELECT
+                issue.production_order_id,
+                issue.id,
+                issue.created_at,
+                issue.item_name,
+                issue.quantity,
+                COALESCE(NULLIF(BTRIM(issue.unit), ''), 'pcs') AS unit,
+                REGEXP_REPLACE(
+                    LOWER(
+                        COALESCE(
+                            NULLIF(BTRIM(issue.item_sku), ''),
+                            NULLIF(BTRIM(issue.item_name), ''),
+                            'Manual accessory'
+                        )
+                    ),
+                    '^\s+|\s+$',
+                    '',
+                    'g'
+                ) AS label_key
+            FROM manual_accessory_issues AS issue
+            JOIN eligible_orders AS eligible
+              ON eligible.production_order_id = issue.production_order_id
+            WHERE issue.item_id IS NULL
+        ) AS source
+        GROUP BY source.production_order_id, source.unit, source.label_key
+    ) AS grouped
+),
+manual_alias_contributions AS MATERIALIZED (
+    SELECT
+        requirement.production_order_id,
+        requirement.item_id,
+        requirement.unit,
+        requirement.stock_batch_id,
+        'sku'::varchar AS match_source,
+        REGEXP_REPLACE(LOWER(BTRIM(requirement.item_sku)), '^\s+|\s+$', '', 'g') AS match_key
+    FROM requirements AS requirement
+    UNION ALL
+    SELECT
+        requirement.production_order_id,
+        requirement.item_id,
+        requirement.unit,
+        requirement.stock_batch_id,
+        'name'::varchar AS match_source,
+        REGEXP_REPLACE(LOWER(BTRIM(requirement.item_name)), '^\s+|\s+$', '', 'g') AS match_key
+    FROM requirements AS requirement
+),
+manual_alias_keys AS MATERIALIZED (
+    -- The plan registered every item-less manual issue under both its stored
+    -- label and its name, so a group whose SKU is empty is reachable under the
+    -- same key twice. Keep that: the join below has to see two rows.
+    SELECT
+        issue.production_order_id,
+        issue.unit,
+        issue.label_key AS match_key,
+        issue.quantity
+    FROM itemless_manual_issues AS issue
+    UNION ALL
+    SELECT
+        issue.production_order_id,
+        issue.unit,
+        issue.name_key AS match_key,
+        issue.quantity
+    FROM itemless_manual_issues AS issue
+),
+manual_alias_issues AS MATERIALIZED (
+    SELECT
+        contribution.production_order_id,
+        contribution.item_id,
+        contribution.unit,
+        contribution.stock_batch_id,
+        SUM(keys.quantity) FILTER (WHERE contribution.match_source = 'sku') AS sku_quantity,
+        SUM(keys.quantity) FILTER (WHERE contribution.match_source = 'name') AS name_quantity
+    FROM manual_alias_contributions AS contribution
+    JOIN manual_alias_keys AS keys
+      ON keys.production_order_id = contribution.production_order_id
+     AND keys.unit = contribution.unit
+     AND keys.match_key = contribution.match_key
+    WHERE contribution.match_key <> ''
+    GROUP BY
+        contribution.production_order_id,
+        contribution.item_id,
+        contribution.unit,
+        contribution.stock_batch_id
+),
+batch_stock AS MATERIALIZED (
+    SELECT batch.item_id, SUM(batch.quantity) AS quantity
+    FROM stock_batches AS batch
+    JOIN required_items AS required ON required.item_id = batch.item_id
+    GROUP BY batch.item_id
+),
+batchless_stock AS MATERIALIZED (
+    SELECT
+        movement.item_id,
+        SUM(
+            CASE
+                WHEN movement.movement_type IN ('produce', 'return', 'adjustment')
+                THEN movement.quantity
+                ELSE CAST(0.0 AS double precision)
+            END
+        ) AS incoming,
+        SUM(
+            CASE
+                WHEN movement.movement_type IN ('issue', 'consume', 'waste', 'shipment')
+                THEN movement.quantity
+                ELSE CAST(0.0 AS double precision)
+            END
+        ) AS outgoing
+    FROM stock_movements AS movement
+    JOIN required_items AS required ON required.item_id = movement.item_id
+    WHERE movement.batch_id IS NULL
+    GROUP BY movement.item_id
+),
+active_reservations AS MATERIALIZED (
+    SELECT
+        reservation.item_id,
+        GREATEST(
+            CAST(0.0 AS double precision),
+            SUM(
+                CAST(reservation.reserved_quantity AS double precision)
+                - CAST(reservation.consumed_quantity AS double precision)
+                - CAST(reservation.released_quantity AS double precision)
+            )
+        ) AS quantity
+    FROM material_reservations AS reservation
+    JOIN required_items AS required ON required.item_id = reservation.item_id
+    WHERE reservation.status IN ('reserved', 'partially_consumed')
+    GROUP BY reservation.item_id
+),
+quantities AS MATERIALIZED (
+    SELECT
+        requirement.production_order_id,
+        requirement.production_no,
+        requirement.order_no,
+        requirement.model_id,
+        requirement.model_code,
+        requirement.model_name,
+        requirement.order_planned_quantity AS planned_quantity,
+        requirement.item_id,
+        requirement.item_sku,
+        requirement.item_name,
+        requirement.item_image_url,
+        requirement.category,
+        requirement.unit,
+        requirement.source_position,
+        requirement.required_quantity,
+        (
+            CAST(COALESCE(item_issue.quantity, 0) AS double precision)
+            + CAST(COALESCE(alias_issue.sku_quantity, 0) AS double precision)
+            + CAST(COALESCE(alias_issue.name_quantity, 0) AS double precision)
+        ) AS issued_quantity,
+        GREATEST(
+            CAST(0.0 AS double precision),
+            requirement.required_quantity
+            - CAST(COALESCE(item_issue.quantity, 0) AS double precision)
+            - CAST(COALESCE(alias_issue.sku_quantity, 0) AS double precision)
+            - CAST(COALESCE(alias_issue.name_quantity, 0) AS double precision)
+        ) AS remaining_raw,
+        (
+            CAST(COALESCE(batch.quantity, 0) AS double precision)
+            + CAST(COALESCE(batchless.incoming, 0) AS double precision)
+            - CAST(COALESCE(batchless.outgoing, 0) AS double precision)
+            - CAST(COALESCE(reserved.quantity, 0) AS double precision)
+        ) AS available_quantity
+    FROM requirements AS requirement
+    LEFT JOIN item_issues AS item_issue
+      ON item_issue.production_order_id = requirement.production_order_id
+     AND item_issue.item_id = requirement.item_id
+     AND item_issue.unit = requirement.unit
+    LEFT JOIN manual_alias_issues AS alias_issue
+      ON alias_issue.production_order_id = requirement.production_order_id
+     AND alias_issue.item_id = requirement.item_id
+     AND alias_issue.unit = requirement.unit
+     AND alias_issue.stock_batch_id IS NOT DISTINCT FROM requirement.stock_batch_id
+    LEFT JOIN batch_stock AS batch ON batch.item_id = requirement.item_id
+    LEFT JOIN batchless_stock AS batchless ON batchless.item_id = requirement.item_id
+    LEFT JOIN active_reservations AS reserved ON reserved.item_id = requirement.item_id
+),
+classified AS MATERIALIZED (
+    SELECT
+        quantities.*,
+        (
+            CASE
+                WHEN FLOOR(CAST(32.0 AS double precision) * quantities.remaining_raw)
+                         = CAST(32.0 AS double precision) * quantities.remaining_raw
+                 AND MOD(
+                        CAST(
+                            FLOOR(CAST(32.0 AS double precision) * quantities.remaining_raw)
+                            AS numeric
+                        ),
+                        2
+                     ) = 1
+                THEN FLOOR(quantities.remaining_raw * CAST(10000.0 AS double precision))
+                     + MOD(
+                            CAST(
+                                FLOOR(quantities.remaining_raw * CAST(10000.0 AS double precision))
+                                AS numeric
+                            ),
+                            2
+                        )
+                ELSE TRUNC(
+                        quantities.remaining_raw * CAST(10000.0 AS double precision)
+                        + CAST(0.5 AS double precision)
+                     )
+            END
+        )::double precision / CAST(10000.0 AS double precision) AS remaining_quantity
+    FROM quantities
+),
+scored AS MATERIALIZED (
+    SELECT
+        classified.*,
+        GREATEST(
+            CAST(0.0 AS double precision),
+            classified.remaining_quantity - classified.available_quantity
+        ) AS shortage
+    FROM classified
+),
+ranked AS MATERIALIZED (
+    SELECT
+        CASE scored.status_code
+            WHEN 'shortage' THEN 0
+            WHEN 'partial' THEN 1
+            ELSE 2
+        END AS status_rank,
+        scored.*
+    FROM (
+        SELECT
+            scored.*,
+            CASE
+                WHEN scored.remaining_quantity <= CAST(0.000000001 AS double precision) THEN 'ready'
+                WHEN scored.shortage > CAST(0.000000001 AS double precision) THEN 'shortage'
+                ELSE 'partial'
+            END AS status_code
+        FROM scored
+    ) AS scored
+),
+matched AS MATERIALIZED (
+    SELECT *
+    FROM ranked
+    WHERE (
+            CAST(:include_complete AS boolean)
+            OR remaining_quantity > CAST(0.000000001 AS double precision)
+        )
+      AND (
+            CAST(:search AS text) = ''
+            OR POSITION(CAST(:search AS text) IN LOWER(COALESCE(order_no, ''))) > 0
+            OR POSITION(CAST(:search AS text) IN LOWER(COALESCE(production_no, ''))) > 0
+            OR POSITION(CAST(:search AS text) IN LOWER(COALESCE(model_code, ''))) > 0
+            OR POSITION(CAST(:search AS text) IN LOWER(COALESCE(model_name, ''))) > 0
+            OR POSITION(CAST(:search AS text) IN LOWER(COALESCE(item_sku, ''))) > 0
+            OR POSITION(CAST(:search AS text) IN LOWER(COALESCE(item_name, ''))) > 0
+            OR POSITION(CAST(:search AS text) IN LOWER(COALESCE(unit, ''))) > 0
+        )
+),
+paged AS MATERIALIZED (
+    SELECT *
+    FROM matched
+    ORDER BY
+        status_rank,
+        production_order_id,
+        item_sku COLLATE "C",
+        category COLLATE "C",
+        unit COLLATE "C",
+        source_position
+    LIMIT CAST(:page_size AS bigint)
+    OFFSET CAST(:offset AS bigint)
+)
+SELECT
+    paged.production_order_id,
+    paged.production_no,
+    paged.order_no,
+    paged.model_id,
+    paged.model_code,
+    paged.model_name,
+    paged.planned_quantity,
+    paged.item_id,
+    paged.item_sku,
+    paged.item_name,
+    paged.item_image_url,
+    paged.category,
+    paged.unit,
+    paged.required_quantity,
+    paged.issued_quantity,
+    paged.remaining_quantity,
+    paged.available_quantity,
+    paged.shortage,
+    CASE paged.status_code WHEN 'shortage' THEN 'shortage' WHEN 'partial' THEN 'partial' ELSE 'ready' END AS status,
+    totals.total
+FROM paged
+FULL JOIN (SELECT COUNT(*) AS total FROM matched) AS totals ON TRUE
+ORDER BY
+    CASE paged.status_code WHEN 'shortage' THEN 0 WHEN 'partial' THEN 1 ELSE 2 END,
+    paged.production_order_id,
+    paged.item_sku COLLATE "C",
+    paged.category COLLATE "C",
+    paged.unit COLLATE "C",
+    paged.source_position
+"""
+
+
+def _postgresql_accessory_issue_requests(
+    db: Session,
+    *,
+    production_order_id: int | None,
+    model_id: int | None,
+    q: str | None,
+    include_complete: bool,
+    offset: int,
+    page_size: int,
+) -> tuple[list[dict], int]:
+    """Page the accessory queue with one set-based statement.
+
+    The rows and the exact total come from the same statement so they share one
+    PostgreSQL snapshot. A SQL failure is not swallowed: this path is a dialect
+    choice, not an error fallback.
+    """
+    search = (q or "").strip().lower()
+    result = db.execute(
+        text(_ACCESSORY_REQUEST_SQL),
+        {
+            "production_order_id": production_order_id,
+            "model_id": model_id,
+            "include_complete": include_complete,
+            "search": search,
+            "offset": offset,
+            "page_size": page_size,
+        },
+    ).mappings().all()
+    total = int(result[0]["total"]) if result else 0
+    rows: list[dict] = []
+    for raw in result:
+        if raw["production_order_id"] is None:
+            continue
+        rows.append({
+            "production_order_id": int(raw["production_order_id"]),
+            "production_no": raw["production_no"],
+            "order_no": raw["order_no"],
+            "model_id": int(raw["model_id"]),
+            "model_code": raw["model_code"],
+            "model_name": raw["model_name"],
+            "planned_quantity": int(raw["planned_quantity"] or 0),
+            "item_id": int(raw["item_id"]),
+            "item_sku": raw["item_sku"],
+            "item_name": raw["item_name"],
+            "item_image_url": raw["item_image_url"],
+            "category": raw["category"],
+            "unit": raw["unit"],
+            "required_quantity": float(raw["required_quantity"] or 0),
+            "issued_quantity": float(raw["issued_quantity"] or 0),
+            "remaining_quantity": float(raw["remaining_quantity"] or 0),
+            "available_quantity": float(raw["available_quantity"] or 0),
+            "shortage": float(raw["shortage"] or 0),
+            "status": raw["status"],
+        })
+    return rows, total
+
+
+def accessory_issue_requests(
+    db: Session,
+    *,
+    production_order_id: int | None = None,
+    model_id: int | None = None,
+    q: str | None = None,
+    include_complete: bool = False,
+    page: int | None = None,
+    page_size: int | None = None,
+    include_total: bool = False,
+) -> list[dict] | tuple[list[dict], int]:
+    if page is None and page_size is None:
+        rows = _accessory_issue_requests_rows(
+            db,
+            production_order_id=production_order_id,
+            model_id=model_id,
+            q=q,
+            include_complete=include_complete,
+        )
+        return (rows, len(rows)) if include_total else rows
+
+    safe_page, safe_size, offset = clamp_pagination(page or 1, page_size or 50)
+    if db.get_bind().dialect.name == "postgresql":
+        rows, total = _postgresql_accessory_issue_requests(
+            db,
+            production_order_id=production_order_id,
+            model_id=model_id,
+            q=q,
+            include_complete=include_complete,
+            offset=offset,
+            page_size=safe_size,
+        )
+        return (rows, total) if include_total else rows
+
+    # Non-PostgreSQL dialects keep the per-order plan and page in memory. The
+    # public row contract is identical, only the statement count differs.
+    all_rows = _accessory_issue_requests_rows(
+        db,
+        production_order_id=production_order_id,
+        model_id=model_id,
+        q=q,
+        include_complete=include_complete,
+    )
+    rows = all_rows[offset: offset + safe_size]
+    return (rows, len(all_rows)) if include_total else rows
 
 
 def sync_sewing_accessory_block(db: Session, production_order_id: int) -> dict:

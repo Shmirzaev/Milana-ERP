@@ -1060,22 +1060,25 @@ def list_accessory_issue_requests(
 ):
     inventory_access.require_accessories(_)
     safe_page, safe_size, _ = clamp_pagination(page, page_size)
-    all_rows = accessory_issue_requests(
+    result = accessory_issue_requests(
         db,
         production_order_id=production_order_id,
         model_id=model_id,
         q=q,
         include_complete=include_complete,
+        page=safe_page,
+        page_size=safe_size,
+        include_total=include_total,
     )
-    rows = all_rows[(safe_page - 1) * safe_size: (safe_page - 1) * safe_size + safe_size]
     if include_total:
+        all_rows, total = result
         return {
-            "rows": [AccessoryIssueRequestRow(**row).model_dump() for row in rows],
-            "total": len(all_rows),
+            "rows": [AccessoryIssueRequestRow(**row).model_dump() for row in all_rows],
+            "total": total,
             "page": safe_page,
             "page_size": safe_size,
         }
-    return [AccessoryIssueRequestRow(**row).model_dump() for row in rows]
+    return [AccessoryIssueRequestRow(**row).model_dump() for row in result]
 
 
 @router.post("/accessory-issues", response_model=AccessoryIssueOut, status_code=201)
