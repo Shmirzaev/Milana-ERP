@@ -2,8 +2,9 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import func
 
+from app.api.routes.notifications import _max_bulk_recipients
 from app.core.deps import DbSession, CurrentUser, is_admin, user_permissions
-from app.models import Task, User
+from app.models import Notification, Task, User
 from app.schemas.tasks import TaskIn, TaskUpdate, TaskOut
 from app.services.audit import log_action
 from app.services.notifications import notify
@@ -95,7 +96,10 @@ def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
     if requested_assignee == -1:
         if not is_manager:
             raise HTTPException(403, "Only managers can assign tasks to everyone")
-        targets = db.query(User).filter(User.is_active.is_(True)).order_by(User.id).all()
+        max_recipients = _max_bulk_recipients()
+        targets = db.query(User.id).filter(User.is_active.is_(True)).order_by(User.id).limit(max_recipients + 1).all()
+        if len(targets) > max_recipients:
+            raise HTTPException(400, f"Recipient count exceeds ERP_MCP_MAX_BULK_RECIPIENTS={max_recipients}")
         if not targets:
             raise HTTPException(404, "No active users found")
 
@@ -113,15 +117,17 @@ def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
                 entity_id=payload.entity_id,
             )
             db.add(t)
-            db.flush()
             created.append(t)
-            notify(
-                db, user_id=user.id,
+            db.add(Notification(
+                user_id=user.id,
                 title=f"New task: {t.title}",
                 message=(t.description or "")[:280],
                 link=_task_link(t),
-            )
+            ))
 
+        # No per-recipient generated ID is needed until the audit below.
+        # Flush once so PostgreSQL can batch task/notification inserts.
+        db.flush()
         first_task = created[0]
         log_action(
             db,

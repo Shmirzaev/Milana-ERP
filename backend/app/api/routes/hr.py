@@ -316,6 +316,9 @@ def list_employees(
     current: CurrentUser,
     q: str | None = Query(None, max_length=120),
     limit: int | None = Query(None, ge=1, le=EMPLOYEE_LIST_MAX_LIMIT),
+    page: int | None = Query(None, ge=1),
+    page_size: int | None = Query(None, ge=1, le=100),
+    search: str | None = Query(None, max_length=120),
 ):
     """Employee list for pickers.
 
@@ -326,6 +329,9 @@ def list_employees(
     """
     if settings.BACKFILL_EMPLOYEES_FROM_USERS:
         _backfill_employees_from_users(db)
+    if page is not None or page_size is not None:
+        return _employee_directory_page(db, current, search=search if search is not None else q,
+                                        page=page or 1, page_size=page_size or 50)
     factory_code = selected_factory_code(current)
     query = db.query(Employee).filter(Employee.factory_code == factory_code)
     term = str(q or "").strip()
@@ -347,6 +353,84 @@ def list_employees(
     include_private = _can_view_private_employee_fields(current)
     return [_serialize(r, include_private=include_private) for r in rows]
 
+
+
+def _employee_directory_page(db, current, *, search, page, page_size):
+    from sqlalchemy import case, select, cast
+    from sqlalchemy.orm import aliased, load_only
+    from app.models.hr import HrPosition
+
+    factory = selected_factory_code(current)
+    private = _can_view_private_employee_fields(current)
+    normalized = (search or "").strip()
+    query = db.query(Employee).filter(Employee.factory_code == factory)
+    if normalized:
+        pattern = '%' + normalized.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
+        query = query.filter(or_(Employee.full_name.ilike(pattern, escape='\\'),
+                                 Employee.employee_no.ilike(pattern, escape='\\'),
+                                 Employee.position.ilike(pattern, escape='\\')))
+    total, active = query.with_entities(func.count(Employee.id), func.sum(case((Employee.status == 'active', 1), else_=0))).one()
+    total, active = int(total or 0), int(active or 0)
+    coverage = None
+    if private:
+        if db.get_bind().dialect.name == 'sqlite':
+            keys = func.json_each(Employee.hr_profile_json).table_valued('key')
+        else:
+            from sqlalchemy.dialects.postgresql import JSONB
+            profile = cast(Employee.hr_profile_json, JSONB)
+            safe_profile = case((func.jsonb_typeof(profile) == 'object', profile), else_=cast({}, JSONB))
+            keys = func.jsonb_object_keys(safe_profile).table_valued('key')
+        key_count = select(func.count()).select_from(keys).correlate(Employee).scalar_subquery()
+        covered = query.filter(key_count >= 5).with_entities(func.count(Employee.id)).scalar() or 0
+        coverage = round(covered * 100 / total) if total else 0
+    manager = aliased(Employee)
+    fields = [Employee.id, Employee.factory_code, Employee.employee_no, Employee.user_id, Employee.full_name,
+              Employee.department_id, Employee.position, Employee.status, Employee.joined_at,
+              Employee.manager_employee_id, Employee.hr_position_id]
+    if private:
+        fields += [Employee.phone, Employee.salary, Employee.hr_profile_json]
+    rows = query.with_entities(Employee, manager.full_name, HrPosition.name).options(load_only(*fields)).outerjoin(
+        manager, (manager.id == Employee.manager_employee_id) & (manager.factory_code == factory)
+    ).outerjoin(HrPosition, (HrPosition.id == Employee.hr_position_id) & (HrPosition.factory_code == factory)).order_by(
+        Employee.id.desc()
+    ).offset((page-1)*page_size).limit(page_size).all()
+    return {'rows': [{**_serialize(row, include_private=private), 'manager_name': manager_name,
+                      'position_name': position_name} for row, manager_name, position_name in rows],
+            'total': total, 'page': page, 'page_size': page_size, 'has_more': page*page_size < total,
+            'active_total': active, 'inactive_total': total-active, 'profile_coverage_percent': coverage, 'search': normalized}
+
+
+@router.get('/employees/manager-options')
+def employee_manager_options(db: DbSession, current: CurrentUser, search: str = Query('', max_length=120),
+                             selected_id: int | None = Query(None, ge=1)):
+    return _directory_options(db, current, Employee, search, selected_id)
+
+
+@router.get('/employees/position-options')
+def employee_position_options(db: DbSession, current: CurrentUser, search: str = Query('', max_length=120),
+                              selected_id: int | None = Query(None, ge=1)):
+    from app.models.hr import HrPosition
+    return _directory_options(db, current, HrPosition, search, selected_id)
+
+
+def _directory_options(db, current, model, search, selected_id):
+    factory = selected_factory_code(current)
+    name = model.full_name if model is Employee else model.name
+    query = db.query(model.id, name).filter(model.factory_code == factory)
+    if search.strip():
+        pattern = '%' + search.strip().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
+        condition = name.ilike(pattern, escape='\\')
+        if model is Employee:
+            condition = or_(condition, model.employee_no.ilike(pattern, escape='\\'))
+        query = query.filter(condition)
+    rows = query.order_by(name, model.id).limit(51).all()
+    key = 'full_name' if model is Employee else 'name'
+    options = [{'id': row[0], key: row[1]} for row in rows[:50]]
+    if selected_id and selected_id not in {row['id'] for row in options}:
+        selected = db.query(model.id, name).filter(model.id == selected_id, model.factory_code == factory).first()
+        if selected:
+            options = options[:49] + [{'id': selected[0], key: selected[1]}]
+    return {'rows': options, 'has_more': len(rows)>50}
 
 @router.get("/employees/{eid}")
 def get_employee(eid: int, db: DbSession, current: CurrentUser):

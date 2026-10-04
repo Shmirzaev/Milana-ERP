@@ -1,6 +1,6 @@
 # Milana ERP Project Context
 
-Last updated: 2026-10-04
+Last updated: 2026-10-05
 
 ## Ismail review follow-up prepared (2026-10-04; not deployed)
 
@@ -11,6 +11,10 @@ Last updated: 2026-10-04
 - The recorded production base remains release `20261003_071825`, application commit `d7d083def8bd190eff92b46562319e2735ce10cc`, schema `0135_usluga_paid_processes`. Production SSH was inaccessible in this environment; active/rollback slots and manifests were not independently reverified. No deployment, production migration or business-data write occurred.
 - Ismail still has partial work under ST11, DB05, DB06, DB08 and PERF23, plus the D4b-blocked reservation finding. Purchasing follow-up is in Review pending merge. DB08's current reviewed drift baseline lists 21 remaining entries; production cleanup approvals and deployment limits remain outstanding.
 
+## PERF38 office rate budgets (2026-10-04; branch validation only)
+
+- Global request budgets use the canonical positive user ID from a valid, unexpired bearer token or session cookie. Public login/reset routes and invalid/missing credentials retain IP budgets; route authorization still validates the user independently. Signed-token, shared-IP, cookie, proxy and login regression tests cover the change.
+- Prepared from `origin/clone_main` on `codex/perf38` for review; no merge, deployment or production data change. Production access/verification is excluded by the owner. Last recorded active blue `20261003_071825` and rollback green `20261003_065351` above are historical context, not newly verified slot state. Production-volume behavior remains unverified.
 
 ## DINAR 5132 balance override applied (2026-10-03)
 
