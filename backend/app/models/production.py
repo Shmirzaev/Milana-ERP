@@ -290,6 +290,16 @@ class CuttingRecord(Base, PkMixin, TimestampMixin):
         order_by="CuttingMaterialUsage.position",
         lazy="selectin",
     )
+    # Migration 0076 created cutting_beika_material_usages, but no ORM class or
+    # relationship was ever added, so `row.beika_materials` resolved to nothing and
+    # traceability silently fell back to the record's beika_kg total.
+    beika_materials: Mapped[list["CuttingBeikaMaterialUsage"]] = relationship(
+        "CuttingBeikaMaterialUsage",
+        back_populates="cutting_record",
+        cascade="all, delete-orphan",
+        order_by="CuttingBeikaMaterialUsage.position",
+        lazy="selectin",
+    )
 
 
 class CuttingMaterialUsage(Base, PkMixin, TimestampMixin):
@@ -318,6 +328,41 @@ class CuttingMaterialUsage(Base, PkMixin, TimestampMixin):
 
     cutting_record: Mapped["CuttingRecord"] = relationship(
         "CuttingRecord", back_populates="materials",
+    )
+    stock_batch = relationship("StockBatch")
+
+
+class CuttingBeikaMaterialUsage(Base, PkMixin, TimestampMixin):
+    """Exact inventory batch usage for cutting Beyka material.
+
+    Mirrors the table migration 0076 created. The ORM had no mapping for it, so the
+    per-batch Beyka evidence was unreadable even though the database stored it.
+    """
+
+    __tablename__ = "cutting_beika_material_usages"
+    __table_args__ = (
+        CheckConstraint("quantity > 0", name="ck_cutting_beika_material_usages_quantity_positive"),
+        CheckConstraint("position > 0", name="ck_cutting_beika_material_usages_position_positive"),
+        UniqueConstraint(
+            "cutting_record_id", "stock_batch_id",
+            name="uq_cutting_beika_material_usages_record_batch",
+        ),
+        UniqueConstraint(
+            "cutting_record_id", "position",
+            name="uq_cutting_beika_material_usages_record_position",
+        ),
+    )
+    cutting_record_id: Mapped[int] = mapped_column(
+        ForeignKey("cutting_records.id", ondelete="CASCADE"), nullable=False, index=True,
+    )
+    stock_batch_id: Mapped[int] = mapped_column(ForeignKey("stock_batches.id"), nullable=False, index=True)
+    quantity: Mapped[float] = mapped_column(Numeric(14, 4), nullable=False)
+    # Migration 0076 gives this column a server default; keep the mapping equal to it.
+    unit: Mapped[str] = mapped_column(String(32), nullable=False, server_default="kg")
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    cutting_record: Mapped["CuttingRecord"] = relationship(
+        "CuttingRecord", back_populates="beika_materials",
     )
     stock_batch = relationship("StockBatch")
 

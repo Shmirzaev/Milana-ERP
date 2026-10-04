@@ -206,8 +206,11 @@ def receive_order(
         return replay
 
     order = receive_purchase_order(db, order_id=order_id, data=payload.model_dump(), current=current)
-    for line in order.lines:
-        inventory_access.require_item(db, current, line.item_id)
+    # No second authorization pass here. The loop above already checked every
+    # line of this order against the caller's current inventory access, and
+    # receive_purchase_order only updates received quantity, cost and
+    # warehouse on existing lines: it neither adds a line nor changes item_id,
+    # so re-reading the same references could not reach a different verdict.
     # Flush so the database evaluates updated_at (onupdate=func.now()), then
     # read it back. Without this the response, and the replay record stored
     # from it, would carry the pre-receipt timestamp. Refreshing only this

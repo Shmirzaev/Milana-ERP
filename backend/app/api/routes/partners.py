@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, Depends, Header
 from pydantic import BaseModel, Field
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 
 from app.core.dt import date_filter_bounds
 from app.core.deps import (
@@ -39,6 +39,11 @@ from app.services.payments import (
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 
 router = APIRouter(tags=["partners"])
+
+# Candidate invoice ids per grouped paid-sum read. Bounded so a single payment
+# never builds an unbounded IN list, and small enough to stay well inside the
+# server parameter limit.
+_PAID_SUM_BATCH_SIZE = 400
 
 
 class CustomerPaymentIn(BaseModel):
@@ -256,6 +261,30 @@ def create_customer_payment(
     return response
 
 
+def _candidate_paid_totals(db: DbSession, invoice_ids: list[int]) -> dict[int, Decimal]:
+    """Sum candidate-invoice receipts in grouped batches, not once per invoice.
+
+    Every total is the same ``func.sum(Payment.amount)`` the per-invoice read
+    produced, so a batched total is the identical ``Decimal``: an invoice with no
+    receipt is zero rather than missing, and advance rows (no invoice) are never
+    included. Callers hold the candidate invoice locks, so every row in the batch
+    is read inside the same locks the per-invoice loop used.
+    """
+    # Seeded so an invoice with no receipt is zero, matching the
+    # ``coalesce(sum(...), 0)`` the per-invoice read returned.
+    totals: dict[int, Decimal] = {int(invoice_id): Decimal(0) for invoice_id in invoice_ids}
+    for start in range(0, len(invoice_ids), _PAID_SUM_BATCH_SIZE):
+        chunk = invoice_ids[start:start + _PAID_SUM_BATCH_SIZE]
+        grouped = dict(
+            db.query(Payment.invoice_id, func.sum(Payment.amount))
+            .filter(Payment.invoice_id.in_(chunk))
+            .group_by(Payment.invoice_id)
+            .all()
+        )
+        totals.update({int(invoice_id): money_decimal(total or 0) for invoice_id, total in grouped.items()})
+    return totals
+
+
 def _find_payable_invoice(db: DbSession, sales_order: SalesOrder) -> Invoice | None:
     invoices = (
         db.query(Invoice)
@@ -265,10 +294,11 @@ def _find_payable_invoice(db: DbSession, sales_order: SalesOrder) -> Invoice | N
         .with_for_update()
         .all()
     )
-    for invoice in invoices:
-        if invoice.status in REVERSED_INVOICE_STATUSES:
-            continue
-        balance_due = money_decimal(invoice.amount) - invoice_paid_total(db, int(invoice.id))
+    candidates = [invoice for invoice in invoices if invoice.status not in REVERSED_INVOICE_STATUSES]
+    # Batched after the locking read above so the sums stay under those locks.
+    paid_by_invoice = _candidate_paid_totals(db, [int(invoice.id) for invoice in candidates])
+    for invoice in candidates:
+        balance_due = money_decimal(invoice.amount) - paid_by_invoice[int(invoice.id)]
         # Settlement changes status only: every real outstanding cent remains
         # payable, including a balance on an invoice displayed as paid.
         if balance_due > 0:

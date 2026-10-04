@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Depends, Header
 from fastapi import UploadFile, File
-from sqlalchemy import or_, func
+from sqlalchemy import or_, func, literal
 from sqlalchemy.orm import joinedload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
@@ -1754,18 +1754,67 @@ def list_sales_order_history(
             )
     safe_page = max(1, page)
     safe_size = max(1, min(page_size, 200))
-    candidates = (
-        [(so.created_at, "sales", so) for so in qry.all()]
-        + [(po.created_at, "production", po) for po in stock_qry.all()]
+    # Count, order and page the candidate set in SQL, then hydrate only the ids
+    # on this page. Hydrating first meant every caller paid for the whole
+    # history - including the joined production children - to show ten rows.
+    # The ordering keys reproduce the previous Python sort exactly:
+    # `created_at` descending with `nullslast` matches the old `""` sort key
+    # for a missing timestamp, `row_id` descending matches the integer id, and
+    # the explicit kind rank reproduces list.sort's stability, which kept a
+    # sales row ahead of a production row when timestamp and id were equal.
+    sales_candidates = qry.enable_eagerloads(False).with_entities(
+        SalesOrder.created_at.label("created_at"),
+        literal("sales").label("kind"),
+        literal(0).label("kind_order"),
+        SalesOrder.id.label("row_id"),
     )
-    candidates.sort(key=lambda entry: ((entry[0].isoformat() if entry[0] else ""), int(entry[2].id)), reverse=True)
-    total = len(candidates)
+    production_candidates = stock_qry.enable_eagerloads(False).with_entities(
+        ProductionOrder.created_at.label("created_at"),
+        literal("production").label("kind"),
+        literal(1).label("kind_order"),
+        ProductionOrder.id.label("row_id"),
+    )
+    candidate_union = sales_candidates.union_all(production_candidates).subquery()
+    total = (
+        int(db.query(func.count()).select_from(candidate_union).scalar() or 0)
+        if include_total else 0
+    )
     start_index = (safe_page - 1) * safe_size
-    selected = candidates[start_index:start_index + safe_size]
+    selected = (
+        db.query(
+            candidate_union.c.created_at,
+            candidate_union.c.kind,
+            candidate_union.c.row_id,
+        )
+        .order_by(
+            candidate_union.c.created_at.desc().nullslast(),
+            candidate_union.c.row_id.desc(),
+            candidate_union.c.kind_order.asc(),
+        )
+        .offset(start_index)
+        .limit(safe_size)
+        .all()
+    )
+    sales_ids = [int(row_id) for _, kind, row_id in selected if kind == "sales"]
+    production_ids = [int(row_id) for _, kind, row_id in selected if kind == "production"]
+    selected_sales = {
+        row.id: row for row in db.query(SalesOrder).filter(SalesOrder.id.in_(sales_ids)).all()
+    } if sales_ids else {}
+    selected_production = {
+        row.id: row for row in db.query(ProductionOrder).options(
+            joinedload(ProductionOrder.planning_order),
+            joinedload(ProductionOrder.items),
+            joinedload(ProductionOrder.batches),
+            joinedload(ProductionOrder.work_orders),
+        ).filter(ProductionOrder.id.in_(production_ids)).all()
+    } if production_ids else {}
     payload = [
         _sales_order_history(db, entity, include_detail=False)
         if kind == "sales" else _stock_production_history(db, entity, include_detail=False)
-        for _, kind, entity in selected
+        for _, kind, row_id in selected
+        # A candidate deleted between the two statements leaves a short page
+        # rather than a failed request.
+        if (entity := (selected_sales if kind == "sales" else selected_production).get(int(row_id))) is not None
     ]
     if include_total:
         return {"rows": payload, "total": total, "page": safe_page, "page_size": safe_size}

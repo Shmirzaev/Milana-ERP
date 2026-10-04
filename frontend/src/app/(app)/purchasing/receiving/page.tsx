@@ -2,14 +2,14 @@
 import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { ArrowLeft, ChevronDown, ChevronRight, PackageCheck, X } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import { useDialogs } from "@/components/DialogProvider";
 import { api, fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
-import { useT } from "@/lib/i18n";
+import { useT, type Lang } from "@/lib/i18n";
 import { statusLabel } from "@/components/StagePipeline";
 import { divideBatchQuantityByRollCount } from "@/lib/materialRollWeights";
 
@@ -48,11 +48,6 @@ type Warehouse = {
   type?: string | null;
 };
 
-type Supplier = {
-  id: number;
-  name: string;
-};
-
 type ReceiveState = {
   order: PurchaseOrder;
   line: PurchaseOrderLine;
@@ -64,6 +59,10 @@ type ReceiveState = {
   cost_per_unit: string;
   message: string;
   saving: boolean;
+  // True when the form was restored from an unconfirmed receipt, so the next
+  // submit replays the same key instead of creating a second receipt.
+  retry: boolean;
+  tone: "error" | "recoverable";
 };
 
 type SupplierOrderRow = {
@@ -94,6 +93,131 @@ function isKilogramUnit(unit: string | null | undefined) {
   return ["kg", "kgs", "kilogram", "kilograms", "кг"].includes(normalizedUnit);
 }
 
+// Recovery copy lives here, like lib/packageWorkflow.ts, so the durable retry
+// UI keeps all three languages without touching the shared dictionary.
+const recoveryEn = {
+  pendingTitle: "Unconfirmed purchase receipt",
+  pendingBody: "A receipt for {label} was not confirmed. Retry it to avoid receiving the same goods twice.",
+  retry: "Retry the saved receipt",
+  retrying: "This receipt was not confirmed. Sending it again reuses the same receipt key, so the goods are received only once.",
+  replayed: "This receipt was already recorded. The retry confirmed the same receipt, so stock was not added twice.",
+  conflict: "This receipt was already sent with different values, so nothing was added. Correct the values and receive again; a new receipt key is used.",
+};
+type RecoveryCopy = Record<keyof typeof recoveryEn, string>;
+const recoveryRu: RecoveryCopy = {
+  pendingTitle: "Неподтверждённая приёмка закупки",
+  pendingBody: "Приёмка по {label} не подтверждена. Повторите её, чтобы не принять один и тот же товар дважды.",
+  retry: "Повторить сохранённую приёмку",
+  retrying: "Эта приёмка не подтверждена. Повторная отправка использует тот же ключ приёмки, поэтому товар будет принят только один раз.",
+  replayed: "Эта приёмка уже была записана. Повтор подтвердил ту же приёмку, поэтому остатки не увеличились дважды.",
+  conflict: "Эта приёмка уже была отправлена с другими значениями, поэтому ничего не добавлено. Исправьте значения и примите снова; будет использован новый ключ приёмки.",
+};
+const recoveryUz: RecoveryCopy = {
+  pendingTitle: "Tasdiqlanmagan xarid qabuli",
+  pendingBody: "{label} bo‘yicha qabul tasdiqlanmagan. Bir xil tovarni ikki marta qabul qilmaslik uchun uni takrorlang.",
+  retry: "Saqlangan qabulni takrorlash",
+  retrying: "Bu qabul tasdiqlanmagan. Qayta yuborishda bir xil qabul kaliti ishlatiladi, shuning uchun tovar faqat bir marta qabul qilinadi.",
+  replayed: "Bu qabul allaqachon saqlangan. Takrorlash shu qabulni tasdiqladi, shuning uchun qoldiq ikki marta oshilmadi.",
+  conflict: "Bu qabul boshqa qiymatlar bilan allaqachon yuborilgan, shuning uchun hech narsa qo‘shilmadi. Qiymatlarni tuzatib, qayta qabul qiling; yangi qabul kaliti ishlatiladi.",
+};
+const recoveryCopy: Record<Lang, RecoveryCopy> = { en: recoveryEn, ru: recoveryRu, uz: recoveryUz };
+
+function fillCopy(template: string, vars: Record<string, string | number>) {
+  return template.replace(/\{(\w+)\}/g, (match, name: string) => (name in vars ? String(vars[name]) : match));
+}
+
+// The server accepts 1-128 characters of [A-Za-z0-9._:-] and scopes a key to
+// factory + caller + order, so the key itself must never add a colliding
+// dimension. The client record is keyed per order AND line: two lines of one
+// order are two different receipts, not one.
+const RECEIPT_KEY_PREFIX = "purchase-receipt";
+const RECEIPT_KEY_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
+const DEFINITE_REJECTION = /^(400|401|403|404|409|422):/;
+
+type PendingReceipt = { key: string; body: Record<string, any>; label: string; orderId: number; lineId: number };
+
+// sessionStorage is the durable tier, so a reload can still retry with the same
+// key. The map keeps the key stable for retries within one page load when
+// storage is unavailable (private mode, blocked cookies).
+const memoryPending = new Map<string, PendingReceipt>();
+
+function receiptStorageKey(userId: number, orderId: number, lineId: number) {
+  return `${RECEIPT_KEY_PREFIX}:${userId}:${orderId}:${lineId}`;
+}
+
+function readPendingReceipt(storageKey: string): PendingReceipt | null {
+  try {
+    const saved = sessionStorage.getItem(storageKey);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      const key = String(parsed?.key || "");
+      if (RECEIPT_KEY_PATTERN.test(key)) return { ...parsed, key };
+    }
+  } catch {}
+  return memoryPending.get(storageKey) || null;
+}
+
+function writePendingReceipt(storageKey: string, pending: PendingReceipt) {
+  memoryPending.set(storageKey, pending);
+  try {
+    sessionStorage.setItem(storageKey, JSON.stringify(pending));
+  } catch {}
+}
+
+function clearPendingReceipt(storageKey: string) {
+  memoryPending.delete(storageKey);
+  try {
+    sessionStorage.removeItem(storageKey);
+  } catch {}
+}
+
+function pendingReceiptKeys(userId: number) {
+  const prefix = `${RECEIPT_KEY_PREFIX}:${userId}:`;
+  const keys = new Set<string>();
+  for (const key of memoryPending.keys()) if (key.startsWith(prefix)) keys.add(key);
+  try {
+    for (let index = 0; index < sessionStorage.length; index += 1) {
+      const key = sessionStorage.key(index);
+      if (key?.startsWith(prefix)) keys.add(key);
+    }
+  } catch {}
+  return Array.from(keys);
+}
+
+// Object key order must not decide whether a retry counts as unchanged; the
+// server fingerprints its payload with sorted keys.
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([name, item]) => `${JSON.stringify(name)}:${stableStringify(item)}`);
+    return `{${entries.join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+function newReceiptKey(): string | null {
+  const random = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}.${Math.random().toString(36).slice(2, 12)}`;
+  const key = `rcpt-${random}`;
+  return RECEIPT_KEY_PATTERN.test(key) ? key : null;
+}
+
+// Stable key on an unchanged retry, new key on any edit. Reusing a key with a
+// changed body is a 409 on the server, which an operator cannot act on, so an
+// edited receipt is a new key and therefore a genuinely new receipt.
+function prepareReceipt(storageKey: string, body: Record<string, any>, meta: { orderId: number; lineId: number; label: string }) {
+  const pending = readPendingReceipt(storageKey);
+  if (pending && stableStringify(pending.body) === stableStringify(body)) {
+    return { key: pending.key, wasPending: true };
+  }
+  const key = newReceiptKey();
+  if (key) writePendingReceipt(storageKey, { key, body, ...meta });
+  return { key, wasPending: false };
+}
+
 function StatusBadge({ status }: { status: string }) {
   const { t } = useT();
   const tone =
@@ -108,20 +232,58 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function PurchaseReceivingPage() {
-  const { t } = useT();
+  const { t, lang } = useT();
   const dialogs = useDialogs();
   const { me } = useMe();
   const canReceive = can(me, "purchasing.receive");
   const canView = can(me, "purchasing.view", "purchasing.receive");
+  const userId = Number(me?.id || 0);
   const [message, setMessage] = useState("");
   const [receiveState, setReceiveState] = useState<ReceiveState | null>(null);
+  const [pendingReceipts, setPendingReceipts] = useState<PendingReceipt[]>([]);
   const [collapsedSuppliers, setCollapsedSuppliers] = useState<Set<string>>(() => new Set());
+  // Read after mount: sessionStorage is unavailable while server-rendering.
+  const refreshPendingReceipts = useCallback(() => {
+    if (!userId) {
+      setPendingReceipts([]);
+      return;
+    }
+    setPendingReceipts(
+      pendingReceiptKeys(userId)
+        .map((key) => readPendingReceipt(key))
+        .filter((pending): pending is PendingReceipt => !!pending),
+    );
+  }, [userId]);
+  useEffect(() => {
+    refreshPendingReceipts();
+  }, [refreshPendingReceipts]);
   const { data: orders, mutate: refreshOrders } = useSWR<PurchaseOrder[]>(
     canView ? "/api/purchasing/orders" : null,
     fetcher,
   );
   const { data: warehouses } = useSWR<Warehouse[]>(canReceive ? "/api/inventory/warehouses" : null, fetcher);
-  const { data: suppliers } = useSWR<Supplier[]>(canReceive ? "/api/suppliers" : null, fetcher);
+
+  // The receive dialog only needs the suppliers these orders already name, so the whole
+  // supplier directory is not fetched. Derived from `orders` rather than the receivable
+  // queue on purpose: `openPendingReceipt` resolves its order out of `orders` and reopens
+  // a saved receipt even for an order that is no longer receivable. Deriving from the
+  // filtered queue would drop that supplier from the options and the select would fall
+  // back to the placeholder, quietly sending a different supplier_id on retry.
+  const supplierOptions = useMemo(() => {
+    const options = new Map<number, string>();
+    for (const order of orders || []) {
+      for (const [supplierId, supplierName] of [
+        [order.supplier_id, order.supplier_name],
+        ...(order.lines || []).map((line) => [line.supplier_id, line.supplier_name] as const),
+      ]) {
+        const id = Number(supplierId || 0);
+        if (id > 0 && !options.has(id)) options.set(id, String(supplierName || `#${id}`));
+      }
+    }
+    return [...options.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [orders]);
 
   const openOrders = useMemo(
     () => (orders || []).filter((order) => RECEIVABLE_ORDER_STATUSES.has(order.status) && order.lines.some((line) => Number(line.remaining_quantity || 0) > 0)),
@@ -185,6 +347,35 @@ export default function PurchaseReceivingPage() {
       cost_per_unit: String(Number(line.unit_cost || 0)),
       message: "",
       saving: false,
+      retry: false,
+      tone: "error",
+    });
+  }
+
+  // Reopen an unconfirmed receipt with its saved values, so the operator
+  // submits the identical payload and the server replays it under the same key.
+  function openPendingReceipt(pending: PendingReceipt) {
+    const order = (orders || []).find((candidate) => candidate.id === pending.orderId);
+    const line = order?.lines.find((candidate) => candidate.id === pending.lineId);
+    if (!order || !line) {
+      setMessage(fillCopy(recoveryCopy[lang].pendingBody, { label: pending.label }));
+      return;
+    }
+    const savedLine = pending.body?.lines?.[0] || {};
+    setMessage("");
+    setReceiveState({
+      order,
+      line,
+      received_quantity: savedLine.received_quantity != null ? String(savedLine.received_quantity) : "",
+      piece_count: savedLine.piece_count != null ? String(savedLine.piece_count) : "",
+      batch_no: String(savedLine.batch_no || ""),
+      warehouse_id: Number(savedLine.warehouse_id || storageWarehouses[0]?.id || 0),
+      supplier_id: Number(pending.body?.supplier_id || order.supplier_id || 0),
+      cost_per_unit: String(savedLine.cost_per_unit ?? Number(line.unit_cost || 0)),
+      message: "",
+      saving: false,
+      retry: true,
+      tone: "recoverable",
     });
   }
 
@@ -225,28 +416,53 @@ export default function PurchaseReceivingPage() {
         })
       : false;
     const rollWeights = usesRollWeights ? divideBatchQuantityByRollCount(quantity, rollCount) : [];
+    const body = {
+      supplier_id: receiveState.supplier_id || null,
+      close_order: closeOrder,
+      lines: [
+        {
+          purchase_order_line_id: receiveState.line.id,
+          received_quantity: quantity,
+          batch_no: receiveState.batch_no.trim(),
+          warehouse_id: warehouseId,
+          cost_per_unit: Number.isFinite(cost) ? cost : 0,
+          piece_count: usesRollWeights ? rollCount : null,
+          roll_weights_kg: rollWeights,
+        },
+      ],
+    };
+    const storageKey = receiptStorageKey(userId, receiveState.order.id, receiveState.line.id);
+    const { key: receiptKey, wasPending } = prepareReceipt(storageKey, body, {
+      orderId: receiveState.order.id,
+      lineId: receiveState.line.id,
+      label: `${formatOrderReference(receiveState.order.po_no)} - ${lineItemLabel(receiveState.line)}`,
+    });
     setReceiveState({ ...receiveState, saving: true, message: "" });
     try {
-      await api.post(`/api/purchasing/orders/${receiveState.order.id}/receive`, {
-        supplier_id: receiveState.supplier_id || null,
-        close_order: closeOrder,
-        lines: [
-          {
-            purchase_order_line_id: receiveState.line.id,
-            received_quantity: quantity,
-            batch_no: receiveState.batch_no.trim(),
-            warehouse_id: warehouseId,
-            cost_per_unit: Number.isFinite(cost) ? cost : 0,
-            piece_count: usesRollWeights ? rollCount : null,
-            roll_weights_kg: rollWeights,
-          },
-        ],
-      });
+      await api.postWithHeaders(`/api/purchasing/orders/${receiveState.order.id}/receive`, body, receiptKey ? { "Idempotency-Key": receiptKey } : undefined);
+      clearPendingReceipt(storageKey);
+      refreshPendingReceipts();
       refreshOrders();
       setReceiveState(null);
-      setMessage(t("page.purchasing.received"));
+      // A replayed receipt is the same receipt, so it is reported as success
+      // rather than as a duplicate or a failure.
+      setMessage(wasPending ? recoveryCopy[lang].replayed : t("page.purchasing.received"));
     } catch (error: any) {
-      setReceiveState((prev) => prev ? { ...prev, saving: false, message: error?.message || t("page.purchasing.actionFailed") } : prev);
+      const conflict = Number(error?.status) === 409 || String(error?.message || "").startsWith("409:");
+      // A definite first rejection can be corrected freely. Once an earlier
+      // outcome is uncertain, a later 4xx cannot prove that receipt failed, so
+      // only a genuine conflict or a clean first rejection drops the saved key.
+      if (conflict || (!wasPending && (DEFINITE_REJECTION.test(String(error?.message)) || [400, 401, 403, 404, 422].includes(Number(error?.status))))) {
+        clearPendingReceipt(storageKey);
+      }
+      refreshPendingReceipts();
+      setReceiveState((prev) => prev ? {
+        ...prev,
+        saving: false,
+        retry: false,
+        tone: conflict ? "recoverable" : "error",
+        message: conflict ? recoveryCopy[lang].conflict : error?.message || t("page.purchasing.actionFailed"),
+      } : prev);
     }
   }
 
@@ -267,6 +483,22 @@ export default function PurchaseReceivingPage() {
         )}
       />
       {message && <div className="mb-4 rounded-md border border-[#ded9ca] bg-[#fbfaf6] px-4 py-3 text-sm text-[#56503f]">{message}</div>}
+
+      {pendingReceipts.length > 0 && (
+        <div role="status" className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <div className="font-semibold">{recoveryCopy[lang].pendingTitle}</div>
+          <ul className="mt-2 space-y-2">
+            {pendingReceipts.map((pending) => (
+              <li key={pending.key} className="flex flex-wrap items-center justify-between gap-2">
+                <span>{fillCopy(recoveryCopy[lang].pendingBody, { label: pending.label })}</span>
+                <button type="button" className="btn whitespace-nowrap" onClick={() => openPendingReceipt(pending)} disabled={receiveState?.saving}>
+                  {recoveryCopy[lang].retry}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <section className="card overflow-hidden">
         <div className="border-b border-[#ecebe3] px-5 py-4">
@@ -379,6 +611,12 @@ export default function PurchaseReceivingPage() {
                 </button>
               </div>
 
+              {receiveState.retry && (
+                <p role="status" className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  {recoveryCopy[lang].retrying}
+                </p>
+              )}
+
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <div>
                   <label className="label">{t("field.quantity")}</label>
@@ -413,7 +651,7 @@ export default function PurchaseReceivingPage() {
                   <label className="label">{t("field.supplier")}</label>
                   <select className="input" value={receiveState.supplier_id} onChange={(event) => setReceiveState({ ...receiveState, supplier_id: Number(event.target.value) })}>
                     <option value={0}>{t("ph.supplier")}</option>
-                    {suppliers?.map((supplier) => (
+                    {supplierOptions.map((supplier) => (
                       <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
                     ))}
                   </select>
@@ -445,7 +683,14 @@ export default function PurchaseReceivingPage() {
                   </div>
                 )}
               </div>
-              {receiveState.message && <div className="mt-3 text-sm text-red-600">{receiveState.message}</div>}
+              {receiveState.message && (
+                <div
+                  role={receiveState.tone === "recoverable" ? "status" : "alert"}
+                  className={`mt-3 text-sm ${receiveState.tone === "recoverable" ? "text-amber-700" : "text-red-600"}`}
+                >
+                  {receiveState.message}
+                </div>
+              )}
               <div className="mt-5 flex justify-end gap-2">
                 <button type="button" className="btn" onClick={() => setReceiveState(null)} disabled={receiveState.saving}>{t("btn.cancel")}</button>
                 <button className="btn btn-primary" disabled={receiveState.saving}>

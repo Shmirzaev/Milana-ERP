@@ -1,18 +1,25 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import subprocess
 import sys
 import warnings
+from collections.abc import Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from functools import partial
 from io import BytesIO
 from pathlib import Path
-from threading import BoundedSemaphore
+from threading import BoundedSemaphore, Lock
+from typing import TypeVar
 from uuid import uuid4
 
+from anyio import CapacityLimiter, WouldBlock, to_thread
 from fastapi import HTTPException, UploadFile
 from PIL import Image, ImageOps, UnidentifiedImageError
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.uploads import read_validated_image_upload
 
@@ -24,6 +31,180 @@ PREBUILT_THUMBNAIL_SIZES = (160, 320)
 MAX_IMAGE_PIXELS = 50_000_000
 
 _thumbnail_generation_slot = BoundedSemaphore(1)
+
+# Bounded upload lifecycle. These helpers live here rather than in
+# ``app/core/uploads.py`` because the upload routes and this service have to
+# share one admission budget; ``app/core/uploads.py`` is outside this change.
+_ResultT = TypeVar("_ResultT")
+
+_MAX_UPLOAD_CONCURRENCY = 32
+_MAX_QUEUED_UPLOADS = 64
+
+
+def _upload_concurrency_from_environment() -> int:
+    raw = os.environ.get("UPLOAD_MAX_CONCURRENCY_PER_PROCESS", "1")
+    try:
+        capacity = int(raw)
+    except ValueError as exc:
+        raise RuntimeError("UPLOAD_MAX_CONCURRENCY_PER_PROCESS must be an integer") from exc
+    if capacity < 1 or capacity > _MAX_UPLOAD_CONCURRENCY:
+        raise RuntimeError(
+            f"UPLOAD_MAX_CONCURRENCY_PER_PROCESS must be between 1 and {_MAX_UPLOAD_CONCURRENCY}"
+        )
+    return capacity
+
+
+def _queued_upload_bound_from_environment() -> int:
+    raw = os.environ.get("UPLOAD_MAX_QUEUED_PER_PROCESS", "8")
+    try:
+        bound = int(raw)
+    except ValueError as exc:
+        raise RuntimeError("UPLOAD_MAX_QUEUED_PER_PROCESS must be an integer") from exc
+    if bound < 0 or bound > _MAX_QUEUED_UPLOADS:
+        raise RuntimeError(
+            f"UPLOAD_MAX_QUEUED_PER_PROCESS must be between 0 and {_MAX_QUEUED_UPLOADS}"
+        )
+    return bound
+
+
+# Deliberately process-local. A budget shared by several API processes or by
+# several hosts behind the proxy needs deployment-specific infrastructure and
+# cannot be inferred safely by the application.
+UPLOAD_PROCESSING_LIMITER = CapacityLimiter(_upload_concurrency_from_environment())
+UPLOAD_MAX_QUEUED = _queued_upload_bound_from_environment()
+_admission_lock = Lock()
+
+
+@asynccontextmanager
+async def upload_processing_slot():
+    """Admit upload work up to this process's bound, then reject the excess.
+
+    Waiting never holds a thread, and the queue itself is bounded: an upload
+    beyond both the bound and the queue is refused immediately instead of
+    parking a fully buffered 20 MiB body in memory indefinitely. The lock only
+    covers the admit-or-wait decision, never the upload itself.
+    """
+    limiter = UPLOAD_PROCESSING_LIMITER
+    with _admission_lock:
+        try:
+            limiter.acquire_nowait()
+        except WouldBlock:
+            admitted = False
+        else:
+            admitted = True
+    if admitted:
+        try:
+            yield
+        finally:
+            limiter.release()
+        return
+    if limiter.statistics().tasks_waiting >= UPLOAD_MAX_QUEUED:
+        raise HTTPException(429, "Too many uploads in progress; retry shortly")
+    await limiter.acquire()
+    try:
+        yield
+    finally:
+        limiter.release()
+
+
+async def run_blocking_to_completion(work: Callable[[], _ResultT]) -> _ResultT:
+    """Run blocking work in a worker thread and never abandon its outcome.
+
+    A cancelled request (a dropped client connection) cancels the request task
+    itself, which would otherwise abandon the thread and leave the caller
+    unable to tell whether a transaction committed. Shielding the worker task
+    keeps the outcome known, and the pending cancellation is re-raised
+    afterwards so the request still ends as cancelled.
+    """
+    worker = asyncio.ensure_future(to_thread.run_sync(work, abandon_on_cancel=False))
+    pending: asyncio.CancelledError | None = None
+    while not worker.done():
+        try:
+            result = await asyncio.shield(worker)
+        except asyncio.CancelledError as exc:
+            if worker.cancelled():
+                raise
+            pending = pending or exc
+            continue
+        if pending is not None:
+            raise pending
+        return result
+    result = worker.result()
+    if pending is not None:
+        raise pending
+    return result
+
+
+@dataclass
+class UploadCommitState:
+    committed: bool = False
+
+
+@dataclass
+class UploadFileWriteState:
+    created: bool = False
+
+
+def upload_session_factory(request_db: Session) -> sessionmaker[Session]:
+    """Create fresh Sessions on the request's engine for blocking upload SQL."""
+    return sessionmaker(
+        bind=request_db.get_bind(),
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+        info=dict(request_db.info),
+    )
+
+
+def _run_upload_db_work(
+    factory: sessionmaker[Session],
+    work: Callable[[Session], _ResultT],
+    *,
+    commit: bool,
+    commit_state: UploadCommitState,
+) -> _ResultT:
+    with factory() as worker_db:
+        try:
+            result = work(worker_db)
+            if commit:
+                worker_db.commit()
+                commit_state.committed = True
+            return result
+        except BaseException:
+            worker_db.rollback()
+            raise
+
+
+async def run_upload_db_work(
+    factory: sessionmaker[Session],
+    work: Callable[[Session], _ResultT],
+    *,
+    commit: bool = False,
+    commit_state: UploadCommitState | None = None,
+) -> _ResultT:
+    """Run synchronous SQL in one worker-owned Session/transaction.
+
+    The request session is never touched from the worker thread, so the scope
+    and permission decisions the route verified must be re-verified by ``work``
+    against this session. Cancellation never abandons the worker: the
+    transaction either rolls back or completes before the caller decides whether
+    file cleanup is necessary.
+    """
+    return await run_blocking_to_completion(partial(
+        _run_upload_db_work,
+        factory,
+        work,
+        commit=commit,
+        commit_state=commit_state or UploadCommitState(),
+    ))
+
+
+async def run_upload_file_write(work: Callable[[], object], state: UploadFileWriteState) -> None:
+    def write_and_mark_created() -> None:
+        work()
+        state.created = True
+
+    await run_blocking_to_completion(write_and_mark_created)
 
 
 @dataclass(frozen=True)
@@ -230,7 +411,39 @@ async def store_uploaded_image(
     max_bytes: int,
     prebuild_thumbnails: bool = False,
 ) -> StoredImage:
-    content, _ = await read_validated_image_upload(file, max_bytes)
+    async with upload_processing_slot():
+        content, _ = await read_validated_image_upload(file, max_bytes)
+        stored: list[StoredImage] = []
+
+        def store_and_record() -> StoredImage:
+            result = _store_image_content(
+                content,
+                target_dir=target_dir,
+                file_url_base=file_url_base,
+                name_prefix=name_prefix,
+                prebuild_thumbnails=prebuild_thumbnails,
+            )
+            stored.append(result)
+            return result
+
+        try:
+            return await run_blocking_to_completion(store_and_record)
+        except BaseException:
+            # The worker thread always finished, so a stored file is known here
+            # and a cancelled request must not leave it behind.
+            if stored:
+                await discard_stored_image(stored[0])
+            raise
+
+
+def _store_image_content(
+    content: bytes,
+    *,
+    target_dir: str,
+    file_url_base: str,
+    name_prefix: str,
+    prebuild_thumbnails: bool,
+) -> StoredImage:
     converted = convert_image_to_webp(content)
     file_name = f"{_safe_prefix(name_prefix)}_{uuid4().hex}.webp"
     absolute_path = Path(target_dir) / file_name
@@ -242,7 +455,7 @@ async def store_uploaded_image(
                 thumbnail_root=Path(target_dir) / "_thumbs",
                 source_file_name=file_name,
             )
-        except Exception:
+        except BaseException:
             absolute_path.unlink(missing_ok=True)
             raise
     return StoredImage(
@@ -254,6 +467,50 @@ async def store_uploaded_image(
         height=converted.height,
         byte_size=len(converted.data),
     )
+
+
+async def discard_stored_image(stored: StoredImage) -> None:
+    await run_blocking_to_completion(partial(_discard_stored_image_files, stored))
+
+
+def _discard_stored_image_files(stored: StoredImage) -> None:
+    original = Path(stored.absolute_path)
+    thumbnail_root = original.parent / "_thumbs"
+    for size in PREBUILT_THUMBNAIL_SIZES:
+        (thumbnail_root / f"{size}_{stored.file_name}.webp").unlink(missing_ok=True)
+    original.unlink(missing_ok=True)
+
+
+_MANAGED_IMAGE_URL = re.compile(r"^/storage/model-files/([A-Za-z0-9_-]+_[0-9a-f]{32}\.webp)$")
+
+
+def discard_replaced_managed_image(previous_url: str | None, *, storage_root: str | Path) -> bool:
+    """Delete an image that this service stored and that has now been replaced.
+
+    Only managed names produced by ``store_uploaded_image`` are removed, and
+    only after the resolved path is proven to sit directly in ``storage_root``.
+    The caller owns the "is it still current?" question: it must confirm the
+    previous URL is no longer the referenced one before discarding it.
+    """
+    match = _MANAGED_IMAGE_URL.fullmatch(str(previous_url or "").strip())
+    if match is None:
+        return False
+    root = Path(storage_root).resolve()
+    image_path = (root / match.group(1)).resolve()
+    if image_path.parent != root:
+        return False
+    thumbnail_root = root / "_thumbs"
+    resolved_thumbnail_root = thumbnail_root.resolve()
+    if resolved_thumbnail_root.parent != root:
+        return False
+    for size in PREBUILT_THUMBNAIL_SIZES:
+        thumbnail = thumbnail_root / f"{size}_{match.group(1)}.webp"
+        if thumbnail.resolve().parent == resolved_thumbnail_root:
+            thumbnail.unlink(missing_ok=True)
+    if not image_path.is_file():
+        return False
+    image_path.unlink()
+    return True
 
 
 def ensure_webp_thumbnail(

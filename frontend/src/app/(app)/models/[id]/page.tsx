@@ -206,14 +206,25 @@ export default function ModelDetail() {
     },
     fetcher,
   );
-  const { data: items } = useSWR<any[]>(`${modelApiBase}/bom-items`, fetcher);
-  const { data: brands } = useSWR<any[]>("/api/brands", fetcher);
-  const { data: seasons } = useSWR<string[]>("/api/collections/seasons", fetcher);
-  const { data: employees } = useSWR<any[]>("/api/employees", fetcher);
-  const { data: depts } = useSWR<any[]>("/api/departments", fetcher);
   const tabs = TAB_KEYS.map((k) => t(k));
 
   const [tab, setTab] = useState(1);
+  // BOM items and seasons were fetched on every page load, including for the tabs that
+  // never render them. SWR skips a null key, so these are requested only for the tabs
+  // that read them. Tab 3 is "materials" and tab 6 is "other", which is the second place
+  // that splits BOM rows into fabrics and accessories - gating on tab 3 alone would leave
+  // that panel showing every row as a fabric.
+  const needsBomItems = tab === 3 || tab === 6;
+  const { data: items } = useSWR<any[]>(needsBomItems ? `${modelApiBase}/bom-items` : null, fetcher);
+  const { data: brands } = useSWR<any[]>("/api/brands", fetcher);
+  // The season picker is rendered in the general tab only.
+  const { data: seasons } = useSWR<string[]>(tab === 1 ? "/api/collections/seasons" : null, fetcher);
+  // Employees stay unconditional: saveModel resolves the already-selected constructor
+  // and designer from this list, so deferring it could clear a value the operator never
+  // edited. Bounding this list needs a searchable endpoint, which is PERF35-HR.
+  const { data: employees } = useSWR<any[]>("/api/employees", fetcher);
+  const { data: depts } = useSWR<any[]>("/api/departments", fetcher);
+
   const [msg, setMsg] = useState("");
   const [isCloning, setIsCloning] = useState(false);
   const [showVariantForm, setShowVariantForm] = useState(false);

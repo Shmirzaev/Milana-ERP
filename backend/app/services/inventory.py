@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from fastapi import HTTPException
-from sqlalchemy import func, or_
+from sqlalchemy import and_, case, func, or_, text
 from sqlalchemy.orm import Session, lazyload
 
 from app.core.pagination import clamp_pagination
@@ -39,6 +39,10 @@ RESERVATION_SOURCES = ("manual", "auto_bom", "planning")
 REQUIRE_RESERVATION_SETTING = "require_material_reservation_before_cutting"
 ACCESSORY_SEWING_BLOCK_REASON = "Accessories must be issued before sewing."
 EPSILON = 1e-9
+# Id chunk for the reservation-planning read maps. Big enough that a normal
+# plan is one statement per table, small enough to stay well inside PostgreSQL's
+# bind-parameter ceiling on a wide plan.
+_PLAN_CHUNK = 400
 
 
 def _accessory_match_key(value: object) -> str:
@@ -78,34 +82,34 @@ def categories_for_group(group: str | None) -> tuple[str, ...] | None:
 
 
 def current_stock_for_item(db: Session, item_id: int, warehouse_id: int | None = None) -> float:
-    """Compute on-hand stock for an item: sum of batches in warehouse minus issues out.
-
-    For MVP: stock = sum(StockBatch.quantity in warehouse) + net of stock_movements where
-    item matches and movements are receive/produce vs issue/consume/waste/shipment.
-    """
+    """Return current batch balances plus the applicable batchless ledger changes."""
     # Sum of batches (initial received) for the item — optionally filtered to warehouse
     bq = db.query(func.coalesce(func.sum(StockBatch.quantity), 0)).filter(StockBatch.item_id == item_id)
     if warehouse_id is not None:
         bq = bq.filter(StockBatch.warehouse_id == warehouse_id)
     batch_total = float(bq.scalar() or 0)
 
-    # Sum movements: receives/produces add, issues/consumes/waste/shipments subtract
-    # Note: receive movements that already correspond to batches are NOT double counted
-    # because batches represent the canonical receive; we count only post-receipt activity.
-    movements = db.query(StockMovement.movement_type, func.coalesce(func.sum(StockMovement.quantity), 0)) \
-        .filter(StockMovement.item_id == item_id, StockMovement.batch_id.is_(None)) \
-        .group_by(StockMovement.movement_type).all()
-
-    delta = 0.0
-    out_types = {"issue", "consume", "waste", "shipment"}
-    in_types = {"produce", "return", "adjustment"}
-    for mt, qty in movements:
-        q = float(qty or 0)
-        if mt in out_types:
-            delta -= q
-        elif mt in in_types:
-            delta += q
-    return batch_total + delta
+    out_types = ("issue", "consume", "waste", "shipment")
+    in_types = ("produce", "return", "adjustment")
+    outgoing = StockMovement.movement_type.in_(out_types)
+    incoming = StockMovement.movement_type.in_(in_types)
+    if warehouse_id is not None:
+        # Transfers change each endpoint but have no effect on the global total.
+        # Legacy movements with no location belong only to the global balance.
+        outgoing = and_(
+            StockMovement.movement_type.in_((*out_types, "transfer")),
+            StockMovement.from_warehouse_id == warehouse_id,
+        )
+        incoming = and_(
+            StockMovement.movement_type.in_((*in_types, "transfer")),
+            StockMovement.to_warehouse_id == warehouse_id,
+        )
+    # Batch-linked movements are already reflected in StockBatch.quantity.
+    incoming_total, outgoing_total = db.query(
+        func.coalesce(func.sum(case((incoming, StockMovement.quantity), else_=0)), 0),
+        func.coalesce(func.sum(case((outgoing, StockMovement.quantity), else_=0)), 0),
+    ).filter(StockMovement.item_id == item_id, StockMovement.batch_id.is_(None)).one()
+    return batch_total + float(incoming_total) - float(outgoing_total)
 
 
 def _open_reservation_quantity(reservation: MaterialReservation) -> float:
@@ -117,12 +121,37 @@ def _open_reservation_quantity(reservation: MaterialReservation) -> float:
     )
 
 
-def _covered_reservation_quantity(reservation: MaterialReservation) -> float:
-    if reservation.status == "cancelled":
+def _covered_reservation_columns(
+    reserved: object,
+    consumed: object,
+    released: object,
+    status: str | None,
+) -> float:
+    """Covered quantity of one reservation from its raw column values.
+
+    The reservation-planning maps read these four values as plain columns rather
+    than as a hydrated `MaterialReservation`, so this holds the arithmetic and
+    `_covered_reservation_quantity` is a thin wrapper over it. One definition
+    means the map read and the entity read cannot drift apart.
+    """
+    if status == "cancelled":
         return 0.0
-    consumed = max(0.0, float(reservation.consumed_quantity or 0))
-    active_remaining = _open_reservation_quantity(reservation) if reservation.status in ACTIVE_RESERVATION_STATUSES else 0.0
-    return consumed + active_remaining
+    consumed_open = max(0.0, float(consumed or 0))
+    active_remaining = (
+        max(0.0, float(reserved or 0) - float(consumed or 0) - float(released or 0))
+        if status in ACTIVE_RESERVATION_STATUSES
+        else 0.0
+    )
+    return consumed_open + active_remaining
+
+
+def _covered_reservation_quantity(reservation: MaterialReservation) -> float:
+    return _covered_reservation_columns(
+        reservation.reserved_quantity,
+        reservation.consumed_quantity,
+        reservation.released_quantity,
+        reservation.status,
+    )
 
 
 def _reservation_type_for_category(category: str | None) -> str:
@@ -308,27 +337,42 @@ def _bom_requirement_rows(
 
 
 def _suggest_batches_for_requirement(
-    db: Session,
     *,
+    candidates: list[StockBatch],
+    candidate_ids: dict[int, StockBatch],
+    reserved_by_batch: dict[int, float],
     item_id: int,
     unit: str,
     quantity: float,
     stock_batch_id: int | None = None,
 ) -> list[dict]:
+    """Fill a need from already-loaded candidates, oldest receipt first.
+
+    `candidates` is every batch of `item_id` that still holds quantity, already
+    in FIFO order. `candidate_ids` indexes the same population by batch id so a
+    requirement pinned to one batch resolves without a lookup over the item's
+    list. Both come from one chunked read in `_reservation_plan_stock_context`.
+
+    Eligibility is unchanged: a pinned requirement only ever sees that one
+    batch, and only if it belongs to `item_id`. The archive flag is deliberately
+    not consulted here - an archived Eco-custody batch that still holds
+    quantity was a candidate before this read was batched and stays one.
+    """
     left = max(0.0, float(quantity or 0))
     if left <= EPSILON:
         return []
-    qry = db.query(StockBatch).filter(StockBatch.item_id == item_id, StockBatch.quantity > 0)
     if stock_batch_id is not None:
-        qry = qry.filter(StockBatch.id == stock_batch_id)
-    batches = qry.order_by(StockBatch.received_date.asc(), StockBatch.id.asc()).all()
+        pinned = candidate_ids.get(int(stock_batch_id))
+        batches = [pinned] if pinned is not None and int(pinned.item_id) == int(item_id) else []
+    else:
+        batches = candidates
     out: list[dict] = []
     for batch in batches:
         if left <= EPSILON:
             break
         if str(batch.unit or "").strip() != str(unit or "").strip():
             continue
-        reserved = reserved_stock_for_batch(db, int(batch.id))
+        reserved = reserved_by_batch.get(int(batch.id), 0.0)
         available = max(0.0, float(batch.quantity or 0) - reserved)
         if available <= EPSILON:
             continue
@@ -348,31 +392,164 @@ def _suggest_batches_for_requirement(
     return out
 
 
-def _reservation_coverage_by_item_unit(db: Session, production_order_id: int) -> dict[tuple[int, str], float]:
-    reservations = (
-        db.query(MaterialReservation)
+def _reservation_coverage_maps(
+    db: Session,
+    production_order_id: int,
+) -> tuple[dict[tuple[int, str], float], dict[tuple[int, str, int], float]]:
+    """Read this order's reservations once and key the covered totals two ways.
+
+    The item/unit and item/unit/batch coverage maps used to be two separate
+    reads of the same rows. The arithmetic is `_covered_reservation_columns`
+    either way, so the columns are read once and folded into both maps here.
+    """
+    rows = (
+        db.query(
+            MaterialReservation.item_id,
+            MaterialReservation.unit,
+            MaterialReservation.stock_batch_id,
+            MaterialReservation.reserved_quantity,
+            MaterialReservation.consumed_quantity,
+            MaterialReservation.released_quantity,
+            MaterialReservation.status,
+        )
         .filter(MaterialReservation.production_order_id == production_order_id)
+        .order_by(MaterialReservation.id)
         .all()
     )
-    coverage: dict[tuple[int, str], float] = {}
-    for reservation in reservations:
-        key = (int(reservation.item_id), str(reservation.unit or ""))
-        coverage[key] = coverage.get(key, 0.0) + _covered_reservation_quantity(reservation)
-    return coverage
+    by_item: dict[tuple[int, str], float] = {}
+    by_batch: dict[tuple[int, str, int], float] = {}
+    for item_id, unit, batch_id, reserved, consumed, released, status in rows:
+        covered = _covered_reservation_columns(reserved, consumed, released, status)
+        item_key = (int(item_id), str(unit or ""))
+        by_item[item_key] = by_item.get(item_key, 0.0) + covered
+        if batch_id is not None:
+            batch_key = (*item_key, int(batch_id))
+            by_batch[batch_key] = by_batch.get(batch_key, 0.0) + covered
+    return by_item, by_batch
 
 
-def _reservation_coverage_by_item_unit_batch(db: Session, production_order_id: int) -> dict[tuple[int, str, int], float]:
-    reservations = (
-        db.query(MaterialReservation)
-        .filter(MaterialReservation.production_order_id == production_order_id)
-        .filter(MaterialReservation.stock_batch_id.isnot(None))
-        .all()
-    )
-    coverage: dict[tuple[int, str, int], float] = {}
-    for reservation in reservations:
-        key = (int(reservation.item_id), str(reservation.unit or ""), int(reservation.stock_batch_id))
-        coverage[key] = coverage.get(key, 0.0) + _covered_reservation_quantity(reservation)
-    return coverage
+def _reservation_plan_stock_context(db: Session, requirement_rows: list[dict]) -> dict:
+    """Load every stock, claim and candidate read a reservation plan needs once.
+
+    The plan loop used to ask for the same numbers row by row: a candidate
+    query per requirement row, one `reserved_stock_for_batch` aggregate per
+    candidate batch inside it, and a separate current/available/reserved pair
+    per row. Reads now scale with the number of ids, not with rows times
+    candidates.
+
+    `current_by_item` and `reserved_by_item` reproduce `current_stock_for_item`
+    and `reserved_stock_for_item` for the global (unscoped) balance the plan
+    asks for; the warehouse-scoped branch of those helpers is untouched.
+    `batches_by_id` covers the pinned batches, including any that no longer hold
+    quantity, so a pinned requirement still reads the same balance the
+    per-row `db.get` read and still raises 404 for a missing batch.
+    """
+    item_ids = sorted({int(row["item_id"]) for row in requirement_rows})
+    exact_batch_ids = sorted({int(row["stock_batch_id"]) for row in requirement_rows if row.get("stock_batch_id")})
+
+    batch_totals: dict[int, float] = {}
+    movement_totals: dict[int, tuple[float, float]] = {}
+    reserved_by_item: dict[int, float] = {}
+    reserved_by_batch: dict[int, float] = {}
+    candidates_by_item: dict[int, list[StockBatch]] = {}
+    candidate_ids: dict[int, StockBatch] = {}
+    batches_by_id: dict[int, StockBatch] = {}
+
+    in_types = ("produce", "return", "adjustment")
+    out_types = ("issue", "consume", "waste", "shipment")
+    for start in range(0, len(item_ids), _PLAN_CHUNK):
+        chunk = item_ids[start:start + _PLAN_CHUNK]
+        batch_totals.update({
+            int(item_id): float(quantity or 0)
+            for item_id, quantity in (
+                db.query(StockBatch.item_id, func.coalesce(func.sum(StockBatch.quantity), 0))
+                .filter(StockBatch.item_id.in_(chunk))
+                .group_by(StockBatch.item_id)
+                .all()
+            )
+        })
+        movement_totals.update({
+            int(item_id): (float(incoming or 0), float(outgoing or 0))
+            for item_id, incoming, outgoing in (
+                db.query(
+                    StockMovement.item_id,
+                    func.coalesce(func.sum(case((StockMovement.movement_type.in_(in_types), StockMovement.quantity), else_=0)), 0),
+                    func.coalesce(func.sum(case((StockMovement.movement_type.in_(out_types), StockMovement.quantity), else_=0)), 0),
+                )
+                .filter(StockMovement.item_id.in_(chunk), StockMovement.batch_id.is_(None))
+                .group_by(StockMovement.item_id)
+                .all()
+            )
+        })
+        reserved_by_item.update({
+            int(item_id): max(0.0, float(quantity or 0))
+            for item_id, quantity in (
+                db.query(MaterialReservation.item_id, _active_reserved_sum_query(db))
+                .filter(
+                    MaterialReservation.item_id.in_(chunk),
+                    MaterialReservation.status.in_(ACTIVE_RESERVATION_STATUSES),
+                )
+                .group_by(MaterialReservation.item_id)
+                .all()
+            )
+        })
+        # `StockBatch.item` is lazy="joined"; nothing in a plan row reads it, so
+        # the candidate read stays on stock_batches instead of joining items
+        # once per candidate row.
+        candidates = (
+            db.query(StockBatch)
+            .options(lazyload(StockBatch.item))
+            .filter(StockBatch.item_id.in_(chunk), StockBatch.quantity > 0)
+            .order_by(StockBatch.item_id, StockBatch.received_date, StockBatch.id)
+            .all()
+        )
+        for batch in candidates:
+            batch_id = int(batch.id)
+            item_id = int(batch.item_id)
+            candidate_ids[batch_id] = batch
+            candidates_by_item.setdefault(item_id, []).append(batch)
+
+    for start in range(0, len(exact_batch_ids), _PLAN_CHUNK):
+        chunk = exact_batch_ids[start:start + _PLAN_CHUNK]
+        batches_by_id.update({
+            int(batch.id): batch
+            for batch in (
+                db.query(StockBatch)
+                .options(lazyload(StockBatch.item))
+                .filter(StockBatch.id.in_(chunk))
+                .all()
+            )
+        })
+
+    claim_batch_ids = sorted(candidate_ids)
+    for start in range(0, len(claim_batch_ids), _PLAN_CHUNK):
+        chunk = claim_batch_ids[start:start + _PLAN_CHUNK]
+        reserved_by_batch.update({
+            int(batch_id): max(0.0, float(quantity or 0))
+            for batch_id, quantity in (
+                db.query(MaterialReservation.stock_batch_id, _active_reserved_sum_query(db))
+                .filter(
+                    MaterialReservation.stock_batch_id.in_(chunk),
+                    MaterialReservation.status.in_(ACTIVE_RESERVATION_STATUSES),
+                )
+                .group_by(MaterialReservation.stock_batch_id)
+                .all()
+            )
+        })
+
+    current_by_item: dict[int, float] = {}
+    for item_id in item_ids:
+        incoming, outgoing = movement_totals.get(item_id, (0.0, 0.0))
+        current_by_item[item_id] = float(batch_totals.get(item_id, 0.0)) + incoming - outgoing
+
+    return {
+        "current_by_item": current_by_item,
+        "reserved_by_item": reserved_by_item,
+        "reserved_by_batch": reserved_by_batch,
+        "candidates_by_item": candidates_by_item,
+        "candidate_ids": candidate_ids,
+        "batches_by_id": batches_by_id,
+    }
 
 
 def reservation_plan_for_production_order(db: Session, production_order_id: int, categories: tuple[str, ...] | None = None) -> dict:
@@ -381,29 +558,44 @@ def reservation_plan_for_production_order(db: Session, production_order_id: int,
         raise HTTPException(404, "Production order not found")
 
     model_code, model_name = _model_label_fields(db, po.model_id)
-    coverage = _reservation_coverage_by_item_unit(db, int(po.id))
-    batch_coverage = _reservation_coverage_by_item_unit_batch(db, int(po.id))
+    coverage, batch_coverage = _reservation_coverage_maps(db, int(po.id))
+    requirement_rows = _bom_requirement_rows(db, po, categories or RESERVABLE_CATEGORIES)
+    context = _reservation_plan_stock_context(db, requirement_rows)
+    current_by_item = context["current_by_item"]
+    reserved_by_item = context["reserved_by_item"]
+    reserved_by_batch = context["reserved_by_batch"]
+    candidates_by_item = context["candidates_by_item"]
+    candidate_ids = context["candidate_ids"]
+    batches_by_id = context["batches_by_id"]
     rows = []
-    for row in _bom_requirement_rows(db, po, categories or RESERVABLE_CATEGORIES):
+    for row in requirement_rows:
+        item_id = int(row["item_id"])
         stock_batch_id = int(row["stock_batch_id"]) if row.get("stock_batch_id") else None
         if stock_batch_id is not None:
-            coverage_key = (int(row["item_id"]), str(row["unit"]), stock_batch_id)
+            coverage_key = (item_id, str(row["unit"]), stock_batch_id)
             already_reserved = float(batch_coverage.get(coverage_key, 0.0))
         else:
-            coverage_key = (int(row["item_id"]), str(row["unit"]))
+            coverage_key = (item_id, str(row["unit"]))
             already_reserved = float(coverage.get(coverage_key, 0.0))
         required = float(row["required_quantity"] or 0)
         remaining = max(0.0, required - already_reserved)
         if stock_batch_id is not None:
-            current = current_stock_for_batch(db, stock_batch_id)
-            available = available_stock_for_batch(db, stock_batch_id)
+            batch = batches_by_id.get(stock_batch_id)
+            if not batch:
+                raise HTTPException(404, "Stock batch not found")
+            current = float(batch.quantity or 0)
+            reserved = reserved_by_batch.get(stock_batch_id, 0.0)
+            available = current - reserved
         else:
-            current = current_stock_for_item(db, int(row["item_id"]))
-            available = available_stock_for_item(db, int(row["item_id"]))
+            current = current_by_item.get(item_id, 0.0)
+            reserved = reserved_by_item.get(item_id, 0.0)
+            available = current - reserved
         shortage = max(0.0, remaining - max(0.0, available))
         suggested_batches = _suggest_batches_for_requirement(
-            db,
-            item_id=int(row["item_id"]),
+            candidates=candidates_by_item.get(item_id, []),
+            candidate_ids=candidate_ids,
+            reserved_by_batch=reserved_by_batch,
+            item_id=item_id,
             unit=str(row["unit"]),
             quantity=remaining,
             stock_batch_id=stock_batch_id,
@@ -420,7 +612,7 @@ def reservation_plan_for_production_order(db: Session, production_order_id: int,
             "already_reserved_quantity": already_reserved,
             "remaining_to_reserve": remaining,
             "current_stock": current,
-            "reserved_stock": reserved_stock_for_batch(db, stock_batch_id) if stock_batch_id is not None else reserved_stock_for_item(db, int(row["item_id"])),
+            "reserved_stock": reserved,
             "available_stock": available,
             "shortage": shortage,
             "suggested_batches": suggested_batches,
@@ -1463,15 +1655,13 @@ def accessory_issue_plan(db: Session, production_order_id: int) -> dict:
     }
 
 
-def accessory_issue_requests(
+def _accessory_issue_requests_rows(
     db: Session,
     *,
     production_order_id: int | None = None,
     model_id: int | None = None,
     q: str | None = None,
     include_complete: bool = False,
-    page: int | None = None,
-    page_size: int | None = None,
 ) -> list[dict]:
     qry = db.query(ProductionOrder)
     if production_order_id is not None:
@@ -1535,10 +1725,691 @@ def accessory_issue_requests(
             row["item_sku"],
         )
     )
-    if page is not None or page_size is not None:
-        safe_page, safe_size, offset = clamp_pagination(page or 1, page_size or 50)
-        return rows[offset: offset + safe_size]
     return rows
+
+
+# PERF02: one set-based statement for the accessory issue-request queue.
+#
+# The queue used to walk every candidate production order and build a full
+# accessory issue plan for each one, so both the eligibility test and the exact
+# total were computed in Python over the whole candidate set before a single row
+# was paged. This statement keeps the arithmetic of the per-order plan - BOM
+# requirement, linked and label-only manual issues, batch and batchless stock,
+# active reservations, the EPSILON status ladder - but evaluates it set-wise and
+# orders and counts it before LIMIT/OFFSET, projecting only queue columns.
+#
+# Fidelity notes, because the numbers are posted back as stock quantities:
+#
+# * Every quantity is computed in ``double precision`` in the same order the
+#   Python plan used. A bare ``1.0 + waste / 100.0`` would resolve through
+#   PostgreSQL's numeric rules and silently switch to exact decimal arithmetic,
+#   so each literal is cast explicitly.
+# * ``remaining`` reproduces ``round(max(0.0, required - issued), 4)``.
+#   PostgreSQL's ``round(numeric, 4)`` rounds the shortest decimal rendering
+#   half away from zero, while Python rounds the exact binary value half to
+#   even. They can only disagree on a half step, which for a non-negative double
+#   is exactly a value of the form ``odd / 32``; those are detected exactly in
+#   float8 and given the half-to-even answer.
+# * Accessory units are never coerced: a requirement keeps its own BOM unit and
+#   only matches issued quantities, manual aliases and returns recorded in that
+#   same unit.
+# * Recorded returns keep their existing meaning. They reduce the returnable
+#   allowance in ``accessory_issue_summary`` and never the queued remainder.
+# * Manual issues without a catalog item are matched on the normalized label
+#   against both the requirement's SKU and its name, exactly as the plan did.
+_ACCESSORY_REQUEST_SQL = r"""
+WITH eligible_orders AS MATERIALIZED (
+    SELECT
+        po.id AS production_order_id,
+        po.production_no,
+        COALESCE(
+            NULLIF(so.order_no, ''),
+            NULLIF(BTRIM(po.production_no), ''),
+            po.production_no
+        ) AS order_no,
+        po.model_id,
+        po.planned_quantity AS order_planned_quantity,
+        model.code AS model_code,
+        model.name AS model_name
+    FROM production_orders AS po
+    LEFT JOIN sales_orders AS so ON so.id = po.sales_order_id
+    LEFT JOIN models AS model ON model.id = po.model_id
+    WHERE (
+            (
+                CAST(:production_order_id AS bigint) IS NULL
+                AND po.status NOT IN ('finished_storage', 'cancelled', 'rejected')
+            )
+            OR (
+                CAST(:production_order_id AS bigint) IS NOT NULL
+                AND po.id = CAST(:production_order_id AS bigint)
+            )
+        )
+      AND (
+            CAST(:model_id AS bigint) IS NULL
+            OR po.model_id = CAST(:model_id AS bigint)
+        )
+),
+planning_rows AS MATERIALIZED (
+    SELECT
+        eligible.production_order_id,
+        eligible.production_no,
+        eligible.order_no,
+        eligible.model_id,
+        eligible.model_code,
+        eligible.model_name,
+        eligible.order_planned_quantity,
+        poi.id AS planning_position,
+        poi.model_id AS planning_model_id,
+        poi.size AS planning_size,
+        poi.color AS planning_color,
+        poi.planned_quantity,
+        TRUE AS has_order_items
+    FROM eligible_orders AS eligible
+    JOIN production_order_items AS poi
+      ON poi.production_order_id = eligible.production_order_id
+    UNION ALL
+    SELECT
+        eligible.production_order_id,
+        eligible.production_no,
+        eligible.order_no,
+        eligible.model_id,
+        eligible.model_code,
+        eligible.model_name,
+        eligible.order_planned_quantity,
+        0::bigint AS planning_position,
+        eligible.model_id AS planning_model_id,
+        NULL::varchar AS planning_size,
+        NULL::varchar AS planning_color,
+        eligible.order_planned_quantity AS planned_quantity,
+        FALSE AS has_order_items
+    FROM eligible_orders AS eligible
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM production_order_items AS poi
+        WHERE poi.production_order_id = eligible.production_order_id
+    )
+),
+requirements AS MATERIALIZED (
+    SELECT
+        planning.production_order_id,
+        planning.production_no,
+        planning.order_no,
+        planning.model_id,
+        planning.model_code,
+        planning.model_name,
+        planning.order_planned_quantity,
+        item.id AS item_id,
+        item.sku AS item_sku,
+        item.name AS item_name,
+        item.image_url AS item_image_url,
+        item.category,
+        COALESCE(
+            NULLIF(BTRIM(bom.unit), ''),
+            NULLIF(BTRIM(item.unit), ''),
+            item.unit
+        ) AS unit,
+        bom.stock_batch_id,
+        MIN(bom.id) AS source_position,
+        SUM(
+            CAST(bom.quantity_per_piece AS double precision)
+            * CAST(GREATEST(planning.planned_quantity, 0) AS double precision)
+            * (
+                CAST(1.0 AS double precision)
+                + CAST(bom.waste_percent AS double precision) / CAST(100.0 AS double precision)
+            )
+        ) AS required_quantity
+    FROM planning_rows AS planning
+    JOIN model_bom AS bom
+      ON bom.model_id = COALESCE(NULLIF(planning.planning_model_id, 0), planning.model_id)
+     AND (
+            NOT planning.has_order_items
+            OR COALESCE(bom.size, '') = ''
+            OR bom.size = planning.planning_size
+        )
+     AND (
+            NOT planning.has_order_items
+            OR COALESCE(bom.color, '') = ''
+            OR bom.color = planning.planning_color
+        )
+    JOIN items AS item ON item.id = bom.item_id
+    WHERE item.category IN ('accessory', 'packaging')
+      AND (
+            CAST(bom.quantity_per_piece AS double precision)
+            * CAST(GREATEST(planning.planned_quantity, 0) AS double precision)
+            * (
+                CAST(1.0 AS double precision)
+                + CAST(bom.waste_percent AS double precision) / CAST(100.0 AS double precision)
+            )
+        ) > CAST(0.0 AS double precision)
+    GROUP BY
+        planning.production_order_id,
+        planning.production_no,
+        planning.order_no,
+        planning.model_id,
+        planning.model_code,
+        planning.model_name,
+        planning.order_planned_quantity,
+        item.id,
+        item.sku,
+        item.name,
+        item.image_url,
+        item.category,
+        COALESCE(
+            NULLIF(BTRIM(bom.unit), ''),
+            NULLIF(BTRIM(item.unit), ''),
+            item.unit
+        ),
+        bom.stock_batch_id
+),
+required_items AS MATERIALIZED (
+    SELECT DISTINCT item_id FROM requirements
+),
+movement_references AS MATERIALIZED (
+    SELECT
+        eligible.production_order_id,
+        kind.reference_type,
+        eligible.production_order_id AS reference_id
+    FROM eligible_orders AS eligible
+    CROSS JOIN (VALUES ('ProductionOrder'), ('ProductionOrderAccessoryIssue')) AS kind(reference_type)
+    UNION ALL
+    SELECT eligible.production_order_id, 'WorkOrder', work_order.id
+    FROM eligible_orders AS eligible
+    JOIN work_orders AS work_order
+      ON work_order.production_order_id = eligible.production_order_id
+    UNION ALL
+    SELECT eligible.production_order_id, 'CuttingRecord', record.id
+    FROM eligible_orders AS eligible
+    JOIN work_orders AS work_order
+      ON work_order.production_order_id = eligible.production_order_id
+    JOIN cutting_records AS record ON record.work_order_id = work_order.id
+    UNION ALL
+    SELECT eligible.production_order_id, 'SewingRecord', record.id
+    FROM eligible_orders AS eligible
+    JOIN work_orders AS work_order
+      ON work_order.production_order_id = eligible.production_order_id
+    JOIN sewing_records AS record ON record.work_order_id = work_order.id
+    UNION ALL
+    SELECT eligible.production_order_id, 'PackagingRecord', record.id
+    FROM eligible_orders AS eligible
+    JOIN work_orders AS work_order
+      ON work_order.production_order_id = eligible.production_order_id
+    JOIN packaging_records AS record ON record.work_order_id = work_order.id
+),
+movement_issues AS MATERIALIZED (
+    SELECT
+        reference.production_order_id,
+        movement.item_id,
+        COALESCE(
+            NULLIF(BTRIM(movement.unit), ''),
+            NULLIF(BTRIM(item.unit), ''),
+            item.unit
+        ) AS unit,
+        SUM(movement.quantity) AS quantity
+    FROM movement_references AS reference
+    JOIN stock_movements AS movement
+      ON movement.reference_type = reference.reference_type
+     AND movement.reference_id = reference.reference_id
+    JOIN items AS item ON item.id = movement.item_id
+    WHERE item.category IN ('accessory', 'packaging')
+      AND movement.movement_type IN ('consume', 'issue')
+    GROUP BY
+        reference.production_order_id,
+        movement.item_id,
+        COALESCE(
+            NULLIF(BTRIM(movement.unit), ''),
+            NULLIF(BTRIM(item.unit), ''),
+            item.unit
+        )
+),
+linked_manual_issues AS MATERIALIZED (
+    SELECT
+        issue.production_order_id,
+        issue.item_id,
+        COALESCE(NULLIF(BTRIM(issue.unit), ''), 'pcs') AS unit,
+        SUM(issue.quantity) AS quantity
+    FROM manual_accessory_issues AS issue
+    JOIN eligible_orders AS eligible
+      ON eligible.production_order_id = issue.production_order_id
+    WHERE issue.item_id IS NOT NULL
+    GROUP BY
+        issue.production_order_id,
+        issue.item_id,
+        COALESCE(NULLIF(BTRIM(issue.unit), ''), 'pcs')
+),
+item_issues AS MATERIALIZED (
+    SELECT
+        source.production_order_id,
+        source.item_id,
+        source.unit,
+        SUM(source.quantity) AS quantity
+    FROM (
+        SELECT production_order_id, item_id, unit, quantity FROM movement_issues
+        UNION ALL
+        SELECT production_order_id, item_id, unit, quantity FROM linked_manual_issues
+    ) AS source
+    GROUP BY source.production_order_id, source.item_id, source.unit
+),
+itemless_manual_issues AS MATERIALIZED (
+    SELECT
+        grouped.production_order_id,
+        grouped.unit,
+        grouped.label_key,
+        grouped.name_key,
+        grouped.quantity
+    FROM (
+        SELECT
+            source.production_order_id,
+            source.unit,
+            source.label_key,
+            (
+                ARRAY_AGG(
+                    REGEXP_REPLACE(LOWER(BTRIM(source.item_name)), '^\s+|\s+$', '', 'g')
+                    ORDER BY source.created_at DESC, source.id DESC
+                )
+            )[1] AS name_key,
+            SUM(source.quantity) AS quantity
+        FROM (
+            SELECT
+                issue.production_order_id,
+                issue.id,
+                issue.created_at,
+                issue.item_name,
+                issue.quantity,
+                COALESCE(NULLIF(BTRIM(issue.unit), ''), 'pcs') AS unit,
+                REGEXP_REPLACE(
+                    LOWER(
+                        COALESCE(
+                            NULLIF(BTRIM(issue.item_sku), ''),
+                            NULLIF(BTRIM(issue.item_name), ''),
+                            'Manual accessory'
+                        )
+                    ),
+                    '^\s+|\s+$',
+                    '',
+                    'g'
+                ) AS label_key
+            FROM manual_accessory_issues AS issue
+            JOIN eligible_orders AS eligible
+              ON eligible.production_order_id = issue.production_order_id
+            WHERE issue.item_id IS NULL
+        ) AS source
+        GROUP BY source.production_order_id, source.unit, source.label_key
+    ) AS grouped
+),
+manual_alias_contributions AS MATERIALIZED (
+    SELECT
+        requirement.production_order_id,
+        requirement.item_id,
+        requirement.unit,
+        requirement.stock_batch_id,
+        'sku'::varchar AS match_source,
+        REGEXP_REPLACE(LOWER(BTRIM(requirement.item_sku)), '^\s+|\s+$', '', 'g') AS match_key
+    FROM requirements AS requirement
+    UNION ALL
+    SELECT
+        requirement.production_order_id,
+        requirement.item_id,
+        requirement.unit,
+        requirement.stock_batch_id,
+        'name'::varchar AS match_source,
+        REGEXP_REPLACE(LOWER(BTRIM(requirement.item_name)), '^\s+|\s+$', '', 'g') AS match_key
+    FROM requirements AS requirement
+),
+manual_alias_keys AS MATERIALIZED (
+    -- The plan registered every item-less manual issue under both its stored
+    -- label and its name, so a group whose SKU is empty is reachable under the
+    -- same key twice. Keep that: the join below has to see two rows.
+    SELECT
+        issue.production_order_id,
+        issue.unit,
+        issue.label_key AS match_key,
+        issue.quantity
+    FROM itemless_manual_issues AS issue
+    UNION ALL
+    SELECT
+        issue.production_order_id,
+        issue.unit,
+        issue.name_key AS match_key,
+        issue.quantity
+    FROM itemless_manual_issues AS issue
+),
+manual_alias_issues AS MATERIALIZED (
+    SELECT
+        contribution.production_order_id,
+        contribution.item_id,
+        contribution.unit,
+        contribution.stock_batch_id,
+        SUM(keys.quantity) FILTER (WHERE contribution.match_source = 'sku') AS sku_quantity,
+        SUM(keys.quantity) FILTER (WHERE contribution.match_source = 'name') AS name_quantity
+    FROM manual_alias_contributions AS contribution
+    JOIN manual_alias_keys AS keys
+      ON keys.production_order_id = contribution.production_order_id
+     AND keys.unit = contribution.unit
+     AND keys.match_key = contribution.match_key
+    WHERE contribution.match_key <> ''
+    GROUP BY
+        contribution.production_order_id,
+        contribution.item_id,
+        contribution.unit,
+        contribution.stock_batch_id
+),
+batch_stock AS MATERIALIZED (
+    SELECT batch.item_id, SUM(batch.quantity) AS quantity
+    FROM stock_batches AS batch
+    JOIN required_items AS required ON required.item_id = batch.item_id
+    GROUP BY batch.item_id
+),
+batchless_stock AS MATERIALIZED (
+    SELECT
+        movement.item_id,
+        SUM(
+            CASE
+                WHEN movement.movement_type IN ('produce', 'return', 'adjustment')
+                THEN movement.quantity
+                ELSE CAST(0.0 AS double precision)
+            END
+        ) AS incoming,
+        SUM(
+            CASE
+                WHEN movement.movement_type IN ('issue', 'consume', 'waste', 'shipment')
+                THEN movement.quantity
+                ELSE CAST(0.0 AS double precision)
+            END
+        ) AS outgoing
+    FROM stock_movements AS movement
+    JOIN required_items AS required ON required.item_id = movement.item_id
+    WHERE movement.batch_id IS NULL
+    GROUP BY movement.item_id
+),
+active_reservations AS MATERIALIZED (
+    SELECT
+        reservation.item_id,
+        GREATEST(
+            CAST(0.0 AS double precision),
+            SUM(
+                CAST(reservation.reserved_quantity AS double precision)
+                - CAST(reservation.consumed_quantity AS double precision)
+                - CAST(reservation.released_quantity AS double precision)
+            )
+        ) AS quantity
+    FROM material_reservations AS reservation
+    JOIN required_items AS required ON required.item_id = reservation.item_id
+    WHERE reservation.status IN ('reserved', 'partially_consumed')
+    GROUP BY reservation.item_id
+),
+quantities AS MATERIALIZED (
+    SELECT
+        requirement.production_order_id,
+        requirement.production_no,
+        requirement.order_no,
+        requirement.model_id,
+        requirement.model_code,
+        requirement.model_name,
+        requirement.order_planned_quantity AS planned_quantity,
+        requirement.item_id,
+        requirement.item_sku,
+        requirement.item_name,
+        requirement.item_image_url,
+        requirement.category,
+        requirement.unit,
+        requirement.source_position,
+        requirement.required_quantity,
+        (
+            CAST(COALESCE(item_issue.quantity, 0) AS double precision)
+            + CAST(COALESCE(alias_issue.sku_quantity, 0) AS double precision)
+            + CAST(COALESCE(alias_issue.name_quantity, 0) AS double precision)
+        ) AS issued_quantity,
+        GREATEST(
+            CAST(0.0 AS double precision),
+            requirement.required_quantity
+            - CAST(COALESCE(item_issue.quantity, 0) AS double precision)
+            - CAST(COALESCE(alias_issue.sku_quantity, 0) AS double precision)
+            - CAST(COALESCE(alias_issue.name_quantity, 0) AS double precision)
+        ) AS remaining_raw,
+        (
+            CAST(COALESCE(batch.quantity, 0) AS double precision)
+            + CAST(COALESCE(batchless.incoming, 0) AS double precision)
+            - CAST(COALESCE(batchless.outgoing, 0) AS double precision)
+            - CAST(COALESCE(reserved.quantity, 0) AS double precision)
+        ) AS available_quantity
+    FROM requirements AS requirement
+    LEFT JOIN item_issues AS item_issue
+      ON item_issue.production_order_id = requirement.production_order_id
+     AND item_issue.item_id = requirement.item_id
+     AND item_issue.unit = requirement.unit
+    LEFT JOIN manual_alias_issues AS alias_issue
+      ON alias_issue.production_order_id = requirement.production_order_id
+     AND alias_issue.item_id = requirement.item_id
+     AND alias_issue.unit = requirement.unit
+     AND alias_issue.stock_batch_id IS NOT DISTINCT FROM requirement.stock_batch_id
+    LEFT JOIN batch_stock AS batch ON batch.item_id = requirement.item_id
+    LEFT JOIN batchless_stock AS batchless ON batchless.item_id = requirement.item_id
+    LEFT JOIN active_reservations AS reserved ON reserved.item_id = requirement.item_id
+),
+classified AS MATERIALIZED (
+    SELECT
+        quantities.*,
+        (
+            CASE
+                WHEN FLOOR(CAST(32.0 AS double precision) * quantities.remaining_raw)
+                         = CAST(32.0 AS double precision) * quantities.remaining_raw
+                 AND MOD(
+                        CAST(
+                            FLOOR(CAST(32.0 AS double precision) * quantities.remaining_raw)
+                            AS numeric
+                        ),
+                        2
+                     ) = 1
+                THEN FLOOR(quantities.remaining_raw * CAST(10000.0 AS double precision))
+                     + MOD(
+                            CAST(
+                                FLOOR(quantities.remaining_raw * CAST(10000.0 AS double precision))
+                                AS numeric
+                            ),
+                            2
+                        )
+                ELSE TRUNC(
+                        quantities.remaining_raw * CAST(10000.0 AS double precision)
+                        + CAST(0.5 AS double precision)
+                     )
+            END
+        )::double precision / CAST(10000.0 AS double precision) AS remaining_quantity
+    FROM quantities
+),
+scored AS MATERIALIZED (
+    SELECT
+        classified.*,
+        GREATEST(
+            CAST(0.0 AS double precision),
+            classified.remaining_quantity - classified.available_quantity
+        ) AS shortage
+    FROM classified
+),
+ranked AS MATERIALIZED (
+    SELECT
+        CASE scored.status_code
+            WHEN 'shortage' THEN 0
+            WHEN 'partial' THEN 1
+            ELSE 2
+        END AS status_rank,
+        scored.*
+    FROM (
+        SELECT
+            scored.*,
+            CASE
+                WHEN scored.remaining_quantity <= CAST(0.000000001 AS double precision) THEN 'ready'
+                WHEN scored.shortage > CAST(0.000000001 AS double precision) THEN 'shortage'
+                ELSE 'partial'
+            END AS status_code
+        FROM scored
+    ) AS scored
+),
+matched AS MATERIALIZED (
+    SELECT *
+    FROM ranked
+    WHERE (
+            CAST(:include_complete AS boolean)
+            OR remaining_quantity > CAST(0.000000001 AS double precision)
+        )
+      AND (
+            CAST(:search AS text) = ''
+            OR POSITION(CAST(:search AS text) IN LOWER(COALESCE(order_no, ''))) > 0
+            OR POSITION(CAST(:search AS text) IN LOWER(COALESCE(production_no, ''))) > 0
+            OR POSITION(CAST(:search AS text) IN LOWER(COALESCE(model_code, ''))) > 0
+            OR POSITION(CAST(:search AS text) IN LOWER(COALESCE(model_name, ''))) > 0
+            OR POSITION(CAST(:search AS text) IN LOWER(COALESCE(item_sku, ''))) > 0
+            OR POSITION(CAST(:search AS text) IN LOWER(COALESCE(item_name, ''))) > 0
+            OR POSITION(CAST(:search AS text) IN LOWER(COALESCE(unit, ''))) > 0
+        )
+),
+paged AS MATERIALIZED (
+    SELECT *
+    FROM matched
+    ORDER BY
+        status_rank,
+        production_order_id,
+        item_sku COLLATE "C",
+        category COLLATE "C",
+        unit COLLATE "C",
+        source_position
+    LIMIT CAST(:page_size AS bigint)
+    OFFSET CAST(:offset AS bigint)
+)
+SELECT
+    paged.production_order_id,
+    paged.production_no,
+    paged.order_no,
+    paged.model_id,
+    paged.model_code,
+    paged.model_name,
+    paged.planned_quantity,
+    paged.item_id,
+    paged.item_sku,
+    paged.item_name,
+    paged.item_image_url,
+    paged.category,
+    paged.unit,
+    paged.required_quantity,
+    paged.issued_quantity,
+    paged.remaining_quantity,
+    paged.available_quantity,
+    paged.shortage,
+    CASE paged.status_code WHEN 'shortage' THEN 'shortage' WHEN 'partial' THEN 'partial' ELSE 'ready' END AS status,
+    totals.total
+FROM paged
+FULL JOIN (SELECT COUNT(*) AS total FROM matched) AS totals ON TRUE
+ORDER BY
+    CASE paged.status_code WHEN 'shortage' THEN 0 WHEN 'partial' THEN 1 ELSE 2 END,
+    paged.production_order_id,
+    paged.item_sku COLLATE "C",
+    paged.category COLLATE "C",
+    paged.unit COLLATE "C",
+    paged.source_position
+"""
+
+
+def _postgresql_accessory_issue_requests(
+    db: Session,
+    *,
+    production_order_id: int | None,
+    model_id: int | None,
+    q: str | None,
+    include_complete: bool,
+    offset: int,
+    page_size: int,
+) -> tuple[list[dict], int]:
+    """Page the accessory queue with one set-based statement.
+
+    The rows and the exact total come from the same statement so they share one
+    PostgreSQL snapshot. A SQL failure is not swallowed: this path is a dialect
+    choice, not an error fallback.
+    """
+    search = (q or "").strip().lower()
+    result = db.execute(
+        text(_ACCESSORY_REQUEST_SQL),
+        {
+            "production_order_id": production_order_id,
+            "model_id": model_id,
+            "include_complete": include_complete,
+            "search": search,
+            "offset": offset,
+            "page_size": page_size,
+        },
+    ).mappings().all()
+    total = int(result[0]["total"]) if result else 0
+    rows: list[dict] = []
+    for raw in result:
+        if raw["production_order_id"] is None:
+            continue
+        rows.append({
+            "production_order_id": int(raw["production_order_id"]),
+            "production_no": raw["production_no"],
+            "order_no": raw["order_no"],
+            "model_id": int(raw["model_id"]),
+            "model_code": raw["model_code"],
+            "model_name": raw["model_name"],
+            "planned_quantity": int(raw["planned_quantity"] or 0),
+            "item_id": int(raw["item_id"]),
+            "item_sku": raw["item_sku"],
+            "item_name": raw["item_name"],
+            "item_image_url": raw["item_image_url"],
+            "category": raw["category"],
+            "unit": raw["unit"],
+            "required_quantity": float(raw["required_quantity"] or 0),
+            "issued_quantity": float(raw["issued_quantity"] or 0),
+            "remaining_quantity": float(raw["remaining_quantity"] or 0),
+            "available_quantity": float(raw["available_quantity"] or 0),
+            "shortage": float(raw["shortage"] or 0),
+            "status": raw["status"],
+        })
+    return rows, total
+
+
+def accessory_issue_requests(
+    db: Session,
+    *,
+    production_order_id: int | None = None,
+    model_id: int | None = None,
+    q: str | None = None,
+    include_complete: bool = False,
+    page: int | None = None,
+    page_size: int | None = None,
+    include_total: bool = False,
+) -> list[dict] | tuple[list[dict], int]:
+    if page is None and page_size is None:
+        rows = _accessory_issue_requests_rows(
+            db,
+            production_order_id=production_order_id,
+            model_id=model_id,
+            q=q,
+            include_complete=include_complete,
+        )
+        return (rows, len(rows)) if include_total else rows
+
+    safe_page, safe_size, offset = clamp_pagination(page or 1, page_size or 50)
+    if db.get_bind().dialect.name == "postgresql":
+        rows, total = _postgresql_accessory_issue_requests(
+            db,
+            production_order_id=production_order_id,
+            model_id=model_id,
+            q=q,
+            include_complete=include_complete,
+            offset=offset,
+            page_size=safe_size,
+        )
+        return (rows, total) if include_total else rows
+
+    # Non-PostgreSQL dialects keep the per-order plan and page in memory. The
+    # public row contract is identical, only the statement count differs.
+    all_rows = _accessory_issue_requests_rows(
+        db,
+        production_order_id=production_order_id,
+        model_id=model_id,
+        q=q,
+        include_complete=include_complete,
+    )
+    rows = all_rows[offset: offset + safe_size]
+    return (rows, len(all_rows)) if include_total else rows
 
 
 def sync_sewing_accessory_block(db: Session, production_order_id: int) -> dict:
