@@ -449,6 +449,12 @@ class PayrollSummaryOut(BaseModel):
     currency: str
     employees: list[PayrollSummaryEmployeeOut]
 
+    employees_total: int | None = None
+    employee_page: int | None = None
+    employee_page_size: int | None = None
+    employees_has_more: bool | None = None
+    employee_search: str | None = None
+
 
 class PayrollAdjustmentIn(BaseModel):
     payroll_period_id: int | None = None
@@ -486,3 +492,27 @@ class PayrollAdjustmentOut(ORMModel):
     reason: str
     created_by: int | None = None
     created_at: datetime
+
+
+class PayrollRecordPageOut(BaseModel):
+    rows: list[PayrollRecordOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
+
+class PayrollAdjustmentRowOut(PayrollAdjustmentOut):
+    employee_name: str | None = None
+    department_id: int | None = None
+    department_name: str | None = None
+
+
+
+class PayrollAdjustmentPageOut(BaseModel):
+    rows: list[PayrollAdjustmentRowOut]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
