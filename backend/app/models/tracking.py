@@ -175,7 +175,7 @@ class PackageItem(Base, PkMixin, TimestampMixin):
     __table_args__ = (
         CheckConstraint("quantity > 0", name="ck_package_items_quantity_positive"),
     )
-    package_id: Mapped[int] = mapped_column(ForeignKey("packages.id"), nullable=False)
+    package_id: Mapped[int] = mapped_column(ForeignKey("packages.id"), nullable=False, index=True)
     model_id: Mapped[int] = mapped_column(ForeignKey("models.id"), nullable=False)
     color: Mapped[str] = mapped_column(String(64), nullable=False)
     size: Mapped[str] = mapped_column(String(32), nullable=False)
