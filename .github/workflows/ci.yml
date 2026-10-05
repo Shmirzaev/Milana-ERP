@@ -72,6 +72,7 @@ jobs:
           backend/app/tests/test_cutting_packaging_write_postgres.py
           backend/app/tests/test_cutting_reconciliation_postgres.py
           backend/app/tests/test_traceability_postgres_plan.py
+          backend/app/tests/test_packaging_receive_options_query_growth.py
       - name: Deployment observation regression suite
         run: python -m unittest discover -s scripts -p 'test_observe_release.py' -v
       - name: PostgreSQL migration, concurrency and model numbering regression
