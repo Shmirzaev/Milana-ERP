@@ -2367,7 +2367,7 @@ def sewing_production_report_excel(
 @router.post("/process-qr/export.xlsx")
 def export_process_qr_operations(
     payload: ProcessQrExportIn,
-    current: User = Depends(require_permissions("payroll.manage", "*")),
+    current: User = Depends(require_permissions("payroll.scan", "payroll.manage", "*")),
 ):
     require_factory_access(current, payload.factory)
     return Response(
