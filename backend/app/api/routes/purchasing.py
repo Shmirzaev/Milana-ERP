@@ -157,6 +157,7 @@ def list_purchase_orders(
     db: DbSession,
     _: User = Depends(require_permissions("purchasing.view", "*")),
     status: str | None = Query(None, max_length=32),
+    receivable_only: bool = Query(False),
     limit: int = Query(50, ge=1, le=PURCHASE_ORDER_LIST_MAX_LIMIT),
     offset: int = Query(0, ge=0),
 ):
@@ -170,6 +171,13 @@ def list_purchase_orders(
     term = str(status or "").strip()
     if term:
         query = query.filter(PurchaseOrder.status == term)
+    if receivable_only:
+        query = query.filter(
+            PurchaseOrder.status.in_(("sent", "approved", "partially_received")),
+            PurchaseOrder.lines.any(
+                PurchaseOrderLine.ordered_quantity > PurchaseOrderLine.received_quantity
+            ),
+        )
 
     total = int(query.with_entities(PurchaseOrder.id).count())
     orders = (
