@@ -1,9 +1,9 @@
 {
-  "source": "outputs/cycle3-migration-contract.xml",
+  "source": "Fresh PostgreSQL regression test_fresh_migration_bootstrap plus test_ismail_schema_completion; historical evidence retained below",
   "result": "All 21 DB08 unresolved entries plus the two DB06 constraint mismatches addressed on the completion branch. Remaining 94 reviewed differences are explicit accepted legacy/default/index contracts; raw global ORM parity is not claimed.",
-  "environment": "Disposable loopback PostgreSQL 17 cluster stopped after run; no production connection.",
+  "environment": "Disposable loopback PostgreSQL 17.11; no production connection",
   "observed": {
-    "fresh_upgrade": "0001 through 0131 succeeded",
+    "fresh_upgrade": "0001 through 0138_ismail_schema_contract succeeded",
     "head_rerun": "No CREATE/ALTER/DROP/INSERT/UPDATE/DELETE",
     "existing_data_upgrade": "0130 through 0131 preserved sewing row and initialized new fields",
     "strict_parity": "94 remaining normalized accepted contract differences; no unresolved DB08 classification remains. Production catalog not verified."
@@ -1754,9 +1754,10 @@
       "reviewed_difference_entries": 117,
       "explicit_generated_columns": 2,
       "explained_migration_owned_or_representation_entries": 98,
-      "unresolved_preexisting_drift_entries": 21
+      "unresolved_preexisting_drift_entries": 21,
+      "snapshot_scope": "Historical DB04 and Beyka snapshot before Ismail completion; see completion_counts for current baseline"
     },
-    "unresolved_followup": "DB08: review the 24 pre-existing ORM/schema drift entries as one tracked risk; this DB04 change neither fixes nor silently suppresses them. Six further entries (former 90-95) were resolved by 187933b9, which aligned the sales order item ORM to shipped migration 0071; see resolved_by_db08.",
+    "unresolved_followup": "The 21 outstanding DB08 entries and two DB06 constraint differences are now resolved on the completion branch; exact removed entries remain in resolved_by_ismail_completion. Production application and catalog verification remain pending.",
     "non_claims": [
       "Not exact ORM/database parity.",
       "Not a business-schema redesign or repair of existing drift.",
@@ -1770,6 +1771,12 @@
       "cleanup": "Disposable PostgreSQL runner confirmed its temporary cluster stopped after both tests.",
       "lint": "Ruff passed for all three owned Python files.",
       "production": "Not accessed or changed. Only disposable loopback PostgreSQL schemas and synthetic rows were used."
+    },
+    "completion_counts": {
+      "reviewed_difference_entries": 94,
+      "removed_entries": 23,
+      "unresolved_db08_entries": 0,
+      "global_orm_parity_claimed": false
     }
   },
   "resolved_by_db08": {
@@ -1878,7 +1885,7 @@
       }
     ],
     "verification": "Post-fix rerun of the real migration chain on PostgreSQL reports exactly these six differences gone and adds none. Baseline edited deliberately, not regenerated.",
-    "still_unresolved": "21 entries remain: HR indexes, packages and package_items nullability, and the sewing replacement request entries. The Beyka table is no longer among them; see `resolved_by_db08_beyka`. DB08's two named halves are now Done, but ORM parity is still not claimed."
+    "still_unresolved": "At this historical sales-alignment checkpoint, 21 entries remained. They are now preserved verbatim in resolved_by_ismail_completion; 94 accepted normalized differences remain globally."
   },
   "resolved_by_db08_beyka": {
     "commit": "25192d17",
