@@ -886,6 +886,7 @@ def _apply_model_list_filters(
     created_to: date | None,
     include_legacy_import: bool,
     catalog_scope: str = "standard",
+    qolip_no: str | None = None,
 ):
     qry = qry.filter(Model.catalog_scope == _normalize_catalog_scope(catalog_scope))
     if not include_legacy_import:
@@ -911,6 +912,14 @@ def _apply_model_list_filters(
     category_query = _clean_text(category)
     if category_query:
         qry = qry.filter(Model.category.ilike(f"%{category_query}%"))
+    qolip_query = _clean_text(qolip_no)
+    if qolip_query:
+        # Match the same canonical/legacy field precedence used by Model Detail.
+        qolip_column = func.coalesce(*(
+            Model.details_json["general"][key].as_string()
+            for key in ("qolip_no", "qolipNo", "mold_no", "moldNo", "pattern_no", "patternNo")
+        ))
+        qry = qry.filter(qolip_column.icontains(qolip_query, autoescape=True))
     start, end = date_filter_bounds(created_from, created_to)
     if start:
         qry = qry.filter(Model.created_at >= start)
@@ -1543,6 +1552,7 @@ def list_model_variant_groups(
     include_legacy_import: bool = False,
     compact: bool = False,
     catalog_scope: str = Depends(_standard_catalog_scope),
+    qolip_no: str | None = None,
 ):
     safe_page = max(1, int(page or 1))
     safe_size = max(1, min(int(page_size or 50), 100))
@@ -1564,6 +1574,7 @@ def list_model_variant_groups(
             code=code,
             name=name,
             category=category,
+            qolip_no=qolip_no,
             created_from=created_from,
             created_to=created_to,
             include_legacy_import=include_legacy_import,
@@ -1612,6 +1623,7 @@ def list_model_variant_groups(
             code=code,
             name=name,
             category=category,
+            qolip_no=qolip_no,
             created_from=created_from,
             created_to=created_to,
             include_legacy_import=include_legacy_import,
@@ -1631,7 +1643,7 @@ def list_model_variant_groups(
 
         has_member_filter = any(
             value is not None and (not isinstance(value, str) or bool(value.strip()))
-            for value in (status, q, code, name, category, created_from, created_to)
+            for value in (status, q, code, name, category, qolip_no, created_from, created_to)
         )
         if has_member_filter and matching_groups:
             membership_qry = db.query(

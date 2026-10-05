@@ -370,11 +370,12 @@ def list_usluga_model_variant_groups(
     include_total: bool = False,
     include_legacy_import: bool = False,
     compact: bool = False,
+    qolip_no: str | None = None,
 ):
     _usluga_viewer(current)
     return catalog_routes.list_model_variant_groups(
         db, current, status, q, code, name, category, created_from, created_to,
-        page, page_size, include_total, include_legacy_import, compact, "usluga",
+        page, page_size, include_total, include_legacy_import, compact, "usluga", qolip_no=qolip_no,
     )
 
 

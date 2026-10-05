@@ -74,6 +74,7 @@ from app.schemas.payroll import (
     SewingProductionReportOptions,
 )
 from app.models.order_reference import BusinessOrderAlias
+from app.services.process_qr_export import ProcessQrExportIn, build_process_qr_xlsx
 from app.services.audit import log_action
 from app.services.factory_scope import require_factory_access, selected_factory_code
 from app.services.paid_operations import filter_operation_rows, paid_operations_from_details
@@ -2360,6 +2361,19 @@ def sewing_production_report_excel(
         content=workbook,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/process-qr/export.xlsx")
+def export_process_qr_operations(
+    payload: ProcessQrExportIn,
+    current: User = Depends(require_permissions("payroll.manage", "*")),
+):
+    require_factory_access(current, payload.factory)
+    return Response(
+        content=build_process_qr_xlsx(payload),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="paid-processes.xlsx"'},
     )
 
 
