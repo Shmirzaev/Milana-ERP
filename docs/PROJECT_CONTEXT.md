@@ -2,6 +2,13 @@
 
 Last updated: 2026-10-05
 
+## SAFF 10308 restored to owner-confirmed stock (2026-10-05)
+
+- Owner explicitly confirmed 300 kg / 10 rolls for SAFF 10308, overriding the latest workbook zero balance. Restored existing batch 1729, source-correct active fabric 82 `30/1 COMPACT SUPREM`, at 09:58:46 UTC through the normal restoration handler and roll-count update. Older archived batch 1527 (`30/1 COMPACT PENYE SUPREM`) remains unchanged at zero; no duplicate or second active balance was created. Restored batch QC is pending. Identity, date and history are preserved, as are all 1,332 other batches and reservations.
+- One 300 kg return movement references `StockBatchRestore`. Completion audit 35627; plan SHA-256 `95887337d9dfc87ca3ea6b9b65755362b097254ce97ae17c3177127b885c31f4`. Fresh database/public API readback confirms 300 kg / 10 rolls and cleared archive fields. Transaction guards, new audit segment and four immediate health checks passed. Plan assertions and diff review passed; no extra tests or monitoring.
+- Verified backup `/opt/milana-erp/shared/backups/milana_erp_pre_fabric_reconcile_20261005_095821.dump`: 65,379,281 bytes, mode 0600, 1,218 restore objects; SHA-256 `6b309215d754303b519d66868ccc824d1b2605490f8decec97792433ff110460`; restore-list SHA-256 `e3a19d8ae3b8da412d0c5ba655aa687768e450b41782b8d3078ed9aa696973ca`.
+- Data is live without deployment/restart/migration. Both manifests verified active blue `20261005_070406`, rollback green `20261005_063643`, schema `0137_perf34_shipment_indexes`. Operation commit `7424e541` pushed to `clone_main` and `codex/restore-10308-20261005`. Dedicated worktree `C:/ERP/.codex-work/restore-10308-20261005`; private evidence in ignored `outputs/fabric-reconciliation/`. Legacy checkout preserved; context mirrored to Obsidian.
+
 ## Paid process Excel layout and approval area deployed (20261005_070406; 2026-10-05)
 
 - LIVE: backend/frontend blue `20261005_070406`, application commit `25a7dd1cff77b4b180181da1db0f8780f1c7675e`. Both source manifests, image revisions, symlinks and runtime slots agree; green `20261005_063643` remains running for rollback. Database remains `0137_perf34_shipment_indexes`; migration-to-head was a no-op, startup seeding was disabled and deployment changed no business records.
