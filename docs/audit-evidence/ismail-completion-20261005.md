@@ -25,7 +25,8 @@ The combined changes are prepared in [draft PR 279](https://github.com/Shmirzaev
 - The read-only catalog audit after upgrade reported all nine HR indexes present, seven redundant objects absent and no equivalent duplicate candidates. This describes the disposable QA schema, not production.
 - The combined-branch purchasing, planner, stock-concurrency and settings suite passed 56 tests with PostgreSQL enabled.
 - All five pricing pages passed browser checks for older rows, failed-page retry without skipping cursors, preserved existing rows, hidden/offline polling pause and online resume. No page errors occurred. Purchasing browser checks also passed: the server total displayed 61, saved page-two receipts loaded, HTTP 500 recovery survived reload, and retries reused the exact receipt key.
-- Backend Ruff and whitespace checks passed. The final Next.js production build compiled all 91 routes; workflow contracts, normal and strict TypeScript, and changed-file lint passed. Full ESLint previously reported zero errors and five inherited warnings. GitHub checks remain pending until publication.
+- Backend Ruff and whitespace checks passed. The final Next.js production build compiled all 91 routes; workflow contracts, normal and strict TypeScript, and changed-file lint passed. GitHub frontend validation passed with zero errors and five inherited lint warnings.
+- First full GitHub backend run: 2,752 passed, 196 skipped and one failed because the shipment test required 0137 to remain the newest migration. The test now checks one head, 0137's real predecessor and its presence in the head's ancestry, allowing valid forward revisions. Full CI is being rerun after this correction; PostgreSQL checks must also complete before merge.
 
 Local browser traffic is mocked and restricted to loopback. This verifies rendering, paging, recovery and polling behavior; it does not establish production latency or live database state. Mandatory PostgreSQL regressions are added to CI so the database-dependent tests cannot silently remain skipped.
 
@@ -39,6 +40,8 @@ These are the two pending questions presented to Ismail. Recommendations are not
 ## Production and migration limits
 
 No deployment, live catalog cleanup, destructive migration, permission repair or production business-data write occurred. The deployment SSH key is unavailable in this environment. The last recorded active release is blue `20261003_071825`, application commit `d7d083def8bd190eff92b46562319e2735ce10cc`, with rollback green `20261003_065351` and schema `0135_usluga_paid_processes`. These are historical records, not a fresh production check.
+
+Ismail's operations follow-ups OPS02 (live worker/pool connection budget) and OPS03 (shared infrastructure/workload verification) remain unverified because they require production access. FN08's historical profit/currency decision remains with Shavkat under D1; it is outside the 37 implementation rows counted here.
 
 Before applying 0138 in production, follow `DEPLOYMENT.md`: verify the exact active/rollback manifests and slots; inspect the catalog with the read-only audit; record affected objects, sizes, dependencies and lock impact; verify a PostgreSQL backup; obtain D2 approval for the concrete catalog changes; validate the full candidate migration chain and rollback; then stage and gate the inactive slot. This forward revision creates normal indexes, so production lock duration must be assessed using actual table sizes and an appropriate maintenance window.
 
