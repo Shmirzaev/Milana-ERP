@@ -1,8 +1,10 @@
 # Ismail bug completion audit
 
-Reviewed on 2026-10-05 and reconciled with `origin/clone_main` at `f61262dd`. All five remaining Ismail implementation tasks and the additional QC/archive finding now have implementations and regression evidence. The completion request selects shared reservation capacity and pending/passed QC eligibility. No implementation remains waiting for another go-ahead. Review/merge and production application are recorded separately; this task has not changed production.
+Reviewed on 2026-10-05 and reconciled with `origin/clone_main` at `f61262dd`. All original Ismail implementation tasks have fix evidence, including the ST02 floor extension identified by the full owner audit; the additional QC/archive finding is also implemented. The completion request selects shared reservation capacity and pending/passed QC eligibility. No implementation remains waiting for another go-ahead. Review/merge and production application are recorded separately; this task has not changed production.
 
 The combined changes are prepared in [PR 279](https://github.com/Shmirzaev/Milana-ERP/pull/279). Review means implemented on the proposal branch; Done requires review, merge to `clone_main` and passing regressions. Deployment is recorded separately.
+
+The [full owner and team audit](team-owner-audit-20261005.md) supersedes the earlier all-done interpretation of ST02: item-only claims also need protection from outgoing movements. It records the reproduction, extension and all 37 task rows. Earlier CI counts below predate that extension.
 
 ## Implementation results
 
@@ -53,4 +55,4 @@ The downgrade restores the canonical historical redundant definitions and remove
 
 Worktree: `C:/Users/ismoi/OneDrive/Desktop/remote_work/milana_ERP/.codex-work/ismail-completion`. Local branch: `codex/ismail-completion`; proposal branch: `codex/ismail-review-fixes`; target: `clone_main`. Earlier fixes at `2d3ec8f9` are included in the combined history. The shared clone, other engineers' branches and preserved server PDF are untouched.
 
-The task tracker remains authoritative. Of Ismail's original 37 implementation rows, 32 are Done on clone_main and five are Review; the additional RES-PLAN-ARCHIVE finding is also Review. No Ismail implementation row remains Open, Partial or Blocked. Review does not claim a merge or deployment. This audit covers Ismail's scope and does not claim that the other engineers' open tasks or earlier global security risks are resolved.
+The task tracker remains authoritative. Of Ismail's original 37 implementation rows, 31 remain Done on clone_main and six are Review after ST02 was reopened and fixed in the proposal; the additional RES-PLAN-ARCHIVE finding is also Review. No Ismail implementation row remains Open, Partial or Blocked. Review does not claim a merge or deployment. This audit covers Ismail's scope and does not claim that the other engineers' open tasks or earlier global security risks are resolved.

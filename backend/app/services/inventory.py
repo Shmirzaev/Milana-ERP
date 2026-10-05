@@ -218,7 +218,7 @@ def available_stock_for_batch(db: Session, stock_batch_id: int) -> float:
     return current_stock_for_batch(db, stock_batch_id) - reserved_stock_for_batch(db, stock_batch_id)
 
 
-def _available_reservation_item_capacity(db: Session, item_id: int, warehouse_id: int | None) -> float:
+def available_reservation_item_capacity(db: Session, item_id: int, warehouse_id: int | None) -> float:
     """Check global claims and, when scoped, that warehouse's physical capacity.
 
     Called after the common item lock. Taking the minimum counts each claim
@@ -777,7 +777,7 @@ def create_material_reservations(
             warehouse_id = int(batch.warehouse_id)
             available = min(
                 available_stock_for_batch(db, int(batch.id)),
-                _available_reservation_item_capacity(db, item_id, warehouse_id),
+                available_reservation_item_capacity(db, item_id, warehouse_id),
             )
             if quantity > available + EPSILON:
                 raise HTTPException(
@@ -787,7 +787,7 @@ def create_material_reservations(
         else:
             if warehouse_id is not None and not db.get(Warehouse, warehouse_id):
                 raise HTTPException(404, f"Warehouse #{warehouse_id} not found")
-            available = _available_reservation_item_capacity(db, item_id, warehouse_id)
+            available = available_reservation_item_capacity(db, item_id, warehouse_id)
             if quantity > available + EPSILON:
                 raise HTTPException(
                     409,

@@ -2,6 +2,10 @@
 
 Last updated: 2026-10-05
 
+## Ismail full owner audit 2026-10-05
+
+- The full owner audit reproduced an ST02 gap: a batch issue could reduce stock below an item-only reservation. PR #279 now extends common item locking and capacity floors to batch/batchless outgoing movements, with fractional, warehouse and two-connection PostgreSQL regressions; the movement file is mandatory in CI. [Owner and team audit](audit-evidence/team-owner-audit-20261005.md) covers all 37 original tasks and records actual delivery: 32 Dilmurod task PRs merged, SEC04 pushed/unmerged, five other Dilmurod tasks without delivery, and 34 Mirshoir tasks without linked delivery after PERF32 was submitted by Dilmurod. This does not claim nobody worked privately. No production change occurred.
+
 ## Ismail code completion 2026-10-05
 
 - [PR #279](https://github.com/Shmirzaev/Milana-ERP/pull/279) targets `clone_main`, reconciled with `f61262dd`. Dedicated worktree `C:/Users/ismoi/OneDrive/Desktop/remote_work/milana_ERP/.codex-work/ismail-completion`; local branch `codex/ismail-completion`, proposal branch `codex/ismail-review-fixes`. No proposal merge or deployment performed.
@@ -9,7 +13,7 @@ Last updated: 2026-10-05
 - Five reproduced overbooking failures are fixed. The final affected run passed 122 tests with PostgreSQL enabled, including sequential orders, ordered two-connection races, warehouse-less claims, whole-payload rollback, legitimate capacity, consumed/released arithmetic and all five QC states for pinned/unpinned requirements. Normal/strict TypeScript, merged purchasing-page lint, Ruff and diff checks passed. Full GitHub CI validates the updated source; current head results are linked from the PR.
 - Earlier source `ee914002` passed full backend (2,753), PostgreSQL schema/reservation (95), deployment observer (11), frontend and migration/concurrency gates before these stock changes. Those counts are historical, not the final updated head's result. Pricing browser paging/retry/visibility/offline checks and purchase receipt recovery were also passed locally.
 - Forward migration 0138 follows 0137, validates catalog identities before changes, removes two redundant unique indexes plus five equivalent FKs, and creates nine declared HR indexes. ORM alignment resolves 23 retained baseline entries; 94 accepted normalized differences remain. Global ORM parity is not claimed. Historical revisions are unchanged.
-- Purchasing counter fix independently landed on clone_main at `e79f0918`. The concurrent merge retained that page and removed duplicate merged route declarations/filters. Tracker: 32 original Ismail tasks Done, five Review, plus the additional QC/archive finding Review. No Ismail implementation remains Open/Partial/Blocked. [Audit report](audit-evidence/ismail-completion-20261005.md) contains evidence and limits.
+- Purchasing counter fix independently landed on clone_main at `e79f0918`. The concurrent merge retained that page and removed duplicate merged route declarations/filters. Tracker after full owner audit: 31 original Ismail tasks Done, six Review (ST02 reopened and fixed), plus the additional QC/archive finding Review. No Ismail implementation remains Open/Partial/Blocked. [Audit report](audit-evidence/ismail-completion-20261005.md) contains evidence and limits.
 - Latest shared production record: active blue `20261005_070406`, application `25a7dd1cff77b4b180181da1db0f8780f1c7675e`, rollback green `20261005_063643`, schema 0137; read from shared records, not freshly verified by this task. No production migration, permission change or business-data write occurred. Live 0138 still requires catalog/lock assessment, verified backup and D2 approval through DEPLOYMENT.md. OPS02/OPS03 live verification and D1 historical profit remain separate follow-ups.
 
 ## Ismail review follow-up prepared (2026-10-04; not deployed)

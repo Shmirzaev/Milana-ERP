@@ -557,6 +557,67 @@ def test_rejected_movement_leaves_batch_ledger_and_audit_unchanged(client, auth_
 # ===== PostgreSQL: the batch lock must actually serialize against a reserve =====
 
 
+@pytest.mark.parametrize("warehouse_scoped", [False, True])
+@pytest.mark.parametrize("batched", [False, True])
+@pytest.mark.parametrize("movement_type", ["issue", "consume", "transfer"])
+def test_item_only_claim_blocks_outgoing_movements(client, auth_headers, warehouse_scoped, batched, movement_type):
+    item_id, batch_id, warehouse_id = _seeded_batch(client, auth_headers, quantity=10)
+    _reserve(item_id=item_id, quantity=10, stock_batch_id=None,
+             warehouse_id=warehouse_id if warehouse_scoped else None)
+    destination = _create_other_warehouse(client, auth_headers, name=f"ST02 destination {uuid4().hex[:8]}")
+    with SessionLocal() as db:
+        before = db.query(StockMovement).filter_by(item_id=item_id).count()
+    response = _move(
+        client, auth_headers, item_id=item_id, batch_id=batch_id if batched else None,
+        from_warehouse_id=warehouse_id, to_warehouse_id=destination if movement_type == "transfer" else None,
+        movement_type=movement_type, quantity=10 if movement_type == "transfer" else 1,
+    )
+    assert response.status_code == 409, response.text
+    with SessionLocal() as db:
+        assert float(db.get(StockBatch, batch_id).quantity) == 10
+        assert db.query(StockMovement).filter_by(item_id=item_id).count() == before
+
+
+@pytest.mark.parametrize("warehouse_scoped", [False, True])
+@pytest.mark.parametrize("batched", [False, True])
+def test_movement_preserves_exact_item_only_claim_floor(client, auth_headers, warehouse_scoped, batched):
+    from app.services.inventory import current_stock_for_item
+
+    item_id, batch_id, warehouse_id = _seeded_batch(client, auth_headers, quantity=10)
+    _reserve(item_id=item_id, quantity=4, stock_batch_id=None,
+             warehouse_id=warehouse_id if warehouse_scoped else None)
+    response = _move(client, auth_headers, item_id=item_id, batch_id=batch_id if batched else None,
+                     from_warehouse_id=warehouse_id, quantity=6)
+    assert response.status_code == 201, response.text
+    with SessionLocal() as db:
+        assert current_stock_for_item(db, item_id) == 4
+
+
+def test_other_warehouse_claim_does_not_block_free_stock(client, auth_headers):
+    item_id, batch_id, warehouse_id = _seeded_batch(client, auth_headers, quantity=10)
+    other = _create_other_warehouse(client, auth_headers, name=f"ST02 other {uuid4().hex[:8]}")
+    _receive(client, auth_headers, item_id=item_id, quantity=10, warehouse_id=other)
+    _reserve(item_id=item_id, quantity=10, stock_batch_id=None, warehouse_id=other)
+    response = _move(client, auth_headers, item_id=item_id, batch_id=batch_id,
+                     from_warehouse_id=warehouse_id, quantity=10)
+    assert response.status_code == 201, response.text
+
+
+@pytest.mark.parametrize("warehouse_scoped", [False, True])
+@pytest.mark.parametrize("batched", [False, True])
+def test_fractional_movement_preserves_exact_claim_floor(client, auth_headers, warehouse_scoped, batched):
+    from app.services.inventory import current_stock_for_item
+
+    item_id, batch_id, warehouse_id = _seeded_batch(client, auth_headers, quantity=0.3)
+    _reserve(item_id=item_id, quantity=0.1, stock_batch_id=None,
+             warehouse_id=warehouse_id if warehouse_scoped else None)
+    response = _move(client, auth_headers, item_id=item_id, batch_id=batch_id if batched else None,
+                     from_warehouse_id=warehouse_id, quantity=0.2)
+    assert response.status_code == 201, response.text
+    with SessionLocal() as db:
+        assert current_stock_for_item(db, item_id) == pytest.approx(0.1)
+
+
 @pytest.fixture
 def movement_postgres_engine():
     raw_url = os.environ.get("STABILIZATION_POSTGRES_URL")
@@ -687,11 +748,16 @@ def _reservation_style_lock(db, batch_id: int):
     return _lock_batch_query(db, batch_id).filter(StockBatch.id == batch_id).one()
 
 
-def test_postgres_claim_committed_while_movement_waits_still_blocks_it(movement_postgres_engine):
+@pytest.mark.parametrize("claim_scope", ["batch", "warehouse", "global"])
+@pytest.mark.parametrize("batched_movement", [False, True])
+def test_postgres_claim_committed_while_movement_waits_still_blocks_it(
+    movement_postgres_engine, claim_scope, batched_movement,
+):
     """A claim that lands during the movement's lock wait must raise the floor.
 
     Connection one mirrors ``create_material_reservations``: it takes
-    ``FOR UPDATE OF stock_batches`` and writes a reservation without committing.
+    batch-before-item locks for a pinned claim, or the common item lock for an
+    item-only claim, and writes a reservation without committing.
     Connection two issues 5 kg against a 10 kg batch and may only read the
     reservation sum after the claim commits, so the move is rejected and the
     batch is untouched.
@@ -723,10 +789,15 @@ def test_postgres_claim_committed_while_movement_waits_still_blocks_it(movement_
         order_id = order.id
 
     with session_factory() as first:
-        _reservation_style_lock(first, batch_id)
+        from app.services.inventory import _lock_item_query
+
+        if claim_scope == "batch":
+            _reservation_style_lock(first, batch_id)
+        _lock_item_query(first, item_id).filter(Item.id == item_id).one()
         first.add(MaterialReservation(
             reservation_no=f"ST02-CLM-MR-{marker}", production_order_id=order_id,
-            item_id=item_id, stock_batch_id=batch_id, warehouse_id=warehouse_id,
+            item_id=item_id, stock_batch_id=batch_id if claim_scope == "batch" else None,
+            warehouse_id=None if claim_scope == "global" else warehouse_id,
             reserved_quantity=8, consumed_quantity=0, released_quantity=0, unit="kg",
             status="reserved", reservation_type="material", source="manual",
         ))
@@ -741,7 +812,7 @@ def test_postgres_claim_committed_while_movement_waits_still_blocks_it(movement_
                 try:
                     transfer_stock(
                         StockMovementIn(
-                            movement_type="issue", item_id=item_id, batch_id=batch_id,
+                            movement_type="issue", item_id=item_id, batch_id=batch_id if batched_movement else None,
                             from_warehouse_id=warehouse_id, quantity=5, unit="kg",
                         ),
                         second, current=_pg_user(), idempotency_key=None,

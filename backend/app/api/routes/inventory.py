@@ -53,6 +53,7 @@ from app.services.inventory import (
     accessory_issue_summary,
     auto_reserve_materials_for_production_order,
     available_stock_for_batch,
+    available_reservation_item_capacity,
     categories_for_group,
     consume_material_reservation,
     create_material_reservations,
@@ -1381,8 +1382,19 @@ def transfer_stock(
         movement_data[warehouse_field] = batch.warehouse_id
 
         if outgoing:
+            # Match reservation creation's batch-before-item lock order. Item-only
+            # claims can commit while the batch is locked, so read all capacity
+            # only after taking the common item lock as well.
+            db.execute(
+                select(Item).where(Item.id == item.id)
+                .with_for_update(of=Item, key_share=True)
+                .execution_options(populate_existing=True)
+            ).scalar_one()
             reserved = Decimal(str(reserved_stock_for_batch(db, batch.id)))
-            if quantity > batch.quantity - reserved:
+            item_capacity = Decimal(str(available_reservation_item_capacity(db, item.id, batch.warehouse_id))).quantize(
+                Decimal("0.0001"),
+            )
+            if quantity > min(batch.quantity - reserved, item_capacity):
                 raise HTTPException(409, "Movement quantity exceeds available batch stock")
             if payload.movement_type == "transfer":
                 if payload.to_warehouse_id is None:
@@ -1401,6 +1413,17 @@ def transfer_stock(
             if batch.quantity + quantity >= Decimal("10000000000"):
                 raise HTTPException(400, "Resulting batch quantity is too large")
             batch.quantity += quantity
+    elif payload.movement_type in ("issue", "consume", "transfer"):
+        db.execute(
+            select(Item).where(Item.id == item.id)
+            .with_for_update(of=Item, key_share=True)
+            .execution_options(populate_existing=True)
+        ).scalar_one()
+        available = Decimal(str(available_reservation_item_capacity(db, item.id, payload.from_warehouse_id))).quantize(
+            Decimal("0.0001"),
+        )
+        if quantity > available:
+            raise HTTPException(409, "Movement quantity exceeds available item stock")
 
     mv = StockMovement(**movement_data, created_by=current.id)
     db.add(mv); db.flush()

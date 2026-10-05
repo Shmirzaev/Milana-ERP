@@ -2,7 +2,7 @@
 
 
 
-**Updated: 2026-10-05. Target: `clone_main`.** **111 implementation rows** = 73 open + 6 in review + 32 completed owner-approved changes + 0 partial + 0 blocked, plus **7 operations follow-ups** and **2 pending decisions** in the Shavkat queue below. **Ismail has 0 open, partial or blocked implementation rows; five original tasks and the additional reservation-planning finding are in Review.** **All 127 develop audit findings are accounted for below**; tasks and original findings are different counts. Assessments are source-based; current regressions, performance measurements and live operations remain to be verified. **`clone_main` is shared**: other engineers merge into it concurrently, so re-sync and rebase before landing and re-run affected tests afterwards. Counts are derived from the per-row Tracking cells; if a header total stops matching `open + review + blocked + done + partial`, the header is stale and the rows win.
+**Updated: 2026-10-05. Target: `clone_main`.** **111 implementation rows** = 73 open + 7 in review + 31 completed owner-approved changes + 0 partial + 0 blocked, plus **7 operations follow-ups** and **2 pending decisions** in the Shavkat queue below. **Ismail has 0 open, partial or blocked implementation rows; six original tasks and the additional reservation-planning finding are in Review.** **All 127 develop audit findings are accounted for below**; tasks and original findings are different counts. Assessments are source-based; current regressions, performance measurements and live operations remain to be verified. **`clone_main` is shared**: other engineers merge into it concurrently, so re-sync and rebase before landing and re-run affected tests afterwards. Counts are derived from the per-row Tracking cells; if a header total stops matching `open + review + blocked + done + partial`, the header is stale and the rows win.
 
 
 
@@ -34,7 +34,7 @@
 
 
 
-Assignments set on 2026-10-03. Each implementation task has one engineering owner responsible for its backend, frontend and regression checks. Names below are team names, not inferred GitHub handles. Open counts below are live per-status tallies of the Tracking cells, not the original allocation; the current rows record 73 Open, 1 Review, 1 Blocked, 31 Done and 5 Partial. Ismail has 31 Done, 1 Review and 5 Partial original tasks plus the separate D4b-blocked finding; no original task remains labelled Open.
+Assignments set on 2026-10-03. Each task has one owner for backend, frontend and regression checks. The Tracking cells currently record 73 Open, 7 Review and 31 Done; Ismail has 31 Done and six Review original tasks, plus the separate QC/archive finding in Review. Other-owner Open labels are stale delivery evidence: the GitHub audit found 32 Dilmurod task-linked PRs merged, one further SEC04 branch pushed, and PERF32 delivered by Dilmurod in Mirshoir’s allocation. [Full owner audit](docs/audit-evidence/team-owner-audit-20261005.md) separates tracker labels from actual delivery. Names are team assignments; account attribution uses commit identity.
 
 
 
@@ -48,7 +48,7 @@ Assignments set on 2026-10-03. Each implementation task has one engineering owne
 
 | **Mirshoir** | Production and fulfillment: production, cutting, sewing, bundles, packages, finished goods, forecasting, traceability and shipment package locking. | **35** | `OPS01`, `OPS07` |
 
-| **Shavkat** | Business logic decisions and expected business behavior only. Clarifies policy and acceptance criteria with the responsible engineer; no engineering, migration, testing or operations tasks assigned. | **0** (5 decisions queued below) | None |
+| **Shavkat** | Business logic decisions and expected business behavior only. Clarifies policy and acceptance criteria with the responsible engineer; no engineering, migration, testing or operations tasks assigned. | **0** (2 decisions queued below) | None |
 
 
 
@@ -144,7 +144,7 @@ The Tracking cells below are the authoritative per-task assignments; refer to st
 
 | 29 | **ST01** | Purchase receipt retries add stock twice. | Add caller/order/payload-scoped receipt identity, replay and locking so retries create one receipt. | `B:api/routes/purchasing.py:168`; `3881177e`, `641c0580` | Done · @Ismail · [`6fb88ee3`](https://github.com/Shmirzaev/Milana-ERP/commit/6fb88ee3) + [`4bea7a6c`](https://github.com/Shmirzaev/Milana-ERP/commit/4bea7a6c) · reproduced 10 failed/3 passed → 13 passed; +323 adjacent; real PostgreSQL two-connection receipt-concurrency tests pass; independent review APPROVE, its `updated_at` finding fixed in `4bea7a6c`. **Depends on `UI03-PURCHASE`:** the frontend still sends no `Idempotency-Key`, so the receiving UI will keep double-adding until a key is sent. |
 
-| 30 | **ST02** | Stock movement does not update or validate its batch. | Mutate batch and ledger atomically; validate item/unit/warehouse, claims and Eco custody. | `B:api/routes/inventory.py:1293`; `3881177e` | Done · @Ismail · [`c40c9dfb`](https://github.com/Shmirzaev/Milana-ERP/commit/c40c9dfb) · all six defect classes reproduced on the base (21 failed, every invalid request returned 201 and committed a bogus ledger row) → 24 passed; the batch was only ever used to satisfy the FK, never locked, compared or decremented; 148 adjacent passing and the DB01 guard still 13 passed with all three surviving `and not force` overrides intact; two real two-connection PostgreSQL tests including a reserve-committed-mid-wait rejection. **Behaviour change to confirm with the UI owner:** `adjustment` now increments the batch, and only a whole unreserved batch can be transferred, since a batch has one location. |
+| 30 | **ST02** | Stock movement does not update or validate its batch. | Mutate batch and ledger atomically; validate item/unit/warehouse, claims and Eco custody. | `B:api/routes/inventory.py:1293`; `3881177e` | Review · @Ismail · [PR #279](https://github.com/Shmirzaev/Milana-ERP/pull/279) · **Reopened by full owner audit:** item-only claims did not protect outgoing batch movements (10 claimed, stock fell to 9). The extension applies common item locks and global/warehouse floors to batch and batchless outgoing moves, retaining exact fractional capacity. Original fix history: [`c40c9dfb`](https://github.com/Shmirzaev/Milana-ERP/commit/c40c9dfb) · all six defect classes reproduced on the base (21 failed, every invalid request returned 201 and committed a bogus ledger row) → 24 passed; the batch was only ever used to satisfy the FK, never locked, compared or decremented; 148 adjacent passing and the DB01 guard still 13 passed with all three surviving `and not force` overrides intact; two real two-connection PostgreSQL tests including a reserve-committed-mid-wait rejection. **Behaviour change to confirm with the UI owner:** `adjustment` now increments the batch, and only a whole unreserved batch can be transferred, since a batch has one location. |
 
 | 31 | **ST03** | Batchless movements leak into other warehouse balances. | Scope batchless movement aggregation by warehouse and transfer direction without double counting. | `B:services/inventory.py:80`; `3881177e` | Done · @Ismail · [`19c42c74`](https://github.com/Shmirzaev/Milana-ERP/commit/19c42c74) · batches were filtered by warehouse but batchless movements were aggregated across every warehouse, so a return into B raised A's balance and an issue out of B debited A; `transfer` appeared in neither direction set and was dropped entirely; reproduced 4 failed / 11 passed on the base, where the 11 are controls proving the simple paths already worked → 15 passed; adjacent stock/reservation/inventory/accessory/movement/cutting/warehouse slice with PostgreSQL on: 741 passed, 0 failed, 0 skipped. |
 
@@ -397,7 +397,7 @@ Two business/operations decisions remain: D1 historical profit and D2 production
 
 | 4 | **RES-PLAN-ARCHIVE** | D4a/D4b implemented; review/merge remain. | Review · @Ismail · [PR #279](https://github.com/Shmirzaev/Milana-ERP/pull/279) |
 
-| 5 | **PERF24 / PERF26 / PERF34** | **RESOLVED and implemented** under D5 — see the Closed rows above. | Closed · @Ismail. Remaining gaps: no concurrent-request lock test on PERF26, and migration `0137` was never executed against a live database. |
+| 5 | **PERF24 / PERF26 / PERF34** | **RESOLVED and implemented** under D5 — see the Closed rows above. | Closed · @Ismail. Remaining verification gap: no concurrent-request lock test on PERF26. Current shared production records report schema `0137`; this audit does not freshly verify live migration execution. |
 | 6 | **ST11** | D6 implemented; review/merge remain. | **Review** — shared capacity, lock ordering and PostgreSQL overbooking proof in PR #279. |
 
 

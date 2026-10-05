@@ -71,6 +71,7 @@ jobs:
           app/tests/test_ismail_schema_completion.py app/tests/test_migration_preflight.py
           app/tests/test_db08_beyka_orm_parity.py app/tests/test_reservation_overclaim.py
           app/tests/test_reservation_plan_query_growth.py
+          app/tests/test_stock_movement_batch_integrity.py
       - name: PostgreSQL migration, concurrency and model numbering regression
         env:
           PYTHONPATH: ./backend
