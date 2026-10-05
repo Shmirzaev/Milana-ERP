@@ -2,6 +2,13 @@
 
 Last updated: 2026-10-05
 
+## DINAR 4582 restored to owner-confirmed stock (2026-10-05)
+
+- Owner explicitly confirmed 300 kg / 10 rolls for DINAR 4582, overriding the workbook zero balance. Restored existing archived batch 1461 (fabric 87 `30/1P_CMP SUPREM`) at 06:44:00 UTC through the material restoration handler, followed by the batch handler for roll count. It is active with QC pending. Identity, existing photo, date and historical receipt/usage/reservation records remain. ERP restoration clears the obsolete 24-roll weight array; individual weights for the newly confirmed ten rolls were not invented. No duplicate batch was created, and all 1,332 other batches were preserved.
+- One 300 kg return movement references `StockBatchRestore`. Completion audit 34712; plan SHA-256 `6d15f67be49954d9fcc10df7cd498cc71e9f673ab74b199b3537585967a348ec`. Fresh database and public API readback confirmed quantity, rolls and cleared archive fields; transaction preservation guards, new audit segment and all four immediate health checks passed. Plan assertions and diff review passed; no extra test suite or monitoring.
+- Verified backup `/opt/milana-erp/shared/backups/milana_erp_pre_fabric_reconcile_20261005_064338.dump`: 65,110,695 bytes, mode 0600, 1,218 restore objects; SHA-256 `742e3a6cca77e45a337b46d39b3956046e711388b8054e8c1ec16026662c4393`, restore-list SHA-256 `85fcae5306631e380f1cecbcf31c9201be0a70cbbddfa92e847088ed6789f07e`.
+- Live data change only: both production manifests verified active blue `20261005_060945`, rollback green `20261005_043438`, schema `0137_perf34_shipment_indexes`; no deployment/restart/migration. Operation commit `1b262a86` pushed to `clone_main` and `codex/restore-4582-20261005`. Dedicated worktree `C:/ERP/.codex-work/restore-4582-20261005`, private evidence in ignored `outputs/fabric-reconciliation/`; legacy checkout preserved and context mirrored to Obsidian.
+
 ## Owner-requested BSO cleanup completed (2026-10-05)
 
 - Deleted the remaining BSO groups **0032–0038** and exactly **98 production orders**, including protected orders **PO-0148, PO-0156, PO-0225 and PO-0240** after the owner explicitly confirmed their removal. BSO 0001–0031 had already been removed by the September cleanup. For **BSO 0042**, deleted only the three pictured orders **PO-0270, PO-0271 and PO-0272**. Preserved its parent and **PO-0283 / PO-0291**; PO-0291 was created concurrently during preparation. BSO 0039–0041 and 0043–0044 remain untouched.
