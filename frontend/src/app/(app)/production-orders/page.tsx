@@ -19,10 +19,7 @@ type PO = {
   deadline: string | null;
 };
 
-const STATUSES = [
-  "new", "planning", "waiting_material", "cutting", "printing", "sewing",
-  "packaging", "finished_storage", "delivered", "closed", "cancelled",
-];
+
 
 export default function ProductionOrdersPage() {
   const { me } = useMe();
@@ -48,7 +45,6 @@ export default function ProductionOrdersPage() {
     setEditMsg("");
     try {
       await api.patch(`/api/production-orders/${editing.id}`, {
-        status: edit.status,
         planned_quantity: numberOrZero(edit.planned_quantity),
         deadline: edit.deadline ? new Date(edit.deadline).toISOString() : null,
       });
@@ -97,9 +93,7 @@ export default function ProductionOrdersPage() {
         <form onSubmit={saveEdit} className="space-y-3">
           <div>
             <label className="label">{t("field.status")}</label>
-            <select className="input" value={edit.status} onChange={(e) => setEdit({ ...edit, status: e.target.value })}>
-              {STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s, t)}</option>)}
-            </select>
+            <div className="input">{statusLabel(edit.status, t)}</div>
           </div>
           <div>
             <label className="label">{t("field.plannedQty")}</label>
