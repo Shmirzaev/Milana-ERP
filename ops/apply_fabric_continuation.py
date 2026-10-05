@@ -7,11 +7,11 @@ from decimal import Decimal
 from pathlib import Path
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from app.api.routes.inventory import create_item, update_item, receive_stock, update_batch, release_reservation
+from app.api.routes.inventory import create_item, update_item, receive_stock, update_batch, release_reservation, restore_material_batch
 from app.core.config import settings
 from app.core.deps import user_permissions
 from app.models import AuditLog, User, StockBatch, MaterialReservation, Item
-from app.schemas.inventory import ItemIn, StockBatchIn, StockBatchUpdate
+from app.schemas.inventory import ItemIn, StockBatchIn, StockBatchUpdate, StockBatchRestoreIn
 from app.services.audit import log_action
 from app.services.image_storage import convert_image_to_webp, prebuild_webp_thumbnails
 from app.services.inventory import material_reservation_status_for_production_order
@@ -44,7 +44,13 @@ def execute(db, actor, plan, plan_hash, image_urls):
             before_kg=str(batch.quantity)
             values=dict(a['values'])
             if 'quantity' in values:values['quantity']=float(values['quantity'])
-            update_batch(bid,StockBatchUpdate(**values),db,actor,force=False)
+            if a.get('restore_reason'):
+                assert Decimal(before_kg)==0 and batch.archived_at is not None
+                restore_material_batch(bid,StockBatchRestoreIn(quantity=Decimal(a['values']['quantity']),
+                    reason=a['restore_reason']),db,actor)
+                update_batch(bid,StockBatchUpdate(piece_count=values['piece_count']),db,actor,force=False)
+            else:
+                update_batch(bid,StockBatchUpdate(**values),db,actor,force=False)
         else:
             iid=item_ids.get(a['item_ref'],a['item_ref'])
             response=receive_stock(StockBatchIn(item_id=iid,batch_no=a['batch_no'],supplier_id=a['supplier_id'],
@@ -109,7 +115,9 @@ def verify(before,after,plan,changes,new_items):
         if delta:
             expected_count+=1
             assert len(movement)==1 and Decimal(movement[0]['quantity'])==abs(delta)
-            assert movement[0]['movement_type']==('receive' if c['kind']=='receive' else 'issue' if delta<0 else 'adjustment')
+            restoration=plan['actions'][c['index']].get('restore_reason')
+            assert movement[0]['movement_type']==('return' if restoration else 'receive' if c['kind']=='receive' else 'issue' if delta<0 else 'adjustment')
+            if restoration:assert movement[0]['reference_type']=='StockBatchRestore'
         else:assert not movement
     assert len(added)==expected_count
     r_after={r['id']:r for r in after['reservations']};released={r['id']:r for r in plan['reservation_releases']}
