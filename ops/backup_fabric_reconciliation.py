@@ -16,7 +16,7 @@ def run(args, **kwargs):
 probe = ('import json; from sqlalchemy.engine import make_url; from app.core.config import settings; '
          'u=make_url(settings.DATABASE_URL); print(json.dumps(dict(PGHOST=u.host,PGPORT=str(u.port or 5432),'
          'PGUSER=u.username,PGPASSWORD=u.password,PGDATABASE=u.database)))')
-cfg = json.loads(run(['docker', 'exec', 'milana-backend-green', 'python', '-c', probe]))
+cfg = json.loads(run(['docker', 'exec', 'milana-backend-blue', 'python', '-c', probe]))
 name = 'milana_erp_pre_fabric_reconcile_' + datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S') + '.dump'
 directory = '/opt/milana-erp/shared/backups'
 env = dict(os.environ, **cfg)
@@ -32,7 +32,7 @@ listing = run(['docker', 'run', '--rm', '--network', 'none', '-v', directory+':/
 objects = sum(bool(line.strip()) and not line.startswith(b';') for line in listing.splitlines())
 metadata = json.loads(run(['docker', 'run', '--rm', '--user', '0', '--network', 'none', '--read-only',
     '-v', directory+':/backup:ro', '--entrypoint', 'python',
-    'ghcr.io/shmirzaev/milana-erp-backend:20261005_043438', '-c',
+    'ghcr.io/shmirzaev/milana-erp-backend:20261005_060945', '-c',
     'import json,hashlib,pathlib; p=pathlib.Path("/backup/'+name+'"); '
     'print(json.dumps(dict(bytes=p.stat().st_size,mode=oct(p.stat().st_mode & 0o777),sha256=hashlib.sha256(p.read_bytes()).hexdigest())))']))
 assert metadata['bytes'] > 0 and objects > 100 and metadata['mode'] == '0o600'
