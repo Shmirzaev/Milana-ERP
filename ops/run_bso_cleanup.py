@@ -11,7 +11,7 @@ SSH = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-i',
        str(Path.home()/'.ssh/milana_erp_deploy_ed25519'), 'admilana@172.16.10.4']
 
 
-def remote(source, command='docker exec -i milana-backend-green python -'):
+def remote(source, command='docker exec -i milana-backend-blue python -'):
     result = subprocess.run(SSH + [command], input=source.encode(), capture_output=True)
     if result.returncode:
         (OUT / 'error.txt').write_bytes(result.stderr)
@@ -25,7 +25,7 @@ expected=EXPECTED
 name=pathlib.Path(expected['path']).name
 directory='/opt/milana-erp/shared/backups'
 cmd=['docker','run','--rm','--user','0','--network','none','--read-only','-v',directory+':/backup:ro']
-meta=json.loads(subprocess.check_output(cmd+['--entrypoint','python','ghcr.io/shmirzaev/milana-erp-backend:20261005_043438','-c','import pathlib,json,hashlib;p=pathlib.Path('+repr('/backup/'+name)+');print(json.dumps(dict(bytes=p.stat().st_size,sha256=hashlib.sha256(p.read_bytes()).hexdigest())))']))
+meta=json.loads(subprocess.check_output(cmd+['--entrypoint','python','ghcr.io/shmirzaev/milana-erp-backend:20261005_060945','-c','import pathlib,json,hashlib;p=pathlib.Path('+repr('/backup/'+name)+');print(json.dumps(dict(bytes=p.stat().st_size,sha256=hashlib.sha256(p.read_bytes()).hexdigest())))']))
 listing=subprocess.check_output(cmd+['postgres:16-alpine','pg_restore','--list','/backup/'+name])
 assert meta['sha256']==expected['sha256'] and meta['bytes']==expected['bytes']
 assert hashlib.sha256(listing).hexdigest()==expected['restore_list_sha256']
@@ -39,8 +39,8 @@ def verify_release():
         command = 'readlink -f /opt/milana-erp/current; sha256sum /opt/milana-erp/current/SOURCE_MANIFEST.sha256'
         result = subprocess.run(SSH[:-1]+['admilana@'+host,command],capture_output=True,check=True)
         lines = result.stdout.decode().splitlines()
-        assert lines[0]=='/opt/milana-erp/releases/20261005_043438'
-        assert lines[1].split()[0]=='f653cfef6db2b0dc2a58bd747f856cc784c5f16a62c782d2aad787093a81d465'
+        assert lines[0]=='/opt/milana-erp/releases/20261005_060945'
+        assert lines[1].split()[0]=='20014935978d403132a2c3582546a0185d5ba3bcd6c16201fd005c556d4f0c81'
 
 
 if __name__ == '__main__':
@@ -51,7 +51,7 @@ if __name__ == '__main__':
         (OUT/'inspection.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
         print(json.dumps({k:result[k] for k in ('groups','counts','blocked','revision')}))
     elif action == 'backup':
-        source = (ROOT/'ops/backup_fabric_reconciliation.py').read_text().replace('milana_erp_pre_fabric_reconcile_', 'milana_erp_pre_bso_cleanup_')
+        source = (ROOT/'ops/backup_fabric_reconciliation.py').read_text().replace('milana_erp_pre_fabric_reconcile_', 'milana_erp_pre_bso_cleanup_').replace('milana-backend-green', 'milana-backend-blue').replace('20261005_043438', '20261005_060945')
         result = remote(source, 'python3 -')
         (OUT/'backup.json').write_text(json.dumps(result, indent=2))
         print(json.dumps(result))
@@ -88,7 +88,7 @@ if __name__ == '__main__':
         command = ('docker run --rm -i --user 0 --network none --read-only '
                    '-v /opt/milana-erp/shared/backups:/backup '
                    '-v /app/storage/barcodes:/barcodes' + (':ro' if action == 'archive' else '') +
-                   ' --entrypoint python ghcr.io/shmirzaev/milana-erp-backend:20261005_043438 -')
+                   ' --entrypoint python ghcr.io/shmirzaev/milana-erp-backend:20261005_060945 -')
         result = remote(code, command)
         (OUT/(action+'.json')).write_text(json.dumps(result, indent=2))
         print(json.dumps(result))
