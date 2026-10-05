@@ -2,6 +2,16 @@
 
 Last updated: 2026-10-05
 
+## Paid process Excel layout and approval area deployed (20261005_070406; 2026-10-05)
+
+- LIVE: backend/frontend blue `20261005_070406`, application commit `25a7dd1cff77b4b180181da1db0f8780f1c7675e`. Both source manifests, image revisions, symlinks and runtime slots agree; green `20261005_063643` remains running for rollback. Database remains `0137_perf34_shipment_indexes`; migration-to-head was a no-op, startup seeding was disabled and deployment changed no business records.
+- Process QR Excel now contains only No., Section, Operation name and Rate / pc, matching the owner's screenshot. Model, factory, currency and available order remain in the compact heading. Added restrained table styling, readable wrapped names, numeric rates, repeating headers and A4 portrait printing. Removed selection, code, copies and division from the workbook display without changing stored operations or the QR workflow.
+- A SUM formula totals all exported Rate / pc values at the end of the table. The final approval area has blank Name and Signature lines under Approved by, localized in English/Russian/Uzbek. These are printable fields only; exporting does not approve or save any business record.
+- Three focused feature checks, strict TypeScript, scoped ESLint, Ruff and diff review passed. Rendered the screenshot's 20-row example and verified its 3,700 UZS total and approval layout. Immutable release CI [37275667688](https://github.com/Shmirzaev/Milana-ERP/actions/runs/37275667688) passed. All four immediate health/login probes and runtime/database checks passed. Extra browser QA, performance benchmarking and extended monitoring were omitted under the owner's existing instructions.
+- Source manifest `7a67d8586282eab81ad4a9792a4e2acf5c40aaf261774477fb564c21000dd75a`; archive SHA-256 `dba41c51929777ee17b53e282ff63adb37de92a3f4bb52fe185abbe01d411cdf`; 1137 exact Git source files verified. Backend image `ghcr.io/shmirzaev/milana-erp-backend@sha256:c0112283d97b0aa9bc14abd799faa8db1a79a223ac6e4751efd5bea73ed1670f`; frontend image `ghcr.io/shmirzaev/milana-erp-frontend@sha256:d3c72f7ce756f51adb73b65618d88b2547a43cd6843c6eb661b773a659a494f5`.
+- Verified backup `/opt/milana-erp/shared/backups/milana_erp_pre_20261005_070406.dump`: 64,669,344 bytes, mode 0600, 1218 restore objects; dump SHA-256 `609f8dd4f85500cab6651f3aeb8967417b48acb273a3c247b9c6daf7b0fb29e9`, restore-list SHA-256 `3f63a404d482b2f0c7339fab85c22e49418ad2739c25d5e0d515762d21d54b95`.
+- Pushed to `clone_main` and `codex/model-qolip-paid-export-20261005`; main unchanged. Continued in clean dedicated worktree `C:/ERP/.codex-work/model-qolip-paid-export-20261005`; evidence in ignored `outputs/excel-deployment/` and visual fixture in `outputs/export-layout/`. Legacy checkout preserved; earlier unrelated risks remain.
+
 ## Qolip model search and Process QR Excel export deployed (20261005_063643; 2026-10-05)
 
 - LIVE: backend/frontend green `20261005_063643`, application commit `abfa2707dc15aa9dc4ea1a26796c26effe8b65b6`. Both source manifests, image revisions, symlinks and runtime slots agree; blue `20261005_060945` remains running for rollback. Database remains `0137_perf34_shipment_indexes`; migration-to-head was a no-op and startup seeding was disabled. No business records were created or changed by deployment.

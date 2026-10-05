@@ -1,6 +1,6 @@
 {
-  "release": "20261005_063643",
-  "source_manifest_sha256": "e0a4e58583e4548d217827753c9173e3214122ebf49a3989068965700188df1a",
+  "release": "20261005_070406",
+  "source_manifest_sha256": "7a67d8586282eab81ad4a9792a4e2acf5c40aaf261774477fb564c21000dd75a",
   "database_revision": "0137_perf34_shipment_indexes",
-  "git_baseline_commit": "abfa2707dc15aa9dc4ea1a26796c26effe8b65b6"
+  "git_baseline_commit": "25a7dd1cff77b4b180181da1db0f8780f1c7675e"
 }
