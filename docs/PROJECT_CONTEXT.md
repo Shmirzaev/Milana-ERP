@@ -1,6 +1,13 @@
 # Milana ERP Project Context
 
-Last updated: 2026-10-05
+Last updated: 2026-10-06
+
+## FN06 caller-scoped generic retries (2026-10-06; branch validation only)
+
+- Authenticated user and selected-factory identity is bound to the request's SQLAlchemy session. Generic retries use the explicit operation scope, actor, factory and supplied key; all 28 existing HTTP replay call sites retain their signatures. The stored scope is a readable operation prefix plus a versioned full-identity SHA256 digest; supplied keys and payload fingerprints are unchanged. PostgreSQL transaction advisory locks serialize identical retries through commit/rollback while other users/factories have independent namespaces. Existing business-lock ordering is preserved.
+- Legacy rows are retained and inspected: a known other owner/factory cannot occupy the new namespace; same-owner results replay only with matching historical factory evidence and payload. Unknown legacy owner/factory requires operator review, preventing a lost response from causing a second write. Shipment reopening invalidates both legacy and versioned scan retries. Exact key encoding, compatibility rules and local PostgreSQL test setup are in `backend/docs/idempotency.md`.
+- Validation: cross-user/factory and concurrency regressions failed before the fix. The shared-caller slice passed 204 tests with real local PostgreSQL enabled; all six strengthened FN06 PostgreSQL cases passed, including a counter proving one business-write entry for concurrent identical retries and rollback recovery. The complete backend suite passed 2,926 tests with 205 optional skips; Ruff, compilation and frontend lint passed (zero lint errors, five inherited warnings). Local PDF tests used temporary Mac-font symlinks, removed before commit.
+- Prepared on `codex/fn06` from `origin/clone_main` `ee83ce03`. No migration, backfill, deployment or production connection. Existing recorded active/rollback releases below remain historical and were not verified during this repository-only task. The Windows/Obsidian mirror is inaccessible from this Mac.
 
 ## Mirshoir P1 repository fixes (2026-10-05; deployment pending)
 

@@ -120,7 +120,8 @@ def reopen_shipment(db: Session, sid: int, payload: ShipmentReopen, user: User) 
     for record in db.query(IdempotencyRecord).filter(IdempotencyRecord.scope.like("shipments.%")):
         response = record.response_json or {}
         if (response.get("shipment_id") == sid or response.get("id") == sid
-                or (record.scope == "shipments.scan-package" and response.get("package_id") in ids)):
+                or ((record.scope == "shipments.scan-package" or record.scope.startswith("shipments.scan-package:v2:"))
+                    and response.get("package_id") in ids)):
             record.request_hash = sha256(("shipment-reopened:" + record.request_hash).encode()).hexdigest()
     db.flush()
     for production_id in {p.production_order_id for p in packages if p.production_order_id}:

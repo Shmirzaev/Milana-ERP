@@ -11,6 +11,7 @@ from app.api.routes import shipments
 from app.db.session import SessionLocal
 from app.models import SalesOrder, Shipment, User
 from app.schemas.sales import ShipmentIn
+from app.services.idempotency import bind_idempotency_identity
 
 
 def ready_order():
@@ -24,6 +25,7 @@ def test_creation_locks_order_before_replay_and_duplicate_check(monkeypatch):
     oid = ready_order()
     with SessionLocal() as db:
         user = db.query(User).filter_by(email="fgs@example.com").one()
+        bind_idempotency_identity(db, user)
         payload = ShipmentIn(sales_order_id=oid)
         events = []
 

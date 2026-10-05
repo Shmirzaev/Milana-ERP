@@ -10,6 +10,7 @@ from app.core.security import decode_token
 from app.db.session import get_db
 from app.models import User
 from app.services.user_access import access_configured, apply_policy
+from app.services.idempotency import bind_idempotency_identity
 from app.services.factory_scope import (
     assigned_factory_code,
     available_factory_codes,
@@ -131,6 +132,7 @@ def get_current_user(
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired, please sign in again")
     bind_session_factory(user, payload.get("factory_code"))
     enforce_request_factory_scope(user, request)
+    bind_idempotency_identity(db, user)
     return user
 
 

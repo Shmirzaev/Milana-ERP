@@ -4,7 +4,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, FinishedGoodsStock, Invoice, Package, Payment, SalesOrder, Shipment, ShipmentScanLog
+from app.models import AuditLog, FinishedGoodsStock, IdempotencyRecord, Invoice, Package, Payment, SalesOrder, Shipment, ShipmentScanLog
 from app.services.payments import create_invoice_payment
 from app.tests.test_manual_pack_dispatch import receive, shipment
 from app.tests.test_package_workflows import warehouse, package_qr  # noqa: F401
@@ -14,6 +14,30 @@ from app.tests.test_shipment_review import correct, dispatch, review_amount  # n
 def payload(result):
     return {"reason": "All goods returned for correction", "packages_returned": True,
             "expected_shipped_at": result["shipped_at"]}
+
+
+def test_reopen_invalidates_legacy_and_scoped_scan_results_with_only_package_identity(client, warehouse):
+    run = receive(client, warehouse)
+    sid = shipment(client, warehouse, None)
+    url = f"/api/shipments/{sid}"
+    for pid in run["package_ids"]:
+        scanned = client.post(url + "/scan-package", headers=warehouse, json={"code": package_qr(pid)})
+        assert scanned.status_code == 200 and scanned.json()["ok"], scanned.text
+    shipped = client.post(url + "/ship", headers=warehouse)
+    assert shipped.status_code == 200, shipped.text
+    with SessionLocal() as db:
+        scopes = ["shipments.scan-package", "shipments.scan-package:v2:" + "a" * 64, "shipments.other:v2:" + "b" * 64]
+        records = [IdempotencyRecord(scope=scope, key="fn06-invalidation", request_hash="c" * 64,
+                                    response_json={"package_id": run["package_ids"][0]}) for scope in scopes]
+        db.add_all(records)
+        db.commit()
+        ids = [record.id for record in records]
+    reopened = client.post(url + "/reopen", headers=warehouse, json=payload(shipped.json()))
+    assert reopened.status_code == 200, reopened.text
+    with SessionLocal() as db:
+        hashes = [db.get(IdempotencyRecord, rid).request_hash for rid in ids]
+        assert hashes[0] != "c" * 64 and hashes[1] != "c" * 64
+        assert hashes[2] == "c" * 64
 
 
 @pytest.mark.parametrize("price,delivered", [(None, False), (None, True), (Decimal("2.5"), False), (Decimal("2.5"), True)])
