@@ -60,6 +60,11 @@ jobs:
       - name: Backend regression suite
         working-directory: backend
         run: python -m pytest -q
+      - name: Reservation planner and stock concurrency regressions (PostgreSQL)
+        working-directory: backend
+        env:
+          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/postgres
+        run: python -m pytest -q app/tests/test_reservation_plan_query_growth.py app/tests/test_reservation_overclaim.py
       - name: Deployment observation regression suite
         run: python -m unittest discover -s scripts -p 'test_observe_release.py' -v
       - name: Ismail PostgreSQL schema and reservation regressions

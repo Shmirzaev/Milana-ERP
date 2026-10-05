@@ -1,6 +1,15 @@
 # Milana ERP Project Context
 
-Last updated: 2026-10-04
+Last updated: 2026-10-05
+
+## Ismail review follow-up prepared (2026-10-04; not deployed)
+
+- Branch `codex/ismail-review-fixes` targets `clone_main` in the dedicated worktree `C:/ERP/.codex-work/ismail-review-fixes`. A source review found the main Purchasing page still treating the newly paginated orders response as an array; it now reads a server-filtered receivable order total using a one-row page. The optional `receivable_only` filter preserves existing list filters and scope and counts orders once despite multiple outstanding lines.
+- Browser testing reproduced a receiving-page render/request loop when a saved receipt referenced a later page. A stable functional page increment and loading guard stop the loop. Mocked local browser tests cover both purchasing pages, page-two recovery, HTTP 500 followed by reload/retry, and reuse of the exact receipt idempotency key.
+- D4a archive exclusion is implemented for automatic and pinned reservation suggestions. Existing claim and ledger balances remain visible for archived pinned batches. QC eligibility (D4b) and overlapping item/batch capacity policy (D6) remain undecided; no QC or stock-capacity rule was guessed.
+- Local validation: 84 affected purchasing/inventory/reservation tests and 101 migration/bootstrap/upload/settings tests passed with disposable loopback PostgreSQL enabled, plus two new route-level logo cleanup/commit-failure cases. Backend Ruff and compilation, frontend normal/strict TypeScript, changed-file ESLint, and the final frontend build/workflow checks passed. The browser suite uses synthetic intercepted APIs; it does not verify production.
+- The recorded production base remains release `20261003_071825`, application commit `d7d083def8bd190eff92b46562319e2735ce10cc`, schema `0135_usluga_paid_processes`. Production SSH was inaccessible in this environment; active/rollback slots and manifests were not independently reverified. No deployment, production migration or business-data write occurred.
+- Ismail still has partial work under ST11, DB05, DB06, DB08 and PERF23, plus the D4b-blocked reservation finding. Purchasing follow-up is in Review pending merge. DB08's current reviewed drift baseline lists 21 remaining entries; production cleanup approvals and deployment limits remain outstanding.
 
 ## PERF31 attendance roster batching on AT06 (2026-10-04; branch validation only)
 

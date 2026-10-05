@@ -196,3 +196,50 @@ def test_employees_limit_bounds_the_list(client, auth_headers, employee_batch):
 def test_employees_rejects_hostile_limit(client, auth_headers, employee_batch):
     assert client.get("/api/employees?limit=0", headers=auth_headers).status_code == 422
     assert client.get("/api/employees?limit=999999", headers=auth_headers).status_code == 422
+
+
+@pytest.fixture
+def receivable_order_batch():
+    marker = uuid4().hex[:8]
+    with TestSessionLocal() as db:
+        item = Item(sku=f"COUNT-{marker}", name="Receiving count material", category="material", unit="pcs")
+        db.add(item)
+        db.flush()
+        expected_ids = []
+        # More than the former default page; excluded orders are inserted last.
+        cases = [("sent", 5, 0)] * 51 + [("approved", 5, 1)] * 5 + [("partially_received", 5, 2)] * 5
+        cases += [("sent", 5, 5), ("approved", 5, 6), ("closed", 5, 0), ("draft", 5, 0)]
+        for index, (status, ordered, received) in enumerate(cases):
+            order = PurchaseOrder(po_no=f"COUNT-{marker}-{index}", status=status)
+            db.add(order)
+            db.flush()
+            # Two outstanding lines must still count as only one order.
+            for _ in range(2):
+                db.add(PurchaseOrderLine(purchase_order_id=order.id, item_id=item.id,
+                    ordered_quantity=ordered, received_quantity=received, unit_cost=2, unit="pcs"))
+            if status in {"sent", "approved", "partially_received"} and ordered > received:
+                expected_ids.append(order.id)
+        db.commit()
+    return expected_ids
+
+
+def test_receivable_total_covers_all_orders_not_one_page(client, auth_headers, receivable_order_batch):
+    body = client.get("/api/purchasing/orders?receivable_only=true&limit=1", headers=auth_headers).json()
+    assert body["total"] == len(receivable_order_batch) == 61
+    assert len(body["items"]) == 1
+    assert body["items"][0]["id"] in receivable_order_batch
+
+
+def test_receivable_filter_excludes_closed_draft_and_fully_received_orders(client, auth_headers, receivable_order_batch):
+    response = client.get("/api/purchasing/orders?receivable_only=true&limit=100", headers=auth_headers)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert {row["id"] for row in body["items"]} == set(receivable_order_batch)
+    assert body["total"] == 61
+    narrowed = client.get("/api/purchasing/orders?receivable_only=true&status=approved&limit=1", headers=auth_headers).json()
+    assert narrowed["total"] == 5
+    assert narrowed["items"][0]["status"] == "approved"
+
+
+def test_receivable_count_still_requires_authentication(client):
+    assert client.get("/api/purchasing/orders?receivable_only=true&limit=1").status_code == 401
