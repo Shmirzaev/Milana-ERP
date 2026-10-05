@@ -641,13 +641,13 @@ def forecasting_dashboard(db: Session, *, factory_codes: Sequence[str] | None = 
     low_stock_fg = sum(1 for row in branded_analysis if row["is_low_stock"])
     trend = demand_trend(db, groups=branded_groups)
     unlinked_bom_query = db.query(ModelBOM.id).filter(
-            ModelBOM.item_id.is_(None), ModelBOM.stock_batch_id.is_(None),
-            ModelBOM.model_id.in_(db.query(ProductionOrder.model_id).filter(
-                ProductionOrder.status.in_(ACTIVE_PRODUCTION_STATUSES),
-            ).union(db.query(ProductionOrderItem.model_id).join(
-                ProductionOrder, ProductionOrder.id == ProductionOrderItem.production_order_id,
-            ).filter(ProductionOrder.status.in_(ACTIVE_PRODUCTION_STATUSES)))),
-        )
+        ModelBOM.item_id.is_(None), ModelBOM.stock_batch_id.is_(None),
+        ModelBOM.model_id.in_(db.query(ProductionOrder.model_id).filter(
+            ProductionOrder.status.in_(ACTIVE_PRODUCTION_STATUSES),
+        ).union(db.query(ProductionOrderItem.model_id).join(
+            ProductionOrder, ProductionOrder.id == ProductionOrderItem.production_order_id,
+        ).filter(ProductionOrder.status.in_(ACTIVE_PRODUCTION_STATUSES)))),
+    )
     if factory_codes is not None:
         unlinked_bom_query = unlinked_bom_query.filter(
             ModelBOM.model_id.in_(db.query(Model.id).filter(Model.factory_code.in_(factory_codes))),
