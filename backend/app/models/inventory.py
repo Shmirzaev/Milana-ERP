@@ -1,6 +1,6 @@
 from __future__ import annotations
 from datetime import datetime
-from sqlalchemy import CheckConstraint, String, Integer, Boolean, ForeignKey, DateTime, Numeric, Text, JSON, func
+from sqlalchemy import CheckConstraint, String, Integer, Boolean, ForeignKey, DateTime, Numeric, Text, JSON, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, PkMixin, TimestampMixin
@@ -116,9 +116,10 @@ class MaterialReservation(Base, PkMixin, TimestampMixin):
             "source IN ('manual', 'auto_bom', 'planning')",
             name="ck_material_reservations_source",
         ),
+        UniqueConstraint("reservation_no", name="uq_material_reservations_reservation_no"),
     )
 
-    reservation_no: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    reservation_no: Mapped[str] = mapped_column(String(64), nullable=False)
     production_order_id: Mapped[int] = mapped_column(ForeignKey("production_orders.id"), nullable=False, index=True)
     sales_order_id: Mapped[int | None] = mapped_column(ForeignKey("sales_orders.id"), index=True)
     item_id: Mapped[int] = mapped_column(ForeignKey("items.id"), nullable=False, index=True)

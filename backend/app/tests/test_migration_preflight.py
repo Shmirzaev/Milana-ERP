@@ -192,6 +192,36 @@ def test_classify_source_reports_dynamic_sql_instead_of_guessing():
     assert classification["dynamic_sql_payloads"] == ["execute:JoinedStr"]
 
 
+def test_upgrade_classification_excludes_destructive_downgrade():
+    source = 'def upgrade():\n    pass\ndef downgrade():\n    op.execute("DELETE FROM users")\n'
+    assert preflight.classify_source(source)["destructive"] is False
+    assert preflight._execute_payloads(source) == []
+
+
+@pytest.mark.parametrize("operation", [
+    'op.execute("UPDATE users SET is_active = false")',
+    'op.execute("GRANT SELECT ON users TO erp")',
+    'op.execute(f"DELETE FROM {table}")',
+    'op.create_index("ix_users", "users", ["id"])',
+    'op.execute("DROP TABLE users")',
+    'op.execute("DELETE FROM users WHERE id=1")',
+    'unknown_repair_helper()',
+    'pass',
+])
+def test_unsupported_migration_never_reports_no_op(tmp_path, operation):
+    path = tmp_path / "migration.py"
+    path.write_text(f"def upgrade():\n    {operation}\n", encoding="utf8")
+    target = SimpleNamespace(path=str(path))
+    script = SimpleNamespace(get_revision=lambda revision: target)
+
+    class NoDatabaseAccess:
+        def connect(self):
+            pytest.fail("Unsupported preview must refuse before any database read")
+
+    with pytest.raises(preflight.PreflightUnsupported):
+        preflight.preview_revision(NoDatabaseAccess(), "synthetic", script=script)
+
+
 def test_analysis_resolves_every_delete_in_0055_exactly(target_sql):
     payload = next(sql for _, sql in preflight._execute_payloads(target_sql) if sql)
     analysis = preflight.analyze_destructive_block(payload)
