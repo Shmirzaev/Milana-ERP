@@ -179,7 +179,7 @@ def _item_capacity(session_factory, fixture):
         )
 
 
-def _race_paths(sessions, fixture, workers, *, observe_blockers=False):
+def _race_paths(sessions, fixture, workers, *, observe_blockers=False, ordered_start=False):
     """Run each worker past its capacity read, then let them all proceed.
 
     Both workers are held after their availability read and before their INSERT,
@@ -240,10 +240,13 @@ def _race_paths(sessions, fixture, workers, *, observe_blockers=False):
     event.listen(Session, "do_orm_execute", pause_before_insert)
     try:
         with ThreadPoolExecutor(max_workers=2) as pool:
-            futures = [
-                pool.submit(wrapped, fixture["order_ids"][index], line)
-                for index, line in enumerate(workers)
-            ]
+            futures = [pool.submit(wrapped, fixture["order_ids"][0], workers[0])]
+            if ordered_start:
+                deadline = monotonic() + 10
+                while arrived.empty() and monotonic() < deadline:
+                    sleep(0.02)
+                assert not arrived.empty(), "first worker did not reach its locked capacity read"
+            futures.append(pool.submit(wrapped, fixture["order_ids"][1], workers[1]))
             # Wait for both capacity reads to finish. On correct locking only one
             # worker gets this far, so the window is bounded rather than blocking.
             deadline = monotonic() + 3
@@ -268,10 +271,8 @@ def test_mixed_paths_contend_on_one_shared_item_capacity_lock(
 ):
     """The batched path must wait on the same item lock as the item-only path.
 
-    The batched path measures per-batch capacity, so it does not count claims
-    recorded without a batch. Serializing the two paths is therefore what the
-    lock buys here, and this asserts it directly: while one worker sits holding
-    the shared item capacity the other must be parked on that row.
+    While one worker holds shared item capacity, the other must wait before
+    checking its batch, warehouse and global capacity against committed claims.
     """
     sessions = reservation_postgres_sessions
     fixture = _postgres_stock(sessions, batch_quantity=100)
@@ -375,3 +376,139 @@ def test_item_only_reservation_locks_shared_item_capacity(reservation_postgres_s
     assert not any(BATCH_LOCK in sql for sql, _ in locks), (
         "item-only reservation has no batch row to lock"
     )
+
+
+@pytest.mark.parametrize("batch_first", [False, True])
+@pytest.mark.parametrize("unscoped_item", [False, True])
+def test_mixed_claims_reject_overbooking_in_either_order(
+    reservation_postgres_sessions, batch_first, unscoped_item,
+):
+    sessions = reservation_postgres_sessions
+    fixture = _postgres_stock(sessions, batch_quantity=10)
+    item_line = _item_only_line(fixture, 10)
+    if unscoped_item:
+        item_line.pop("warehouse_id")
+    lines = [item_line, _batched_line(fixture, 10)]
+    if batch_first:
+        lines.reverse()
+    with sessions.begin() as db:
+        create_material_reservations(db, production_order_id=fixture["order_ids"][0], lines=lines[:1], user_id=None)
+    with pytest.raises(HTTPException) as raised:
+        with sessions.begin() as db:
+            create_material_reservations(db, production_order_id=fixture["order_ids"][1], lines=lines[1:], user_id=None)
+    assert raised.value.status_code == 409
+    current, reserved, count = _item_capacity(sessions, fixture)
+    assert (current, reserved, count) == (10, 10, 1)
+
+
+@pytest.mark.parametrize("batch_first", [False, True])
+@pytest.mark.parametrize("unscoped_item", [False, True])
+def test_concurrent_mixed_claims_commit_only_one_stock_capacity(
+    reservation_postgres_sessions, batch_first, unscoped_item,
+):
+    sessions = reservation_postgres_sessions
+    fixture = _postgres_stock(sessions, batch_quantity=10)
+    item_line = _item_only_line(fixture, 10)
+    if unscoped_item:
+        item_line.pop("warehouse_id")
+    workers = [[item_line], [_batched_line(fixture, 10)]]
+    if batch_first:
+        workers.reverse()
+    outcomes = _race_paths(sessions, fixture, workers, ordered_start=True)
+    assert sorted(str(value) for value in outcomes) == ["409", "committed"]
+    current, reserved, count = _item_capacity(sessions, fixture)
+    assert (current, reserved, count) == (10, 10, 1)
+
+
+@pytest.mark.parametrize("batch_first", [False, True])
+def test_overbooked_mixed_payload_rolls_back_all_claims(reservation_postgres_sessions, batch_first):
+    sessions = reservation_postgres_sessions
+    fixture = _postgres_stock(sessions, batch_quantity=10)
+    lines = [_item_only_line(fixture, 6), _batched_line(fixture, 6)]
+    if batch_first:
+        lines.reverse()
+    with pytest.raises(HTTPException) as raised:
+        with sessions.begin() as db:
+            create_material_reservations(db, production_order_id=fixture["order_ids"][0], lines=lines, user_id=None)
+    assert raised.value.status_code == 409
+    assert _item_capacity(sessions, fixture) == (10, 0, 0)
+
+
+@pytest.mark.parametrize("batch_first", [False, True])
+def test_mixed_payload_can_use_capacity_exactly_once(reservation_postgres_sessions, batch_first):
+    sessions = reservation_postgres_sessions
+    fixture = _postgres_stock(sessions, batch_quantity=10)
+    lines = [_item_only_line(fixture, 5), _batched_line(fixture, 5)]
+    if batch_first:
+        lines.reverse()
+    with sessions.begin() as db:
+        assert len(create_material_reservations(db, production_order_id=fixture["order_ids"][0], lines=lines, user_id=None)) == 2
+    assert _item_capacity(sessions, fixture) == (10, 10, 2)
+
+
+def _second_warehouse(sessions, fixture, quantity):
+    with sessions.begin() as db:
+        warehouse = Warehouse(name=f"ST11 other {uuid4().hex}", type="fabric_storage")
+        db.add(warehouse)
+        db.flush()
+        batch = StockBatch(item_id=fixture["item_id"], batch_no=f"ST11-other-{uuid4().hex}",
+                           quantity=quantity, unit="kg", warehouse_id=warehouse.id, cost_per_unit=0)
+        db.add(batch)
+        db.flush()
+        return {**fixture, "batch_id": batch.id, "warehouse_id": warehouse.id}
+
+
+def test_warehouse_limit_does_not_steal_other_warehouse_capacity(reservation_postgres_sessions):
+    sessions = reservation_postgres_sessions
+    fixture = _postgres_stock(sessions, batch_quantity=10)
+    other = _second_warehouse(sessions, fixture, 100)
+    with sessions.begin() as db:
+        create_material_reservations(db, production_order_id=fixture["order_ids"][0],
+                                     lines=[_item_only_line(fixture, 10)], user_id=None)
+    with pytest.raises(HTTPException) as raised:
+        with sessions.begin() as db:
+            create_material_reservations(db, production_order_id=fixture["order_ids"][1],
+                                         lines=[_batched_line(fixture, 1)], user_id=None)
+    assert raised.value.status_code == 409
+    with sessions.begin() as db:
+        create_material_reservations(db, production_order_id=fixture["order_ids"][1],
+                                     lines=[_batched_line(other, 100)], user_id=None)
+    assert _item_capacity(sessions, fixture) == (110, 110, 2)
+
+
+@pytest.mark.parametrize("batched", [False, True])
+def test_global_claim_blocks_scoped_claims_across_warehouses(reservation_postgres_sessions, batched):
+    sessions = reservation_postgres_sessions
+    fixture = _postgres_stock(sessions, batch_quantity=10)
+    _second_warehouse(sessions, fixture, 100)
+    global_line = _item_only_line(fixture, 110)
+    global_line.pop("warehouse_id")
+    with sessions.begin() as db:
+        create_material_reservations(db, production_order_id=fixture["order_ids"][0], lines=[global_line], user_id=None)
+    with pytest.raises(HTTPException) as raised:
+        with sessions.begin() as db:
+            line = _batched_line(fixture, 1) if batched else _item_only_line(fixture, 1)
+            create_material_reservations(db, production_order_id=fixture["order_ids"][1], lines=[line], user_id=None)
+    assert raised.value.status_code == 409
+    assert _item_capacity(sessions, fixture) == (110, 110, 1)
+
+
+def test_consumed_and_released_quantities_are_not_claimed_twice(reservation_postgres_sessions):
+    sessions = reservation_postgres_sessions
+    fixture = _postgres_stock(sessions, batch_quantity=10)
+    with sessions.begin() as db:
+        claim = create_material_reservations(db, production_order_id=fixture["order_ids"][0],
+                                            lines=[_item_only_line(fixture, 10)], user_id=None)[0]
+        claim.consumed_quantity = 2
+        claim.released_quantity = 3
+        claim.status = "partially_consumed"
+        db.get(StockBatch, fixture["batch_id"]).quantity = 8
+    with sessions.begin() as db:
+        create_material_reservations(db, production_order_id=fixture["order_ids"][1],
+                                     lines=[_batched_line(fixture, 3)], user_id=None)
+    with pytest.raises(HTTPException) as raised:
+        with sessions.begin() as db:
+            create_material_reservations(db, production_order_id=fixture["order_ids"][1],
+                                         lines=[_batched_line(fixture, 1)], user_id=None)
+    assert raised.value.status_code == 409
+    assert _item_capacity(sessions, fixture) == (8, 8, 2)

@@ -14,7 +14,7 @@ scale with the number of requirement rows, measured on a real PostgreSQL server
 because SQLite does not report a row count for SELECT.
 
 Four business rules are compared against a transcription of the
-pre-fix planner, adjusted only for the explicit D4a archive eligibility fix (`_pre_fix_plan` below), which is the strongest available
+pre-fix planner, adjusted for D4a archive exclusion and the selected D4b QC eligibility rule (`_pre_fix_plan` below), which is the strongest available
 oracle: it calls the same untouched leaf helpers (`current_stock_for_item`,
 `reserved_stock_for_batch`, `_bom_requirement_rows`, ...) and the same SQL, so
 only the orchestration differs.
@@ -24,8 +24,8 @@ only the orchestration differs.
   order;
 * eligibility - a pinned requirement still sees only its own batch and only
   when that batch belongs to the item; archived batches are now excluded
-  explicitly under D4a, while QC eligibility and positive-quantity checks
-  retain their existing rules;
+  explicitly under D4a; pending/passed QC remains eligible under D4b;
+  positive-quantity checks retain their existing rules;
 * units - the candidate unit test is still a stripped string comparison and the
   suggested batch still echoes the batch's own raw unit string;
 * coverage - consumed + open arithmetic per status, summed per item/unit and per
@@ -240,9 +240,10 @@ def _pre_fix_suggest_batches(db, *, item_id, unit, quantity, stock_batch_id=None
     left = max(0.0, float(quantity or 0))
     if left <= EPSILON:
         return []
-    # Independent per-row oracle: only the documented D4a predicate changes.
+    # Independent per-row oracle: only documented D4a/D4b eligibility changes.
     qry = db.query(StockBatch).filter(
         StockBatch.item_id == item_id, StockBatch.quantity > 0, StockBatch.archived_at.is_(None),
+        StockBatch.qc_status.in_(("pending", "passed")),
     )
     if stock_batch_id is not None:
         qry = qry.filter(StockBatch.id == stock_batch_id)
@@ -274,7 +275,7 @@ def _pre_fix_suggest_batches(db, *, item_id, unit, quantity, stock_batch_id=None
 
 
 def _pre_fix_plan(db, production_order_id, categories=None):
-    """The pre-PERF03 planner with D4a archive exclusion for oracle comparison."""
+    """Independent pre-PERF03 planner with the selected D4a/D4b eligibility."""
     po = db.get(ProductionOrder, production_order_id)
     if not po:
         raise HTTPException(404, "Production order not found")
@@ -765,17 +766,16 @@ def test_fifo_order_of_candidates_is_preserved(tricky_case, postgres_session_fac
     row = _row_for(plan, item_id=case["fabric_id"], unit="kg")
     offered = [b["stock_batch_id"] for b in row["suggested_batches"]]
 
-    # Eligible receipt order is day 3, 4, 7 (day 1 is archived and day 2 fully claimed)
+    # Eligible receipt order is day 3, 7; day 1 is archived, day 2 fully claimed, day 4 QC hold
     # (day 5 is depleted, day 6 is the pcs batch). Batches were inserted newest
     # first, so insertion order would give the reverse of the first three.
     assert offered == [
         case["fabric_padded_unit"],   # day 3 - unit matches only after stripping
-        case["fabric_qc_hold"],       # day 4 - QC hold, still a candidate
         case["fabric_newest"],        # day 7 - backfills the archived batch
     ]
     quantities = [b["suggested_quantity"] for b in row["suggested_batches"]]
     # Archived day 1 and fully claimed day 2 are skipped.
-    assert quantities == [4.0, 5.0, 2.0]  # 13 needed; only 11 eligible, spread FIFO
+    assert quantities == [4.0, 2.0]  # 13 needed; only 6 eligible, spread FIFO
 
 
 def test_fifo_ties_on_received_date_break_on_batch_id(postgres_session_factory):
@@ -804,15 +804,15 @@ def test_fifo_ties_on_received_date_break_on_batch_id(postgres_session_factory):
 
 
 def test_archive_exclusion_preserves_other_eligibility_rules(tricky_case, postgres_session_factory):
-    """D4a excludes archived stock; QC policy and other checks stay unchanged."""
+    """Archive and QC predicates preserve unit, quantity and claim checks."""
     case = tricky_case
     with postgres_session_factory() as db:
         plan = reservation_plan_for_production_order(db, case["order_id"])
     row = _row_for(plan, item_id=case["fabric_id"], unit="kg")
     offered = {b["stock_batch_id"] for b in row["suggested_batches"]}
-    # Archived Eco custody is ineligible; QC policy still awaits D4b.
+    # Archived Eco custody and QC hold are ineligible.
     assert case["fabric_archived"] not in offered
-    assert case["fabric_qc_hold"] in offered
+    assert case["fabric_qc_hold"] not in offered
     # Still excluded, for the same reasons as before: no quantity, wrong unit,
     # or fully claimed.
     assert case["fabric_depleted"] not in offered      # quantity == 0
@@ -820,7 +820,6 @@ def test_archive_exclusion_preserves_other_eligibility_rules(tricky_case, postgr
     assert case["fabric_oldest"] not in offered        # 6 on hand, 15 already claimed
     assert offered == {
         case["fabric_padded_unit"],
-        case["fabric_qc_hold"],
         case["fabric_newest"],
     }
 
@@ -1009,8 +1008,8 @@ def test_archived_batches_are_not_suggested_for_unpinned_requirements(tricky_cas
     row = _row_for(plan, item_id=tricky_case["fabric_id"], unit="kg")
     offered = {batch["stock_batch_id"] for batch in row["suggested_batches"]}
     assert tricky_case["fabric_archived"] not in offered
-    # QC policy is still a separate decision: do not tighten it here.
-    assert tricky_case["fabric_qc_hold"] in offered
+    # QC holds are excluded independently of archive status.
+    assert tricky_case["fabric_qc_hold"] not in offered
 
 
 def test_archived_pinned_batch_is_not_suggested(tricky_case, postgres_session_factory):
@@ -1027,3 +1026,34 @@ def test_archived_pinned_batch_is_not_suggested(tricky_case, postgres_session_fa
     assert row["current_stock"] == 9.0
     assert row["reserved_stock"] == 2.0
     assert row["available_stock"] == 7.0
+
+
+@pytest.mark.parametrize("qc_status", ["pending", "passed", "failed", "rejected", "hold"])
+@pytest.mark.parametrize("pinned", [False, True])
+def test_qc_eligibility_preserves_stock_and_reservation_ledgers(
+    tricky_case, postgres_session_factory, qc_status, pinned,
+):
+    case = tricky_case
+    item_id = case["trim_id"] if pinned else case["fabric_id"]
+    batch_id = case["trim_pinned"] if pinned else case["fabric_padded_unit"]
+    unit = "m" if pinned else "kg"
+    with postgres_session_factory.begin() as db:
+        if not pinned:
+            for batch in db.query(StockBatch).filter(StockBatch.item_id == item_id):
+                batch.qc_status = "hold"
+        target = db.get(StockBatch, batch_id)
+        target.qc_status = qc_status
+        quantity = float(target.quantity)
+        _reserve(db, order=db.get(ProductionOrder, case["order_id"]), item_id=item_id,
+                 unit=unit, reserved=2, batch_id=batch_id)
+    with postgres_session_factory() as db:
+        plan = reservation_plan_for_production_order(db, case["order_id"])
+        row = _row_for(plan, item_id=item_id, unit=unit, stock_batch_id=batch_id if pinned else None)
+        offered = [batch["stock_batch_id"] for batch in row["suggested_batches"]]
+        assert offered == ([batch_id] if qc_status in {"pending", "passed"} else [])
+        assert float(db.get(StockBatch, batch_id).quantity) == quantity
+        assert reserved_stock_for_batch(db, batch_id) == 2
+    if pinned:
+        assert row["current_stock"] == 9
+        assert row["reserved_stock"] == 2
+        assert row["available_stock"] == 7
