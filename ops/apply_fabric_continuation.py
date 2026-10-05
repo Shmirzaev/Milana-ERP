@@ -56,6 +56,7 @@ def execute(db, actor, plan, plan_hash, image_urls):
             response=receive_stock(StockBatchIn(item_id=iid,batch_no=a['batch_no'],supplier_id=a['supplier_id'],
                 quantity=float(a['quantity']),piece_count=a['piece_count'],unit='kg',warehouse_id=1,
                 cost_per_unit=float(a['cost_per_unit']),qc_status='pending',color=a['color'],color_code=a['color_code'],
+                old_code=a.get('old_code'),color_status=a.get('color_status'),
                 roll_weights_kg=a.get('roll_weights_kg',[]),roll_lengths_m=a.get('roll_lengths_m',[]),
                 image_url=image_urls.get(str(index))),db,actor,idempotency_key=f'fabric-current:{plan_hash[:24]}:{index}')
             bid=response['id'];before_kg='0'
@@ -93,6 +94,9 @@ def verify(before,after,plan,changes,new_items):
             assert Decimal(b['quantity'])==Decimal(a['quantity']) and b['piece_count']==a['piece_count']
             assert b['supplier_id']==a['supplier_id'] and b['batch_no']==a['batch_no']
             assert b['item_id']==new_items.get(a['item_ref'],a['item_ref'])
+            assert Decimal(b['cost_per_unit'])==Decimal(a['cost_per_unit'])
+            for k in ('color','color_code','old_code','color_status'):
+                assert b[k]==a.get(k),(c['ref'],k)
             assert b['roll_weights_kg']==a.get('roll_weights_kg',[]) and b['roll_lengths_m']==a.get('roll_lengths_m',[])
         if Decimal(b['quantity'])==0:assert b['archived_at']
     for key in ('suppliers','warehouses','revision','batch_references','linked_rows','fabric_scans'):

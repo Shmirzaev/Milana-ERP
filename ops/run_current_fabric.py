@@ -19,7 +19,7 @@ def modules():
 
 def main(action):
     if action=='capture':
-        result=remote((ROOT/'ops/fabric_reconciliation_snapshot.py').read_text(),'docker exec -i milana-backend-blue python -')
+        result=remote((ROOT/'ops/fabric_reconciliation_snapshot.py').read_text(),'docker exec -i milana-backend-green python -')
         (OUT/'production-snapshot.json').write_text(json.dumps(result),encoding='utf-8')
         print(json.dumps(dict(captured=result['snapshot_time'],batches=len(result['batches']))))
     elif action=='prepare':
@@ -55,14 +55,14 @@ def main(action):
         encoded=base64.b64encode(zlib.compress(json.dumps(payload).encode())).decode()
         code+=f'payload=json.loads(zlib.decompress(base64.b64decode({encoded!r})))\n'
         code+='from app.db.session import engine\nfrom fabric_reconciliation_snapshot import capture\nfrom apply_fabric_continuation import apply\nprint(json.dumps(apply(engine,capture,payload)))\n'
-        result=remote(code,'docker exec -i milana-backend-blue python -')
+        result=remote(code,'docker exec -i milana-backend-green python -')
         name='current-replay.json' if result.get('already_applied') else 'current-result.json'
         (OUT/name).write_text(json.dumps(result,indent=2),encoding='utf-8')
         print(json.dumps({k:v for k,v in result.items() if k not in ('changes','backup')}))
     elif action=='verify':
         result=json.loads((OUT/'current-result.json').read_text())
         payload=json.loads((OUT/'current-payload.json').read_text())
-        after=remote((ROOT/'ops/fabric_reconciliation_snapshot.py').read_text(),'docker exec -i milana-backend-blue python -')
+        after=remote((ROOT/'ops/fabric_reconciliation_snapshot.py').read_text(),'docker exec -i milana-backend-green python -')
         (OUT/'current-after.json').write_text(json.dumps(after),encoding='utf-8')
         tree=ast.parse((ROOT/'ops/apply_fabric_continuation.py').read_text())
         fn=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='verify')
@@ -106,7 +106,7 @@ plans=[{'production_order':numbers[oid],'summary':get('https://erp.milanapremium
 print(json.dumps(dict(health=health,api_verified_changes=len(EXPECTED),api_rows=len(rows),audit_chain=audit,planning=plans)))
 '''
         code='EXPECTED='+repr(result['changes'])+'\nPLAN_HASH='+repr(result['plan_sha256'])+'\nORDER_IDS='+repr(sorted({r['production_order_id'] for r in result['released_reservations']}))+'\n'+code
-        checks.update(remote(code,'docker exec -i milana-backend-blue python -'))
+        checks.update(remote(code,'docker exec -i milana-backend-green python -'))
         (OUT/'current-verification.json').write_text(json.dumps(checks,indent=2),encoding='utf-8')
         print(json.dumps(checks))
 
