@@ -39,12 +39,18 @@ def test_process_export_is_real_excel_with_literal_text_and_numeric_rates(client
     response = client.post("/api/payroll/process-qr/export.xlsx", headers=auth_headers, json=export_payload())
     assert response.status_code == 200, response.text
     sheet = load_workbook(BytesIO(response.content)).active
-    assert sheet.max_row == 4
-    assert sheet["D3"].value == "0012"
-    assert sheet["E3"].data_type == "s"
-    assert sheet["F3"].value == 123.4567
-    assert sheet["B4"].value is False
-    assert sheet["E4"].value == "Cut cloth"
+    assert sheet.max_column == 4
+    assert [cell.value for cell in sheet[5]] == ["No.", "Section", "Name", "Rate"]
+    assert sheet["C6"].data_type == "s"
+    assert sheet["D6"].value == 123.4567
+    assert sheet["C7"].value == "Cut cloth"
+    assert sheet["D8"].value == "=SUM(D6:D7)"
+    assert sheet["A8"].value == "Total amount (UZS)"
+    assert sheet["A11"].value == "Approved by"
+    assert sheet["A13"].value == "Name"
+    assert sheet["A15"].value == "Signature"
+    assert sheet["C13"].value is None and sheet["C15"].value is None
+    assert sheet.auto_filter.ref == "A5:D7"
 
 
 def test_process_export_rejects_other_factory(client, auth_headers):

@@ -1241,6 +1241,7 @@ export default function ProcessQrPage() {
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          lang,
           model: selectedModel?.code || selectedProcess?.model_code || "",
           order: selectedProcess?.production_no || "",
           factory: FACTORY_SHORT_CODES[printPaidOperationFactory],
