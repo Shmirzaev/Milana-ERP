@@ -1,5 +1,6 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "page.forecasting.sharedInventoryExcluded": "Umumiy zaxiralar fabrikaga biriktirilmaguncha ko‘rsatilmaydi.",
     "floor.addPassport": "Pasport qo‘shish",
     "floor.passportCreated": "Pasport yaratilgan",
     "floor.partiallyPackaged": "Qisman qadoqlangan buyurtmalar",

@@ -2,6 +2,16 @@
 
 Last updated: 2026-10-05
 
+## Mirshoir P1 repository fixes (2026-10-05; deployment pending)
+
+- Target: `clone_main`, based on `3bf62b72`. Covers API05, DB01-CONSUMPTION, DB02-WO-STATUS, SEC07-ASSIGNMENT, SEC07-FLOW, ST09, UI03-PACKAGE, WF01, WF02 and WF03. Narrow donor changes were adapted to this branch; unrelated develop features were not imported.
+- Forecast reads and recommendation writes use effective per-factory grants and model attribution. Shared inventory with no factory attribution is excluded from API forecasts; the UI explains this in EN/RU/UZ. Generic production updates accept only documented fields and cannot change workflow status. Work-order update/start/complete/block/unblock enforce stage and factory permissions; metadata edits retain unchanged-status compatibility.
+- Consumption validates catalog/request/batch units before any selected batch is changed. Sewing assignment deletion checks both factories and historical output under locks. Package damage/reservation share refreshed locks; claims and shipment links block damage. Ordinary package creation requires saved packaging output; existing first-grade and manual receipt rules remain.
+- Package recovery persists request identity and payload across tabs, uses shared browser locks, and reconciles committed, unavailable and cancelled results. Cancellation tombstones prevent a delayed original request from creating duplicate stock. Covers manual receipts, print runs, bulk creation and corrected-package resubmission.
+- Validation: affected backend regressions, real PostgreSQL reservation/damage and receipt-reconciliation races, a fresh migration to 0137 and migrated-database unit/tombstone smoke checks; frontend lint, strict types, package recovery contracts and optimized build. Full repository regression/CI results are recorded in the associated pull request. Local PDF tests require Unicode fonts; their missing-font failures were reproduced on the unchanged base and passed with local font paths.
+- No schema, environment-variable or production-data changes. No deployment, service restart or live VM connection occurred. The user explicitly authorized repository-only work and deferred live-manifest verification. Recorded active/rollback releases remain blue `20261005_070406` / green `20261005_063643`; these were not independently verified from this Mac. Reconcile both live manifests and slots under DEPLOYMENT.md before a later deployment. Windows/Obsidian context mirror is inaccessible here.
+
+
 ## SAFF 10308 restored to owner-confirmed stock (2026-10-05)
 
 - Owner explicitly confirmed 300 kg / 10 rolls for SAFF 10308, overriding the latest workbook zero balance. Restored existing batch 1729, source-correct active fabric 82 `30/1 COMPACT SUPREM`, at 09:58:46 UTC through the normal restoration handler and roll-count update. Older archived batch 1527 (`30/1 COMPACT PENYE SUPREM`) remains unchanged at zero; no duplicate or second active balance was created. Restored batch QC is pending. Identity, date and history are preserved, as are all 1,332 other batches and reservations.

@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -41,6 +42,46 @@ class ProductionOrderPrintingAttachment(BaseModel):
     file_url: str
     file_name: Optional[str] = None
     content_type: Optional[str] = None
+
+
+class ProductionOrderUpdateIn(BaseModel):
+    model_config = ConfigDict(extra="forbid", protected_namespaces=())
+
+    status: Literal[
+        "new",
+        "planning",
+        "waiting_material",
+        "cutting",
+        "printing",
+        "sewing",
+        "packaging",
+        "storage_transfer",
+        "finished_storage",
+        "delivered",
+        "closed",
+        "cancelled",
+    ] | None = None
+    model_id: int | None = Field(default=None, gt=0, le=2_147_483_647)
+    sales_order_id: int | None = Field(default=None, gt=0, le=2_147_483_647)
+    planned_quantity: int | None = Field(default=None, ge=0, le=2_147_483_647)
+    deadline: datetime | None = None
+    estimated_material_code: str | None = Field(default=None, max_length=128)
+    estimated_material_amount: Decimal | None = Field(
+        default=None,
+        ge=0,
+        max_digits=14,
+        decimal_places=4,
+    )
+    estimated_material_unit: str | None = Field(default=None, max_length=32)
+    printing_instructions: str | None = None
+    printing_attachments: list[ProductionOrderPrintingAttachment] | None = None
+
+    @model_validator(mode="after")
+    def reject_null_required_fields(self):
+        for field in ("status", "model_id", "planned_quantity"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null")
+        return self
 
 
 class ProductionOrderMaterialIn(BaseModel):

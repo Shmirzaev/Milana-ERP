@@ -9,7 +9,14 @@ from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
 from app.core.config import settings
-from app.core.deps import DbSession, PRODUCTION_READ_PERMISSIONS, require_permissions, is_admin
+from app.core.deps import (
+    CurrentUser,
+    DbSession,
+    PRODUCTION_READ_PERMISSIONS,
+    is_admin,
+    require_permissions,
+    user_permissions,
+)
 from app.core.model_search import model_code_contains
 from app.core.signing import sign_path
 from app.core.uploads import (
@@ -31,7 +38,7 @@ from app.models import (
 )
 from app.schemas.inventory import MaterialReservationOut, MaterialReservationStatusOut
 from app.schemas.production import (
-    ProductionOrderIn, ProductionOrderOut, ProductionOrderDetail,
+    ProductionOrderIn, ProductionOrderUpdateIn, ProductionOrderOut, ProductionOrderDetail,
     WorkOrderOut, WorkOrderUpdate,
     CuttingMaterialUsageIn, CuttingRecordIn, PrintingRecordIn, SewingRecordIn, PackagingRecordIn,
     QualityCheckIn, QualityCheckOut,
@@ -45,6 +52,7 @@ from app.services.packaging_scope import (
     require_packaging_work_order_access,
 )
 from app.services.production import (
+    WORK_ORDER_OPERATION_PERMISSIONS,
     create_production_order,
     create_production_batches,
     create_work_orders,
@@ -102,6 +110,9 @@ _PRODUCTION_FLOOR_PERMS = (
     "management.approve",
     "*",
 )
+_WORK_ORDER_COMMAND_PERMS = tuple(
+    sorted({"*", *(permission for values in WORK_ORDER_OPERATION_PERMISSIONS.values() for permission in values)})
+)
 
 
 def _require_standard_production_order(db: DbSession, pid: int) -> ProductionOrder:
@@ -111,6 +122,14 @@ def _require_standard_production_order(db: DbSession, pid: int) -> ProductionOrd
     if po.source_type == "usluga":
         raise HTTPException(409, "Use the isolated Eco Cotton Usluga workflow for this order")
     return po
+
+
+def _require_standard_production_order_update(
+    pid: int,
+    db: DbSession,
+    _: User = Depends(require_permissions("planning.production", "*")),
+) -> ProductionOrder:
+    return _require_standard_production_order(db, pid)
 
 _ACTIVE_WO_STATUSES = ("waiting", "pending", "collected", "ready", "in_progress", "paused", "new", "planning")
 _ASSIGNMENT_MANAGED_STATUSES = ("planned", "in_progress", "completed")
@@ -124,6 +143,21 @@ _PO_PRE_CUTTING_EDIT_FIELDS = {
     "estimated_material_amount",
     "estimated_material_unit",
 }
+
+
+def _authorize_work_order_command(db: DbSession, current: User, work_order: WorkOrder) -> None:
+    required = WORK_ORDER_OPERATION_PERMISSIONS.get(str(work_order.operation or ""))
+    if not required:
+        raise HTTPException(403, "Unsupported work order operation")
+    granted = set(user_permissions(current))
+    if "*" not in granted and not granted.intersection(required):
+        raise HTTPException(403, "This account cannot update this production stage")
+    source_type = db.query(ProductionOrder.source_type).filter(
+        ProductionOrder.id == work_order.production_order_id,
+    ).scalar()
+    if source_type == "usluga":
+        require_factory_access(current, "ECO")
+    require_work_order_factory_access(current, db, work_order)
 
 
 def _notify_accessory_issue_block(db: DbSession, wo: WorkOrder, plan: dict, stage: str) -> None:
@@ -1000,9 +1034,22 @@ def get_po(pid: int, db: DbSession, current: User = Depends(require_permissions(
 
 
 @router.patch("/production-orders/{pid}", response_model=ProductionOrderOut)
-def update_po(pid: int, payload: dict, db: DbSession, current: User = Depends(require_permissions("planning.production", "*"))):
-    po = _require_standard_production_order(db, pid)
-    if _PO_PRE_CUTTING_EDIT_FIELDS.intersection(payload.keys()):
+def update_po(
+    pid: int,
+    payload: ProductionOrderUpdateIn,
+    db: DbSession,
+    current: CurrentUser,
+    po: ProductionOrder = Depends(_require_standard_production_order_update),
+):
+    updates = payload.model_dump(exclude_unset=True)
+    if "status" in updates:
+        if updates.pop("status") != po.status:
+            raise HTTPException(409, "Use a production workflow action to change status")
+        # Full-form edits may include the current status, but must not write it
+        # back over a workflow transition.
+    if not updates:
+        return po
+    if _PO_PRE_CUTTING_EDIT_FIELDS.intersection(updates):
         cutting_wo = (
             db.query(WorkOrder)
             .filter(WorkOrder.production_order_id == pid, WorkOrder.operation == "cutting")
@@ -1011,11 +1058,19 @@ def update_po(pid: int, payload: dict, db: DbSession, current: User = Depends(re
         )
         if cutting_wo and cutting_wo.status not in _PRE_CUTTING_EDIT_STATUSES:
             raise HTTPException(409, "Production order planning fields are locked after cutting starts")
-    if "printing_attachments" in payload:
-        payload["printing_attachments"] = printing_attachments_for_storage(payload["printing_attachments"])
-    for k, v in payload.items():
-        if hasattr(po, k):
-            setattr(po, k, v)
+    if "model_id" in updates:
+        model_exists = db.query(Model.id).filter(
+            Model.id == updates["model_id"],
+            Model.catalog_scope == "standard",
+        ).first()
+        if not model_exists:
+            raise HTTPException(404, "Model not found")
+    if updates.get("sales_order_id") is not None and not db.get(SalesOrder, updates["sales_order_id"]):
+        raise HTTPException(404, "Sales order not found")
+    if "printing_attachments" in updates:
+        updates["printing_attachments"] = printing_attachments_for_storage(updates["printing_attachments"])
+    for key, value in updates.items():
+        setattr(po, key, value)
     log_action(db, current, "update", "ProductionOrder", po.id)
     db.commit(); db.refresh(po)
     return po
@@ -1598,24 +1653,24 @@ def get_wo(wid: int, db: DbSession, current: User = Depends(require_permissions(
 
 
 @router.patch("/work-orders/{wid}", response_model=WorkOrderOut)
-def update_wo(wid: int, payload: WorkOrderUpdate, db: DbSession, current: User = Depends(require_permissions(*_PRODUCTION_FLOOR_PERMS))):
+def update_wo(wid: int, payload: WorkOrderUpdate, db: DbSession, current: User = Depends(require_permissions(*_WORK_ORDER_COMMAND_PERMS))):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
-    require_work_order_factory_access(current, db, wo)
-    if db.query(ProductionOrder.source_type).filter(ProductionOrder.id == wo.production_order_id).scalar() == "usluga":
-        require_factory_access(current, "ECO")
+    _authorize_work_order_command(db, current, wo)
     changes = payload.model_dump(exclude_unset=True)
-    if (
-        wo.operation == "storage_transfer"
-        and changes.get("status") in ("in_progress", "pending", "collected", "ready", "paused")
-        and _storage_received_total(db, int(wo.production_order_id)) <= 0
-    ):
-        raise HTTPException(400, "Storage transfer starts only when packages are received into storage.")
+    if "status" in changes:
+        if changes["status"] is None or changes["status"] != wo.status:
+            raise HTTPException(409, "Use a work-order action to change status")
+        changes.pop("status")
+    if not changes:
+        return wo
 
     if wo.operation == "sewing" and "sewing_flow_id" in changes and changes["sewing_flow_id"]:
         target_flow = db.get(SewingFlow, int(changes["sewing_flow_id"]))
         if not target_flow:
             raise HTTPException(404, "Sewing flow not found")
+        from app.services.sewing_scope import require_sewing_flow_access
+        require_sewing_flow_access(current, target_flow)
         if not target_flow.is_active:
             raise HTTPException(400, "Sewing flow is inactive")
         now = datetime.now(timezone.utc)
@@ -1653,10 +1708,10 @@ def update_wo(wid: int, payload: WorkOrderUpdate, db: DbSession, current: User =
 
 
 @router.post("/work-orders/{wid}/start", response_model=WorkOrderOut)
-def start_wo(wid: int, db: DbSession, current: User = Depends(require_permissions(*_PRODUCTION_FLOOR_PERMS))):
+def start_wo(wid: int, db: DbSession, current: User = Depends(require_permissions(*_WORK_ORDER_COMMAND_PERMS))):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
-    require_work_order_factory_access(current, db, wo)
+    _authorize_work_order_command(db, current, wo)
     if wo.operation == "storage_transfer":
         raise HTTPException(400, "Storage transfer starts automatically when packages are received into storage.")
     upstream = _upstream_work_order_for_start(db, wo)
@@ -1763,10 +1818,10 @@ def collect_printing_wo(
 
 
 @router.post("/work-orders/{wid}/complete", response_model=WorkOrderOut)
-def complete_wo(wid: int, db: DbSession, current: User = Depends(require_permissions(*_PRODUCTION_FLOOR_PERMS))):
+def complete_wo(wid: int, db: DbSession, current: User = Depends(require_permissions(*_WORK_ORDER_COMMAND_PERMS))):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
-    require_work_order_factory_access(current, db, wo)
+    _authorize_work_order_command(db, current, wo)
     wo.status = "completed"
     wo.end_time = datetime.now(timezone.utc)
     log_action(db, current, "complete", "WorkOrder", wo.id)

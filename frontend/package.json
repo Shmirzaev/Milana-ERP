@@ -23,7 +23,7 @@
     "test:purchasing-clean-ui": "node scripts/check-purchasing-clean-ui.mjs",
     "test:sewing-partial-size": "node scripts/check-sewing-partial-size.mjs",
     "test:model-variant-form": "node scripts/check-model-variant-form.mjs",
-    "test:package-workflow-idempotency": "node scripts/check-package-workflow-idempotency.mjs",
+    "test:package-workflow-idempotency": "node scripts/check-package-workflow-idempotency.mjs && node scripts/test-package-workflow-recovery.mjs",
     "test:stocktake-locales": "node scripts/check-stocktake-locales.mjs",
     "test:branded-order-dialog": "node scripts/check-branded-order-dialog.mjs",
     "test:model-picture-containment": "node scripts/check-model-picture-containment.mjs",

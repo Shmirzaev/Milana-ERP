@@ -225,9 +225,12 @@ def _enforce_packaged_quantity_available(
     allocations: list[dict[str, int]],
     total: int,
     exclude_package_id: int | None = None,
+    require_evidence: bool = False,
 ) -> None:
     packed_by_batch = _packaging_record_totals_by_batch(db, production_order_id)
     if not packed_by_batch:
+        if require_evidence:
+            raise HTTPException(409, "Save Packaging output before creating packages")
         return
 
     existing_by_batch = _existing_package_totals_by_batch(
@@ -378,6 +381,7 @@ def create_package(
         production_order_id=production_order_id,
         allocations=normalized_allocations,
         total=total,
+        require_evidence=stock_kind == "standard",
     )
 
     if stock_kind == "first_grade":
@@ -1167,6 +1171,10 @@ def place_on_storage_map(
 
 
 def reserve_package(db: Session, pkg: Package, user_id: int | None):
+    pkg = (
+        db.query(Package).filter(Package.id == pkg.id)
+        .with_for_update(of=Package).populate_existing().one()
+    )
     _require_warehouse_package(db, pkg)
     if pkg.status not in ("received_in_storage", "packed"):
         raise HTTPException(400, f"Package cannot be reserved from status '{pkg.status}'")
@@ -1201,6 +1209,26 @@ def mark_delivered(db: Session, pkg: Package, user_id: int | None):
 
 
 def mark_damaged(db: Session, pkg: Package, user_id: int | None):
+    # Match reservation lock order so neither transition can use stale state.
+    pkg = (
+        db.query(Package).filter(Package.id == pkg.id)
+        .with_for_update(of=Package).populate_existing().one()
+    )
+    stocks = (
+        db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id == pkg.id)
+        .order_by(FinishedGoodsStock.id)
+        .with_for_update(of=FinishedGoodsStock).populate_existing().all()
+    )
+    stock_ids = [stock.id for stock in stocks]
+    has_claim = db.query(StockReservation.id).filter(
+        (StockReservation.package_id == pkg.id)
+        | StockReservation.finished_goods_stock_id.in_(stock_ids),
+    ).first()
+    has_shipment = db.query(ShipmentPackage.id).filter(ShipmentPackage.package_id == pkg.id).first()
+    if has_claim or has_shipment or pkg.status in {"shipped", "delivered"}:
+        raise HTTPException(409, "Release package claims and shipment links before marking it damaged")
+    if pkg.status == "reserved" or any(int(stock.reserved_qty or 0) > 0 for stock in stocks):
+        raise HTTPException(409, "Release package reservations before marking it damaged")
     pkg.status = "damaged"
     pkg.storage_cell = None
     pkg.storage_shelf = None

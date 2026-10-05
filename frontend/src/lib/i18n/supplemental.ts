@@ -4,6 +4,7 @@ import type { Lang } from "./types";
 // legacy dictionary easier to audit without rewriting that large file.
 export const supplemental: Record<Lang, Record<string, string>> = {
   en: {
+    "page.forecasting.sharedInventoryExcluded": "Shared inventory is excluded until it has factory attribution.",
     "page.inventory.arrivalDate": "Arrival date",
     "qrOrders.none": "No QR codes scanned",
     "qrOrders.partial": "Partially scanned",
@@ -1083,6 +1084,7 @@ export const supplemental: Record<Lang, Record<string, string>> = {
     "page.hrEmployees.loadMore": "Load more employees",
   },
   ru: {
+    "page.forecasting.sharedInventoryExcluded": "Общие запасы исключены, пока они не привязаны к фабрике.",
     "page.inventory.arrivalDate": "Дата поступления",
     "qrOrders.none": "QR-коды не отсканированы",
     "qrOrders.partial": "Частично отсканировано",
@@ -2276,6 +2278,7 @@ export const supplemental: Record<Lang, Record<string, string>> = {
     "page.hrEmployees.loadMore": "\u0417\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0435\u0449\u0451 \u0441\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a\u043e\u0432",
   },
   uz: {
+    "page.forecasting.sharedInventoryExcluded": "Umumiy zaxiralar fabrikaga biriktirilmaguncha ko‘rsatilmaydi.",
     "page.inventory.arrivalDate": "Kelgan sana",
     "qrOrders.none": "QR kodlar skanerlanmagan",
     "qrOrders.partial": "Qisman skanerlangan",

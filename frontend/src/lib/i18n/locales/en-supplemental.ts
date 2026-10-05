@@ -1,5 +1,6 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "page.forecasting.sharedInventoryExcluded": "Shared inventory is excluded until it has factory attribution.",
     "floor.addPassport": "Add passport",
     "floor.passportCreated": "Passport created",
     "floor.partiallyPackaged": "Partially packaged orders",
