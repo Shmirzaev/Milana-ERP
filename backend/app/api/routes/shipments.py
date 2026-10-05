@@ -39,7 +39,13 @@ from app.services.audit import log_action
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 from app.services.numbering import next_shipment_no
 from app.services.model_images import model_preview_image_url, model_variant_picture_url
-from app.services.packages import format_storage_location, ship_package, mark_delivered
+from app.services.packages import (
+    format_storage_location,
+    mark_delivered,
+    ship_package,
+    sync_package_production_orders,
+    package_shipment_context,
+)
 from app.services.workflow import notify_department
 
 router = APIRouter(prefix="/shipments", tags=["shipments"])
@@ -612,6 +618,19 @@ def _finished_goods_rows_for_package(db: DbSession, package_id: int, *, availabl
     return qry.order_by(FinishedGoodsStock.id.asc()).all()
 
 
+def _finished_goods_rows_for_packages(db: DbSession, package_ids: set[int]) -> dict[int, list[FinishedGoodsStock]]:
+    """Lock and load shipment stock rows in one round trip."""
+    if not package_ids:
+        return {}
+    qry = db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id.in_(sorted(package_ids)))
+    if db.bind and db.bind.dialect.name == "postgresql":
+        qry = qry.with_for_update(of=FinishedGoodsStock)
+    rows_by_package: dict[int, list[FinishedGoodsStock]] = {}
+    for row in qry.order_by(FinishedGoodsStock.package_id.asc(), FinishedGoodsStock.id.asc()).all():
+        rows_by_package.setdefault(int(row.package_id), []).append(row)
+    return rows_by_package
+
+
 def _move_package_reservations(
     db: DbSession,
     *,
@@ -784,25 +803,40 @@ def _ship_verified_packages(db: DbSession, shipment: Shipment, current: User) ->
             f"Scan all shipment packages before shipping. Missing scan for: {suffix}",
         )
 
-    db.query(Package).filter(Package.id.in_(attached_ids)).order_by(Package.id).with_for_update().populate_existing().all()
+    locked_packages = (
+        db.query(Package)
+        .filter(Package.id.in_(attached_ids))
+        .order_by(Package.id)
+        .with_for_update()
+        .populate_existing()
+        .all()
+    )
+    locked_packages_by_id = {int(package.id): package for package in locked_packages}
     packages: list[Package] = []
+    package_ids = {int(row.package_id) for row in shipment.packages}
+    stocks_by_package = _finished_goods_rows_for_packages(db, package_ids)
+    foreign_reservation_package_ids = {
+        int(package_id)
+        for package_id, in db.query(StockReservation.package_id).filter(
+            StockReservation.package_id.in_(sorted(package_ids)),
+            (StockReservation.sales_order_id != shipment.sales_order_id)
+            if shipment.sales_order_id
+            else (StockReservation.quantity > 0),
+        ).distinct().all()
+        if package_id is not None
+    }
     for shipment_package in sorted(shipment.packages, key=lambda row: row.package_id):
-        package = db.get(Package, shipment_package.package_id)
+        package = locked_packages_by_id.get(int(shipment_package.package_id))
         if not package:
             raise HTTPException(409, f"Shipment package #{shipment_package.package_id} no longer exists")
-        package = _lock_package(db, package)
         if package.status not in _READY_FOR_SHIPMENT_STATUSES:
             raise HTTPException(409, f"Package {package.package_no} is no longer ready to ship")
-        stocks = _finished_goods_rows_for_package(db, package.id)
+        stocks = stocks_by_package.get(int(package.id), [])
         if (shipment_package.quantity != package.total_quantity or not stocks or
                 sum(row.available_qty + row.reserved_qty for row in stocks) != package.total_quantity or
                 any(row.sold_qty or row.quantity != row.available_qty + row.reserved_qty for row in stocks)):
             raise HTTPException(409, f"Package {package.package_no} quantities do not match warehouse stock")
-        foreign_reservation = db.query(StockReservation.id).filter(
-            StockReservation.package_id == package.id,
-            StockReservation.sales_order_id != shipment.sales_order_id if shipment.sales_order_id else StockReservation.quantity > 0,
-        ).first()
-        if foreign_reservation:
+        if int(package.id) in foreign_reservation_package_ids:
             raise HTTPException(409, f"Package {package.package_no} is reserved for another order")
         packages.append(package)
 
@@ -844,8 +878,10 @@ def _ship_verified_packages(db: DbSession, shipment: Shipment, current: User) ->
     shipment.shipped_at = datetime.now(timezone.utc)
     freeze_dispatch_document(db, shipment)
     shipment.dispatch_snapshot = {**shipment.dispatch_snapshot, "document": {**shipment.dispatch_snapshot["document"], "warehouse_person": current.name}}
+    shipment_context = package_shipment_context(db, packages, stocks_by_package)
     for package in packages:
-        ship_package(db, package, current.id)
+        ship_package(db, package, current.id, sync_production=False, shipment_context=shipment_context)
+    sync_package_production_orders(db, (package.production_order_id for package in packages))
     if (shipment.dispatch_snapshot or {}).get("manual"):
         from app.services.shipment_review import post_manual_shipment_invoice
         post_manual_shipment_invoice(db, shipment, current)

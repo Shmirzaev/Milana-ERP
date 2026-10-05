@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.main import app
-from app.models import Bundle, CuttingRecord, ProductionOrder, WorkOrder
+from app.models import BusinessOrderAlias, Bundle, CuttingRecord, ProductionOrder, WorkOrder
 from app.services import barcode
 from app.services.bundles import bundle_qr_payload
 from app.services.cutting_sheet import render_cutting_sheet_html
@@ -97,3 +97,27 @@ def test_cutting_sheet_renders_current_canonical_reference(client, auth_headers)
         sheet = render_cutting_sheet_html(db, record, [bundle["id"]])
         assert po.order_no in sheet
         assert "PO-2026-000202" not in sheet
+
+
+def test_five_digit_bundle_and_order_references_keep_qr_and_alias_lookup(client, auth_headers):
+    bundle = _create_bundle_for_scan(client, auth_headers)
+    historical = f"BND-2026-{bundle['id']:06d}"
+    with SessionLocal() as db:
+        saved = db.get(Bundle, bundle["id"])
+        order = db.get(ProductionOrder, saved.production_order_id)
+        saved.bundle_no = "BND-10000"
+        order.production_no = "PO-10000"
+        db.add(BusinessOrderAlias(
+            namespace="BND",
+            entity_id=saved.id,
+            reference=historical,
+            canonical_reference="BND-10000",
+        ))
+        db.commit()
+        payload = bundle_qr_payload(db, saved)
+
+    assert payload == f"BUNDLE:BND-10000|{bundle['barcode']}|PO:PO-10000"
+    for code in ("BND-10000", historical, payload):
+        response = client.get("/api/bundles/lookup", params={"code": code}, headers=auth_headers)
+        assert response.status_code == 200, response.text
+        assert response.json()["bundle_no"] == "BND-10000"

@@ -45,24 +45,44 @@ def size_balance(db, production_order_id, batch_id, *, exclude_package_id=None):
             for size, qty in sorted(accepted.items())]
 
 
-def enforce_size_allocation(db, order, batch_id, items, allocations, *, first_grade=False, exclude_package_id=None):
-    has_singles = first_grade or db.query(Package.id).filter(
-        Package.production_order_id == order.id, Package.stock_kind == "first_grade",
-    ).first()
+def enforce_size_allocation(db, order, batch_id, items, allocations, *, first_grade=False, exclude_package_id=None, cache=None):
+    cache = cache if exclude_package_id is None else None
+    singles_key = ("has_singles", order.id)
+    has_singles = first_grade or (cache.get(singles_key) if cache is not None else None)
+    if has_singles is None or (not has_singles and first_grade):
+        has_singles = bool(db.query(Package.id).filter(
+            Package.production_order_id == order.id, Package.stock_kind == "first_grade",
+        ).first())
+    if cache is not None:
+        cache[singles_key] = has_singles
     if not has_singles:
         return
-    sources = db.query(ProductionOrderItem).filter_by(production_order_id=order.id).all()
-    colors = {str(row.color or "").strip().casefold() for row in sources}
+    colors_key = ("colors", order.id)
+    colors = cache.get(colors_key) if cache is not None else None
+    if colors is None:
+        sources = db.query(ProductionOrderItem).filter_by(production_order_id=order.id).all()
+        colors = {str(row.color or "").strip().casefold() for row in sources}
+        if cache is not None:
+            cache[colors_key] = colors
     if len(colors) != 1 or any(item.get("model_id", order.model_id) != order.model_id or str(item["color"]).strip().casefold() not in colors for item in items):
         raise HTTPException(409, "FIRST_GRADE_VARIANT_EVIDENCE")
     if len(allocations) > 1:
         raise HTTPException(409, "FIRST_GRADE_MIXED_BATCH_EVIDENCE")
     selected_batch = allocations[0]["production_batch_id"] if allocations else batch_id
-    balance = {row["size"]: row["remaining"] for row in size_balance(
-        db, order.id, selected_batch, exclude_package_id=exclude_package_id,
-    )}
+    balance_key = ("balance", order.id, selected_batch)
+    balance = cache.get(balance_key) if cache is not None else None
+    if balance is None:
+        balance = {row["size"]: row["remaining"] for row in size_balance(
+            db, order.id, selected_batch, exclude_package_id=exclude_package_id,
+        )}
+        if cache is not None:
+            cache[balance_key] = balance
     requested = defaultdict(int)
     for item in items:
         requested[item["size"]] += item["quantity"]
     if any(qty > balance.get(size, 0) for size, qty in requested.items()):
         raise HTTPException(409, "FIRST_GRADE_SIZE_EXCEEDED")
+
+    if cache is not None:
+        for size, quantity in requested.items():
+            balance[size] -= quantity
