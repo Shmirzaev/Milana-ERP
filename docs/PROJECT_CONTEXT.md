@@ -2,6 +2,12 @@
 
 Last updated: 2026-10-05
 
+## DINAR 4639 owner-confirmed stock added (2026-10-05)
+
+- Owner explicitly confirmed 300 kg / 10 rolls for DINAR 4639, overriding the workbook zero balance. Existing batch 377 changed from 0 kg / 4 rolls to 300 kg / 10 rolls at 04:33:29 UTC through the ERP batch-update handler. No duplicate receipt was created. Its existing fabric identity (inactive catalog item 38, `36/1 OCHIRVOR`), photo, date, other fields, historical movements and reservations remain unchanged, as do all 1,328 other batches. One 300 kg adjustment ledger entry records the addition.
+- Verified backup `/opt/milana-erp/shared/backups/milana_erp_pre_fabric_reconcile_20261005_043307.dump`: 65,059,247 bytes, mode 0600, 1,216 restore objects; SHA-256 `e4b693d4581f288f42c03ecfc6d8d5342f457897f4ae800f584de1897656172d`, restore-list SHA-256 `0076e7cf361cbb102ad151870d0a55ea4ea745390304e03040ced6196bad3c69`. Plan SHA-256 `45ad73c35feadb5cd2e968f109888596167521c305f9e5f1f81b7e2571319f66`, completion audit 34562.
+- Fresh database/public API readback confirmed the balance; transaction preservation checks, new audit segment and all four immediate health checks passed. Plan assertions and diff review passed; no extra tests or monitoring. Data is live without application deployment: verified active blue `20261003_071825`, rollback green `20261003_065351`, schema `0135_usluga_paid_processes` unchanged. Operation commit `0e672079` pushed to `clone_main` and `codex/dinar-4639-20261005`; dedicated worktree `C:/ERP/.codex-work/dinar-4639-20261005`. Private evidence in ignored `outputs/fabric-reconciliation/`; context mirrored to Obsidian.
+
 ## DINAR 6886 restored from owner-confirmed List1 balance (2026-10-05)
 
 - Owner explicitly restored `DINAR 2026 (5).xlsx`, Лист1 row 553: 559.3 kg / 25 rolls, overriding the newer ТЕСТ zero balance for batch 6886 only. Existing batch 1639, active fabric 87 `30/1P_CMP SUPREM`, was restored at 03:57:48 UTC through the existing material restoration handler, then its roll count set through the batch handler. It is back in active inventory with QC pending. Original color SEKER KASAR, code DG-00001,1, date, identity and history are retained; no duplicate batch was created.
