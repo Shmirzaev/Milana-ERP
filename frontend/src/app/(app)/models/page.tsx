@@ -77,7 +77,7 @@ export default function ModelsPage() {
   const [pageSize, setPageSize] = useState(100);
   const [showFilters, setShowFilters] = useState(false);
   const [cloningId, setCloningId] = useState<number | null>(null);
-  const [filters, setFilters] = useState({ code: "", name: "", category: "", createdFrom: "", createdTo: "" });
+  const [filters, setFilters] = useState({ code: "", name: "", category: "", qolipNo: "", createdFrom: "", createdTo: "" });
   const [appliedFilters, setAppliedFilters] = useState(filters);
 
   useEffect(() => {
@@ -94,6 +94,7 @@ export default function ModelsPage() {
     });
     if (q) params.set("q", q);
     if (appliedFilters.code) params.set("code", appliedFilters.code);
+    if (appliedFilters.qolipNo) params.set("qolip_no", appliedFilters.qolipNo);
     if (appliedFilters.name) params.set("name", appliedFilters.name);
     if (appliedFilters.category) params.set("category", appliedFilters.category);
     if (appliedFilters.createdFrom) params.set("created_from", appliedFilters.createdFrom);
@@ -185,12 +186,19 @@ export default function ModelsPage() {
         </button>
         {canManage && <Link href={`${modelPageBase}/new`} className="btn btn-primary flex-1 justify-center">{t("page.models.createNew")}</Link>}
       </div>
-      <form onSubmit={(e) => e.preventDefault()} className={`${showFilters ? "grid" : "hidden"} card mb-4 grid-cols-1 gap-3 p-4 md:grid md:grid-cols-5`}>
+      <form onSubmit={(e) => e.preventDefault()} className={`${showFilters ? "grid" : "hidden"} card mb-4 grid-cols-1 gap-3 p-4 md:grid md:grid-cols-3 xl:grid-cols-6`}>
         <input
           className="input"
           placeholder={`${t("field.modelNo")} / ${t("field.variantNo")}`}
           value={filters.code}
           onChange={(e) => setFilters((prev) => ({ ...prev, code: e.target.value }))}
+        />
+        <input
+          className="input"
+          aria-label={t("page.modelDetail.qolipNo")}
+          placeholder={t("page.modelDetail.qolipNo")}
+          value={filters.qolipNo}
+          onChange={(e) => setFilters((prev) => ({ ...prev, qolipNo: e.target.value }))}
         />
         <input
           className="input"

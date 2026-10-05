@@ -7,11 +7,11 @@ from decimal import Decimal
 from pathlib import Path
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from app.api.routes.inventory import create_item, update_item, receive_stock, update_batch, release_reservation
+from app.api.routes.inventory import create_item, update_item, receive_stock, update_batch, release_reservation, restore_material_batch
 from app.core.config import settings
 from app.core.deps import user_permissions
 from app.models import AuditLog, User, StockBatch, MaterialReservation, Item
-from app.schemas.inventory import ItemIn, StockBatchIn, StockBatchUpdate
+from app.schemas.inventory import ItemIn, StockBatchIn, StockBatchUpdate, StockBatchRestoreIn
 from app.services.audit import log_action
 from app.services.image_storage import convert_image_to_webp, prebuild_webp_thumbnails
 from app.services.inventory import material_reservation_status_for_production_order
@@ -44,12 +44,19 @@ def execute(db, actor, plan, plan_hash, image_urls):
             before_kg=str(batch.quantity)
             values=dict(a['values'])
             if 'quantity' in values:values['quantity']=float(values['quantity'])
-            update_batch(bid,StockBatchUpdate(**values),db,actor,force=False)
+            if a.get('restore_reason'):
+                assert Decimal(before_kg)==0 and batch.archived_at is not None
+                restore_material_batch(bid,StockBatchRestoreIn(quantity=Decimal(a['values']['quantity']),
+                    reason=a['restore_reason']),db,actor)
+                update_batch(bid,StockBatchUpdate(piece_count=values['piece_count']),db,actor,force=False)
+            else:
+                update_batch(bid,StockBatchUpdate(**values),db,actor,force=False)
         else:
             iid=item_ids.get(a['item_ref'],a['item_ref'])
             response=receive_stock(StockBatchIn(item_id=iid,batch_no=a['batch_no'],supplier_id=a['supplier_id'],
                 quantity=float(a['quantity']),piece_count=a['piece_count'],unit='kg',warehouse_id=1,
                 cost_per_unit=float(a['cost_per_unit']),qc_status='pending',color=a['color'],color_code=a['color_code'],
+                old_code=a.get('old_code'),color_status=a.get('color_status'),
                 roll_weights_kg=a.get('roll_weights_kg',[]),roll_lengths_m=a.get('roll_lengths_m',[]),
                 image_url=image_urls.get(str(index))),db,actor,idempotency_key=f'fabric-current:{plan_hash[:24]}:{index}')
             bid=response['id'];before_kg='0'
@@ -87,6 +94,9 @@ def verify(before,after,plan,changes,new_items):
             assert Decimal(b['quantity'])==Decimal(a['quantity']) and b['piece_count']==a['piece_count']
             assert b['supplier_id']==a['supplier_id'] and b['batch_no']==a['batch_no']
             assert b['item_id']==new_items.get(a['item_ref'],a['item_ref'])
+            assert Decimal(b['cost_per_unit'])==Decimal(a['cost_per_unit'])
+            for k in ('color','color_code','old_code','color_status'):
+                assert b[k]==a.get(k),(c['ref'],k)
             assert b['roll_weights_kg']==a.get('roll_weights_kg',[]) and b['roll_lengths_m']==a.get('roll_lengths_m',[])
         if Decimal(b['quantity'])==0:assert b['archived_at']
     for key in ('suppliers','warehouses','revision','batch_references','linked_rows','fabric_scans'):
@@ -109,7 +119,9 @@ def verify(before,after,plan,changes,new_items):
         if delta:
             expected_count+=1
             assert len(movement)==1 and Decimal(movement[0]['quantity'])==abs(delta)
-            assert movement[0]['movement_type']==('receive' if c['kind']=='receive' else 'issue' if delta<0 else 'adjustment')
+            restoration=plan['actions'][c['index']].get('restore_reason')
+            assert movement[0]['movement_type']==('return' if restoration else 'receive' if c['kind']=='receive' else 'issue' if delta<0 else 'adjustment')
+            if restoration:assert movement[0]['reference_type']=='StockBatchRestore'
         else:assert not movement
     assert len(added)==expected_count
     r_after={r['id']:r for r in after['reservations']};released={r['id']:r for r in plan['reservation_releases']}

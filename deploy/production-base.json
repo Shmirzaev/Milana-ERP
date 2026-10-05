@@ -1,6 +1,6 @@
 {
-  "release": "20261003_071825",
-  "source_manifest_sha256": "1dd0912ff860785eb78884743adb4faa3f3eafbb23e7873db5f8513d6b8705c9",
-  "database_revision": "0135_usluga_paid_processes",
-  "git_baseline_commit": "d7d083def8bd190eff92b46562319e2735ce10cc"
+  "release": "20261005_070406",
+  "source_manifest_sha256": "7a67d8586282eab81ad4a9792a4e2acf5c40aaf261774477fb564c21000dd75a",
+  "database_revision": "0137_perf34_shipment_indexes",
+  "git_baseline_commit": "25a7dd1cff77b4b180181da1db0f8780f1c7675e"
 }

@@ -32,7 +32,7 @@ listing = run(['docker', 'run', '--rm', '--network', 'none', '-v', directory+':/
 objects = sum(bool(line.strip()) and not line.startswith(b';') for line in listing.splitlines())
 metadata = json.loads(run(['docker', 'run', '--rm', '--user', '0', '--network', 'none', '--read-only',
     '-v', directory+':/backup:ro', '--entrypoint', 'python',
-    'ghcr.io/shmirzaev/milana-erp-backend:20261003_071825', '-c',
+    'ghcr.io/shmirzaev/milana-erp-backend:20261005_060945', '-c',
     'import json,hashlib,pathlib; p=pathlib.Path("/backup/'+name+'"); '
     'print(json.dumps(dict(bytes=p.stat().st_size,mode=oct(p.stat().st_mode & 0o777),sha256=hashlib.sha256(p.read_bytes()).hexdigest())))']))
 assert metadata['bytes'] > 0 and objects > 100 and metadata['mode'] == '0o600'

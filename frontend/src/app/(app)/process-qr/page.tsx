@@ -10,6 +10,7 @@ import {
   ArrowUp,
   CheckSquare,
   ChevronDown,
+  Download,
   Pencil,
   Plus,
   Printer,
@@ -20,7 +21,7 @@ import {
   Trash2,
   Users,
 } from "lucide-react";
-import { api, fetcher } from "@/lib/api";
+import { api, fetcher, fetchResponse } from "@/lib/api";
 import { formatBatchSerial } from "@/lib/batchSerial";
 import { orderReference, formatOrderReference } from "@/lib/orderRef";
 import { parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
@@ -740,6 +741,7 @@ export default function ProcessQrPage() {
   const [customSizeQuantities, setCustomSizeQuantities] = useState<Record<string, NumberInputValue>>({});
   const initializedSizeSourceKey = useRef("");
   const [manualSizeOverride, setManualSizeOverride] = useState<{ modelId: number; sizes: string[] } | null>(null);
+  const [exportingOperations, setExportingOperations] = useState(false);
   const [operations, setOperations] = useState<PaidOperation[]>([]);
   const [loadedOperationsModelId, setLoadedOperationsModelId] = useState<number | null>(null);
   const [loadedOperationsSignature, setLoadedOperationsSignature] = useState("");
@@ -1229,6 +1231,51 @@ export default function ProcessQrPage() {
   function markOperationsDirty() {
     setOperationModelDirty(true);
     setModelSaveMsg("");
+  }
+
+  async function exportPaidOperations() {
+    setExportingOperations(true);
+    try {
+      const response = await fetchResponse("/api/payroll/process-qr/export.xlsx", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lang,
+          model: selectedModel?.code || selectedProcess?.model_code || "",
+          order: selectedProcess?.production_no || "",
+          factory: FACTORY_SHORT_CODES[printPaidOperationFactory],
+          currency,
+          headers: ["No.", t("page.processQr.use"), t("field.section"), t("common.code"),
+            t("page.processQr.operationName"), t("page.processQr.ratePerPiece"),
+            t("page.processQr.copies"), t("page.processQr.divide")],
+          rows: factoryOperations.map((operation) => ({
+            selected: operation.selected,
+            section: paidSectionLabel(operation.section, lang),
+            code: operation.code,
+            name: operation.name,
+            rate: operation.rate.trim() || "0",
+            copies: Math.max(1, numberOrZero(operation.copies)),
+            division: operation.splitMode === "custom"
+              ? `${t("page.processQr.customDivide")}: ${operation.splitQuantities.join(", ")}`
+              : t(operation.splitMode === "equal" ? "page.processQr.equalDivide" : "page.processQr.noDivide"),
+          })),
+        }),
+      });
+      if (!response.ok) throw new Error(t("packagingReport.downloadFailed"));
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `paid-processes-${FACTORY_SHORT_CODES[printPaidOperationFactory]}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      await dialogs.notify(error instanceof Error ? error.message : t("packagingReport.downloadFailed"));
+    } finally {
+      setExportingOperations(false);
+    }
   }
 
   function updateOperation(id: string, patch: Partial<PaidOperation>) {
@@ -2037,6 +2084,15 @@ export default function ProcessQrPage() {
                 <span>{savingModelOperations ? t("common.saving") : t("page.processQr.saveToModel")}</span>
               </button>
 
+              <button
+                type="button"
+                className="btn"
+                onClick={exportPaidOperations}
+                disabled={!selectedModel || factoryOperations.length === 0 || exportingOperations}
+              >
+                <Download />
+                <span>{exportingOperations ? t("common.loading") : t("packagingReport.excel")}</span>
+              </button>
               {sectionToggle("paidOperations")}
             </div>
           </div>

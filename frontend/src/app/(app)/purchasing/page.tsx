@@ -61,9 +61,7 @@ export default function PurchasingPage() {
   const [orderDrafts, setOrderDrafts] = useState<Record<number, OrderDraft>>({});
 
   const { data: requests, mutate: refreshRequests } = useSWR<PurchaseRequest[]>(canView ? "/api/purchasing/requests" : null, fetcher);
-  const { data: ordersSummary, mutate: refreshOrders } = useSWR<PurchaseOrderSummary>(
-    canView ? "/api/purchasing/orders?receivable_only=true&limit=1" : null, fetcher,
-  );
+  const { data: orders, mutate: refreshOrders } = useSWR<PurchaseOrderSummary>(canView ? "/api/purchasing/orders?receivable_only=true&limit=1" : null, fetcher);
   const { data: materialItems } = useSWR<Item[]>(canRequest || canApprove ? "/api/inventory/items?group=materials&page_size=500" : null, fetcher);
   const { data: accessoryItems } = useSWR<Item[]>(canRequest || canApprove ? "/api/inventory/items?group=accessories&page_size=500" : null, fetcher);
   const { data: suppliers } = useSWR<Supplier[]>(canRequest || canApprove ? "/api/suppliers" : null, fetcher);
@@ -199,7 +197,7 @@ export default function PurchasingPage() {
     return folders;
   }, new Map<string, { key: string; supplierName: string; requests: PurchaseRequest[] }>()).values())
     .sort((a, b) => a.supplierName.localeCompare(b.supplierName));
-  const openOrderCount = ordersSummary?.total ?? 0;
+  const openOrderCount = orders?.total ?? 0;
   const today = new Date().toISOString().slice(0, 10);
 
   const renderRequestRows = (folderRequests: PurchaseRequest[]) => folderRequests.map((request) => (

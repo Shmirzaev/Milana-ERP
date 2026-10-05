@@ -173,7 +173,6 @@ def list_purchase_orders(
     term = str(status or "").strip()
     if term:
         query = query.filter(PurchaseOrder.status == term)
-
     if receivable_only:
         # Match the receiving queue without loading every order or counting
         # its outstanding lines more than once. The page and total share scope.
