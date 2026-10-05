@@ -28,6 +28,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.routes import inventory as inventory_routes
+from app.services.idempotency import bind_idempotency_identity
 from app.db.base import Base
 from app.models import (
     AuditLog,
@@ -204,6 +205,7 @@ def _race_two_returns(sessions, case, monkeypatch, *, observe_blockers=False):
         with sessions() as db:
             assert db.bind.dialect.name == "postgresql"
             user = db.get(User, case["user_id"])
+            bind_idempotency_identity(db, user)
             local.pid = db.execute(text("SELECT pg_backend_pid()")).scalar_one()
             pids.put(local.pid)
             try:
@@ -336,6 +338,7 @@ def test_allowance_lock_is_narrow_and_precedes_validation_and_replay(
         event.listen(Session, "do_orm_execute", capture)
         try:
             user = db.get(User, case["user_id"])
+            bind_idempotency_identity(db, user)
             inventory_routes.collect_back_accessory(
                 payload=_return_payload(case, 0),
                 db=db,

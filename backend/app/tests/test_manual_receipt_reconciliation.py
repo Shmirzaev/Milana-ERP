@@ -26,6 +26,7 @@ from app.models import (
 )
 from app.schemas.package_workflows import ManualPackageReceiptIn
 from app.services import package_workflows as service
+from app.services.idempotency import bind_idempotency_identity
 from app.tests.test_package_workflows import manual_body, packaging_order, warehouse  # noqa: F401
 
 
@@ -101,6 +102,7 @@ def _minimal_receipt_result(db, user, token):
 def _direct_original(sessions, user_id, payload, action):
     with sessions() as db:
         user = db.get(User, user_id)
+        bind_idempotency_identity(db, user)
         try:
             return routes._write(db, user, "manual-receipt", payload, lambda: action(db, user))
         except Exception as exc:
@@ -111,6 +113,7 @@ def _direct_original(sessions, user_id, payload, action):
 def _direct_reconcile(sessions, user_id, payload, ready=None):
     with sessions() as db:
         user = db.get(User, user_id)
+        bind_idempotency_identity(db, user)
         if ready is not None:
             ready.put(db.execute(text("SELECT pg_backend_pid()")).scalar_one())
         try:
@@ -351,7 +354,7 @@ def test_postgres_original_commit_wins_reconciliation_race(reconciliation_postgr
     with sessions() as db:
         assert db.query(PackagePrintRun).filter_by(run_no=f"PRN-{token}").count() == 1
         assert db.query(IdempotencyRecord).filter_by(
-            scope=f"packages.manual-receipt.{user_id}",
+            user_id=user_id,
             key=str(payload.request_key),
         ).count() == 1
 
@@ -390,7 +393,7 @@ def test_postgres_cancel_wins_before_delayed_original(reconciliation_postgres_se
     assert not action_called.is_set()
     with sessions() as db:
         record = db.query(IdempotencyRecord).filter_by(
-            scope=f"packages.manual-receipt.{user_id}",
+            user_id=user_id,
             key=str(payload.request_key),
         ).one()
         assert record.status_code == 409
