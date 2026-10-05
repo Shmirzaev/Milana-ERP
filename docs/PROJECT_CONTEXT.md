@@ -1,6 +1,13 @@
 # Milana ERP Project Context
 
-Last updated: 2026-10-04
+Last updated: 2026-10-05
+
+## DINAR 6886 restored from owner-confirmed List1 balance (2026-10-05)
+
+- Owner explicitly restored `DINAR 2026 (5).xlsx`, Лист1 row 553: 559.3 kg / 25 rolls, overriding the newer ТЕСТ zero balance for batch 6886 only. Existing batch 1639, active fabric 87 `30/1P_CMP SUPREM`, was restored at 03:57:48 UTC through the existing material restoration handler, then its roll count set through the batch handler. It is back in active inventory with QC pending. Original color SEKER KASAR, code DG-00001,1, date, identity and history are retained; no duplicate batch was created.
+- Added one `return` movement referencing `StockBatchRestore`; past receipt/depletion movements and reservations remain unchanged. All 1,328 other batches were preserved. Database and signed public API readback confirmed 559.3 kg / 25 rolls and cleared archive fields; the new audit segment (4 entries) and all four health checks passed. Compilation, plan arithmetic and transaction guards passed; no extra test suite or monitoring.
+- Verified backup `/opt/milana-erp/shared/backups/milana_erp_pre_fabric_reconcile_20261005_035720.dump`: 65,005,105 bytes, mode 0600, 1,216 restore objects; SHA-256 `2cc789d69dcb35c50d98254eeaea197a77fa4a96771718adc39789334fff30af`; restore-list SHA-256 `1912f31473ae2cb2a61af2bc22256f7a2b999600bfd8381a270235f4b740f7e5`. Plan SHA-256 `8a817f5c2d40955e7e72636e2a7e9b609f6e1cb78cd14d7f6eaff70e3056a5a0`, completion audit 34527.
+- Data is live without application deployment. Both source manifests verified active blue `20261003_071825`; rollback green `20261003_065351`, schema `0135_usluga_paid_processes` unchanged. Operation commit `f9338682` pushed to `clone_main` and `codex/restore-6886-20261005`; dedicated worktree `C:/ERP/.codex-work/restore-6886-20261005`. Private evidence is in ignored `outputs/fabric-reconciliation/`. Context mirrored to Obsidian; unrelated work and data preserved.
 
 ## PERF31 attendance roster batching on AT06 (2026-10-04; branch validation only)
 
