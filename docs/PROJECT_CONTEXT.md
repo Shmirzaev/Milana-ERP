@@ -2,6 +2,14 @@
 
 Last updated: 2026-10-05
 
+## ECT Usluga TB1444-V-5 size whitespace corrected (2026-10-05)
+
+- LIVE data correction: approved Eco Usluga model `TB1444-5` (displayed as `TB1444-V-5`, model 8401) stored its first size as ` 98-104`, including a leading space. Planning strips submitted size labels but the server compares them against exact saved labels, causing HTTP 400. Changed only model-size row 34833 from ` 98-104` to `98-104`; audit 35631 records the before/after and owner-requested reason. Existing measurements, timestamps, all other family size rows, orders and quantities were preserved. No order was submitted or created.
+- Reproduced the precise failure against the active backend; a transactionally rolled-back rehearsal and independent committed-data read both validated all 11 size labels with the real Usluga order validator. Ruff, Python compilation and diff checks passed. All four internal/public health/login checks returned 200. Variant V-6 still has the same leading-space issue and was left outside this screenshot-specific correction; V-7 already has the canonical size. Historical unrelated security/audit risks remain unchanged.
+- Fresh verified mode-0600 backup: `/opt/milana-erp/shared/backups/milana_erp_pre_20261005_100058.dump`, 64,892,842 bytes, 1,218 restore objects; dump SHA-256 `194fc3917267902a5edb950723f197c5eec87d496746233ca22c3d8b15c928c7`; restore-list SHA-256 `246c69662d11bd66ecbd4f759c1d67c8cab3d6d2456d5671d6b486ce77d622d7`.
+- Active backend/frontend remain blue `20261005_070406`, rollback green `20261005_063643`, source manifest `7a67d8586282eab81ad4a9792a4e2acf5c40aaf261774477fb564c21000dd75a`. Both complete source manifests and slot states were verified. No deployment, migration or restart occurred. The owner explicitly authorized the verified `origin/clone_main` baseline because `origin/main` still records an older production release.
+- Dedicated worktree `C:/ERP/.codex-work/usluga-size-space-20261005`, branch `codex/usluga-size-space-20261005`. Guarded correction script commit `c5db5fb7` was checked and pushed before application; branch remains unmerged. Private backup/rehearsal/apply/health evidence is in ignored `outputs/usluga-size/`. Legacy checkout preserved.
+
 ## SAFF 10308 restored to owner-confirmed stock (2026-10-05)
 
 - Owner explicitly confirmed 300 kg / 10 rolls for SAFF 10308, overriding the latest workbook zero balance. Restored existing batch 1729, source-correct active fabric 82 `30/1 COMPACT SUPREM`, at 09:58:46 UTC through the normal restoration handler and roll-count update. Older archived batch 1527 (`30/1 COMPACT PENYE SUPREM`) remains unchanged at zero; no duplicate or second active balance was created. Restored batch QC is pending. Identity, date and history are preserved, as are all 1,332 other batches and reservations.
