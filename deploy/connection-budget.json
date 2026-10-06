@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "operations_owner": "Ismail",
+  "max_connections": 100,
+  "superuser_reserved_connections": 3,
+  "ordinary_maintenance_margin": 10,
+  "administrative_roles": ["postgres"],
+  "erp_workers_per_slot": 2,
+  "erp_pool_size": 8,
+  "erp_max_overflow": 4,
+  "erp_slots": 2,
+  "role_limits": {
+    "erp": 48,
+    "authenticator": 10,
+    "catalog_user": 6,
+    "catalog2_user": 6,
+    "leadlens": 6,
+    "milanaweb": 6,
+    "kotiba": 3,
+    "milanaweb_user": 2
+  }
+}
