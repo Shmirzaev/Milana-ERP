@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import useSWR from "swr";
+import useLoadMore from "@/lib/useLoadMore";
 import { fetcher, api } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
@@ -35,7 +35,8 @@ export default function CustomersPage() {
   if (createdFrom) customersParams.set("created_from", createdFrom);
   if (createdTo) customersParams.set("created_to", createdTo);
   const customersUrl = `/api/customers?${customersParams.toString()}`;
-  const { data: pageData, mutate } = useSWR<any>(customersUrl, fetcher);
+  const listPager = useLoadMore<any>(customersUrl, fetcher);
+  const { data: pageData, mutate } = listPager;
   const data: Customer[] = pageData?.rows || [];
   const [form, setForm] = useState(EMPTY);
   const [err, setErr] = useState("");
@@ -127,7 +128,7 @@ export default function CustomersPage() {
             ))}
           </tbody>
         </table>
-        <PaginationControls
+        <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()}
           page={page}
           pageSize={pageSize}
           total={Number(pageData?.total || data.length)}

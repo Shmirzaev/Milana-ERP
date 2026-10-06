@@ -4,6 +4,7 @@ import { type FormEvent, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, RotateCcw, Search, X } from "lucide-react";
 import useSWR from "swr";
+import useLoadMore from "@/lib/useLoadMore";
 import ImageThumbnail from "@/components/ImageThumbnail";
 import PageHeader from "@/components/PageHeader";
 import PaginationControls from "@/components/PaginationControls";
@@ -88,7 +89,8 @@ export default function FabricInventoryArchivePage() {
     return `/api/inventory/batches?${params.toString()}`;
   }, [createdFrom, createdTo, page, pageSize, query, supplierId]);
 
-  const { data, error, isLoading, mutate } = useSWR<ArchivedBatchPage>(archiveUrl, fetcher);
+  const listPager = useLoadMore<ArchivedBatchPage>(archiveUrl, fetcher);
+  const { data, error, isLoading, mutate } = listPager;
   const { data: suppliers } = useSWR<Supplier[]>("/api/suppliers", fetcher);
   const rows = data?.rows || [];
 
@@ -334,7 +336,7 @@ export default function FabricInventoryArchivePage() {
           </>
         ) : null}
 
-        <PaginationControls
+        <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()}
           page={page}
           pageSize={pageSize}
           total={Number(data?.total || 0)}

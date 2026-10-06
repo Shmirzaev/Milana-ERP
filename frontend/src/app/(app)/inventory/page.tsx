@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Archive, Download, Edit3, PackageCheck, Plus, QrCode, Search, Trash2, X } from "lucide-react";
 import useSWR from "swr";
+import useLoadMore from "@/lib/useLoadMore";
 import Modal from "@/components/Modal";
 import { api, fetcher, fetchResponse } from "@/lib/api";
 import { modelOptionsByIdsFetcher, modelOptionsByIdsKey } from "@/lib/useModelOptions";
@@ -20,7 +21,7 @@ import { useDialogs } from "@/components/DialogProvider";
 import MaterialQrStickerModal, { type MaterialQrStickerData } from "@/components/MaterialQrStickerModal";
 
 type InventoryGroup = "materials" | "accessories";
-const INVENTORY_RENDER_PAGE_SIZE = 80;
+const INVENTORY_RENDER_PAGE_SIZE = 50;
 
 type AccessoryIssueRow = {
   production_order_id: number;
@@ -421,7 +422,8 @@ export default function InventoryPage() {
   if (createdTo) stockParams.set("created_to", createdTo);
   if (group === "materials" && supplierFilter) stockParams.set("supplier_id", String(supplierFilter));
   const stockUrl = `/api/inventory/stock?${stockParams.toString()}`;
-  const { data: stockPage, mutate: refreshStock } = useSWR<any>(stockUrl, fetcher);
+  const stockPager = useLoadMore<any>(stockUrl, fetcher);
+  const { data: stockPage, mutate: refreshStock } = stockPager;
   const stock = useMemo<any[]>(() => stockPage?.rows || [], [stockPage]);
   const { data: allAccessoryStock } = useSWR<any[]>(
     group === "accessories" ? "/api/inventory/stock?group=accessories&page_size=500" : null,
@@ -462,14 +464,16 @@ export default function InventoryPage() {
     if (issueModelFilter) params.set("model_id", String(issueModelFilter));
     return params.toString();
   }, [issueModelFilter, issuePoFilter, q, requestPage, requestPageSize]);
-  const { data: requestData, mutate: refreshRequests } = useSWR<any>(
+  const requestPager = useLoadMore<any>(
     group === "accessories" ? `/api/inventory/accessory-issue-requests?${requestParams}` : null,
     fetcher,
   );
-  const { data: issueData, mutate: refreshIssues } = useSWR<any>(
+  const { data: requestData, mutate: refreshRequests } = requestPager;
+  const issuePager = useLoadMore<any>(
     group === "accessories" ? `/api/inventory/accessory-issues?${issueParams}` : null,
     fetcher,
   );
+  const { data: issueData, mutate: refreshIssues } = issuePager;
   const { data: issuePlan, mutate: refreshIssuePlan } = useSWR<AccessoryIssuePlan>(
     group === "accessories" && issueModalOpen && issuingProductionOrderId
       ? `/api/inventory/accessory-issue-plan?production_order_id=${issuingProductionOrderId}`
@@ -1482,11 +1486,11 @@ export default function InventoryPage() {
             </button>
           </div>
         )}
-        <PaginationControls
+        <PaginationControls loading={stockPager.isValidating} error={stockPager.error} onRetry={() => void stockPager.mutate()}
           page={page}
           pageSize={pageSize}
           total={totalLines || rows.length}
-          count={inventoryRows.length}
+          count={rows.length}
           onPageChange={setPage}
           onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
         />
@@ -2043,7 +2047,7 @@ export default function InventoryPage() {
               </tbody>
             </table>
           </div>
-          <PaginationControls
+          <PaginationControls loading={requestPager.isValidating} error={requestPager.error} onRetry={() => void requestPager.mutate()}
             page={requestPage}
             pageSize={requestPageSize}
             total={requestTotal}
@@ -2103,7 +2107,7 @@ export default function InventoryPage() {
               </tbody>
             </table>
           </div>
-          <PaginationControls
+          <PaginationControls loading={issuePager.isValidating} error={issuePager.error} onRetry={() => void issuePager.mutate()}
             page={issuePage}
             pageSize={issuePageSize}
             total={issueTotal}

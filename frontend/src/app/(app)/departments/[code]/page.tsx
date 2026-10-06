@@ -116,6 +116,8 @@ export default function DepartmentInboxPage() {
   const [clientTz, setClientTz] = useState("UTC");
   const [creatingShipmentFor, setCreatingShipmentFor] = useState<string | null>(null);
   const [shipmentError, setShipmentError] = useState("");
+  const [departmentSearch, setDepartmentSearch] = useState("");
+  const deferredDepartmentSearch = useDeferredValue(departmentSearch.trim());
   const [cuttingSearch, setCuttingSearch] = useState("");
   const deferredCuttingSearch = useDeferredValue(cuttingSearch.trim());
   const [pendingPackageSearch, setPendingPackageSearch] = useState("");
@@ -123,7 +125,7 @@ export default function DepartmentInboxPage() {
   const deferredPendingPackageSearch = useDeferredValue(pendingPackageSearch.trim());
   const deferredReadyPackageSearch = useDeferredValue(readyPackageSearch.trim());
 
-  useEffect(() => { setCuttingSearch(""); }, [code]);
+  useEffect(() => { setCuttingSearch(""); setDepartmentSearch(""); }, [code]);
 
   useEffect(() => {
     try {
@@ -135,7 +137,7 @@ export default function DepartmentInboxPage() {
   }, []);
 
   const inboxUrl = code
-    ? `/api/inbox?dept=${code}&tz=${encodeURIComponent(clientTz)}${isPackagingDepartment ? "&include_awaiting_packaging=false" : ""}${code === "FGS" ? "&ready_to_ship_limit=50&ready_to_ship_offset=0" : ""}&include_core_orders=false`
+    ? `/api/inbox?dept=${code}&tz=${encodeURIComponent(clientTz)}${isPackagingDepartment ? "&include_awaiting_packaging=false" : ""}${code === "FGS" ? "&ready_to_ship_limit=50&ready_to_ship_offset=0" : ""}&include_core_orders=false&ready_to_ship_q=${encodeURIComponent(deferredDepartmentSearch)}`
     : null;
   const { data, isLoading, mutate } = useSWR<any>(inboxUrl, fetcher, { refreshInterval: 10_000 });
   const {
@@ -149,7 +151,7 @@ export default function DepartmentInboxPage() {
       if (code !== "FGS") return null;
       if (index === 0) return inboxUrl;
       if (previous && index * 50 >= Number(previous.ready_to_ship_total ?? 0)) return null;
-      return `/api/inbox?dept=${code}&tz=${encodeURIComponent(clientTz)}&ready_to_ship_limit=50&ready_to_ship_offset=${index * 50}&include_core_orders=false`;
+      return `/api/inbox?dept=${code}&tz=${encodeURIComponent(clientTz)}&ready_to_ship_limit=50&ready_to_ship_offset=${index * 50}&include_core_orders=false&ready_to_ship_q=${encodeURIComponent(deferredDepartmentSearch)}`;
     },
     fetcher,
     { refreshInterval: 10_000 },
@@ -163,7 +165,7 @@ export default function DepartmentInboxPage() {
     error: departmentOrdersError,
   } = useSWRInfinite<DepartmentOrderPage>(
     (index, previous) => code && !isCuttingDepartment && !(previous && !previous.has_more)
-      ? `/api/inbox/department-orders?dept=${code}&tz=${encodeURIComponent(clientTz)}&limit=50&offset=${index * 50}`
+      ? `/api/inbox/department-orders?dept=${code}&tz=${encodeURIComponent(clientTz)}&limit=50&offset=${index * 50}&q=${encodeURIComponent(deferredDepartmentSearch)}`
       : null,
     fetcher,
     { refreshInterval: 10_000 },
@@ -189,7 +191,7 @@ export default function DepartmentInboxPage() {
     isValidating: pendingPackagesValidating,
   } = useSWRInfinite<InboxPackagePage>(
     (index, previous) => code === "FGS" && !(previous && !previous.has_more)
-      ? `/api/inbox/packages?status=pending&page=${index + 1}&page_size=50&q=${encodeURIComponent(deferredPendingPackageSearch)}`
+      ? `/api/inbox/packages?status=pending&page=${index + 1}&page_size=50&q=${encodeURIComponent([deferredDepartmentSearch, deferredPendingPackageSearch].filter(Boolean).join(" "))}`
       : null,
     fetcher,
   );
@@ -200,7 +202,7 @@ export default function DepartmentInboxPage() {
     isValidating: readyPackagesValidating,
   } = useSWRInfinite<InboxPackagePage>(
     (index, previous) => code === "FGS" && !(previous && !previous.has_more)
-      ? `/api/inbox/packages?status=ready&page=${index + 1}&page_size=50&q=${encodeURIComponent(deferredReadyPackageSearch)}`
+      ? `/api/inbox/packages?status=ready&page=${index + 1}&page_size=50&q=${encodeURIComponent([deferredDepartmentSearch, deferredReadyPackageSearch].filter(Boolean).join(" "))}`
       : null,
     fetcher,
   );
@@ -213,7 +215,7 @@ export default function DepartmentInboxPage() {
     isValidating: awaitingPackagingValidating,
   } = useSWRInfinite<InboxAwaitingPackagingPage>(
     (index, previous) => isPackagingDepartment && !(previous && !previous.has_more)
-      ? `/api/inbox/awaiting-packaging?dept=${code}&page=${index + 1}&page_size=50`
+      ? `/api/inbox/awaiting-packaging?dept=${code}&page=${index + 1}&page_size=50&q=${encodeURIComponent(deferredDepartmentSearch)}`
       : null,
     fetcher,
     { refreshInterval: 10_000 },
@@ -389,6 +391,11 @@ export default function DepartmentInboxPage() {
         subtitle={t("page.deptInbox.subtitle")}
         actions={code === "FGS" ? <StocktakeLink /> : undefined}
       />
+      {!isCuttingDepartment && <div className="mb-4">
+        <input type="search" className="input max-w-xl" aria-label={`${t("common.search")} ${deptLabel}`}
+          placeholder={t("common.search")} maxLength={100} value={departmentSearch}
+          onChange={(event) => setDepartmentSearch(event.target.value)} />
+      </div>}
       {(isLoading || departmentOrdersLoading || cuttingOrdersLoading) && <div className="card p-4 text-sm text-slate-500">{t("common.loading")}</div>}
       {isCuttingDepartment ? (
         <div className="min-w-0 space-y-2">

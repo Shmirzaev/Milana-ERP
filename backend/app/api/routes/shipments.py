@@ -19,6 +19,7 @@ from app.models import (
     SalesOrder,
     SalesOrderItem,
     StockReservation,
+    WarehousePackReservation,
     User,
     Model,
     ModelBOM,
@@ -509,6 +510,8 @@ def _orderless_package_error(db: DbSession, package: Package) -> str | None:
 
 
 def _package_attachment_error(db: DbSession, shipment: Shipment, package: Package) -> str | None:
+    if db.query(WarehousePackReservation.id).filter_by(package_id=package.id).first():
+        return f"Package {package.package_no} is reserved for a customer. Prepare it from Warehouse reservations."
     other = _other_open_shipment_for_package(db, int(package.id), shipment_id=int(shipment.id))
     if other:
         return f"Package {package.package_no} is already attached to shipment {other.shipment_no}."
@@ -814,6 +817,10 @@ def _ship_verified_packages(db: DbSession, shipment: Shipment, current: User) ->
     locked_packages_by_id = {int(package.id): package for package in locked_packages}
     packages: list[Package] = []
     package_ids = {int(row.package_id) for row in shipment.packages}
+    if db.query(WarehousePackReservation.id).filter(
+        WarehousePackReservation.package_id.in_(sorted(package_ids)),
+    ).first():
+        raise HTTPException(409, "Prepare customer reservations from Warehouse reservations before shipping")
     stocks_by_package = _finished_goods_rows_for_packages(db, package_ids)
     foreign_reservation_package_ids = {
         int(package_id)

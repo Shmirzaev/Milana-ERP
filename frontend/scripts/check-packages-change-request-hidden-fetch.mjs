@@ -90,8 +90,8 @@ function createHarness({ denied = false } = {}) {
   };
   const loadedModule = { exports: {} };
   new Function("require", "exports", "module", compiled)((name) => {
-    assert.ok(name in dependencies, `Unexpected dependency ${name}`);
-    return dependencies[name];
+    assert.ok((name === "@/lib/useLoadMore" || name in dependencies), `Unexpected dependency ${name}`);
+    return dependencies[name === "@/lib/useLoadMore" ? "swr" : name];
   }, loadedModule.exports, loadedModule);
 
   return {

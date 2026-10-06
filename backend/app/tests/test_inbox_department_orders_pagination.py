@@ -577,3 +577,18 @@ def test_department_order_completed_page_uses_requested_timezone(monkeypatch):
     assert included.id in actual_ids
     assert excluded.id not in actual_ids
     assert next(row for row in actual if row.get("id") == included.id)["queue_kind"] == "completed"
+
+
+def test_department_search_filters_before_paging_and_counts(monkeypatch):
+    _enable_inbox_access(monkeypatch)
+    with TestSessionLocal() as db:
+        model = Model(code="SEARCHABLE-PRINT-77", name="Distinct department search")
+        db.add(model); db.flush()
+        po = _production_order(db, model.id, "search-target")
+        wo = _work_order(db, po.id, _dept_id(db, "PRT"), "printing", "search", status="pending")
+        db.commit()
+        user = SimpleNamespace(department_id=None)
+        found = inbox.department_order_page(db, user, dept="PRT", q="Distinct 77", limit=1, offset=0)
+        assert found["total"] == 1 and found["has_more"] is False
+        assert found["rows"][0]["id"] == wo.id
+        assert inbox.department_order_page(db, user, dept="PRT", q="no-such-department-order", limit=1, offset=0)["total"] == 0

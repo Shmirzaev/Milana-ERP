@@ -25,7 +25,7 @@ from app.models.production import (
 )
 from app.models.tracking import (
     Bundle, BundleScanLog, Package, PackageItem, PackageBatchAllocation, PackageScanLog,
-    PackageChangeRequest, PackageBarcodeAlias, LegacyStockReceipt, FinishedGoodsStock, StockReservation,
+    PackageChangeRequest, PackageBarcodeAlias, LegacyStockReceipt, FinishedGoodsStock, StockReservation, WarehousePackReservation,
 )
 from app.models.forecasting import ForecastRecommendation
 from app.models.waste import WasteRecord, WasteSale, WasteDisposalRequest
@@ -62,7 +62,7 @@ __all__ = [
     "SewingRecord", "SewingReplacementRequest", "PackagingRecord", "PackagingReceipt", "QualityCheck",
     "Bundle", "BundleScanLog", "Package", "PackageItem", "PackageBatchAllocation", "PackageScanLog",
     "PackageChangeRequest", "PackageBarcodeAlias", "LegacyStockReceipt",
-    "FinishedGoodsStock", "StockReservation",
+    "FinishedGoodsStock", "StockReservation", "WarehousePackReservation",
     "ForecastRecommendation",
     "WasteRecord", "WasteSale", "WasteDisposalRequest",
     "Task",

@@ -225,6 +225,7 @@ type LabelRow = {
 
 type IssuedLabelRow = {
   id: number;
+  factory_code: string;
   label_uid: string;
   qr_token: string;
   payload: string | null;
@@ -2948,6 +2949,16 @@ export default function ProcessQrPage() {
             align-self: center !important;
           }
 
+          .process-label--besttex {
+            padding: 1.5mm 2mm 1.5mm 3mm !important;
+          }
+
+          .process-label--besttex .process-label__qr {
+            height: 18mm !important;
+            width: 18mm !important;
+            flex: 0 0 18mm !important;
+          }
+
           .process-label__title {
             display: -webkit-box !important;
             max-width: 100% !important;
@@ -3156,8 +3167,9 @@ function ProcessLabel({ label, qrToken }: { label: LabelRow; qrToken: string }) 
   const { t, lang } = useT();
   const { process, batch, operation, sewingLine, size, quantity, rate, currency, copyIndex, copyCount, splitMode } = label;
 
+  const isBesttex = operation.sewingFactory === "besttex";
   return (
-    <article className="process-label process-label--work flex flex-col p-3">
+    <article className={`process-label process-label--work ${isBesttex ? "process-label--besttex" : ""} flex flex-col p-3`}>
       <div className="mb-1 flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="process-label__title break-words text-[13px] font-bold leading-tight text-[#111]">
@@ -3175,7 +3187,7 @@ function ProcessLabel({ label, qrToken }: { label: LabelRow; qrToken: string }) 
           <LabelLine label={t("field.orderNo")} value={orderReference(process)} valueClassName="process-label__identity-value" />
           <LabelLine label={t("page.processQr.kroyNo")} value={batch.cuttingPassportNo || process.cutting_passport_no || "-"} strong />
           <LabelLine label={t("field.batch")} value={batch.serial} />
-          <LabelLine label={t("page.processQr.line")} value={sewingLineDisplay(sewingLine)} strong wrap />
+          <LabelLine label={t("page.processQr.line")} value={isBesttex ? sewingLine.name || "-" : sewingLineDisplay(sewingLine)} strong wrap />
           <LabelLine label={t("field.size")} value={size} strong />
           <LabelLine label={t("field.qty")} value={`${quantity.toLocaleString()} ${t("field.unitPcs")}`} strong />
           {splitMode !== "none" && <LabelLine label={t("page.processQr.part")} value={`${copyIndex}/${copyCount}`} strong />}
@@ -3213,9 +3225,12 @@ function IssuedProcessLabel({
   )
     ? label.operation_section as SectionCode
     : "sewing";
-  const sewingLine = sewingLinePrintText(label.sewing_line_code, label.sewing_line_name);
+  const isBesttex = label.factory_code === "BST";
+  const sewingLine = isBesttex
+    ? label.sewing_line_name?.trim() || "-"
+    : sewingLinePrintText(label.sewing_line_code, label.sewing_line_name);
   return (
-    <article className="process-label process-label--work flex flex-col p-3">
+    <article className={`process-label process-label--work ${isBesttex ? "process-label--besttex" : ""} flex flex-col p-3`}>
       <div className="process-label__header mb-1 flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="process-label__title break-words text-[13px] font-bold leading-tight text-[#111]">

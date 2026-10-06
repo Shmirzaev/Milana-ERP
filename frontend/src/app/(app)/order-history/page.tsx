@@ -6,6 +6,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
+import useLoadMore from "@/lib/useLoadMore";
 import { CalendarCheck, Clock3, FileText, PackageCheck, Search, Truck, WalletCards, X } from "lucide-react";
 
 import PageHeader from "@/components/PageHeader";
@@ -410,7 +411,8 @@ export default function OrderHistoryPage() {
   if (createdFrom) historyParams.set("created_from", createdFrom);
   if (createdTo) historyParams.set("created_to", createdTo);
   const historyUrl = `/api/sales-orders/history?${historyParams.toString()}`;
-  const { data: pageData, isLoading } = useSWR<any>(historyUrl, fetcher);
+  const listPager = useLoadMore<any>(historyUrl, fetcher);
+  const { data: pageData, isLoading } = listPager;
   const rows = useMemo<HistoryRow[]>(() => pageData?.rows || [], [pageData]);
   const activeKey = selectedKey;
   const activeRow = rows.find((row) => row.history_key === activeKey);
@@ -580,7 +582,7 @@ export default function OrderHistoryPage() {
               </tbody>
             </table>
           </div>
-          <PaginationControls
+          <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()}
             page={page}
             pageSize={pageSize}
             total={Number(pageData?.total || rows.length)}

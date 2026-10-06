@@ -1,5 +1,17 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+  "warehouseReservations.title": "Paketlarni band qilish",
+  "warehouseReservations.subtitle": "Mijoz uchun butun paketlarni band qiling va tayyor bo‘lganda jo‘natma yarating. Jo‘natish uchun paketlarni skanerlash talab qilinadi.",
+  "warehouseReservations.reserved": "Band paketlar",
+  "warehouseReservations.available": "Mavjud paketlar",
+  "warehouseReservations.selectCustomer": "Mijozni tanlang",
+  "warehouseReservations.release": "Bandni bekor qilish",
+  "warehouseReservations.prepareShipment": "Jo‘natma tayyorlash",
+  "warehouseReservations.reserve": "Paketlarni band qilish",
+  "warehouseReservations.select": "Tanlash",
+
+  "page.modelDetail.addPrint": "Print qo‘shish",
+  "page.modelDetail.printPicture": "Print rasmi",
     "page.forecasting.sharedInventoryExcluded": "Umumiy zaxiralar fabrikaga biriktirilmaguncha ko‘rsatilmaydi.",
     "floor.addPassport": "Pasport qo‘shish",
     "floor.passportCreated": "Pasport yaratilgan",

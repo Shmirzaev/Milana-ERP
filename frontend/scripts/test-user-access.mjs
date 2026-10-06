@@ -117,6 +117,7 @@ for (const page of ["packages", "packaging/queue", "packaging/receive", "packagi
         useRef: initial => ({ current: initial }),
         useMemo: fn => fn(),
         useSWR: key => { if (key) keys.push(key); return {}; },
+        useLoadMore: key => { if (key) keys.push(key); return {}; },
         packagingDepartmentForSession: access.packagingDepartmentForSession,
         can: () => true, fetcher: () => {}, today: () => "2026-09-18",
       });

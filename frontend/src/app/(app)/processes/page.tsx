@@ -2,7 +2,7 @@
 import { formatModelVariantCode } from "@/lib/variantDisplay";
 import { formatOrderReference } from "@/lib/orderRef";
 import { Fragment, useEffect, useMemo, useState } from "react";
-import useSWR from "swr";
+import useLoadMore from "@/lib/useLoadMore";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ChevronDown, ChevronUp, Eye, ImageOff, Printer, RefreshCw, Search } from "lucide-react";
@@ -171,7 +171,7 @@ export default function ProcessTrackingPage() {
   const [createdTo, setCreatedTo] = useState(() => searchParams.get("created_to") ?? "");
   const [sort, setSort] = useState(() => searchParams.get("sort") ?? "created_desc");
   const [page, setPage] = useState(() => positiveInt(searchParams.get("page"), 1));
-  const [pageSize, setPageSize] = useState(() => positiveInt(searchParams.get("page_size"), 25));
+  const [pageSize, setPageSize] = useState(() => 50);
   const [expanded, setExpanded] = useState<number | null>(null);
 
   useEffect(() => {
@@ -183,7 +183,7 @@ export default function ProcessTrackingPage() {
     setCreatedTo(searchParams.get("created_to") ?? "");
     setSort(searchParams.get("sort") ?? "created_desc");
     setPage(positiveInt(searchParams.get("page"), 1));
-    setPageSize(positiveInt(searchParams.get("page_size"), 25));
+    setPageSize(50);
   }, [searchParams, searchString]);
 
   useEffect(() => {
@@ -199,11 +199,12 @@ export default function ProcessTrackingPage() {
     () => buildProcessUrl({ factory, q: debouncedSearch, status, createdFrom, createdTo, sort, page, pageSize }),
     [createdFrom, createdTo, debouncedSearch, factory, status, sort, page, pageSize],
   );
-  const { data, error, isLoading, isValidating, mutate } = useSWR<ProcessResponse>(
+  const listPager = useLoadMore<ProcessResponse>(
     processUrl,
     fetcher,
     { refreshInterval: 10_000, keepPreviousData: true },
   );
+  const { data, error, isLoading, isValidating, mutate } = listPager;
 
   function openExport() {
     const params = new URLSearchParams();
@@ -357,7 +358,7 @@ export default function ProcessTrackingPage() {
             ))}
           </tbody>
         </table>
-        <PaginationControls
+        <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()}
           page={activePage}
           pageSize={activePageSize}
           total={total}
@@ -418,7 +419,7 @@ export default function ProcessTrackingPage() {
           </article>
         ))}
         <div className="card">
-          <PaginationControls
+          <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()}
             page={activePage}
             pageSize={activePageSize}
             total={total}

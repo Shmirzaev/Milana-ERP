@@ -2,6 +2,7 @@
 import { useParams } from "next/navigation";
 import useSWR from "swr";
 import { fetcher, api } from "@/lib/api";
+import SalesLineThumbnails from "@/components/SalesLineThumbnails";
 import PageHeader from "@/components/PageHeader";
 import { useState } from "react";
 import { useT } from "@/lib/i18n";
@@ -133,7 +134,7 @@ export default function SalesOrderDetail() {
               {so.items?.map((i: any) => (
                 <tr key={i.id}>
                   <td>
-                    <div>{modelLabel(i)}</div>
+                    <div>{modelLabel(i)}</div><SalesLineThumbnails modelId={i.model_id} />
                     {formatModelComposition(i.model) && (
                       <div className="mt-1 max-w-[260px] text-xs text-[#56503f]">{formatModelComposition(i.model)}</div>
                     )}

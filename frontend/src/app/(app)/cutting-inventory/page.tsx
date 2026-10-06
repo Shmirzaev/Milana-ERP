@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { Fragment, useMemo, useState, type FormEvent } from "react";
 import { ChevronDown, ChevronRight, QrCode, RefreshCw, Search, X } from "lucide-react";
 import useSWR from "swr";
+import useLoadMore from "@/lib/useLoadMore";
 import PageHeader from "@/components/PageHeader";
 import PaginationControls from "@/components/PaginationControls";
 import FabricThumbnail from "@/components/FabricThumbnail";
@@ -108,7 +109,8 @@ export default function CuttingInventoryPage() {
     return `/api/bundles/cutting-inventory?${params.toString()}`;
   }, [cuttingDepartment, page, pageSize, search]);
 
-  const { data: pageData, mutate, isLoading } = useSWR<InventoryResponse>(inventoryUrl, fetcher);
+  const listPager = useLoadMore<InventoryResponse>(inventoryUrl, fetcher);
+  const { data: pageData, mutate, isLoading } = listPager;
   const rows = useMemo(() => pageData?.rows || [], [pageData?.rows]);
 
   const grouped = useMemo<Group[]>(() => {
@@ -344,7 +346,7 @@ export default function CuttingInventoryPage() {
           </table>
         </div>
 
-        <PaginationControls
+        <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()}
           page={page}
           pageSize={pageSize}
           total={totalBundles}

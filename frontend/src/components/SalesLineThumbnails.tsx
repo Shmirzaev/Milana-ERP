@@ -45,6 +45,8 @@ export default function SalesLineThumbnails({ modelId }: { modelId: number }) {
       {[
         { label: t("field.model"), url: modelImage?.file_url },
         { label: t("page.modelDetail.variant"), url: variantUrl },
+        ...(images.some((image) => image.image_type === "print")
+          ? [{ label: t("page.modelDetail.printPicture"), url: images.find((image) => image.image_type === "print")?.file_url }] : []),
       ].map(({ label, url }) => (
         <div key={label} className="w-20 shrink-0">
           <div className="mb-1 text-xs text-[#8a8472]">{label}</div>

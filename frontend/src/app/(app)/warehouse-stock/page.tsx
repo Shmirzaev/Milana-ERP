@@ -2,7 +2,7 @@
 
 import { formatModelVariantCode } from "@/lib/variantDisplay";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { Boxes, Grid2X2, ImageOff, PackageSearch, Search, Warehouse } from "lucide-react";
 
@@ -114,6 +114,8 @@ export default function WarehouseStockPage() {
   const { me } = useMe();
   const canTraceability = can(me, "traceability.view");
   const [query, setQuery] = useState("");
+  const [visibleCount, setVisibleCount] = useState(50);
+  useEffect(() => { setVisibleCount(50); }, [query, stockKind]);
   const [createdFrom, setCreatedFrom] = useState("");
   const [createdTo, setCreatedTo] = useState("");
   const stockUrl = useMemo(() => {
@@ -411,7 +413,7 @@ export default function WarehouseStockPage() {
               </tr>
             </thead>
             <tbody>
-              {detailRows.map((row) => (
+              {detailRows.slice(0, visibleCount).map((row) => (
                 <tr key={row.key}>
                   <td>
                     {row.model_image_url ? (
@@ -471,6 +473,7 @@ export default function WarehouseStockPage() {
             </tbody>
           </table>
         </div>
+        {visibleCount < detailRows.length && <div className="p-3"><button className="btn" onClick={() => setVisibleCount(count => count + 50)}>{t("common.loadMore")}</button></div>}
       </div>
     </div>
   );

@@ -99,7 +99,7 @@ def finished_goods_packages(
     status: str = Query("ready", pattern="^(pending|ready)$"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
-    q: str | None = Query(None, max_length=100),
+    q: Annotated[str | None, Query(max_length=100)] = None,
 ):
     department = _resolve_department(db, current, "FGS")
     _require_inbox_department_permission(department, current)
@@ -222,8 +222,11 @@ def _awaiting_packaging_rows(
     *,
     offset: int = 0,
     limit: int | None = None,
+    q: str | None = None,
 ) -> tuple[list[dict], int]:
     query, sewing = _awaiting_packaging_query(db, packaging_dept_id)
+    if q and q.strip():
+        query = query.filter(ProductionOrder.id.in_(_matching_production_ids(db, q)))
     total = int(query.order_by(None).count())
     query = query.order_by(
         sewing.c.production_order_id.asc(),
@@ -302,6 +305,7 @@ def awaiting_packaging_page(
     dept: str,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
+    q: Annotated[str | None, Query(max_length=100)] = None,
 ):
     department = _resolve_department(db, current, dept)
     if department.code not in {"PKG", DEPT_BESTTEX_PACKAGING, DEPT_ECO_COTTON_PACKAGING}:
@@ -313,6 +317,7 @@ def awaiting_packaging_page(
         int(department.id),
         offset=offset,
         limit=page_size,
+        q=q,
     )
     return {
         "rows": rows,
@@ -1179,12 +1184,29 @@ def _core_textile_code_for_fields(
     return DEFAULT_SEWING_FACTORY_CODE
 
 
+def _matching_production_ids(db: DbSession, q: str):
+    query = (db.query(ProductionOrder.id)
+             .join(Model, Model.id == ProductionOrder.model_id)
+             .outerjoin(SalesOrder, SalesOrder.id == ProductionOrder.sales_order_id)
+             .outerjoin(Customer, Customer.id == SalesOrder.customer_id)
+             .outerjoin(BrandedPlanningOrder, BrandedPlanningOrder.id == ProductionOrder.planning_order_id))
+    for word in q.strip().split():
+        escaped = word.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        query = query.filter(or_(*(column.ilike(pattern, escape="\\") for column in (
+            ProductionOrder.production_no, SalesOrder.order_no, Customer.name,
+            Model.code, Model.name, BrandedPlanningOrder.order_no, BrandedPlanningOrder.ordered_for_name,
+        ))))
+    return query
+
+
 @router.get("/department-orders")
 def department_order_page(
     db: DbSession,
     current: CurrentUser,
     dept: str | None = None,
     tz: str | None = None,
+    q: Annotated[str | None, Query(max_length=100)] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ):
@@ -1223,6 +1245,13 @@ def department_order_page(
         now=now,
         client_tz=client_tz,
     )
+    if q and q.strip():
+        matching_po_ids = {int(row[0]) for row in _matching_production_ids(db, q)}
+        matching_work_ids = {int(row[0]) for row in db.query(WorkOrder.id).filter(
+            WorkOrder.production_order_id.in_(_matching_production_ids(db, q)))}
+        identities = [entry for entry in identities if any(
+            int(source[1]) in (matching_po_ids if source[0] == "incoming_bundle_group" else matching_work_ids)
+            for source in entry["sources"])]
     total = len(identities)
     page = identities[offset:offset + limit]
     rows = _hydrate_core_inbox_page(
@@ -1800,6 +1829,7 @@ def department_inbox(
     include_awaiting_packaging: bool = True,
     ready_to_ship_limit: Annotated[int | None, Query(ge=1, le=100)] = None,
     ready_to_ship_offset: Annotated[int, Query(ge=0)] = 0,
+    ready_to_ship_q: Annotated[str | None, Query(max_length=100)] = None,
     include_core_orders: bool = True,
 ):
     d = _resolve_department(db, current, dept)
@@ -2080,12 +2110,18 @@ def department_inbox(
                 )
                 .subquery()
             )
-            ready_to_ship_total = int(
-                db.query(func.count()).select_from(eligible_order_totals).scalar() or 0
-            )
-            eligible_orders_query = db.query(eligible_order_totals.c.sales_order_id).order_by(
-                eligible_order_totals.c.sales_order_id.asc()
-            )
+            eligible_orders_query = db.query(eligible_order_totals.c.sales_order_id)
+            if ready_to_ship_q and ready_to_ship_q.strip():
+                matches = (db.query(SalesOrder.id).outerjoin(Customer, Customer.id == SalesOrder.customer_id)
+                           .outerjoin(SalesOrderItem, SalesOrderItem.sales_order_id == SalesOrder.id)
+                           .outerjoin(Model, Model.id == SalesOrderItem.model_id))
+                for word in ready_to_ship_q.strip().split():
+                    pattern = "%" + word.replace("%", "\\%").replace("_", "\\_") + "%"
+                    matches = matches.filter(or_(*(column.ilike(pattern, escape="\\") for column in
+                                                 (SalesOrder.order_no, Customer.name, Model.code, Model.name))))
+                eligible_orders_query = eligible_orders_query.filter(eligible_order_totals.c.sales_order_id.in_(matches))
+            ready_to_ship_total = eligible_orders_query.count()
+            eligible_orders_query = eligible_orders_query.order_by(eligible_order_totals.c.sales_order_id.asc())
             eligible_orders_query = eligible_orders_query.offset(ready_to_ship_offset).limit(
                 ready_to_ship_limit
             )

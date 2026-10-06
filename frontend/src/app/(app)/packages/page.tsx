@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Fragment, useMemo, useState, type FormEvent } from "react";
 import useSWR from "swr";
+import useLoadMore from "@/lib/useLoadMore";
 import { api, fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { packagingDepartmentForSession } from "@/lib/access";
@@ -45,7 +46,8 @@ export default function PackagesPage() {
   const canTraceability = can(me, "traceability.view");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
-  const { data: pageData, mutate } = useSWR<any>(`/api/packages?include_total=true&page=${page}&page_size=${pageSize}${returnedOnly ? "&status=returned_to_packaging" : ""}&packaging_department_code=${packagingDepartment}`, fetcher);
+  const listPager = useLoadMore<any>(`/api/packages?include_total=true&page=${page}&page_size=${pageSize}${returnedOnly ? "&status=returned_to_packaging" : ""}&packaging_department_code=${packagingDepartment}`, fetcher);
+  const { data: pageData, mutate } = listPager;
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const pendingRequestsKey = Object.values(expandedGroups).some(Boolean)
     ? `/api/packages/change-requests?status=pending&packaging_department_code=${packagingDepartment}`
@@ -449,7 +451,7 @@ export default function PackagesPage() {
             )}
           </tbody>
         </table>
-        <PaginationControls
+        <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()}
           page={page}
           pageSize={pageSize}
           total={Number(pageData?.total || data.length)}

@@ -4,6 +4,7 @@ import { formatOrderReference } from "@/lib/orderRef";
 
 import { useMemo, useState } from "react";
 import useSWR from "swr";
+import useLoadMore from "@/lib/useLoadMore";
 import { CheckCircle2, Clock3, FileSearch, QrCode, Search } from "lucide-react";
 
 import PageHeader from "@/components/PageHeader";
@@ -17,7 +18,7 @@ import type {
   OrderQrStatusResponse,
 } from "@/lib/orderQrStatus";
 
-const DEFAULT_PAGE_SIZE = 100;
+const DEFAULT_PAGE_SIZE = 50;
 
 function number(value: number | string | null | undefined, lang: string) {
   return Number(value || 0).toLocaleString(lang, { maximumFractionDigits: 2 });
@@ -90,7 +91,8 @@ export default function OrderQrStatusPage() {
     if (status) params.set("status", status);
     return `/api/payroll/reports/order-qr-status?${params.toString()}`;
   }, [page, pageSize, selectedOrder, status]);
-  const { data, error, isLoading } = useSWR<OrderQrStatusResponse>(reportUrl, fetcher);
+  const listPager = useLoadMore<OrderQrStatusResponse>(reportUrl, fetcher);
+  const { data, error, isLoading } = listPager;
 
   function chooseOrder(event: React.FormEvent) {
     event.preventDefault();
@@ -305,12 +307,11 @@ export default function OrderQrStatusPage() {
                 </tbody>
               </table>
             </div>
-            <PaginationControls
+            <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()}
               page={page}
               pageSize={pageSize}
               total={data.total}
               count={data.items.length}
-              pageSizeOptions={[50, 100, 200, 500]}
               onPageChange={setPage}
               onPageSizeChange={(next) => {
                 setPageSize(next);

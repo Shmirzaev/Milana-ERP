@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "test:load-more-browser": "node scripts/test-load-more.browser.mjs",
     "test:payroll-scan-order": "node scripts/test-payroll-scan-order.mjs",
     "dev": "next dev",
     "build": "npm run test:api-deadline && npm run test:session-recovery && node scripts/test-variant-display.mjs && node scripts/test-error-messages.mjs && npm run test:user-access && npm run test:process-timeline && npm run test:garment-size-ranges && npm run test:process-qr-label-identity && npm run test:stocktake-recovery && npm run test:payroll-process-updates && npm run test:package-workflow-idempotency && npm run test:stocktake-locales && npm run test:branded-order-dialog && npm run test:model-picture-containment && npm run test:search-window && npm run test:sales-order-selection && npm run test:shipment-preparation && npm run test:fabric-inventory-archive && npm run test:multi-material-planning && npm run test:branded-stock-physical-packs && npm run test:branded-fabric-type-override && npm run test:inventory-receiving-separation && npm run test:purchase-orders-by-supplier && npm run test:purchase-receipt-batch-identity && npm run test:forecasting-charts && npm run test:usluga-manual-fabric && npm run test:usluga-batch-edit && npm run test:cutting-passport-autofill && npm run test:price-calculation-workflow && npm run test:name-authorization && npm run test:sewing-factory-access && npm run test:eco-process-tracking && npm run test:eco-daily-sewing-sections && npm run test:employee-number-admin && npm run test:hr-recruitment-profile && npm run test:process-qr-ordering && npm run test:p2-regressions && next build",
@@ -72,8 +73,10 @@
     "@types/react": "18.3.5",
     "@types/react-dom": "18.3.0",
     "autoprefixer": "10.4.20",
+    "esbuild": "0.28.2",
     "eslint": "9.39.1",
     "eslint-config-next": "16.2.7",
+    "playwright": "1.63.0",
     "postcss": "8.5.15",
     "tailwindcss": "3.4.13",
     "typescript": "5.6.2"

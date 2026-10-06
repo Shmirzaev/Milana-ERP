@@ -17,7 +17,19 @@ def is_preview_model_image(img: ModelImage) -> bool:
     return content_type.startswith("image/") or _looks_like_preview_url(file_name)
 
 
+def model_print_image_url(model: Model | None) -> str | None:
+    if not model:
+        return None
+    images = sorted((img for img in (model.images or [])
+                     if img.image_type == "print" and is_preview_model_image(img)),
+                    key=_image_id, reverse=True)
+    return images[0].file_url if images else None
+
+
 def model_preview_image_url(model: Model | None) -> str | None:
+    print_image = model_print_image_url(model)
+    if print_image:
+        return print_image
     if not model:
         return None
     images = sorted(

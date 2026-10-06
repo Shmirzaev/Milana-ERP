@@ -1,5 +1,17 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+  "warehouseReservations.title": "Pack reservations",
+  "warehouseReservations.subtitle": "Reserve whole packs for a customer and prepare a shipment when ready. Dispatch still requires package scanning.",
+  "warehouseReservations.reserved": "Reserved packs",
+  "warehouseReservations.available": "Available packs",
+  "warehouseReservations.selectCustomer": "Select a customer",
+  "warehouseReservations.release": "Release reservation",
+  "warehouseReservations.prepareShipment": "Prepare shipment",
+  "warehouseReservations.reserve": "Reserve packs",
+  "warehouseReservations.select": "Select",
+
+  "page.modelDetail.addPrint": "Add print",
+  "page.modelDetail.printPicture": "Print picture",
     "page.forecasting.sharedInventoryExcluded": "Shared inventory is excluded until it has factory attribution.",
     "floor.addPassport": "Add passport",
     "floor.passportCreated": "Passport created",

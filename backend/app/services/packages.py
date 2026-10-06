@@ -10,7 +10,7 @@ from app.models import (
     Package, PackageItem, PackageBatchAllocation, PackageScanLog, PackageChangeRequest,
     ProductionOrder, FinishedGoodsStock, Warehouse, ModelBOM, StockBatch,
     ProductionBatch, StockReservation, ShipmentPackage, User, Notification,
-    PackagingRecord, WorkOrder, PackagePrintRunMember,
+    PackagingRecord, WorkOrder, PackagePrintRunMember, WarehousePackReservation,
 )
 from app.core.deps import user_permissions
 from app.services.barcode import generate_barcode_value, save_qr_image, save_barcode_image
@@ -1570,6 +1570,10 @@ def ship_package(
 ):
     rows = None
     if shipment_context is None:
+        pkg = (db.query(Package).filter(Package.id == pkg.id)
+               .with_for_update(of=Package).populate_existing().one())
+        if db.query(WarehousePackReservation.id).filter_by(package_id=pkg.id).first():
+            raise HTTPException(409, "Prepare this customer reservation for shipment first")
         _require_warehouse_package(db, pkg)
     else:
         if (shipment_context.session is not db

@@ -233,6 +233,7 @@ class ModelVariantCreateIn(BaseModel):
     fabric_item_id: Optional[int] = Field(default=None, gt=0)
     color: Optional[str] = Field(default=None, max_length=128)
     picture_url: Optional[str] = None
+    print_picture_url: Optional[str] = None
     # Accepted temporarily so older clients can be normalized to the batch's
     # master fabric item without retaining the physical batch on the model.
     stock_batch_id: Optional[int] = Field(default=None, gt=0)

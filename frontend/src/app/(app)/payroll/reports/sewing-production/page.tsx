@@ -3,6 +3,7 @@ import { ApiError } from "@/lib/errorMessages";
 
 import { useMemo, useState } from "react";
 import useSWR from "swr";
+import useLoadMore from "@/lib/useLoadMore";
 import { Download, Filter, Printer, RotateCcw } from "lucide-react";
 
 import PageHeader from "@/components/PageHeader";
@@ -22,7 +23,7 @@ import {
   type SewingProductionReportRow,
 } from "@/lib/sewingProductionReport";
 
-const PAGE_SIZE = 100;
+const PAGE_SIZE = 50;
 
 function localDateTime(date: Date, endOfDay = false): string {
   const local = new Date(date);
@@ -122,10 +123,11 @@ export default function SewingProductionReportPage() {
     },
     [applied, page, pageSize, reportView],
   );
-  const { data, error, isLoading } = useSWR<SewingProductionReportResponse>(
+  const listPager = useLoadMore<SewingProductionReportResponse>(
     `/api/payroll/reports/sewing-production?${query}`,
     fetcher,
   );
+  const { data, error, isLoading } = listPager;
   const optionQuery = draft.factoryCode
     ? `?factory_code=${encodeURIComponent(draft.factoryCode)}`
     : "";
@@ -135,7 +137,7 @@ export default function SewingProductionReportPage() {
   );
 
   const reportRows = printRows || data?.items || [];
-  const rowOffset = printRows ? 0 : (page - 1) * pageSize;
+  const rowOffset = 0;
   const options = scopedOptions;
   const printSummary = {
     qrCount: printRows ? reportRows.length : Number(data?.total || 0),
@@ -446,12 +448,11 @@ export default function SewingProductionReportPage() {
         )}
         {!printRows && reportView === "details" && (
           <div className="no-print">
-            <PaginationControls
+            <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()}
               page={page}
               pageSize={pageSize}
               total={data?.total || 0}
               count={data?.items.length || 0}
-              pageSizeOptions={[50, 100, 200, 500]}
               onPageChange={setPage}
               onPageSizeChange={(next) => {
                 setPageSize(next);

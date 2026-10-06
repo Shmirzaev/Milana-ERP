@@ -1,3 +1,4 @@
+from app.api.routes import warehouse_reservations
 from app.api.routes import eco_transfers, sewing_corrections
 from fastapi import APIRouter
 
@@ -60,3 +61,5 @@ api_router.include_router(fabric_scans.router)
 
 api_router.include_router(eco_transfers.router)
 api_router.include_router(sewing_corrections.router)
+
+api_router.include_router(warehouse_reservations.router)

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
-import useSWR from "swr";
+import useLoadMore from "@/lib/useLoadMore";
 import { fetcher, api } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -74,7 +74,7 @@ export default function ModelsPage() {
   const canManage = isUsluga ? can(me, "usluga.manage", "*") : can(me, "modeling.models", "*");
   const canApprove = isUsluga ? can(me, "usluga.manage", "*") : can(me, "modeling.approve", "*");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(100);
+  const [pageSize, setPageSize] = useState(50);
   const [showFilters, setShowFilters] = useState(false);
   const [cloningId, setCloningId] = useState<number | null>(null);
   const [filters, setFilters] = useState({ code: "", name: "", category: "", qolipNo: "", createdFrom: "", createdTo: "" });
@@ -101,13 +101,14 @@ export default function ModelsPage() {
     if (appliedFilters.createdTo) params.set("created_to", appliedFilters.createdTo);
     return `${modelApiBase}/variant-groups?${params.toString()}`;
   }, [appliedFilters, modelApiBase, page, pageSize, q]);
+  const listPager = useLoadMore<ModelsPageData>(modelsUrl, fetcher, { keepPreviousData: true });
   const {
     data: pageData,
     error,
     isLoading,
     isValidating,
     mutate,
-  } = useSWR<ModelsPageData>(modelsUrl, fetcher, { keepPreviousData: true });
+  } = listPager;
   const data = useMemo<Model[]>(() => pageData?.rows ?? [], [pageData?.rows]);
 
   const [deleting, setDeleting] = useState<Model | null>(null);
@@ -231,18 +232,7 @@ export default function ModelsPage() {
           />
         </label>
       </form>
-      {pageData && (
-        <PaginationControls
-          page={page}
-          pageSize={pageSize}
-          total={Number(pageData.total ?? rows.length)}
-          count={data.length}
-          onPageChange={setPage}
-          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
-          pageSizeOptions={[100, 200, 500]}
-          position="top"
-        />
-      )}
+
       {showRefreshLoading && (
         <div className="mb-3 flex items-center gap-2 text-xs text-[#6f6857]" role="status" aria-live="polite">
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
@@ -403,6 +393,16 @@ export default function ModelsPage() {
           </div>
         )}
       </div>
+      {pageData && (
+        <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()}
+          page={page}
+          pageSize={pageSize}
+          total={Number(pageData.total ?? rows.length)}
+          count={data.length}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+        />
+      )}
       <ConfirmDialog
         isOpen={!!deleting}
         title={t("confirm.deleteTitle")}

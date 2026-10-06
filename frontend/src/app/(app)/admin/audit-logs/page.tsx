@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import useSWR from "swr";
+import useLoadMore from "@/lib/useLoadMore";
 import { Search } from "lucide-react";
 import { fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
@@ -127,7 +127,8 @@ export default function AuditLogsPage() {
     () => buildQuery({ page, pageSize, query, userId, entityType, entityId, action, dateFrom, dateTo }),
     [page, pageSize, query, userId, entityType, entityId, action, dateFrom, dateTo],
   );
-  const { data: pageData, isLoading } = useSWR<any>(url, fetcher);
+  const listPager = useLoadMore<any>(url, fetcher);
+  const { data: pageData, isLoading } = listPager;
   const rows: AuditRow[] = pageData?.rows || [];
 
   function resetFilters() {
@@ -266,7 +267,7 @@ export default function AuditLogsPage() {
           ) : null}
         </div>
 
-        <PaginationControls
+        <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()}
           page={page}
           pageSize={pageSize}
           total={Number(pageData?.total || 0)}

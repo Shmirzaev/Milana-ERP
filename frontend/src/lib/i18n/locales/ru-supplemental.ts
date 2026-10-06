@@ -1,5 +1,17 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+  "warehouseReservations.title": "Резерв упаковок",
+  "warehouseReservations.subtitle": "Зарезервируйте целые упаковки для клиента и подготовьте отгрузку. Для отправки требуется сканирование упаковок.",
+  "warehouseReservations.reserved": "Зарезервированные упаковки",
+  "warehouseReservations.available": "Доступные упаковки",
+  "warehouseReservations.selectCustomer": "Выберите клиента",
+  "warehouseReservations.release": "Снять резерв",
+  "warehouseReservations.prepareShipment": "Подготовить отгрузку",
+  "warehouseReservations.reserve": "Зарезервировать упаковки",
+  "warehouseReservations.select": "Выбрать",
+
+  "page.modelDetail.addPrint": "Добавить принт",
+  "page.modelDetail.printPicture": "Изображение принта",
     "page.forecasting.sharedInventoryExcluded": "Общие запасы исключены, пока они не привязаны к фабрике.",
     "floor.addPassport": "Добавить паспорт",
     "floor.passportCreated": "Паспорт создан",

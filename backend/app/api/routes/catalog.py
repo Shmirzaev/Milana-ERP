@@ -40,7 +40,7 @@ from app.schemas.catalog import (
 from app.schemas.inventory import ItemOut
 from app.services.audit import log_action
 from app.services.factory_scope import selected_factory_code
-from app.services.model_images import model_display_image_url
+from app.services.model_images import model_display_image_url, model_print_image_url
 from app.services.numbering import next_model_variant_no, next_model_no, CATALOG_NUMBERING_BASE
 from app.services.paid_operations import (
     filter_paid_operations_for_factory,
@@ -487,6 +487,35 @@ def _set_variant_material_image(db: DbSession, model: Model, picture_url: str) -
     )
 
 
+def _set_variant_print_image(db: DbSession, model: Model, picture_url: str) -> None:
+    print_images = sorted(
+        [img for img in (model.images or []) if img.image_type == "print"],
+        key=lambda img: int(getattr(img, "id", 0) or 0),
+        reverse=True,
+    )
+    file_name = os.path.basename(picture_url.split("?", 1)[0]) or None
+    extension = os.path.splitext(file_name or "")[1].lower()
+    content_type = safe_content_type(extension) if extension in SAFE_IMAGE_EXTENSIONS else None
+    if print_images:
+        image = print_images[0]
+        image.file_url = picture_url
+        image.file_name = file_name
+        image.content_type = content_type
+        image.file_data = None
+        image.is_primary = False
+        return
+    db.add(
+        ModelImage(
+            model_id=model.id,
+            file_url=picture_url,
+            file_name=file_name,
+            content_type=content_type,
+            image_type="print",
+            is_primary=False,
+        )
+    )
+
+
 def _apply_variant_fabric_item(
     model: Model,
     selected_item: Item,
@@ -580,6 +609,7 @@ def _model_variant_payload(model: Model) -> dict:
         "variant_no": variant_no,
         "fabric": fabric,
         "picture_url": picture_url,
+        "print_picture_url": model_print_image_url(model),
         "fabric_item_id": fabric_item_id,
         "color": _clean_text(getattr(fabric_row, "color", None)) or _clean_text(general.get("variant_color")) or None,
         "stock_batch_id": None,
@@ -810,6 +840,7 @@ def _model_thumbnail_subquery():
         func.lower(ModelImage.file_url).like("%.gif"),
     )
     priority = case(
+        (ModelImage.image_type == "print", -1),
         (and_(ModelImage.is_primary.is_(True), ModelImage.image_type == "model"), 0),
         (ModelImage.is_primary.is_(True), 1),
         (ModelImage.image_type == "model", 2),
@@ -2064,6 +2095,7 @@ def create_model_variant(
 
     color = _clean_text(payload.color) or None
     picture_url = _validate_file_url(payload.picture_url) if payload.picture_url else None
+    print_picture_url = _validate_file_url(payload.print_picture_url) if payload.print_picture_url else None
     parent_fabric_item: Item | None = None
     if catalog_scope == "standard":
         _, parent_fabric_item = _parent_variant_fabric(
@@ -2159,6 +2191,8 @@ def create_model_variant(
 
     copied_material_image = False
     for row in source.images or []:
+        if row.image_type == "print":
+            continue  # Artwork belongs to the exact variant; never inherit a sibling print.
         is_material_image = str(row.image_type or "").lower() == "material"
         copied_material_image = copied_material_image or is_material_image
         copied_file_url = picture_url if picture_url and is_material_image else row.file_url
@@ -2186,6 +2220,8 @@ def create_model_variant(
         )
     if picture_url and not copied_material_image:
         _set_variant_material_image(db, cloned, picture_url)
+    if print_picture_url:
+        _set_variant_print_image(db, cloned, print_picture_url)
     for row in db.query(CollectionModel).filter(CollectionModel.model_id == source.id).all():
         db.add(CollectionModel(collection_id=row.collection_id, model_id=cloned.id))
 
@@ -2203,6 +2239,7 @@ def create_model_variant(
             "fabric": fabric,
             "color": color,
             "picture_url": picture_url,
+            "print_picture_url": print_picture_url,
         },
     )
     db.commit()
@@ -2251,6 +2288,7 @@ def update_model_variant(
         raise HTTPException(400, "Usluga model variants must not select inventory material")
     color = _clean_text(payload.color) or None
     picture_url = _validate_file_url(payload.picture_url) if payload.picture_url else None
+    print_picture_url = _validate_file_url(payload.print_picture_url) if payload.print_picture_url else None
     fabric = _fabric_item_label(parent_fabric_item) if parent_fabric_item else _details_variant_fabric(target)
     new_code = f"{model_no}-{variant_no}"
     duplicate = db.query(Model.id).filter(Model.code == new_code, Model.id != target.id).first()
@@ -2313,6 +2351,13 @@ def update_model_variant(
             fabric_row.photo_url = picture_url
     if picture_url is not None:
         _set_variant_material_image(db, target, picture_url)
+    if "print_picture_url" in payload.model_fields_set:
+        if print_picture_url:
+            _set_variant_print_image(db, target, print_picture_url)
+        else:
+            for image in list(target.images or []):
+                if image.image_type == "print":
+                    db.delete(image)
     log_action(
         db,
         current,
@@ -2328,6 +2373,7 @@ def update_model_variant(
             "fabric": fabric,
             "color": color,
             "picture_url": picture_url,
+            "print_picture_url": print_picture_url,
         },
     )
     db.commit()

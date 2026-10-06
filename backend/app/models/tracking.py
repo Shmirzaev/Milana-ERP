@@ -268,3 +268,17 @@ class StockReservation(Base, PkMixin):
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     reserved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     reserved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class WarehousePackReservation(Base, PkMixin):
+    __tablename__ = "warehouse_pack_reservations"
+    __table_args__ = (
+        UniqueConstraint("package_id", name="uq_warehouse_pack_reservations_package"),
+        CheckConstraint("quantity > 0", name="ck_warehouse_pack_reservations_quantity"),
+    )
+    package_id: Mapped[int] = mapped_column(ForeignKey("packages.id"), nullable=False)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), nullable=False, index=True)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    reserved_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    reserved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
