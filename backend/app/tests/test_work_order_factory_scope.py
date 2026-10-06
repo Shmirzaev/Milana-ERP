@@ -123,7 +123,8 @@ def test_work_order_mutation_denies_other_factories(client, work_order_scope_dat
 def test_work_order_mutation_allows_same_factory(client, work_order_scope_data, factory, action):
     users, work_orders, _ = work_order_scope_data
     response = _request(client, action, work_orders[factory].id, _headers(users[factory]), users[factory].id)
-    assert response.status_code == 200, response.text
+    # DB02-WO-STATUS requires explicit actions for transitions, even in the same factory.
+    assert response.status_code == (409 if action in {"pause", "resume"} else 200), response.text
 
 
 @pytest.mark.parametrize("action", ["start", "complete", "update"])

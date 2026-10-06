@@ -6,13 +6,14 @@ from pydantic import ValidationError
 
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
-from app.models import AuditLog, ForecastRecommendation, Role, User
+from app.models import AuditLog, ForecastRecommendation, Model, Role, User
 from app.schemas.forecasting import ForecastRecommendationIn
 
 
-def _payload(quantity) -> dict:
+def _payload(quantity, *, model_id: int | None = None) -> dict:
     return {
         "recommendation_type": "item_reorder",
+        "model_id": model_id,
         "item_id": 1,
         "suggested_quantity": quantity,
         "unit": "kg",
@@ -37,6 +38,15 @@ def test_forecast_quantity_rejects_nonfinite_and_unrepresentable_values(quantity
 
 def test_forecast_quantity_api_rejects_before_writes_and_preserves_auth_precedence(client, auth_headers):
     with SessionLocal() as db:
+        model = Model(
+            code=f"FORECAST-QUANTITY-{uuid4().hex[:8]}",
+            name="Forecast quantity boundary model",
+            factory_code="MIL",
+            status="approved",
+        )
+        db.add(model)
+        db.flush()
+        model_id = int(model.id)
         denied_role = Role(name=f"No forecast manage {uuid4().hex}", permissions=[])
         db.add(denied_role)
         db.flush()
@@ -56,7 +66,7 @@ def test_forecast_quantity_api_rejects_before_writes_and_preserves_auth_preceden
 
     valid = client.post(
         "/api/forecasting/recommendations",
-        json=_payload("12.34567"),
+        json=_payload("12.34567", model_id=model_id),
         headers=auth_headers,
     )
     assert valid.status_code == 201, valid.text
@@ -69,14 +79,14 @@ def test_forecast_quantity_api_rejects_before_writes_and_preserves_auth_preceden
     for quantity in ("Infinity", "10000000000"):
         response = client.post(
             "/api/forecasting/recommendations",
-            json=_payload(quantity),
+            json=_payload(quantity, model_id=model_id),
             headers=auth_headers,
         )
         assert response.status_code == 422, (quantity, response.text)
 
     assert client.post(
         "/api/forecasting/recommendations",
-        json=_payload("Infinity"),
+        json=_payload("Infinity", model_id=model_id),
         headers=denied_headers,
     ).status_code == 403
     assert client.post(

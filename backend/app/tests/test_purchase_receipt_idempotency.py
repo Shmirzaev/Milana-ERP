@@ -19,6 +19,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import purchasing
+from app.services.idempotency import bind_idempotency_identity
 from app.core.security import create_access_token
 from app.db import session as session_module
 from app.db.base import Base
@@ -215,6 +216,7 @@ def test_receipt_key_is_scoped_to_selected_factory(receipt_order):
         with session_module.SessionLocal() as db:
             current = db.query(User).filter_by(email="admin@example.com").one()
             current.session_factory_code = factory_code
+            bind_idempotency_identity(db, current)
             result = purchasing.receive_order(
                 receipt_order["order_id"],
                 PurchaseOrderReceiveIn(**receipt_order["payload"]),
@@ -413,6 +415,7 @@ def test_postgres_concurrent_receipts_serialize_before_replay(receipt_postgres_e
         try:
             with session_factory() as db:
                 current = db.get(User, user_id)
+                bind_idempotency_identity(db, current)
                 ready.put(db.execute(text("SELECT pg_backend_pid()")).scalar_one())
                 assert start.wait(20), "ST01 receipt workers were not started"
                 return purchasing.receive_order(

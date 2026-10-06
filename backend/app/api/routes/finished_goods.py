@@ -1,6 +1,7 @@
 from collections import defaultdict
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy import func, or_
 from sqlalchemy.orm import aliased
 
@@ -9,7 +10,7 @@ from app.models import (
     Brand, FinishedGoodsStock, Model, Package, PackageItem, ProductionOrder,
     SalesOrder, Shipment, ShipmentPackage, StockReservation, User,
 )
-from app.schemas.tracking import FinishedGoodsStockOut
+from app.schemas.tracking import FinishedGoodsStockOut, FinishedGoodsStockPageOut
 from app.services.audit import log_action
 router = APIRouter(prefix="/finished-goods", tags=["finished_goods"])
 PackageBrand = aliased(Brand)
@@ -47,16 +48,51 @@ def _stock_payload(
     }
 
 
-@router.get("", response_model=list[FinishedGoodsStockOut])
-def list_stock(db: DbSession, _: CurrentUser,
-               model_id: int | None = None, status: str | None = None, brand_id: int | None = None, stock_kind: str = "standard"):
+def _search_stock_rows(query, term: str | None, brand_name):
+    normalized = (term or "").strip()
+    if not normalized:
+        return query
+    escaped = normalized.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    pattern = f"%{escaped}%"
+    return query.filter(or_(
+        Model.code.ilike(pattern, escape="\\"), Model.name.ilike(pattern, escape="\\"),
+        brand_name.ilike(pattern, escape="\\"), FinishedGoodsStock.color.ilike(pattern, escape="\\"),
+        FinishedGoodsStock.size.ilike(pattern, escape="\\"), FinishedGoodsStock.status.ilike(pattern, escape="\\"),
+    ))
+
+
+def _stock_list_result(query, *, limit: int, offset: int, page: int | None, page_size: int | None):
+    limit, offset = max(0, min(limit, 500)), max(0, offset)
+    total = None
+    if page is not None or page_size is not None:
+        page, page_size = page or 1, page_size or 50
+        total = query.order_by(None).count()
+        offset, limit = (page - 1) * page_size, page_size
+    rows = [
+        _stock_payload(stock, model_code=model_code, model_name=model_name, brand_name=brand_name)
+        for stock, model_code, model_name, brand_name in
+        query.order_by(FinishedGoodsStock.id.desc()).offset(offset).limit(limit).all()
+    ]
+    if total is None:
+        return rows
+    return {"rows": rows, "total": total, "page": page, "page_size": page_size,
+            "has_more": page * page_size < total}
+
+
+@router.get("", response_model=list[FinishedGoodsStockOut] | FinishedGoodsStockPageOut)
+def list_stock(
+    db: DbSession, _: CurrentUser,
+    model_id: int | None = None, status: str | None = None, brand_id: int | None = None,
+    stock_kind: str = "standard", limit: int = 500, offset: int = 0,
+    page: Annotated[int | None, Query(ge=1, le=_DB_INTEGER_MAX)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+    q: Annotated[str | None, Query(max_length=100)] = None,
+):
+    if any(value is not None and not -2_147_483_648 <= value <= _DB_INTEGER_MAX for value in (model_id, brand_id)):
+        raise HTTPException(422, "Stock filters exceed supported integer bounds")
     qry = (
-        db.query(
-            FinishedGoodsStock,
-            Model.code.label("model_code"),
-            Model.name.label("model_name"),
-            Brand.name.label("brand_name"),
-        )
+        db.query(FinishedGoodsStock, Model.code.label("model_code"),
+                 Model.name.label("model_name"), Brand.name.label("brand_name"))
         .outerjoin(Model, Model.id == FinishedGoodsStock.model_id)
         .outerjoin(Brand, Brand.id == FinishedGoodsStock.brand_id)
         .outerjoin(Package, Package.id == FinishedGoodsStock.package_id)
@@ -66,26 +102,21 @@ def list_stock(db: DbSession, _: CurrentUser,
     if model_id: qry = qry.filter(FinishedGoodsStock.model_id == model_id)
     if status: qry = qry.filter(FinishedGoodsStock.status == status)
     if brand_id: qry = qry.filter(FinishedGoodsStock.brand_id == brand_id)
-    return [
-        _stock_payload(
-            stock,
-            model_code=model_code,
-            model_name=model_name,
-            brand_name=brand_name,
-        )
-        for stock, model_code, model_name, brand_name in qry.order_by(FinishedGoodsStock.id.desc()).all()
-    ]
+    return _stock_list_result(_search_stock_rows(qry, q, Brand.name),
+                             limit=limit, offset=offset, page=page, page_size=page_size)
 
 
-@router.get("/branded-stock", response_model=list[FinishedGoodsStockOut])
-def list_branded(db: DbSession, _: CurrentUser):
-    rows = (
-        db.query(
-            FinishedGoodsStock,
-            Model.code.label("model_code"),
-            Model.name.label("model_name"),
-            func.coalesce(Brand.name, PackageBrand.name).label("brand_name"),
-        )
+@router.get("/branded-stock", response_model=list[FinishedGoodsStockOut] | FinishedGoodsStockPageOut)
+def list_branded(
+    db: DbSession, _: CurrentUser,
+    limit: int = 500, offset: int = 0,
+    page: Annotated[int | None, Query(ge=1, le=_DB_INTEGER_MAX)] = None,
+    page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
+    q: Annotated[str | None, Query(max_length=100)] = None,
+):
+    qry = (
+        db.query(FinishedGoodsStock, Model.code.label("model_code"), Model.name.label("model_name"),
+                 func.coalesce(Brand.name, PackageBrand.name).label("brand_name"))
         .outerjoin(ProductionOrder, ProductionOrder.id == FinishedGoodsStock.production_order_id)
         .outerjoin(Package, Package.id == FinishedGoodsStock.package_id)
         .outerjoin(Model, Model.id == FinishedGoodsStock.model_id)
@@ -96,26 +127,14 @@ def list_branded(db: DbSession, _: CurrentUser):
             or_(Package.id.is_(None), Package.status != "returned_to_packaging"),
             FinishedGoodsStock.available_qty > 0,
             FinishedGoodsStock.status == "available",
-            (
-                FinishedGoodsStock.brand_id.isnot(None)
-                | (ProductionOrder.production_type == "branded_stock")
-                | (Package.brand_id.isnot(None))
-                | (Package.legacy_receipt_id.isnot(None))
-                | (Package.manual_receipt_id.isnot(None))
-            ),
+            (FinishedGoodsStock.brand_id.isnot(None)
+             | (ProductionOrder.production_type == "branded_stock")
+             | (Package.brand_id.isnot(None)) | (Package.legacy_receipt_id.isnot(None))
+             | (Package.manual_receipt_id.isnot(None))),
         )
-        .order_by(FinishedGoodsStock.id.desc())
-        .all()
     )
-    return [
-        _stock_payload(
-            stock,
-            model_code=model_code,
-            model_name=model_name,
-            brand_name=brand_name,
-        )
-        for stock, model_code, model_name, brand_name in rows
-    ]
+    return _stock_list_result(_search_stock_rows(qry, q, func.coalesce(Brand.name, PackageBrand.name)),
+                             limit=limit, offset=offset, page=page, page_size=page_size)
 
 
 def _reserve_manual_package(db, current, stock, quantity, sales_order_id):
@@ -191,6 +210,8 @@ def _reserve_piece_stock(db, current, stock_id, package_id, quantity, sales_orde
         )
         if not package:
             raise HTTPException(409, "Stock package changed; reload before reserving")
+        if package.status not in {"received_in_storage", "reserved"}:
+            raise HTTPException(409, "Package is not available for reservation")
     stock = (
         db.query(FinishedGoodsStock).filter(FinishedGoodsStock.id == stock_id)
         .with_for_update(of=FinishedGoodsStock).populate_existing().first()

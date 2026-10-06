@@ -78,16 +78,21 @@ function sewingFactoryLabel(code: string | null | undefined, t: CtxT) {
 export default function CuttingOrderList({
   rows,
   cuttingDepartment,
+  total,
+  onSearch,
   t,
 }: {
   rows: CuttingOrder[];
   cuttingDepartment: string;
+  total?: number;
+  onSearch?: (query: string) => void;
   t: CtxT;
 }) {
   const { me } = useMe();
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
   const filteredRows = useMemo(() => {
+    if (onSearch) return rows;
     const words = search.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
     return rows.filter(row => {
       const text = [row.order_no, row.sales_order_no, row.production_no, row.planning_order_no,
@@ -95,7 +100,7 @@ export default function CuttingOrderList({
         row.material_item_sku, row.material_item_name].filter(Boolean).join(" ").toLocaleLowerCase();
       return words.every(word => text.includes(word));
     });
-  }, [rows, search]);
+  }, [rows, search, onSearch]);
   const groups = useMemo(() => {
     const grouped = new Map<string, {
       key: string;
@@ -123,7 +128,7 @@ export default function CuttingOrderList({
   return (
     <section className="card">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e3dfd3] px-4 py-3">
-        <h2 className="app-card-title">{t("cuttingInbox.orders", { count: filteredRows.length })}</h2>
+        <h2 className="app-card-title">{t("cuttingInbox.orders", { count: onSearch ? total ?? rows.length : filteredRows.length })}</h2>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-[#56503f]" aria-label={t("cuttingInbox.colorMeaning")}>
           <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 border border-[#ded9ca] bg-white" />{t("cuttingInbox.untouched")}</span>
           <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 border border-amber-200 bg-yellow-50" />{t("cuttingInbox.cutWaitingShort")}</span>
@@ -131,8 +136,8 @@ export default function CuttingOrderList({
         </div>
       </div>
 
-      <form role="search" className="flex gap-2 border-b border-[#e3dfd3] px-4 py-3" onSubmit={event => { event.preventDefault(); setSearch(query); }}>
-        <input type="search" className="input min-w-0 flex-1" aria-label={t("common.search")} placeholder={t("common.search")} value={query} onChange={event => { setQuery(event.target.value); if (!event.target.value) setSearch(""); }} />
+      <form role="search" className="flex gap-2 border-b border-[#e3dfd3] px-4 py-3" onSubmit={event => { event.preventDefault(); setSearch(query); onSearch?.(query); }}>
+        <input type="search" className="input min-w-0 flex-1" aria-label={t("common.search")} placeholder={t("common.search")} value={query} onChange={event => { setQuery(event.target.value); if (!event.target.value) { setSearch(""); onSearch?.(""); } }} />
         <button className="btn" type="submit">{t("common.search")}</button>
       </form>
 

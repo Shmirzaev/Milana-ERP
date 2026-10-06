@@ -23,6 +23,21 @@ DEPT_OPS = [
     ("FGS", "storage_transfer"),
 ]
 
+WORK_ORDER_OPERATION_PERMISSIONS = {
+    "cutting": {"cutting.records", "cutting.bundles", "planning.production"},
+    "printing": {"printing.records", "planning.production"},
+    "sewing": {"sewing.records", "sewing.bundles", "planning.production"},
+    "packaging": {"packaging.records", "packaging.packages", "planning.production"},
+    "storage_transfer": {
+        "storage.items",
+        "storage.receive",
+        "storage.transfer",
+        "storage.packages",
+        "planning.production",
+    },
+}
+
+
 _NUMERIC_SIZE_RANGE = re.compile(r"^\s*(\d+)\s*[-\u2013\u2014]\s*(\d+)\s*$")
 _MAX_ESTIMATED_MATERIAL_AMOUNT = 9_999_999_999.9999
 

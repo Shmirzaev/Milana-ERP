@@ -3,9 +3,9 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Sequence
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, load_only
 
 from app.models import (
@@ -137,8 +137,12 @@ def _add_demand_event(
         row["last_at"] = created_at
 
 
-def _branded_demand_groups(db: Session) -> dict[BrandedKey, dict[str, Any]]:
-    sales_rows = (
+def _branded_demand_groups(
+    db: Session,
+    *,
+    factory_codes: Sequence[str] | None = None,
+) -> dict[BrandedKey, dict[str, Any]]:
+    sales_query = (
         db.query(SalesOrderItem, SalesOrder).options(
             load_only(
                 SalesOrderItem.id,
@@ -156,17 +160,55 @@ def _branded_demand_groups(db: Session) -> dict[BrandedKey, dict[str, Any]]:
             SalesOrder.order_type == "branded_stock_sale",
             SalesOrder.status.notin_(BRANDED_SALES_EXCLUDED_STATUSES),
         )
-        .order_by(SalesOrder.created_at.asc(), SalesOrderItem.id.asc())
-        .all()
     )
+    if factory_codes is not None:
+        sales_model_id = func.coalesce(
+            SalesOrderItem.model_id,
+            FinishedGoodsStock.model_id,
+        )
+        sales_brand_id = func.coalesce(
+            SalesOrderItem.brand_id,
+            FinishedGoodsStock.brand_id,
+        )
+        sales_collection_id = func.coalesce(
+            SalesOrderItem.collection_id,
+            FinishedGoodsStock.collection_id,
+        )
+        sales_query = (
+            sales_query.outerjoin(
+                FinishedGoodsStock,
+                FinishedGoodsStock.id == SalesOrderItem.finished_goods_stock_id,
+            )
+            .join(
+                Model,
+                Model.id == sales_model_id,
+            )
+            .filter(
+                Model.factory_code.in_(factory_codes),
+                or_(SalesOrderItem.model_id.is_(None), FinishedGoodsStock.model_id.is_(None),
+                    SalesOrderItem.model_id == FinishedGoodsStock.model_id),
+            )
+            .add_columns(
+                sales_model_id.label("forecast_model_id"),
+                sales_brand_id.label("forecast_brand_id"),
+                sales_collection_id.label("forecast_collection_id"),
+            )
+        )
+    sales_rows = sales_query.order_by(SalesOrder.created_at.asc(), SalesOrderItem.id.asc()).all()
     sales_groups: dict[BrandedKey, dict[str, Any]] = {}
-    for item, order in sales_rows:
+    for row in sales_rows:
+        item, order = row[:2]
+        model_id = row[2] if factory_codes is not None else item.model_id
+        brand_id = row[3] if factory_codes is not None else item.brand_id
+        collection_id = row[4] if factory_codes is not None else item.collection_id
+        if model_id is None:
+            continue
         _add_demand_event(
             sales_groups,
             key=(
-                int(item.model_id),
-                int(item.brand_id) if item.brand_id else None,
-                int(item.collection_id) if item.collection_id else None,
+                int(model_id),
+                int(brand_id) if brand_id else None,
+                int(collection_id) if collection_id else None,
                 str(item.color or ""),
                 str(item.size or ""),
             ),
@@ -176,7 +218,7 @@ def _branded_demand_groups(db: Session) -> dict[BrandedKey, dict[str, Any]]:
             source="sales_orders",
         )
 
-    production_rows = (
+    production_query = (
         db.query(ProductionOrderItem, ProductionOrder).options(
             load_only(
                 ProductionOrderItem.id,
@@ -197,9 +239,14 @@ def _branded_demand_groups(db: Session) -> dict[BrandedKey, dict[str, Any]]:
             ProductionOrder.production_type == "branded_stock",
             ProductionOrder.status.in_(BRANDED_PRODUCTION_HISTORY_STATUSES),
         )
-        .order_by(ProductionOrder.created_at.asc(), ProductionOrderItem.id.asc())
-        .all()
     )
+    if factory_codes is not None:
+        production_query = production_query.join(
+            Model, Model.id == ProductionOrderItem.model_id,
+        ).filter(Model.factory_code.in_(factory_codes))
+    production_rows = production_query.order_by(
+        ProductionOrder.created_at.asc(), ProductionOrderItem.id.asc(),
+    ).all()
     production_groups: dict[BrandedKey, dict[str, Any]] = {}
     for item, order in production_rows:
         _add_demand_event(
@@ -230,18 +277,28 @@ def _branded_stock_analysis(
     *,
     horizon_weeks: int = 4,
     groups: dict[BrandedKey, dict[str, Any]] | None = None,
+    factory_codes: Sequence[str] | None = None,
 ) -> list[dict]:
     if groups is None:
-        groups = _branded_demand_groups(db)
+        groups = (
+            _branded_demand_groups(db)
+            if factory_codes is None
+            else _branded_demand_groups(db, factory_codes=factory_codes)
+        )
     if not groups:
         return []
     model_labels, brand_names, collection_names = _branded_reference_maps(db, list(groups))
 
     effective_brand_id = func.coalesce(FinishedGoodsStock.brand_id, ProductionOrder.brand_id)
     effective_collection_id = func.coalesce(FinishedGoodsStock.collection_id, ProductionOrder.collection_id)
-    available_rows = (
+    effective_model_id = (
+        func.coalesce(FinishedGoodsStock.model_id, ProductionOrder.model_id)
+        if factory_codes is not None
+        else FinishedGoodsStock.model_id
+    )
+    available_query = (
         db.query(
-            FinishedGoodsStock.model_id,
+            effective_model_id,
             effective_brand_id,
             effective_collection_id,
             FinishedGoodsStock.color,
@@ -249,15 +306,18 @@ def _branded_stock_analysis(
             func.coalesce(func.sum(FinishedGoodsStock.available_qty), 0),
         )
         .outerjoin(ProductionOrder, ProductionOrder.id == FinishedGoodsStock.production_order_id)
-        .group_by(
-            FinishedGoodsStock.model_id,
-            effective_brand_id,
-            effective_collection_id,
-            FinishedGoodsStock.color,
-            FinishedGoodsStock.size,
-        )
-        .all()
     )
+    if factory_codes is not None:
+        available_query = available_query.join(
+            Model, Model.id == effective_model_id,
+        ).filter(Model.factory_code.in_(factory_codes))
+    available_rows = available_query.group_by(
+        effective_model_id,
+        effective_brand_id,
+        effective_collection_id,
+        FinishedGoodsStock.color,
+        FinishedGoodsStock.size,
+    ).all()
     available: dict[BrandedKey, int] = {}
     for model_id, brand_id, collection_id, color, size, qty in available_rows:
         available[
@@ -270,7 +330,7 @@ def _branded_stock_analysis(
             )
         ] = int(qty or 0)
 
-    pipeline_rows = (
+    pipeline_query = (
         db.query(
             ProductionOrderItem.model_id,
             ProductionOrderItem.color,
@@ -284,8 +344,12 @@ def _branded_stock_analysis(
             ProductionOrder.production_type == "branded_stock",
             ProductionOrder.status.in_(ACTIVE_PRODUCTION_STATUSES),
         )
-        .all()
     )
+    if factory_codes is not None:
+        pipeline_query = pipeline_query.join(
+            Model, Model.id == ProductionOrderItem.model_id,
+        ).filter(Model.factory_code.in_(factory_codes))
+    pipeline_rows = pipeline_query.all()
     pipeline: dict[BrandedKey, int] = defaultdict(int)
     for model_id, color, size, planned_quantity, brand_id, collection_id in pipeline_rows:
         key = (
@@ -350,8 +414,21 @@ def _branded_stock_analysis(
     return sorted(analysis, key=lambda r: (-(r["suggested_quantity"]), r.get("model_code") or "", r.get("color") or "", r.get("size") or ""))
 
 
-def branded_stock_suggestions(db: Session, *, horizon_weeks: int = 4) -> list[dict]:
-    return [row for row in _branded_stock_analysis(db, horizon_weeks=horizon_weeks) if row["suggested_quantity"] > 0]
+def branded_stock_suggestions(
+    db: Session,
+    *,
+    horizon_weeks: int = 4,
+    factory_codes: Sequence[str] | None = None,
+) -> list[dict]:
+    return [
+        row
+        for row in _branded_stock_analysis(
+            db,
+            horizon_weeks=horizon_weeks,
+            factory_codes=factory_codes,
+        )
+        if row["suggested_quantity"] > 0
+    ]
 
 
 def _planned_bom_demand(db: Session) -> dict[tuple[int, str], float]:
@@ -453,7 +530,16 @@ def _recent_usage_by_item(db: Session, *, days: int = 90) -> dict[tuple[int, str
     return {(int(item_id), str(unit or "")): float(qty or 0) for item_id, unit, qty in rows}
 
 
-def item_reorder_suggestions(db: Session) -> list[dict]:
+def item_reorder_suggestions(
+    db: Session,
+    *,
+    factory_codes: Sequence[str] | None = None,
+) -> list[dict]:
+    # Item, stock and movement rows have no factory ownership. Factory-scoped
+    # forecasting excludes them until ownership is recorded, even if a BOM
+    # for one factory happens to reference the shared item.
+    if factory_codes is not None:
+        return []
     item_rows = db.query(
         Item.id,
         Item.sku,
@@ -520,6 +606,7 @@ def demand_trend(
     *,
     weeks: int = 8,
     groups: dict[BrandedKey, dict[str, Any]] | None = None,
+    factory_codes: Sequence[str] | None = None,
 ) -> list[dict]:
     now = datetime.now(timezone.utc)
     weeks = max(1, weeks)
@@ -527,7 +614,11 @@ def demand_trend(
     start = current_week - timedelta(weeks=weeks - 1)
     buckets = {i: 0 for i in range(weeks)}
     if groups is None:
-        groups = _branded_demand_groups(db)
+        groups = (
+            _branded_demand_groups(db)
+            if factory_codes is None
+            else _branded_demand_groups(db, factory_codes=factory_codes)
+        )
     for row in groups.values():
         for created_at, qty in row["events"]:
             created_utc = _aware(created_at)
@@ -542,23 +633,28 @@ def demand_trend(
     return out
 
 
-def forecasting_dashboard(db: Session) -> dict:
-    branded_groups = _branded_demand_groups(db)
-    branded_analysis = _branded_stock_analysis(db, groups=branded_groups)
+def forecasting_dashboard(db: Session, *, factory_codes: Sequence[str] | None = None) -> dict:
+    branded_groups = _branded_demand_groups(db, factory_codes=factory_codes)
+    branded_analysis = _branded_stock_analysis(db, groups=branded_groups, factory_codes=factory_codes)
     branded = [row for row in branded_analysis if row["suggested_quantity"] > 0]
-    reorder = item_reorder_suggestions(db)
+    reorder = item_reorder_suggestions(db, factory_codes=factory_codes)
     low_stock_fg = sum(1 for row in branded_analysis if row["is_low_stock"])
     trend = demand_trend(db, groups=branded_groups)
+    unlinked_bom_query = db.query(ModelBOM.id).filter(
+        ModelBOM.item_id.is_(None), ModelBOM.stock_batch_id.is_(None),
+        ModelBOM.model_id.in_(db.query(ProductionOrder.model_id).filter(
+            ProductionOrder.status.in_(ACTIVE_PRODUCTION_STATUSES),
+        ).union(db.query(ProductionOrderItem.model_id).join(
+            ProductionOrder, ProductionOrder.id == ProductionOrderItem.production_order_id,
+        ).filter(ProductionOrder.status.in_(ACTIVE_PRODUCTION_STATUSES)))),
+    )
+    if factory_codes is not None:
+        unlinked_bom_query = unlinked_bom_query.filter(
+            ModelBOM.model_id.in_(db.query(Model.id).filter(Model.factory_code.in_(factory_codes))),
+        )
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "unlinked_bom_count": db.query(ModelBOM.id).filter(
-            ModelBOM.item_id.is_(None), ModelBOM.stock_batch_id.is_(None),
-            ModelBOM.model_id.in_(db.query(ProductionOrder.model_id).filter(
-                ProductionOrder.status.in_(ACTIVE_PRODUCTION_STATUSES),
-            ).union(db.query(ProductionOrderItem.model_id).join(
-                ProductionOrder, ProductionOrder.id == ProductionOrderItem.production_order_id,
-            ).filter(ProductionOrder.status.in_(ACTIVE_PRODUCTION_STATUSES)))),
-        ).count(),
+        "unlinked_bom_count": unlinked_bom_query.count(),
         "cards": {
             "suggested_production_count": len(branded),
             "reorder_alert_count": len(reorder),

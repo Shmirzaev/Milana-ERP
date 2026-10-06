@@ -5,8 +5,8 @@ from decimal import Decimal
 from html import escape
 from typing import Any
 
-from sqlalchemy import func, or_
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import Integer, func, literal, or_, select, union
+from sqlalchemy.orm import Session, load_only, selectinload
 
 from app.models import (
     AuditLog,
@@ -39,6 +39,9 @@ from app.models import (
 )
 from app.services.inventory import accessory_issue_summary
 from app.services.packages import format_storage_location
+
+
+_TRACE_CHUNK_SIZE = 400
 
 
 def _now_iso() -> str:
@@ -86,13 +89,70 @@ def _basic(obj: Any, *fields: str) -> dict[str, Any] | None:
     return out
 
 
-def _work_orders_for_po(db: Session, po_id: int) -> list[WorkOrder]:
+def _work_orders_for_po(db: Session, po_id: int) -> list[Any]:
     return (
-        db.query(WorkOrder)
+        db.query(WorkOrder.id, WorkOrder.production_batch_id, WorkOrder.operation)
         .filter(WorkOrder.production_order_id == po_id)
         .order_by(WorkOrder.id.asc())
         .all()
     )
+
+
+def _batch_work_order_context(
+    db: Session,
+    po_id: int,
+    production_batch_id: int,
+) -> tuple[list[Any], set[str]]:
+    """Load target work orders plus the parent route's operation set in one query."""
+    history_work_order_ids = union(
+        select(CuttingRecord.work_order_id.label("work_order_id")).where(
+            CuttingRecord.production_batch_id == production_batch_id
+        ),
+        select(PrintingRecord.work_order_id.label("work_order_id")).where(
+            PrintingRecord.production_batch_id == production_batch_id
+        ),
+        select(SewingRecord.work_order_id.label("work_order_id")).where(
+            SewingRecord.production_batch_id == production_batch_id
+        ),
+        select(PackagingRecord.work_order_id.label("work_order_id")).where(
+            PackagingRecord.production_batch_id == production_batch_id
+        ),
+    ).subquery()
+    target_rows = db.query(
+        WorkOrder.id.label("id"),
+        WorkOrder.production_batch_id.label("production_batch_id"),
+        WorkOrder.operation.label("operation"),
+        literal(False).label("operation_only"),
+    ).filter(
+        WorkOrder.production_order_id == po_id,
+        or_(
+            WorkOrder.production_batch_id == production_batch_id,
+            WorkOrder.production_batch_id.is_(None),
+            WorkOrder.id.in_(select(history_work_order_ids.c.work_order_id)),
+        ),
+    )
+    operation_rows = db.query(
+        literal(None, type_=Integer).label("id"),
+        literal(None, type_=Integer).label("production_batch_id"),
+        WorkOrder.operation.label("operation"),
+        literal(True).label("operation_only"),
+    ).filter(
+        WorkOrder.production_order_id == po_id,
+    ).group_by(WorkOrder.operation)
+    context = target_rows.union_all(operation_rows).subquery()
+    rows = (
+        db.query(
+            context.c.id,
+            context.c.production_batch_id,
+            context.c.operation,
+            context.c.operation_only,
+        )
+        .order_by(context.c.operation_only.asc(), context.c.id.asc(), context.c.operation.asc())
+        .all()
+    )
+    work_orders = [row for row in rows if not row.operation_only]
+    operations = {str(row.operation) for row in rows}
+    return work_orders, operations
 
 
 def _package_batch_ids(pkg: Package | None) -> set[int]:
@@ -109,6 +169,24 @@ def _filter_records_for_package(records: list[Any], batch_ids: set[int], *, stri
         return records
     exact = [row for row in records if getattr(row, "production_batch_id", None) in batch_ids]
     return exact if strict or exact else records
+
+
+def _scoped_history_rows(
+    query: Any,
+    model_cls: Any,
+    batch_ids: set[int],
+    *,
+    strict: bool,
+) -> list[Any]:
+    """Push batch scope into SQL while preserving the legacy package fallback."""
+    def ordered(value: Any) -> Any:
+        return value.order_by(model_cls.created_at.asc(), model_cls.id.asc())
+
+    if batch_ids:
+        matched = ordered(query.filter(model_cls.production_batch_id.in_(batch_ids))).all()
+        if strict or matched:
+            return matched
+    return ordered(query).all()
 
 
 def _related_shipments_for_package(db: Session, pkg_id: int) -> list[Shipment]:
@@ -174,11 +252,63 @@ def _production_order_payload(po: ProductionOrder | None) -> dict | None:
     }
 
 
-def _cutting_payload(db: Session, row: CuttingRecord) -> tuple[dict, dict | None, str | None]:
-    batch = db.get(StockBatch, row.fabric_batch_id) if row.fabric_batch_id else None
+def _cutting_reference_maps(
+    db: Session,
+    rows: list[CuttingRecord],
+) -> tuple[dict[int, StockBatch], dict[int, Supplier], dict[int, Warehouse]]:
+    batch_ids = sorted({int(row.fabric_batch_id) for row in rows if row.fabric_batch_id})
+    batches = {}
+    for offset in range(0, len(batch_ids), _TRACE_CHUNK_SIZE):
+        chunk = batch_ids[offset:offset + _TRACE_CHUNK_SIZE]
+        batches.update({
+            int(batch.id): batch
+            for batch in db.query(StockBatch).filter(StockBatch.id.in_(chunk)).all()
+        })
+
+    supplier_ids = sorted({int(batch.supplier_id) for batch in batches.values() if batch.supplier_id})
+    suppliers = {}
+    for offset in range(0, len(supplier_ids), _TRACE_CHUNK_SIZE):
+        chunk = supplier_ids[offset:offset + _TRACE_CHUNK_SIZE]
+        suppliers.update({
+            int(supplier.id): supplier
+            for supplier in db.query(Supplier).filter(Supplier.id.in_(chunk)).all()
+        })
+
+    warehouse_ids = sorted({int(batch.warehouse_id) for batch in batches.values() if batch.warehouse_id})
+    warehouses = {}
+    for offset in range(0, len(warehouse_ids), _TRACE_CHUNK_SIZE):
+        chunk = warehouse_ids[offset:offset + _TRACE_CHUNK_SIZE]
+        warehouses.update({
+            int(warehouse.id): warehouse
+            for warehouse in db.query(Warehouse).filter(Warehouse.id.in_(chunk)).all()
+        })
+    return batches, suppliers, warehouses
+
+
+def _cutting_payload(
+    db: Session,
+    row: CuttingRecord,
+    *,
+    stock_batches: dict[int, StockBatch] | None = None,
+    suppliers: dict[int, Supplier] | None = None,
+    warehouses: dict[int, Warehouse] | None = None,
+) -> tuple[dict, dict | None, str | None]:
+    batch = (
+        stock_batches.get(int(row.fabric_batch_id))
+        if stock_batches is not None and row.fabric_batch_id
+        else db.get(StockBatch, row.fabric_batch_id) if row.fabric_batch_id else None
+    )
     item = batch.item if batch and batch.item else (db.get(Item, batch.item_id) if batch else None)
-    supplier = db.get(Supplier, batch.supplier_id) if batch and batch.supplier_id else None
-    warehouse = db.get(Warehouse, batch.warehouse_id) if batch and batch.warehouse_id else None
+    supplier = (
+        suppliers.get(int(batch.supplier_id))
+        if suppliers is not None and batch and batch.supplier_id
+        else db.get(Supplier, batch.supplier_id) if batch and batch.supplier_id else None
+    )
+    warehouse = (
+        warehouses.get(int(batch.warehouse_id))
+        if warehouses is not None and batch and batch.warehouse_id
+        else db.get(Warehouse, batch.warehouse_id) if batch and batch.warehouse_id else None
+    )
     material = None
     if batch:
         material = {
@@ -245,15 +375,30 @@ def _cutting_payload(db: Session, row: CuttingRecord) -> tuple[dict, dict | None
     return payload, material, gap
 
 
-def _bundle_payload(db: Session, bundle: Bundle) -> dict:
-    departments = {
-        int(d.id): d
-        for d in db.query(Department).filter(
-            Department.id.in_([
-                did for did in [bundle.current_department_id, bundle.next_department_id] if did
-            ])
-        ).all()
-    } if (bundle.current_department_id or bundle.next_department_id) else {}
+def _bundle_departments(db: Session, bundles: list[Bundle]) -> dict[int, Department]:
+    department_ids = sorted({
+        int(department_id)
+        for bundle in bundles
+        for department_id in (bundle.current_department_id, bundle.next_department_id)
+        if department_id
+    })
+    departments = {}
+    for offset in range(0, len(department_ids), _TRACE_CHUNK_SIZE):
+        chunk = department_ids[offset:offset + _TRACE_CHUNK_SIZE]
+        departments.update({
+            int(department.id): department
+            for department in db.query(Department).filter(Department.id.in_(chunk)).all()
+        })
+    return departments
+
+
+def _bundle_payload(
+    db: Session,
+    bundle: Bundle,
+    departments: dict[int, Department] | None = None,
+) -> dict:
+    if departments is None:
+        departments = _bundle_departments(db, [bundle])
     scan_logs = [
         {
             "id": int(log.id),
@@ -300,8 +445,29 @@ def _record_payload(row: Any, fields: list[str]) -> dict:
     return out
 
 
-def _package_payload(db: Session, pkg: Package) -> dict:
-    warehouse = db.get(Warehouse, pkg.warehouse_id) if pkg.warehouse_id else None
+def _package_warehouses(db: Session, packages: list[Package]) -> dict[int, Warehouse]:
+    warehouse_ids = sorted({int(pkg.warehouse_id) for pkg in packages if pkg.warehouse_id})
+    warehouses = {}
+    for offset in range(0, len(warehouse_ids), _TRACE_CHUNK_SIZE):
+        chunk = warehouse_ids[offset:offset + _TRACE_CHUNK_SIZE]
+        warehouses.update({
+            int(warehouse.id): warehouse
+            for warehouse in db.query(Warehouse).filter(Warehouse.id.in_(chunk)).all()
+        })
+    return warehouses
+
+
+def _package_payload(
+    db: Session,
+    pkg: Package,
+    *,
+    warehouses: dict[int, Warehouse] | None = None,
+) -> dict:
+    warehouse = (
+        warehouses.get(int(pkg.warehouse_id))
+        if warehouses is not None and pkg.warehouse_id
+        else db.get(Warehouse, pkg.warehouse_id) if pkg.warehouse_id else None
+    )
     return {
         "id": int(pkg.id),
         "package_no": pkg.package_no,
@@ -331,6 +497,17 @@ def _package_payload(db: Session, pkg: Package) -> dict:
     }
 
 
+def _package_payloads(
+    db: Session,
+    packages: list[Package],
+    *,
+    warehouses: dict[int, Warehouse] | None = None,
+) -> list[dict]:
+    if warehouses is None:
+        warehouses = _package_warehouses(db, packages)
+    return [_package_payload(db, pkg, warehouses=warehouses) for pkg in packages]
+
+
 def _package_items(pkg: Package) -> list[dict]:
     return [
         {
@@ -358,11 +535,62 @@ def _package_scans(pkg: Package) -> list[dict]:
     ]
 
 
-def _shipment_payload(db: Session, shipment: Shipment | None) -> dict | None:
+def _shipment_reference_maps(
+    db: Session,
+    shipments: list[Shipment],
+) -> tuple[dict[int, SalesOrder], dict[int, Customer]]:
+    sales_order_ids = sorted({int(row.sales_order_id) for row in shipments if row.sales_order_id})
+    sales_orders = {}
+    for offset in range(0, len(sales_order_ids), _TRACE_CHUNK_SIZE):
+        chunk = sales_order_ids[offset:offset + _TRACE_CHUNK_SIZE]
+        sales_orders.update({
+            int(order.id): order
+            for order in db.query(SalesOrder).filter(SalesOrder.id.in_(chunk)).all()
+        })
+
+    customer_ids = sorted({
+        int(customer_id)
+        for shipment in shipments
+        for customer_id in (
+            shipment.customer_id
+            or (
+                sales_orders.get(int(shipment.sales_order_id)).customer_id
+                if shipment.sales_order_id and int(shipment.sales_order_id) in sales_orders
+                else None
+            ),
+        )
+        if customer_id
+    })
+    customers = {}
+    for offset in range(0, len(customer_ids), _TRACE_CHUNK_SIZE):
+        chunk = customer_ids[offset:offset + _TRACE_CHUNK_SIZE]
+        customers.update({
+            int(customer.id): customer
+            for customer in db.query(Customer).filter(Customer.id.in_(chunk)).all()
+        })
+    return sales_orders, customers
+
+
+def _shipment_payload(
+    db: Session,
+    shipment: Shipment | None,
+    *,
+    sales_orders: dict[int, SalesOrder] | None = None,
+    customers: dict[int, Customer] | None = None,
+) -> dict | None:
     if not shipment:
         return None
-    so = db.get(SalesOrder, shipment.sales_order_id) if shipment.sales_order_id else None
-    customer = db.get(Customer, shipment.customer_id or (so.customer_id if so else None)) if (shipment.customer_id or (so and so.customer_id)) else None
+    so = (
+        sales_orders.get(int(shipment.sales_order_id))
+        if sales_orders is not None and shipment.sales_order_id
+        else db.get(SalesOrder, shipment.sales_order_id) if shipment.sales_order_id else None
+    )
+    customer_id = shipment.customer_id or (so.customer_id if so else None)
+    customer = (
+        customers.get(int(customer_id))
+        if customers is not None and customer_id
+        else db.get(Customer, customer_id) if customer_id else None
+    )
     return {
         "id": int(shipment.id),
         "shipment_no": shipment.shipment_no,
@@ -376,6 +604,22 @@ def _shipment_payload(db: Session, shipment: Shipment | None) -> dict | None:
         "created_at": _dt(shipment.created_at),
         "notes": shipment.notes,
     }
+
+
+def _shipment_payloads(db: Session, shipments: list[Shipment]) -> list[dict]:
+    sales_orders, customers = _shipment_reference_maps(db, shipments)
+    return [
+        payload
+        for shipment in shipments
+        if (
+            payload := _shipment_payload(
+                db,
+                shipment,
+                sales_orders=sales_orders,
+                customers=customers,
+            )
+        )
+    ]
 
 
 def _shipment_packages(db: Session, shipment_ids: list[int]) -> list[dict]:
@@ -479,6 +723,8 @@ def build_traceability(
     bundle: Bundle | None = None,
     shipment: Shipment | None = None,
     production_batch_id: int | None = None,
+    preloaded_work_orders: list[WorkOrder] | None = None,
+    preloaded_package_warehouses: dict[int, Warehouse] | None = None,
 ) -> dict:
     gaps: list[str] = []
     po = production_order
@@ -511,7 +757,11 @@ def build_traceability(
         collection_id=collection_id,
     )
 
-    work_orders = _work_orders_for_po(db, int(po.id)) if po else []
+    work_orders = (
+        list(preloaded_work_orders)
+        if preloaded_work_orders is not None
+        else _work_orders_for_po(db, int(po.id)) if po else []
+    )
     wo_ids = [int(wo.id) for wo in work_orders]
     batch_ids = _package_batch_ids(package)
     strict_batch_scope = production_batch_id is not None
@@ -522,18 +772,32 @@ def build_traceability(
 
     cutting_rows = []
     material_batches: list[dict] = []
+    material_batch_ids = {
+        int(material["id"])
+        for material in material_batches
+    }
     if wo_ids:
-        all_cutting = (
-            db.query(CuttingRecord)
-            .filter(CuttingRecord.work_order_id.in_(wo_ids))
-            .order_by(CuttingRecord.created_at.asc(), CuttingRecord.id.asc())
-            .all()
+        cutting_query = db.query(CuttingRecord).filter(CuttingRecord.work_order_id.in_(wo_ids))
+        all_cutting = _scoped_history_rows(
+            cutting_query,
+            CuttingRecord,
+            batch_ids,
+            strict=strict_batch_scope,
         )
-        for row in _filter_records_for_package(all_cutting, batch_ids, strict=strict_batch_scope):
-            payload, material, gap = _cutting_payload(db, row)
+        cutting_records = _filter_records_for_package(all_cutting, batch_ids, strict=strict_batch_scope)
+        stock_batches, suppliers, warehouses = _cutting_reference_maps(db, cutting_records)
+        for row in cutting_records:
+            payload, material, gap = _cutting_payload(
+                db,
+                row,
+                stock_batches=stock_batches,
+                suppliers=suppliers,
+                warehouses=warehouses,
+            )
             cutting_rows.append(payload)
-            if material and all(material["id"] != existing["id"] for existing in material_batches):
+            if material and int(material["id"]) not in material_batch_ids:
                 material_batches.append(material)
+                material_batch_ids.add(int(material["id"]))
             if gap:
                 gaps.append(gap)
     if po and not cutting_rows:
@@ -559,7 +823,9 @@ def build_traceability(
         bundle_rows = []
     if bundle and all(int(row.id) != int(bundle.id) for row in bundle_rows):
         bundle_rows.append(bundle)
-    bundle_payloads = [_bundle_payload(db, row) for row in sorted(bundle_rows, key=lambda r: r.id)]
+    bundle_rows = sorted(bundle_rows, key=lambda row: row.id)
+    bundle_departments = _bundle_departments(db, bundle_rows)
+    bundle_payloads = [_bundle_payload(db, row, bundle_departments) for row in bundle_rows]
     if po and not bundle_payloads:
         gaps.append("No bundles found for production route")
     for row in bundle_payloads:
@@ -571,11 +837,17 @@ def build_traceability(
     def op_records(model_cls, fields: list[str]) -> list[dict]:
         if not wo_ids:
             return []
-        rows = (
+        selected_fields = [
+            model_cls.id, model_cls.work_order_id, model_cls.production_batch_id,
+            model_cls.created_at, *(getattr(model_cls, field) for field in fields),
+        ]
+        history_query = (
             db.query(model_cls)
+            .options(load_only(*selected_fields))
             .filter(model_cls.work_order_id.in_(wo_ids))
-            .order_by(model_cls.created_at.asc(), model_cls.id.asc())
-            .all()
+        )
+        rows = _scoped_history_rows(
+            history_query, model_cls, batch_ids, strict=strict_batch_scope,
         )
         return [
             _record_payload(row, fields)
@@ -626,7 +898,11 @@ def build_traceability(
             )
         ]
 
-    package_payload = _package_payload(db, package) if package else None
+    package_payload = (
+        _package_payloads(db, [package], warehouses=preloaded_package_warehouses)[0]
+        if package
+        else None
+    )
     package_items = _package_items(package) if package else []
     package_scan_history = _package_scans(package) if package else []
     if package and not any(log["scan_type"] == "received_storage" for log in package_scan_history):
@@ -634,9 +910,17 @@ def build_traceability(
 
     shipments = _related_shipments_for_package(db, int(package.id)) if package else ([shipment] if shipment else [])
     shipment_ids = [int(sh.id) for sh in shipments if sh]
-    shipment_payloads = [_shipment_payload(db, row) for row in shipments]
-    shipment_payloads = [row for row in shipment_payloads if row]
-    primary_shipment = _shipment_payload(db, shipment) if shipment else (shipment_payloads[0] if shipment_payloads else None)
+    shipment_context = list(shipments)
+    if shipment and all(int(row.id) != int(shipment.id) for row in shipment_context):
+        shipment_context.append(shipment)
+    shipment_context_payloads = _shipment_payloads(db, shipment_context)
+    shipment_payloads_by_id = {int(row["id"]): row for row in shipment_context_payloads}
+    shipment_payloads = [shipment_payloads_by_id[int(row.id)] for row in shipments]
+    primary_shipment = (
+        shipment_payloads_by_id.get(int(shipment.id))
+        if shipment
+        else shipment_payloads[0] if shipment_payloads else None
+    )
     shipment_package_rows = _shipment_packages(db, shipment_ids)
     shipment_scan_rows = _shipment_scan_logs(db, shipment_ids, package_id=int(package.id) if package else None)
     if package and not shipment_payloads:
@@ -648,10 +932,9 @@ def build_traceability(
 
     warehouse_location = None
     if package:
-        warehouse = db.get(Warehouse, package.warehouse_id) if package.warehouse_id else None
         warehouse_location = {
             "warehouse_id": int(package.warehouse_id) if package.warehouse_id else None,
-            "warehouse_name": warehouse.name if warehouse else None,
+            "warehouse_name": package_payload.get("warehouse_name") if package_payload else None,
             "storage_cell": package.storage_cell,
             "storage_shelf": package.storage_shelf,
             "location": format_storage_location(package.storage_cell, package.storage_shelf),
@@ -724,7 +1007,7 @@ def production_order_traceability(db: Session, po: ProductionOrder) -> dict:
         .order_by(Package.id.asc())
         .all()
     )
-    data["packages"] = [_package_payload(db, pkg) for pkg in packages]
+    data["packages"] = _package_payloads(db, packages)
     if not packages:
         data["gaps"].append("Production order has no packages")
         data["trace_gap"] = True
@@ -744,6 +1027,7 @@ def _batch_packages(db: Session, batch_id: int, production_order_id: int) -> tup
     allocation_rows = (
         db.query(PackageBatchAllocation, Package)
         .join(Package, Package.id == PackageBatchAllocation.package_id)
+        .options(selectinload(Package.scan_logs))
         .filter(
             PackageBatchAllocation.production_batch_id == batch_id,
             Package.production_order_id == production_order_id,
@@ -758,6 +1042,7 @@ def _batch_packages(db: Session, batch_id: int, production_order_id: int) -> tup
 
     direct_packages = (
         db.query(Package)
+        .options(selectinload(Package.scan_logs))
         .filter(
             Package.production_order_id == production_order_id,
             Package.production_batch_id == batch_id,
@@ -772,22 +1057,49 @@ def _batch_packages(db: Session, batch_id: int, production_order_id: int) -> tup
 
 def _batch_material_usage(db: Session, data: dict) -> list[dict]:
     origin_cache = {int(row["id"]): row for row in data.get("material_batches") or [] if row.get("id")}
+    referenced_batch_ids: set[int] = set()
+    for record in data.get("cutting_records") or []:
+        material_rows = record.get("materials") or []
+        if material_rows:
+            referenced_batch_ids.update(
+                int(usage["stock_batch_id"])
+                for usage in material_rows
+                if usage.get("stock_batch_id")
+            )
+        elif record.get("fabric_batch_id"):
+            referenced_batch_ids.add(int(record["fabric_batch_id"]))
+
+        beika_rows = record.get("beika_materials") or []
+        referenced_batch_ids.update(
+            int(usage["stock_batch_id"])
+            for usage in beika_rows
+            if usage.get("stock_batch_id")
+        )
+
+    missing_ids = sorted(referenced_batch_ids - origin_cache.keys())
+    stock_batches = {}
+    for offset in range(0, len(missing_ids), _TRACE_CHUNK_SIZE):
+        chunk = missing_ids[offset:offset + _TRACE_CHUNK_SIZE]
+        stock_batches.update({
+            int(stock_batch.id): stock_batch
+            for stock_batch in db.query(StockBatch).filter(StockBatch.id.in_(chunk)).all()
+        })
+    for stock_batch_id in missing_ids:
+        stock_batch = stock_batches.get(stock_batch_id)
+        item = stock_batch.item if stock_batch and stock_batch.item else None
+        origin_cache[stock_batch_id] = {
+            "batch_no": stock_batch.batch_no if stock_batch else None,
+            "item_id": int(stock_batch.item_id) if stock_batch else None,
+            "item_sku": item.sku if item else None,
+            "item_name": item.name if item else None,
+            "color": stock_batch.color if stock_batch else None,
+        }
     grouped: dict[tuple[str, int | None, str], dict] = {}
 
     def origin(stock_batch_id: int | None) -> dict:
         if not stock_batch_id:
             return {}
-        if stock_batch_id not in origin_cache:
-            stock_batch = db.get(StockBatch, stock_batch_id)
-            item = stock_batch.item if stock_batch and stock_batch.item else None
-            origin_cache[stock_batch_id] = {
-                "batch_no": stock_batch.batch_no if stock_batch else None,
-                "item_id": int(stock_batch.item_id) if stock_batch else None,
-                "item_sku": item.sku if item else None,
-                "item_name": item.name if item else None,
-                "color": stock_batch.color if stock_batch else None,
-            }
-        return origin_cache[stock_batch_id]
+        return origin_cache.get(stock_batch_id, {})
 
     def add_usage(*, usage_type: str, stock_batch_id: int | None, quantity: float, unit: str) -> None:
         source = origin(stock_batch_id)
@@ -850,16 +1162,17 @@ def production_batch_traceability(db: Session, batch: ProductionBatch) -> dict:
     po = db.get(ProductionOrder, batch.production_order_id)
     if not po:
         raise ValueError("Production order not found for batch")
+    work_orders, available_operations = _batch_work_order_context(db, int(po.id), int(batch.id))
     data = build_traceability(
         db,
         subject_type="production_batch",
         production_order=po,
         production_batch_id=int(batch.id),
+        preloaded_work_orders=work_orders,
     )
     packages, batch_quantity_by_package = _batch_packages(db, int(batch.id), int(po.id))
     package_payloads = []
-    for package in packages:
-        payload = _package_payload(db, package)
+    for package, payload in zip(packages, _package_payloads(db, packages), strict=True):
         payload["batch_quantity"] = int(batch_quantity_by_package.get(int(package.id), 0))
         package_payloads.append(payload)
 
@@ -874,8 +1187,7 @@ def production_batch_traceability(db: Session, batch: ProductionBatch) -> dict:
         else []
     )
     shipment_ids = [int(row.id) for row in shipment_rows]
-    shipment_payloads = [_shipment_payload(db, row) for row in shipment_rows]
-    shipment_payloads = [row for row in shipment_payloads if row]
+    shipment_payloads = _shipment_payloads(db, shipment_rows)
 
     package_scans = []
     for package in packages:
@@ -910,8 +1222,6 @@ def production_batch_traceability(db: Session, batch: ProductionBatch) -> dict:
         ),
     }
 
-    work_orders = _work_orders_for_po(db, int(po.id))
-    available_operations = {str(row.operation) for row in work_orders}
     route = ["cutting"]
     if "printing" in available_operations:
         route.append("printing")
@@ -1054,12 +1364,20 @@ def shipment_traceability(db: Session, shipment: Shipment) -> dict:
         .order_by(Package.id.asc())
         .all()
     )
+    package_warehouses = _package_warehouses(db, packages)
     po = db.get(ProductionOrder, packages[0].production_order_id) if packages else None
-    data = build_traceability(db, subject_type="shipment", production_order=po, package=packages[0] if packages else None, shipment=shipment)
+    data = build_traceability(
+        db,
+        subject_type="shipment",
+        production_order=po,
+        package=packages[0] if packages else None,
+        shipment=shipment,
+        preloaded_package_warehouses=package_warehouses,
+    )
     data["package"] = None
     data["package_items"] = []
     data["package_scan_history"] = []
-    data["packages"] = [_package_payload(db, pkg) for pkg in packages]
+    data["packages"] = _package_payloads(db, packages, warehouses=package_warehouses)
     data["shipment"] = _shipment_payload(db, shipment)
     data["shipments"] = [data["shipment"]] if data["shipment"] else []
     data["shipment_packages"] = _shipment_packages(db, [int(shipment.id)])

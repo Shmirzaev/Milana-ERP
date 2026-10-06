@@ -22,10 +22,11 @@ from app.schemas.sewing_assignment import (
 )
 from app.core.dt import as_utc
 from app.services.audit import log_action
+from app.api.routes.production import _authorize_work_order_command
 from app.services.model_images import model_display_image_url
 from app.services.notifications import notify
 from app.services.bundles import resolve_sewing_factory_code
-from app.services.factory_scope import require_factory_access
+from app.services.factory_scope import require_factory_access, require_work_order_factory_access
 from app.services.payroll_factory_scope import production_order_factory_condition
 from app.services.sewing_scope import require_sewing_flow_access
 
@@ -130,6 +131,7 @@ class BlockIn(BaseModel):
 def block_wo(wid: int, payload: BlockIn, db: DbSession, current: User = Depends(require_permissions(*_WO_BLOCK_PERMS))):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
+    _authorize_work_order_command(db, current, wo)
     reason = (payload.reason or "Blocked").strip()
     wo.is_blocked = True
     wo.block_reason = reason
@@ -150,6 +152,7 @@ def block_wo(wid: int, payload: BlockIn, db: DbSession, current: User = Depends(
 def unblock_wo(wid: int, db: DbSession, current: User = Depends(require_permissions(*_WO_BLOCK_PERMS))):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
+    _authorize_work_order_command(db, current, wo)
     wo.is_blocked = False
     wo.block_reason = None
     log_action(db, current, "unblock", "WorkOrder", wo.id)
@@ -331,6 +334,27 @@ class SewingAssignmentReturnIn(BaseModel):
     sewing_flow_id: int
 
 
+def _assignment_has_output(db: DbSession, assignment: SewingAssignment, wo: WorkOrder, flow: SewingFlow) -> bool:
+    if assignment.completed_qty or assignment.actual_start or assignment.actual_end:
+        return True
+    reports = db.query(SewingDailyReport.id).filter(or_(
+        SewingDailyReport.sewing_assignment_id == assignment.id,
+        (SewingDailyReport.work_order_id == wo.id)
+        & (SewingDailyReport.sewing_flow_id == flow.id)
+        & (SewingDailyReport.production_batch_id == assignment.production_batch_id),
+    )).first()
+    if reports:
+        return True
+    records = db.query(SewingRecord.id).filter(or_(
+        SewingRecord.sewing_assignment_id == assignment.id,
+        (SewingRecord.work_order_id == wo.id)
+        & (SewingRecord.production_batch_id == assignment.production_batch_id)
+        & or_(SewingRecord.line_name.is_(None), SewingRecord.line_name == "",
+              func.lower(SewingRecord.line_name).in_((flow.name.lower(), flow.code.lower()))),
+    )).first()
+    return bool(records)
+
+
 @router.post("/sewing-assignments/{aid}/return", response_model=SewingAssignmentOut)
 def return_assignment(
     aid: int, payload: SewingAssignmentReturnIn, db: DbSession,
@@ -355,19 +379,7 @@ def return_assignment(
         return a
     if a.status not in ("planned", "in_progress") or wo.status not in _ACTIVE_WO_STATUSES:
         raise HTTPException(409, "SEWING_RETURN_INACTIVE")
-    reports = db.query(SewingDailyReport.id).filter(or_(
-        SewingDailyReport.sewing_assignment_id == aid,
-        (SewingDailyReport.work_order_id == wo.id)
-        & (SewingDailyReport.sewing_flow_id == flow.id)
-        & (SewingDailyReport.production_batch_id == a.production_batch_id),
-    )).first()
-    records = db.query(SewingRecord.id).filter(
-        SewingRecord.work_order_id == wo.id,
-        SewingRecord.production_batch_id == a.production_batch_id,
-        or_(SewingRecord.line_name.is_(None), SewingRecord.line_name == "",
-            func.lower(SewingRecord.line_name).in_((flow.name.lower(), flow.code.lower()))),
-    ).first()
-    if a.completed_qty or a.actual_start or a.actual_end or reports or records:
+    if _assignment_has_output(db, a, wo, flow):
         raise HTTPException(409, "SEWING_RETURN_HAS_OUTPUT")
     old = {"status": a.status, "sewing_flow_id": a.sewing_flow_id, "quantity": a.quantity,
            "work_order_id": wo.id, "production_batch_id": a.production_batch_id,
@@ -395,6 +407,21 @@ def delete_assignment(
 ):
     a = db.get(SewingAssignment, aid)
     if not a: raise HTTPException(404, "Assignment not found")
+    flow = db.query(SewingFlow).filter(SewingFlow.id == a.sewing_flow_id).with_for_update().first()
+    if not flow:
+        raise HTTPException(404, "Sewing flow not found")
+    require_sewing_flow_access(current, flow)
+    wo = db.query(WorkOrder).filter(WorkOrder.id == a.work_order_id).with_for_update().populate_existing().first()
+    if not wo or wo.operation != "sewing":
+        raise HTTPException(404, "Sewing work order not found")
+    db.refresh(a, with_for_update=True)
+    if a.sewing_flow_id != flow.id or a.work_order_id != wo.id:
+        raise HTTPException(409, "Assignment changed; reload before deleting")
+    require_work_order_factory_access(current, db, wo)
+    if a.status not in ("planned", "in_progress") or wo.status not in _ACTIVE_WO_STATUSES:
+        raise HTTPException(409, "SEWING_DELETE_INACTIVE")
+    if _assignment_has_output(db, a, wo, flow):
+        raise HTTPException(409, "SEWING_DELETE_HAS_OUTPUT")
     db.delete(a)
     log_action(db, current, "delete", "SewingAssignment", aid)
     db.commit()
@@ -475,11 +502,15 @@ def _capacity_warning(
 
 
 @router.get("/sewing-flows/{fid}/utilization")
-def flow_utilization(fid: int, db: DbSession, _: CurrentUser):
-    f = db.get(SewingFlow, fid)
+def flow_utilization(fid: int, db: DbSession, current: CurrentUser):
+    f = db.query(SewingFlow.id, SewingFlow.factory_code, SewingFlow.code, SewingFlow.capacity_per_day).filter(SewingFlow.id == fid).first()
     if not f: raise HTTPException(404, "Flow not found")
+    require_sewing_flow_access(current, f)
     now = datetime.now(timezone.utc)
-    rows = db.query(SewingAssignment).join(
+    rows = db.query(
+        SewingAssignment.quantity, SewingAssignment.completed_qty,
+        SewingAssignment.planned_start, SewingAssignment.planned_end,
+    ).join(
         WorkOrder, WorkOrder.id == SewingAssignment.work_order_id
     ).filter(
         SewingAssignment.sewing_flow_id == fid,
@@ -499,18 +530,17 @@ def flow_utilization(fid: int, db: DbSession, _: CurrentUser):
             days = max(1.0, (a_end - a_start).total_seconds() / 86400.0)
             committed_today += round(remaining_qty / days)
     # Add directly assigned sewing WOs that are not split.
-    direct_wos = db.query(WorkOrder).filter(
+    managed_assignment_exists = db.query(SewingAssignment.id).filter(
+        SewingAssignment.work_order_id == WorkOrder.id,
+        SewingAssignment.status.in_(_ASSIGNMENT_MANAGED_STATUSES),
+    ).exists()
+    direct_wos = db.query(WorkOrder.planned_output_qty, WorkOrder.passed_qty).filter(
         WorkOrder.sewing_flow_id == fid,
         WorkOrder.operation == "sewing",
         WorkOrder.status.in_(_ACTIVE_WO_STATUSES),
+        ~managed_assignment_exists,
     ).all()
     for w in direct_wos:
-        has_split = db.query(SewingAssignment.id).filter(
-            SewingAssignment.work_order_id == w.id,
-            SewingAssignment.status.in_(_ASSIGNMENT_MANAGED_STATUSES),
-        ).first()
-        if has_split:
-            continue
         committed_today += max(0, int(w.planned_output_qty or 0) - int(w.passed_qty or 0))
     pct = (committed_today / f.capacity_per_day * 100) if f.capacity_per_day else 0
     return {
