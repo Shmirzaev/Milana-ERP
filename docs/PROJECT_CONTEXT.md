@@ -2,6 +2,14 @@
 
 Last updated: 2026-10-06
 
+## Blue/green deployment preflight correction (2026-10-06; activation pending)
+
+- The owner authorized blue/green deployment and production testing of the tested `clone_main` changes. Both live source manifests still match blue `20261005_070406`, rollback green `20261005_063643`, schema 0137 and the recorded production baseline.
+- Read-only catalog preflight stopped the initial candidate before any production migration or cutover: live `material_reservations` has the sole unique index `ix_material_reservations_reservation_no`, but lacks the canonical `uq_material_reservations_reservation_no` constraint assumed by revision 0138. Dropping this index would remove the uniqueness guarantee; the original guard correctly refused.
+- Revision 0138 now recognizes only this specific legacy shape after checking the exact table/column, valid and ready immediate unique B-tree, default ordering/opclass/collation, absence of predicates/expressions/included columns and constraint dependencies. It attaches the existing index to the canonical unique constraint with `UNIQUE USING INDEX`; it neither rebuilds the index nor changes business rows. Every other catalog mismatch still fails before any DDL. Full-chain PostgreSQL regressions verify the retained index OID, preserved rows, repeatability, rollback/re-upgrade and rejection of incompatible indexes.
+- Live preflight also verified the other six redundant objects have equivalent retained constraints. The five affected HR tables are empty (32–48 KiB each); nine missing indexes are expected. Production disk usage is 77% backend / 73% frontend, above the 70% alert and below the 80% staging block, with 44 GiB / 20 GiB available. Retention was inspected in dry-run mode only. Existing Finance cost-breakdown HTTP 500 was reproduced and its unchanged function/error signature confirmed under the owner's previous explicit exception.
+- This entry records the correction and preflight, not a completed deployment. A new immutable CI artifact and all candidate, cutover and observation gates remain required.
+
 ## clone_main local retest and validation repairs (2026-10-06; deployment excluded)
 
 - Retested owner changes at `bd0ce2ae2eace8c511399c94985290741b32dcfe` in dedicated worktree `C:/ERP/.codex-work/clone-main-fixes-20261006`, branch `codex/clone-main-fixes-20261006`. A final fetch still found the same `origin/clone_main` head. The legacy checkout and its unrelated changes were preserved.

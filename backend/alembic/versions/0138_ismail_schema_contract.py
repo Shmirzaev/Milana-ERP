@@ -1,4 +1,4 @@
-"""Align HR indexes and remove seven proven duplicate catalog objects.
+"""Align HR indexes and preserve verified constraints during catalog cleanup.
 
 This forward revision never repairs business rows or reruns historical grants.
 Production application requires catalog preflight, backup and approval (D2).
@@ -45,6 +45,38 @@ def unique_index_plan(bind, table, redundant, covering):
     indexes = sa.inspect(bind).get_indexes(table)
     if not any(index["name"] == redundant for index in indexes):
         return "already_absent"
+    # Some live databases predate the canonical reservation constraint. Retain
+    # its sole uniqueness guarantee by attaching that exact index, never dropping
+    # it or building another index. Other catalog mismatches still fail closed.
+    if (table, redundant, covering) == ("material_reservations", REDUNDANT, COVERING):
+        missing_cover = bind.execute(sa.text("""
+            SELECT to_regclass(:covering) IS NULL AND NOT EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conrelid = to_regclass(:table) AND conname = :covering
+            )
+        """), {"covering": covering, "table": table}).scalar()
+        if missing_cover:
+            attachable = bind.execute(sa.text("""
+                SELECT x.indisunique AND x.indisvalid AND x.indisready
+                  AND x.indislive AND x.indimmediate AND NOT x.indisprimary
+                  AND x.indnkeyatts = 1 AND x.indnatts = 1
+                  AND NOT x.indnullsnotdistinct
+                  AND x.indpred IS NULL AND x.indexprs IS NULL
+                  AND x.indkey[0] = a.attnum AND x.indoption[0] = 0
+                  AND x.indcollation[0] = a.attcollation
+                  AND am.amname = 'btree' AND oc.opcdefault
+                  AND NOT EXISTS (SELECT 1 FROM pg_constraint d WHERE d.conindid = x.indexrelid)
+                FROM pg_index x
+                JOIN pg_class i ON i.oid = x.indexrelid
+                JOIN pg_am am ON am.oid = i.relam
+                JOIN pg_opclass oc ON oc.oid = x.indclass[0]
+                JOIN pg_attribute a ON a.attrelid = x.indrelid AND a.attname = 'reservation_no'
+                WHERE x.indexrelid = to_regclass(:redundant)
+                  AND x.indrelid = to_regclass(:table)
+            """), {"redundant": redundant, "table": table}).scalar()
+            if attachable is not True:
+                raise RuntimeError("Refusing duplicate-index cleanup: catalog identity/coverage differs")
+            return "attach_existing_unique_index"
     equivalent = bind.execute(sa.text("""
         SELECT a.indisunique AND b.indisunique AND a.indisvalid AND b.indisvalid
           AND a.indisready AND b.indisready AND a.indimmediate = b.indimmediate
@@ -120,6 +152,8 @@ def upgrade():
     for table, redundant, action in index_cleanup:
         if action == "drop_redundant":
             op.drop_index(redundant, table_name=table)
+        elif action == "attach_existing_unique_index":
+            op.execute(sa.text(f'ALTER TABLE "{table}" ADD CONSTRAINT "{COVERING}" UNIQUE USING INDEX "{redundant}"'))
     for table, redundant, action in fk_cleanup:
         if action == "drop_redundant":
             op.drop_constraint(redundant, table, type_="foreignkey")
