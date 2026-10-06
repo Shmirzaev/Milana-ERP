@@ -27,6 +27,7 @@ from app.models import (
     SalesOrder,
     Shipment,
     ShipmentPackage,
+    WarehousePackReservation,
     StockReservation,
     User,
 )
@@ -145,6 +146,7 @@ def reserve_postgres_sessions():
             SalesOrder.__table__,
             Shipment.__table__,
             ShipmentPackage.__table__,
+            WarehousePackReservation.__table__,
             StockReservation.__table__,
             User.__table__,
         }

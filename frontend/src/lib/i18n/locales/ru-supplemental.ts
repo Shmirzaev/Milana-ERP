@@ -1,5 +1,6 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+  "common.error": "Произошла ошибка. Повторите попытку.",
   "warehouseReservations.title": "Резерв упаковок",
   "warehouseReservations.subtitle": "Зарезервируйте целые упаковки для клиента и подготовьте отгрузку. Для отправки требуется сканирование упаковок.",
   "warehouseReservations.reserved": "Зарезервированные упаковки",

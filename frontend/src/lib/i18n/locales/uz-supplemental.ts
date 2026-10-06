@@ -1,5 +1,6 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+  "common.error": "Xatolik yuz berdi. Qayta urinib ko‘ring.",
   "warehouseReservations.title": "Paketlarni band qilish",
   "warehouseReservations.subtitle": "Mijoz uchun butun paketlarni band qiling va tayyor bo‘lganda jo‘natma yarating. Jo‘natish uchun paketlarni skanerlash talab qilinadi.",
   "warehouseReservations.reserved": "Band paketlar",

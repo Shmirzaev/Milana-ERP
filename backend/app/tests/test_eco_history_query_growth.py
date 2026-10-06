@@ -21,6 +21,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from fastapi.encoders import jsonable_encoder
 import pytest
@@ -88,8 +89,8 @@ class EcoHistory:
 
 
 @contextlib.contextmanager
-def eco_history_schema():
-    """Throwaway PostgreSQL schema holding one seeded page of eco dispatches."""
+def eco_history_schema(session_timezone="Asia/Tokyo"):
+    """Isolate schema and timezone; Tokyo matches the original golden capture."""
     raw_url = os.environ.get("STABILIZATION_POSTGRES_URL")
     if not raw_url:
         pytest.skip("Set STABILIZATION_POSTGRES_URL for real PostgreSQL eco history coverage")
@@ -99,7 +100,7 @@ def eco_history_schema():
     schema = f"eco_history_growth_{uuid4().hex}"
     engine = create_engine(
         url,
-        connect_args={"options": f"-csearch_path={schema} -cstatement_timeout=20000"},
+        connect_args={"options": f"-csearch_path={schema} -cstatement_timeout=20000 -ctimezone={session_timezone}"},
         pool_size=2,
         max_overflow=0,
         isolation_level="READ COMMITTED",
@@ -229,6 +230,21 @@ def test_history_page_payload_is_byte_identical_to_the_unfixed_route(eco_history
         assert live[key] == golden[key], f"{key} payload drifted from the pre-fix capture"
     for key in ("page_one_decimals", "page_two_decimals", "dated_decimals"):
         assert live[key] == golden[key], f"{key} Decimal totals drifted from the pre-fix capture"
+
+
+@pytest.mark.parametrize("session_timezone", ["UTC", "Asia/Tashkent"])
+def test_history_payload_in_other_database_timezones(session_timezone, golden):
+    """The capture used Tokyo; only timestamp offsets may differ elsewhere."""
+    expected = json.loads(json.dumps(golden))
+    zone = ZoneInfo(session_timezone)
+    for key in ("page_one", "page_two", "dated"):
+        for item in expected[key]["items"]:
+            item["sent_at"] = datetime.fromisoformat(item["sent_at"]).astimezone(zone).isoformat()
+            for row in item["rows"]:
+                if row["returned_at"] is not None:
+                    row["returned_at"] = datetime.fromisoformat(row["returned_at"]).astimezone(zone).isoformat()
+    with eco_history_schema(session_timezone) as handle:
+        assert _snapshot(handle) == expected
 
 
 def test_history_totals_ignore_only_page_width(eco_history_postgres):

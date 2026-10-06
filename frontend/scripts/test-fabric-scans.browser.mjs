@@ -7,12 +7,17 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
+import { build } from "esbuild";
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || "playwright");
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const swr = await build({
+  stdin: { contents: 'export { default } from "swr/infinite";', resolveDir: root },
+  bundle: true, write: false, format: "iife", globalName: "FixtureSWRInfinite", external: ["react"],
+});
 const files = [
-  ...["en", "ru", "uz"].map(lang => `lib/i18n/locales/${lang}-base.ts`),
-  "lib/fabricScans.ts", "components/PageHeader.tsx", "components/PaginationControls.tsx",
+  ...["en", "ru", "uz"].flatMap(lang => [`lib/i18n/locales/${lang}-base.ts`, `lib/i18n/locales/${lang}-supplemental.ts`]),
+  "lib/errorMessages.ts", "lib/useLoadMore.ts", "lib/fabricScans.ts", "components/PageHeader.tsx", "components/PaginationControls.tsx",
   "components/FabricRollCamera.tsx", "app/(app)/fabric-scans/page.tsx",
 ];
 const code = files.map(file => {
@@ -22,6 +27,8 @@ const code = files.map(file => {
   return `load(${JSON.stringify("@/" + file.replace(/\.tsx?$/, ""))}, ${JSON.stringify(js)});`;
 }).join("\n");
 const setup = `
+function require(name) { if (name === 'react') return React; throw Error('Unexpected module '+name); }
+${swr.outputFiles[0].text}
 const params = new URLSearchParams(location.search), lang = params.get('lang') || 'en';
 window.calls = []; window.rows = []; window.fail = false; window.failReport = false; window.delay = 0;
 window.me = {id:1, factory_code:'MIL', permissions: params.has('readonly') ? ['management.view'] : ['cutting.records']};
@@ -33,13 +40,8 @@ async function fixture(url) {
   return {report_date:day,department:'CUT',received,returned,total:rows.length,rows:[...rows].reverse(),
     summary:rows.length ? [{fabric_name:'Cotton jersey',batch_no:'FAB-2026',color:'Natural',received,returned}] : []};
 }
-function useFixtureSWR(key) {
- const stable = JSON.stringify(key), [state,setState] = React.useState({}), [version,setVersion] = React.useState(0);
- React.useEffect(()=>{let live=true;setState({});if(key)fixture(key[0]).then(data=>{if(live)setState({data})},error=>{if(live)setState({error})});return()=>{live=false}},[stable,version]);
- return {...state,isLoading:!!key&&!state.data&&!state.error,mutate:()=>setVersion(n=>n+1)};
-}
 const icon=p=>React.createElement('svg',{...p,width:16,height:16});
-const modules={react:React,swr:{default:useFixtureSWR},'lucide-react':new Proxy({},{get:()=>icon}),
+const modules={react:React,'swr/infinite':FixtureSWRInfinite,'lucide-react':new Proxy({},{get:()=>icon}),
  '@/lib/auth':{useMe:()=>({me:window.me}),can:(me,...perms)=>perms.some(p=>me?.permissions.includes(p))},
  '@/lib/api':{fetcher:fixture,api:{post:async(url,body)=>{
    window.calls.push({url,body}); if(window.delay)await new Promise(resolve=>setTimeout(resolve,window.delay)); if(window.fail)throw Error('Offline');
@@ -49,7 +51,7 @@ const modules={react:React,swr:{default:useFixtureSWR},'lucide-react':new Proxy(
    if(!existing)window.rows.push(row);
    return {duplicate:!!existing,row};
  }}},
- '@/lib/i18n':{useT:()=>({lang,t:(key,args)=>{let s=modules['@/lib/i18n/locales/'+lang+'-base']?.default[key]||key;for(const[k,v]of Object.entries(args||{}))s=s.replaceAll('{'+k+'}',v);return s}})},
+ '@/lib/i18n':{useT:()=>({lang,t:(key,args)=>{let s=modules['@/lib/i18n/locales/'+lang+'-supplemental']?.default[key]||modules['@/lib/i18n/locales/'+lang+'-base']?.default[key]||key;for(const[k,v]of Object.entries(args||{}))s=s.replaceAll('{'+k+'}',v);return s}})},
 };
 function load(name,code){const exports={};new Function('exports','require',code)(exports,name=>{if(!modules[name])throw Error('Missing '+name);return modules[name]});modules[name]=exports;}
 ${code}
