@@ -2,7 +2,40 @@
 
 
 
-**Updated: 2026-10-06. Target: `clone_main`.** **111 implementation rows** = 73 open + 7 in review + 31 completed owner-approved changes + 0 partial + 0 blocked, plus **7 operations follow-ups** and **2 pending decisions** in the Shavkat queue below. **Ismail has 0 open, partial or blocked implementation rows; six original tasks and the additional reservation-planning finding are in Review.** **All 127 develop audit findings are accounted for below**; tasks and original findings are different counts. Assessments are source-based; current regressions, performance measurements and live operations remain to be verified. **`clone_main` is shared**: other engineers merge into it concurrently, so re-sync and rebase before landing and re-run affected tests afterwards. Counts are derived from the per-row Tracking cells; if a header total stops matching `open + review + blocked + done + partial`, the header is stale and the rows win.
+**Updated: 2026-10-06. Target: `clone_main`.** Remote delivery verification found **106 of 111 implementation changes landed, with 5 still missing**, plus **7 unfinished operations follow-ups** and **2 policy/production-approval items**. The remaining-work reminder below is the current delivery summary. Older per-row Open/Review labels further down have not all been reconciled with merged delivery; their historical 73 Open / 7 Review / 31 Done counts are not the current missing-code count. **All 127 develop audit findings are accounted for below**; tasks and original findings are different counts. Delivery into Git, deployment and live verification are separate records. **`clone_main` is shared**: re-sync before landing changes and re-run affected checks.
+
+## Remaining-work reminder — remote verified 2026-10-06
+
+Verified against remote `clone_main` at [`418d5215`](https://github.com/Shmirzaev/Milana-ERP/commit/418d5215a31c0aecb3eb45e17ada50cc2c926046). Ismail's 37 original implementation tasks plus the additional QC/archive fix, Mirshoir's 35 tasks and 33 of Dilmurod's 38 tasks have landed. This is code-delivery evidence; it does not certify every production workflow. Original task rows and history are retained below.
+
+### Five implementation fixes still missing from clone_main
+
+| Task | Responsible owner | Required completion |
+| --- | --- | --- |
+| **API02** | Dilmurod | Validate task states, dates and references; enforce permission/factory scope and reference locks. |
+| **SEC04** | Dilmurod | Reject disabled/revoked sessions downloading model files; release the authentication connection before streaming. A pushed branch is not merged delivery. |
+| **OPS05** | Dilmurod | Probe PostgreSQL and the required shared store within one bounded readiness deadline. |
+| **OPS06** | Dilmurod | Verify paired database/upload backup identities and missing, changed or extra files. |
+| **OPS08** | Dilmurod | Complete runtime/dependency hardening, token compatibility checks and fresh dependency/image security scans. |
+
+### Seven unfinished operations follow-ups
+
+| Task | Responsible owner | Required completion |
+| --- | --- | --- |
+| **OPS01** | Mirshoir | Capture a correlated browser/API/SQL/network incident window and identify the bottleneck. |
+| **OPS02** | Ismail | Confirm a representative peak window, pool checkout queueing and complete shared-client budgets. Live measurement reached 28 of 97 ordinary connections; ERP's two-slot maximum remains 48. **Needs review**, not Done. |
+| **OPS03** | Ismail | Confirm named human owners for shared services and backup operations. Shared workloads/limits, contention and nightly PBS backups including uploads were checked live. **Needs review**, not Done. |
+| **OPS04** | Dilmurod | Verify physical failure domains and an approved recovery path after host loss. |
+| **OPS07** | Mirshoir | Measure actual factory/branch DNS, TLS, packet loss, jitter, proxy and firewall/shaping behavior. |
+| **OPS10** | Dilmurod | Protect database/uploads and seven-day restore chains; witness an isolated recovery proving RTO <=24h and zero acknowledged transaction/file loss. |
+| **OPS11** | Dilmurod | Inventory credential consumers, assign vault ownership, rotate/revoke exposed credentials and prove old credentials fail. |
+
+[OPS02/OPS03 live audit](docs/audit-evidence/ops02-03-20261006.md) records the measurements and remaining limits. Nightly VM snapshots alone do not close OPS04/OPS10. Each responsible engineer should update the original task row with exact completion evidence; retain unfinished requirements until verified.
+
+### Policy and production-approval items retained
+
+- **D1 / FN08 — Shavkat**, with Ismail for engineering assessment: decide the historical cost/currency basis for invoice profit totals.
+- **D2 / DB01, DB05, DB06 — Shavkat and Ismail coordination**: the recorded direction is approval with indexes first; concrete production execution still requires exact affected rows, backup, rollback and the documented approval/deployment gates. This is separate from code already landed.
 
 
 
@@ -34,25 +67,25 @@
 
 
 
-Assignments set on 2026-10-03. Each task has one owner for backend, frontend and regression checks. The Tracking cells currently record 73 Open, 7 Review and 31 Done; Ismail has 31 Done and six Review original tasks, plus the separate QC/archive finding in Review. Other-owner Open labels are stale delivery evidence: the GitHub audit found 32 Dilmurod task-linked PRs merged, one further SEC04 branch pushed, and PERF32 delivered by Dilmurod in Mirshoir’s allocation. [Full owner audit](docs/audit-evidence/team-owner-audit-20261005.md) separates tracker labels from actual delivery. Names are team assignments; account attribution uses commit identity.
+Assignments were set on 2026-10-03. Each task has one owner for backend, frontend and regression checks. The table counts missing implementation delivery from the remote verification above. Historical per-row labels still include 73 Open, 7 Review and 31 Done and must be reconciled separately with completion/test evidence. The [earlier owner audit](docs/audit-evidence/team-owner-audit-20261005.md) is a historical snapshot; subsequent PRs #279, #290, #291 and #292 are merged. SEC04 has a pushed branch but remains outside `clone_main`. Names are team assignments; account attribution uses commit identity.
 
 
 
-| Owner | Responsibility | Open implementation tasks | Operations follow-ups |
+| Owner | Responsibility | Implementation fixes missing from clone_main | Operations follow-ups |
 
 | --- | --- | --- | --- |
 
-| **Dilmurod** | People and platform: payroll, attendance, HR, authentication, admin security, tasks/notifications and shared API/retry infrastructure. | **38** | `OPS04`, `OPS10`, `OPS11` |
+| **Dilmurod** | People and platform: payroll, attendance, HR, authentication, admin security, tasks/notifications and shared API/retry infrastructure. | **5** | `OPS04`, `OPS10`, `OPS11` |
 
 | **Ismail** | Stock and commercial: inventory, purchasing, sales, finance, catalog, schema/migration tooling and uploads. | **0** | `OPS02`, `OPS03` |
 
-| **Mirshoir** | Production and fulfillment: production, cutting, sewing, bundles, packages, finished goods, forecasting, traceability and shipment package locking. | **35** | `OPS01`, `OPS07` |
+| **Mirshoir** | Production and fulfillment: production, cutting, sewing, bundles, packages, finished goods, forecasting, traceability and shipment package locking. | **0** | `OPS01`, `OPS07` |
 
 | **Shavkat** | Business logic decisions and expected business behavior only. Clarifies policy and acceptance criteria with the responsible engineer; no engineering, migration, testing or operations tasks assigned. | **0** (2 decisions queued below) | None |
 
 
 
-The Tracking cells below are the authoritative per-task assignments; refer to stable task IDs in PRs. Counts are an initial allocation, not equal effort estimates. Completed rows retain their historical ownership.
+The Tracking cells below retain the per-task assignments and history; refer to stable task IDs in PRs. Delivery counts follow the remote verification above and are not effort estimates. Completed rows retain their historical ownership.
 
 
 
