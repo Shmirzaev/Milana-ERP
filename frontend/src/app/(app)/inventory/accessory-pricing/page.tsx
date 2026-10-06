@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
-import useSWR from "swr";
 import PageHeader from "@/components/PageHeader";
 import PriceRequestCard from "@/components/price-calculation/PriceRequestCard";
-import { useSharedPolling } from "@/hooks/useSharedPolling";
-import { api, fetcher } from "@/lib/api";
+import { usePriceRequests } from "@/hooks/usePriceRequests";
+import PriceRequestPagination from "@/components/price-calculation/PriceRequestPagination";
+import { api } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import {
   numberInputValue,
@@ -40,12 +40,7 @@ function optionalNumber(value: string): number | null {
 
 export default function AccessoryPricingPage() {
   const { t } = useT();
-  const polling = useSharedPolling();
-  const { data, error, isLoading, mutate } = useSWR<PriceCalculationRequest[]>(
-    "/api/price-calculation/requests",
-    fetcher,
-    polling,
-  );
+  const { data, error, isLoading, mutate, hasMore, isLoadingMore, loadMore } = usePriceRequests();
   const [drafts, setDrafts] = useState<Record<number, AccessoryDraft[]>>({});
   const [editing, setEditing] = useState<Set<number>>(() => new Set());
   const [savingId, setSavingId] = useState<number | null>(null);
@@ -171,6 +166,7 @@ export default function AccessoryPricingPage() {
           );
         })}
       </div>
+      <PriceRequestPagination hasMore={hasMore} isLoadingMore={isLoadingMore} loadMore={loadMore} />
     </div>
   );
 }

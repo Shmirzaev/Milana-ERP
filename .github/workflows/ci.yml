@@ -75,6 +75,16 @@ jobs:
           backend/app/tests/test_packaging_receive_options_query_growth.py
       - name: Deployment observation regression suite
         run: python -m unittest discover -s scripts -p 'test_observe_release.py' -v
+      - name: Ismail PostgreSQL schema and reservation regressions
+        working-directory: backend
+        env:
+          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
+        run: >-
+          python -m pytest -q app/tests/test_fresh_migration_bootstrap.py
+          app/tests/test_ismail_schema_completion.py app/tests/test_migration_preflight.py
+          app/tests/test_db08_beyka_orm_parity.py app/tests/test_reservation_overclaim.py
+          app/tests/test_reservation_plan_query_growth.py
+          app/tests/test_stock_movement_batch_integrity.py
       - name: PostgreSQL migration, concurrency and model numbering regression
         env:
           PYTHONPATH: ./backend

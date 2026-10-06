@@ -1,3 +1,5 @@
+from typing import Annotated
+
 from fastapi import APIRouter, HTTPException, Query
 
 from app.core.deps import CurrentUser, DbSession
@@ -33,11 +35,8 @@ from app.services.price_calculation import (
 
 router = APIRouter(prefix="/price-calculation", tags=["price_calculation"])
 
-# Ceiling for a client that opts into a bounded read. The list is NOT capped by
-# default: the five consumers have no load-more yet, so a default cap would drop
-# rows off the end of the screen with no way to reach them. Reaching rows past a
-# cap is the open D3 paging contract in bugs.md.
 PRICE_REQUEST_LIST_LIMIT_MAX = 500
+PRICE_REQUEST_LIST_LIMIT_DEFAULT = 50
 
 
 def _request_or_404(db: DbSession, request_id: int) -> PriceCalculationRequest:
@@ -56,7 +55,8 @@ def _request_or_404(db: DbSession, request_id: int) -> PriceCalculationRequest:
 def list_requests(
     db: DbSession,
     current: CurrentUser,
-    limit: int | None = Query(None, ge=1, le=PRICE_REQUEST_LIST_LIMIT_MAX),
+    limit: Annotated[int, Query(ge=1, le=PRICE_REQUEST_LIST_LIMIT_MAX)] = PRICE_REQUEST_LIST_LIMIT_DEFAULT,
+    before_id: Annotated[int | None, Query(ge=1)] = None,
 ):
     if not can_view_price_requests(current):
         raise HTTPException(403, "Price calculation access required")
@@ -65,15 +65,11 @@ def list_requests(
         .options(*price_request_load_options())
         .order_by(PriceCalculationRequest.id.desc())
     )
-    # The list stays UNBOUNDED by default. Capping it at a page size is the
-    # remaining half of PERF23, but the five consumers have no load-more yet,
-    # so a cap here would drop rows off the end of the screen without warning
-    # - the same "silently stops at fifty" shape PERF35-FINANCE just fixed.
-    # `limit` is accepted so a client can opt into a bounded read once D3
-    # settles the paging contract; see the decision queue in bugs.md.
-    if limit is not None:
-        qry = qry.limit(limit)
-    return [serialize_price_request(request) for request in qry.all()]
+    # Seek pagination keeps older rows reachable even when newer requests are
+    # inserted between page reads. All five consumers now expose load-more.
+    if before_id is not None:
+        qry = qry.filter(PriceCalculationRequest.id < before_id)
+    return [serialize_price_request(request) for request in qry.limit(limit).all()]
 
 
 @router.post("/requests", response_model=PriceCalculationRequestOut, status_code=201)

@@ -1,4 +1,6 @@
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile
 from sqlalchemy.orm import joinedload, lazyload, selectinload
 
@@ -157,9 +159,9 @@ def list_purchase_orders(
     db: DbSession,
     _: User = Depends(require_permissions("purchasing.view", "*")),
     status: str | None = Query(None, max_length=32),
-    receivable_only: bool = Query(False),
     limit: int = Query(50, ge=1, le=PURCHASE_ORDER_LIST_MAX_LIMIT),
     offset: int = Query(0, ge=0),
+    receivable_only: Annotated[bool, Query()] = False,
 ):
     """One page of purchase orders plus the exact filtered total.
 
@@ -172,11 +174,11 @@ def list_purchase_orders(
     if term:
         query = query.filter(PurchaseOrder.status == term)
     if receivable_only:
+        # Match the receiving queue without loading every order or counting
+        # its outstanding lines more than once. The page and total share scope.
         query = query.filter(
             PurchaseOrder.status.in_(("sent", "approved", "partially_received")),
-            PurchaseOrder.lines.any(
-                PurchaseOrderLine.ordered_quantity > PurchaseOrderLine.received_quantity
-            ),
+            PurchaseOrder.lines.any(PurchaseOrderLine.ordered_quantity > PurchaseOrderLine.received_quantity),
         )
 
     total = int(query.with_entities(PurchaseOrder.id).count())

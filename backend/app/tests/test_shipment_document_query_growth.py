@@ -586,9 +586,11 @@ def test_migration_is_based_on_the_real_head():
     revisions = {rev.revision for rev in scripts.walk_revisions()}
     assert module.revision in revisions
     assert module.down_revision in revisions
-    assert module.revision == scripts.get_current_head(), (
-        "PERF34 must be the head, otherwise the chain forks"
-    )
+    assert module.down_revision == "0136_employee_salary_precision"
+    heads = scripts.get_heads()
+    assert len(heads) == 1, f"migration chain forks: {heads}"
+    ancestry = {rev.revision for rev in scripts.iterate_revisions(heads[0], "base")}
+    assert module.revision in ancestry, "PERF34 must remain in the current head's ancestry"
     # alembic_version.version_num is varchar(32); a longer id fails only at
     # upgrade time, on a real server.
     assert len(module.revision) <= 32, f"revision id too long: {module.revision!r}"

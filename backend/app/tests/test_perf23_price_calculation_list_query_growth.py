@@ -134,24 +134,42 @@ def _request_count() -> int:
         db.close()
 
 
-def test_price_list_is_unbounded_by_default_so_no_row_disappears(client, auth_headers):
-    """The list must NOT silently drop rows while the five consumers have no
-    load-more yet. A cap here is the same defect PERF35-FINANCE just fixed, so
-    bounding waits for the D3 paging contract; the `limit` opt-in is tested
-    separately below."""
-    _seed_requests(PAGE + 40, "cap")
+def test_price_list_is_bounded_and_every_older_row_remains_reachable(client, auth_headers):
+    _seed_requests(121, "cap")
     expected_total = _request_count()
-    assert expected_total > PAGE, "fixture must exceed a page for this to mean anything"
+    seen = []
+    url = LIST_URL
+    while True:
+        response = client.get(url, headers=auth_headers)
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert isinstance(payload, list)
+        assert len(payload) <= 50
+        seen.extend(row["id"] for row in payload)
+        if len(payload) < 50:
+            break
+        url = f"{LIST_URL}?before_id={payload[-1]['id']}"
+    assert len(seen) == expected_total
+    assert seen == sorted(set(seen), reverse=True)
 
-    response = client.get(LIST_URL, headers=auth_headers)
-    assert response.status_code == 200, response.text
-    payload = response.json()
 
-    assert isinstance(payload, list), "the response must stay a bare array"
-    assert len(payload) == expected_total, (
-        f"the list returned {len(payload)} of {expected_total} requests; rows are "
-        "being dropped off the end of the screen with no way to reach them"
-    )
+def test_price_cursor_does_not_shift_when_a_new_request_is_inserted(client, auth_headers):
+    _seed_requests(61, "seek")
+    before = _request_count()
+    first = client.get(LIST_URL, headers=auth_headers).json()
+    _seed_requests(1, "new-seek")
+    older = client.get(f"{LIST_URL}?before_id={first[-1]['id']}", headers=auth_headers).json()
+    assert len(first) == 50 and len(first) + len(older) == before
+    assert {row["id"] for row in first}.isdisjoint(row["id"] for row in older)
+
+
+def test_default_page_hydration_stays_bounded_as_table_grows(client, auth_headers):
+    _seed_requests(60, "small")
+    initial_count, initial, _ = _measure(client, auth_headers)
+    _seed_requests(120, "large")
+    larger_count, larger, _ = _measure(client, auth_headers)
+    assert len(initial) == len(larger) == 50
+    assert larger_count <= initial_count + 5
 
 
 def test_price_list_honours_an_explicit_limit(client, auth_headers):

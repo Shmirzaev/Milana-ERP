@@ -258,3 +258,40 @@ def test_postgres_partial_updates_merge_after_waiting(settings_postgres, monkeyp
         else:
             assert rows[0].value_json == {"default_currency": "UZS", "fiscal_year_start_month": 1 if case == "rollback" else 4}
         assert db.query(AuditLog).filter_by(user_id=uid).count() == (1 if case == "rollback" else 2)
+
+
+@pytest.mark.parametrize("fail_commit", [False, True])
+def test_logo_replacement_preserves_old_file_until_commit(client, auth_headers, tmp_path, monkeypatch, fail_commit):
+    monkeypatch.setattr(settings_routes.app_settings, "MODEL_FILES_DIR", str(tmp_path))
+    def upload(color):
+        image = BytesIO()
+        Image.new("RGB", (12, 12), color).save(image, format="PNG")
+        return client.post("/api/settings/company-logo/upload", headers=auth_headers,
+            files={"file": ("review-logo.png", image.getvalue(), "image/png")})
+    first = upload("blue")
+    assert first.status_code == 201, first.text
+    old_url = first.json()["logo_url"]
+    old_name = old_url.rsplit("/", 1)[1]
+    assert (tmp_path / old_name).is_file()
+    old_thumbnails = list((tmp_path / "_thumbs").glob(f"*{old_name}.webp"))
+    assert old_thumbnails
+    if fail_commit:
+        def failed_commit(_db):
+            raise RuntimeError("synthetic logo commit failure")
+        monkeypatch.setattr(TestSessionLocal.class_, "commit", failed_commit)
+        with pytest.raises(RuntimeError, match="synthetic logo commit failure"):
+            upload("green")
+        assert (tmp_path / old_name).is_file()
+        assert all(path.is_file() for path in old_thumbnails)
+        with TestSessionLocal() as db:
+            assert db.query(SystemSetting).filter_by(key="company_info").one().value_json["logo_url"] == old_url
+    else:
+        second = upload("green")
+        assert second.status_code == 201, second.text
+        new_url = second.json()["logo_url"]
+        assert new_url != old_url
+        assert not (tmp_path / old_name).exists()
+        assert all(not path.exists() for path in old_thumbnails)
+        assert (tmp_path / new_url.rsplit("/", 1)[1]).is_file()
+        with TestSessionLocal() as db:
+            assert db.query(SystemSetting).filter_by(key="company_info").one().value_json["logo_url"] == new_url

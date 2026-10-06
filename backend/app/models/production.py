@@ -22,6 +22,7 @@ def public_production_order_no(production_no: str | None) -> str | None:
 class BrandedPlanningOrder(Base, PkMixin, TimestampMixin):
     __tablename__ = "branded_planning_orders"
     __table_args__ = (
+        UniqueConstraint("order_no", name="branded_planning_orders_order_no_key"),
         CheckConstraint(
             "ordered_for_type IN ('customer', 'milana', 'eco_cotton', 'besttex')",
             name="ck_branded_planning_orders_ordered_for_type",
@@ -31,7 +32,7 @@ class BrandedPlanningOrder(Base, PkMixin, TimestampMixin):
             name="ck_branded_planning_orders_status",
         ),
     )
-    order_no: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    order_no: Mapped[str] = mapped_column(String(64), nullable=False)
     ordered_for_type: Mapped[str] = mapped_column(String(32), nullable=False)
     customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id"), index=True)
     ordered_for_name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -428,6 +429,8 @@ class SewingReplacementRequest(Base, PkMixin, TimestampMixin):
             name="ck_sewing_replacements_status",
         ),
         UniqueConstraint("sewing_record_id", name="uq_sewing_replacements_sewing_record"),
+        CheckConstraint("accepted_defect_qty >= 0", name="ck_sewing_replacements_accepted_nonnegative"),
+        CheckConstraint("cut_qty + accepted_defect_qty <= requested_qty", name="ck_sewing_replacements_cut_accepted_lte_requested"),
     )
     production_order_id: Mapped[int] = mapped_column(ForeignKey("production_orders.id"), nullable=False, index=True)
     sewing_work_order_id: Mapped[int] = mapped_column(ForeignKey("work_orders.id"), nullable=False, index=True)
@@ -440,6 +443,12 @@ class SewingReplacementRequest(Base, PkMixin, TimestampMixin):
     status: Mapped[str] = mapped_column(String(32), default="waiting_cutting", nullable=False, index=True)
     defect_reason: Mapped[str | None] = mapped_column(String(255))
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    accepted_defect_qty: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    accepted_defect_reason: Mapped[str | None] = mapped_column(String(64))
+    accepted_defect_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", name="fk_sewing_replacements_accepted_defect_by_users")
+    )
+    accepted_defect_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class PackagingRecord(Base, PkMixin, TimestampMixin):

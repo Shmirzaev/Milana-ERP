@@ -213,7 +213,7 @@ def _execute_payloads(source: str) -> list[tuple[str, str]]:
     Uses :mod:`ast` rather than a regex so a Python string that merely *looks*
     like SQL is never treated as migration impact.
     """
-    tree = ast.parse(source)
+    tree = _upgrade_source_tree(source)
     payloads: list[tuple[str, str]] = []
     for node in ast.walk(tree):
         if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
@@ -228,11 +228,24 @@ def _execute_payloads(source: str) -> list[tuple[str, str]]:
     return payloads
 
 
+def _upgrade_source_tree(source: str) -> ast.Module:
+    """Exclude rollback operations when assessing an upgrade.
+
+    Retain helper definitions conservatively: unresolved helper SQL must cause
+    refusal rather than an understated impact report.
+    """
+    tree = ast.parse(source)
+    tree.body = [node for node in tree.body if not (
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "downgrade"
+    )]
+    return tree
+
+
 def classify_source(source: str) -> dict:
     """Classify a migration's risk from its ``op.execute`` payloads and calls."""
     payloads = _execute_payloads(source)
     sql_text = "\n".join(sql for _, sql in payloads).upper()
-    tree = ast.parse(source)
+    tree = _upgrade_source_tree(source)
     called = {
         node.func.attr
         for node in ast.walk(tree)
@@ -243,8 +256,11 @@ def classify_source(source: str) -> dict:
         "destructive": bool(re.search(r"\b(DELETE\s+FROM|TRUNCATE|DROP\s+TABLE|DROP\s+COLUMN)\b", sql_text))
                       or bool(called & {"drop_table", "drop_column"}),
         "permission": bool(re.search(r"\b(CREATE\s+ROLE|ALTER\s+ROLE|GRANT|REVOKE)\b", sql_text)),
-        "data_write": bool(re.search(r"\b(INSERT\s+INTO|UPDATE\s+\w+\s+SET)\b", sql_text)),
-        "ddl": bool(called & {"create_table", "add_column", "create_index", "alter_column"}),
+        "data_write": bool(re.search(r"\b(INSERT\s+INTO|UPDATE\s+\w+\s+SET)\b", sql_text))
+                      or "bulk_insert" in called,
+        "ddl": bool(called & {"create_table", "add_column", "create_index", "alter_column",
+                              "drop_index", "drop_constraint", "create_foreign_key"})
+               or bool(re.search(r"\b(CREATE|ALTER|DROP)\s+(TABLE|INDEX|SEQUENCE|VIEW)\b", sql_text)),
         "dynamic_sql_payloads": dynamic,
         "previews_statically": not dynamic,
     }
@@ -619,15 +635,39 @@ def preview_revision(
         if re.search(r"\b(DELETE\s+FROM|TRUNCATE)\b", sql.upper())
     ]
 
+    # A zero-row report is valid only when every effect has been understood.
+    # Previously grants, UPDATEs, dynamic SQL and DDL fell through to "no_op".
+    if (classification["dynamic_sql_payloads"] or classification["permission"]
+            or classification["data_write"] or classification["ddl"]):
+        raise PreflightUnsupported(
+            "Exact preview is unavailable for dynamic SQL, permissions, data repairs or DDL; "
+            "no migration was executed and no no-op impact is asserted"
+        )
+    if len(payloads) != 1 or len(destructive_payloads) != 1:
+        raise PreflightUnsupported("No exact preview adapter: expected one supported destructive DO block")
+    upgrade = next((node for node in ast.parse(source).body
+                    if isinstance(node, ast.FunctionDef) and node.name == "upgrade"), None)
+    effects = [] if upgrade is None else [node for node in upgrade.body if not (
+        isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+    )]
+    if not (len(effects) == 1 and isinstance(effects[0], ast.Expr)
+            and isinstance(effects[0].value, ast.Call)
+            and isinstance(effects[0].value.func, ast.Attribute)
+            and isinstance(effects[0].value.func.value, ast.Name)
+            and effects[0].value.func.value.id == "op"
+            and effects[0].value.func.attr == "execute"):
+        raise PreflightUnsupported("Upgrade has additional effects without an exact preview adapter")
+    static_analysis = analyze_destructive_block(destructive_payloads[0])
+
     connection = engine.connect()
     try:
         transaction = connection.begin()
         connection.execute(text("SET TRANSACTION READ ONLY"))
         try:
             gate = predecessor_gate(script, revision, current_revision(connection))
-            analysis: dict = {"deletes": [], "conditions": [], "returns_early": False}
+            analysis: dict = static_analysis
             if destructive_payloads:
-                analysis = analyze_destructive_block(destructive_payloads[0])
                 for condition in analysis["conditions"]:
                     condition["holds"] = bool(
                         _scalar(connection, f"SELECT {condition['condition']}")

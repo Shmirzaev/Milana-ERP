@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import useSWR from "swr";
 import PageHeader from "@/components/PageHeader";
 import PriceRequestCard from "@/components/price-calculation/PriceRequestCard";
-import { useSharedPolling } from "@/hooks/useSharedPolling";
-import { api, fetcher } from "@/lib/api";
+import { usePriceRequests } from "@/hooks/usePriceRequests";
+import PriceRequestPagination from "@/components/price-calculation/PriceRequestPagination";
+import { api } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import {
   numberInputValue,
@@ -60,12 +60,7 @@ function FormField({ label, value, type = "text", disabled, onChange }: {
 
 export default function PurchasingPriceCalculationPage() {
   const { t } = useT();
-  const polling = useSharedPolling();
-  const { data, error, isLoading, mutate } = useSWR<PriceCalculationRequest[]>(
-    "/api/price-calculation/requests",
-    fetcher,
-    polling,
-  );
+  const { data, error, isLoading, mutate, hasMore, isLoadingMore, loadMore } = usePriceRequests();
   const [drafts, setDrafts] = useState<Record<number, PurchasingDraft>>({});
   const [editing, setEditing] = useState<Set<number>>(() => new Set());
   const [savingId, setSavingId] = useState<number | null>(null);
@@ -156,6 +151,7 @@ export default function PurchasingPriceCalculationPage() {
           );
         })}
       </div>
+      <PriceRequestPagination hasMore={hasMore} isLoadingMore={isLoadingMore} loadMore={loadMore} />
     </div>
   );
 }

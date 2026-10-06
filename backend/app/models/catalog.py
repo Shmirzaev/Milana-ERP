@@ -23,7 +23,7 @@ class Collection(Base, PkMixin, TimestampMixin):
     brand_id: Mapped[int] = mapped_column(ForeignKey("brands.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     season: Mapped[str | None] = mapped_column(String(64))
-    year: Mapped[int] = mapped_column(Integer, nullable=False)
+    year: Mapped[int] = mapped_column(Integer, nullable=False, server_default="2024")
     description: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(32), default="draft", nullable=False)
 

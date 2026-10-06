@@ -218,6 +218,19 @@ def available_stock_for_batch(db: Session, stock_batch_id: int) -> float:
     return current_stock_for_batch(db, stock_batch_id) - reserved_stock_for_batch(db, stock_batch_id)
 
 
+def available_reservation_item_capacity(db: Session, item_id: int, warehouse_id: int | None) -> float:
+    """Check global claims and, when scoped, that warehouse's physical capacity.
+
+    Called after the common item lock. Taking the minimum counts each claim
+    once in each applicable pool, without subtracting batch claims twice.
+    A warehouse-less item claim still competes with every scoped reservation.
+    """
+    global_available = available_stock_for_item(db, item_id)
+    if warehouse_id is None:
+        return global_available
+    return min(global_available, available_stock_for_item(db, item_id, warehouse_id=warehouse_id))
+
+
 def _bom_requirement_rows(
     db: Session,
     po: ProductionOrder,
@@ -353,10 +366,9 @@ def _suggest_batches_for_requirement(
     requirement pinned to one batch resolves without a lookup over the item's
     list. Both come from one chunked read in `_reservation_plan_stock_context`.
 
-    Eligibility is unchanged: a pinned requirement only ever sees that one
-    batch, and only if it belongs to `item_id`. The archive flag is deliberately
-    not consulted here - an archived Eco-custody batch that still holds
-    quantity was a candidate before this read was batched and stays one.
+    A pinned requirement only sees its own batch when it belongs to `item_id`.
+    The shared candidate query excludes archived and failed/rejected/hold QC
+    batches; pinned ledger balances are read independently for traceability.
     """
     left = max(0.0, float(quantity or 0))
     if left <= EPSILON:
@@ -499,7 +511,12 @@ def _reservation_plan_stock_context(db: Session, requirement_rows: list[dict]) -
         candidates = (
             db.query(StockBatch)
             .options(lazyload(StockBatch.item))
-            .filter(StockBatch.item_id.in_(chunk), StockBatch.quantity > 0)
+            .filter(
+                StockBatch.item_id.in_(chunk),
+                StockBatch.quantity > 0,
+                StockBatch.archived_at.is_(None),
+                StockBatch.qc_status.in_(("pending", "passed")),
+            )
             .order_by(StockBatch.item_id, StockBatch.received_date, StockBatch.id)
             .all()
         )
@@ -521,7 +538,8 @@ def _reservation_plan_stock_context(db: Session, requirement_rows: list[dict]) -
             )
         })
 
-    claim_batch_ids = sorted(candidate_ids)
+    # Archived pinned batches still need their claim totals for ledger balance.
+    claim_batch_ids = sorted(set(candidate_ids) | set(exact_batch_ids))
     for start in range(0, len(claim_batch_ids), _PLAN_CHUNK):
         chunk = claim_batch_ids[start:start + _PLAN_CHUNK]
         reserved_by_batch.update({
@@ -748,6 +766,7 @@ def _reservation_read_context(
         int(row.id): row
         for row in (db.query(Warehouse).filter(Warehouse.id.in_(warehouse_ids)).all() if warehouse_ids else [])
     }
+    capacity_warehouse_ids = sorted(set(warehouse_ids) | {int(batch.warehouse_id) for batch in locked_batches.values()})
 
     # Batch reservations are included separately because a batch-bound line
     # must not borrow the item's unbatched balance.
@@ -839,7 +858,7 @@ def _reservation_read_context(
         available_by_key[(item_id, None)] = (
             global_stock[item_id] + global_movement.get(item_id, 0.0) - global_reserved[item_id]
         )
-        for warehouse_id in warehouse_ids:
+        for warehouse_id in capacity_warehouse_ids:
             key = (item_id, warehouse_id)
             available_by_key[key] = (
                 stock_by_key.get(key, 0.0)
@@ -900,11 +919,17 @@ def create_material_reservations(
             if warehouse_id is not None and int(batch.warehouse_id) != warehouse_id:
                 raise HTTPException(400, f"Batch {batch.batch_no} is not in warehouse #{warehouse_id}")
             warehouse_id = int(batch.warehouse_id)
-            available = float(batch.quantity or 0) - batch_reserved.get(int(batch.id), 0.0)
+            available = min(
+                float(batch.quantity or 0) - batch_reserved.get(int(batch.id), 0.0),
+                available_by_key.get((item_id, None), 0.0),
+                available_by_key.get((item_id, warehouse_id), 0.0),
+            )
         else:
             if warehouse_id is not None and warehouse_id not in warehouses:
                 raise HTTPException(404, f"Warehouse #{warehouse_id} not found")
-            available = available_by_key.get((item_id, warehouse_id), 0.0)
+            available = available_by_key.get((item_id, None), 0.0)
+            if warehouse_id is not None:
+                available = min(available, available_by_key.get((item_id, warehouse_id), 0.0))
         if quantity > available + EPSILON:
             if stock_batch_id is not None:
                 raise HTTPException(

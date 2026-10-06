@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -38,6 +37,7 @@ def _lineage_rows(script) -> list[dict]:
             "revision": revision.revision,
             "down_revisions": list(preflight._down_revisions(revision)),
             "summary": (revision.doc or "").strip().splitlines()[0] if revision.doc else None,
+            "risk": preflight.classify_source(Path(revision.path).read_text(encoding="utf8")),
         })
     return rows
 
