@@ -1,0 +1,1896 @@
+{
+  "updated_utc": "2026-10-06T12:10:21.078377+00:00",
+  "source_commit": "60393762",
+  "statuses": {
+    "OPS02": "Done: live role admission enforced, operator-confirmed normal busy window measured, controlled checkout queueing and full isolated admission/rollback tested",
+    "OPS03": "Done: infrastructure owner assigned, inventory/limits/contention/backups verified"
+  },
+  "application_baseline": {
+    "slots": {
+      "active_release": "20261006_082610",
+      "active_slot": "green",
+      "role": "backend",
+      "rollback_release": "20261005_070406",
+      "rollback_slot": "blue",
+      "updated_at": "2026-10-06T08:54:14.618655+00:00"
+    },
+    "manifest_sha256": "8aecd51802aef3a8308a60aba448842cf5b4c1a3f6170d518f89a9ebcd284bda",
+    "files_checked": 1246,
+    "manifest_passed": true
+  },
+  "frontend_baseline": {
+    "slots": {
+      "active_release": "20261006_082610",
+      "active_slot": "green",
+      "role": "frontend",
+      "rollback_release": "20261005_070406",
+      "rollback_slot": "blue",
+      "updated_at": "2026-10-06T08:54:15.978645+00:00"
+    },
+    "manifest_sha256": "8aecd51802aef3a8308a60aba448842cf5b4c1a3f6170d518f89a9ebcd284bda",
+    "files_checked": 1246,
+    "manifest_passed": true
+  },
+  "git_manifest_verification": {
+    "git_commit": "f0ce3418118ebb462426b5bd44a557c6665ef44b",
+    "files": 1246,
+    "manifest_sha256": "8aecd51802aef3a8308a60aba448842cf5b4c1a3f6170d518f89a9ebcd284bda",
+    "exact_live_manifest_match": true,
+    "mismatch_count": 0,
+    "mismatches": []
+  },
+  "application_commit": "f0ce3418118ebb462426b5bd44a557c6665ef44b",
+  "application_ci": "https://github.com/Shmirzaev/Milana-ERP/actions/runs/37436085492",
+  "policy": {
+    "version": 1,
+    "operations_owner": "Ismail",
+    "max_connections": 100,
+    "superuser_reserved_connections": 3,
+    "ordinary_maintenance_margin": 10,
+    "administrative_roles": [
+      "postgres"
+    ],
+    "erp_workers_per_slot": 2,
+    "erp_pool_size": 8,
+    "erp_max_overflow": 4,
+    "erp_slots": 2,
+    "role_limits": {
+      "erp": 48,
+      "authenticator": 10,
+      "catalog_user": 6,
+      "catalog2_user": 6,
+      "leadlens": 6,
+      "milanaweb": 6,
+      "kotiba": 3,
+      "milanaweb_user": 2
+    }
+  },
+  "applied": {
+    "action": "applied",
+    "plan_sha256": "15b96e879d9b3fa6b08dbfd7a8e63c62ceb96d519ea9f2e9315b6aebe8657043",
+    "live": {
+      "max_connections": 100,
+      "superuser_reserved_connections": 3,
+      "reserved_connections": 0,
+      "roles": [
+        {
+          "name": "authenticator",
+          "connection_limit": 10,
+          "superuser": false,
+          "connections": 5
+        },
+        {
+          "name": "catalog2_user",
+          "connection_limit": 6,
+          "superuser": false,
+          "connections": 0
+        },
+        {
+          "name": "catalog_user",
+          "connection_limit": 6,
+          "superuser": false,
+          "connections": 0
+        },
+        {
+          "name": "erp",
+          "connection_limit": 48,
+          "superuser": false,
+          "connections": 24
+        },
+        {
+          "name": "kotiba",
+          "connection_limit": 3,
+          "superuser": false,
+          "connections": 0
+        },
+        {
+          "name": "leadlens",
+          "connection_limit": 6,
+          "superuser": false,
+          "connections": 1
+        },
+        {
+          "name": "milanaweb",
+          "connection_limit": 6,
+          "superuser": false,
+          "connections": 0
+        },
+        {
+          "name": "milanaweb_user",
+          "connection_limit": 2,
+          "superuser": false,
+          "connections": 0
+        },
+        {
+          "name": "postgres",
+          "connection_limit": -1,
+          "superuser": true,
+          "connections": 0
+        }
+      ]
+    }
+  },
+  "rollback": {
+    "rollback_record": "/var/lib/postgresql/ops02-connection-budget-20261006T1206.json",
+    "mode": "0o600",
+    "bytes": 834,
+    "sha256": "0b2b6f62d52da84864f3d2d7cf53095542d6a0536342475ccf18a911bef3e0d2",
+    "schema_revision": "0139_warehouse_pack_reservations",
+    "schema_read_exit": 0
+  },
+  "ownership": {
+    "updated": "2026-10-06",
+    "assignment_basis": "User assigned OPS02 and OPS03 to Ismail and instructed completion.",
+    "operations_owner": "Ismail",
+    "scope": "Connection admission budgets, shared-workload inventory and contention, effective resource limits, backup schedules and job failure follow-up.",
+    "workload_groups": [
+      "Milana ERP",
+      "Catalog/Catalog2",
+      "Kotiba/PostgREST/Telegram",
+      "Leadlens",
+      "Milanaweb",
+      "Tomarix/PostgreSQL/Redis/Garage",
+      "Mailflare",
+      "STT gateway",
+      "Proxmox/PBS backups"
+    ],
+    "servers": [
+      "172.16.10.3",
+      "172.16.10.4",
+      "172.16.10.5",
+      "172.16.10.100",
+      "172.16.10.101"
+    ],
+    "existing_follow_up_owners": {
+      "OPS04_failure_domains": "Dilmurod",
+      "OPS10_witnessed_zero_RPO_recovery": "Dilmurod",
+      "OPS11_vault_and_credential_rotation": "Dilmurod",
+      "OPS01_incident_trace": "Mirshoir",
+      "OPS07_factory_networks": "Mirshoir"
+    },
+    "business_feature_ownership": "Existing team and service assignments are retained; this file assigns infrastructure operating responsibility only."
+  },
+  "probe_before": {
+    "started_utc": "2026-10-06T12:04:46.085715+00:00",
+    "finished_utc": "2026-10-06T12:04:48.746922+00:00",
+    "kind": "controlled read-only pool saturation; not observed factory traffic",
+    "pool_size": 8,
+    "max_overflow": 4,
+    "concurrent_requests": 24,
+    "rounds": 8,
+    "existing_erp_clients": 24,
+    "completed": 192,
+    "error_types": [],
+    "all_transactions_read_only": true,
+    "checked_out": 0,
+    "maximum_checked_out": 12,
+    "maximum_erp_clients": 36,
+    "checkout_wait_ms": {
+      "p50": 154.83111795037985,
+      "p95": 168.48916397430003,
+      "maximum": 183.3451041020453
+    },
+    "passed": true
+  },
+  "probe_after": {
+    "started_utc": "2026-10-06T12:05:24.994924+00:00",
+    "finished_utc": "2026-10-06T12:05:27.636969+00:00",
+    "kind": "controlled read-only pool saturation; not observed factory traffic",
+    "pool_size": 8,
+    "max_overflow": 4,
+    "concurrent_requests": 24,
+    "rounds": 8,
+    "existing_erp_clients": 24,
+    "completed": 192,
+    "error_types": [],
+    "all_transactions_read_only": true,
+    "checked_out": 0,
+    "maximum_checked_out": 12,
+    "maximum_erp_clients": 36,
+    "checkout_wait_ms": {
+      "p50": 153.88621482998133,
+      "p95": 170.93270388431847,
+      "maximum": 180.74809503741562
+    },
+    "passed": true
+  },
+  "health": {
+    "172.16.10.4": {
+      "before": [
+        {
+          "url": "http://127.0.0.1:8000/health",
+          "status": 200,
+          "ms": 16.11
+        },
+        {
+          "url": "http://127.0.0.1:18001/health",
+          "status": 200,
+          "ms": 5.58
+        },
+        {
+          "url": "http://127.0.0.1:18002/health",
+          "status": 200,
+          "ms": 4.09
+        },
+        {
+          "url": "http://127.0.0.1:8001/health",
+          "status": 404,
+          "ms": 574.21
+        },
+        {
+          "url": "http://127.0.0.1:8002/health",
+          "status": 200,
+          "ms": 1.5
+        },
+        {
+          "url": "http://127.0.0.1:8003/health",
+          "status": 200,
+          "ms": 19.64
+        },
+        {
+          "url": "http://127.0.0.1:8004/health",
+          "status": 200,
+          "ms": 20.85
+        },
+        {
+          "url": "http://127.0.0.1:8006/health",
+          "status": 200,
+          "ms": 1.12
+        },
+        {
+          "url": "http://127.0.0.1:8007/health",
+          "status": 200,
+          "ms": 1.73
+        },
+        {
+          "url": "http://127.0.0.1:3002/health",
+          "status": 404,
+          "ms": 1.06
+        },
+        {
+          "url": "http://127.0.0.1:8010/health",
+          "status": 200,
+          "ms": 1.79
+        },
+        {
+          "url": "https://erp.milanapremium.uz/health",
+          "status": 200,
+          "ms": 187.0
+        }
+      ],
+      "after": [
+        {
+          "url": "http://127.0.0.1:8000/health",
+          "status": 200,
+          "ms": 16.35
+        },
+        {
+          "url": "http://127.0.0.1:18001/health",
+          "status": 200,
+          "ms": 6.3
+        },
+        {
+          "url": "http://127.0.0.1:18002/health",
+          "status": 200,
+          "ms": 3.71
+        },
+        {
+          "url": "http://127.0.0.1:8001/health",
+          "status": 404,
+          "ms": 2.46
+        },
+        {
+          "url": "http://127.0.0.1:8002/health",
+          "status": 200,
+          "ms": 1.94
+        },
+        {
+          "url": "http://127.0.0.1:8003/health",
+          "status": 200,
+          "ms": 20.22
+        },
+        {
+          "url": "http://127.0.0.1:8004/health",
+          "status": 200,
+          "ms": 22.24
+        },
+        {
+          "url": "http://127.0.0.1:8006/health",
+          "status": 200,
+          "ms": 0.84
+        },
+        {
+          "url": "http://127.0.0.1:8007/health",
+          "status": 200,
+          "ms": 2.12
+        },
+        {
+          "url": "http://127.0.0.1:3002/health",
+          "status": 404,
+          "ms": 1.01
+        },
+        {
+          "url": "http://127.0.0.1:8010/health",
+          "status": 200,
+          "ms": 2.8
+        },
+        {
+          "url": "https://erp.milanapremium.uz/health",
+          "status": 200,
+          "ms": 243.51
+        }
+      ],
+      "status_comparison_passed": true,
+      "closing": [
+        {
+          "url": "http://127.0.0.1:8000/health",
+          "status": 200,
+          "ms": 16.05
+        },
+        {
+          "url": "http://127.0.0.1:18001/health",
+          "status": 200,
+          "ms": 6.27
+        },
+        {
+          "url": "http://127.0.0.1:18002/health",
+          "status": 200,
+          "ms": 3.67
+        },
+        {
+          "url": "http://127.0.0.1:8001/health",
+          "status": 404,
+          "ms": 2.3
+        },
+        {
+          "url": "http://127.0.0.1:8002/health",
+          "status": 200,
+          "ms": 1.31
+        },
+        {
+          "url": "http://127.0.0.1:8003/health",
+          "status": 200,
+          "ms": 21.65
+        },
+        {
+          "url": "http://127.0.0.1:8004/health",
+          "status": 200,
+          "ms": 25.13
+        },
+        {
+          "url": "http://127.0.0.1:8006/health",
+          "status": 200,
+          "ms": 0.77
+        },
+        {
+          "url": "http://127.0.0.1:8007/health",
+          "status": 200,
+          "ms": 1.94
+        },
+        {
+          "url": "http://127.0.0.1:3002/health",
+          "status": 404,
+          "ms": 0.96
+        },
+        {
+          "url": "http://127.0.0.1:8010/health",
+          "status": 200,
+          "ms": 2.83
+        },
+        {
+          "url": "https://erp.milanapremium.uz/health",
+          "status": 200,
+          "ms": 261.52
+        }
+      ],
+      "closing_utc": "2026-10-06T12:10:41.687663+00:00"
+    },
+    "172.16.10.5": {
+      "before": [
+        {
+          "url": "http://127.0.0.1:3000/login",
+          "status": 200,
+          "ms": 23.67
+        },
+        {
+          "url": "http://127.0.0.1:13001/login",
+          "status": 200,
+          "ms": 11.74
+        },
+        {
+          "url": "http://127.0.0.1:13002/login",
+          "status": 200,
+          "ms": 9.73
+        },
+        {
+          "url": "http://127.0.0.1:3001/",
+          "status": 200,
+          "ms": 1.34
+        },
+        {
+          "url": "http://127.0.0.1:3002/",
+          "status": 200,
+          "ms": 1.07
+        },
+        {
+          "url": "http://127.0.0.1:3003/",
+          "status": 200,
+          "ms": 1.07
+        },
+        {
+          "url": "http://127.0.0.1:3004/",
+          "status": 200,
+          "ms": 1.02
+        },
+        {
+          "url": "http://127.0.0.1:3007/",
+          "status": 200,
+          "ms": 0.83
+        },
+        {
+          "url": "http://172.16.10.5:3008/",
+          "status": 200,
+          "ms": 30.52
+        },
+        {
+          "url": "https://erp.milanapremium.uz/login",
+          "status": 200,
+          "ms": 271.74
+        }
+      ],
+      "after": [
+        {
+          "url": "http://127.0.0.1:3000/login",
+          "status": 200,
+          "ms": 21.42
+        },
+        {
+          "url": "http://127.0.0.1:13001/login",
+          "status": 200,
+          "ms": 15.91
+        },
+        {
+          "url": "http://127.0.0.1:13002/login",
+          "status": 200,
+          "ms": 9.67
+        },
+        {
+          "url": "http://127.0.0.1:3001/",
+          "status": 200,
+          "ms": 1.48
+        },
+        {
+          "url": "http://127.0.0.1:3002/",
+          "status": 200,
+          "ms": 1.25
+        },
+        {
+          "url": "http://127.0.0.1:3003/",
+          "status": 200,
+          "ms": 1.22
+        },
+        {
+          "url": "http://127.0.0.1:3004/",
+          "status": 200,
+          "ms": 1.22
+        },
+        {
+          "url": "http://127.0.0.1:3007/",
+          "status": 200,
+          "ms": 1.22
+        },
+        {
+          "url": "http://172.16.10.5:3008/",
+          "status": 200,
+          "ms": 10.51
+        },
+        {
+          "url": "https://erp.milanapremium.uz/login",
+          "status": 200,
+          "ms": 119.6
+        }
+      ],
+      "status_comparison_passed": true,
+      "closing": [
+        {
+          "url": "http://127.0.0.1:3000/login",
+          "status": 200,
+          "ms": 21.63
+        },
+        {
+          "url": "http://127.0.0.1:13001/login",
+          "status": 200,
+          "ms": 15.41
+        },
+        {
+          "url": "http://127.0.0.1:13002/login",
+          "status": 200,
+          "ms": 11.1
+        },
+        {
+          "url": "http://127.0.0.1:3001/",
+          "status": 200,
+          "ms": 2.05
+        },
+        {
+          "url": "http://127.0.0.1:3002/",
+          "status": 200,
+          "ms": 1.06
+        },
+        {
+          "url": "http://127.0.0.1:3003/",
+          "status": 200,
+          "ms": 1.38
+        },
+        {
+          "url": "http://127.0.0.1:3004/",
+          "status": 200,
+          "ms": 1.15
+        },
+        {
+          "url": "http://127.0.0.1:3007/",
+          "status": 200,
+          "ms": 1.02
+        },
+        {
+          "url": "http://172.16.10.5:3008/",
+          "status": 200,
+          "ms": 12.81
+        },
+        {
+          "url": "https://erp.milanapremium.uz/login",
+          "status": 200,
+          "ms": 273.27
+        }
+      ],
+      "closing_utc": "2026-10-06T12:10:41.201060+00:00"
+    }
+  },
+  "observation": {
+    "database": {
+      "started_utc": "2026-10-06T12:06:04.385312+00:00",
+      "finished_utc": "2026-10-06T12:08:04.493212+00:00",
+      "samples": 25,
+      "maximum_interval_cpu_busy_percent": 2.597,
+      "memory_initial": "total        used        free      shared  buff/cache   available\nMem:           62250        1629       58814         151        2638       60621\nSwap:           2047           0        2047",
+      "filesystems": "Filesystem                        Type  1024-blocks    Used Available Capacity Mounted on\ntmpfs                             tmpfs    12748880    1052  12747828       1% /run\n/dev/mapper/ubuntu--vg-ubuntu--lv ext4    513790560 7992768 484695580       2% /\ntmpfs                             tmpfs    31872200    7304  31864896       1% /dev/shm\n/dev/vda2                         ext4      1992552  187288   1684024      11% /boot\ntmpfs                             tmpfs    31872200       0  31872200       0% /tmp\nnone                              tmpfs        1024       0      1024       0% /run/credentials/getty@tty1.service\nnone                              tmpfs        1024       0      1024       0% /run/credentials/systemd-journald.service\nnone                              tmpfs        1024       0      1024       0% /run/credentials/systemd-resolved.service\nnone                              tmpfs        1024       0      1024       0% /run/credentials/systemd-networkd.service\ntmpfs                             tmpfs     6374440       8   6374432       1% /run/user/1000",
+      "containers": [],
+      "confirmed_factory_peak": true,
+      "maximum_application_clients": 33,
+      "maximum_active": 1,
+      "maximum_lock_waiting": 0,
+      "maximum_idle_transaction": 0,
+      "per_role_maximum": {
+        "authenticator": 5,
+        "erp": 24,
+        "leadlens": 4
+      },
+      "role_limits": [
+        {
+          "rolname": "postgres",
+          "rolconnlimit": -1,
+          "rolcanlogin": true,
+          "rolsuper": true
+        },
+        {
+          "rolname": "milanaweb_user",
+          "rolconnlimit": 2,
+          "rolcanlogin": true,
+          "rolsuper": false
+        },
+        {
+          "rolname": "authenticator",
+          "rolconnlimit": 10,
+          "rolcanlogin": true,
+          "rolsuper": false
+        },
+        {
+          "rolname": "catalog2_user",
+          "rolconnlimit": 6,
+          "rolcanlogin": true,
+          "rolsuper": false
+        },
+        {
+          "rolname": "catalog_user",
+          "rolconnlimit": 6,
+          "rolcanlogin": true,
+          "rolsuper": false
+        },
+        {
+          "rolname": "erp",
+          "rolconnlimit": 48,
+          "rolcanlogin": true,
+          "rolsuper": false
+        },
+        {
+          "rolname": "kotiba",
+          "rolconnlimit": 3,
+          "rolcanlogin": true,
+          "rolsuper": false
+        },
+        {
+          "rolname": "leadlens",
+          "rolconnlimit": 6,
+          "rolcanlogin": true,
+          "rolsuper": false
+        },
+        {
+          "rolname": "milanaweb",
+          "rolconnlimit": 6,
+          "rolcanlogin": true,
+          "rolsuper": false
+        }
+      ],
+      "confirmation_scope": "Operator-confirmed normal busy window; snapshots are discrete and controlled pool probe is separately labeled"
+    },
+    "backend": {
+      "started_utc": "2026-10-06T12:06:04.781177+00:00",
+      "finished_utc": "2026-10-06T12:08:07.277020+00:00",
+      "samples": 18,
+      "maximum_interval_cpu_busy_percent": 13.409,
+      "memory_initial": "total        used        free      shared  buff/cache   available\nMem:           15475        7990         238          23        7572        7484\nSwap:           2047        1029        1018",
+      "filesystems": "Filesystem                        Type    1024-blocks      Used Available Capacity Mounted on\ntmpfs                             tmpfs       3169344      2684   3166660       1% /run\n/dev/mapper/ubuntu--vg-ubuntu--lv ext4      204164496 151381824  44262896      78% /\ntmpfs                             tmpfs       7923356         0   7923356       0% /dev/shm\ntmpfs                             tmpfs       7923356    340600   7582756       5% /tmp\n/dev/vda2                         ext4        1992552    187332   1683980      11% /boot\n/dev/vdb1                         ext4      514935040   9755516 478948844       2% /app/storage\noverlay                           overlay   204164496 151381824  44262896      78% /var/lib/docker/rootfs/overlayfs/91db8d5802cee25486dce20ed9dfd5d2f1ecc1de864ca61c9b3a42dac524cb53\noverlay                           overlay   204164496 151381824  44262896      78% /var/lib/docker/rootfs/overlayfs/23a50aa9f473ab97f7347efaaaafe02e02fe5dca8c268d9881735ad0a727dcad\noverlay                           overlay   204164496 151381824  44262896      78% /var/lib/docker/rootfs/overlayfs/aa60db1955d7e7c7eb918573b2d66b8fedb896d80b9e93ae016aa5a3d5773ea0\noverlay                           overlay   204164496 151381824  44262896      78% /var/lib/docker/rootfs/overlayfs/8c073b0c60e3b676384ee0b81dd88546b798ba2ab62fc268e15e5f05d962780c\noverlay                           overlay   204164496 151381824  44262896      78% /var/lib/docker/rootfs/overlayfs/514c493d5239b79962cb1fcaac22acc552420a0ad77697984cfd63d4db0d6710\noverlay                           overlay   204164496 151381824  44262896      78% /var/lib/docker/rootfs/overlayfs/31824f27c20040f9d73ab8fd6e11e823bce7dfbb87e52bebd0e887a419f5b7d5\noverlay                           overlay   204164496 151381824  44262896      78% /var/lib/docker/rootfs/overlayfs/150d7cefca7bae6c338e4ad72b05fc02c39e9cfaa8679750efeff56af5450e11\noverlay                           overlay   204164496 151381824  44262896      78% /var/lib/docker/rootfs/overlayfs/d79bdf4b906aabb95e51fbb06ece69343a0759c08386b6a9e3f8424b66329a0d\noverlay                           overlay   204164496 151381824  44262896      78% /var/lib/docker/rootfs/overlayfs/00759c1a7da81b88fe4556a1fbdf20db3dd971500fccb961bfdb2fcd1773d334\noverlay                           overlay   204164496 151381824  44262896      78% /var/lib/docker/rootfs/overlayfs/ff90b586fe8efe153f93c3e1e07b8305e878df95e9773c0502420631baad611c\nnone                              tmpfs          1024         0      1024       0% /run/credentials/getty@tty1.service\noverlay                           overlay   204164496 151381824  44262896      78% /var/lib/docker/rootfs/overlayfs/cbde548163a6c67c05093889e04c6f03831b97b89077a71b76f9de818fe17480\noverlay                           overlay   204164496 151381824  44262896      78% /var/lib/docker/rootfs/overlayfs/4aa6a8156e5c5d03e9a3423b9d44c5fd8052ebb5126acdcb3003e01061c12a5b\noverlay                           overlay   204164496 151381824  44262896      78% /var/lib/docker/rootfs/overlayfs/45d9d1f7ea4edb78ca16a8f1285c63a78ecf1e0ada05a69bc123c1e15e743371\nnone                              tmpfs          1024         0      1024       0% /run/credentials/systemd-journald.service\nnone                              tmpfs          1024         0      1024       0% /run/credentials/systemd-resolved.service\nnone                              tmpfs          1024         0      1024       0% /run/credentials/systemd-networkd.service\noverlay                           overlay   204164496 151381824  44262896      78% /var/lib/docker/rootfs/overlayfs/57ee72dd3ee32ed66ed72f1d193a7b6359c22c2c846068d5069bd8079a3b532c\noverlay                           overlay   204164496 151381824  44262896      78% /var/lib/docker/rootfs/overlayfs/f0b417f5a2fef23e415b5c1426090822c52757b66974dc04ab6254f04c49ce4a\ntmpfs                             tmpfs       1584668         8   1584660       1% /run/user/1000",
+      "containers": [
+        {
+          "name": "milana-backend-green",
+          "image": "ghcr.io/shmirzaev/milana-erp-backend@sha256:ffaa7b00a2c1cbe68241b22f194f6bc933598634424904bc2b882ce6581f155a",
+          "state": {
+            "Status": "running",
+            "Pid": 974975,
+            "StartedAt": "2026-10-06T08:49:38.013083138Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {
+            "DB_POOL_SIZE": "8",
+            "DB_MAX_OVERFLOW": "4",
+            "WEB_CONCURRENCY": "2"
+          },
+          "database_client": {
+            "host": "172.16.10.3",
+            "port": 5432,
+            "database": "erp",
+            "role": "erp"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "milana-backend-blue",
+          "image": "ghcr.io/shmirzaev/milana-erp-backend@sha256:c0112283d97b0aa9bc14abd799faa8db1a79a223ac6e4751efd5bea73ed1670f",
+          "state": {
+            "Status": "running",
+            "Pid": 330982,
+            "StartedAt": "2026-10-05T07:19:32.952851421Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {
+            "DB_POOL_SIZE": "8",
+            "DB_MAX_OVERFLOW": "4",
+            "WEB_CONCURRENCY": "2"
+          },
+          "database_client": {
+            "host": "172.16.10.3",
+            "port": 5432,
+            "database": "erp",
+            "role": "erp"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "catalog-backend",
+          "image": "catalog-backend:20260928_card_visibility",
+          "state": {
+            "Status": "running",
+            "Pid": 396464,
+            "StartedAt": "2026-09-28T12:47:48.993329746Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "database_client": {
+            "host": "172.16.10.3",
+            "port": 5432,
+            "database": "catalog",
+            "role": "catalog_user"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "catalog-backend-before-visibility",
+          "image": "catalog-backend:20260928_delete_cards",
+          "state": {
+            "Status": "exited",
+            "Pid": 0,
+            "StartedAt": "2026-09-28T12:22:50.334991172Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "database_client": {
+            "host": "172.16.10.3",
+            "port": 5432,
+            "database": "catalog",
+            "role": "catalog_user"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "kotiba-supabase-proxy",
+          "image": "nginx:alpine",
+          "state": {
+            "Status": "running",
+            "Pid": 3022,
+            "StartedAt": "2026-09-21T04:37:18.668845263Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "kotiba-postgrest",
+          "image": "postgrest/postgrest:latest",
+          "state": {
+            "Status": "running",
+            "Pid": 2927,
+            "StartedAt": "2026-09-21T04:37:18.078713231Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "milana-stocktake-migration-20260909-102118",
+          "image": "postgres:16-alpine",
+          "state": {
+            "Status": "exited",
+            "Pid": 0,
+            "StartedAt": "2026-09-09T10:33:57.324520299Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 1073741824,
+            "MemorySwap": 2147483648,
+            "NanoCpus": 1000000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "milana-migration-20260909-082533",
+          "image": "postgres:16-alpine",
+          "state": {
+            "Status": "exited",
+            "Pid": 0,
+            "StartedAt": "2026-09-09T08:29:59.933416102Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 1073741824,
+            "MemorySwap": 2147483648,
+            "NanoCpus": 1000000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "milana-migration-20260909-080749",
+          "image": "postgres:16-alpine",
+          "state": {
+            "Status": "exited",
+            "Pid": 0,
+            "StartedAt": "2026-09-09T08:11:37.457753254Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 1073741824,
+            "MemorySwap": 2147483648,
+            "NanoCpus": 1000000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "milana-backend-green-prequiesce-20260909_082533",
+          "image": "ghcr.io/shmirzaev/milana-erp-backend@sha256:562116cc8879fb1cc3356f526cda71b06b46b61ddf748af0a2a68b5183315301",
+          "state": {
+            "Status": "exited",
+            "Pid": 0,
+            "StartedAt": "2026-09-09T05:45:21.83095028Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {
+            "DB_POOL_SIZE": "8",
+            "DB_MAX_OVERFLOW": "4",
+            "WEB_CONCURRENCY": "2"
+          },
+          "database_client": {
+            "host": "172.16.10.3",
+            "port": 5432,
+            "database": "erp",
+            "role": "erp"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "milana-backend",
+          "image": "milana-backend:20260829_100455",
+          "state": {
+            "Status": "exited",
+            "Pid": 0,
+            "StartedAt": "2026-08-29T05:08:05.903702264Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "database_client": {
+            "host": "172.16.10.3",
+            "port": 5432,
+            "database": "erp",
+            "role": "erp"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "milana-backend-prev-20260827_071634",
+          "image": "milana-backend:20260827_071634",
+          "state": {
+            "Status": "exited",
+            "Pid": 0,
+            "StartedAt": "2026-08-27T07:18:55.281097024Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "database_client": {
+            "host": "172.16.10.3",
+            "port": 5432,
+            "database": "erp",
+            "role": "erp"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "ps-tomarix-backend-celery-worker-1",
+          "image": "ps-tomarix-backend:2026-08-20-connections1",
+          "state": {
+            "Status": "running",
+            "Pid": 2162,
+            "StartedAt": "2026-09-21T04:37:16.01372952Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 3221225472,
+            "MemorySwap": 6442450944,
+            "NanoCpus": 2000000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": 512
+          },
+          "pool": {},
+          "database_client": {
+            "host": "postgres",
+            "port": 5432,
+            "database": "ps_assistant",
+            "role": "ps_app"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "ps-tomarix-backend-celery-meeting-worker-1",
+          "image": "ps-tomarix-backend:2026-08-20-connections1",
+          "state": {
+            "Status": "running",
+            "Pid": 2251,
+            "StartedAt": "2026-09-21T04:37:16.023879652Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 3221225472,
+            "MemorySwap": 6442450944,
+            "NanoCpus": 2000000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": 512
+          },
+          "pool": {},
+          "database_client": {
+            "host": "postgres",
+            "port": 5432,
+            "database": "ps_assistant",
+            "role": "ps_app"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "ps-tomarix-backend-celery-beat-1",
+          "image": "ps-tomarix-backend:2026-08-20-connections1",
+          "state": {
+            "Status": "running",
+            "Pid": 2258,
+            "StartedAt": "2026-09-21T04:37:16.024514408Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 536870912,
+            "MemorySwap": 1073741824,
+            "NanoCpus": 500000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": 128
+          },
+          "pool": {},
+          "database_client": {
+            "host": "postgres",
+            "port": 5432,
+            "database": "ps_assistant",
+            "role": "ps_app"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "ps-tomarix-backend-backend-1",
+          "image": "ps-tomarix-backend:2026-08-20-connections1",
+          "state": {
+            "Status": "running",
+            "Pid": 2261,
+            "StartedAt": "2026-09-21T04:37:16.014765491Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 2147483648,
+            "MemorySwap": 4294967296,
+            "NanoCpus": 1500000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": 256
+          },
+          "pool": {},
+          "database_client": {
+            "host": "postgres",
+            "port": 5432,
+            "database": "ps_assistant",
+            "role": "ps_app"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "ps-tomarix-backend-migrate-1",
+          "image": "ps-tomarix-backend:2026-08-20",
+          "state": {
+            "Status": "exited",
+            "Pid": 0,
+            "StartedAt": "2026-08-20T07:15:58.445395191Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 536870912,
+            "MemorySwap": 1073741824,
+            "NanoCpus": 500000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": 128
+          },
+          "pool": {},
+          "database_client": {
+            "host": "postgres",
+            "port": 5432,
+            "database": "ps_assistant",
+            "role": "ps_app"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "ps-tomarix-backend-ingress-1",
+          "image": "ps-tomarix-nginx:2026-08-20",
+          "state": {
+            "Status": "running",
+            "Pid": 2304,
+            "StartedAt": "2026-09-21T04:37:16.025487012Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 268435456,
+            "MemorySwap": 536870912,
+            "NanoCpus": 500000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": 128
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "ps-tomarix-backend-garage-1",
+          "image": "ps-tomarix-garage:2026-08-20",
+          "state": {
+            "Status": "running",
+            "Pid": 2083,
+            "StartedAt": "2026-09-21T04:37:16.014166372Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 2147483648,
+            "MemorySwap": 4294967296,
+            "NanoCpus": 1500000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": 256
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "ps-tomarix-backend-redis-1",
+          "image": "ps-tomarix-redis:2026-08-20",
+          "state": {
+            "Status": "running",
+            "Pid": 2086,
+            "StartedAt": "2026-09-21T04:37:16.01336521Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 1073741824,
+            "MemorySwap": 2147483648,
+            "NanoCpus": 1000000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": 128
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "ps-tomarix-backend-postgres-1",
+          "image": "ps-tomarix-postgres:2026-08-20",
+          "state": {
+            "Status": "running",
+            "Pid": 2161,
+            "StartedAt": "2026-09-21T04:37:16.020705707Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 4294967296,
+            "MemorySwap": 8589934592,
+            "NanoCpus": 2000000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": 256
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "catalog2-backend",
+          "image": "catalog2-backend:20260724_145306_delete_button",
+          "state": {
+            "Status": "running",
+            "Pid": 2291,
+            "StartedAt": "2026-09-21T04:37:16.039691173Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "database_client": {
+            "host": "172.16.10.3",
+            "port": 5432,
+            "database": "catalog2",
+            "role": "catalog2_user"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "catalog2-backend-rollback-20260724_145306_delete_button",
+          "image": "catalog2-backend:20260723_111810_move_tombstones",
+          "state": {
+            "Status": "exited",
+            "Pid": 0,
+            "StartedAt": "2026-07-24T09:53:39.686427554Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "database_client": {
+            "host": "172.16.10.3",
+            "port": 5432,
+            "database": "catalog2",
+            "role": "catalog2_user"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "catalog-backend-before-delete",
+          "image": "catalog-backend:20260721_135212_independent_catalogs",
+          "state": {
+            "Status": "exited",
+            "Pid": 0,
+            "StartedAt": "2026-09-28T12:22:30.710960062Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "database_client": {
+            "host": "172.16.10.3",
+            "port": 5432,
+            "database": "catalog",
+            "role": "catalog_user"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "milana-stt-gateway",
+          "image": "milana-stt-gateway:local",
+          "state": {
+            "Status": "running",
+            "Pid": 2316,
+            "StartedAt": "2026-09-21T04:37:16.040941451Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "magical_curran",
+          "image": "sha256:9f026799ad6315a5cc6ad77cfca462253bf3033baa65e0acf58b054d7433e261",
+          "state": {
+            "Status": "exited",
+            "Pid": 0,
+            "StartedAt": "2026-07-01T04:25:19.568959112Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        }
+      ],
+      "confirmed_factory_peak": true,
+      "confirmation_scope": "Operator-confirmed normal busy window; snapshots are discrete and controlled pool probe is separately labeled"
+    },
+    "frontend": {
+      "started_utc": "2026-10-06T12:06:04.678570+00:00",
+      "finished_utc": "2026-10-06T12:08:06.875149+00:00",
+      "samples": 18,
+      "maximum_interval_cpu_busy_percent": 5.493,
+      "memory_initial": "total        used        free      shared  buff/cache   available\nMem:            7424        1526         318          12        5896        5898\nSwap:           2047          55        1992",
+      "filesystems": "Filesystem                        Type    1024-blocks     Used Available Capacity Mounted on\ntmpfs                             tmpfs       1520440     1632   1518808       1% /run\n/dev/mapper/ubuntu--vg-ubuntu--lv ext4       80317360 56167712  20662912      74% /\ntmpfs                             tmpfs       3801100        0   3801100       0% /dev/shm\n/dev/vda2                         ext4        1992552   187324   1683988      11% /boot\ntmpfs                             tmpfs       3801100    63676   3737424       2% /tmp\noverlay                           overlay    80317360 56167712  20662912      74% /var/lib/docker/rootfs/overlayfs/8bca44a5740f0c4e7010e2bad6503fc11672dd3df520cf40b0403888691170cc\noverlay                           overlay    80317360 56167712  20662912      74% /var/lib/docker/rootfs/overlayfs/003f8b3820f8dbe09cfd16d43a67184b5788d5cb9782ad6546112ac2b4423496\noverlay                           overlay    80317360 56167712  20662912      74% /var/lib/docker/rootfs/overlayfs/f9c186d0562421ce61c5c9976915258536d49a2739254ba0fbd703716e0fb901\nnone                              tmpfs          1024        0      1024       0% /run/credentials/getty@tty1.service\nnone                              tmpfs          1024        0      1024       0% /run/credentials/systemd-journald.service\nnone                              tmpfs          1024        0      1024       0% /run/credentials/systemd-resolved.service\nnone                              tmpfs          1024        0      1024       0% /run/credentials/systemd-networkd.service\noverlay                           overlay    80317360 56167712  20662912      74% /var/lib/docker/rootfs/overlayfs/b76fdbd70963315dd418720747f1e5a32fa8b6f7d46e66250efab00a29a142d8\noverlay                           overlay    80317360 56167712  20662912      74% /var/lib/docker/rootfs/overlayfs/b3dad55fbdd0c771f56b57a15d1b66d83ec6931a23588cca760209933424b941\ntmpfs                             tmpfs        760220        8    760212       1% /run/user/1000",
+      "containers": [
+        {
+          "name": "milana-frontend-green",
+          "image": "ghcr.io/shmirzaev/milana-erp-frontend@sha256:479ed7c32516630ccbf5625817a89a090ee9953c028ce80e5445df2f2fc98b8d",
+          "state": {
+            "Status": "running",
+            "Pid": 1833944,
+            "StartedAt": "2026-10-06T08:49:49.94417525Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "milana-frontend-blue",
+          "image": "ghcr.io/shmirzaev/milana-erp-frontend@sha256:d3c72f7ce756f51adb73b65618d88b2547a43cd6843c6eb661b773a659a494f5",
+          "state": {
+            "Status": "running",
+            "Pid": 1121436,
+            "StartedAt": "2026-10-05T07:19:44.135304534Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "ps-tomarix-frontend-miniapp-1",
+          "image": "ps-tomarix-miniapp:2026-08-20-connections1",
+          "state": {
+            "Status": "running",
+            "Pid": 1842,
+            "StartedAt": "2026-09-21T04:37:18.141608465Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 1073741824,
+            "MemorySwap": 2147483648,
+            "NanoCpus": 1000000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": 256
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "ps-tomarix-frontend-gateway-1",
+          "image": "ps-tomarix-nginx:2026-08-20",
+          "state": {
+            "Status": "running",
+            "Pid": 1817,
+            "StartedAt": "2026-09-21T04:37:18.143183544Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 268435456,
+            "MemorySwap": 536870912,
+            "NanoCpus": 500000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": 128
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "ps-tomarix-frontend-admin-panel-1",
+          "image": "ps-tomarix-admin:2026-08-20",
+          "state": {
+            "Status": "running",
+            "Pid": 1826,
+            "StartedAt": "2026-09-21T04:37:18.142128501Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 1073741824,
+            "MemorySwap": 2147483648,
+            "NanoCpus": 1000000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": 256
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "suspicious_mendel",
+          "image": "sha256:4af70d7884954189a32f0a0db78c43967119ac7398871548332c3486c5a09aa7",
+          "state": {
+            "Status": "exited",
+            "Pid": 0,
+            "StartedAt": "2026-06-30T06:26:57.367709417Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "wizardly_kare",
+          "image": "sha256:bf8ae0d608e99136430715d267cce10fbff4ca14c2d1943c6fd5772834bada4d",
+          "state": {
+            "Status": "exited",
+            "Pid": 0,
+            "StartedAt": "2026-06-30T04:21:06.523318023Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        }
+      ],
+      "confirmed_factory_peak": true,
+      "confirmation_scope": "Operator-confirmed normal busy window; snapshots are discrete and controlled pool probe is separately labeled"
+    }
+  },
+  "logs": {
+    "172.16.10.3": [
+      {
+        "source": "/var/log/postgresql/postgresql-16-main.log",
+        "exit_code": 0,
+        "lines": 20000,
+        "markers": {
+          "pool_timeout": 0,
+          "connection_limit": 0,
+          "deadlock": 0,
+          "oom": 0
+        }
+      }
+    ],
+    "172.16.10.4": [
+      {
+        "source": "milana-backend-blue",
+        "exit_code": 0,
+        "lines": 56243,
+        "markers": {
+          "pool_timeout": 0,
+          "connection_limit": 0,
+          "deadlock": 0,
+          "oom": 0
+        }
+      },
+      {
+        "source": "milana-backend-green",
+        "exit_code": 0,
+        "lines": 18556,
+        "markers": {
+          "pool_timeout": 0,
+          "connection_limit": 0,
+          "deadlock": 0,
+          "oom": 0
+        }
+      }
+    ]
+  },
+  "backup_recheck": {
+    "pve_utc": "2026-10-06T12:06:04Z",
+    "pbs_utc": "2026-10-06T12:06:04Z",
+    "jobs": [
+      {
+        "id": "backup-b44c5fd8-0b64",
+        "enabled": 1,
+        "schedule": "00:00",
+        "vmid": "100,101,102,103,104",
+        "storage": "backup",
+        "mode": "snapshot",
+        "repeat-missed": 0
+      }
+    ],
+    "latest_task": {
+      "upid": "UPID:milana:0031E671:0784BF7A:6AC3F3B0:vzdump::root@pam:",
+      "type": "vzdump",
+      "id": "",
+      "node": "milana",
+      "starttime": 1791226800,
+      "endtime": 1791226903,
+      "status": "OK",
+      "user": "root@pam"
+    },
+    "snapshot_groups": {
+      "100": {
+        "snapshots": 8,
+        "latest_utc": "2026-10-05T19:00:01+00:00"
+      },
+      "101": {
+        "snapshots": 8,
+        "latest_utc": "2026-10-05T19:00:24+00:00"
+      },
+      "102": {
+        "snapshots": 8,
+        "latest_utc": "2026-10-05T19:00:30+00:00"
+      },
+      "103": {
+        "snapshots": 8,
+        "latest_utc": "2026-10-05T19:00:42+00:00"
+      },
+      "104": {
+        "snapshots": 8,
+        "latest_utc": "2026-10-05T19:01:26+00:00"
+      }
+    },
+    "prune": [
+      {
+        "id": "default-backup-17tb-c28ff094-bc2",
+        "store": "backup-17tb",
+        "schedule": "daily",
+        "keep-daily": 7
+      }
+    ],
+    "verify": [],
+    "sync": [],
+    "physical_resources": [
+      {
+        "id": "qemu/100",
+        "type": "qemu",
+        "vmid": 100,
+        "name": "FW",
+        "node": "milana",
+        "status": "running",
+        "cpu": 0.12141150005644,
+        "maxcpu": 2,
+        "mem": 4930670592,
+        "maxmem": 4294967296,
+        "uptime": 1322942,
+        "disk": 0,
+        "maxdisk": 34359738368
+      },
+      {
+        "id": "qemu/101",
+        "type": "qemu",
+        "vmid": 101,
+        "name": "NginxProxyManager",
+        "node": "milana",
+        "status": "running",
+        "cpu": 0.0129161170272809,
+        "maxcpu": 2,
+        "mem": 1473925120,
+        "maxmem": 2147483648,
+        "uptime": 1322939,
+        "disk": 0,
+        "maxdisk": 42949672960
+      },
+      {
+        "id": "qemu/102",
+        "type": "qemu",
+        "vmid": 102,
+        "name": "PostgreSQL",
+        "node": "milana",
+        "status": "running",
+        "cpu": 0.0112370218137343,
+        "maxcpu": 8,
+        "mem": 3606704128,
+        "maxmem": 68719476736,
+        "uptime": 1322936,
+        "disk": 0,
+        "maxdisk": 536870912000
+      },
+      {
+        "id": "qemu/103",
+        "type": "qemu",
+        "vmid": 103,
+        "name": "Backend",
+        "node": "milana",
+        "status": "running",
+        "cpu": 0.077324487269988,
+        "maxcpu": 6,
+        "mem": 15945043968,
+        "maxmem": 17179869184,
+        "uptime": 1322933,
+        "disk": 0,
+        "maxdisk": 214748364800
+      },
+      {
+        "id": "qemu/104",
+        "type": "qemu",
+        "vmid": 104,
+        "name": "Frontend",
+        "node": "milana",
+        "status": "running",
+        "cpu": 0.0340985489520215,
+        "maxcpu": 4,
+        "mem": 7422251008,
+        "maxmem": 8589934592,
+        "uptime": 1322930,
+        "disk": 0,
+        "maxdisk": 85899345920
+      },
+      {
+        "id": "qemu/105",
+        "type": "qemu",
+        "vmid": 105,
+        "name": "AgenticOS",
+        "node": "milana",
+        "status": "running",
+        "cpu": 0.0107203771326431,
+        "maxcpu": 8,
+        "mem": 8716279808,
+        "maxmem": 34359738368,
+        "uptime": 1322927,
+        "disk": 0,
+        "maxdisk": 85899345920
+      },
+      {
+        "id": "qemu/106",
+        "type": "qemu",
+        "vmid": 106,
+        "name": "OwnCloud",
+        "node": "milana",
+        "status": "running",
+        "cpu": 0.0123994723461896,
+        "maxcpu": 4,
+        "mem": 2970677248,
+        "maxmem": 4294967296,
+        "uptime": 1322924,
+        "disk": 0,
+        "maxdisk": 214748364800
+      },
+      {
+        "id": "qemu/200",
+        "type": "qemu",
+        "vmid": 200,
+        "name": "TMPL-ubutu26.04",
+        "node": "milana",
+        "status": "stopped",
+        "cpu": 0,
+        "maxcpu": 2,
+        "mem": 0,
+        "maxmem": 2147483648,
+        "uptime": 0,
+        "disk": 0,
+        "maxdisk": 42949672960
+      },
+      {
+        "id": "node/milana",
+        "type": "node",
+        "node": "milana",
+        "status": "online",
+        "cpu": 0.0106546051211192,
+        "maxcpu": 96,
+        "mem": 57864638464,
+        "maxmem": 405359976448,
+        "uptime": 1322958,
+        "disk": 5795438592,
+        "maxdisk": 100861726720
+      },
+      {
+        "id": "storage/milana/local-lvm",
+        "type": "storage",
+        "node": "milana",
+        "status": "available",
+        "disk": 463547878342,
+        "maxdisk": 1440932167680
+      },
+      {
+        "id": "storage/milana/HDD18TB",
+        "type": "storage",
+        "node": "milana",
+        "status": "available",
+        "disk": 2154496,
+        "maxdisk": 17927471853568
+      },
+      {
+        "id": "storage/milana/backup",
+        "type": "storage",
+        "node": "milana",
+        "status": "available",
+        "disk": 199339274240,
+        "maxdisk": 17832320540672
+      },
+      {
+        "id": "storage/milana/local",
+        "type": "storage",
+        "node": "milana",
+        "status": "available",
+        "disk": 5795438592,
+        "maxdisk": 100861726720
+      },
+      {
+        "id": "network/milana/zone/localnetwork",
+        "type": "network",
+        "node": "milana",
+        "status": "ok"
+      }
+    ],
+    "vm_limits": [
+      {
+        "vmid": 100,
+        "config": {
+          "name": "FW",
+          "cores": 2,
+          "sockets": 1,
+          "memory": "4096",
+          "onboot": 1,
+          "agent": "1,fstrim_cloned_disks=1,type=virtio"
+        }
+      },
+      {
+        "vmid": 101,
+        "config": {
+          "name": "NginxProxyManager",
+          "cores": 2,
+          "sockets": 1,
+          "memory": "2048",
+          "onboot": 1,
+          "agent": "1"
+        }
+      },
+      {
+        "vmid": 102,
+        "config": {
+          "name": "PostgreSQL",
+          "cores": 8,
+          "sockets": 1,
+          "memory": "65536",
+          "onboot": 1,
+          "agent": "1"
+        }
+      },
+      {
+        "vmid": 103,
+        "config": {
+          "name": "Backend",
+          "cores": 6,
+          "sockets": 1,
+          "memory": "16384",
+          "onboot": 1,
+          "agent": "1"
+        }
+      },
+      {
+        "vmid": 104,
+        "config": {
+          "name": "Frontend",
+          "cores": 4,
+          "sockets": 1,
+          "memory": "8192",
+          "onboot": 1,
+          "agent": "1"
+        }
+      },
+      {
+        "vmid": 105,
+        "config": {
+          "name": "AgenticOS",
+          "cores": 4,
+          "sockets": 2,
+          "memory": "32768",
+          "onboot": 1,
+          "agent": "1"
+        }
+      },
+      {
+        "vmid": 106,
+        "config": {
+          "name": "OwnCloud",
+          "cores": 2,
+          "sockets": 2,
+          "memory": "4096",
+          "onboot": 1,
+          "agent": "1"
+        }
+      },
+      {
+        "vmid": 200,
+        "config": {
+          "name": "TMPL-ubutu26.04",
+          "cores": 2,
+          "sockets": 1,
+          "memory": "2048",
+          "onboot": 1,
+          "agent": "1"
+        }
+      }
+    ]
+  },
+  "tests": {
+    "pytest": {
+      "passed": 8,
+      "skipped": 0,
+      "seconds": 11.97,
+      "local_database": "PostgreSQL 17.11 on Windows"
+    },
+    "cases": "Full 87 app + 10 maintenance + 3 reserved physical clients, over-limit refusal, atomic drift refusal, rollback/session survival and unchanged synthetic marker; ordinary maintenance reaches 97 and is refused beyond the reserve boundary",
+    "ruff": "passed",
+    "business_rows_written": 0,
+    "schema_migrations": 0,
+    "services_restarted": 0
+  },
+  "raw_capture_hashes": [
+    {
+      "file": "connection-budget-apply.json",
+      "bytes": 1258,
+      "sha256": "d891581cef8a2d22d0569439ab0e618378f797d4b923f92071f94a8d88e35207"
+    },
+    {
+      "file": "pool-probe-before.json",
+      "bytes": 768,
+      "sha256": "be687070cbc3766f09239da76f1f985e8475aab4c8245da3cf92a986eac1e892"
+    },
+    {
+      "file": "pool-probe-after.json",
+      "bytes": 769,
+      "sha256": "b5ce18141c318258cd2dacaeef699e38453662d7a3f5a8c7363fe28281257d27"
+    },
+    {
+      "file": "database-final-rollback-schema.json",
+      "bytes": 378,
+      "sha256": "4be2af7d53141beac073fc5a3902211976bc53dea44756582d36fb6fbe2f5dff"
+    },
+    {
+      "file": "172.16.10.3-post-controls-observation.json",
+      "bytes": 521191,
+      "sha256": "fea3f872b035b1c42e3a3fb7f925ec62702150828372d35bba182a045fa6d776"
+    },
+    {
+      "file": "172.16.10.4-post-controls-observation.json",
+      "bytes": 265280,
+      "sha256": "84d478a6e9f00e18e37834b1b1f2c3db635d418ba6e61407d9d75e8e401096e9"
+    },
+    {
+      "file": "172.16.10.5-post-controls-observation.json",
+      "bytes": 176355,
+      "sha256": "affcfde630df55ec6d1f6654a2edc35c69076302d218a5d75d9b0ac7868e1d5c"
+    },
+    {
+      "file": "172.16.10.100-backup-recheck.json",
+      "bytes": 23277,
+      "sha256": "a0d13cc1d7d1e94c81d7e8d4d20ec2cf365874d0cec7fb788caa6b52a1adddca"
+    },
+    {
+      "file": "172.16.10.101-backup-recheck.json",
+      "bytes": 9449,
+      "sha256": "7c5b19f522e1bedc718499ac163c743747ad2ee123c08ffd1244253bd20beb87"
+    }
+  ],
+  "operator_confirmation": {
+    "source": "Direct user reply in this chat",
+    "question": "Was the factory under its normal busy load today at 17:04\u201317:08 Tashkent time?",
+    "answer": "Yes, that was a normal busy window",
+    "date": "2026-10-06",
+    "timezone": "Asia/Tashkent",
+    "window_local": "17:04\u201317:08",
+    "window_utc": "12:04\u201312:08",
+    "recorded_utc": "2026-10-06T12:14:26.528910+00:00",
+    "meaning": "Operator confirmed representative normal busy traffic; not a claim of the highest historical load"
+  }
+}

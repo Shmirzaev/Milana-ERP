@@ -2,7 +2,7 @@
 
 
 
-**Updated: 2026-10-06. Target: `clone_main`.** Remote delivery verification found **106 of 111 implementation changes landed, with 5 still missing**, plus **7 unfinished operations follow-ups** and **2 policy/production-approval items**. The remaining-work reminder below is the current delivery summary. Older per-row Open/Review labels further down have not all been reconciled with merged delivery; their historical 73 Open / 7 Review / 31 Done counts are not the current missing-code count. **All 127 develop audit findings are accounted for below**; tasks and original findings are different counts. Delivery into Git, deployment and live verification are separate records. **`clone_main` is shared**: re-sync before landing changes and re-run affected checks.
+**Updated: 2026-10-06. Target: `clone_main`.** Remote delivery verification found **106 of 111 implementation changes landed, with 5 still missing**, plus **5 unfinished operations follow-ups** and **2 policy/production-approval items**. The remaining-work reminder below is the current delivery summary. Older per-row Open/Review labels further down have not all been reconciled with merged delivery; their historical 73 Open / 7 Review / 31 Done counts are not the current missing-code count. **All 127 develop audit findings are accounted for below**; tasks and original findings are different counts. Delivery into Git, deployment and live verification are separate records. **`clone_main` is shared**: re-sync before landing changes and re-run affected checks.
 
 ## Remaining-work reminder — remote verified 2026-10-06
 
@@ -18,19 +18,17 @@ Verified against remote `clone_main` at [`418d5215`](https://github.com/Shmirzae
 | **OPS06** | Dilmurod | Verify paired database/upload backup identities and missing, changed or extra files. |
 | **OPS08** | Dilmurod | Complete runtime/dependency hardening, token compatibility checks and fresh dependency/image security scans. |
 
-### Seven unfinished operations follow-ups
+### Five unfinished operations follow-ups
 
 | Task | Responsible owner | Required completion |
 | --- | --- | --- |
 | **OPS01** | Mirshoir | Capture a correlated browser/API/SQL/network incident window and identify the bottleneck. |
-| **OPS02** | Ismail | Confirm a representative peak window, pool checkout queueing and complete shared-client budgets. Live measurement reached 28 of 97 ordinary connections; ERP's two-slot maximum remains 48. **Needs review**, not Done. |
-| **OPS03** | Ismail | Confirm named human owners for shared services and backup operations. Shared workloads/limits, contention and nightly PBS backups including uploads were checked live. **Needs review**, not Done. |
 | **OPS04** | Dilmurod | Verify physical failure domains and an approved recovery path after host loss. |
 | **OPS07** | Mirshoir | Measure actual factory/branch DNS, TLS, packet loss, jitter, proxy and firewall/shaping behavior. |
 | **OPS10** | Dilmurod | Protect database/uploads and seven-day restore chains; witness an isolated recovery proving RTO <=24h and zero acknowledged transaction/file loss. |
 | **OPS11** | Dilmurod | Inventory credential consumers, assign vault ownership, rotate/revoke exposed credentials and prove old credentials fail. |
 
-[OPS02/OPS03 live audit](docs/audit-evidence/ops02-03-20261006.md) records the measurements and remaining limits. Nightly VM snapshots alone do not close OPS04/OPS10. Each responsible engineer should update the original task row with exact completion evidence; retain unfinished requirements until verified.
+**OPS02 and OPS03 completed:** Ismail’s live connection budgets, measured checkout queueing and operator-confirmed busy-window observation are verified. Infrastructure ownership, effective limits, contention and backup schedules are recorded. [Current applied controls and evidence](docs/audit-evidence/ops02-03-controls-20261006.md) records completion. The [initial morning audit](docs/audit-evidence/ops02-03-20261006.md) is historical. Nightly VM snapshots alone do not close OPS04/OPS10. Each responsible engineer should update the original task row with exact completion evidence; retain unfinished requirements until verified.
 
 ### Policy and production-approval items retained
 
@@ -77,7 +75,7 @@ Assignments were set on 2026-10-03. Each task has one owner for backend, fronten
 
 | **Dilmurod** | People and platform: payroll, attendance, HR, authentication, admin security, tasks/notifications and shared API/retry infrastructure. | **5** | `OPS04`, `OPS10`, `OPS11` |
 
-| **Ismail** | Stock and commercial: inventory, purchasing, sales, finance, catalog, schema/migration tooling and uploads. | **0** | `OPS02`, `OPS03` |
+| **Ismail** | Stock and commercial: inventory, purchasing, sales, finance, catalog, schema/migration tooling and uploads. | **0** | None (`OPS02`/`OPS03` Done) |
 
 | **Mirshoir** | Production and fulfillment: production, cutting, sewing, bundles, packages, finished goods, forecasting, traceability and shipment package locking. | **0** | `OPS01`, `OPS07` |
 
@@ -449,9 +447,9 @@ Owner approvals are requirements, not proof of live completion. Keep the company
 
 | 1 | **OPS01** | Capture an authorized synchronized browser/API/SQL/network incident window and identify the bottleneck. Develop tracer is local-only; do not enable it publicly. Source: `B:main.py:278`. | `428f8c9c`, `4151427a` | Open · Mirshoir |
 
-| 2 | **OPS02** | Retain the two-worker/pool-eight/overflow-four slot budget; inventory every database client and measure peak concurrency/queueing against the global budget. Source limits alone do not prove capacity. Source: `deploy/slotctl.py:33`. | `cc7ffdf` | Needs review · Ismail · [Live audit](docs/audit-evidence/ops02-03-20261006.md): 48 ERP / 97 ordinary connection budget; measured clients and wait states. Peak window, checkout queueing and full shared-client bounds remain unproven. |
+| 2 | **OPS02** | Retain the two-worker/pool-eight/overflow-four slot budget; inventory every database client and measure peak concurrency/queueing against the global budget. Source limits alone do not prove capacity. Source: `deploy/slotctl.py:33`. | `cc7ffdf`, `60393762` | Done · Ismail · [Applied live controls](docs/audit-evidence/ops02-03-controls-20261006.md): all eight role budgets enforce 87 application clients + 10 maintenance + 3 reserved; checkout queueing tested before/after with 384 read-only requests and zero errors. Eight isolated capacity/rollback tests pass. User confirmed 17:04–17:08 Tashkent as normal busy traffic; actual observation reached 33 application clients with zero lock waits or idle transactions. |
 
-| 3 | **OPS03** | On the approved company server, inventory shared workloads/clients, assign owners, verify effective limits/backup schedules and measure contention. Source: `deploy/slotctl.py:33`; `docs/DISASTER_RECOVERY.md:15`. | `b2490d19` | Needs review · Ismail · [Live audit](docs/audit-evidence/ops02-03-20261006.md): shared workloads/limits and nightly PBS backups verified, including uploads. Named shared workload/backup owners await confirmation; OPS04/OPS10 remain separate. |
+| 3 | **OPS03** | On the approved company server, inventory shared workloads/clients, assign owners, verify effective limits/backup schedules and measure contention. Source: `deploy/slotctl.py:33`; `docs/DISASTER_RECOVERY.md:15`. | `b2490d19`, `60393762` | Done · Ismail · [Live evidence](docs/audit-evidence/ops02-03-controls-20261006.md): infrastructure operating owner assigned explicitly, shared workloads/effective limits and contention reread, nightly Proxmox/PBS jobs and retention verified. [Owner scope](deploy/operations-owners.json). OPS04/OPS10 remain separate. |
 
 | 4 | **OPS04** | Verify physical host/storage/power/network failure domains and an approved host-loss recovery path; same-host blue/green is not independent failover. Source: `DEPLOYMENT.md:8`; `docs/DISASTER_RECOVERY.md:12`. | `6cb5a1fb` | Open · Dilmurod |
 
@@ -713,9 +711,9 @@ Comparison snapshots: `clone_main` `38a56bbc`, `develop` `2f549f9b`; source and 
 
 | 114 | **OPS01** | No correlated peak-time browser/API/SQL/network trace. | **Operations open** — Open operational evidence/action: `OPS01` below. |
 
-| 115 | **OPS02** | Worker/pool connection budget is not proven. | **Operations needs review** — [Live evidence](docs/audit-evidence/ops02-03-20261006.md) confirms 48 ERP / 97 ordinary budget and observed headroom. Peak workload, checkout queueing and complete shared-client bounds remain unproven. |
+| 115 | **OPS02** | Worker/pool connection budget is not proven. | **Operations done** — [Live admission/checkout fixes](docs/audit-evidence/ops02-03-controls-20261006.md) applied and tested: 87 app + 10 maintenance + 3 reserved, 384 read-only requests with zero errors, eight isolated tests. Representative normal busy window confirmed directly by the user; observed concurrency/wait states recorded. |
 
-| 116 | **OPS03** | ERP shares infrastructure with other workloads/backups. | **Operations needs review** — [Live inventory](docs/audit-evidence/ops02-03-20261006.md) verifies shared workloads, effective limits and nightly PBS disk backups. Named human ownership remains unconfirmed; recovery proof stays in OPS04/OPS10. |
+| 116 | **OPS03** | ERP shares infrastructure with other workloads/backups. | **Operations done** — Ismail assigned infrastructure operating responsibility; [current inventory/limits/contention and backup verification](docs/audit-evidence/ops02-03-controls-20261006.md) complete. Recovery proof stays in OPS04/OPS10. |
 
 | 117 | **OPS04** | ERP VMs share a physical host. | **Operations open** — Open operational evidence/action: `OPS04` below. Keep approved company-server choice; no unapproved hosting migration. |
 

@@ -100,7 +100,13 @@ def test_atomic_apply_full_capacity_and_rollback(postgres):
             with pytest.raises(Exception, match="too many connections for role"):
                 connect(role)
         assert len(held) == 87
-        held.extend(connect() for _ in range(10))
+        # An extra local-only role represents ordinary maintenance admission.
+        with connect() as admin, admin.cursor() as cursor:
+            cursor.execute("CREATE ROLE ops_test_maintenance LOGIN")
+        admin.close()
+        held.extend(connect("ops_test_maintenance") for _ in range(10))
+        with pytest.raises(Exception, match="remaining connection slots are reserved"):
+            connect("ops_test_maintenance")
         held.extend(connect() for _ in range(3))
         assert len(held) == 100
         with pytest.raises(Exception, match="too many clients"):
@@ -108,6 +114,9 @@ def test_atomic_apply_full_capacity_and_rollback(postgres):
         for connection in held[-13:]:
             connection.close()
         del held[-13:]
+        with connect() as admin, admin.cursor() as cursor:
+            cursor.execute("DROP ROLE ops_test_maintenance")
+        admin.close()
         restored = subprocess.run([*command, "--rollback", str(record)], check=True, capture_output=True, text=True)
         assert json.loads(restored.stdout)["action"] == "rolled_back"
         assert all(r["connection_limit"] == -1 for r in budget.snapshot(psql)["roles"])
