@@ -54,7 +54,17 @@ def _model_variant_number_is_occupied(db: Session, variant_no: str) -> bool:
     )
 
 
-def _next(db: Session, model, attr: str, prefix: str, *, width: int = 6) -> str:
+def _next_many(
+    db: Session,
+    model,
+    attr: str,
+    prefix: str,
+    count: int,
+    *,
+    width: int = 6,
+) -> list[str]:
+    if count <= 0:
+        return []
     year = datetime.now(timezone.utc).year
     column = getattr(model, attr)
     _acquire_numbering_lock(db, f"{model.__tablename__}:{attr}:{prefix}:{year}")
@@ -73,11 +83,15 @@ def _next(db: Session, model, attr: str, prefix: str, *, width: int = 6) -> str:
         floor = db.query(SystemSetting).filter_by(key=f"retired_number:{prefix}:{year}").first()
         if floor:
             next_num = max(next_num, int(floor.value_json.get("number", 0)) + 1)
-    return f"{prefix}-{year}-{next_num:0{width}d}"
+    return [f"{prefix}-{year}-{number:0{width}d}" for number in range(next_num, next_num + count)]
+
+
+def _next(db: Session, model, attr: str, prefix: str, *, width: int = 6) -> str:
+    return _next_many(db, model, attr, prefix, 1, width=width)[0]
 
 
 def _next_order(db: Session, model, attr: str, prefix: str) -> str:
-    """Issue a canonical four-digit reference, reserving migrated aliases."""
+    """Issue a canonical reference with four-digit minimum padding."""
     column = getattr(model, attr)
     _acquire_numbering_lock(db, f"{model.__tablename__}:{attr}:{prefix}:compact")
     # Include all historical years so removing the year does not restart the
@@ -93,28 +107,20 @@ def _next_order(db: Session, model, attr: str, prefix: str) -> str:
              if value and re.fullmatch(pattern, value)),
             default=0,
         )
-    reserved = set()
-    if model.__tablename__ in {"sales_orders", "production_orders", "purchase_requests", "purchase_orders", "bundles"}:
-        from app.models import BusinessOrderAlias
-        for (value,) in db.query(BusinessOrderAlias.canonical_reference).filter(BusinessOrderAlias.namespace == prefix).all():
-            if re.fullmatch(rf"{prefix}-[0-9]{{4}}", value):
-                reserved.add(int(value.rsplit("-", 1)[-1]))
-        if prefix == "BND":
-            for (value,) in db.query(BusinessOrderAlias.reference).filter(BusinessOrderAlias.namespace == prefix).all():
-                if re.fullmatch(r"BND-[0-9]{4}", value):
-                    reserved.add(int(value.rsplit("-", 1)[-1]))
-        highest = max(highest, max(reserved, default=0))
-    if highest < 9999:
-        return f"{prefix}-{highest + 1:04d}"
-    # A valid pre-existing 9999 reference must not exhaust a mostly empty
-    # namespace. Reuse only never-issued gaps, including alias reservations.
-    for (value,) in db.query(column).filter(column.like(f"{prefix}-%")).all():
-        if value and re.fullmatch(pattern, value):
-            reserved.add(int(value.rsplit("-", 1)[-1]))
-    candidate = next((number for number in range(1, 10000) if number not in reserved), None)
-    if candidate is None:
-        raise HTTPException(409, f"The four-digit {prefix} order number sequence is exhausted")
-    return f"{prefix}-{candidate:04d}"
+    from app.models import BusinessOrderAlias
+    aliases = db.query(
+        BusinessOrderAlias.reference,
+        BusinessOrderAlias.canonical_reference,
+    ).filter(BusinessOrderAlias.namespace == prefix).all()
+    # Canonical references keep a four-digit minimum, while allowing the
+    # numeric suffix to grow without truncation after 9999.
+    alias_pattern = re.compile(rf"{re.escape(prefix)}-([0-9]{{4,}})")
+    for reference, canonical_reference in aliases:
+        for value in (reference, canonical_reference):
+            match = alias_pattern.fullmatch(str(value or ""))
+            if match:
+                highest = max(highest, int(match.group(1)))
+    return f"{prefix}-{highest + 1:04d}"
 
 
 def next_sales_order_no(db: Session) -> str:
@@ -146,8 +152,6 @@ def next_branded_planning_order_no(db: Session) -> str:
             raw = str(value or "").strip()
             if raw.isdigit():
                 highest = max(highest, int(raw))
-    if highest >= 9999:
-        raise HTTPException(409, "The four-digit BSO order number sequence is exhausted")
     return f"{highest + 1:04d}"
 
 
@@ -250,6 +254,11 @@ def next_package_no(db: Session) -> str:
     return _next(db, Package, "package_no", "PKG")
 
 
+def next_package_nos(db: Session, count: int) -> list[str]:
+    """Reserve a consecutive package-number range in the caller's transaction."""
+    return _next_many(db, Package, "package_no", "PKG", count)
+
+
 def next_shipment_no(db: Session) -> str:
     return _next(db, Shipment, "shipment_no", "SH")
 
@@ -268,6 +277,11 @@ def next_purchase_order_no(db: Session) -> str:
 
 def next_material_reservation_no(db: Session) -> str:
     return _next(db, MaterialReservation, "reservation_no", "MR")
+
+
+def next_material_reservation_nos(db: Session, count: int) -> list[str]:
+    """Reserve a consecutive material-reservation number range."""
+    return _next_many(db, MaterialReservation, "reservation_no", "MR", count)
 
 
 def retire_label_numbers(db: Session, package_numbers: list[str], run_number: str) -> None:

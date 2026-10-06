@@ -1,6 +1,7 @@
 """Package workflow routes mounted before /packages/{pid}."""
 from fastapi import Query, APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
+from sqlalchemy.orm import selectinload, load_only
 from app.services.print_response import warehouse_print_response
 
 from app.core.deps import CurrentUser, DbSession, require_permissions, user_permissions
@@ -12,9 +13,14 @@ from app.services.audit import log_action
 from app.services.package_label_pages import label_document
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 from app.services.packaging_scope import packaging_department_for_order, packaging_department_scope, require_package_access
-from app.services.packages import create_package, _packaging_record_totals_by_batch
+from app.services.packages import (create_package, _packaging_record_totals_by_batch,
+    PackageWriteContext, prime_package_batch_memberships, prime_packaged_quantity_availability)
+from app.services.packaging_scope import packaging_departments_for_order
+from app.services.numbering import next_package_nos
+from app.services.workflow import sync_production_order_status
 
 router = APIRouter()
+_PRINT_RUN_LABEL_LIMIT = 200
 
 
 @router.get("/first-grade/balance/{production_order_id}")
@@ -162,7 +168,12 @@ def _write(db, current, operation, payload, action):
 
 
 def _run(db, current, rid):
-    run = db.get(PackagePrintRun, rid)
+    run = db.query(PackagePrintRun).options(load_only(
+        PackagePrintRun.id, PackagePrintRun.run_no, PackagePrintRun.code,
+        PackagePrintRun.packaging_department_code, PackagePrintRun.package_ids,
+        PackagePrintRun.created_at, PackagePrintRun.received_at,
+        PackagePrintRun.deleted_package_ids, PackagePrintRun.deleted_at, PackagePrintRun.returned_at,
+    )).filter(PackagePrintRun.id == rid).first()
     if not run:
         raise HTTPException(404, "Print run not found")
     permissions = set(user_permissions(current))
@@ -273,28 +284,69 @@ def create_packages_and_run(payload: PrintRunCreatePackagesIn, db: DbSession,
         if order.source_type == "usluga":
             raise HTTPException(400, "Usluga does not enter warehouse receiving print runs")
         # The existing helper has a legacy no-record fallback. This new path never uses it.
-        if not _packaging_record_totals_by_batch(db, order.id):
+        packed_by_batch = _packaging_record_totals_by_batch(db, order.id)
+        if not packed_by_batch:
             raise HTTPException(409, "Save Packaging output before creating packages")
+        first_row = payload.packages[0]
+        if first_row.model_id != order.model_id or any(
+            item.model_id != order.model_id for item in first_row.items
+        ):
+            raise HTTPException(400, "Package model must match the production order")
+        batch_ids = {
+            int(batch_id)
+            for row in payload.packages
+            for batch_id in (
+                [row.production_batch_id] if row.production_batch_id is not None else []
+            ) + [allocation.production_batch_id for allocation in row.batch_allocations]
+        }
+        owners = packaging_departments_for_order(
+            db,
+            int(order.id),
+            {row.production_batch_id for row in payload.packages},
+        )
+        write_context = PackageWriteContext.empty()
+        write_context.locked_orders[int(order.id)] = order
+        prime_package_batch_memberships(
+            db,
+            write_context,
+            production_order_id=int(order.id),
+            production_batch_ids=batch_ids,
+        )
+        prime_packaged_quantity_availability(
+            db,
+            write_context,
+            production_order_id=int(order.id),
+            packed_by_batch=packed_by_batch,
+        )
+        package_numbers = next_package_nos(db, len(payload.packages))
         packages = []
-        for row in payload.packages:
+        for index, row in enumerate(payload.packages):
             if row.model_id != order.model_id or any(item.model_id != order.model_id for item in row.items):
                 raise HTTPException(400, "Package model must match the production order")
-            owner = packaging_department_for_order(db, order.id, row.production_batch_id)
+            owner = owners[row.production_batch_id]
             packaging_department_scope(current, owner)
             data = row.model_dump()
             data["packaging_department_code"] = owner
             data["user_id"] = current.id
             data["is_admin"] = False
             data["override_capacity"] = False
-            pkg = create_package(db, **data)
+            pkg = create_package(
+                db,
+                **data,
+                _write_context=write_context,
+                _package_no=package_numbers[index],
+                _sync_production=False,
+            )
             log_action(db, current, "create", "Package", pkg.id, new_value={"package_no": pkg.package_no})
             packages.append(pkg)
+        sync_production_order_status(db, int(order.id))
         return service.run_payload(db, service.create_run(db, current, packages))
     return _write(db, current, "create-packages-run", payload, action)
 
 
 @router.get("/print-runs")
 def list_print_runs(db: DbSession, production_order_id: int | None = None,
+                    page: int | None = Query(None, ge=1), page_size: int = Query(50, ge=1, le=100),
                     current: User = Depends(require_permissions("packaging.packages", "packaging.records", "storage.packages", "storage.shipment", "*"))):
     query = db.query(PackagePrintRun).filter(PackagePrintRun.deleted_at.is_(None), PackagePrintRun.returned_at.is_(None))
     if production_order_id:
@@ -303,7 +355,13 @@ def list_print_runs(db: DbSession, production_order_id: int | None = None,
     permissions = set(user_permissions(current))
     if not permissions.intersection({"storage.packages", "storage.shipment", "*"}):
         query = query.filter(PackagePrintRun.packaging_department_code == packaging_department_scope(current))
-    return [service.run_payload(db, row) for row in query.order_by(PackagePrintRun.id.desc()).limit(100).all()]
+    if page is not None:
+        total = query.count()
+        runs = query.order_by(PackagePrintRun.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+        return {"rows": service.run_list_payload(db, runs), "total": total, "page": page,
+                "page_size": page_size, "has_more": page * page_size < total}
+    runs = query.order_by(PackagePrintRun.id.desc()).limit(100).all()
+    return service.run_list_payload(db, runs)
 
 
 @router.get("/print-runs/resolve")
@@ -318,10 +376,14 @@ def resolve_print_run(code: str, db: DbSession,
 @router.post("/print-runs/receive")
 def receive_print_run(payload: PrintRunReceiveIn, db: DbSession,
                       current: User = Depends(require_permissions("storage.packages", "*"))):
-    from app.api.routes.packages import _package_detail_payload
-    run, _ = service.receive_run(db, current, payload)
-    result = service.run_payload(db, run)
-    result["packages"] = [_package_detail_payload(db, db.get(Package, pid)) for pid in result["package_ids"]]
+    from app.api.routes.packages import _package_detail_payloads, _package_details_by_ids
+    run, _, members = service.receive_run(db, current, payload)
+    result = service.run_payload(db, run, members=members)
+    result["packages"] = _package_detail_payloads(
+        db,
+        _package_details_by_ids(db, result["package_ids"]),
+        print_run_ids={int(package_id): int(run.id) for package_id in result["package_ids"]},
+    )
     db.commit()
     return result
 
@@ -346,19 +408,25 @@ def delete_manual_packages(rid: int, db: DbSession, package_ids: list[int] | Non
 @router.get("/print-runs/{rid}/label", response_class=HTMLResponse)
 def print_run_label(rid: int, db: DbSession,
                      current: User = Depends(require_permissions("packaging.packages", "packaging.records", "storage.packages", "storage.shipment", "*"))):
-    from app.api.routes.packages import _h, _package_label_card_html, _PACKAGE_LABEL_CSS
+    from app.api.routes.packages import _h, _package_label_card_html, _PACKAGE_LABEL_CSS, _package_label_reference_context
     run = _run(db, current, rid)
+    if len(run.package_ids) > _PRINT_RUN_LABEL_LIMIT:
+        raise HTTPException(413, f"A print run label may contain at most {_PRINT_RUN_LABEL_LIMIT} packages")
     members = service.active_run_members(db, run)
+    packages_by_id = {int(pkg.id): pkg for pkg in db.query(Package)
+        .options(selectinload(Package.items), selectinload(Package.batch_allocations))
+        .filter(Package.id.in_([member.package_id for member in members])).all()} if members else {}
+    context = _package_label_reference_context(db, list(packages_by_id.values()))
     cards = []
     current_quantity = 0
     for member in members:
-        pkg = db.get(Package, member.package_id)
+        pkg = packages_by_id.get(member.package_id)
         if not pkg:
             raise HTTPException(409, "Print run contains a missing package; review required")
         if not run.received_at and service.contents(pkg) != member.snapshot:
             raise HTTPException(409, "Package changed since printing; review required before receipt")
         current_quantity += pkg.total_quantity
-        cards.append(_package_label_card_html(db, pkg))
+        cards.append(_package_label_card_html(db, pkg, context=context, active_label_checked=True))
     summary = f"<div class='run-summary'><b>{_h(run.run_no)}</b><p>Packages / Упаковки / Qadoqlar: {len(members)}</p><p>Pieces / Изделия / Dona: {current_quantity}</p></div>"
     return warehouse_print_response(label_document(run.run_no, cards, _PACKAGE_LABEL_CSS, summary))
 

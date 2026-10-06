@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, literal, or_, select, union_all
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.sql import sqltypes
 from sqlalchemy.sql.schema import Column, Table
@@ -170,9 +170,16 @@ def list_super_data_tables(
     db: DbSession,
     _: User = Depends(require_super_admin),
 ):
+    tables = sorted(Base.metadata.sorted_tables, key=lambda item: item.name)
+    # One statement gives exact counts from one database snapshot and removes
+    # a network round trip for each table. Only trusted ORM metadata is used.
+    counts = dict(db.execute(union_all(*[
+        select(literal(table.name), func.count()).select_from(table)
+        for table in tables
+    ])).all()) if tables else {}
     out: list[SuperDataTableOut] = []
-    for table in sorted(Base.metadata.sorted_tables, key=lambda item: item.name):
-        row_count = db.execute(select(func.count()).select_from(table)).scalar_one()
+    for table in tables:
+        row_count = counts[table.name]
         out.append(
             SuperDataTableOut(
                 name=table.name,

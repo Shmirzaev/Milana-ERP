@@ -5,14 +5,15 @@ import { localizeError } from "@/lib/errorMessages";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import useSWR from "swr";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useDeferredValue, useEffect, useMemo, useState } from "react";
+import useSWRInfinite from "swr/infinite";
 
 import ImageThumbnail from "@/components/ImageThumbnail";
 import ReturnPackages from "@/components/ReturnPackages";
 import PageHeader from "@/components/PageHeader";
 import StocktakeLink from "@/components/StocktakeLink";
 import CuttingOrderList from "@/components/CuttingOrderList";
-import DepartmentOrderList, { mergeDepartmentOrders } from "@/components/DepartmentOrderList";
+import DepartmentOrderList from "@/components/DepartmentOrderList";
 import ShipmentItemLines from "@/components/ShipmentItemLines";
 import { statusLabel } from "@/components/StagePipeline";
 import { api, fetcher } from "@/lib/api";
@@ -33,6 +34,33 @@ const DEPT_LABELS: Record<string, string> = {
   ECP: "nav.ecoCottonPackaging",
   FGS: "nav.finishedGoods",
 };
+
+type InboxPackagePage = {
+  rows: any[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+  group_total: number;
+};
+
+type InboxAwaitingPackagingPage = {
+  rows: any[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+};
+
+type DepartmentOrderPage = {
+  rows: any[];
+  total: number;
+  offset: number;
+  limit: number;
+  has_more: boolean;
+};
+
+type CuttingOrderPage = DepartmentOrderPage;
 
 function MaterialThumb({ row }: { row: any }) {
   const imageUrl = row?.material_image_url || row?.model_image_url;
@@ -82,10 +110,20 @@ export default function DepartmentInboxPage() {
   const params = useParams<{ code: string }>();
   const router = useRouter();
   const code = String(params.code || "").toUpperCase();
+  const isCuttingDepartment = code === "CUT" || code === "ECT";
+  const isPackagingDepartment = code === "PKG" || code === "BPK" || code === "ECP";
   const deptLabel = DEPT_LABELS[code] ? t(DEPT_LABELS[code]) : code;
   const [clientTz, setClientTz] = useState("UTC");
   const [creatingShipmentFor, setCreatingShipmentFor] = useState<string | null>(null);
   const [shipmentError, setShipmentError] = useState("");
+  const [cuttingSearch, setCuttingSearch] = useState("");
+  const deferredCuttingSearch = useDeferredValue(cuttingSearch.trim());
+  const [pendingPackageSearch, setPendingPackageSearch] = useState("");
+  const [readyPackageSearch, setReadyPackageSearch] = useState("");
+  const deferredPendingPackageSearch = useDeferredValue(pendingPackageSearch.trim());
+  const deferredReadyPackageSearch = useDeferredValue(readyPackageSearch.trim());
+
+  useEffect(() => { setCuttingSearch(""); }, [code]);
 
   useEffect(() => {
     try {
@@ -96,37 +134,112 @@ export default function DepartmentInboxPage() {
     }
   }, []);
 
-  const { data, isLoading, mutate } = useSWR<any>(code ? `/api/inbox?dept=${code}&tz=${encodeURIComponent(clientTz)}` : null, fetcher, {
-    refreshInterval: 10_000,
-  });
-  const pendingWorkOrders = Array.isArray(data?.pending_work_orders) ? data.pending_work_orders : [];
-  const inProgressWorkOrders = Array.isArray(data?.in_progress_work_orders) ? data.in_progress_work_orders : [];
-  const cuttingWorkOrders = Array.isArray(data?.cutting_work_orders) ? data.cutting_work_orders : [];
-  const incomingWorkOrders = useMemo(
-    () => (Array.isArray(data?.incoming_work_orders) ? data.incoming_work_orders : []),
-    [data?.incoming_work_orders],
+  const inboxUrl = code
+    ? `/api/inbox?dept=${code}&tz=${encodeURIComponent(clientTz)}${isPackagingDepartment ? "&include_awaiting_packaging=false" : ""}${code === "FGS" ? "&ready_to_ship_limit=50&ready_to_ship_offset=0" : ""}&include_core_orders=false`
+    : null;
+  const { data, isLoading, mutate } = useSWR<any>(inboxUrl, fetcher, { refreshInterval: 10_000 });
+  const {
+    data: readyToShipPages,
+    mutate: mutateReadyToShipPages,
+    size: readyToShipSize,
+    setSize: setReadyToShipSize,
+    isValidating: readyToShipValidating,
+  } = useSWRInfinite<any>(
+    (index, previous) => {
+      if (code !== "FGS") return null;
+      if (index === 0) return inboxUrl;
+      if (previous && index * 50 >= Number(previous.ready_to_ship_total ?? 0)) return null;
+      return `/api/inbox?dept=${code}&tz=${encodeURIComponent(clientTz)}&ready_to_ship_limit=50&ready_to_ship_offset=${index * 50}&include_core_orders=false`;
+    },
+    fetcher,
+    { refreshInterval: 10_000 },
   );
-  const incomingWorkOrderPoIds = useMemo(
-    () => new Set(incomingWorkOrders.map((row: any) => Number(row.production_order_id || 0)).filter((poId: number) => poId > 0)),
-    [incomingWorkOrders],
+  const {
+    data: departmentOrderPages,
+    mutate: mutateDepartmentOrderPages,
+    setSize: setDepartmentOrderPageCount,
+    isValidating: departmentOrdersValidating,
+    isLoading: departmentOrdersLoading,
+    error: departmentOrdersError,
+  } = useSWRInfinite<DepartmentOrderPage>(
+    (index, previous) => code && !isCuttingDepartment && !(previous && !previous.has_more)
+      ? `/api/inbox/department-orders?dept=${code}&tz=${encodeURIComponent(clientTz)}&limit=50&offset=${index * 50}`
+      : null,
+    fetcher,
+    { refreshInterval: 10_000 },
   );
-  const incomingBundleGroups = useMemo(
-    () => (Array.isArray(data?.incoming_bundle_groups) ? data.incoming_bundle_groups : [])
-      .filter((row: any) => !incomingWorkOrderPoIds.has(Number(row.production_order_id || 0))),
-    [data?.incoming_bundle_groups, incomingWorkOrderPoIds],
+  const {
+    data: cuttingOrderPages,
+    mutate: mutateCuttingOrderPages,
+    setSize: setCuttingOrderPageCount,
+    isValidating: cuttingOrdersValidating,
+    isLoading: cuttingOrdersLoading,
+    error: cuttingOrdersError,
+  } = useSWRInfinite<CuttingOrderPage>(
+    (index, previous) => isCuttingDepartment && !(previous && !previous.has_more)
+      ? `/api/inbox/cutting-orders?dept=${code}&limit=50&offset=${index * 50}&q=${encodeURIComponent(deferredCuttingSearch)}`
+      : null,
+    fetcher,
+    { refreshInterval: 10_000 },
   );
-  const departmentOrders = mergeDepartmentOrders([
-    { kind: "incoming", rows: [...incomingWorkOrders, ...incomingBundleGroups] },
-    { kind: "pending", rows: pendingWorkOrders },
-    { kind: "in_progress", rows: inProgressWorkOrders },
-    { kind: "completed", rows: Array.isArray(data?.done_today) ? data.done_today : [] },
-  ]);
-  const pendingPackages = useMemo(() => (
-    Array.isArray(data?.pending_packages) ? data.pending_packages : []
-  ), [data?.pending_packages]);
-  const readyPackages = useMemo(() => (
-    Array.isArray(data?.ready_packages) ? data.ready_packages : []
-  ), [data?.ready_packages]);
+  const {
+    data: pendingPackagePages,
+    mutate: mutatePendingPackagePages,
+    setSize: setPendingPackagePageCount,
+    isValidating: pendingPackagesValidating,
+  } = useSWRInfinite<InboxPackagePage>(
+    (index, previous) => code === "FGS" && !(previous && !previous.has_more)
+      ? `/api/inbox/packages?status=pending&page=${index + 1}&page_size=50&q=${encodeURIComponent(deferredPendingPackageSearch)}`
+      : null,
+    fetcher,
+  );
+  const {
+    data: readyPackagePages,
+    mutate: mutateReadyPackagePages,
+    setSize: setReadyPackagePageCount,
+    isValidating: readyPackagesValidating,
+  } = useSWRInfinite<InboxPackagePage>(
+    (index, previous) => code === "FGS" && !(previous && !previous.has_more)
+      ? `/api/inbox/packages?status=ready&page=${index + 1}&page_size=50&q=${encodeURIComponent(deferredReadyPackageSearch)}`
+      : null,
+    fetcher,
+  );
+  const {
+    data: awaitingPackagingPages,
+    mutate: mutateAwaitingPackagingPages,
+    isLoading: awaitingPackagingLoading,
+    error: awaitingPackagingError,
+    setSize: setAwaitingPackagingPageCount,
+    isValidating: awaitingPackagingValidating,
+  } = useSWRInfinite<InboxAwaitingPackagingPage>(
+    (index, previous) => isPackagingDepartment && !(previous && !previous.has_more)
+      ? `/api/inbox/awaiting-packaging?dept=${code}&page=${index + 1}&page_size=50`
+      : null,
+    fetcher,
+    { refreshInterval: 10_000 },
+  );
+  const cuttingWorkOrders = useMemo(
+    () => cuttingOrderPages?.flatMap((page) => page.rows) || [],
+    [cuttingOrderPages],
+  );
+  const cuttingOrdersTotal = cuttingOrderPages?.[0]?.total ?? 0;
+  const cuttingOrdersHasMore = cuttingOrderPages?.at(-1)?.has_more ?? false;
+  const departmentOrders = useMemo(
+    () => departmentOrderPages?.flatMap((page) => page.rows.map((row) => ({ ...row, queueKind: row.queue_kind }))) || [],
+    [departmentOrderPages],
+  );
+  const departmentOrdersTotal = departmentOrderPages?.[0]?.total ?? 0;
+  const departmentOrdersHasMore = departmentOrderPages?.[departmentOrderPages.length - 1]?.has_more ?? false;
+  const pendingPackages = useMemo(() => pendingPackagePages?.flatMap((page) => page.rows) || [], [pendingPackagePages]);
+  const readyPackages = useMemo(() => readyPackagePages?.flatMap((page) => page.rows) || [], [readyPackagePages]);
+  const awaitingPackagingRows = useMemo(
+    () => awaitingPackagingPages?.flatMap((page) => page.rows) || [],
+    [awaitingPackagingPages],
+  );
+  const awaitingPackagingTotal = awaitingPackagingPages?.[0]?.total ?? 0;
+  const awaitingPackagingHasMore = awaitingPackagingPages?.[awaitingPackagingPages.length - 1]?.has_more ?? false;
+  const pendingPackagesTotal = pendingPackagePages?.[0]?.total ?? 0;
+  const readyPackagesTotal = readyPackagePages?.[0]?.total ?? 0;
   const [expandedPackageGroups, setExpandedPackageGroups] = useState<Record<string, boolean>>({});
 
   const pendingPackagesByOrder = useMemo(() => {
@@ -187,9 +300,17 @@ export default function DepartmentInboxPage() {
         return left - right;
       });
   }, [readyPackages]);
+  const readyToShipRows = useMemo(
+    () => readyToShipPages?.flatMap((page) => page?.ready_to_ship ?? [])
+      ?? (Array.isArray(data?.ready_to_ship) ? data.ready_to_ship : []),
+    [data?.ready_to_ship, readyToShipPages],
+  );
+  const readyToShipTotal = Number(readyToShipPages?.[0]?.ready_to_ship_total ?? data?.ready_to_ship_total ?? 0);
+  const hasReadyToShipOrders = readyToShipRows.length > 0;
+  const readyToShipHasMore = code === "FGS" && readyToShipRows.length < readyToShipTotal;
   const readyToShipOrders = useMemo(() => {
-    if (Array.isArray(data?.ready_to_ship) && data.ready_to_ship.length > 0) {
-      return data.ready_to_ship;
+    if (readyToShipRows.length > 0) {
+      return readyToShipRows;
     }
     return readyPackagesByOrder.map((g) => ({
       sales_order_id: g.sales_order_id,
@@ -215,7 +336,18 @@ export default function DepartmentInboxPage() {
         status: p.status,
       })),
     }));
-  }, [data?.ready_to_ship, readyPackagesByOrder]);
+  }, [readyToShipRows, readyPackagesByOrder]);
+
+  const readyToShipCount = hasReadyToShipOrders
+    ? readyToShipTotal || readyToShipRows.length
+    : readyPackagePages?.[0]?.group_total ?? 0;
+
+  async function refreshInbox() {
+    await Promise.all([
+      mutate(), mutateReadyToShipPages(), mutateDepartmentOrderPages(), mutateCuttingOrderPages(),
+      mutateAwaitingPackagingPages(), mutatePendingPackagePages(), mutateReadyPackagePages(),
+    ]);
+  }
 
   async function createShipmentForOrder(salesOrderId: number | null | undefined) {
     const soId = Number(salesOrderId || 0);
@@ -226,7 +358,7 @@ export default function DepartmentInboxPage() {
     try {
       const created = await api.post("/api/shipments", { sales_order_id: soId });
       await api.post(`/api/shipments/${created.id}/add-ready-packages`);
-      await mutate();
+      await refreshInbox();
       openShipment(soId, created.id);
     } catch (e: any) {
       setShipmentError(e?.message || localizeError("Failed to create shipment"));
@@ -257,37 +389,62 @@ export default function DepartmentInboxPage() {
         subtitle={t("page.deptInbox.subtitle")}
         actions={code === "FGS" ? <StocktakeLink /> : undefined}
       />
-      {isLoading && <div className="card p-4 text-sm text-slate-500">{t("common.loading")}</div>}
-      {!isLoading && (code === "CUT" || code === "ECT") ? (
-        <CuttingOrderList
-          rows={cuttingWorkOrders}
-          cuttingDepartment={code}
-          t={t}
-        />
-      ) : !isLoading ? (
+      {(isLoading || departmentOrdersLoading || cuttingOrdersLoading) && <div className="card p-4 text-sm text-slate-500">{t("common.loading")}</div>}
+      {isCuttingDepartment ? (
         <div className="min-w-0 space-y-2">
+          {cuttingOrdersError ? <div role="alert" className="text-sm text-red-700">{String(cuttingOrdersError.message || cuttingOrdersError)}</div> : null}
+          <CuttingOrderList
+            key={code}
+            rows={cuttingWorkOrders}
+            cuttingDepartment={code}
+            onSearch={setCuttingSearch}
+            total={cuttingOrdersTotal}
+            t={t}
+          />
+          {cuttingOrdersHasMore ? (
+            <button type="button" className="btn mt-3 h-9 px-3 text-xs" disabled={cuttingOrdersValidating} onClick={() => void setCuttingOrderPageCount((size) => size + 1)}>
+              {cuttingOrdersValidating ? t("common.loading") : t("common.loadMore")}
+            </button>
+          ) : null}
+        </div>
+      ) : !isLoading && !departmentOrdersLoading ? (
+        <div className="min-w-0 space-y-2">
+          {departmentOrdersError ? <div role="alert" className="text-sm text-red-700">{String(departmentOrdersError.message || departmentOrdersError)}</div> : null}
           <DepartmentOrderList
             rows={departmentOrders}
-            title={t("page.deptInbox.orders", { count: departmentOrders.length })}
+            title={t("page.deptInbox.orders", { count: departmentOrdersTotal })}
             emptyLabel={t("page.deptInbox.noOrders")}
             t={t}
           />
+          {departmentOrdersHasMore ? (
+            <button
+              type="button"
+              className="btn mt-3 h-9 px-3 text-xs"
+              disabled={departmentOrdersValidating}
+              onClick={() => void setDepartmentOrderPageCount((size) => size + 1)}
+            >
+              {departmentOrdersValidating ? t("common.loading") : t("common.loadMore")}
+            </button>
+          ) : null}
         </div>
       ) : null}
 
-      {(code === "PKG" || code === "BPK" || code === "ECP") && data?.awaiting_packaging?.length > 0 && (
+      {isPackagingDepartment && awaitingPackagingLoading ? <div className="card mt-4 p-4 text-sm text-slate-500">{t("common.loading")}</div> : null}
+      {isPackagingDepartment && awaitingPackagingError ? <div role="alert" className="text-sm text-red-700">{localizeError(String(awaitingPackagingError.message || awaitingPackagingError))}</div> : null}
+      {isPackagingDepartment && awaitingPackagingRows.length > 0 && (
         <div className="card mt-4 overflow-x-auto p-4">
-          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">{t("page.deptInbox.awaitingPackaging")}</h3>
+          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">{t("page.deptInbox.awaitingPackaging")} <span className="text-xs font-normal">{awaitingPackagingRows.length} / {awaitingPackagingTotal}</span></h3>
           <table className="table">
             <thead>
-              <tr><th>{t("page.workOrder.modelPicture")}</th><th>{t("cuttingInbox.variantPicture")}</th><th>{t("field.production")}</th><th>{t("field.modelNo")}</th><th>{t("field.variantNo")}</th><th>{t("field.readyQty")}</th><th>{t("field.sewn")}</th><th>{t("field.packed")}</th></tr>
+              <tr><th>{t("page.workOrder.modelPicture")}</th><th>{t("cuttingInbox.variantPicture")}</th><th>{t("field.production")}</th><th>{t("field.batch")}</th><th>{t("field.modelNo")}</th><th>{t("field.variantNo")}</th><th>{t("field.readyQty")}</th><th>{t("field.sewn")}</th><th>{t("field.packed")}</th></tr>
             </thead>
             <tbody>
-              {data.awaiting_packaging.map((r: any) => (
-                <tr key={r.production_order_id}>
+              {awaitingPackagingRows.map((r: any) => (
+                <tr key={`${r.production_order_id}:${r.production_batch_id ?? "unbatched"}`}>
                   <td><ImageThumbnail imageUrl={r.model_image_url} label={r.model_no || r.model_name || ""} title={t("page.workOrder.modelPicture")} emptyLabel={t("page.workOrder.noImage")} /></td>
                   <td><ImageThumbnail imageUrl={r.material_image_url} label={formatVariantNumber(r.variant_no) || ""} title={t("cuttingInbox.variantPicture")} emptyLabel={t("page.workOrder.noImage")} /></td>
                   <td><Link href={`/production-orders/${r.production_order_id}`} className="mono hover:underline">{r.production_no || "-"}</Link></td>
+                  <td>{r.batch_no ? [r.batch_no, r.batch_name].filter(Boolean).join(" · ") : "-"}</td>
                   <td>{r.model_no || r.model_code || "-"}</td>
                   <td>{formatVariantNumber(r.variant_no) || "-"}</td>
                   <td>{r.ready_qty}</td>
@@ -297,6 +454,16 @@ export default function DepartmentInboxPage() {
               ))}
             </tbody>
           </table>
+          {awaitingPackagingHasMore ? (
+            <button
+              type="button"
+              className="btn mt-3"
+              disabled={awaitingPackagingValidating}
+              onClick={() => void setAwaitingPackagingPageCount((awaitingPackagingPages?.length ?? 1) + 1)}
+            >
+              {awaitingPackagingValidating ? t("common.loading") : t("common.loadMore")}
+            </button>
+          ) : null}
         </div>
       )}
 
@@ -304,8 +471,18 @@ export default function DepartmentInboxPage() {
         <div className="grid grid-cols-1 gap-4 mt-4 lg:grid-cols-2">
           <section className="card overflow-x-auto p-4">
             <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              {t("page.deptInbox.pendingPackageIntake", { count: pendingPackages.length })}
+              {t("page.deptInbox.pendingPackageIntake", { count: pendingPackagesTotal })}
             </h3>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <input
+                className="input h-8 min-w-48 flex-1"
+                aria-label={`${t("common.search")} ${t("field.package")}`}
+                placeholder={`${t("common.search")} ${t("field.package").toLowerCase()}`}
+                value={pendingPackageSearch}
+                onChange={(event) => setPendingPackageSearch(event.target.value)}
+              />
+              <span className="text-xs text-slate-500">{pendingPackages.length} / {pendingPackagesTotal}</span>
+            </div>
             <table className="table">
               <thead><tr><th>{t("field.salesOrderShort")}</th><th>{t("field.packages")}</th><th>{t("field.qty")}</th><th className="text-right">{t("field.actions")}</th></tr></thead>
               <tbody>
@@ -316,7 +493,7 @@ export default function DepartmentInboxPage() {
                       <td>{g.packages.length}</td>
                       <td>{g.total_quantity}</td>
                       <td className="text-right">
-                        <ReturnPackages packages={g.packages} onReturned={() => { void mutate(); }} />
+                        <ReturnPackages packages={g.packages} onReturned={() => { void refreshInbox(); }} />
                         <button
                           className="btn h-7 px-2 text-[11px]"
                           onClick={() => setExpandedPackageGroups((prev) => ({ ...prev, [g.key]: !prev[g.key] }))}
@@ -354,11 +531,31 @@ export default function DepartmentInboxPage() {
                 )}
               </tbody>
             </table>
+            {pendingPackagePages?.[pendingPackagePages.length - 1]?.has_more && (
+              <button
+                className="btn mt-3"
+                type="button"
+                disabled={pendingPackagesValidating}
+                onClick={() => setPendingPackagePageCount((size) => size + 1)}
+              >
+                {pendingPackagesValidating ? t("common.loading") : t("common.loadMore")}
+              </button>
+            )}
           </section>
           <section className="card overflow-x-auto p-4">
             <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              {t("page.deptInbox.readyToShip", { count: readyToShipOrders.length })}
+              {t("page.deptInbox.readyToShip", { count: readyToShipCount })}
             </h3>
+            {!hasReadyToShipOrders && <div className="mb-3 flex flex-wrap items-center gap-2">
+              <input
+                className="input h-8 min-w-48 flex-1"
+                aria-label={`${t("common.search")} ${t("field.package")}`}
+                placeholder={`${t("common.search")} ${t("field.package").toLowerCase()}`}
+                value={readyPackageSearch}
+                onChange={(event) => setReadyPackageSearch(event.target.value)}
+              />
+              <span className="text-xs text-slate-500">{readyPackages.length} / {readyPackagesTotal}</span>
+            </div>}
             {shipmentError && <div className="mb-2 text-xs text-red-600">{shipmentError}</div>}
             <table className="table">
               <thead>
@@ -429,6 +626,68 @@ export default function DepartmentInboxPage() {
                 )}
               </tbody>
             </table>
+            {hasReadyToShipOrders && readyToShipHasMore && (
+              <button
+                className="btn mt-3"
+                type="button"
+                disabled={readyToShipValidating}
+                onClick={() => setReadyToShipSize(readyToShipSize + 1)}
+              >
+                {readyToShipValidating ? t("common.loading") : t("common.loadMore")}
+              </button>
+            )}
+            {!hasReadyToShipOrders && readyPackagePages?.[readyPackagePages.length - 1]?.has_more && (
+              <button
+                className="btn mt-3"
+                type="button"
+                disabled={readyPackagesValidating}
+                onClick={() => setReadyPackagePageCount((size) => size + 1)}
+              >
+                {readyPackagesValidating ? t("common.loading") : t("common.loadMore")}
+              </button>
+            )}
+            {hasReadyToShipOrders && (
+              <div className="mt-4 border-t border-slate-200 pt-4">
+                <h4 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
+                  {t("field.packages")} ({readyPackagesTotal})
+                </h4>
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  <input
+                    className="input h-8 min-w-48 flex-1"
+                    aria-label={`${t("common.search")} ${t("field.package")}`}
+                    placeholder={`${t("common.search")} ${t("field.package").toLowerCase()}`}
+                    value={readyPackageSearch}
+                    onChange={(event) => setReadyPackageSearch(event.target.value)}
+                  />
+                  <span className="text-xs text-slate-500">{readyPackages.length} / {readyPackagesTotal}</span>
+                </div>
+                <table className="table text-xs">
+                  <thead><tr><th>{t("field.salesOrderShort")}</th><th>{t("field.packages")}</th><th>{t("field.qty")}</th></tr></thead>
+                  <tbody>
+                    {readyPackagesByOrder.map((group) => (
+                      <tr key={`ready-package-${group.key}`}>
+                        <td>{orderReference(group, "-")}</td>
+                        <td>{group.packages.length}</td>
+                        <td>{group.total_quantity}</td>
+                      </tr>
+                    ))}
+                    {readyPackagesByOrder.length === 0 && (
+                      <tr><td colSpan={3} className="text-sm text-slate-400">{t("page.deptInbox.noReadyToShip")}</td></tr>
+                    )}
+                  </tbody>
+                </table>
+                {readyPackagePages?.[readyPackagePages.length - 1]?.has_more && (
+                  <button
+                    className="btn mt-3"
+                    type="button"
+                    disabled={readyPackagesValidating}
+                    onClick={() => setReadyPackagePageCount((size) => size + 1)}
+                  >
+                    {readyPackagesValidating ? t("common.loading") : t("common.loadMore")}
+                  </button>
+                )}
+              </div>
+            )}
           </section>
         </div>
       )}
