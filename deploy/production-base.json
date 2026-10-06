@@ -1,6 +1,6 @@
 {
-  "release": "20261005_070406",
-  "source_manifest_sha256": "7a67d8586282eab81ad4a9792a4e2acf5c40aaf261774477fb564c21000dd75a",
-  "database_revision": "0137_perf34_shipment_indexes",
-  "git_baseline_commit": "25a7dd1cff77b4b180181da1db0f8780f1c7675e"
+  "release": "20261006_082610",
+  "source_manifest_sha256": "8aecd51802aef3a8308a60aba448842cf5b4c1a3f6170d518f89a9ebcd284bda",
+  "database_revision": "0139_warehouse_pack_reservations",
+  "git_baseline_commit": "f0ce3418118ebb462426b5bd44a557c6665ef44b"
 }
