@@ -96,6 +96,12 @@ when its dependency layer is reused. Both builds still pull base images, and all
 local/CI validation and production gates remain required. The first cache export
 may add time; later releases can reuse those layers.
 
+The frontend Dockerfile uses the repository root as its build context
+(`docker build -f frontend/Dockerfile .`). Its builder includes backend application
+source for cross-layer contract checks in `npm run build`; the runtime stage
+contains only the frontend standalone output and assets. Do not narrow the build
+context to `frontend/` or skip these contract checks.
+
 The workflow summary reports **Artifacts ready**, the exact source commit and
 manifest, and both image digests. This means the candidate is built, not live.
 Use the recorded digests to identify the reviewed images; never substitute an

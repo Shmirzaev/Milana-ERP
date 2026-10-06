@@ -1,7 +1,8 @@
+# Build from the repository root: docker build -f frontend/Dockerfile .
 FROM node:20-alpine AS dependencies
 
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --legacy-peer-deps
 
 FROM node:20-alpine AS builder
@@ -13,7 +14,9 @@ ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL} \
     API_URL=${API_URL} \
     NEXT_TELEMETRY_DISABLED=1
 COPY --from=dependencies /app/node_modules ./node_modules
-COPY . .
+COPY frontend/ ./
+# Cross-layer build contracts read ../backend. This source stays in the builder.
+COPY backend/app/ /backend/app/
 RUN npm run build
 
 FROM node:20-alpine AS runtime
