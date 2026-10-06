@@ -1,0 +1,2276 @@
+{
+  "captured_at_utc": "2026-10-06T04:06:58.752782+00:00",
+  "task_owner": "Ismail",
+  "worktree_base": "0de1c03a7c1096d39579b2ab11c0a941ae10131f",
+  "task_status": {
+    "OPS02": "Needs review: peak traffic and complete shared-client bounds unproven",
+    "OPS03": "Needs review: named shared workload and backup ownership unconfirmed"
+  },
+  "peak_window_confirmed": null,
+  "business_data_changed": false,
+  "production_configuration_changed": false,
+  "production": {
+    "release": "20261005_070406",
+    "active_slot": "blue",
+    "rollback_release": "20261005_063643",
+    "rollback_slot": "green",
+    "manifest": "7a67d8586282eab81ad4a9792a4e2acf5c40aaf261774477fb564c21000dd75a",
+    "database_revision": "0137_perf34_shipment_indexes",
+    "both_manifests_verified_files": 1137
+  },
+  "database_capacity": {
+    "max_connections": 100,
+    "reserved_superuser": 3,
+    "ordinary_connection_budget": 97,
+    "erp_two_slot_max": 48,
+    "remainder_before_operations_margin": 49,
+    "measurement_start": "2026-10-06T03:56:52.603937+00:00",
+    "measurement_end": "2026-10-06T04:06:52.710447+00:00",
+    "sample_count": 61,
+    "configured_sleep_between_samples_seconds": 10,
+    "observed_max_clients_excluding_collector": 28,
+    "ordinary_headroom_at_observed_max": 69,
+    "observed_max_by_role": {
+      "authenticator": 5,
+      "erp": 20,
+      "leadlens": 3
+    },
+    "observed_max_active": 1,
+    "observed_max_lock_waits": 0,
+    "observed_max_idle_in_transaction": 0,
+    "login_role_limits": [
+      {
+        "rolname": "postgres",
+        "rolconnlimit": -1,
+        "rolcanlogin": true,
+        "rolsuper": true
+      },
+      {
+        "rolname": "erp",
+        "rolconnlimit": -1,
+        "rolcanlogin": true,
+        "rolsuper": false
+      },
+      {
+        "rolname": "authenticator",
+        "rolconnlimit": -1,
+        "rolcanlogin": true,
+        "rolsuper": false
+      },
+      {
+        "rolname": "milanaweb_user",
+        "rolconnlimit": -1,
+        "rolcanlogin": true,
+        "rolsuper": false
+      },
+      {
+        "rolname": "milanaweb",
+        "rolconnlimit": -1,
+        "rolcanlogin": true,
+        "rolsuper": false
+      },
+      {
+        "rolname": "catalog_user",
+        "rolconnlimit": -1,
+        "rolcanlogin": true,
+        "rolsuper": false
+      },
+      {
+        "rolname": "kotiba",
+        "rolconnlimit": -1,
+        "rolcanlogin": true,
+        "rolsuper": false
+      },
+      {
+        "rolname": "leadlens",
+        "rolconnlimit": -1,
+        "rolcanlogin": true,
+        "rolsuper": false
+      },
+      {
+        "rolname": "catalog2_user",
+        "rolconnlimit": -1,
+        "rolcanlogin": true,
+        "rolsuper": false
+      }
+    ],
+    "database_owners_and_limits": [
+      {
+        "datname": "postgres",
+        "owner": "postgres",
+        "datconnlimit": -1
+      },
+      {
+        "datname": "erp",
+        "owner": "erp",
+        "datconnlimit": -1
+      },
+      {
+        "datname": "kotiba_pre_full_20260630173450",
+        "owner": "kotiba",
+        "datconnlimit": -1
+      },
+      {
+        "datname": "milanaweb",
+        "owner": "milanaweb",
+        "datconnlimit": -1
+      },
+      {
+        "datname": "catalog",
+        "owner": "catalog_user",
+        "datconnlimit": -1
+      },
+      {
+        "datname": "leadlens",
+        "owner": "leadlens",
+        "datconnlimit": -1
+      },
+      {
+        "datname": "catalog2",
+        "owner": "catalog2_user",
+        "datconnlimit": -1
+      },
+      {
+        "datname": "kotiba",
+        "owner": "postgres",
+        "datconnlimit": -1
+      }
+    ],
+    "archive_mode": "off",
+    "synchronous_commit": "on",
+    "replicas": [],
+    "limits_of_evidence": [
+      "Discrete samples can miss short spikes.",
+      "No operator confirmation of a peak window.",
+      "No SQLAlchemy checkout latency or queue duration instrumentation was collected.",
+      "Unlimited role limits and incomplete shared service pool bounds prevent a guaranteed global connection allocation."
+    ]
+  },
+  "workloads": {
+    "database": {
+      "logical_processors": "8",
+      "containers": {
+        "exit_code": -1,
+        "output": "",
+        "error": "[Errno 2] No such file or directory: 'docker'"
+      },
+      "services": [
+        {
+          "exit_code": 0,
+          "output": "Id=postgresql@16-main.service\nActiveState=active\nControlGroup=/system.slice/system-postgresql.slice/postgresql@16-main.service\nCPUQuotaPerSecUSec=infinity\nMemoryMax=infinity\nTasksMax=74617\nWorkingDirectory=\nUser="
+        }
+      ],
+      "native_process_identities": [
+        {
+          "comm": "python3",
+          "uid": 0,
+          "cwd": "/home/admilana",
+          "cgroup": "0::/user.slice/user-1000.slice/session-403.scope",
+          "pool": {}
+        },
+        {
+          "comm": "python3",
+          "uid": 0,
+          "cwd": "/home/admilana",
+          "cgroup": "0::/user.slice/user-1000.slice/session-406.scope",
+          "pool": {}
+        }
+      ],
+      "human_owner": {
+        "ERP": "Ismail",
+        "shared_workloads": null
+      },
+      "history": {
+        "samples": 167,
+        "from": {
+          "date": "2026-10-05",
+          "time": "00:10:01",
+          "tz": "UTC",
+          "interval": 600
+        },
+        "to": {
+          "date": "2026-10-06",
+          "time": "03:50:01",
+          "tz": "UTC",
+          "interval": 600
+        },
+        "max_cpu_busy_percent": 2.12,
+        "max_iowait_percent": 0.02,
+        "min_available_memory_kib": 61891100,
+        "max_run_queue": 2,
+        "max_load_1": 0.54,
+        "max_blocked": 0,
+        "max_disk_util_percent": 5.29,
+        "max_disk_await_ms": 3.06,
+        "max_swap_in_pages_s": 0.0,
+        "max_swap_out_pages_s": 0.0
+      },
+      "error_marker_counts": [
+        {
+          "source": "milana-backend-blue",
+          "exit_code": -1,
+          "lines": 0,
+          "markers": {
+            "pool_timeout": 0,
+            "connection_limit": 0,
+            "deadlock": 0,
+            "oom": 0
+          }
+        },
+        {
+          "source": "milana-backend-green",
+          "exit_code": -1,
+          "lines": 0,
+          "markers": {
+            "pool_timeout": 0,
+            "connection_limit": 0,
+            "deadlock": 0,
+            "oom": 0
+          }
+        },
+        {
+          "source": "/var/log/postgresql/postgresql-16-main.log",
+          "exit_code": 0,
+          "lines": 20000,
+          "markers": {
+            "pool_timeout": 0,
+            "connection_limit": 0,
+            "deadlock": 0,
+            "oom": 0
+          }
+        }
+      ]
+    },
+    "backend": {
+      "logical_processors": "6",
+      "containers": [
+        {
+          "name": "milana-backend-blue",
+          "image": "ghcr.io/shmirzaev/milana-erp-backend@sha256:c0112283d97b0aa9bc14abd799faa8db1a79a223ac6e4751efd5bea73ed1670f",
+          "state": {
+            "Status": "running",
+            "Pid": 330982,
+            "StartedAt": "2026-10-05T07:19:32.952851421Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {
+            "DB_POOL_SIZE": "8",
+            "DB_MAX_OVERFLOW": "4",
+            "WEB_CONCURRENCY": "2"
+          },
+          "database_client": {
+            "host": "172.16.10.3",
+            "port": 5432,
+            "database": "erp",
+            "role": "erp"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "milana-backend-green",
+          "image": "ghcr.io/shmirzaev/milana-erp-backend@sha256:cda56516074c03f034b6ee3b5db6d96eb801d50490d8621ea9d1d0d44e9da545",
+          "state": {
+            "Status": "running",
+            "Pid": 316683,
+            "StartedAt": "2026-10-05T06:51:30.980507132Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {
+            "DB_POOL_SIZE": "8",
+            "DB_MAX_OVERFLOW": "4",
+            "WEB_CONCURRENCY": "2"
+          },
+          "database_client": {
+            "host": "172.16.10.3",
+            "port": 5432,
+            "database": "erp",
+            "role": "erp"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "catalog-backend",
+          "image": "catalog-backend:20260928_card_visibility",
+          "state": {
+            "Status": "running",
+            "Pid": 396464,
+            "StartedAt": "2026-09-28T12:47:48.993329746Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "database_client": {
+            "host": "172.16.10.3",
+            "port": 5432,
+            "database": "catalog",
+            "role": "catalog_user"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "catalog-backend-before-visibility",
+          "image": "catalog-backend:20260928_delete_cards",
+          "state": {
+            "Status": "exited",
+            "Pid": 0,
+            "StartedAt": "2026-09-28T12:22:50.334991172Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "database_client": {
+            "host": "172.16.10.3",
+            "port": 5432,
+            "database": "catalog",
+            "role": "catalog_user"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "kotiba-supabase-proxy",
+          "image": "nginx:alpine",
+          "state": {
+            "Status": "running",
+            "Pid": 3022,
+            "StartedAt": "2026-09-21T04:37:18.668845263Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "kotiba-postgrest",
+          "image": "postgrest/postgrest:latest",
+          "state": {
+            "Status": "running",
+            "Pid": 2927,
+            "StartedAt": "2026-09-21T04:37:18.078713231Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "milana-stocktake-migration-20260909-102118",
+          "image": "postgres:16-alpine",
+          "state": {
+            "Status": "exited",
+            "Pid": 0,
+            "StartedAt": "2026-09-09T10:33:57.324520299Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 1073741824,
+            "MemorySwap": 2147483648,
+            "NanoCpus": 1000000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "milana-migration-20260909-082533",
+          "image": "postgres:16-alpine",
+          "state": {
+            "Status": "exited",
+            "Pid": 0,
+            "StartedAt": "2026-09-09T08:29:59.933416102Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 1073741824,
+            "MemorySwap": 2147483648,
+            "NanoCpus": 1000000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "milana-migration-20260909-080749",
+          "image": "postgres:16-alpine",
+          "state": {
+            "Status": "exited",
+            "Pid": 0,
+            "StartedAt": "2026-09-09T08:11:37.457753254Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 1073741824,
+            "MemorySwap": 2147483648,
+            "NanoCpus": 1000000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "milana-backend-green-prequiesce-20260909_082533",
+          "image": "ghcr.io/shmirzaev/milana-erp-backend@sha256:562116cc8879fb1cc3356f526cda71b06b46b61ddf748af0a2a68b5183315301",
+          "state": {
+            "Status": "exited",
+            "Pid": 0,
+            "StartedAt": "2026-09-09T05:45:21.83095028Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {
+            "DB_POOL_SIZE": "8",
+            "DB_MAX_OVERFLOW": "4",
+            "WEB_CONCURRENCY": "2"
+          },
+          "database_client": {
+            "host": "172.16.10.3",
+            "port": 5432,
+            "database": "erp",
+            "role": "erp"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "milana-backend",
+          "image": "milana-backend:20260829_100455",
+          "state": {
+            "Status": "exited",
+            "Pid": 0,
+            "StartedAt": "2026-08-29T05:08:05.903702264Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "database_client": {
+            "host": "172.16.10.3",
+            "port": 5432,
+            "database": "erp",
+            "role": "erp"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "milana-backend-prev-20260827_071634",
+          "image": "milana-backend:20260827_071634",
+          "state": {
+            "Status": "exited",
+            "Pid": 0,
+            "StartedAt": "2026-08-27T07:18:55.281097024Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "database_client": {
+            "host": "172.16.10.3",
+            "port": 5432,
+            "database": "erp",
+            "role": "erp"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "ps-tomarix-backend-celery-worker-1",
+          "image": "ps-tomarix-backend:2026-08-20-connections1",
+          "state": {
+            "Status": "running",
+            "Pid": 2162,
+            "StartedAt": "2026-09-21T04:37:16.01372952Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 3221225472,
+            "MemorySwap": 6442450944,
+            "NanoCpus": 2000000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": 512
+          },
+          "pool": {},
+          "database_client": {
+            "host": "postgres",
+            "port": 5432,
+            "database": "ps_assistant",
+            "role": "ps_app"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "ps-tomarix-backend-celery-meeting-worker-1",
+          "image": "ps-tomarix-backend:2026-08-20-connections1",
+          "state": {
+            "Status": "running",
+            "Pid": 2251,
+            "StartedAt": "2026-09-21T04:37:16.023879652Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 3221225472,
+            "MemorySwap": 6442450944,
+            "NanoCpus": 2000000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": 512
+          },
+          "pool": {},
+          "database_client": {
+            "host": "postgres",
+            "port": 5432,
+            "database": "ps_assistant",
+            "role": "ps_app"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "ps-tomarix-backend-celery-beat-1",
+          "image": "ps-tomarix-backend:2026-08-20-connections1",
+          "state": {
+            "Status": "running",
+            "Pid": 2258,
+            "StartedAt": "2026-09-21T04:37:16.024514408Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 536870912,
+            "MemorySwap": 1073741824,
+            "NanoCpus": 500000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": 128
+          },
+          "pool": {},
+          "database_client": {
+            "host": "postgres",
+            "port": 5432,
+            "database": "ps_assistant",
+            "role": "ps_app"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "ps-tomarix-backend-backend-1",
+          "image": "ps-tomarix-backend:2026-08-20-connections1",
+          "state": {
+            "Status": "running",
+            "Pid": 2261,
+            "StartedAt": "2026-09-21T04:37:16.014765491Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 2147483648,
+            "MemorySwap": 4294967296,
+            "NanoCpus": 1500000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": 256
+          },
+          "pool": {},
+          "database_client": {
+            "host": "postgres",
+            "port": 5432,
+            "database": "ps_assistant",
+            "role": "ps_app"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "ps-tomarix-backend-migrate-1",
+          "image": "ps-tomarix-backend:2026-08-20",
+          "state": {
+            "Status": "exited",
+            "Pid": 0,
+            "StartedAt": "2026-08-20T07:15:58.445395191Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 536870912,
+            "MemorySwap": 1073741824,
+            "NanoCpus": 500000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": 128
+          },
+          "pool": {},
+          "database_client": {
+            "host": "postgres",
+            "port": 5432,
+            "database": "ps_assistant",
+            "role": "ps_app"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "ps-tomarix-backend-ingress-1",
+          "image": "ps-tomarix-nginx:2026-08-20",
+          "state": {
+            "Status": "running",
+            "Pid": 2304,
+            "StartedAt": "2026-09-21T04:37:16.025487012Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 268435456,
+            "MemorySwap": 536870912,
+            "NanoCpus": 500000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": 128
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "ps-tomarix-backend-garage-1",
+          "image": "ps-tomarix-garage:2026-08-20",
+          "state": {
+            "Status": "running",
+            "Pid": 2083,
+            "StartedAt": "2026-09-21T04:37:16.014166372Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 2147483648,
+            "MemorySwap": 4294967296,
+            "NanoCpus": 1500000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": 256
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "ps-tomarix-backend-redis-1",
+          "image": "ps-tomarix-redis:2026-08-20",
+          "state": {
+            "Status": "running",
+            "Pid": 2086,
+            "StartedAt": "2026-09-21T04:37:16.01336521Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 1073741824,
+            "MemorySwap": 2147483648,
+            "NanoCpus": 1000000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": 128
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "ps-tomarix-backend-postgres-1",
+          "image": "ps-tomarix-postgres:2026-08-20",
+          "state": {
+            "Status": "running",
+            "Pid": 2161,
+            "StartedAt": "2026-09-21T04:37:16.020705707Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 4294967296,
+            "MemorySwap": 8589934592,
+            "NanoCpus": 2000000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": 256
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "catalog2-backend",
+          "image": "catalog2-backend:20260724_145306_delete_button",
+          "state": {
+            "Status": "running",
+            "Pid": 2291,
+            "StartedAt": "2026-09-21T04:37:16.039691173Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "database_client": {
+            "host": "172.16.10.3",
+            "port": 5432,
+            "database": "catalog2",
+            "role": "catalog2_user"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "catalog2-backend-rollback-20260724_145306_delete_button",
+          "image": "catalog2-backend:20260723_111810_move_tombstones",
+          "state": {
+            "Status": "exited",
+            "Pid": 0,
+            "StartedAt": "2026-07-24T09:53:39.686427554Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "database_client": {
+            "host": "172.16.10.3",
+            "port": 5432,
+            "database": "catalog2",
+            "role": "catalog2_user"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "catalog-backend-before-delete",
+          "image": "catalog-backend:20260721_135212_independent_catalogs",
+          "state": {
+            "Status": "exited",
+            "Pid": 0,
+            "StartedAt": "2026-09-28T12:22:30.710960062Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "database_client": {
+            "host": "172.16.10.3",
+            "port": 5432,
+            "database": "catalog",
+            "role": "catalog_user"
+          },
+          "declared_worker_flags": []
+        },
+        {
+          "name": "milana-stt-gateway",
+          "image": "milana-stt-gateway:local",
+          "state": {
+            "Status": "running",
+            "Pid": 2316,
+            "StartedAt": "2026-09-21T04:37:16.040941451Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "magical_curran",
+          "image": "sha256:9f026799ad6315a5cc6ad77cfca462253bf3033baa65e0acf58b054d7433e261",
+          "state": {
+            "Status": "exited",
+            "Pid": 0,
+            "StartedAt": "2026-07-01T04:25:19.568959112Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        }
+      ],
+      "services": [
+        {
+          "exit_code": 0,
+          "output": "Id=kotiba-backend.service\nActiveState=active\nControlGroup=/system.slice/kotiba-backend.service\nCPUQuotaPerSecUSec=infinity\nMemoryMax=infinity\nTasksMax=15235\nWorkingDirectory=/opt/kotiba/current\nUser=admilana"
+        },
+        {
+          "exit_code": 0,
+          "output": "Id=kotiba-postgrest.service\nActiveState=active\nControlGroup=/system.slice/kotiba-postgrest.service\nCPUQuotaPerSecUSec=infinity\nMemoryMax=infinity\nTasksMax=15235\nWorkingDirectory=\nUser="
+        },
+        {
+          "exit_code": 0,
+          "output": "Id=kotiba-supabase-proxy.service\nActiveState=active\nControlGroup=/system.slice/kotiba-supabase-proxy.service\nCPUQuotaPerSecUSec=infinity\nMemoryMax=infinity\nTasksMax=15235\nWorkingDirectory=\nUser="
+        },
+        {
+          "exit_code": 0,
+          "output": "Id=kotiba-tg-news.service\nActiveState=active\nControlGroup=/system.slice/kotiba-tg-news.service\nCPUQuotaPerSecUSec=infinity\nMemoryMax=infinity\nTasksMax=15235\nWorkingDirectory=/opt/kotiba-tg-news/current\nUser=admilana"
+        },
+        {
+          "exit_code": 0,
+          "output": "Id=leadlens-backend.service\nActiveState=active\nControlGroup=/system.slice/leadlens-backend.service\nCPUQuotaPerSecUSec=infinity\nMemoryMax=infinity\nTasksMax=15235\nWorkingDirectory=/opt/leadlens/current-backend\nUser=admilana"
+        },
+        {
+          "exit_code": 0,
+          "output": "Id=milana-router.service\nActiveState=active\nControlGroup=/system.slice/milana-router.service\nCPUQuotaPerSecUSec=infinity\nMemoryMax=infinity\nTasksMax=15235\nWorkingDirectory=\nUser="
+        },
+        {
+          "exit_code": 0,
+          "output": "Id=milanaweb-backend.service\nActiveState=active\nControlGroup=/system.slice/milanaweb-backend.service\nCPUQuotaPerSecUSec=infinity\nMemoryMax=infinity\nTasksMax=15235\nWorkingDirectory=/opt/milanaweb/current/backend\nUser=admilana"
+        }
+      ],
+      "native_process_identities": [
+        {
+          "comm": "garage",
+          "uid": 1000,
+          "cwd": "/",
+          "cgroup": "0::/system.slice/docker-514c493d5239b79962cb1fcaac22acc552420a0ad77697984cfd63d4db0d6710.scope",
+          "pool": {}
+        },
+        {
+          "comm": "nginx",
+          "uid": 101,
+          "cwd": "/",
+          "cgroup": "0::/system.slice/docker-d79bdf4b906aabb95e51fbb06ece69343a0759c08386b6a9e3f8424b66329a0d.scope",
+          "pool": {}
+        },
+        {
+          "comm": "uvicorn",
+          "uid": 0,
+          "cwd": "/app",
+          "cgroup": "0::/system.slice/docker-ff90b586fe8efe153f93c3e1e07b8305e878df95e9773c0502420631baad611c.scope",
+          "pool": {}
+        },
+        {
+          "comm": "uvicorn",
+          "uid": 0,
+          "cwd": "/app",
+          "cgroup": "0::/system.slice/docker-00759c1a7da81b88fe4556a1fbdf20db3dd971500fccb961bfdb2fcd1773d334.scope",
+          "pool": {},
+          "DATABASE_URL_identity": {
+            "host": "172.16.10.3",
+            "database": "catalog2",
+            "role": "catalog2_user"
+          }
+        },
+        {
+          "comm": "uvicorn",
+          "uid": 100,
+          "cwd": "/app",
+          "cgroup": "0::/system.slice/docker-aa60db1955d7e7c7eb918573b2d66b8fedb896d80b9e93ae016aa5a3d5773ea0.scope",
+          "pool": {},
+          "DATABASE_URL_identity": {
+            "host": "postgres",
+            "database": "ps_assistant",
+            "role": "ps_app"
+          }
+        },
+        {
+          "comm": "celery",
+          "uid": 100,
+          "cwd": "/app",
+          "cgroup": "0::/system.slice/docker-8c073b0c60e3b676384ee0b81dd88546b798ba2ab62fc268e15e5f05d962780c.scope",
+          "pool": {},
+          "DATABASE_URL_identity": {
+            "host": "postgres",
+            "database": "ps_assistant",
+            "role": "ps_app"
+          }
+        },
+        {
+          "comm": "celery",
+          "uid": 100,
+          "cwd": "/app",
+          "cgroup": "0::/system.slice/docker-23a50aa9f473ab97f7347efaaaafe02e02fe5dca8c268d9881735ad0a727dcad.scope",
+          "pool": {},
+          "DATABASE_URL_identity": {
+            "host": "postgres",
+            "database": "ps_assistant",
+            "role": "ps_app"
+          }
+        },
+        {
+          "comm": "celery",
+          "uid": 100,
+          "cwd": "/app",
+          "cgroup": "0::/system.slice/docker-91db8d5802cee25486dce20ed9dfd5d2f1ecc1de864ca61c9b3a42dac524cb53.scope",
+          "pool": {},
+          "DATABASE_URL_identity": {
+            "host": "postgres",
+            "database": "ps_assistant",
+            "role": "ps_app"
+          }
+        },
+        {
+          "comm": "nginx",
+          "uid": 101,
+          "cwd": "/",
+          "cgroup": "0::/system.slice/docker-d79bdf4b906aabb95e51fbb06ece69343a0759c08386b6a9e3f8424b66329a0d.scope",
+          "pool": {}
+        },
+        {
+          "comm": "nginx",
+          "uid": 101,
+          "cwd": "/",
+          "cgroup": "0::/system.slice/docker-d79bdf4b906aabb95e51fbb06ece69343a0759c08386b6a9e3f8424b66329a0d.scope",
+          "pool": {}
+        },
+        {
+          "comm": "nginx",
+          "uid": 101,
+          "cwd": "/",
+          "cgroup": "0::/system.slice/docker-d79bdf4b906aabb95e51fbb06ece69343a0759c08386b6a9e3f8424b66329a0d.scope",
+          "pool": {}
+        },
+        {
+          "comm": "nginx",
+          "uid": 101,
+          "cwd": "/",
+          "cgroup": "0::/system.slice/docker-d79bdf4b906aabb95e51fbb06ece69343a0759c08386b6a9e3f8424b66329a0d.scope",
+          "pool": {}
+        },
+        {
+          "comm": "nginx",
+          "uid": 101,
+          "cwd": "/",
+          "cgroup": "0::/system.slice/docker-d79bdf4b906aabb95e51fbb06ece69343a0759c08386b6a9e3f8424b66329a0d.scope",
+          "pool": {}
+        },
+        {
+          "comm": "nginx",
+          "uid": 101,
+          "cwd": "/",
+          "cgroup": "0::/system.slice/docker-d79bdf4b906aabb95e51fbb06ece69343a0759c08386b6a9e3f8424b66329a0d.scope",
+          "pool": {}
+        },
+        {
+          "comm": "postgrest",
+          "uid": 1000,
+          "cwd": "/",
+          "cgroup": "0::/system.slice/docker-cbde548163a6c67c05093889e04c6f03831b97b89077a71b76f9de818fe17480.scope",
+          "pool": {},
+          "PGRST_DB_URI_identity": {
+            "host": "172.16.10.3",
+            "database": "kotiba",
+            "role": "authenticator"
+          }
+        },
+        {
+          "comm": "nginx",
+          "uid": 0,
+          "cwd": "/",
+          "cgroup": "0::/system.slice/docker-4aa6a8156e5c5d03e9a3423b9d44c5fd8052ebb5126acdcb3003e01061c12a5b.scope",
+          "pool": {}
+        },
+        {
+          "comm": "nginx",
+          "uid": 101,
+          "cwd": "/",
+          "cgroup": "0::/system.slice/docker-4aa6a8156e5c5d03e9a3423b9d44c5fd8052ebb5126acdcb3003e01061c12a5b.scope",
+          "pool": {}
+        },
+        {
+          "comm": "celery",
+          "uid": 100,
+          "cwd": "/app",
+          "cgroup": "0::/system.slice/docker-8c073b0c60e3b676384ee0b81dd88546b798ba2ab62fc268e15e5f05d962780c.scope",
+          "pool": {},
+          "DATABASE_URL_identity": {
+            "host": "postgres",
+            "database": "ps_assistant",
+            "role": "ps_app"
+          }
+        },
+        {
+          "comm": "celery",
+          "uid": 100,
+          "cwd": "/app",
+          "cgroup": "0::/system.slice/docker-91db8d5802cee25486dce20ed9dfd5d2f1ecc1de864ca61c9b3a42dac524cb53.scope",
+          "pool": {},
+          "DATABASE_URL_identity": {
+            "host": "postgres",
+            "database": "ps_assistant",
+            "role": "ps_app"
+          }
+        },
+        {
+          "comm": "celery",
+          "uid": 100,
+          "cwd": "/app",
+          "cgroup": "0::/system.slice/docker-91db8d5802cee25486dce20ed9dfd5d2f1ecc1de864ca61c9b3a42dac524cb53.scope",
+          "pool": {},
+          "DATABASE_URL_identity": {
+            "host": "postgres",
+            "database": "ps_assistant",
+            "role": "ps_app"
+          }
+        },
+        {
+          "comm": "celery",
+          "uid": 100,
+          "cwd": "/app",
+          "cgroup": "0::/system.slice/docker-91db8d5802cee25486dce20ed9dfd5d2f1ecc1de864ca61c9b3a42dac524cb53.scope",
+          "pool": {},
+          "DATABASE_URL_identity": {
+            "host": "postgres",
+            "database": "ps_assistant",
+            "role": "ps_app"
+          }
+        },
+        {
+          "comm": "celery",
+          "uid": 100,
+          "cwd": "/app",
+          "cgroup": "0::/system.slice/docker-91db8d5802cee25486dce20ed9dfd5d2f1ecc1de864ca61c9b3a42dac524cb53.scope",
+          "pool": {},
+          "DATABASE_URL_identity": {
+            "host": "postgres",
+            "database": "ps_assistant",
+            "role": "ps_app"
+          }
+        },
+        {
+          "comm": "uvicorn",
+          "uid": 1000,
+          "cwd": "/app",
+          "cgroup": "0::/system.slice/docker-a0ea3a8ec8c9af13539b27d63ed3aaab9a78e9d6bc71050263edf2436c777b7c.scope",
+          "pool": {
+            "DB_MAX_OVERFLOW": "4",
+            "DB_POOL_SIZE": "8",
+            "WEB_CONCURRENCY": "2"
+          },
+          "DATABASE_URL_identity": {
+            "host": "172.16.10.3",
+            "database": "erp",
+            "role": "erp"
+          }
+        },
+        {
+          "comm": "python3.11",
+          "uid": 1000,
+          "cwd": "/app",
+          "cgroup": "0::/system.slice/docker-a0ea3a8ec8c9af13539b27d63ed3aaab9a78e9d6bc71050263edf2436c777b7c.scope",
+          "pool": {
+            "DB_MAX_OVERFLOW": "4",
+            "DB_POOL_SIZE": "8",
+            "WEB_CONCURRENCY": "2"
+          },
+          "DATABASE_URL_identity": {
+            "host": "172.16.10.3",
+            "database": "erp",
+            "role": "erp"
+          }
+        },
+        {
+          "comm": "python3.11",
+          "uid": 1000,
+          "cwd": "/app",
+          "cgroup": "0::/system.slice/docker-a0ea3a8ec8c9af13539b27d63ed3aaab9a78e9d6bc71050263edf2436c777b7c.scope",
+          "pool": {
+            "DB_MAX_OVERFLOW": "4",
+            "DB_POOL_SIZE": "8",
+            "WEB_CONCURRENCY": "2"
+          },
+          "DATABASE_URL_identity": {
+            "host": "172.16.10.3",
+            "database": "erp",
+            "role": "erp"
+          }
+        },
+        {
+          "comm": "python3.11",
+          "uid": 1000,
+          "cwd": "/app",
+          "cgroup": "0::/system.slice/docker-a0ea3a8ec8c9af13539b27d63ed3aaab9a78e9d6bc71050263edf2436c777b7c.scope",
+          "pool": {
+            "DB_MAX_OVERFLOW": "4",
+            "DB_POOL_SIZE": "8",
+            "WEB_CONCURRENCY": "2"
+          },
+          "DATABASE_URL_identity": {
+            "host": "172.16.10.3",
+            "database": "erp",
+            "role": "erp"
+          }
+        },
+        {
+          "comm": "uvicorn",
+          "uid": 1000,
+          "cwd": "/app",
+          "cgroup": "0::/system.slice/docker-57ee72dd3ee32ed66ed72f1d193a7b6359c22c2c846068d5069bd8079a3b532c.scope",
+          "pool": {
+            "DB_MAX_OVERFLOW": "4",
+            "DB_POOL_SIZE": "8",
+            "WEB_CONCURRENCY": "2"
+          },
+          "DATABASE_URL_identity": {
+            "host": "172.16.10.3",
+            "database": "erp",
+            "role": "erp"
+          }
+        },
+        {
+          "comm": "python3.11",
+          "uid": 1000,
+          "cwd": "/app",
+          "cgroup": "0::/system.slice/docker-57ee72dd3ee32ed66ed72f1d193a7b6359c22c2c846068d5069bd8079a3b532c.scope",
+          "pool": {
+            "DB_MAX_OVERFLOW": "4",
+            "DB_POOL_SIZE": "8",
+            "WEB_CONCURRENCY": "2"
+          },
+          "DATABASE_URL_identity": {
+            "host": "172.16.10.3",
+            "database": "erp",
+            "role": "erp"
+          }
+        },
+        {
+          "comm": "python3.11",
+          "uid": 1000,
+          "cwd": "/app",
+          "cgroup": "0::/system.slice/docker-57ee72dd3ee32ed66ed72f1d193a7b6359c22c2c846068d5069bd8079a3b532c.scope",
+          "pool": {
+            "DB_MAX_OVERFLOW": "4",
+            "DB_POOL_SIZE": "8",
+            "WEB_CONCURRENCY": "2"
+          },
+          "DATABASE_URL_identity": {
+            "host": "172.16.10.3",
+            "database": "erp",
+            "role": "erp"
+          }
+        },
+        {
+          "comm": "python3.11",
+          "uid": 1000,
+          "cwd": "/app",
+          "cgroup": "0::/system.slice/docker-57ee72dd3ee32ed66ed72f1d193a7b6359c22c2c846068d5069bd8079a3b532c.scope",
+          "pool": {
+            "DB_MAX_OVERFLOW": "4",
+            "DB_POOL_SIZE": "8",
+            "WEB_CONCURRENCY": "2"
+          },
+          "DATABASE_URL_identity": {
+            "host": "172.16.10.3",
+            "database": "erp",
+            "role": "erp"
+          }
+        },
+        {
+          "comm": "haproxy",
+          "uid": 0,
+          "cwd": "/",
+          "cgroup": "0::/system.slice/milana-router.service",
+          "pool": {}
+        },
+        {
+          "comm": "uvicorn",
+          "uid": 0,
+          "cwd": "/app",
+          "cgroup": "0::/system.slice/docker-45d9d1f7ea4edb78ca16a8f1285c63a78ecf1e0ada05a69bc123c1e15e743371.scope",
+          "pool": {},
+          "DATABASE_URL_identity": {
+            "host": "172.16.10.3",
+            "database": "catalog",
+            "role": "catalog_user"
+          }
+        },
+        {
+          "comm": "python3",
+          "uid": 0,
+          "cwd": "/home/admilana",
+          "cgroup": "0::/user.slice/user-1000.slice/session-2435.scope",
+          "pool": {}
+        },
+        {
+          "comm": "python3",
+          "uid": 0,
+          "cwd": "/home/admilana",
+          "cgroup": "0::/user.slice/user-1000.slice/session-2438.scope",
+          "pool": {}
+        },
+        {
+          "comm": "haproxy",
+          "uid": 0,
+          "cwd": "/",
+          "cgroup": "0::/system.slice/milana-router.service",
+          "pool": {}
+        },
+        {
+          "comm": "node",
+          "uid": 1000,
+          "cwd": "/opt/leadlens/releases/20260824T074000Z-catalog-request-events",
+          "cgroup": "0::/system.slice/leadlens-backend.service",
+          "pool": {},
+          "DATABASE_URL_identity": {
+            "host": "172.16.10.3",
+            "database": "leadlens",
+            "role": "leadlens"
+          }
+        },
+        {
+          "comm": "node",
+          "uid": 1000,
+          "cwd": "/opt/milanaweb/releases/20260822T120100Z-season-navigation/backend",
+          "cgroup": "0::/system.slice/milanaweb-backend.service",
+          "pool": {},
+          "DATABASE_URL_identity": {
+            "host": "172.16.10.3",
+            "database": "milanaweb",
+            "role": "milanaweb"
+          }
+        },
+        {
+          "comm": "uvicorn",
+          "uid": 1000,
+          "cwd": "/opt/kotiba/releases/20260824T134800Z-phone-capture-only",
+          "cgroup": "0::/system.slice/kotiba-backend.service",
+          "pool": {}
+        },
+        {
+          "comm": "python",
+          "uid": 1000,
+          "cwd": "/opt/kotiba-tg-news/releases/20260728034021",
+          "cgroup": "0::/system.slice/kotiba-tg-news.service",
+          "pool": {}
+        }
+      ],
+      "human_owner": {
+        "ERP": "Ismail",
+        "shared_workloads": null
+      },
+      "history": {
+        "samples": 167,
+        "from": {
+          "date": "2026-10-05",
+          "time": "00:10:13",
+          "tz": "UTC",
+          "interval": 600
+        },
+        "to": {
+          "date": "2026-10-06",
+          "time": "03:50:10",
+          "tz": "UTC",
+          "interval": 608
+        },
+        "max_cpu_busy_percent": 9.21,
+        "max_iowait_percent": 0.08,
+        "min_available_memory_kib": 7485692,
+        "max_run_queue": 7,
+        "max_load_1": 1.25,
+        "max_blocked": 0,
+        "max_disk_util_percent": 1.6,
+        "max_disk_await_ms": 8.76,
+        "max_swap_in_pages_s": 1.39,
+        "max_swap_out_pages_s": 12.11
+      },
+      "error_marker_counts": [
+        {
+          "source": "milana-backend-blue",
+          "exit_code": 0,
+          "lines": 56417,
+          "markers": {
+            "pool_timeout": 0,
+            "connection_limit": 0,
+            "deadlock": 0,
+            "oom": 0
+          }
+        },
+        {
+          "source": "milana-backend-green",
+          "exit_code": 0,
+          "lines": 2716,
+          "markers": {
+            "pool_timeout": 0,
+            "connection_limit": 0,
+            "deadlock": 0,
+            "oom": 0
+          }
+        }
+      ]
+    },
+    "frontend": {
+      "logical_processors": "4",
+      "containers": [
+        {
+          "name": "milana-frontend-blue",
+          "image": "ghcr.io/shmirzaev/milana-erp-frontend@sha256:d3c72f7ce756f51adb73b65618d88b2547a43cd6843c6eb661b773a659a494f5",
+          "state": {
+            "Status": "running",
+            "Pid": 1121436,
+            "StartedAt": "2026-10-05T07:19:44.135304534Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "milana-frontend-green",
+          "image": "ghcr.io/shmirzaev/milana-erp-frontend@sha256:946f62bede3efe9fa68899dc6adc36e0077c52031e056c2707298077155dc9ef",
+          "state": {
+            "Status": "running",
+            "Pid": 1106620,
+            "StartedAt": "2026-10-05T06:51:42.427492036Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "ps-tomarix-frontend-miniapp-1",
+          "image": "ps-tomarix-miniapp:2026-08-20-connections1",
+          "state": {
+            "Status": "running",
+            "Pid": 1842,
+            "StartedAt": "2026-09-21T04:37:18.141608465Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 1073741824,
+            "MemorySwap": 2147483648,
+            "NanoCpus": 1000000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": 256
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "ps-tomarix-frontend-gateway-1",
+          "image": "ps-tomarix-nginx:2026-08-20",
+          "state": {
+            "Status": "running",
+            "Pid": 1817,
+            "StartedAt": "2026-09-21T04:37:18.143183544Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 268435456,
+            "MemorySwap": 536870912,
+            "NanoCpus": 500000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": 128
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "ps-tomarix-frontend-admin-panel-1",
+          "image": "ps-tomarix-admin:2026-08-20",
+          "state": {
+            "Status": "running",
+            "Pid": 1826,
+            "StartedAt": "2026-09-21T04:37:18.142128501Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 1073741824,
+            "MemorySwap": 2147483648,
+            "NanoCpus": 1000000000,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": 256
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "suspicious_mendel",
+          "image": "sha256:4af70d7884954189a32f0a0db78c43967119ac7398871548332c3486c5a09aa7",
+          "state": {
+            "Status": "exited",
+            "Pid": 0,
+            "StartedAt": "2026-06-30T06:26:57.367709417Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        },
+        {
+          "name": "wizardly_kare",
+          "image": "sha256:bf8ae0d608e99136430715d267cce10fbff4ca14c2d1943c6fd5772834bada4d",
+          "state": {
+            "Status": "exited",
+            "Pid": 0,
+            "StartedAt": "2026-06-30T04:21:06.523318023Z",
+            "OOMKilled": false
+          },
+          "restarts": 0,
+          "limits": {
+            "Memory": 0,
+            "MemorySwap": 0,
+            "NanoCpus": 0,
+            "CpuQuota": 0,
+            "CpuPeriod": 0,
+            "PidsLimit": null
+          },
+          "pool": {},
+          "declared_worker_flags": []
+        }
+      ],
+      "services": [
+        {
+          "exit_code": 0,
+          "output": "Id=catalog-frontend.service\nActiveState=active\nControlGroup=/system.slice/catalog-frontend.service\nCPUQuotaPerSecUSec=infinity\nMemoryMax=infinity\nTasksMax=6221\nWorkingDirectory=/opt/catslog/current\nUser=admilana"
+        },
+        {
+          "exit_code": 0,
+          "output": "Id=catalog2-frontend.service\nActiveState=active\nControlGroup=/system.slice/catalog2-frontend.service\nCPUQuotaPerSecUSec=infinity\nMemoryMax=infinity\nTasksMax=6221\nWorkingDirectory=/opt/catalog2/current\nUser=admilana"
+        },
+        {
+          "exit_code": 0,
+          "output": "Id=kotiba-frontend.service\nActiveState=active\nControlGroup=/system.slice/kotiba-frontend.service\nCPUQuotaPerSecUSec=infinity\nMemoryMax=infinity\nTasksMax=6221\nWorkingDirectory=/opt/kotiba/current/frontend\nUser=admilana"
+        },
+        {
+          "exit_code": 0,
+          "output": "Id=leadlens-frontend.service\nActiveState=active\nControlGroup=/system.slice/leadlens-frontend.service\nCPUQuotaPerSecUSec=infinity\nMemoryMax=infinity\nTasksMax=6221\nWorkingDirectory=/opt/leadlens/current-frontend\nUser=admilana"
+        },
+        {
+          "exit_code": 0,
+          "output": "Id=milana-router.service\nActiveState=active\nControlGroup=/system.slice/milana-router.service\nCPUQuotaPerSecUSec=infinity\nMemoryMax=infinity\nTasksMax=6221\nWorkingDirectory=\nUser="
+        },
+        {
+          "exit_code": 0,
+          "output": "Id=milanaweb-frontend.service\nActiveState=active\nControlGroup=/system.slice/milanaweb-frontend.service\nCPUQuotaPerSecUSec=infinity\nMemoryMax=infinity\nTasksMax=6221\nWorkingDirectory=/opt/milanaweb/current/frontend\nUser=admilana"
+        }
+      ],
+      "native_process_identities": [
+        {
+          "comm": "MainThread",
+          "uid": 1000,
+          "cwd": "/opt/leadlens/releases/20260827T192033Z-analytics-ui-localization",
+          "cgroup": "0::/system.slice/leadlens-frontend.service",
+          "pool": {}
+        },
+        {
+          "comm": "MainThread",
+          "uid": 995,
+          "cwd": "/opt/mailflare/app",
+          "cgroup": "0::/system.slice/mailflare.service",
+          "pool": {}
+        },
+        {
+          "comm": "MainThread",
+          "uid": 1000,
+          "cwd": "/opt/milanaweb/releases/20260822T120300Z-season-navigation/frontend",
+          "cgroup": "0::/system.slice/milanaweb-frontend.service",
+          "pool": {}
+        },
+        {
+          "comm": "MainThread",
+          "uid": 1000,
+          "cwd": "/opt/kotiba/releases/20260824T033845Z-dashboard-login-fix-frontend/frontend",
+          "cgroup": "0::/system.slice/kotiba-frontend.service",
+          "pool": {}
+        },
+        {
+          "comm": "nginx",
+          "uid": 101,
+          "cwd": "/",
+          "cgroup": "0::/system.slice/docker-8bca44a5740f0c4e7010e2bad6503fc11672dd3df520cf40b0403888691170cc.scope",
+          "pool": {}
+        },
+        {
+          "comm": "next-server (v",
+          "uid": 100,
+          "cwd": "/app",
+          "cgroup": "0::/system.slice/docker-003f8b3820f8dbe09cfd16d43a67184b5788d5cb9782ad6546112ac2b4423496.scope",
+          "pool": {}
+        },
+        {
+          "comm": "next-server (v",
+          "uid": 100,
+          "cwd": "/app",
+          "cgroup": "0::/system.slice/docker-f9c186d0562421ce61c5c9976915258536d49a2739254ba0fbd703716e0fb901.scope",
+          "pool": {}
+        },
+        {
+          "comm": "nginx",
+          "uid": 101,
+          "cwd": "/",
+          "cgroup": "0::/system.slice/docker-8bca44a5740f0c4e7010e2bad6503fc11672dd3df520cf40b0403888691170cc.scope",
+          "pool": {}
+        },
+        {
+          "comm": "nginx",
+          "uid": 101,
+          "cwd": "/",
+          "cgroup": "0::/system.slice/docker-8bca44a5740f0c4e7010e2bad6503fc11672dd3df520cf40b0403888691170cc.scope",
+          "pool": {}
+        },
+        {
+          "comm": "nginx",
+          "uid": 101,
+          "cwd": "/",
+          "cgroup": "0::/system.slice/docker-8bca44a5740f0c4e7010e2bad6503fc11672dd3df520cf40b0403888691170cc.scope",
+          "pool": {}
+        },
+        {
+          "comm": "nginx",
+          "uid": 101,
+          "cwd": "/",
+          "cgroup": "0::/system.slice/docker-8bca44a5740f0c4e7010e2bad6503fc11672dd3df520cf40b0403888691170cc.scope",
+          "pool": {}
+        },
+        {
+          "comm": "next-server (v",
+          "uid": 1001,
+          "cwd": "/app",
+          "cgroup": "0::/system.slice/docker-b7aaed8feab9d9d0502f6532a2cb22e3a3917ed5df3c1637fa784f094add0abb.scope",
+          "pool": {}
+        },
+        {
+          "comm": "next-server (v",
+          "uid": 1001,
+          "cwd": "/app",
+          "cgroup": "0::/system.slice/docker-b76fdbd70963315dd418720747f1e5a32fa8b6f7d46e66250efab00a29a142d8.scope",
+          "pool": {}
+        },
+        {
+          "comm": "haproxy",
+          "uid": 0,
+          "cwd": "/",
+          "cgroup": "0::/system.slice/milana-router.service",
+          "pool": {}
+        },
+        {
+          "comm": "python3",
+          "uid": 0,
+          "cwd": "/home/admilana",
+          "cgroup": "0::/user.slice/user-1000.slice/session-1531.scope",
+          "pool": {}
+        },
+        {
+          "comm": "python3",
+          "uid": 0,
+          "cwd": "/home/admilana",
+          "cgroup": "0::/user.slice/user-1000.slice/session-1534.scope",
+          "pool": {}
+        },
+        {
+          "comm": "python3",
+          "uid": 1000,
+          "cwd": "/opt/catslog/releases/20260928_card_visibility",
+          "cgroup": "0::/system.slice/catalog-frontend.service",
+          "pool": {}
+        },
+        {
+          "comm": "python3",
+          "uid": 1000,
+          "cwd": "/opt/catalog2/releases/20260724_095642_delete_button",
+          "cgroup": "0::/system.slice/catalog2-frontend.service",
+          "pool": {}
+        },
+        {
+          "comm": "haproxy",
+          "uid": 0,
+          "cwd": "/",
+          "cgroup": "0::/system.slice/milana-router.service",
+          "pool": {}
+        }
+      ],
+      "human_owner": {
+        "ERP": "Ismail",
+        "shared_workloads": null
+      },
+      "history": {
+        "samples": 167,
+        "from": {
+          "date": "2026-10-05",
+          "time": "00:10:01",
+          "tz": "UTC",
+          "interval": 598
+        },
+        "to": {
+          "date": "2026-10-06",
+          "time": "03:50:02",
+          "tz": "UTC",
+          "interval": 602
+        },
+        "max_cpu_busy_percent": 4.18,
+        "max_iowait_percent": 0.06,
+        "min_available_memory_kib": 6012860,
+        "max_run_queue": 6,
+        "max_load_1": 0.64,
+        "max_blocked": 0,
+        "max_disk_util_percent": 0.54,
+        "max_disk_await_ms": 1.2,
+        "max_swap_in_pages_s": 0.0,
+        "max_swap_out_pages_s": 1.71
+      },
+      "error_marker_counts": [
+        {
+          "source": "milana-backend-blue",
+          "exit_code": 1,
+          "lines": 2,
+          "markers": {
+            "pool_timeout": 0,
+            "connection_limit": 0,
+            "deadlock": 0,
+            "oom": 0
+          }
+        },
+        {
+          "source": "milana-backend-green",
+          "exit_code": 1,
+          "lines": 2,
+          "markers": {
+            "pool_timeout": 0,
+            "connection_limit": 0,
+            "deadlock": 0,
+            "oom": 0
+          }
+        }
+      ]
+    }
+  },
+  "backup": {
+    "host_timezone": "Asia/Tashkent",
+    "job": [
+      {
+        "id": "backup-b44c5fd8-0b64",
+        "enabled": 1,
+        "schedule": "00:00",
+        "vmid": "100,101,102,103,104",
+        "storage": "backup",
+        "mode": "snapshot",
+        "repeat-missed": 0
+      }
+    ],
+    "latest_task": {
+      "upid": "UPID:milana:0031E671:0784BF7A:6AC3F3B0:vzdump::root@pam:",
+      "type": "vzdump",
+      "id": "",
+      "node": "milana",
+      "starttime": 1791226800,
+      "endtime": 1791226903,
+      "status": "OK",
+      "user": "root@pam"
+    },
+    "snapshot_inventory": {
+      "100": [
+        {
+          "backup-type": "vm",
+          "backup-id": "100",
+          "backup-time": 1790622004,
+          "size": 34359739190,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "100",
+          "backup-time": 1790708405,
+          "size": 34359739189,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "100",
+          "backup-time": 1790794803,
+          "size": 34359739189,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "100",
+          "backup-time": 1790881200,
+          "size": 34359739188,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "100",
+          "backup-time": 1790967606,
+          "size": 34359739190,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "100",
+          "backup-time": 1791054002,
+          "size": 34359739192,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "100",
+          "backup-time": 1791140405,
+          "size": 34359739189,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "100",
+          "backup-time": 1791226801,
+          "size": 34359739190,
+          "owner": "root@pam",
+          "protected": false
+        }
+      ],
+      "101": [
+        {
+          "backup-type": "vm",
+          "backup-id": "101",
+          "backup-time": 1790622028,
+          "size": 42949673769,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "101",
+          "backup-time": 1790708426,
+          "size": 42949673771,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "101",
+          "backup-time": 1790794826,
+          "size": 42949673767,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "101",
+          "backup-time": 1790881223,
+          "size": 42949673767,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "101",
+          "backup-time": 1790967630,
+          "size": 42949673767,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "101",
+          "backup-time": 1791054024,
+          "size": 42949673768,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "101",
+          "backup-time": 1791140429,
+          "size": 42949673768,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "101",
+          "backup-time": 1791226824,
+          "size": 42949673768,
+          "owner": "root@pam",
+          "protected": false
+        }
+      ],
+      "102": [
+        {
+          "backup-type": "vm",
+          "backup-id": "102",
+          "backup-time": 1790622033,
+          "size": 536870912806,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "102",
+          "backup-time": 1790708432,
+          "size": 536870912802,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "102",
+          "backup-time": 1790794831,
+          "size": 536870912803,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "102",
+          "backup-time": 1790881229,
+          "size": 536870912804,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "102",
+          "backup-time": 1790967636,
+          "size": 536870912803,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "102",
+          "backup-time": 1791054031,
+          "size": 536870912804,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "102",
+          "backup-time": 1791140435,
+          "size": 536870912804,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "102",
+          "backup-time": 1791226830,
+          "size": 536870912802,
+          "owner": "root@pam",
+          "protected": false
+        }
+      ],
+      "103": [
+        {
+          "backup-type": "vm",
+          "backup-id": "103",
+          "backup-time": 1790622044,
+          "size": 751619277670,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "103",
+          "backup-time": 1790708445,
+          "size": 751619277673,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "103",
+          "backup-time": 1790794844,
+          "size": 751619277667,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "103",
+          "backup-time": 1790881240,
+          "size": 751619277667,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "103",
+          "backup-time": 1790967648,
+          "size": 751619277671,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "103",
+          "backup-time": 1791054042,
+          "size": 751619277672,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "103",
+          "backup-time": 1791140441,
+          "size": 751619277669,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "103",
+          "backup-time": 1791226842,
+          "size": 751619277668,
+          "owner": "root@pam",
+          "protected": false
+        }
+      ],
+      "104": [
+        {
+          "backup-type": "vm",
+          "backup-id": "104",
+          "backup-time": 1790622228,
+          "size": 85899346713,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "104",
+          "backup-time": 1790708518,
+          "size": 85899346711,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "104",
+          "backup-time": 1790794899,
+          "size": 85899346714,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "104",
+          "backup-time": 1790881264,
+          "size": 85899346715,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "104",
+          "backup-time": 1790967697,
+          "size": 85899346713,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "104",
+          "backup-time": 1791054068,
+          "size": 85899346711,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "104",
+          "backup-time": 1791140455,
+          "size": 85899346710,
+          "owner": "root@pam",
+          "protected": false
+        },
+        {
+          "backup-type": "vm",
+          "backup-id": "104",
+          "backup-time": 1791226886,
+          "size": 85899346712,
+          "owner": "root@pam",
+          "protected": false
+        }
+      ]
+    },
+    "pbs_datastore": [
+      {
+        "name": "backup-17tb",
+        "path": "/mnt/pbs-storage",
+        "comment": ""
+      }
+    ],
+    "pbs_prune_jobs": [
+      {
+        "id": "default-backup-17tb-c28ff094-bc2",
+        "store": "backup-17tb",
+        "schedule": "daily",
+        "keep-daily": 7
+      }
+    ],
+    "pbs_verify_jobs": [],
+    "pbs_sync_jobs": [],
+    "vm_disks_in_backup": {
+      "102": [
+        {
+          "device": "virtio0",
+          "volume": "local-lvm:vm-102-disk-0",
+          "size": "500G",
+          "backup": "1",
+          "cache": "writeback"
+        }
+      ],
+      "103": [
+        {
+          "device": "virtio0",
+          "volume": "local-lvm:vm-103-disk-0",
+          "size": "200G",
+          "backup": "1",
+          "cache": "writeback"
+        },
+        {
+          "device": "virtio1",
+          "volume": "local-lvm:vm-103-disk-1",
+          "size": "500G",
+          "backup": "1",
+          "cache": "writeback"
+        }
+      ],
+      "104": [
+        {
+          "device": "virtio0",
+          "volume": "local-lvm:vm-104-disk-0",
+          "size": "80G",
+          "backup": "1",
+          "cache": "writeback"
+        }
+      ]
+    },
+    "named_human_owner": null,
+    "limitations": [
+      "Daily snapshots do not prove zero RPO or an application restore.",
+      "No scheduled PBS verification or synchronization job was found.",
+      "Physical failure domains, encryption and witnessed restore belong to OPS04/OPS10 and remain unverified."
+    ]
+  },
+  "evidence_files": [
+    {
+      "file": "172.16.10.3-initial.json",
+      "bytes": 1085,
+      "sha256": "cfb368c64684d0b5ebaafc82b1379d9f2490055ca8e3668daf2533f76d65397d"
+    },
+    {
+      "file": "172.16.10.4-initial.json",
+      "bytes": 21126,
+      "sha256": "9fe52c3e560cbcf5f513144475dd47fb0fca660993edf09b4d018c62c1e336c5"
+    },
+    {
+      "file": "172.16.10.5-initial.json",
+      "bytes": 14560,
+      "sha256": "8bc91da1e88e2a87b72e76baacfbfc1c779cd9510e0ff894a0222a0e9aecf184"
+    },
+    {
+      "file": "backend-600s.json",
+      "bytes": 697710,
+      "sha256": "a1d2e55f45e111f0b1e4c65bf30cce2b7d40d9190867264118f02d3b866f550a"
+    },
+    {
+      "file": "backend-details.json",
+      "bytes": 830928,
+      "sha256": "b5cd057d4d2f51adb280cd7d0f4cfa16366d0c1a70c2fdda5e4a07996014b704"
+    },
+    {
+      "file": "backend-inventory.json",
+      "bytes": 43180,
+      "sha256": "3f51a72a2215d212aadd8c7a55af9a71b8985c377f54289e960017095299528d"
+    },
+    {
+      "file": "backend-pools.json",
+      "bytes": 833,
+      "sha256": "8293e731e84b46052f3871420c33a966039e9afcca5303d80d4a7a57602adb42"
+    },
+    {
+      "file": "backup-disks.json",
+      "bytes": 865,
+      "sha256": "e545066dd7db9346ee3f6784528018466de9317159f91d8848e5322749336f91"
+    },
+    {
+      "file": "container-pools.json",
+      "bytes": 205,
+      "sha256": "390abb090490b4d729b272215e2cd18dc68fe30bc82d53a1c6dc515ffa6ea7e5"
+    },
+    {
+      "file": "database-600s.json",
+      "bytes": 1247801,
+      "sha256": "87587daaa3237b3f091381ea6dbe489f5dd52f2841fb546c9554b641cf4e5c8d"
+    },
+    {
+      "file": "database-details.json",
+      "bytes": 627804,
+      "sha256": "cbded601e047492c443604fab940f01eba69da29e6fc6430f26437399ff81a70"
+    },
+    {
+      "file": "database-inventory.json",
+      "bytes": 28654,
+      "sha256": "1c30d9c1072a2fa7f6aedf97d61f576b10494ed2a6bb75edc204e4c5fca643f2"
+    },
+    {
+      "file": "database-revision.json",
+      "bytes": 131,
+      "sha256": "5f1c7121b16a54349ce5948ce7573096be6a74f73119395d1e13f33afb44c5e8"
+    },
+    {
+      "file": "frontend-600s.json",
+      "bytes": 467808,
+      "sha256": "eb049b06491fe01cb9733b7a5e5731227f4cba79344bd5b19ff5589375587827"
+    },
+    {
+      "file": "frontend-details.json",
+      "bytes": 611046,
+      "sha256": "24cb4fa7acb1a033785d0c8b76f541e82609088b40afdb008a01bfb24e560877"
+    },
+    {
+      "file": "frontend-inventory.json",
+      "bytes": 22958,
+      "sha256": "3f5dabe831bf9b22e7fe78c7b197bb6f0209cc9e1bf214d61db04a3cf05c12e8"
+    },
+    {
+      "file": "pbs-inventory.json",
+      "bytes": 9394,
+      "sha256": "8a0d63355b13c3e9a48d13eb5c9aef8e10759417f0a871d3cbd9c3710e2fdc9a"
+    },
+    {
+      "file": "proxmox-inventory.json",
+      "bytes": 23223,
+      "sha256": "313bd8b3afba91f8fa7630fabf1cf87fa909a7c7f0e0e1f55e19ff5e9b6e7eec"
+    },
+    {
+      "file": "proxmox-resources.json",
+      "bytes": 951,
+      "sha256": "bbc94407bb4f2ec1934fef0f9a0dd0907c9252d73f4ce961cb3978668f988813"
+    }
+  ]
+}

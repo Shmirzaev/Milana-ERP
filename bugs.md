@@ -2,7 +2,7 @@
 
 
 
-**Updated: 2026-10-05. Target: `clone_main`.** **111 implementation rows** = 73 open + 7 in review + 31 completed owner-approved changes + 0 partial + 0 blocked, plus **7 operations follow-ups** and **2 pending decisions** in the Shavkat queue below. **Ismail has 0 open, partial or blocked implementation rows; six original tasks and the additional reservation-planning finding are in Review.** **All 127 develop audit findings are accounted for below**; tasks and original findings are different counts. Assessments are source-based; current regressions, performance measurements and live operations remain to be verified. **`clone_main` is shared**: other engineers merge into it concurrently, so re-sync and rebase before landing and re-run affected tests afterwards. Counts are derived from the per-row Tracking cells; if a header total stops matching `open + review + blocked + done + partial`, the header is stale and the rows win.
+**Updated: 2026-10-06. Target: `clone_main`.** **111 implementation rows** = 73 open + 7 in review + 31 completed owner-approved changes + 0 partial + 0 blocked, plus **7 operations follow-ups** and **2 pending decisions** in the Shavkat queue below. **Ismail has 0 open, partial or blocked implementation rows; six original tasks and the additional reservation-planning finding are in Review.** **All 127 develop audit findings are accounted for below**; tasks and original findings are different counts. Assessments are source-based; current regressions, performance measurements and live operations remain to be verified. **`clone_main` is shared**: other engineers merge into it concurrently, so re-sync and rebase before landing and re-run affected tests afterwards. Counts are derived from the per-row Tracking cells; if a header total stops matching `open + review + blocked + done + partial`, the header is stale and the rows win.
 
 
 
@@ -416,9 +416,9 @@ Owner approvals are requirements, not proof of live completion. Keep the company
 
 | 1 | **OPS01** | Capture an authorized synchronized browser/API/SQL/network incident window and identify the bottleneck. Develop tracer is local-only; do not enable it publicly. Source: `B:main.py:278`. | `428f8c9c`, `4151427a` | Open · Mirshoir |
 
-| 2 | **OPS02** | Retain the two-worker/pool-eight/overflow-four slot budget; inventory every database client and measure peak concurrency/queueing against the global budget. Source limits alone do not prove capacity. Source: `deploy/slotctl.py:33`. | `cc7ffdf` | Open · Ismail |
+| 2 | **OPS02** | Retain the two-worker/pool-eight/overflow-four slot budget; inventory every database client and measure peak concurrency/queueing against the global budget. Source limits alone do not prove capacity. Source: `deploy/slotctl.py:33`. | `cc7ffdf` | Needs review · Ismail · [Live audit](docs/audit-evidence/ops02-03-20261006.md): 48 ERP / 97 ordinary connection budget; measured clients and wait states. Peak window, checkout queueing and full shared-client bounds remain unproven. |
 
-| 3 | **OPS03** | On the approved company server, inventory shared workloads/clients, assign owners, verify effective limits/backup schedules and measure contention. Source: `deploy/slotctl.py:33`; `docs/DISASTER_RECOVERY.md:15`. | `b2490d19` | Open · Ismail |
+| 3 | **OPS03** | On the approved company server, inventory shared workloads/clients, assign owners, verify effective limits/backup schedules and measure contention. Source: `deploy/slotctl.py:33`; `docs/DISASTER_RECOVERY.md:15`. | `b2490d19` | Needs review · Ismail · [Live audit](docs/audit-evidence/ops02-03-20261006.md): shared workloads/limits and nightly PBS backups verified, including uploads. Named shared workload/backup owners await confirmation; OPS04/OPS10 remain separate. |
 
 | 4 | **OPS04** | Verify physical host/storage/power/network failure domains and an approved host-loss recovery path; same-host blue/green is not independent failover. Source: `DEPLOYMENT.md:8`; `docs/DISASTER_RECOVERY.md:12`. | `6cb5a1fb` | Open · Dilmurod |
 
@@ -680,9 +680,9 @@ Comparison snapshots: `clone_main` `38a56bbc`, `develop` `2f549f9b`; source and 
 
 | 114 | **OPS01** | No correlated peak-time browser/API/SQL/network trace. | **Operations open** — Open operational evidence/action: `OPS01` below. |
 
-| 115 | **OPS02** | Worker/pool connection budget is not proven. | **Operations open** — Pool/slot source present; global capacity/queueing verification remains open: `OPS02` below. |
+| 115 | **OPS02** | Worker/pool connection budget is not proven. | **Operations needs review** — [Live evidence](docs/audit-evidence/ops02-03-20261006.md) confirms 48 ERP / 97 ordinary budget and observed headroom. Peak workload, checkout queueing and complete shared-client bounds remain unproven. |
 
-| 116 | **OPS03** | ERP shares infrastructure with other workloads/backups. | **Operations open** — Open operational evidence/action: `OPS03` below. No live workload/configuration evidence checked. |
+| 116 | **OPS03** | ERP shares infrastructure with other workloads/backups. | **Operations needs review** — [Live inventory](docs/audit-evidence/ops02-03-20261006.md) verifies shared workloads, effective limits and nightly PBS disk backups. Named human ownership remains unconfirmed; recovery proof stays in OPS04/OPS10. |
 
 | 117 | **OPS04** | ERP VMs share a physical host. | **Operations open** — Open operational evidence/action: `OPS04` below. Keep approved company-server choice; no unapproved hosting migration. |
 

@@ -2,6 +2,13 @@
 
 Last updated: 2026-10-06
 
+## OPS02 / OPS03 live infrastructure evidence (2026-10-06)
+
+- Both application manifests and PostgreSQL schema match the recorded baseline: active blue `20261005_070406`, rollback green `20261005_063643`, revision `0137_perf34_shipment_indexes`. No deployment, migration, configuration or business-data change.
+- ERP keeps two workers and 8+4 pools per slot, a 48-connection overlap ceiling. PostgreSQL has 97 ordinary slots after three superuser reservations. The ten-minute observation reached 28 application clients, with 69 ordinary slots remaining. Peak workload, checkout queueing and complete shared-client ceilings are not proven; OPS02 remains Needs review.
+- Shared guest workloads and effective service/container/VM limits are inventoried. Daily Proxmox snapshots to PBS include all ERP data disks, including uploads; the latest job succeeded and eight daily snapshots are listed. PBS keeps seven daily backups, with no configured verification/sync job. Zero-RPO/application restore and failure-domain proof remain in OPS04/OPS10. Shared workload and backup human owners await confirmation; OPS03 remains Needs review.
+- Durable [audit evidence](audit-evidence/ops02-03-20261006.md) and sanitized JSON contain measured limits, contention, snapshot records and private-capture hashes. `scripts/ops_capacity_capture.py` repeats read-only measurements without exposing connection secrets. Validation covers live collection, compilation, Ruff, help and credential redaction. Raw captures remain outside Git.
+
 ## Ismail PR 279 integration with Mirshoir fixes (2026-10-06; repository only)
 
 - The owner authorized resolving PR #279 conflicts and merging into `clone_main`. The integration combines Ismail's global/warehouse/batch reservation capacity safeguards and outgoing movement protection with Mirshoir's batched reservation reads and writes from PRs #290/#292, plus FN06 caller-scoped retries from #291.
