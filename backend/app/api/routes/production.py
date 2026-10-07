@@ -2572,6 +2572,8 @@ def cutting_batch_progress(wid: int, db: DbSession, _: User = Depends(require_pe
             "batch_no": b.batch_no,
             "batch_index": b.batch_index,
             "name": b.name,
+            "cutting_passport_id": b.cutting_passport_id,
+            "passport_actual_quantity": b.passport_actual_quantity,
             "planned_quantity": planned,
             "cut_pieces": int(totals.get("cut_pieces", 0)),
             "passed_pieces": passed,
@@ -3389,9 +3391,18 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
     usluga_material = _usluga_cutting_material(db, po, payload.model_bom_id) if po.source_type == "usluga" else None
 
     if payload.cutting_passport_id:
-        passport = db.get(CuttingPassport, payload.cutting_passport_id)
+        passport = db.query(CuttingPassport).filter_by(id=payload.cutting_passport_id).with_for_update(of=CuttingPassport).first()
         if not passport or passport.production_order_id != po.id:
             raise HTTPException(400, "The selected cutting passport does not belong to this order")
+        passport_batch = db.query(ProductionBatch).filter_by(cutting_passport_id=passport.id).first()
+        if passport_batch:
+            if payload.production_batch_id and payload.production_batch_id != passport_batch.id:
+                raise HTTPException(409, "Select the Nastil linked to this cutting passport")
+            payload.production_batch_id = passport_batch.id
+            if db.query(CuttingRecord.id).filter_by(production_batch_id=passport_batch.id).first():
+                raise HTTPException(409, "This passport Nastil already has cutting records")
+        if db.query(CuttingRecord.id).filter_by(cutting_passport_id=passport.id).first():
+            raise HTTPException(409, "This cutting passport has already been used. Open its cutting sheet or create a new passport")
 
     raw_materials = [row.model_dump() for row in payload.materials]
     if payload.use_passport_materials:

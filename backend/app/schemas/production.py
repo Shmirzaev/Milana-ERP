@@ -111,6 +111,8 @@ class ProductionBatchIn(BaseModel):
 
 
 class ProductionBatchOut(ORMModel):
+    cutting_passport_id: int | None = None
+    passport_actual_quantity: int | None = None
     id: int
     production_order_id: int
     batch_no: str

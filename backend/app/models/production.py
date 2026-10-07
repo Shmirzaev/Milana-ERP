@@ -149,6 +149,8 @@ class ProductionBatch(Base, PkMixin, TimestampMixin):
     batch_no: Mapped[str] = mapped_column(String(32), nullable=False)
     batch_index: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     name: Mapped[str | None] = mapped_column(String(128))
+    cutting_passport_id: Mapped[int | None] = mapped_column(ForeignKey("cutting_passports.id"), unique=True)
+    passport_actual_quantity: Mapped[int | None] = mapped_column(Integer)
     planned_quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     start_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

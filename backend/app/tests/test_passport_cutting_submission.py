@@ -25,6 +25,7 @@ def passport_cutting(client, auth_headers):
     })
     assert passport.status_code == 201, passport.text
     payload = {"work_order_id": work["id"], "cutting_passport_id": passport.json()["id"], "use_passport_materials": True,
+               "production_batch_id": passport.json()["production_batch_id"],
                "input_quantity": 999, "materials": [], "cut_pieces": 10, "passed_pieces": 10,
                "bundles": [{"color": "white", "size": "46", "quantity": 10, "count": 1, "next": "sewing", "sewing_factory": "milana"}]}
     return batches, order, work, payload

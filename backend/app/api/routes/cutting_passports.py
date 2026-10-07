@@ -7,7 +7,7 @@ from sqlalchemy.orm import joinedload, load_only, noload, selectinload
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
 from app.models.cutting_passport import CuttingPassport
-from app.models import CuttingRecord, Department, Item, ModelBOM, ProductionOrder, ProductionOrderItem, StockBatch, User, WorkOrder
+from app.models import CuttingRecord, Department, Item, ModelBOM, ProductionBatch, ProductionOrder, ProductionOrderItem, StockBatch, User, WorkOrder
 from app.models.catalog import Model as CatalogModel, ModelImage
 from app.models import ProductionOrderMaterial, MaterialReservation
 from app.services.inventory import create_material_reservations
@@ -15,6 +15,7 @@ from app.services.factory_scope import require_work_order_factory_access
 from app.schemas.cutting_passport import CuttingOperatorOut, CuttingPassportIn, CuttingPassportOut
 from app.services.audit import log_action
 from app.services.cutting_passport_usage import validate_passport_stock
+from app.services.passport_nastil import passport_batch_map, sync_passport_nastil
 from app.services.factory_scope import available_factory_codes, selected_factory_code
 from app.services.model_images import model_display_image_url
 
@@ -97,7 +98,7 @@ def _compute(p: CuttingPassport) -> dict:
     }
 
 
-def _serialize(p: CuttingPassport, db=None, model_cache: dict | None = None) -> dict:
+def _serialize(p: CuttingPassport, db=None, model_cache: dict | None = None, batch_map: dict | None = None) -> dict:
     po = p.production_order
     op = p.operator
     model_code = p.model_code
@@ -116,6 +117,7 @@ def _serialize(p: CuttingPassport, db=None, model_cache: dict | None = None) -> 
             if model_cache is not None:
                 model_cache[po.model_id] = (m.code if m else None, model_name, model_image_url)
     d = {
+        **((batch_map if batch_map is not None else passport_batch_map(db, [p.id])).get(p.id, {}) if db is not None else {}),
         "id": p.id,
         "passport_no": p.passport_no,
         "date": p.date,
@@ -519,9 +521,16 @@ def list_passports(
             | order_reference_contains(CuttingPassport.order_no, like)
             | CuttingPassport.operator_name_manual.ilike(like)
         )
-    rows = qry.limit(limit).all()
+    used = db.query(CuttingRecord.id).filter(or_(CuttingRecord.cutting_passport_id == CuttingPassport.id,
+                                               CuttingRecord.production_batch_id == ProductionBatch.id)).exists()
+    result = qry.outerjoin(ProductionBatch, ProductionBatch.cutting_passport_id == CuttingPassport.id).add_columns(
+        ProductionBatch.id, ProductionBatch.name, used,
+    ).limit(limit).all()
+    rows = [row[0] for row in result]
     model_cache = _passport_model_cache(db, rows)
-    return [_serialize(r, db, model_cache) for r in rows]
+    batch_map = {row.id: {"production_batch_id": bid, "nastil_name": name, "used_for_cutting": is_used}
+                 for row, bid, name, is_used in result}
+    return [_serialize(r, db, model_cache, batch_map) for r in rows]
 
 
 @router.get("/{pid}", response_model=CuttingPassportOut)
@@ -697,6 +706,7 @@ def create_passport(
     p = CuttingPassport(**_passport_values(db, payload, current))
     db.add(p)
     db.flush()
+    sync_passport_nastil(db, p, current)
     log_action(db, current, "create", "CuttingPassport", p.id, new_value={"passport_no": p.passport_no})
     db.commit()
     db.refresh(p)
@@ -715,11 +725,18 @@ def update_passport(
     if not p:
         raise HTTPException(404, "Cutting passport not found")
     if p.production_order_id:
-        _passport_order(db, p.production_order_id, current)
-    if payload.production_order_id != p.production_order_id and db.query(CuttingRecord.id).filter(CuttingRecord.cutting_passport_id == p.id).first():
+        _passport_order(db, p.production_order_id, current, lock=True)
+        db.refresh(p, with_for_update=True)
+    linked_batch = db.query(ProductionBatch).filter_by(cutting_passport_id=p.id).first()
+    used = db.query(CuttingRecord.id).filter(CuttingRecord.cutting_passport_id == p.id).first()
+    if payload.production_order_id != p.production_order_id and (used or linked_batch):
         raise HTTPException(409, "A passport used by Cutting cannot be moved to another order")
-    for k, v in _passport_values(db, payload, current, p.id).items():
+    values = _passport_values(db, payload, current, p.id)
+    if used and values.get("pieces") != p.pieces:
+        raise HTTPException(409, "This passport already has cutting records; correct its cutting quantities before changing the passport count")
+    for k, v in values.items():
         setattr(p, k, v)
+    sync_passport_nastil(db, p, current)
     log_action(db, current, "update", "CuttingPassport", p.id, new_value={"passport_no": p.passport_no})
     db.commit()
     db.refresh(p)
@@ -739,6 +756,13 @@ def delete_passport(
         _passport_order(db, p.production_order_id, current, lock=True)
     if db.query(CuttingRecord.id).filter(CuttingRecord.cutting_passport_id == p.id).first():
         raise HTTPException(409, "This passport is used by a cutting batch and cannot be deleted")
+    batch = db.query(ProductionBatch).filter_by(cutting_passport_id=p.id).first()
+    if batch:
+        if db.query(CuttingRecord.id).filter_by(production_batch_id=batch.id).first():
+            raise HTTPException(409, "This passport Nastil already has cutting records and cannot be deleted")
+        batch.cutting_passport_id = None
+        batch.passport_actual_quantity = None
+        db.flush()
     log_action(db, current, "delete", "CuttingPassport", p.id, new_value={"passport_no": p.passport_no})
     db.delete(p)
     db.commit()

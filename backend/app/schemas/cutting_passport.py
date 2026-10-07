@@ -69,6 +69,9 @@ class PassportMaterialOut(PassportMaterial):
 class CuttingPassportOut(ORMModel):
     model_config = ConfigDict(from_attributes=True, protected_namespaces=())
     id: int
+    production_batch_id: int | None = None
+    nastil_name: str | None = None
+    used_for_cutting: bool = False
     materials: list[PassportMaterialOut] = Field(default_factory=list)
     passport_no: str
     date: datetime

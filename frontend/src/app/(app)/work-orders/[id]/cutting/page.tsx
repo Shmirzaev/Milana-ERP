@@ -134,6 +134,9 @@ type StockBatchOption = {
 };
 type CuttingPassportSummary = CuttingPassportAutofillSource & {
   id: number;
+  production_batch_id?: number | null;
+  nastil_name?: string | null;
+  used_for_cutting?: boolean;
   production_order_id?: number | null;
   lot_no?: string | null;
   passport_no?: string | null;
@@ -541,10 +544,18 @@ export default function CuttingPage() {
     [allSearchableFabricBatches],
   );
   const hasPlannedMaterials = plannedMaterials.length > 0;
-  const [passportId, setPassportId] = useState<number>(0);
+  const [passportId, setPassportId] = useState<number>(-1);
   const selectedPassportId = cuttingPassports.some((row) => row.id === passportId) ? passportId : 0;
-  const deferMaterialUsage = hasPlannedMaterials && !isUsluga;
+  const deferMaterialUsage = hasPlannedMaterials && !isUsluga && selectedPassportId === 0;
   const usePassportMaterials = !deferMaterialUsage && hasPlannedMaterials && selectedPassportId > 0;
+  useEffect(() => {
+    if (passportId !== -1 || cuttingPassports.length === 0) return;
+    const available = cuttingPassports.filter((row) => !row.used_for_cutting && Number(row.pieces || 0) > 0);
+    const passport = available.find((row) => row.production_batch_id === Number(form.production_batch_id || wo?.production_batch_id)) || available[0];
+    if (!passport) return;
+    setPassportId(passport.id);
+    setForm((current) => ({ ...current, production_batch_id: passport.production_batch_id || current.production_batch_id }));
+  }, [cuttingPassports, passportId, form.production_batch_id, wo?.production_batch_id]);
   const materialPassports = useMemo(() => (Array.isArray(cuttingPassports) ? cuttingPassports : []).filter((passport) => passport.id === selectedPassportId).flatMap((passport: any) =>
     passport.materials?.length ? passport.materials.map((material: any) => ({ ...passport, ...material, operator_name: material.operator_name_manual || passport.operator_name })) : [passport]
   ), [cuttingPassports, selectedPassportId]);
@@ -1512,6 +1523,7 @@ export default function CuttingPage() {
                           <>
                             <div className="font-medium">{formatBatchLabel(row, po?.id)}</div>
                             <div className="text-xs text-slate-500">{formatBatchSerial(row, po?.id)}</div>
+                            {row.passport_actual_quantity != null && <div className="text-xs text-slate-500">{t("field.actualQty")}: {row.passport_actual_quantity} · {t("page.cuttingPassports.field.passportNo")}</div>}
                           </>
                         )}
                       </td>
@@ -2075,16 +2087,17 @@ export default function CuttingPage() {
       )}
 
       <form id={isUsluga ? "usluga-cutting-entry" : undefined} onSubmit={submit} className="card space-y-5 p-6">
-        {isUsluga && cuttingPassports.length > 0 && <div>
+        {cuttingPassports.length > 0 && <div>
           <label className="label">{t("passportBatch.optional")}</label>
           <select className="input" value={selectedPassportId} onChange={(event) => {
             setPassportId(Number(event.target.value));
+            const passport = cuttingPassports.find((row) => row.id === Number(event.target.value));
             passportAutofillDirtyFields.current.clear();
-            setForm((current) => ({ ...current, input_quantity: "", layer_material_kg: "", material_rolls_used: "", layup_operator_name: "", cut_pieces: "", notes: "", beika_kg: "", waste_quantity: "" }));
+            setForm((current) => ({ ...current, production_batch_id: passport?.production_batch_id || current.production_batch_id, input_quantity: "", layer_material_kg: "", material_rolls_used: "", layup_operator_name: "", cut_pieces: "", notes: "", beika_kg: "", waste_quantity: "" }));
             setCuttingMaterials((rows) => rows.map((row) => ({ ...row, quantity: "", details: emptyMaterialDetails() })));
           }}>
             <option value={0}>{t("passportBatch.withoutPassport")}</option>
-            {(cuttingPassports || []).map((passport) => <option key={passport.id} value={passport.id}>{passport.passport_no}</option>)}
+            {(cuttingPassports || []).filter((passport) => !passport.used_for_cutting).map((passport) => <option key={passport.id} value={passport.id}>{[passport.passport_no, passport.nastil_name, passport.pieces].filter((value) => value != null).join(" · ")}</option>)}
           </select>
         </div>}
         <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
@@ -2094,7 +2107,12 @@ export default function CuttingPage() {
               <select
                 className="input"
                 value={form.production_batch_id}
-                onChange={(e) => setForm({ ...form, production_batch_id: Number(e.target.value) })}
+                onChange={(e) => {
+                  const batchId = Number(e.target.value);
+                  const passport = cuttingPassports.find((row) => row.production_batch_id === batchId && !row.used_for_cutting);
+                  setPassportId(passport?.id || 0);
+                  setForm({ ...form, production_batch_id: batchId, cut_pieces: passport?.pieces ?? "" });
+                }}
               >
                 <option value={0}>{t("batch.selectBatch")}</option>
                 {(po?.batches || []).map((b: any) => (

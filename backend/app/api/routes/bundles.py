@@ -152,8 +152,8 @@ def _bundle_label_response(title: str, page_css: str, body: str) -> HTMLResponse
         "object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
     )
     html = (
-        f"<!doctype html><html>{_bundle_label_head(title, label_css)}<body>{body}"
-        "<button type='button' id='print-labels'>Print</button>"
+        f"<!doctype html><html lang='uz'>{_bundle_label_head(title, label_css)}<body>{body}"
+        "<button type='button' id='print-labels'>Chop etish</button>"
         f"<script>{_LABEL_PRINT_SCRIPT}</script></body></html>"
     )
     return HTMLResponse(html, headers={"Content-Security-Policy": policy})
@@ -498,36 +498,40 @@ def _label_context(db: DbSession, b: Bundle, reference_context: dict | None = No
         "size": _h(b.size),
         "quantity": _h(b.quantity),
         "barcode": _h(b.barcode),
+        "sewing_factory_name": {
+            "MIL": "Milana", "BST": "Besttex", "ECO": "Eco Cotton",
+        }[resolve_sewing_factory_code(b.sewing_factory_code)],
     }
 
 
 def _bundle_label_card(ctx: dict, qr: str) -> str:
     picture = (
-        f"<div class='material-picture'><img src='{ctx['material_image_src']}' alt='Material picture'/></div>"
+        f"<div class='material-picture'><img src='{ctx['material_image_src']}' alt='Mato rasmi'/></div>"
         if ctx.get("material_image_src")
         else ""
     )
     batch_row = (
-        f"<div class='row'><b>Batch</b><span>{ctx['batch_label']}</span></div>"
+        f"<div class='row'><b>Nastil</b><span>{ctx['batch_label']}</span></div>"
         if ctx.get("batch_label")
         else ""
     )
     passport_row = (
-        f"<div class='row'><b>Tracking passport</b><span>{ctx['tracking_passport_no']}</span></div>"
+        f"<div class='row'><b>Kuzatuv pasporti</b><span>{ctx['tracking_passport_no']}</span></div>"
         if ctx.get("tracking_passport_no")
         else ""
     )
     return f"""
             <div class='label'>
               <h2>MILANA ERP</h2>
-              <div class='row'><b>Bundle</b><span>{ctx['bundle_no']}</span></div>
-              <div class='row'><b>Order</b><span>{ctx['order_no']}</span></div>
+              <div class='row'><b>Bog‘lam</b><span>{ctx['bundle_no']}</span></div>
+              <div class='row'><b>Buyurtma</b><span>{ctx['order_no']}</span></div>
               {batch_row}
               {passport_row}
               <div class='row'><b>Model</b><span>{ctx['model_code']}</span></div>
-              <div class='row'><b>Color / Size</b><span>{ctx['color']} / {ctx['size']}</span></div>
-              <div class='row'><b>Qty</b><span>{ctx['quantity']}</span></div>
-              <div class='row'><b>Barcode</b><span>{ctx['barcode']}</span></div>
+              <div class='row'><b>Rang / O‘lcham</b><span>{ctx['color']} / {ctx['size']}</span></div>
+              <div class='row'><b>Soni</b><span>{ctx['quantity']}</span></div>
+              <div class='row'><b>Tikuv fabrikasi</b><span>{ctx['sewing_factory_name']}</span></div>
+              <div class='row'><b>Shtrix-kod</b><span>{ctx['barcode']}</span></div>
               <div class='label-visuals'>{picture}<div class='qr'><img src='{qr}' alt='QR'/></div></div>
             </div>
             """
@@ -1290,7 +1294,7 @@ def bundle_label(bid: int, db: DbSession, _: User = Depends(require_permissions(
     qr = _qr_data_uri_for_bundle(db, b)
     ctx = _label_context(db, b)
     page_css = "@page{margin:8mm} body{font-family:'Milana Label Unicode','DejaVu Sans',Arial,sans-serif;margin:0;padding:8mm} .label{box-sizing:border-box;break-inside:avoid;page-break-inside:avoid;border:1px solid #000;padding:5mm;width:88mm} .row{display:flex;justify-content:space-between;gap:4mm;font-size:8.5pt;line-height:1.22} .row span{text-align:right;overflow-wrap:anywhere} .label-visuals{display:flex;align-items:center;justify-content:center;gap:4mm;margin-top:2.5mm} .qr img,.material-picture img{display:block;width:25mm;height:25mm;object-fit:contain} .material-picture{box-sizing:border-box;width:27mm;height:27mm;border:1px solid #ddd;padding:1mm;display:flex;align-items:center;justify-content:center} h2{margin:0 0 2mm 0;font-size:12pt;letter-spacing:0}@media print{body{margin:0;padding:0} button{display:none}}"
-    return _bundle_label_response(f"Bundle Label {ctx['bundle_no']}", page_css, _bundle_label_card(ctx, qr))
+    return _bundle_label_response(f"Bog‘lam yorlig‘i {ctx['bundle_no']}", page_css, _bundle_label_card(ctx, qr))
 
 
 @router.get("/label-sheet/by-ids", response_class=HTMLResponse)
@@ -1339,7 +1343,7 @@ h2{margin:0 0 1.5mm 0;font-size:11pt;letter-spacing:0}
 #print-labels{margin-top:6mm}
 @media print{button{display:none} .label{break-inside:avoid;page-break-inside:avoid}}
 """
-    return _bundle_label_response("Bundle Label Sheet", page_css, f"<div class='sheet'>{''.join(cards)}</div>")
+    return _bundle_label_response("Bog‘lam yorliqlari", page_css, f"<div class='sheet'>{''.join(cards)}</div>")
 
 
 @router.get("/label-sheet/by-production-order/{production_order_id}", response_class=HTMLResponse)
