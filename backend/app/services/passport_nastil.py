@@ -6,6 +6,29 @@ from app.models import Bundle, CuttingRecord, ProductionBatch, WorkOrder
 from app.services.audit import log_action
 
 
+def pending_passport_batches(db):
+    """Saved Nastils still awaiting their first cutting/bundle confirmation."""
+    return db.query(ProductionBatch).filter(
+        ProductionBatch.cutting_passport_id.isnot(None),
+        ProductionBatch.passport_actual_quantity > 0,
+        ~db.query(CuttingRecord.id).filter(
+            CuttingRecord.production_batch_id == ProductionBatch.id,
+        ).exists(),
+        ~db.query(Bundle.id).filter(
+            Bundle.production_batch_id == ProductionBatch.id,
+        ).exists(),
+    )
+
+
+def has_pending_passport_batches(db, work_order):
+    query = pending_passport_batches(db).filter(
+        ProductionBatch.production_order_id == work_order.production_order_id,
+    )
+    if work_order.production_batch_id is not None:
+        query = query.filter(ProductionBatch.id == work_order.production_batch_id)
+    return query.first() is not None
+
+
 def sync_passport_nastil(db, passport, current, *, is_new=False):
     # Caller holds the production order lock before the passport/batch locks.
     if not passport.production_order_id:
@@ -30,7 +53,7 @@ def sync_passport_nastil(db, passport, current, *, is_new=False):
     work_order = db.query(WorkOrder).filter_by(production_order_id=passport.production_order_id, operation="cutting").first()
     if not work_order:
         return
-    if not batch and work_order.status in {"completed", "cancelled", "rejected"}:
+    if not batch and work_order.status in {"cancelled", "rejected"}:
         return
     if not batch and passport.created_at and not is_new:
         last_manual_cut = db.query(func.max(CuttingRecord.created_at)).join(
@@ -73,6 +96,9 @@ def sync_passport_nastil(db, passport, current, *, is_new=False):
     # must not debit fabric or create/credit bundles a second time.
     if not records and not has_bundles:
         batch.planned_quantity = quantity
+        if work_order.status == "completed":
+            work_order.status = "in_progress"
+            work_order.end_time = None
     db.flush()
     log_action(db, current, "sync_passport_nastil", "ProductionBatch", batch.id,
                old_value={"passport_actual_quantity": old_quantity},

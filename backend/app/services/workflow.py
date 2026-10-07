@@ -27,6 +27,7 @@ from app.models import (
 )
 from app.services.audit import log_action
 from app.services.numbering import next_invoice_no
+from app.services.passport_nastil import has_pending_passport_batches
 
 WORKFLOW_SEQUENCE = ["cutting", "printing", "sewing", "packaging", "storage_transfer"]
 _OP_INDEX = {op: idx for idx, op in enumerate(WORKFLOW_SEQUENCE)}
@@ -135,6 +136,8 @@ def processed_work_order_qty(db: Session, wo: WorkOrder) -> int:
 
 def _complete_if_done(db: Session, wo: WorkOrder) -> None:
     if wo.operation == "cutting":
+        if has_pending_passport_batches(db, wo):
+            return
         po = db.get(ProductionOrder, wo.production_order_id)
         if po and po.source_type == "usluga":
             if db.query(CuttingRecord.id).filter(

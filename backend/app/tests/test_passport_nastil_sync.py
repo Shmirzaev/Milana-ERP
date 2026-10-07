@@ -11,6 +11,41 @@ def read_passport(client, headers, payload):
     return result.json()
 
 
+def test_later_passports_reopen_cutting_and_stay_visible_until_all_confirmed(client, auth_headers, passport_cutting):
+    fabrics, order, work, payload = passport_cutting
+    first = client.post('/api/cutting/records', headers=auth_headers, json=payload)
+    assert first.status_code == 201, first.text
+    with SessionLocal() as db:
+        assert db.get(WorkOrder, work['id']).status == 'completed'
+    later = []
+    for number in ('SECOND', 'THIRD'):
+        passport = client.post('/api/cutting-passports', headers=auth_headers, json={
+            'passport_no': number, 'production_order_id': order['id'],
+            'date': '2026-10-07T00:00:00Z', 'pieces': 10,
+        })
+        assert passport.status_code == 201, passport.text
+        later.append(passport.json())
+    assert [row['nastil_name'] for row in later] == ['Nastil 2', 'Nastil 3']
+    with SessionLocal() as db:
+        cutting = db.get(WorkOrder, work['id'])
+        assert cutting.status == 'in_progress' and cutting.end_time is None
+        assert cutting.passed_qty == 10
+        assert db.query(Bundle).filter_by(production_order_id=order['id']).count() == 1
+        assert [float(db.get(StockBatch, row['id']).quantity) for row in fabrics] == [93.5, 93.5]
+    for index, passport in enumerate(later):
+        inbox = client.get('/api/inbox?dept=CUT', headers=auth_headers)
+        assert inbox.status_code == 200, inbox.text
+        assert any(row['id'] == work['id'] for row in inbox.json()['in_progress_work_orders'])
+        manual = {**payload, 'cutting_passport_id': None, 'use_passport_materials': False,
+                  'production_batch_id': passport['production_batch_id'],
+                  'defer_material_usage': True, 'input_quantity': 0}
+        saved = client.post('/api/cutting/records', headers=auth_headers, json=manual)
+        assert saved.status_code == 201, saved.text
+        with SessionLocal() as db:
+            assert db.get(WorkOrder, work['id']).status == ('completed' if index == 1 else 'in_progress')
+            assert db.get(WorkOrder, work['id']).passed_qty == 20 + index * 10
+
+
 def test_save_and_repeat_update_sync_one_nastil_without_crediting_output(client, auth_headers, passport_cutting):
     fabrics, order, work, payload = passport_cutting
     passport = read_passport(client, auth_headers, payload)

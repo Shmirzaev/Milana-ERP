@@ -96,6 +96,7 @@ from app.services.workflow import (
 from app.services.model_identity import model_number_fields
 from app.services.model_images import material_preview_image_url, model_preview_image_url
 from app.services.cutting_sheet import render_cutting_sheet_html
+from app.services.passport_nastil import has_pending_passport_batches
 from app.services.factory_scope import require_factory_access, selected_factory_code, factory_for_department
 from app.services.factory_scope import require_work_order_factory_access
 
@@ -4172,14 +4173,16 @@ def _sync_cutting_work_order_from_records(db: DbSession, wo: WorkOrder) -> None:
                 ).all()
             }
             missing_usluga_material = bool(required_material_ids - approved_material_ids)
-        if planned > 0 and processed >= planned and not has_pending_usluga and not missing_usluga_material:
+        pending_passport = has_pending_passport_batches(db, wo)
+        if planned > 0 and processed >= planned and not has_pending_usluga and not missing_usluga_material and not pending_passport:
             wo.status = "completed"
             if not wo.end_time:
                 wo.end_time = now
             if not wo.start_time:
                 wo.start_time = now
-        elif processed > 0 and wo.status in ("new", "planning", "waiting", "pending", "ready", "collected", "paused"):
+        elif pending_passport or (processed > 0 and wo.status in ("new", "planning", "waiting", "pending", "ready", "collected", "paused")):
             wo.status = "in_progress"
+            wo.end_time = None
             if not wo.start_time:
                 wo.start_time = now
 

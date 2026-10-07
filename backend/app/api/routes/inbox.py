@@ -378,6 +378,14 @@ def _orders_progressed_beyond_cutting(db: DbSession, production_order_ids: list[
         ).distinct().all()
         if value is not None
     )
+    # A later Nastil can still need Cutting while earlier bundles are in Sewing.
+    from app.services.passport_nastil import pending_passport_batches
+    progressed.difference_update(
+        int(value)
+        for (value,) in pending_passport_batches(db).with_entities(
+            ProductionBatch.production_order_id,
+        ).filter(ProductionBatch.production_order_id.in_(ids)).distinct().all()
+    )
     return progressed
 
 
