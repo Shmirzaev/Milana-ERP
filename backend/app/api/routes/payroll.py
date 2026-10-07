@@ -2646,6 +2646,15 @@ def resolve_employee_number(
         )
         .one_or_none()
     )
+    if normalized.isascii() and normalized.isdigit() and 0 < int(normalized) <= 2147483647:
+        fallback = db.query(Employee).filter(
+            Employee.id == int(normalized),
+            Employee.factory_code == selected_factory_code(current),
+            or_(Employee.employee_no.is_(None), func.trim(Employee.employee_no) == ""),
+        ).first()
+        if employee and fallback and employee.id != fallback.id:
+            raise HTTPException(409, "Employee number is ambiguous; select the employee by name or scan their badge QR")
+        employee = employee or fallback
     if not employee and normalized.upper().startswith("EMP-") and normalized[4:].isdigit():
         employee = db.query(Employee).filter(
             Employee.id == int(normalized[4:]),

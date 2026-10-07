@@ -179,3 +179,18 @@ def test_passport_offers_model_sizes_without_rewriting_order_plan(client):
         assert data['sizes'] == ['M', 'L']
         assert data['size_count'] == 2
         assert data['available_sizes'] == ['M', 'L', 'XL']
+
+
+def test_numeric_fallback_employee_number_resolves_and_never_credits_ambiguous_id(client, auth_headers):
+    from app.models import Employee
+    created = client.post('/api/employees', headers=auth_headers, json={'full_name': 'Numberless worker'})
+    assert created.status_code == 201, created.text
+    eid = created.json()['id']
+    numeric = str(eid).zfill(4)
+    for value in [numeric, f'EMP-{numeric}']:
+        result = client.get('/api/payroll/employees/resolve', params={'employee_no': value}, headers=auth_headers)
+        assert result.status_code == 200 and result.json()['employee_id'] == eid, result.text
+    with TestSessionLocal() as db:
+        db.add(Employee(factory_code='MIL', full_name='Configured number owner', employee_no=numeric, status='active'))
+        db.commit()
+    assert client.get('/api/payroll/employees/resolve', params={'employee_no': numeric}, headers=auth_headers).status_code == 409
