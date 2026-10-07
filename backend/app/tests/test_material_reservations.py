@@ -54,6 +54,7 @@ def test_cutting_can_correct_batch_before_consumption(client, auth_headers):
     assert [r["stock_batch_id"] for r in defaults["materials"]] == [replacement, secondary]
     cut_payload = {
         "work_order_id": wo["id"], "input_quantity": 5, "cut_pieces": 10, "passed_pieces": 10,
+        "production_batch_id": passport.json()["production_batch_id"],
         "materials": [{"stock_batch_id": batch_id, "quantity": 5, "unit": "kg"} for batch_id in (replacement, secondary)],
         "bundles": [{"color": "white", "size": "46", "quantity": 10, "count": 1, "next": "sewing", "sewing_factory": "milana"}],
     }
@@ -114,6 +115,7 @@ def test_cutting_passport_adds_missing_material_atomically(client, auth_headers)
     cutting = _cutting_work_order(client, auth_headers, order["id"])
     cut_payload = {
         "work_order_id": cutting["id"], "input_quantity": 5, "cut_pieces": 10, "passed_pieces": 10,
+        "production_batch_id": saved.json()["production_batch_id"],
         "materials": [{"stock_batch_id": batch["id"], "quantity": 5, "unit": "kg"} for batch in batches[:2]],
         "bundles": [{"color": "white", "size": "46", "quantity": 10, "count": 1, "next": "sewing", "sewing_factory": "milana"}],
     }
@@ -541,6 +543,7 @@ def test_multi_fabric_planning_flows_to_atomic_cutting_and_bundles(client, auth_
     })
     assert passport.status_code == 201, passport.text
     assert [row["total_beka_kg"] for row in passport.json()["materials"]] == [1.0, 0.2]
+    cutting_payload["production_batch_id"] = passport.json()["production_batch_id"]
     details_a = {"layer_material_kg": 1.5, "beika_kg": 0.3, "material_rolls_used": 2, "layup_operator_name": "Operator A", "cut_pieces": 10, "waste_quantity": 0.5, "waste_unit": "kg"}
     details_b = {**details_a, "layer_material_kg": 0.4, "beika_kg": 0.1, "material_rolls_used": 1, "layup_operator_name": "Operator B", "waste_quantity": 0.2}
     cutting_response = client.post(

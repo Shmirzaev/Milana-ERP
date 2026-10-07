@@ -21,6 +21,12 @@ export function systemLanguage(): Lang {
   return "en";
 }
 const messages: Record<string, [string, string]> = {
+  "Enter the actual piece count for this passport Nastil": ["Укажите фактическое количество изделий для настила этого паспорта.", "Ushbu pasport nastili uchun haqiqiy dona sonini kiriting."],
+  "The passport piece count is locked after cutting records have been created": ["Количество изделий в паспорте заблокировано после записи раскроя.", "Bichish qayd etilgach, pasportdagi dona soni o‘zgartirilmaydi."],
+  "Select the existing Nastil work order before adding another passport": ["Перед добавлением паспорта выберите задание существующего настила.", "Yangi pasport qo‘shishdan oldin mavjud nastil topshirig‘ini tanlang."],
+  "Select the Nastil linked to this cutting passport": ["Выберите настил, связанный с этим паспортом раскроя.", "Ushbu bichish pasportiga bog‘langan nastilni tanlang."],
+  "This passport Nastil already has cutting records": ["Для настила этого паспорта раскрой уже записан.", "Ushbu pasport nastili uchun bichish allaqachon qayd etilgan."],
+  "This passport Nastil already has cutting records and cannot be deleted": ["Паспорт нельзя удалить: для его настила раскрой уже записан.", "Pasportni o‘chirib bo‘lmaydi: uning nastili uchun bichish qayd etilgan."],
   "Could not load HR data.": ["Не удалось загрузить данные отдела кадров.", "Kadrlar bo‘limi ma’lumotlarini yuklab bo‘lmadi."],
   "Select a brand for the production order.": ["Выберите бренд для производственного заказа.", "Ishlab chiqarish buyurtmasi uchun brendni tanlang."],
   "Select an available fabric batch for the cutting team.": ["Выберите доступную партию ткани для раскроя.", "Bichish uchun mavjud mato partiyasini tanlang."],

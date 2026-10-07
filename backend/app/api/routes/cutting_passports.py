@@ -733,7 +733,7 @@ def update_passport(
         raise HTTPException(409, "A passport used by Cutting cannot be moved to another order")
     values = _passport_values(db, payload, current, p.id)
     if used and values.get("pieces") != p.pieces:
-        raise HTTPException(409, "This passport already has cutting records; correct its cutting quantities before changing the passport count")
+        raise HTTPException(409, "The passport piece count is locked after cutting records have been created")
     for k, v in values.items():
         setattr(p, k, v)
     sync_passport_nastil(db, p, current)

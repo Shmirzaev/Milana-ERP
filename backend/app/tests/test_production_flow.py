@@ -410,7 +410,8 @@ def test_printable_bundle_and_package_qr_labels_include_material_picture(client,
         label = client.get(endpoint, headers=auth_headers)
         assert label.status_code == 200, label.text
         assert "material-picture" in label.text
-        assert "alt='Material picture'" in label.text or 'alt="Material picture"' in label.text
+        picture_caption = "Mato rasmi" if endpoint.startswith("/api/bundles/") else "Material picture"
+        assert f"alt='{picture_caption}'" in label.text or f'alt="{picture_caption}"' in label.text
         assert "data:image/png;base64" in label.text
         if endpoint == f"/api/packages/{package_id}/label":
             assert ".qr img{display:block;width:31mm;height:31mm" in label.text

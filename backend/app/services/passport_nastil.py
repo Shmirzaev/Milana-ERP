@@ -60,7 +60,7 @@ def sync_passport_nastil(db, passport, current, *, is_new=False):
             db.add(batch)
             db.flush()
     if records and batch.passport_actual_quantity is not None and batch.passport_actual_quantity != quantity:
-        raise HTTPException(409, "This passport already has cutting records; correct its cutting quantities before changing the passport count")
+        raise HTTPException(409, "The passport piece count is locked after cutting records have been created")
     old_quantity = batch.passport_actual_quantity
     batch.cutting_passport_id = passport.id
     batch.passport_actual_quantity = quantity
