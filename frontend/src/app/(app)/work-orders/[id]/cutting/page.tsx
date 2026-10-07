@@ -2289,10 +2289,6 @@ export default function CuttingPage() {
               onChange={(e) => setPassportAutofillField("layup_operator_name", e.target.value)}
             />
           </div>
-          {!isSecondaryUslugaFabric && <div>
-            <label className="label">{t("field.cutPieces")}</label>
-            <input className="input" type="number" value={form.cut_pieces} onChange={(e) => setPassportAutofillField("cut_pieces", parseWholeInput(e.target.value))} />
-          </div>}
           {isSecondaryUslugaFabric && <div>
             <label className="label">{t("usluga.reportPieces")}</label>
             <input
@@ -2322,6 +2318,10 @@ export default function CuttingPage() {
             <input className="input" value={form.waste_unit} onChange={(e) => setForm({ ...form, waste_unit: e.target.value })} />
           </div>
           </>}
+          {!isSecondaryUslugaFabric && <div>
+            <label className="label">{t("field.cutPieces")}</label>
+            <input className="input" type="number" value={form.cut_pieces} onChange={(e) => setPassportAutofillField("cut_pieces", parseWholeInput(e.target.value))} />
+          </div>}
         </div>
 
         {!isSecondaryUslugaFabric && <div>
