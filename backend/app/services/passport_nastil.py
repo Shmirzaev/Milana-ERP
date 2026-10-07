@@ -1,11 +1,12 @@
 """Passport output is saved separately from confirmed bundle/stock movements."""
 from fastapi import HTTPException
+from sqlalchemy import func
 
 from app.models import Bundle, CuttingRecord, ProductionBatch, WorkOrder
 from app.services.audit import log_action
 
 
-def sync_passport_nastil(db, passport, current):
+def sync_passport_nastil(db, passport, current, *, is_new=False):
     # Caller holds the production order lock before the passport/batch locks.
     if not passport.production_order_id:
         return
@@ -31,6 +32,13 @@ def sync_passport_nastil(db, passport, current):
         return
     if not batch and work_order.status in {"completed", "cancelled", "rejected"}:
         return
+    if not batch and passport.created_at and not is_new:
+        last_manual_cut = db.query(func.max(CuttingRecord.created_at)).join(
+            WorkOrder, WorkOrder.id == CuttingRecord.work_order_id,
+        ).filter(WorkOrder.production_order_id == passport.production_order_id,
+                 CuttingRecord.cutting_passport_id.is_(None)).scalar()
+        if last_manual_cut and last_manual_cut >= passport.created_at:
+            return  # Existing manual production may already represent this old passport.
     if not batch:
         # Reuse the sole unused generated planning Nastil; preserve manual names
         # and never attach a new passport to previously recorded production.

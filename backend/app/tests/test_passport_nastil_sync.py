@@ -95,6 +95,25 @@ def test_passport_cannot_be_applied_to_a_different_nastil(client, auth_headers, 
     assert response.status_code == 409, response.text
 
 
+def test_old_passport_with_unlinked_manual_production_is_not_counted_as_a_new_nastil(client, auth_headers, passport_cutting):
+    _, order, work, payload = passport_cutting
+    response = client.post('/api/cutting/records', headers=auth_headers, json=payload)
+    assert response.status_code == 201, response.text
+    with SessionLocal() as db:
+        batch = db.get(ProductionBatch, payload['production_batch_id'])
+        batch.cutting_passport_id = None
+        batch.passport_actual_quantity = None
+        db.get(CuttingRecord, response.json()['id']).cutting_passport_id = None
+        db.get(WorkOrder, work['id']).status = 'in_progress'
+        db.commit()
+    passport = read_passport(client, auth_headers, payload)
+    saved = client.put(f"/api/cutting-passports/{passport['id']}", headers=auth_headers, json=passport)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()['production_batch_id'] is None
+    with SessionLocal() as db:
+        assert db.query(ProductionBatch).filter_by(production_order_id=order['id']).count() == 1
+
+
 @pytest.mark.parametrize('factory,name', [('MIL', 'Milana'), ('BST', 'Besttex'), ('ECO', 'Eco Cotton')])
 def test_uzbek_bundle_labels_use_each_bundles_sewing_destination(client, auth_headers, passport_cutting, factory, name):
     _, _, _, payload = passport_cutting

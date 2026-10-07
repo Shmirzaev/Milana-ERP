@@ -706,7 +706,7 @@ def create_passport(
     p = CuttingPassport(**_passport_values(db, payload, current))
     db.add(p)
     db.flush()
-    sync_passport_nastil(db, p, current)
+    sync_passport_nastil(db, p, current, is_new=True)
     log_action(db, current, "create", "CuttingPassport", p.id, new_value={"passport_no": p.passport_no})
     db.commit()
     db.refresh(p)

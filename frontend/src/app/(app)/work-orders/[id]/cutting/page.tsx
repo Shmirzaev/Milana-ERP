@@ -550,7 +550,7 @@ export default function CuttingPage() {
   const usePassportMaterials = !deferMaterialUsage && hasPlannedMaterials && selectedPassportId > 0;
   useEffect(() => {
     if (passportId !== -1 || cuttingPassports.length === 0) return;
-    const available = cuttingPassports.filter((row) => !row.used_for_cutting && Number(row.pieces || 0) > 0);
+    const available = cuttingPassports.filter((row) => row.production_batch_id && !row.used_for_cutting && Number(row.pieces || 0) > 0);
     const passport = available.find((row) => row.production_batch_id === Number(form.production_batch_id || wo?.production_batch_id)) || available[0];
     if (!passport) return;
     setPassportId(passport.id);
