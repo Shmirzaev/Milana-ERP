@@ -7,7 +7,7 @@ from sqlalchemy.orm import joinedload, load_only, noload, selectinload
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
 from app.models.cutting_passport import CuttingPassport
-from app.models import CuttingRecord, Department, Item, ModelBOM, ProductionBatch, ProductionOrder, ProductionOrderItem, StockBatch, User, WorkOrder
+from app.models import Bundle, CuttingRecord, Department, Item, ModelBOM, ProductionBatch, ProductionOrder, ProductionOrderItem, StockBatch, User, WorkOrder
 from app.models.catalog import Model as CatalogModel, ModelImage
 from app.models import ProductionOrderMaterial, MaterialReservation
 from app.services.inventory import create_material_reservations
@@ -523,6 +523,7 @@ def list_passports(
         )
     used = db.query(CuttingRecord.id).filter(or_(CuttingRecord.cutting_passport_id == CuttingPassport.id,
                                                CuttingRecord.production_batch_id == ProductionBatch.id)).exists()
+    used = or_(used, db.query(Bundle.id).filter(Bundle.production_batch_id == ProductionBatch.id).exists())
     result = qry.outerjoin(ProductionBatch, ProductionBatch.cutting_passport_id == CuttingPassport.id).add_columns(
         ProductionBatch.id, ProductionBatch.name, used,
     ).limit(limit).all()
@@ -758,7 +759,7 @@ def delete_passport(
         raise HTTPException(409, "This passport is used by a cutting batch and cannot be deleted")
     batch = db.query(ProductionBatch).filter_by(cutting_passport_id=p.id).first()
     if batch:
-        if db.query(CuttingRecord.id).filter_by(production_batch_id=batch.id).first():
+        if db.query(CuttingRecord.id).filter_by(production_batch_id=batch.id).first() or db.query(Bundle.id).filter_by(production_batch_id=batch.id).first():
             raise HTTPException(409, "This passport Nastil already has cutting records and cannot be deleted")
         batch.cutting_passport_id = None
         batch.passport_actual_quantity = None

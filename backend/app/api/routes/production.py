@@ -3399,7 +3399,7 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
             if payload.production_batch_id and payload.production_batch_id != passport_batch.id:
                 raise HTTPException(409, "Select the Nastil linked to this cutting passport")
             payload.production_batch_id = passport_batch.id
-            if db.query(CuttingRecord.id).filter_by(production_batch_id=passport_batch.id).first():
+            if db.query(CuttingRecord.id).filter_by(production_batch_id=passport_batch.id).first() or db.query(Bundle.id).filter_by(production_batch_id=passport_batch.id).first():
                 raise HTTPException(409, "This passport Nastil already has cutting records")
         if db.query(CuttingRecord.id).filter_by(cutting_passport_id=passport.id).first():
             raise HTTPException(409, "This cutting passport has already been used. Open its cutting sheet or create a new passport")

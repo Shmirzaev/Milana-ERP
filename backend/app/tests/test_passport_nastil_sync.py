@@ -114,6 +114,23 @@ def test_old_passport_with_unlinked_manual_production_is_not_counted_as_a_new_na
         assert db.query(ProductionBatch).filter_by(production_order_id=order['id']).count() == 1
 
 
+def test_direct_bundle_creation_also_locks_the_passport_nastil(client, auth_headers, passport_cutting):
+    _, order, _, payload = passport_cutting
+    response = client.post('/api/bundles', headers=auth_headers, json={
+        'production_order_id': order['id'], 'production_batch_id': payload['production_batch_id'],
+        'model_id': 1, 'color': 'white', 'size': '46', 'quantity': 10,
+    })
+    assert response.status_code == 201, response.text
+    passport = read_passport(client, auth_headers, payload)
+    assert passport['used_for_cutting']
+    listed = client.get(f"/api/cutting-passports?production_order_id={order['id']}", headers=auth_headers)
+    assert listed.json()[0]['used_for_cutting']
+    passport['materials'][0]['pieces'] = 11
+    assert client.put(f"/api/cutting-passports/{passport['id']}", headers=auth_headers, json=passport).status_code == 409
+    assert client.delete(f"/api/cutting-passports/{passport['id']}", headers=auth_headers).status_code == 409
+    assert client.post('/api/cutting/records', headers=auth_headers, json=payload).status_code == 409
+
+
 @pytest.mark.parametrize('factory,name', [('MIL', 'Milana'), ('BST', 'Besttex'), ('ECO', 'Eco Cotton')])
 def test_uzbek_bundle_labels_use_each_bundles_sewing_destination(client, auth_headers, passport_cutting, factory, name):
     _, _, _, payload = passport_cutting

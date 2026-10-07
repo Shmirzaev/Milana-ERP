@@ -37,7 +37,11 @@ def sync_passport_nastil(db, passport, current, *, is_new=False):
             WorkOrder, WorkOrder.id == CuttingRecord.work_order_id,
         ).filter(WorkOrder.production_order_id == passport.production_order_id,
                  CuttingRecord.cutting_passport_id.is_(None)).scalar()
-        if last_manual_cut and last_manual_cut >= passport.created_at:
+        last_manual_bundle = db.query(func.max(Bundle.created_at)).filter(
+            Bundle.production_order_id == passport.production_order_id,
+            Bundle.cutting_record_id.is_(None),
+        ).scalar()
+        if any(value and value >= passport.created_at for value in (last_manual_cut, last_manual_bundle)):
             return  # Existing manual production may already represent this old passport.
     if not batch:
         # Reuse the sole unused generated planning Nastil; preserve manual names
@@ -59,14 +63,15 @@ def sync_passport_nastil(db, passport, current, *, is_new=False):
                                     batch_no=batch_no, name=f"Nastil {index}", planned_quantity=quantity, start_date=passport.date)
             db.add(batch)
             db.flush()
-    if records and batch.passport_actual_quantity is not None and batch.passport_actual_quantity != quantity:
+    has_bundles = bool(db.query(Bundle.id).filter_by(production_batch_id=batch.id).first())
+    if (records or has_bundles) and batch.passport_actual_quantity is not None and batch.passport_actual_quantity != quantity:
         raise HTTPException(409, "The passport piece count is locked after cutting records have been created")
     old_quantity = batch.passport_actual_quantity
     batch.cutting_passport_id = passport.id
     batch.passport_actual_quantity = quantity
     # Confirmed cutting remains authoritative downstream; saving a passport
     # must not debit fabric or create/credit bundles a second time.
-    if not records and not db.query(Bundle.id).filter_by(production_batch_id=batch.id).first():
+    if not records and not has_bundles:
         batch.planned_quantity = quantity
     db.flush()
     log_action(db, current, "sync_passport_nastil", "ProductionBatch", batch.id,
@@ -81,6 +86,6 @@ def passport_batch_map(db, passport_ids):
     result = {pid: {"used_for_cutting": pid in used_ids} for pid in passport_ids}
     for row in db.query(ProductionBatch).filter(ProductionBatch.cutting_passport_id.in_(passport_ids)).all():
         result[row.cutting_passport_id].update(production_batch_id=row.id, nastil_name=row.name)
-        if db.query(CuttingRecord.id).filter_by(production_batch_id=row.id).first():
+        if db.query(CuttingRecord.id).filter_by(production_batch_id=row.id).first() or db.query(Bundle.id).filter_by(production_batch_id=row.id).first():
             result[row.cutting_passport_id]["used_for_cutting"] = True
     return result
