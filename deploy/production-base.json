@@ -1,6 +1,6 @@
 {
-  "release": "20261006_082610",
-  "source_manifest_sha256": "8aecd51802aef3a8308a60aba448842cf5b4c1a3f6170d518f89a9ebcd284bda",
-  "database_revision": "0139_warehouse_pack_reservations",
-  "git_baseline_commit": "f0ce3418118ebb462426b5bd44a557c6665ef44b"
+  "release": "20261007_101900",
+  "source_manifest_sha256": "8ea13f9d4762670807eef779239e34ee70944d9008c8ba6d2f4db7be156b8645",
+  "database_revision": "0140_usluga_packaging_nastil",
+  "git_baseline_commit": "b7958029725967c7ca5d07794aed6c3266b726c9"
 }
