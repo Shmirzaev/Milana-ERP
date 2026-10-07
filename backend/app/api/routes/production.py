@@ -2572,7 +2572,6 @@ def cutting_batch_progress(wid: int, db: DbSession, _: User = Depends(require_pe
             "batch_no": b.batch_no,
             "batch_index": b.batch_index,
             "name": b.name,
-            "cutting_passport_id": b.cutting_passport_id,
             "passport_actual_quantity": b.passport_actual_quantity,
             "planned_quantity": planned,
             "cut_pieces": int(totals.get("cut_pieces", 0)),
