@@ -2,6 +2,13 @@
 
 Last updated: 2026-10-07
 
+## Later passport Nastils and Cutting floor (2026-10-07)
+
+- Dedicated worktree `C:/ERP/.codex-work/passport-nastil-floor-20261007`, branch `codex/passport-nastil-floor-20261007`, reconciled onto verified `clone_main` release `20261007_125905` after the separate payroll deployment completed. No message, interruption or overlapping slot mutation was sent to that chat.
+- A positive new passport can create another Nastil after Cutting completed and reopen that Cutting work order. Passport Nastils awaiting their first cutting/bundle confirmation keep Cutting visible even when earlier work has reached Sewing, and prevent aggregate order totals from closing Cutting prematurely. Saving a passport still does not credit output, create bundles or consume fabric. Cancelled/rejected work and ambiguous historical manual records retain their guards.
+- Focused Nastil regressions: 11 passed; changed-file Ruff and diff checks passed. Owner requested deployment without extra tests or extended monitoring; immutable release CI and immediate focused/health checks remain the deployment verification scope.
+- PO-0294 inspection found passports 9569 and 9590 at 300 pieces each, one unlinked Nastil, zero surviving bundles, and unlinked/manual cutting entries totaling 1,700. Restoring the two passport links is authorized; resetting the old cutting credit awaits the owner's separate answer. Deployment and final data state are recorded below when completed.
+
 ## Payroll scanner Return QR deployed (20261007_125905; 2026-10-07)
 
 - LIVE: backend/frontend **blue `20261007_125905`**, exact application commit `aa7fd01342a431ef429d12f4d63535ef45ff7a36`, pushed to `clone_main` and `codex/payroll-return-qr-20261007`. Both full source manifests, image revisions, current symlinks and active slots agree. Retained running rollback: **green `20261007_115924`**. Worktree `C:/ERP/.codex-work/payroll-return-qr-20261007`; legacy checkout and `main` preserved.
