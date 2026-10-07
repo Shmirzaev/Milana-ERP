@@ -2230,7 +2230,7 @@ def add_extra_cutting_batch(
         production_order_id=po.id,
         batch_no=batch_no,
         batch_index=batch_index,
-        name=(str(payload.name or "").strip() or f"Extra batch {batch_index}"),
+        name=(str(payload.name or "").strip() or f"Nastil {batch_index}"),
         planned_quantity=qty,
         start_date=payload.start_date,
         deadline=payload.deadline,
@@ -5858,6 +5858,8 @@ def post_packaging(payload: PackagingRecordIn, db: DbSession, current: User = De
     if wo.operation != "packaging": raise HTTPException(400, "Work order is not a packaging operation")
     require_packaging_work_order_access(current, db, wo)
     _gate_record_submission(wo)
+    if wo.service_packaging_json is not None:
+        raise HTTPException(409, "Edit Usluga quantities through size confirmation")
     batch_id = _resolve_record_batch_id(
         db,
         wo,

@@ -212,6 +212,7 @@ class WorkOrder(Base, PkMixin, TimestampMixin):
     # Block / pause flag so supervisors can flag a stuck job up the chain.
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     block_reason: Mapped[str | None] = mapped_column(Text)
+    service_packaging_json: Mapped[dict | None] = mapped_column(JSON)
     notes: Mapped[str | None] = mapped_column(Text)
 
     production_order: Mapped["ProductionOrder"] = relationship("ProductionOrder", back_populates="work_orders")

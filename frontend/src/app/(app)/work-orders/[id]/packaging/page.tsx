@@ -6,6 +6,7 @@ import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import { formatBatchLabel, formatBatchSerial } from "@/lib/batchSerial";
 import FirstGradePackaging from "@/components/FirstGradePackaging";
+import UslugaPackaging from "@/components/UslugaPackaging";
 import PackageQrSection from "@/components/PackageQrSection";
 import { postPackageWorkflow, type PackagePrintRun } from "@/lib/packageWorkflow";
 import PageHeader from "@/components/PageHeader";
@@ -628,6 +629,13 @@ export default function PackagingPage() {
     production_no: po?.production_no || wo?.production_no,
     production_order_id: wo?.production_order_id,
   }, `#${id}`);
+
+  if (po?.source_type === "usluga") return <div>
+    <PageHeader title={t("page.packaging.title", { id, orderNo })} />
+    <WorkOrderProductInfo t={t} so={so} po={po} wo={wo} model={model} customerName={po.service_customer_name}
+      statusText={wo ? statusLabel(wo.status, t) : "-"} compact />
+    <UslugaPackaging workOrderId={id} onSaved={refreshPackagingOutputs} />
+  </div>;
 
   return (
     <div>

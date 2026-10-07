@@ -345,7 +345,7 @@ def create_production_batches(db: Session, production_order_id: int, batches: li
             production_order_id=po.id,
             batch_no=batch_no,
             batch_index=idx,
-            name=(str(raw.get("name") or "").strip() or None),
+            name=(str(raw.get("name") or "").strip() or f"Nastil {idx}"),
             planned_quantity=qty,
             start_date=raw.get("start_date"),
             deadline=raw.get("deadline"),

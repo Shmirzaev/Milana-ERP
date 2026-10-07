@@ -128,9 +128,9 @@ def invoice_date(raw) -> str:
 def invoice_metadata(document: dict, text: dict) -> list[tuple]:
     transport = document.get("transport_details") or {}
     return [
-        (text["shipment"], document.get("shipment_no"), text["driver"], transport.get("driver_name")),
-        (text["date"], invoice_date(document.get("shipped_at")), text["vehicle"], transport.get("vehicle_info")),
-        (text["customer"], document.get("customer"), text["carrier"], transport.get("cargo_name")),
+        (text["customer"], document.get("customer"), text["driver"], transport.get("driver_name")),
+        (text["shipment"], document.get("shipment_no"), text["vehicle"], transport.get("vehicle_info")),
+        (text["date"], invoice_date(document.get("shipped_at")), text["carrier"], transport.get("cargo_name")),
         (text["order"], document.get("sales_order_no"), text["phone"], transport.get("driver_phone")),
     ]
 
@@ -143,7 +143,7 @@ def invoice_headers(lang: str) -> list[str]:
 
 
 def invoice_column_widths() -> list[int]:
-    return [3, 8, 8, 16, 16, 5, 7, 8, 8, 10, 11]
+    return [4, 10, 10, 15, 13, 6, 6, 10, 8, 8, 10]
 
 
 def invoice_price_notes(document: dict, lang: str) -> list[str]:
@@ -238,40 +238,45 @@ def render_shipment_invoice(document: dict, language: str, *, show_prices: bool 
     toggle_url = f'?lang={lang}&amp;show_prices={str(not show_prices).lower()}'
     toggle_text = text["hide_prices" if show_prices else "show_prices"]
     weights = number(recorded_weight(document))
+    warehouse_signature = {"en": "Warehouse signature", "ru": "Подпись кладовщика", "uz": "Omborchi imzosi"}[lang]
+    warehouse_officer = {"en": "Responsible warehouse officer", "ru": "Ответственный кладовщик", "uz": "Mas’ul omborchi"}[lang]
     return f'''<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>{text["title"]} {value(document["shipment_no"])}</title>
 <style>
-*{{box-sizing:border-box}}body{{font:400 8pt "Helvetica Neue",Arial,sans-serif;line-height:1.3;color:#202124;background:#fff;margin:20px auto;max-width:190mm;padding:0}}
+*{{box-sizing:border-box}}body{{font:400 8pt Calibri,Arial,sans-serif;line-height:1.3;color:#202124;background:#fff;margin:20px auto;max-width:190mm;padding:0}}
 .controls{{margin-bottom:16px;display:flex;gap:8px}}button,.controls a{{color:inherit;text-decoration:none;font:inherit;padding:8px 16px;background:#fff;border:1px solid #b9bec4;border-radius:4px;cursor:pointer}}
-.masthead{{display:flex;align-items:center;justify-content:space-between;gap:10mm;padding:0 0 4mm;border-bottom:1.5pt solid #b82025;break-inside:avoid}}
-h1{{font-size:16pt;line-height:1.2;font-weight:700;margin:2mm 0;color:#243446}}.supplier{{margin:0;font-size:10pt}}.document-number{{margin:2mm 0 0;color:#9b242b;font-size:8pt;font-weight:700}}
+.masthead{{display:flex;align-items:center;justify-content:space-between;gap:10mm;padding:0 0 4mm;border-bottom:0;break-inside:avoid}}
+h1{{font-size:11pt;line-height:1.2;font-weight:700;margin:2mm 0;color:#1f3864}}.supplier{{margin:0;font-size:24pt;font-weight:700;color:#1f3864}}.document-number{{margin:2mm 0 0;color:#9b242b;font-size:8pt;font-weight:700}}
 .logo{{width:38mm;height:auto;display:block;flex:none}}
 table{{width:100%;border-collapse:collapse;table-layout:fixed}}td,th{{overflow-wrap:anywhere;vertical-align:middle}}
-.meta{{margin:3mm 0 4mm}}.meta th,.meta td{{padding:1mm 2mm 1mm 0;text-align:left;border-bottom:.5pt solid #e1e4e7}}
-.meta th{{font-size:7pt;font-weight:400;color:#575e66}}.meta td{{font-size:8pt;font-weight:700}}.meta th:nth-child(3){{padding-left:5mm}}
-.items{{font-size:7pt;line-height:1.2}}.items th,.items td{{padding:1mm 1.1mm;border:.5pt solid #d5dce2;text-align:center}}
-.items thead th{{background:#243446;color:#fff;font-size:6.8pt;font-weight:700;padding:2mm .8mm;overflow-wrap:normal}}
-.items tbody:first-of-type tr:nth-child(even){{background:#f3f6f8}}
+.meta{{margin:3mm 0 4mm}}.meta th,.meta td{{padding:1mm 2mm 1mm 0;text-align:left;border:.5pt solid #8ea9db}}
+.meta th{{font-size:8pt;font-weight:700;color:#4d5656;background:#f2f5fa}}.meta td{{font-size:8pt;font-weight:700}}.meta th:nth-child(3){{padding-left:5mm}}
+.items{{font-size:7pt;line-height:1.2}}.items th,.items td{{padding:1mm 1.1mm;border:.5pt solid #8ea9db;text-align:center}}
+.items thead th{{background:#2f5597;color:#fff;font-size:6.8pt;font-weight:700;padding:2mm .8mm;overflow-wrap:normal}}
+
 .items .row-number{{white-space:nowrap;overflow-wrap:normal;color:#64717e;font-variant-numeric:tabular-nums;padding-left:.5mm;padding-right:.5mm}}
-.items .identity{{font-weight:700;color:#243446}}.items .description,.items .sizes{{text-align:left}}.items .sizes{{font-size:6.5pt;color:#444b52}}
+.items .identity{{font-weight:700;color:#1f3864}}.items .description,.items .sizes{{text-align:left}}.items .sizes{{font-size:6.5pt;color:#444b52}}
 .items .numeric{{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-size:6.8pt}}
 .size-label{{display:inline-block;vertical-align:top;width:50%;white-space:normal;padding-right:1mm}}.size-label.multicolor{{width:100%;white-space:normal}}
 thead{{display:table-header-group}}tr{{break-inside:avoid}}.items tbody:first-of-type tr:last-child{{break-after:avoid}}
-.items .totals td{{font-weight:700;background:#e8f1ec;color:#174a35;border-top:1.2pt solid #3b775a;padding-top:2mm;padding-bottom:2mm}}
-.items .totals .total-label{{font-size:8pt;text-align:left;padding-left:3mm}}
+.items .totals td{{font-weight:700;background:#c6d9f1;color:#1f3864;border-top:1.2pt solid #1f3864;padding-top:2mm;padding-bottom:2mm}}
+.items .totals td:last-child{{background:#1f3864;color:white}}
+.items .totals .total-label{{font-size:8pt;text-align:right;padding-left:3mm}}
 .accounting{{margin-top:4mm;font-size:8pt;break-inside:avoid;color:#51565d}}p{{margin:1.5mm 0}}.warning{{padding-left:2mm;border-left:1.5pt solid #b82025}}
-.signatures{{display:flex;gap:20mm;justify-content:space-between;margin-top:6mm;break-inside:avoid;color:#51565d;font-size:8pt}}
-.signatures div{{width:44%;border-top:.5pt solid #939ba3;padding-top:2mm}}
+.signatures{{margin-top:5mm;break-inside:avoid;color:#1f3864;font-size:8pt;text-align:center}}
+.signatures th{{background:#1f3864;color:white;padding:2mm;border-bottom:1pt solid #d9a441}}
+.signatures td{{height:13mm;border:1pt solid #8ea9db;background:#f2f5fa;font-weight:700}}
+.contact{{display:flex;justify-content:space-around;background:#1f3864;color:white;padding:3mm 1mm;margin-top:4mm;border-top:1pt solid #d9a441;break-inside:avoid;font-weight:700}}
 @page{{size:A4 portrait;margin:10mm;@bottom-right{{content:counter(page) " / " counter(pages);font:8pt Arial,sans-serif;color:#67717a}}}}
 @media print{{body{{margin:0;max-width:none;width:100%}}.controls{{display:none}}*{{print-color-adjust:exact;-webkit-print-color-adjust:exact}}}}
 @media screen and (max-width:740px){{body{{min-width:700px;margin:16px}}}}
 </style></head><body><div class="controls"><button onclick="window.print()">{text["print"]}</button><a href="{toggle_url}">{toggle_text}</a></div>
-<header class="masthead"><div><p class="supplier">{value(document.get("supplier") or "Milana Tex")}</p><h1>{text["title"]}</h1>
-<p class="document-number">{value(document["shipment_no"])}</p></div><img class="logo" src="{invoice_logo_uri()}" alt="Milana Premium"></header>
-<table class="meta"><colgroup><col style="width:16%"><col style="width:34%"><col style="width:21%"><col style="width:29%"></colgroup><tbody>{metadata_html}</tbody></table>
+<header class="masthead"><div><p class="supplier">MILANA PREMIUM</p><h1>{text["title"]}</h1></div></header>
+<table class="meta"><colgroup><col style="width:14%"><col style="width:25%"><col style="width:18%"><col style="width:43%"></colgroup><tbody>{metadata_html}</tbody></table>
 <table class="items"><colgroup>{columns}</colgroup><thead><tr>{"".join(f"<th scope='col'>{header}</th>" for header in headers)}</tr></thead>
 <tbody>{"".join(body)}</tbody><tbody><tr class="totals"><td class="total-label" colspan="5">{text["total"]}</td>
 <td class="numeric">{number(document["packages_count"], 0)}</td><td class="numeric">{number(document["quantity"], 0)}</td>
 <td class="numeric">{weights}</td><td class="numeric">{weights}</td>{money_total}</tr></tbody></table>
-<div class="accounting">{warning}{price_notes}<p>{posting}</p></div>
-<div class="signatures"><div>{text["issued"]}: {value(document.get("warehouse_person")) or "________________"}</div><div>{text["received"]}</div></div></body></html>'''
+<table class="signatures"><thead><tr><th>{warehouse_officer}</th><th>{warehouse_signature}</th></tr></thead><tbody><tr><td>{value(document.get("warehouse_person")) or "________________"}</td><td>________________________________</td></tr></tbody></table>
+<footer class="contact"><span>Milana Tex Logistics</span><span>www.milanatex.uz</span><span>info@milanatex.uz</span></footer>
+<div class="accounting">{warning}{price_notes}<p>{posting}</p></div></body></html>'''

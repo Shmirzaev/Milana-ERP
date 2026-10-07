@@ -56,8 +56,9 @@ COLLECTION_STATUSES = frozenset({"draft", "approved", "archived"})
 
 # A model's details_json is per-model modelling metadata: identity, costing and
 # paid operations. Sizes, measurements, BOM and images live in their own tables,
-# so 64 KiB is far above any real document while still bounding one stored row.
-_MAX_MODEL_DETAILS_JSON_BYTES = 64 * 1024
+# Factory-specific operation templates can contain hundreds of rows. Keep a
+# finite document ceiling while allowing all three factories' templates to fit.
+_MAX_MODEL_DETAILS_JSON_BYTES = 1024 * 1024
 # Real documents are general -> costing -> layers -> trimming, so about five
 # levels. 16 leaves room to extend the shape without ever approaching a depth
 # that a JSON encoder or decoder would have to recurse through.

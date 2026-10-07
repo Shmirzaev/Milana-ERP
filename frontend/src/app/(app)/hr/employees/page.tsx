@@ -46,7 +46,7 @@ const EMPTY: FormState = { employee_no: "", full_name: "", department_id: "", po
 
 function effectiveEmployeeNumber(employee: Pick<Employee, "id" | "employee_no">): string {
   const configured = String(employee.employee_no || "").trim();
-  return configured || `EMP-${String(employee.id).padStart(4, "0")}`;
+  return configured || String(employee.id).padStart(4, "0");
 }
 
 function toForm(employee?: Employee | null): FormState {

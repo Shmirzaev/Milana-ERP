@@ -110,20 +110,21 @@ def test_invoice_pdf_excel_share_identity_metadata_notes_and_portrait_layout(lan
     html = render_shipment_invoice(document, lang)
     sheet = load_workbook(BytesIO(shipment_invoice_workbook(document, lang))).active
     labels = LABELS[lang]
-    assert sheet["A1"].value == "Milana Tex"
-    assert sheet["A2"].value == labels["title"]
-    assert sheet["A3"].value == "SH-2026-000011"
-    assert sheet["A4"].value == labels["shipment"] and sheet["C4"].value == document["shipment_no"]
-    assert sheet["A5"].value == labels["date"] and sheet["C5"].value == "29/09/2026 11:25:04"
-    assert sheet["C6"].value == "Customer" and sheet["C7"].value == "—"
-    assert [sheet.cell(row, 6).value for row in range(4, 8)] == ["Driver", "Truck", "Carrier", "Phone"]
+    assert sheet["A2"].value == "MILANA PREMIUM"
+    assert sheet["A3"].value == labels["title"]
+    assert sheet["A4"].value == labels["customer"] and sheet["C4"].value == "Customer"
+    assert sheet["A5"].value == labels["shipment"] and sheet["C5"].value == document["shipment_no"]
+    assert sheet["A6"].value == labels["date"] and sheet["C6"].value == "29/09/2026 11:25:04"
+    assert sheet["C7"].value == "—"
+    assert [sheet.cell(row, 7).value for row in range(4, 8)] == ["Driver", "Truck", "Carrier", "Phone"]
     assert sheet["C10"].value == "V-5865" and "<td>V-5865</td>" in html
     assert sheet.page_setup.orientation == "portrait" and sheet.page_setup.fitToWidth == 1
-    assert len(sheet._images) == 1
+    assert sheet["A9"].fill.fgColor.rgb == "001F3864"
+    assert sheet["B9"].fill.fgColor.rgb == "002F5597"
     values = [cell.value for row in sheet for cell in row]
     for note in invoice_notes(document, lang):
         assert note in values and note in html
-    assert f'{labels["issued"]}: Storage' in values and labels["received"] in values
+    assert "Storage" in values and "Milana Tex Logistics" in values
     assert document == original
 
 

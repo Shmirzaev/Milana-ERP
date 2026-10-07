@@ -601,7 +601,7 @@ function ExpandedProcess({ process }: { process: Process }) {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex min-w-0 items-center gap-2">
                     <span className="badge shrink-0">{formatBatchSerial(batch, process.production_order_id)}</span>
-                    <span className="break-words text-sm font-medium">{batch.name || `Batch ${batch.batch_index}`}</span>
+                    <span className="break-words text-sm font-medium">{batch.name || `Nastil ${batch.batch_index}`}</span>
                     <span className="text-xs text-[#8a8472]">{batch.planned_quantity} {t("field.unitPcs")}</span>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 text-xs">

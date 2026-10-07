@@ -350,6 +350,7 @@ def _passport_defaults_payload(
         "has_print": has_print,
         "size_range": _size_range_from_options(sizes),
         "sizes": sizes,
+        "available_sizes": list(dict.fromkeys(sizes + [str(row.size).strip() for row in (model.sizes if model else []) if str(row.size or "").strip()])),
         "size_count": len(sizes),
         "pieces": int(po.planned_quantity or 0) or None,
         "planned_kg": planned_kg,
@@ -374,7 +375,7 @@ def material_defaults(
     current: User = Depends(require_permissions("cutting.records", "*")),
 ):
     po, work_order = _passport_order(db, production_order_id, current)
-    model = db.get(CatalogModel, po.model_id)
+    model = db.get(CatalogModel, po.model_id, options=[joinedload(CatalogModel.sizes)])
 
     if po.materials:
         materials = sorted(po.materials, key=lambda row: row.position)

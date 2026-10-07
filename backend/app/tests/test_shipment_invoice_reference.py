@@ -57,7 +57,7 @@ def test_dispatch_freezes_reference_fields_transport_weights_and_identity(client
     for lang in ["en", "ru", "uz"]:
         html = client.get(base + f"/invoice/print?lang={lang}", headers=auth_headers).text
         assert {"en": "Warehouse invoice", "ru": "Складская накладная", "uz": "Ombor hisob-fakturasi"}[lang] in html
-        assert 'alt="Milana Premium"' in html and "data:image/svg+xml;base64," in html
+        assert "MILANA PREMIUM" in html and "#1f3864" in html.lower()
         assert "Milana Tex" in html
         assert "PJ1142-V-3599" not in html and "PJ1142" in html and "V-3599" in html
         assert "Synthetic driver" in html and "Changed directly" not in html

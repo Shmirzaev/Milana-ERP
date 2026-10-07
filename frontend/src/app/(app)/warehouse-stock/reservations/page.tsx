@@ -16,7 +16,7 @@ type Pack = { id: number; package_no: string; model_code: string; model_name: st
 type PackPage = { rows: Pack[]; total: number; has_more: boolean };
 
 export default function WarehouseReservationsPage() {
-  const { t } = useT();
+  const { t, lang } = useT();
   const { me } = useMe();
   const router = useRouter();
   const [reserved, setReserved] = useState(true);
@@ -29,15 +29,35 @@ export default function WarehouseReservationsPage() {
   const [selected, setSelected] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
+  const [scanCode, setScanCode] = useState("");
+  const [scanned, setScanned] = useState<Pack[]>([]);
+  const scanInput = useRef<HTMLInputElement>(null);
+  const scanBusy = useRef(false);
+  const scanText = { en: "Scan packs to reserve", ru: "Сканировать упаковки для резерва", uz: "Band qilish uchun qadoqlarni skanerlang" }[lang];
   const request = useRef<{ fingerprint: string; key: string } | null>(null);
   const customerUrl = `/api/warehouse-reservations/customers?q=${encodeURIComponent(customerQuery)}`;
   const { data: customers } = useSWR<{ rows: { id: number; name: string }[] }>(customerUrl, fetcher);
   const { data, error, isLoading, isValidating, setSize, mutate } = useSWRInfinite<PackPage>(
     (index, previous) => previous && !previous.has_more ? null
       : `/api/warehouse-reservations?reserved=${reserved}&page=${index + 1}&page_size=50&q=${encodeURIComponent(search)}${reserved && customerId ? `&customer_id=${customerId}` : ""}`, fetcher);
-  const rows = data?.flatMap(page => page.rows) || [];
+  const listed = data?.flatMap(page => page.rows) || [];
+  const rows = reserved ? listed : [...scanned.filter(row => !listed.some(item => item.id === row.id)), ...listed];
   const total = data?.[0]?.total || 0;
-  useEffect(() => { setSelected([]); }, [reserved, search, customerId]);
+  useEffect(() => { setSelected([]); setScanned([]); }, [reserved, search]);
+  useEffect(() => { if (reserved) setSelected([]); }, [reserved, customerId]);
+
+  async function scan() {
+    if (busy || scanBusy.current || !scanCode.trim() || reserved || selected.length >= 50) return;
+    scanBusy.current = true;
+    setBusy(true); setActionError("");
+    try {
+      const row = await api.post<Pack>("/api/warehouse-reservations/scan", { code: scanCode.trim() });
+      setScanned(previous => previous.some(item => item.id === row.id) ? previous : [...previous, row]);
+      setSelected(previous => previous.includes(row.id) ? previous : [...previous, row.id]);
+      setScanCode("");
+    } catch (e: unknown) { setActionError(e instanceof Error ? e.message : String(e)); }
+    finally { scanBusy.current = false; setBusy(false); requestAnimationFrame(() => scanInput.current?.focus()); }
+  }
 
   async function act(action: "reserve" | "release" | "prepare-shipment") {
     if (busy || !selected.length || (action === "reserve" && !customerId)) return;
@@ -50,6 +70,7 @@ export default function WarehouseReservationsPage() {
         body, { "Idempotency-Key": request.current.key });
       request.current = null;
       setSelected([]);
+      setScanned([]);
       if (action === "prepare-shipment" && response.id) {
         router.push(`/shipments?shipment_id=${response.id}`);
       } else {
@@ -83,6 +104,11 @@ export default function WarehouseReservationsPage() {
         {can(me, "storage.shipment", "*") && <button className="btn btn-primary" disabled={busy || !selected.length} onClick={() => void act("prepare-shipment")}>{t("warehouseReservations.prepareShipment")}</button>}
       </> : <button className="btn btn-primary" disabled={busy || !selected.length || !customerId} onClick={() => void act("reserve")}>{t("warehouseReservations.reserve")}</button>}
     </div>
+    {!reserved && <form className="mb-4 flex items-end gap-2" onSubmit={event => { event.preventDefault(); void scan(); }}>
+      <label className="flex-1"><span className="label">{scanText}</span><input ref={scanInput} className="input" value={scanCode} maxLength={2048} disabled={busy}
+        onChange={event => setScanCode(event.target.value)} autoComplete="off" /></label>
+      <button className="btn" disabled={busy || !scanCode.trim() || selected.length >= 50}>{scanText}</button>
+    </form>}
     {(actionError || error) && <div role="alert" className="mb-3 text-sm text-red-700">{actionError || String(error.message)} {error && <button className="btn" onClick={() => void mutate()}>{t("common.retry")}</button>}</div>}
     <div className="card overflow-x-auto" aria-busy={busy || isLoading}>
       <table className="table"><thead><tr><th>{t("warehouseReservations.select")}</th><th>{t("field.package")}</th><th>{t("field.model")}</th><th>{t("field.qty")}</th>{reserved && <><th>{t("common.customer")}</th><th>{t("field.notes")}</th></>}</tr></thead>

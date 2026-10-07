@@ -1,6 +1,17 @@
 # Milana ERP Project Context
 
-Last updated: 2026-10-06
+Last updated: 2026-10-07
+
+## Factory workflow changes prepared (2026-10-07)
+
+- Owner requested the reviewed changes on `clone_main` and production deployment. Dedicated worktree `C:/ERP/.codex-work/factory-workflows-20261007`, branch `codex/factory-workflows-20261007`, based on `19dc371e`. Both live source manifests were verified against green `20261006_082610`, schema `0139_warehouse_pack_reservations`; `main` remains older. The legacy checkout was preserved.
+- Planning branded orders can select a customer. Catalog numbering adds HB/HG with first available numbers HB17002/HG18002. Generated production-batch names are Nastil 1, Nastil 2, etc.; forward migration 0140 renames only blank or generated Batch/Extra batch names and retains custom names. Cutting sheets show Nastil No and its name.
+- Shipment print/Excel invoices follow the owner's Faktura workbook: navy/blue title, customer-first metadata, eleven columns, totals and warehouse signature area. Saved invoice values, historical reconstruction notes and the price visibility control remain authoritative.
+- Paid-operation model details accept up to 1 MiB with the existing finite-JSON/depth checks. Split payroll allocations can print their issued child QR stickers without creating another payment. Employee fallback IDs display numeric digits across factories; historical EMP-prefixed scan resolution remains compatible.
+- Usluga packaging supports editable per-size drafts and completion, bounded by confirmed sewing output, factory access, work blocking and optimistic versions. Customer handover accepts confirmed quantities without warehouse packs. Legacy packaging-record writes are blocked after switching to size confirmation, and handed-over quantities cannot be changed. No finished-goods stock is created by this flow.
+- Warehouse reservations can scan and select available packs; reservation still locks/revalidates stock and dispatch still requires its normal scans. Cutting passports offer both order and model sizes and reload options on edit without replacing saved inputs. Live PO-0297 has only size 48 in its order plan; its model has six sizes 48–58. This change exposes those choices without rewriting order quantities.
+- The September workbook contains 634 employee rows: 632 existing source numbers and two named rows without numbers, assigned the next unused source numbers 634/635. Production dry-run found no ECO employees or number conflicts. The reviewed importer is dry-run by default, factory-scoped and audited; it adds no salary, attendance or login accounts. Source workbook/extracted names stay outside Git. Actual import and deployment remain pending at this source commit; the completed release record must supersede this paragraph after verification.
+- This release requires a validated PostgreSQL backup before migration/import, immutable images, candidate functional/performance gates and a 30-minute high-risk observation. Unrelated historical audit risks and the known Finance cost-breakdown issue are outside this request.
 
 ## OPS02 / OPS03 completed with live evidence (2026-10-06)
 

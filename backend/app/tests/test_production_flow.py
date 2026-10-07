@@ -525,7 +525,7 @@ def test_cutting_record_print_sheet_keeps_all_reference_sections(client, auth_he
         "Zakaz No",
         "Bichilgan sana",
         "Etiket",
-        "Kroy No",
+        "Nastil No",
         "Detskiy",
         "Sana",
         "Buyurtma soni",

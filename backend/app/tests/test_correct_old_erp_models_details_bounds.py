@@ -158,7 +158,7 @@ def plan(state: dict, record: dict) -> dict:
 
 def test_changed_correction_rejects_oversized_details_json() -> None:
     record = complete_record()
-    state = model_state(action(), legacy_extension="x" * (70 * 1024))
+    state = model_state(action(), legacy_extension="x" * (MAX_BYTES + 1024))
     state_before = copy.deepcopy(state)
 
     with pytest.raises(correction.MigrationError, match="details_json cannot exceed"):
@@ -200,8 +200,8 @@ def test_changed_correction_rejects_non_finite_details_json(value: float) -> Non
 
 
 def test_oversized_detail_is_actually_over_the_shared_ceiling() -> None:
-    """Guards the reproduction itself: the fixture must exceed 64 KiB."""
-    payload = json_bytes_of({"legacy_extension": "x" * (70 * 1024)})
+    """Guards the reproduction itself: the fixture must exceed the shared limit."""
+    payload = json_bytes_of({"legacy_extension": "x" * (MAX_BYTES + 1024)})
 
     assert len(payload) > MAX_BYTES
 
@@ -257,7 +257,7 @@ def test_correction_reports_a_bound_failure_as_a_migration_error() -> None:
     from fastapi import HTTPException
 
     record = complete_record()
-    state = model_state(action(), legacy_extension="x" * (70 * 1024))
+    state = model_state(action(), legacy_extension="x" * (MAX_BYTES + 1024))
 
     with pytest.raises(correction.MigrationError) as excinfo:
         plan(state, record)
@@ -282,7 +282,7 @@ def test_unchanged_oversized_and_deep_legacy_document_is_grandfathered() -> None
     first = plan(model_state(action()), record)
     legacy_details = copy.deepcopy(first["_details_after"])
     legacy_details["legacy_extension"] = {
-        "large": "x" * (70 * 1024),
+        "large": "x" * (MAX_BYTES + 1024),
         "deep": nested_legacy_value(),
     }
 
@@ -297,7 +297,7 @@ def test_changed_correction_still_rejects_a_grown_legacy_document() -> None:
     record = complete_record()
     first = plan(model_state(action()), record)
     legacy_details = copy.deepcopy(first["_details_after"])
-    legacy_details["legacy_extension"] = {"large": "x" * (70 * 1024)}
+    legacy_details["legacy_extension"] = {"large": "x" * (MAX_BYTES + 1024)}
     # Drop a value the pass refills, so the next plan really does change the
     # document instead of being a no-op over the legacy extension.
     legacy_details["general"].pop("legacy_company")

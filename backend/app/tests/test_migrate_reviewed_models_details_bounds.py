@@ -162,15 +162,15 @@ def test_merge_of_two_legal_documents_is_refused_before_apply(
     This is the specific hole ``DB03-IMPORT-REVIEWED`` names. The live catalog
     document and the reviewed source document are each individually writable by
     the API, so an input-only check passes both, and only the merged document
-    that the migration actually stores is over 64 KiB.
+    that the migration actually stores exceeds the shared limit.
     """
     live_details = {
         "general": {"model_no": "TJ-2053", "variant_no": "879"},
-        "legacy_notes": "A" * 40_000,
+        "legacy_notes": "A" * (MAX_BYTES * 3 // 5),
     }
     source_details = {
         "general": {"model_no": "TJ-2053", "variant_no": "879"},
-        "costing": {"fabric": "B" * 40_000},
+        "costing": {"fabric": "B" * (MAX_BYTES * 3 // 5)},
     }
 
     # Both inputs are individually legal -- this is not an input-validation case.

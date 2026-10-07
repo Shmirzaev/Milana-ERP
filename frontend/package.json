@@ -31,7 +31,7 @@
     "test:model-picture-containment": "node scripts/check-model-picture-containment.mjs",
     "test:usluga-manual-fabric": "node scripts/check-usluga-manual-fabric.mjs",
     "test:usluga-batch-edit": "node scripts/check-usluga-batch-edit.mjs",
-    "test:cutting-passport-autofill": "node scripts/check-cutting-passport-autofill.mjs",
+    "test:cutting-passport-autofill": "node scripts/check-cutting-passport-autofill.mjs && node scripts/test-cutting-passport-size-edit.mjs",
     "test:price-calculation-workflow": "node scripts/check-price-calculation-workflow.mjs",
     "test:name-authorization": "node scripts/test-name-authorization.mjs",
     "test:sewing-factory-access": "node scripts/check-sewing-factory-access.mjs",

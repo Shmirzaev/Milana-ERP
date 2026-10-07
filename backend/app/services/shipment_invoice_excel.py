@@ -1,13 +1,11 @@
 """Read-only Excel version of the same shipment invoice used for printing."""
 from decimal import Decimal
 from io import BytesIO
-from pathlib import Path
 from textwrap import wrap
 
 from app.services.variant_display import format_variant_number
 
 from openpyxl import Workbook
-from openpyxl.drawing.image import Image
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.page import PageMargins
@@ -34,7 +32,7 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
         # Business text remains literal even when it starts with =, +, - or @.
         if isinstance(value, str):
             cell.data_type = "s"
-        cell.font = Font(name="Arial", size=size, bold=bold, color=color)
+        cell.font = Font(name="Calibri", size=size, bold=bold, color=color)
         cell.alignment = Alignment(horizontal=align, vertical="center", wrap_text=True)
         if fill:
             cell.fill = PatternFill("solid", fgColor=fill)
@@ -44,35 +42,29 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
         sheet.merge_cells(start_row=row, start_column=first, end_row=row, end_column=last)
         put(row, first, value, **style)
 
-    merged(1, 1, last_column - 3, document.get("supplier") or "Milana Tex", size=10)
-    merged(2, 1, last_column - 3, text["title"], bold=True, color="243446", size=16)
-    merged(3, 1, last_column - 3, document["shipment_no"], bold=True, color="9B242B")
-    sheet.row_dimensions[1].height = 18
-    sheet.row_dimensions[2].height = 28
-    sheet.row_dimensions[3].height = 34
-    logo = Image(Path(__file__).resolve().parents[1] / "assets" / "milana-premium-logo.png")
-    logo.width, logo.height = 144, 83
-    sheet.add_image(logo, f"{get_column_letter(last_column - 2)}1")
-    for column in range(1, last_column + 1):
-        sheet.cell(3, column).border = Border(bottom=Side(style="medium", color="B82025"))
+    merged(2, 1, 11, "MILANA PREMIUM", bold=True, color="1F3864", size=24)
+    merged(3, 1, 11, text["title"], bold=True, color="2F5597", size=11)
+    sheet.row_dimensions[1].height = 4
+    sheet.row_dimensions[2].height = 30
+    sheet.row_dimensions[3].height = 35
     for row, (left, lv, right, rv) in enumerate(invoice_metadata(document, text), 4):
-        merged(row, 1, 2, left, color="575E66", size=7)
+        merged(row, 1, 2, left, bold=True, fill="F2F5FA", color="1F3864", size=9)
         merged(row, 3, 4, lv or "—", bold=True)
-        put(row, 5, right, color="575E66", size=7)
-        merged(row, 6, last_column, rv or "—", bold=True)
+        merged(row, 5, 6, right, bold=True, fill="F2F5FA", color="4D5656", size=9)
+        merged(row, 7, last_column, rv or "—", bold=True)
         for column in range(1, last_column + 1):
-            sheet.cell(row, column).border = Border(bottom=Side(style="hair", color="E1E4E7"))
+            sheet.cell(row, column).border = Border(left=Side(style="thin", color="8EA9DB"), right=Side(style="thin", color="8EA9DB"), top=Side(style="thin", color="8EA9DB"), bottom=Side(style="thin", color="8EA9DB"))
         sheet.row_dimensions[row].height = 20
     sheet.row_dimensions[8].height = 16
     headers = invoice_headers(lang)
     for column, title in enumerate(headers, 1):
-        put(9, column, title, bold=True, fill="243446", color="FFFFFF", align="center", size=7)
+        put(9, column, title, bold=True, fill="1F3864" if column in (1, 11) else "2F5597", color="FFFFFF", align="center", size=7)
     sheet.row_dimensions[9].height = 22
     packages = document.get("package_details")
     if packages is None:
         packages = list({line["package_no"]: {"package_no": line["package_no"], "weight_kg": None} for line in document.get("lines", [])}.values())
     rows = document.get("invoice_rows") or build_invoice_rows(document.get("lines", []), packages)
-    line = Side(style="hair", color="D5DCE2")
+    line = Side(style="hair", color="8EA9DB")
     border = Border(left=line, right=line, top=line, bottom=line)
     for index, item in enumerate(rows, 1):
         row = index + 9
@@ -90,9 +82,9 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
         else:
             values.extend([None, None])
         for column, value in enumerate(values, 1):
-            cell = put(row, column, value, fill="F3F6F8" if index % 2 == 0 else "FFFFFF",
+            cell = put(row, column, value, fill="FFFFFF",
                        align="right" if column >= 6 else "left" if column in (4, 5) else "center",
-                       bold=column == 2, size=7)
+                       bold=column in (1, 2, 11), size=7)
             cell.border = border
             if column >= 6:
                 cell.number_format = '#,##0.00' if column >= 8 else '#,##0'
@@ -101,29 +93,36 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
                 sheet.merge_cells(start_row=row, end_row=row + span - 1, start_column=column, end_column=column)
         # Column widths use the workbook's 11pt default; invoice text is 7pt.
         line_count = max(sum(max(1, len(wrap(part, max(1, int((width - 1) * 11 / 7))))) for part in str(value or "").split("\n")) for value, width in zip(values, widths))
-        sheet.row_dimensions[row].height = max(15, line_count * 8.4 + 6)
+        sheet.row_dimensions[row].height = max(23.1, line_count * 8.4 + 6)
     total_row = 10 + len(rows)
-    merged(total_row, 1, 5, text["total"], bold=True, fill="E8F1EC", color="174A35")
+    merged(total_row, 1, 5, text["total"], bold=True, fill="C6D9F1", color="1F3864")
     for column, value in enumerate([document["packages_count"], document["quantity"], float(recorded_weight(document)), float(recorded_weight(document))], 6):
-        cell = put(total_row, column, value, bold=True, fill="E8F1EC", color="174A35", align="right")
+        cell = put(total_row, column, value, bold=True, fill="C6D9F1", color="1F3864", align="right")
         cell.number_format = '#,##0.00' if column >= 8 else '#,##0'
-    put(total_row, 10, None, fill="E8F1EC")
+    put(total_row, 10, None, fill="C6D9F1")
     amount = (float(Decimal(str(document["amount"]))) if document.get("amount") is not None else "—") if show_prices else None
-    cell = put(total_row, 11, amount, bold=True, fill="E8F1EC", color="174A35", align="right", size=7)
+    cell = put(total_row, 11, amount, bold=True, fill="1F3864", color="FFFFFF", align="right", size=7)
     cell.number_format = '#,##0.00'
     sheet.row_dimensions[total_row].height = 22
+    signature_row = total_row + 2
+    officer = {"en": "Responsible warehouse officer", "ru": "Ответственный кладовщик", "uz": "Mas’ul omborchi"}[lang]
+    signature = {"en": "Warehouse signature", "ru": "Подпись кладовщика", "uz": "Omborchi imzosi"}[lang]
+    merged(signature_row, 1, 5, officer, bold=True, fill="1F3864", color="FFFFFF", align="center", size=9)
+    merged(signature_row, 6, 11, signature, bold=True, fill="2F5597", color="FFFFFF", align="center", size=9)
+    merged(signature_row + 1, 1, 5, document.get("warehouse_person") or "________________", bold=True, fill="F2F5FA", color="1F3864", align="center", size=11)
+    merged(signature_row + 1, 6, 11, "________________________________", color="1F3864", align="center")
+    sheet.row_dimensions[signature_row].height = 20
+    sheet.row_dimensions[signature_row + 1].height = 36
+    footer = signature_row + 3
+    for first, last, label in [(1, 3, "Milana Tex Logistics"), (4, 7, "www.milanatex.uz"), (8, 11, "info@milanatex.uz")]:
+        merged(footer, first, last, label, bold=True, fill="1F3864", color="FFFFFF", align="center")
+    sheet.row_dimensions[footer].height = 25
     notes = invoice_notes(document, lang)
     if show_prices:
         notes = notes[:-1] + invoice_price_notes(document, lang) + notes[-1:]
-    for row, note in enumerate(notes, total_row + 2):
+    for row, note in enumerate(notes, footer + 2):
         merged(row, 1, last_column, note, color="575E66")
         sheet.row_dimensions[row].height = 24
-    signature_row = total_row + len(notes) + 3
-    merged(signature_row, 1, 4, f'{text["issued"]}: {document.get("warehouse_person") or "________________"}', color="51565D")
-    merged(signature_row, last_column - 3, last_column, text["received"], color="51565D")
-    for column in (*range(1, 5), *range(last_column - 3, last_column + 1)):
-        sheet.cell(signature_row, column).border = Border(top=Side(style="thin", color="939BA3"))
-    sheet.row_dimensions[signature_row].height = 24
     sheet.freeze_panes = "D10"
     sheet.sheet_view.showGridLines = False
     sheet.print_title_rows = "9:9"

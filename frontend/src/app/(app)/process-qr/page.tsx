@@ -547,7 +547,7 @@ function qrDataUrl(payload: string): Promise<string> {
 
 function employeeNumber(employee: Employee): string {
   const configuredNumber = String(employee.employee_no || "").trim();
-  return configuredNumber || `EMP-${String(employee.id).padStart(4, "0")}`;
+  return configuredNumber || String(employee.id).padStart(4, "0");
 }
 
 function roundedPieces(value: number): number {

@@ -82,6 +82,7 @@ type MaterialDefault = {
   has_print: boolean | null;
   size_range: string | null;
   sizes: string[];
+  available_sizes?: string[];
   size_count: number | null;
   pieces: number | null;
   planned_kg: number | null;
@@ -341,10 +342,20 @@ export default function CuttingPassportsPage() {
   }
 
   function openEdit(p: Passport) {
-    orderRequest.current += 1;
+    const request = ++orderRequest.current;
     resetMaterialPicker();
     setMaterialForms((p.materials || []).map((row) => ({ ...EMPTY_FORM, ...Object.fromEntries(Object.entries(row).map(([key, value]) => [key, value ?? ""])), stock_batch_id: row.stock_batch_id })));
     setSizeChoices(expandSizeSelection(p.size_range));
+    // A saved single-size layup is a selection, not the order's size catalogue.
+    if (p.production_order_id) {
+      void api.get<MaterialDefault>(`/api/cutting-passports/material-defaults?production_order_id=${p.production_order_id}`)
+        .then((defaults) => {
+          if (request !== orderRequest.current) return;
+          setSizeChoices(defaults.available_sizes?.length ? defaults.available_sizes : defaults.sizes?.length ? defaults.sizes : expandSizeSelection(defaults.size_range || p.size_range));
+        }).catch((error) => {
+          if (request === orderRequest.current) setErr(error.message);
+        });
+    }
     setForm({
       passport_no: p.passport_no,
       date: p.date.slice(0, 10),
@@ -506,7 +517,7 @@ export default function CuttingPassportsPage() {
       })));
       const parts = model ? modelCodeParts(model) : null;
       const qolipNo = modelQolipNo(model);
-      setSizeChoices(defaults.sizes?.length ? defaults.sizes : expandSizeSelection(defaults.size_range));
+      setSizeChoices(defaults.available_sizes?.length ? defaults.available_sizes : defaults.sizes?.length ? defaults.sizes : expandSizeSelection(defaults.size_range));
       setForm((prev) => {
         if (String(prev.production_order_id) !== value) return prev;
         return {

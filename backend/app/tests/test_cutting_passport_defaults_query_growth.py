@@ -185,7 +185,7 @@ def test_multi_material_defaults_preserve_distinct_items_and_false_empty_context
             lambda: cutting_passports.material_defaults(order_id, db, _factory_user()),
         )
 
-    assert count == 11
+    assert count == 10  # Model sizes now share the model lookup.
     assert [row["material_item_name"] for row in payload["materials"]] == [
         "Performance fabric", "Distinct secondary fabric",
     ]

@@ -30,27 +30,30 @@ export default function ScanSplit({ recordId, quantity, employee, onClose, onSav
   ]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+  const printText = { en: "Print new stickers", ru: "Печать новых наклеек", uz: "Yangi stikerlarni chop etish" }[lang];
   const total = parts.reduce((sum, part) => sum + Number(part.quantity), 0);
   const valid = total === quantity && parts.every(part => Number.isInteger(Number(part.quantity)) && Number(part.quantity) > 0);
   return <Modal open title={c.split} onClose={() => { if (!busy) onClose(); }} wide>
     <form onSubmit={async event => {
       event.preventDefault();
-      if (busy || !valid) return;
+      if (busy || saved || !valid) return;
       setBusy(true); setError("");
       try {
         const rows = await api.post<SplitSavedRecord[]>(`/api/payroll/records/${recordId}/split`, {
           parts: parts.map(part => ({ employee_id: part.employee.employee_id, quantity: Number(part.quantity) })),
         });
+        setSaved(true);
         onSaved(rows);
       } catch (e: unknown) { setError(e instanceof Error ? e.message : String(e)); }
       finally { setBusy(false); }
     }}>
-      <p className="mb-4 text-sm">{c.hint}</p>
-      <label className="label">{c.parts}<input className="input w-28" type="number" min={2} max={Math.min(50, quantity)} value={parts.length} disabled={busy} onChange={event => {
+      <p className="mb-4 text-sm">{saved ? c.saved : c.hint}</p>
+      <label className="label">{c.parts}<input className="input w-28" type="number" min={2} max={Math.min(50, quantity)} value={parts.length} disabled={busy || saved} onChange={event => {
         const count = Math.min(50, quantity, Math.max(2, Number(event.target.value) || 2));
         setParts(previous => Array.from({ length: count }, (_, i) => previous[i] || { employee, quantity: "" }));
       }} /></label>
-      <fieldset disabled={busy} className="mt-4 space-y-4">{parts.map((part, index) => <div key={index} className="grid gap-3 border-t pt-3 sm:grid-cols-[1fr_8rem]">
+      <fieldset disabled={busy || saved} className="mt-4 space-y-4">{parts.map((part, index) => <div key={index} className="grid gap-3 border-t pt-3 sm:grid-cols-[1fr_8rem]">
         <div><div className="mb-2 text-sm">{c.employee} {index + 1}: <strong>{part.employee.employee_name}{part.employee.employee_no ? ` · ${part.employee.employee_no}` : ""}</strong></div>
           <PayrollEmployeeSearch inputId={`split-employee-${index}`} disabled={busy} onSelect={selected => setParts(previous => previous.map((row, i) => i === index ? { ...row, employee: selected } : row))} />
         </div>
@@ -58,7 +61,12 @@ export default function ScanSplit({ recordId, quantity, employee, onClose, onSav
       </div>)}</fieldset>
       <p className="my-4" role="status">{c.total}: {total} / {quantity}</p>
       {error && <p role="alert" className="mb-3 text-red-700">{error}</p>}
-      <div className="flex flex-wrap justify-end gap-2"><button type="button" className="btn" disabled={busy} onClick={onClose}>{c.cancel}</button><button className="btn btn-primary" disabled={busy || !valid}>{c.save}</button></div>
+      <div className="flex flex-wrap justify-end gap-2"><button type="button" className="btn" disabled={busy} onClick={onClose}>{c.cancel}</button>{saved ? <button type="button" className="btn btn-primary" disabled={busy} onClick={async () => {
+        setBusy(true); setError("");
+        try { await api.openLabel(`/api/payroll/records/${recordId}/split-labels/print`); }
+        catch (e: unknown) { setError(e instanceof Error ? e.message : String(e)); }
+        finally { setBusy(false); }
+      }}>{printText}</button> : <button className="btn btn-primary" disabled={busy || !valid}>{c.save}</button>}</div>
     </form>
   </Modal>;
 }

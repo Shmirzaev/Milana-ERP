@@ -305,7 +305,7 @@ def _order_payload(
             required_operations_complete
             and packaging
             and packed_total > 0
-            and package_total >= packed_total
+            and package_total + int((packaging.service_packaging_json or {}).get("confirmed_quantity", 0)) >= packed_total
             and order.handed_over_at is None
         ),
     }
@@ -923,7 +923,7 @@ def hand_over_usluga_order(
         raise HTTPException(409, "Usluga order was already handed over")
     summary = _order_payload(db, order, packages=packages)
     if not summary["ready_for_handover"]:
-        raise HTTPException(409, "Complete packaging and create all packages before handover")
+        raise HTTPException(409, "Confirm packaging quantities before handover")
     package_ids = locked_package_ids
     if db.query(FinishedGoodsStock.id).filter(FinishedGoodsStock.package_id.in_(package_ids)).first():
         raise HTTPException(409, "Usluga packages must not create finished-goods stock")

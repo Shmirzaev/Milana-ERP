@@ -26,6 +26,35 @@ class SelectedPacks(BaseModel):
     package_ids: list[int] = Field(min_length=1, max_length=50)
 
 
+class ScanPack(BaseModel):
+    code: str = Field(min_length=1, max_length=2048)
+
+
+@router.post("/scan")
+def resolve_reservation_pack(payload: ScanPack, db: DbSession,
+                             current: User = Depends(require_permissions(*ACCESS))):
+    from app.api.routes.packages import _package_for_receiving_scan
+    package = _package_for_receiving_scan(db, payload.code.strip())
+    if not package:
+        raise HTTPException(404, "Package not found")
+    require_package_access(current, package)
+    # This read-only scan selects a pack. The reserve action locks and validates
+    # its stock again so a concurrent sale/reservation cannot be overwritten.
+    rows = db.query(FinishedGoodsStock).filter_by(package_id=package.id).all()
+    if (package.status != "received_in_storage" or package.sales_order_id or
+            package.stock_kind != "standard" or not rows or
+            sum(row.quantity for row in rows) != package.total_quantity or
+            any(row.quantity <= 0 or row.quantity != row.available_qty or row.reserved_qty or row.sold_qty
+                or row.status != "available" or row.sales_order_id for row in rows) or
+            _linked(db, [package.id]) or
+            db.query(WarehousePackReservation.id).filter_by(package_id=package.id).first() or
+            db.query(StockReservation.id).filter_by(package_id=package.id).first()):
+        raise HTTPException(409, "Only complete available warehouse packs can be reserved")
+    model = db.get(Model, package.model_id) if package.model_id else None
+    return {"id": package.id, "package_no": package.package_no, "quantity": package.total_quantity,
+            "model_code": model.code if model else "", "model_name": model.name if model else ""}
+
+
 def _packages(db, current, ids):
     if any(value < 1 or value > 2147483647 for value in ids) or len(set(ids)) != len(ids):
         raise HTTPException(422, "Select distinct valid packs")

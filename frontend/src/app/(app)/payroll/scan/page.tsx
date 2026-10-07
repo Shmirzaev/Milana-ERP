@@ -694,7 +694,7 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
 
       const current = employeeMap.get(record.employeeId) || {
         employeeId: record.employeeId,
-        employeeNo: String(record.rawEmployee.employee_no || `EMP-${String(record.employeeId).padStart(4, "0")}`),
+        employeeNo: String(record.rawEmployee.employee_no || String(record.employeeId).padStart(4, "0")),
         employeeName: record.employeeName,
         departmentName: record.departmentName,
         position: record.position,
@@ -1266,7 +1266,6 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
         });
         replaceRecords([...replacements, ...recordsRef.current.filter(row => row.backendId !== splitRecord.record.backendId)]);
         replacements.forEach(row => showSessionRecord(row, splitRecord.session));
-        setSplitRecord(null);
         setNotice(allocationText.saved, "success");
       }} />}
       {controlReview ? <ControlScanReview preview={controlReview.preview} employeeName={controlReview.employee.employee_name} busy={controlBusy} error={controlError} onConfirm={() => void confirmControlReview()} onCancel={cancelControlReview} /> : null}
@@ -1336,7 +1335,7 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
               <div>
                 <div className="text-lg font-semibold">{currentEmployee.employee_name}</div>
                 <div className="mt-1 text-sm text-[#56503f]">
-                  {currentEmployee.employee_no || `EMP-${String(currentEmployee.employee_id).padStart(4, "0")}`}
+                  {currentEmployee.employee_no || String(currentEmployee.employee_id).padStart(4, "0")}
                 </div>
                 <div className="mt-1 text-xs text-[#8a8472]">
                   {currentEmployee.department_name || "-"} - {currentEmployee.position || "-"}

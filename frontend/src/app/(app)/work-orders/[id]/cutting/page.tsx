@@ -299,13 +299,13 @@ function distributeBundleTargets(items: any[], totalQty: number): Map<string, nu
 function autoSplitRows(totalQty: number, maxPerBatch: number): SplitRow[] {
   const safeTotal = Math.max(0, Number(totalQty || 0));
   const safeMax = Math.max(1, Number(maxPerBatch || 1));
-  if (safeTotal <= 0) return [{ name: "Batch 1", planned_quantity: "", start_date: "", deadline: "", notes: "" }];
+  if (safeTotal <= 0) return [{ name: "Nastil 1", planned_quantity: "", start_date: "", deadline: "", notes: "" }];
   const rows: SplitRow[] = [];
   let left = safeTotal;
   let idx = 1;
   while (left > 0) {
     const qty = Math.min(safeMax, left);
-    rows.push({ name: `Batch ${idx}`, planned_quantity: qty, start_date: "", deadline: "", notes: "" });
+    rows.push({ name: `Nastil ${idx}`, planned_quantity: qty, start_date: "", deadline: "", notes: "" });
     left -= qty;
     idx += 1;
   }
@@ -930,7 +930,7 @@ export default function CuttingPage() {
   }
 
   function addSplitRow() {
-    setSplitRows((prev) => [...prev, { name: `Batch ${prev.length + 1}`, planned_quantity: "", start_date: "", deadline: "", notes: "" }]);
+    setSplitRows((prev) => [...prev, { name: `Nastil ${prev.length + 1}`, planned_quantity: "", start_date: "", deadline: "", notes: "" }]);
   }
 
   function removeSplitRow(index: number) {
@@ -971,7 +971,7 @@ export default function CuttingPage() {
   function openExtraBatchForm() {
     const nextIndex = (Array.isArray(po?.batches) ? po.batches.length : 0) + 1;
     setExtraBatch({
-      name: `Extra batch ${nextIndex}`,
+      name: `Nastil ${nextIndex}`,
       planned_quantity: Math.max(0, numberOrZero(form.cut_pieces)),
       start_date: "",
       deadline: "",

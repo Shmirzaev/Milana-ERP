@@ -14,7 +14,7 @@ const requiredPageFragments = [
   't("field.employeeNo")',
   'pattern="[0-9]+"',
   "employee_no: edit.employee_no.trim() || null",
-  "EMP-${String(employee.id).padStart(4, \"0\")}",
+  'String(employee.id).padStart(4, "0")',
 ];
 
 for (const fragment of requiredPageFragments) {

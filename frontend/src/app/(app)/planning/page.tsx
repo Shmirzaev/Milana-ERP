@@ -14,6 +14,7 @@ import BrandedOrderHistory, { type BrandedPlanningOrder } from "@/components/Bra
 import Modal from "@/components/Modal";
 import SearchableSelect from "@/components/SearchableSelect";
 import BrandedModelVariantSelect from "@/components/BrandedModelVariantSelect";
+import BrandedCustomerDialog from "@/components/BrandedCustomerDialog";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 import { GARMENT_SIZE_OPTIONS } from "@/lib/garmentSizes";
@@ -310,7 +311,7 @@ function autoSplitBatchRows(totalQty: number, maxPerBatch: number): BatchPlanRow
   const safeTotal = Math.max(0, Number(totalQty || 0));
   const safeMax = Math.max(1, Number(maxPerBatch || 1));
   if (safeTotal <= 0) {
-    return [{ name: "Batch 1", planned_quantity: "", start_date: "", deadline: "", notes: "" }];
+    return [{ name: "Nastil 1", planned_quantity: "", start_date: "", deadline: "", notes: "" }];
   }
   const out: BatchPlanRow[] = [];
   let left = safeTotal;
@@ -318,7 +319,7 @@ function autoSplitBatchRows(totalQty: number, maxPerBatch: number): BatchPlanRow
   while (left > 0) {
     const qty = Math.min(safeMax, left);
     out.push({
-      name: `Batch ${idx}`,
+      name: `Nastil ${idx}`,
       planned_quantity: qty,
       start_date: "",
       deadline: "",
@@ -368,6 +369,7 @@ export default function PlanningDashboard() {
   const [brandedSuccess, setBrandedSuccess] = useState<{ id: number; orderNo: string } | null>(null);
   const [selectedBrandedOrderId, setSelectedBrandedOrderId] = useState(0);
   const [newBrandedOrderSaving, setNewBrandedOrderSaving] = useState(false);
+  const [newBrandedOrderOpen, setNewBrandedOrderOpen] = useState(false);
   const [newBrandedOrderErr, setNewBrandedOrderErr] = useState("");
   const [brandedPrintingInstructions, setBrandedPrintingInstructions] = useState("");
   const [brandedPrintingAttachments, setBrandedPrintingAttachments] = useState<PrintingAttachment[]>([]);
@@ -777,7 +779,7 @@ export default function PlanningDashboard() {
         ...prev,
         rows: [
           ...prev.rows,
-          { name: `Batch ${prev.rows.length + 1}`, planned_quantity: "", start_date: "", deadline: "", notes: "" },
+          { name: `Nastil ${prev.rows.length + 1}`, planned_quantity: "", start_date: "", deadline: "", notes: "" },
         ],
       };
     });
@@ -875,12 +877,14 @@ export default function PlanningDashboard() {
     }
   }
 
-  async function createBrandedPlanningOrder() {
+  async function createBrandedPlanningOrder(customerId: number | null) {
+    if (newBrandedOrderSaving) return;
     setNewBrandedOrderErr("");
     setNewBrandedOrderSaving(true);
     try {
-      const order = await api.post<BrandedPlanningOrder>("/api/planning/branded-orders", {});
+      const order = await api.post<BrandedPlanningOrder>("/api/planning/branded-orders", customerId ? { ordered_for_type: "customer", customer_id: customerId } : {});
       await mutateBrandedOrders();
+      setNewBrandedOrderOpen(false);
       selectBrandedOrderForProduction(order.id);
     } catch (e: any) {
       setNewBrandedOrderErr(e?.message || t("page.warehouseMap.actionFailed"));
@@ -1567,10 +1571,12 @@ export default function PlanningDashboard() {
         activeOrderId={selectedBrandedOrderId}
         creating={newBrandedOrderSaving}
         error={newBrandedOrderErr}
-        onNewOrder={createBrandedPlanningOrder}
+        onNewOrder={() => { setNewBrandedOrderErr(""); setNewBrandedOrderOpen(true); }}
         onAddProduction={selectBrandedOrderForProduction}
       />
 
+      {newBrandedOrderOpen && <BrandedCustomerDialog busy={newBrandedOrderSaving} error={newBrandedOrderErr}
+        onClose={() => setNewBrandedOrderOpen(false)} onCreate={createBrandedPlanningOrder} />}
       {selectedBrandedOrder ? (
       <Modal open={brandedDialogOpen} onClose={() => { if (!brandedSaving && !newBrandTarget) setBrandedDialogOpen(false); }} title={`${t("page.planning.addBrandedProduction")} — ${selectedBrandedOrder.order_no}`} full closeOnOutsideClick={false}>
       <form id="branded-production-form" onSubmit={createBranded} className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">

@@ -12,7 +12,7 @@ import pytest
 from app.models import AuditLog, Item, Model, ModelBOM
 from app.tests.conftest import TestSessionLocal
 
-_MAX_DETAILS_BYTES = 64 * 1024
+_MAX_DETAILS_BYTES = 1024 * 1024
 _MAX_DETAILS_DEPTH = 16
 
 # 400 levels is 25x the ceiling and still parses: the stdlib JSON body decoder

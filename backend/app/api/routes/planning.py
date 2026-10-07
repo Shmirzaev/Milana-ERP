@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.deps import DbSession, require_permissions
@@ -171,6 +171,17 @@ def list_branded_orders(
         for production_id, works in cutting_by_production.items()
     }
     return [_branded_order_payload(row, model_by_id, cutting_by_id, cutting_details_by_id) for row in rows]
+
+
+@router.get("/branded-order-customers")
+def branded_order_customers(db: DbSession,
+                           _: User = Depends(require_permissions("planning.production", "*")),
+                           q: str = Query("", max_length=100)):
+    query = db.query(Customer.id, Customer.name)
+    if q.strip():
+        pattern = "%" + q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        query = query.filter(Customer.name.ilike(pattern, escape="\\"))
+    return [{"id": row.id, "name": row.name} for row in query.order_by(Customer.name, Customer.id).limit(50)]
 
 
 @router.post("/branded-orders", status_code=201)

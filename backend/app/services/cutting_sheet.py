@@ -324,13 +324,13 @@ def render_cutting_sheet_html(db: Session, record: CuttingRecord, bundle_ids: li
     )
     cutting_date = _formatted_datetime(record.created_at)
     order_no = _text(production_order.order_no or (passport.order_no if passport else None))
-    kroy_no = _text(passport.passport_no if passport else None)
+    nastil_no = _text(batch.name if batch else None) or (f"Nastil {batch.batch_index}" if batch else "")
     etiket = _text(brand.name if brand else None)
     batch_label = _batch_label(
         db,
         batch,
         production_order.id,
-        include_name=production_order.source_type == "usluga",
+        include_name=True,
     )
     batch_sewing_url = (
         f"{settings.FRONTEND_BASE_URL.rstrip('/')}/bundles/scan/sewing?batch={int(batch.id)}"
@@ -450,7 +450,7 @@ th{{background:#e8ecea;text-align:left;font-weight:700}} td{{text-align:center}}
       <tr><th class="field-label">Zakaz No</th><td class="field-value">{_h(order_no)}</td></tr>
       <tr><th class="field-label">Bichilgan sana</th><td class="field-value">{_h(cutting_date)}</td></tr>
       <tr><th class="field-label">Etiket</th><td class="field-value">{_h(etiket)}</td></tr>
-      <tr><th class="field-label">Kroy No</th><td class="field-value">{_h(kroy_no)}</td></tr>
+      <tr><th class="field-label">Nastil No</th><td class="field-value">{_h(nastil_no)}</td></tr>
       <tr><th class="field-label">Detskiy</th><td class="field-value">{_h(identity['detskiy'])}</td></tr>
       <tr><th class="field-label">Nastilchi</th><td class="field-value">{_h(layup_operator_name)}</td></tr>
     </table>
@@ -467,5 +467,5 @@ th{{background:#e8ecea;text-align:left;font-weight:700}} td{{text-align:center}}
       <div class="sample-column right"><div class="sample-title">Beyka namuna</div><div class="sample-box"></div><div class="sample-title print">Pechat</div><div class="sample-box"></div></div>
     </div>
   </section>
-  <footer class="footer"><span>{_h(operator_note)}</span><span>Missing ERP values intentionally print blank.</span></footer>
+  <footer class="footer"><span>{_h(operator_note)}</span><span>{('Passport: ' + _h(passport.passport_no)) if passport else ''}</span><span>Missing ERP values intentionally print blank.</span></footer>
 </main></body></html>"""
