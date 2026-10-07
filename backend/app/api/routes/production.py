@@ -96,7 +96,7 @@ from app.services.workflow import (
 from app.services.model_identity import model_number_fields
 from app.services.model_images import material_preview_image_url, model_preview_image_url
 from app.services.cutting_sheet import render_cutting_sheet_html
-from app.services.passport_nastil import has_pending_passport_batches
+from app.services.passport_nastil import pending_work_order_passport_batches
 from app.services.factory_scope import require_factory_access, selected_factory_code, factory_for_department
 from app.services.factory_scope import require_work_order_factory_access
 
@@ -4134,13 +4134,14 @@ def _sync_cutting_work_order_from_records(db: DbSession, wo: WorkOrder) -> None:
         func.coalesce(func.sum(CuttingRecord.cut_pieces), 0),
         func.coalesce(func.sum(CuttingRecord.passed_pieces), 0),
         func.coalesce(func.sum(CuttingRecord.defective_pieces), 0),
+        pending_work_order_passport_batches(db, wo).exists(),
     ).filter(CuttingRecord.work_order_id == wo.id)
     if po and po.source_type == "usluga":
         totals_qry = totals_qry.filter(
             CuttingRecord.approval_status == "approved",
             CuttingRecord.material_role == "main",
         )
-    cut_sum, passed_sum, defective_sum = totals_qry.one()
+    cut_sum, passed_sum, defective_sum, pending_passport = totals_qry.one()
     wo.actual_input_qty = int(cut_sum or 0)
     wo.actual_output_qty = int(passed_sum or 0)
     wo.passed_qty = int(passed_sum or 0)
@@ -4173,7 +4174,6 @@ def _sync_cutting_work_order_from_records(db: DbSession, wo: WorkOrder) -> None:
                 ).all()
             }
             missing_usluga_material = bool(required_material_ids - approved_material_ids)
-        pending_passport = has_pending_passport_batches(db, wo)
         if planned > 0 and processed >= planned and not has_pending_usluga and not missing_usluga_material and not pending_passport:
             wo.status = "completed"
             if not wo.end_time:

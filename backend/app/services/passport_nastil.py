@@ -20,13 +20,17 @@ def pending_passport_batches(db):
     )
 
 
-def has_pending_passport_batches(db, work_order):
+def pending_work_order_passport_batches(db, work_order):
     query = pending_passport_batches(db).filter(
         ProductionBatch.production_order_id == work_order.production_order_id,
     )
     if work_order.production_batch_id is not None:
         query = query.filter(ProductionBatch.id == work_order.production_batch_id)
-    return query.first() is not None
+    return query
+
+
+def has_pending_passport_batches(db, work_order):
+    return pending_work_order_passport_batches(db, work_order).first() is not None
 
 
 def sync_passport_nastil(db, passport, current, *, is_new=False):

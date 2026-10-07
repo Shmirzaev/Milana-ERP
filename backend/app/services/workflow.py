@@ -136,8 +136,6 @@ def processed_work_order_qty(db: Session, wo: WorkOrder) -> int:
 
 def _complete_if_done(db: Session, wo: WorkOrder) -> None:
     if wo.operation == "cutting":
-        if has_pending_passport_batches(db, wo):
-            return
         po = db.get(ProductionOrder, wo.production_order_id)
         if po and po.source_type == "usluga":
             if db.query(CuttingRecord.id).filter(
@@ -180,6 +178,8 @@ def _complete_if_done(db: Session, wo: WorkOrder) -> None:
                 }
                 if production_batch_ids - approved_main_batch_ids:
                     return
+        elif has_pending_passport_batches(db, wo):
+            return
     planned = int(wo.planned_output_qty or 0)
     processed = processed_work_order_qty(db, wo)
     if planned > 0 and processed >= planned and wo.status != "completed":
@@ -228,28 +228,19 @@ def propagate_cutting_plan_from_output(db: Session, wo: WorkOrder) -> None:
     if wo.production_batch_id is not None:
         bundle_qry = bundle_qry.filter(Bundle.production_batch_id == wo.production_batch_id)
 
-    output_qty = max(
-        0,
-        int(wo.actual_output_qty or 0),
-        int(wo.passed_qty or 0),
-        int(
-            db.query(func.coalesce(func.sum(CuttingRecord.total_bundled_quantity), 0))
-            .filter(
-                CuttingRecord.work_order_id == wo.id,
-                *(
-                    (
-                        CuttingRecord.approval_status == "approved",
-                        CuttingRecord.material_role == "main",
-                    )
-                    if po.source_type == "usluga"
-                    else ()
-                ),
-            )
-            .scalar()
-            or 0
-        ),
-        int(bundle_qry.scalar() or 0),
+    record_qry = db.query(func.coalesce(func.sum(CuttingRecord.total_bundled_quantity), 0)).filter(
+        CuttingRecord.work_order_id == wo.id,
+        *((CuttingRecord.approval_status == "approved", CuttingRecord.material_role == "main")
+          if po.source_type == "usluga" else ()),
     )
+    # Read both output sources together, leaving no extra round trip for the
+    # pending-Nastil completion guard that follows this plan propagation.
+    if po.source_type == "usluga":
+        recorded_qty, bundled_qty = record_qry.scalar(), bundle_qry.scalar()
+    else:
+        recorded_qty, bundled_qty = db.query(record_qry.scalar_subquery(), bundle_qry.scalar_subquery()).one()
+    output_qty = max(0, int(wo.actual_output_qty or 0), int(wo.passed_qty or 0),
+                     int(recorded_qty or 0), int(bundled_qty or 0))
     if output_qty <= 0:
         return
 
