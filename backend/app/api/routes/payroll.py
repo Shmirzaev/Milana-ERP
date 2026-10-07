@@ -3330,6 +3330,7 @@ def return_qr_label(
     label_id: int,
     db: DbSession,
     current: User = Depends(require_permissions("payroll.manage", "*")),
+    expected_record_id: int | None = None,
 ):
     factory_code = selected_factory_code(current)
     label_snapshot = db.query(PayrollQrLabel).filter(
@@ -3396,6 +3397,8 @@ def return_qr_label(
     record = find_record(label, for_update=True)
     if not record:
         raise HTTPException(409, "This payroll QR is not assigned to an employee")
+    if expected_record_id is not None and record.id != expected_record_id:
+        raise HTTPException(409, "Payroll QR assignment changed; retry the return")
     if discovered_record_id is None or int(record.id) != discovered_record_id:
         raise HTTPException(409, "Payroll QR assignment changed; retry the return")
     current_period_id = int(record.payroll_period_id) if record.payroll_period_id is not None else None

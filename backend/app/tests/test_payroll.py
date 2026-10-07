@@ -1124,6 +1124,14 @@ def test_returned_payroll_qr_can_be_scanned_for_another_employee(client, auth_he
     assert reassigned["status"] == "scanned"
     assert reassigned["employee_id"] == second_employee["id"]
     assert reassigned["return_count"] == 1
+    stale_return = client.post(
+        f"/api/payroll/qr-labels/{label['id']}/return?expected_record_id={first.json()['id']}",
+        headers=auth_headers,
+    )
+    assert stale_return.status_code == 409
+    still_assigned = client.get(f"/api/payroll/qr-labels?search={label_uid}", headers=auth_headers).json()["items"][0]
+    assert still_assigned["payroll_record_id"] == second.json()["id"]
+    assert still_assigned["return_count"] == 1
 
 
 def test_sewing_production_report_filters_and_excludes_returned_work(client, auth_headers):

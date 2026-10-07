@@ -576,6 +576,9 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"info" | "success" | "warning" | "error">("info");
   const canSavePayroll = can(me, "payroll.scan", "payroll.manage", "*");
+  const canReturnPayroll = can(me, "payroll.manage");
+  const returningRef = useRef<string | null>(null);
+  const [returningId, setReturningId] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -730,6 +733,7 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
   const hiddenHistoryCount = Math.max(0, visibleRecords.length - visibleHistoryRows.length);
   const latestRemovableRecord = visibleRecords.find((record) => record.saveStatus !== "saved" && record.saveStatus !== "saving") || null;
   const latestScan = visibleRecords[0];
+  const latestReturnableRecord = latestScan?.saveStatus === "saved" && latestScan.backendId && latestScan.rawWork.label_id && latestScan.backendStatus !== "voided" ? latestScan : null;
   const latestSplittableRecord = latestScan?.saveStatus === "saved" && latestScan.backendStatus === "recorded" && latestScan.backendId && numberOrZero(latestScan.quantity) >= 2 ? latestScan : null;
 
   const operationSummaries = useMemo<OperationSummary[]>(() => {
@@ -1055,6 +1059,40 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
     replaceRecords(recordsRef.current.filter((record) => record.id !== id));
   }
 
+  async function returnRecord(record: PayrollRecord) {
+    if (!canReturnPayroll || returningRef.current || splitRecord || controlReviewRef.current || record.saveStatus !== "saved" || !record.backendId || !record.rawWork.label_id) return;
+    const session = employeeSessionRef.current;
+    const labelUid = record.rawWork.label_id;
+    returningRef.current = record.id;
+    setReturningId(record.id);
+    try {
+      if (!(await dialogs.ask({
+        title: t("page.payrollQrControl.returnTitle"),
+        message: t("page.payrollQrControl.returnConfirm", { qr: labelUid, employee: record.employeeName }),
+        confirmText: t("page.payrollQrControl.returnQr"),
+        tone: "danger",
+      }))) return;
+      await enqueueScanAction(async () => {
+        const result = await api.get<{ items: { id: number; label_uid: string; payroll_record_id: number | null }[] }>(
+          `/api/payroll/qr-labels?search=${encodeURIComponent(labelUid)}&limit=100`,
+        );
+        const label = result.items.find(row => row.label_uid === labelUid && row.payroll_record_id === record.backendId);
+        if (!label) throw new Error(t("page.payrollQrControl.returnFailed"));
+        await api.post(`/api/payroll/qr-labels/${label.id}/return?expected_record_id=${record.backendId}`);
+        const remaining = recordsRef.current.filter(row => row.backendId !== record.backendId);
+        replaceRecords(remaining);
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(remaining)); } catch { /* State persistence retries through the existing history effect. */ }
+        lastScanRef.current = null;
+        if (session === employeeSessionRef.current) setNotice(t("page.payrollQrControl.returned"), "success");
+      });
+    } catch (error: any) {
+      if (session === employeeSessionRef.current) setNotice(error?.message || t("page.payrollQrControl.returnFailed"), "error");
+    } finally {
+      returningRef.current = null;
+      setReturningId(null);
+    }
+  }
+
   async function saveRecordsToPayroll(targetRecords: PayrollRecord[], automatic = false) {
     const session = employeeSessionRef.current;
     const sessionNotice = (text: string, tone: typeof messageTone) => {
@@ -1308,9 +1346,10 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
           </form>
 
           {canSavePayroll && latestSplittableRecord && <div className="mt-3">
-            <button type="button" className="btn w-full" onClick={() => setSplitRecord({ record: latestSplittableRecord, session: employeeSessionRef.current })}>{allocationText.split}</button>
+            <button type="button" className="btn w-full" disabled={returningId !== null} onClick={() => setSplitRecord({ record: latestSplittableRecord, session: employeeSessionRef.current })}>{allocationText.split}</button>
             <p className="mt-1 text-sm">{latestSplittableRecord.operationName} · {latestSplittableRecord.quantity} {allocationText.pieces}</p>
           </div>}
+          {canReturnPayroll && latestReturnableRecord && <button type="button" className="btn mt-3 w-full" disabled={returningId !== null} onClick={() => void returnRecord(latestReturnableRecord)}>{t("page.payrollQrControl.returnQr")}</button>}
           {canSavePayroll && <PayrollEmployeeSearch disabled={controlBusy} onSelect={employee => {
             clearScanInput();
             if (controlConfirmRef.current) return;
@@ -1523,9 +1562,12 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
                       </div>
                     </td>
                     <td>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         {canSavePayroll && record.saveStatus === "saved" && record.backendStatus === "recorded" && record.backendId && numberOrZero(record.quantity) >= 2 && (
-                          <button type="button" className="btn" onClick={() => setSplitRecord({ record, session: employeeSessionRef.current })}>{allocationText.split}</button>
+                          <button type="button" className="btn" disabled={returningId !== null} onClick={() => setSplitRecord({ record, session: employeeSessionRef.current })}>{allocationText.split}</button>
+                        )}
+                        {canReturnPayroll && record.saveStatus === "saved" && record.backendId && record.rawWork.label_id && record.backendStatus !== "voided" && (
+                          <button type="button" className="btn" disabled={returningId !== null} onClick={() => void returnRecord(record)}>{t("page.payrollQrControl.returnQr")}</button>
                         )}
                         {record.saveStatus === "error" && (
                           <button
