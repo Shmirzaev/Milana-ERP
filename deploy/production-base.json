@@ -1,6 +1,6 @@
 {
-  "release": "20261007_134508",
-  "source_manifest_sha256": "4f0215934a3a66a59521cb83fed761ba668af47e5389551603404ba5f794f6aa",
-  "database_revision": "0141_passport_nastil",
-  "git_baseline_commit": "0558edde1b3d70f4c9f5090f699f4a823dc49011"
+  "release": "20261008_073950",
+  "source_manifest_sha256": "c50768f861d810239b3c3ca03e73677d5dcede0584707311f8a0717a599f655e",
+  "database_revision": "0142_package_partial_dispatch",
+  "git_baseline_commit": "f9236894c8e4ff77ce1d7ba32c6773eef70540af"
 }
