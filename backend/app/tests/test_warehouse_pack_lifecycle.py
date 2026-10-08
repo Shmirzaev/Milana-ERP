@@ -54,6 +54,9 @@ def test_sixty_ship_thirty_same_qr_then_ship_remaining(client, auth_headers, dis
         assert db.query(ShipmentPackage).filter_by(shipment_id=sid).one().quantity == 30
     result = client.post(f'/api/shipments/{sid}/ship', headers=auth_headers)
     assert result.status_code == 200, result.text
+    history = client.get(f'/api/shipments/{sid}/preparation', headers=auth_headers)
+    assert history.status_code == 200, history.text
+    assert sum(item['quantity'] for package in history.json()['packages'] for item in package['items']) == 30
     with SessionLocal() as db:
         assert db.get(Package, dispatch["package"]).status == "shipped"
         assert sum(s.sold_qty for s in db.query(FinishedGoodsStock).filter_by(package_id=dispatch["package"])) == 60

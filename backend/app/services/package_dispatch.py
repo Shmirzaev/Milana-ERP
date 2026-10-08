@@ -95,6 +95,9 @@ def dispatch_selected(db, shipment, package, stocks, user):
             db.delete(reservation)
     if any(grouped.values()):
         raise HTTPException(409, "Selected quantity is not available in warehouse stock")
+    # Keep this shipment's contents stable after the same pack is depleted.
+    selections = {**(shipment.dispatch_snapshot or {}).get("package_quantities", {}), str(package.id): quantities}
+    shipment.dispatch_snapshot = {**(shipment.dispatch_snapshot or {}), "package_quantities": selections}
     previous = package.dispatched_quantities or {}
     package.dispatched_quantities = {str(item.id): previous.get(str(item.id), 0) + quantities[str(item.id)] for item in items}
     package.dispatched_quantity = sum(package.dispatched_quantities.values())
