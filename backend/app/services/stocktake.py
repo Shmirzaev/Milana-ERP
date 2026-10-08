@@ -32,6 +32,8 @@ def package_snapshots(db, package_ids=None, *, expected_only=False, include_item
         query = query.filter(Package.status.in_(STORAGE_STATUSES))
     if package_ids is not None:
         query = query.filter(Package.id.in_(package_ids))
+    rows = query.all()
+    dispatched = {p.id: p.dispatched_quantities or {} for p, *_ in rows}
     snapshots = {
         p.id: {
             "package_no": p.package_no,
@@ -39,14 +41,14 @@ def package_snapshots(db, package_ids=None, *, expected_only=False, include_item
             "model_code": code,
             "model_name": name,
             "color": p.color,
-            "quantity": p.total_quantity,
+            "quantity": p.total_quantity - p.dispatched_quantity,
             "available": int(available or 0),
             "reserved": int(reserved or 0),
             "status": p.status,
             "warehouse_id": p.warehouse_id,
             "location": " / ".join(x for x in (p.storage_cell, p.storage_shelf) if x),
         }
-        for p, code, name, available, reserved in query.all()
+        for p, code, name, available, reserved in rows
     }
     if include_items and snapshots:
         for snapshot in snapshots.values():
@@ -57,7 +59,7 @@ def package_snapshots(db, package_ids=None, *, expected_only=False, include_item
         for item, code, name in items:
             snapshots[item.package_id]["items"].append({
                 "model_code": code, "model_name": name, "color": item.color,
-                "size": item.size, "quantity": item.quantity,
+                "size": item.size, "quantity": item.quantity - dispatched[item.package_id].get(str(item.id), 0),
             })
     return snapshots
 

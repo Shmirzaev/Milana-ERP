@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { Boxes, Grid2X2, ImageOff, PackageSearch, Search, Warehouse } from "lucide-react";
 
+import DeleteWarehousePackage from "@/components/DeleteWarehousePackage";
 import ReceivePackages from "@/components/ReceivePackages";
 import PageHeader from "@/components/PageHeader";
 import StocktakeLink from "@/components/StocktakeLink";
@@ -458,6 +459,7 @@ export default function WarehouseStockPage() {
                         packageListText(row.packages, row.package_count)
                       )}
                     </div>
+                    <details className="mt-2"><summary className="text-sm cursor-pointer">{t("common.actions")}</summary><div className="space-y-2 mt-2">{row.packages.map(pkg => <div key={pkg.id} className="flex items-center gap-2"><Link href={`/packages/${pkg.id}`} className="underline text-sm">{pkg.package_no}</Link><DeleteWarehousePackage id={pkg.id} packageNo={pkg.package_no} /></div>)}</div></details>
                   </td>
                   <td className="mono font-semibold text-[#14110b]">{row.total_quantity.toLocaleString()}</td>
                   <td><span className="badge">{statusLabel(row.status, t)}</span></td>

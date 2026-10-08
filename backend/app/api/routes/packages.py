@@ -1,3 +1,4 @@
+from app.services.package_dispatch import remaining_quantity, remaining_item_quantity
 from fastapi import APIRouter, HTTPException, Depends, Header, Query
 from app.services.variant_display import format_variant_number
 
@@ -150,6 +151,8 @@ def _package_context_values(
 
 def _package_out_payload(db: DbSession, pkg: Package, *, context: dict | None = None) -> dict:
     data = PackageOut.model_validate(pkg).model_dump(mode="json")
+    if pkg.dispatched_quantities and pkg.status in {"received_in_storage", "reserved"}:
+        data["total_quantity"] = remaining_quantity(pkg)
     data.update(_package_context(db, pkg) if context is None else context)
     return data
 
@@ -157,6 +160,10 @@ def _package_out_payload(db: DbSession, pkg: Package, *, context: dict | None = 
 def _package_detail_payload(db: DbSession, pkg: Package, *, context: dict | None = None) -> dict:
     from app.services.package_workflows import active_members
     data = PackageDetail.model_validate(pkg).model_dump(mode="json")
+    if pkg.dispatched_quantities and pkg.status in {"received_in_storage", "reserved"}:
+        data["total_quantity"] = remaining_quantity(pkg)
+        for item, value in zip(pkg.items, data["items"]):
+            value["quantity"] = remaining_item_quantity(pkg, item)
     if context is None:
         data.update(_package_context(db, pkg))
         member = active_members(db).filter(PackagePrintRunMember.package_id == pkg.id).first()
@@ -1200,7 +1207,7 @@ def storage_map(
             "model_image_url": warehouse_stock_image_url(model),
             "color": pkg.color,
             "package_type": pkg.package_type,
-            "total_quantity": pkg.total_quantity,
+            "total_quantity": remaining_quantity(pkg),
             "status": pkg.status,
             "created_at": pkg.created_at,
             "storage_cell": pkg.storage_cell,
@@ -1223,7 +1230,7 @@ def storage_map(
                 Package.package_type,
                 Package.status,
                 func.count(Package.id),
-                func.sum(Package.total_quantity),
+                func.sum(Package.total_quantity - Package.dispatched_quantity),
                 func.min(Package.id),
                 func.min(Package.created_at),
             )
@@ -1399,7 +1406,7 @@ def find_on_storage_map(
             "model_code": model.code if model else None,
             "model_name": model.name if model else None,
             "color": pkg.color,
-            "total_quantity": pkg.total_quantity,
+            "total_quantity": remaining_quantity(pkg),
             "status": pkg.status,
             "storage_cell": pkg.storage_cell,
             "storage_shelf": pkg.storage_shelf,

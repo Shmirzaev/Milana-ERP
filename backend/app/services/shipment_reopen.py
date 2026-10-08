@@ -48,16 +48,18 @@ def reopen_shipment(db: Session, sid: int, payload: ShipmentReopen, user: User) 
             Shipment.status != "cancelled", Shipment.deleted_at.is_(None)).first():
         _conflict("stock")
     quantities = {link.package_id: link.quantity for link in links}
+    partial_ids = {p.id for p in packages if p.dispatched_quantities}
     by_package = defaultdict(list)
     for row in stocks:
         by_package[row.package_id].append(row)
-        if (row.quantity <= 0 or row.sold_qty != row.quantity or row.available_qty != 0
-                or row.reserved_qty != 0 or reserved[row.id] > row.quantity):
+        if (row.quantity <= 0 or row.reserved_qty != 0 or reserved[row.id] > row.quantity
+                or row.quantity != row.available_qty + row.sold_qty
+                or (row.package_id not in partial_ids and (row.sold_qty != row.quantity or row.available_qty != 0))):
             _conflict("stock")
     for package in packages:
-        if (package.status not in {"shipped", "delivered"}
+        if (package.status not in ({"received_in_storage", "shipped", "delivered"} if package.id in partial_ids else {"shipped", "delivered"})
                 or not (package.production_order_id or package.manual_receipt_id or package.legacy_receipt_id)
-                or package.total_quantity != quantities[package.id]):
+                or (package.dispatched_quantity if package.id in partial_ids else package.total_quantity) != quantities[package.id]):
             _conflict("stock")
         expected = defaultdict(int)
         actual = defaultdict(int)
@@ -65,6 +67,19 @@ def reopen_shipment(db: Session, sid: int, payload: ShipmentReopen, user: User) 
             expected[(item.model_id, item.color, item.size)] += item.quantity
         for stock in by_package[package.id]:
             actual[(stock.model_id, stock.color, stock.size)] += stock.quantity
+        if package.id in partial_ids:
+            from app.services.package_dispatch import selected_items
+            items = db.query(PackageItem).filter_by(package_id=package.id).all()
+            selected = selected_items(shipment, package, items)
+            expected_sold, actual_sold = defaultdict(int), defaultdict(int)
+            if selected != package.dispatched_quantities:
+                _conflict("stock")
+            for item in items:
+                expected_sold[(item.model_id, item.color, item.size)] += selected[str(item.id)]
+            for stock in by_package[package.id]:
+                actual_sold[(stock.model_id, stock.color, stock.size)] += stock.sold_qty
+            if expected_sold != actual_sold:
+                _conflict("stock")
         if expected != actual or sum(actual.values()) != package.total_quantity:
             _conflict("stock")
     manual = bool((shipment.dispatch_snapshot or {}).get("manual"))
@@ -99,6 +114,8 @@ def reopen_shipment(db: Session, sid: int, payload: ShipmentReopen, user: User) 
     for package in packages:
         package.status = "reserved" if any(reserved[s.id] for s in by_package[package.id]) else "received_in_storage"
         package.shipped_at = None
+        package.dispatched_quantities = {}
+        package.dispatched_quantity = 0
         db.add(PackageScanLog(package_id=package.id, scanned_by=user.id, scan_type="returned"))
         # The package stays attached, so its original verification remains valid.
         # Actual package removal still invalidates scans in detach_shipment_package.
@@ -115,7 +132,8 @@ def reopen_shipment(db: Session, sid: int, payload: ShipmentReopen, user: User) 
     shipment.status = "created"
     shipment.shipped_at = None
     shipment.delivered_at = None
-    shipment.dispatch_snapshot = {"manual": True} if manual else None
+    selections = (shipment.dispatch_snapshot or {}).get("package_quantities", {})
+    shipment.dispatch_snapshot = {**({"manual": True} if manual else {}), "package_quantities": selections} if selections else ({"manual": True} if manual else None)
     # Old retries must fail instead of reporting a dispatch that has been reversed.
     for record in db.query(IdempotencyRecord).filter(IdempotencyRecord.scope.like("shipments.%")):
         response = record.response_json or {}

@@ -3,11 +3,13 @@ from fastapi import Query, APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import selectinload, load_only
 from app.services.print_response import warehouse_print_response
+from app.services.package_dispatch import remaining_quantity, remaining_item_quantity
 
 from app.core.deps import CurrentUser, DbSession, require_permissions, user_permissions
 from app.models import Package, PackagePrintRun, PackagePrintRunMember, ProductionOrder, User
 from app.schemas.package_workflows import ManualPackageReceiptIn, PrintRunIn, PrintRunCreatePackagesIn, PrintRunReceiveIn, PackageReturnIn
 from app.schemas.tracking import PackageChangeRequestIn
+from pydantic import BaseModel, ConfigDict, Field
 from app.services import package_workflows as service
 from app.services.audit import log_action
 from app.services.package_label_pages import label_document
@@ -21,6 +23,63 @@ from app.services.workflow import sync_production_order_status
 
 router = APIRouter()
 _PRINT_RUN_LABEL_LIMIT = 200
+
+
+class ReceiveOrderPackagesIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    package_ids: list[int] = Field(min_length=1, max_length=500)
+
+
+@router.get("/receiving-orders")
+def receiving_orders(db: DbSession, q: str = "", page: int = Query(1, ge=1),
+                     current: User = Depends(require_permissions("storage.packages", "*"))):
+    from sqlalchemy import func, or_
+    from app.models import SalesOrder
+    query = db.query(ProductionOrder.id, ProductionOrder.production_no, SalesOrder.order_no).join(
+        Package, Package.production_order_id == ProductionOrder.id).outerjoin(
+        SalesOrder, SalesOrder.id == ProductionOrder.sales_order_id).filter(
+        Package.status == "packed", ProductionOrder.source_type != "usluga")
+    from app.services.factory_scope import factory_for_department, user_is_super_admin
+    if factory_for_department(getattr(getattr(current, "department", None), "code", None)) or user_is_super_admin(current):
+        query = query.filter(Package.packaging_department_code == packaging_department_scope(current, None))
+    if q.strip():
+        query = query.filter(or_(ProductionOrder.production_no.icontains(q.strip()[:100], autoescape=True),
+                                 SalesOrder.order_no.icontains(q.strip()[:100], autoescape=True)))
+    orders = query.distinct().order_by(ProductionOrder.id.desc()).offset((page - 1) * 20).limit(21).all()
+    ranked = db.query(Package.id, Package.production_order_id,
+                      func.row_number().over(partition_by=Package.production_order_id, order_by=Package.id).label("position"),
+                      func.count().over(partition_by=Package.production_order_id).label("count"),
+                      func.sum(Package.total_quantity).over(partition_by=Package.production_order_id).label("quantity")).filter(
+        Package.production_order_id.in_([order.id for order in orders[:20]]), Package.status == "packed")
+    if factory_for_department(getattr(getattr(current, "department", None), "code", None)) or user_is_super_admin(current):
+        ranked = ranked.filter(Package.packaging_department_code == packaging_department_scope(current, None))
+    ranked = ranked.subquery()
+    package_rows = db.query(ranked).filter(ranked.c.position <= 501).order_by(ranked.c.id).all()
+    rows = []
+    for oid, number, sales_number in orders[:20]:
+        packs = [p for p in package_rows if p.production_order_id == oid]
+        rows.append({"id": oid, "production_no": number, "sales_order_no": sales_number,
+                     "package_ids": [p.id for p in packs], "count": packs[0].count if packs else 0,
+                     "quantity": packs[0].quantity if packs else 0})
+    return {"rows": rows, "has_more": len(orders) > 20}
+
+
+@router.post("/receive-order/{order_id}")
+def receive_order(order_id: int, payload: ReceiveOrderPackagesIn, db: DbSession,
+                  current: User = Depends(require_permissions("storage.packages", "*"))):
+    from app.services.warehouse_packages import receive_order_packages
+    result = receive_order_packages(db, current, order_id, payload.package_ids)
+    db.commit()
+    return result
+
+
+@router.delete("/warehouse/{pid}")
+def delete_inventory_package(pid: int, db: DbSession,
+                             current: User = Depends(require_permissions("storage.packages", "*"))):
+    from app.services.warehouse_packages import delete_warehouse_package
+    result = delete_warehouse_package(db, current, pid)
+    db.commit()
+    return result
 
 
 @router.get("/first-grade/balance/{production_order_id}")
@@ -64,11 +123,11 @@ def warehouse_model_packages(model_id: int, db: DbSession, stock_kind: str = "st
     return {"model_code": model.code, "model_name": model.name, "image_url": warehouse_stock_image_url(model),
             "total": total, "page": page, "page_size": 50,
             "packages": [{"id": p.id, "package_no": p.package_no, "barcode": p.barcode,
-                          "production_no": orders.get(p.production_order_id), "quantity": p.total_quantity,
+                          "production_no": orders.get(p.production_order_id), "quantity": remaining_quantity(p),
                           "weight_kg": p.weight_kg, "status": p.status, "received_at": p.received_at,
                           "cell": p.storage_cell, "shelf": p.storage_shelf,
                           **by_package.get(p.id, {"available": 0, "reserved": 0}),
-                          "items": [{"size": i.size, "color": i.color, "quantity": i.quantity} for i in p.items]}
+                          "items": [{"size": i.size, "color": i.color, "quantity": remaining_item_quantity(p, i)} for i in p.items]}
                          for p in packages]}
 
 

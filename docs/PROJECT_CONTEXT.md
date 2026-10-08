@@ -1,6 +1,16 @@
 # Milana ERP Project Context
 
-Last updated: 2026-10-07
+Last updated: 2026-10-08
+
+## Warehouse package lifecycle and payroll label margin (2026-10-08; deployment pending)
+
+- Owner authorized using verified `clone_main` rather than the older `main`, pushing this change to `clone_main`, and deployment without 30-minute monitoring. Dedicated worktree `C:/ERP/.codex-work/warehouse-pack-lifecycle-20261008`, branch `codex/warehouse-pack-lifecycle-20261008`. Both application manifests/slots verified green `20261007_134508`, rollback blue `20261007_125905`; the legacy checkout and `main` are preserved.
+- Warehouse can select an existing production order and explicitly mark its pending packs received without scanning each label. Receipt preserves source/stock evidence, validates complete print runs, scopes package access, locks and revalidates selected packs, and does not create stock. Lists are paged; one action accepts at most 500 reviewed packs.
+- Inventory offers a delete action for each pack. Only unused received stock can be removed; customer-owned, reserved, shipment-linked, adjusted, counted or otherwise referenced packs are blocked. Source/print evidence and an audit remain, and generated label numbers cannot be reused.
+- Shipment quantity review defaults to selecting pieces for dispatch. The remainder stays available in the original pack under the same QR, order/model/size information and location. Receipt contents and packaging allocations remain unchanged; per-item and total dispatch counters preserve production evidence. Scans, warehouse totals/export, stocktake and reservations use remaining quantities. Frozen invoice lines and manual order posting use dispatched quantities. Reopen restores a partial dispatch only under existing stock/finance guards; later use of the pack blocks unsafe reversal. Physical receipt correction remains a separate explicit option.
+- Forward migration `0142_package_partial_dispatch` adds default-empty/default-zero dispatch evidence and a quantity bound; no historical business balance is rewritten. Preserve this schema on application rollback. Older application code does not support handling newly partial packs; reconcile such packs before using old warehouse workflows after rollback.
+- Payroll split stickers retain the 100 x 60 mm print size and 30 mm QR, use a fixed QR column with wrapping text, and increase the right inset from 3 to 7 mm. The rendered long-reference fixture has an unobstructed QR and 7 mm margin. No physical printer test is claimed.
+- Focused workflow/permission/integrity/query-growth regressions, frontend strict types/lint/build and isolated React browser interaction checks passed. The full local backend run and immutable CI are pending in this entry; final release evidence will supersede it. Tests used isolated synthetic data. No production business data has been changed.
 
 ## Later Nastils and Cutting visibility deployed (20261007_134508; 2026-10-07)
 

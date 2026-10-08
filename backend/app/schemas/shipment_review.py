@@ -28,6 +28,7 @@ class ShipmentQuantityReview(BaseModel):
     reason: str = Field(min_length=3, max_length=1000)
     items: list[ShipmentQuantityLine] = Field(min_length=1, max_length=200)
     confirm_extra_receipt: bool = Field(default=False, strict=True)
+    keep_remainder: bool = Field(default=False, strict=True)
 
 
 class ShipmentAmountReview(BaseModel):

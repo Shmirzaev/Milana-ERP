@@ -58,6 +58,7 @@ class Package(Base, PkMixin, TimestampMixin):
         CheckConstraint("stock_kind != 'first_grade' OR (total_quantity <= 1 AND capacity = 1)", name="ck_packages_single_quantity"),
         CheckConstraint("total_quantity >= 0", name="ck_packages_total_quantity_nonnegative"),
         CheckConstraint("quantity_shortfall >= 0", name="ck_packages_shortfall_nonnegative"),
+        CheckConstraint("dispatched_quantity >= 0 AND dispatched_quantity <= total_quantity", name="ck_packages_dispatch_bounds"),
         CheckConstraint("capacity > 0", name="ck_packages_capacity_positive"),
         CheckConstraint("weight_kg IS NULL OR weight_kg >= 0", name="ck_packages_weight_nonnegative"),
         CheckConstraint(
@@ -97,6 +98,8 @@ class Package(Base, PkMixin, TimestampMixin):
     stock_kind: Mapped[str] = mapped_column(String(16), default="standard", server_default="standard", nullable=False, index=True)
     total_quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     quantity_shortfall: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    dispatched_quantities: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}", nullable=False)
+    dispatched_quantity: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     capacity: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
     weight_kg: Mapped[float | None] = mapped_column(Numeric(14, 4))
     warehouse_id: Mapped[int | None] = mapped_column(ForeignKey("warehouses.id"))

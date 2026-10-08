@@ -1586,6 +1586,8 @@ def ship_package(
         rows = shipment_context.stocks_by_package.get(int(pkg.id), [])
         if any(object_session(row) is not db or row.package_id != pkg.id for row in rows):
             raise HTTPException(409, "Invalid locked stock context for shipment")
+    if pkg.dispatched_quantities:
+        raise HTTPException(409, "Dispatch the remaining pieces through a scanned shipment")
     if pkg.status not in ("received_in_storage", "reserved"):
         raise HTTPException(400, f"Package cannot be shipped from status '{pkg.status}'")
     pkg.status = "shipped"

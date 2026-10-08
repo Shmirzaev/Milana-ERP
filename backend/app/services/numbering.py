@@ -284,10 +284,10 @@ def next_material_reservation_nos(db: Session, count: int) -> list[str]:
     return _next_many(db, MaterialReservation, "reservation_no", "MR", count)
 
 
-def retire_label_numbers(db: Session, package_numbers: list[str], run_number: str) -> None:
+def retire_label_numbers(db: Session, package_numbers: list[str], run_number: str | None = None) -> None:
     from app.models import PackagePrintRun
     for model, attr, prefix, numbers in ((Package, "package_no", "PKG", package_numbers),
-                                         (PackagePrintRun, "run_no", "PRN", [run_number])):
+                                         (PackagePrintRun, "run_no", "PRN", [run_number] if run_number else [])):
         by_year: dict[str, int] = {}
         for number in numbers:
             match = re.fullmatch(rf"{prefix}-(\d{{4}})-(\d+)", number)

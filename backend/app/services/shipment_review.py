@@ -19,6 +19,7 @@ from app.models import (
 from app.schemas.shipment_review import ShipmentAmountReview, ShipmentQuantityReview
 from app.models.shipment_review import PackageQuantityAdjustment
 from app.core.deps import user_permissions
+from app.services.package_dispatch import selected_items
 from app.services.audit import log_action
 from app.services.shipment_invoice import build_invoice_rows, invoice_model_identity
 
@@ -57,6 +58,10 @@ def correct_received_quantity(db: Session, shipment: Shipment, package_id: int,
     package = db.query(Package).filter_by(id=package_id).with_for_update().populate_existing().first()
     if not link or not package:
         raise HTTPException(404, "Package is not attached to this shipment")
+    if package.dispatched_quantities:
+        raise HTTPException(409, "Partially dispatched packages require shipment selection, not receipt correction")
+    if str(package.id) in (shipment.dispatch_snapshot or {}).get("package_quantities", {}):
+        raise HTTPException(409, "Remove the shipment selection before correcting receipt contents")
     if package.status not in {"received_in_storage", "reserved"}:
         raise HTTPException(409, "Only received packages can be corrected")
     if package.total_quantity != payload.expected_quantity or link.quantity != package.total_quantity:
@@ -286,16 +291,20 @@ def shipment_document(db: Session, shipment: Shipment, *, scanned_ids: set[int] 
         package_details.append({"package_no": package.package_no, "quantity": link.quantity,
                                 "weight_kg": str(package.weight_kg) if package.weight_kg is not None else None})
         package_items = contents_by_package.get(package.id, ())
-        balanced = sum(item.quantity for item in package_items) == link.quantity
+        quantities = selected_items(shipment, package, package_items)
+        balanced = sum(quantities.values()) == link.quantity
         if not balanced:
             unknown_prices = True
         for item in package_items:
+            quantity = quantities[str(item.id)]
+            if not quantity:
+                continue
             prices = prices_by_item.prices(item.model_id, item.color, item.size)
             price = next(iter(prices)) if len(prices) == 1 and balanced else None
             if not order and (shipment.dispatch_snapshot or {}).get("manual") and balanced:
                 model_price = models.get(item.model_id)
                 price = Decimal(str(model_price.selling_price)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if model_price and model_price.selling_price is not None else None
-            amount = (price * item.quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if price is not None else None
+            amount = (price * quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if price is not None else None
             if amount is None:
                 unknown_prices = True
             else:
@@ -311,7 +320,7 @@ def shipment_document(db: Session, shipment: Shipment, *, scanned_ids: set[int] 
                           "description": description,
                           "color": item.color, "size": item.size,
                           "size_display": manual_invoice_sizes(db, package, item.size, receipts=manual_receipts),
-                          "quantity": item.quantity,
+                          "quantity": quantity,
                           "unit_price": str(price) if price is not None else None,
                           "amount": str(amount) if amount is not None else None})
     document = {"shipment_no": shipment.shipment_no, "sales_order_no": order.order_no if order else None,
@@ -376,7 +385,8 @@ def freeze_dispatch_document(db: Session, shipment: Shipment) -> None:
         raise HTTPException(409, "Some package prices are ambiguous; warehouse must review the invoice amount")
     if document["amount"] is None and (shipment.dispatch_snapshot or {}).get("manual"):
         document["finance_posting_status"] = "pending_price"
-    shipment.dispatch_snapshot = {**({"manual": True} if (shipment.dispatch_snapshot or {}).get("manual") else {}), "document": document}
+    selections = (shipment.dispatch_snapshot or {}).get("package_quantities", {})
+    shipment.dispatch_snapshot = {"package_quantities": selections, **({"manual": True} if (shipment.dispatch_snapshot or {}).get("manual") else {}), "document": document}
 
 
 def detach_shipment_package(db: Session, shipment: Shipment, package_id: int, reason: str, user: User) -> None:
@@ -403,6 +413,9 @@ def detach_shipment_package(db: Session, shipment: Shipment, package_id: int, re
         db.delete(reservation)
     if package.status == "reserved" and all(row.reserved_qty == 0 for row in rows):
         package.status = "received_in_storage"
+    selections = dict((shipment.dispatch_snapshot or {}).get("package_quantities", {}))
+    selections.pop(str(package_id), None)
+    shipment.dispatch_snapshot = {**(shipment.dispatch_snapshot or {}), "package_quantities": selections}
     db.delete(link)
     from app.models import ShipmentScanLog
     db.add(ShipmentScanLog(shipment_id=shipment.id, package_id=package_id, scanned_code=package.barcode,
@@ -494,11 +507,17 @@ def post_manual_shipment_invoice(db: Session, shipment: Shipment, user: User) ->
     # Index the frozen lines once instead of rescanning them for every group; the
     # document is frozen evidence, so this only reads it, never rebuilds it.
     frozen_prices_by_line = defaultdict(set)
+    frozen_quantities_by_line = defaultdict(int)
     if grouped:
         for line in document["lines"]:
-            frozen_prices_by_line[(line["model_code"], line["color"], line["size"])].add(line["unit_price"])
+            key = (line["model_code"], line["color"], line["size"])
+            frozen_prices_by_line[key].add(line["unit_price"])
+            frozen_quantities_by_line[key] += line["quantity"]
     for (model_id, color, size), quantity in grouped.items():
         model = db.get(Model, model_id)
+        quantity = frozen_quantities_by_line[(model.code, color, size)]
+        if not quantity:
+            continue
         frozen_prices = frozen_prices_by_line.get((model.code, color, size), set())
         frozen_price = next(iter(frozen_prices)) if len(frozen_prices) == 1 else None
         db.add(SalesOrderItem(sales_order_id=order.id, model_id=model_id, color=color, size=size,

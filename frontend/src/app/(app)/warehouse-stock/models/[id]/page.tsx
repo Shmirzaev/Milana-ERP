@@ -1,4 +1,5 @@
 "use client";
+import DeleteWarehousePackage from "@/components/DeleteWarehousePackage";
 import { formatModelVariantCode } from "@/lib/variantDisplay";
 import { useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
@@ -19,9 +20,9 @@ export default function WarehouseModelPackages() {
   return <main className="space-y-4"><Link className="btn" href={`/warehouse-stock?stock_kind=${kind}`}>{copy.stock}</Link>
     <h1 className="app-page-title">{formatModelVariantCode(data?.model_code)} {data?.model_name}</h1><h2>{copy.packages} · {kind === "first_grade" ? copy.title : copy.standard} {data ? `(${data.total})` : ""}</h2>
     {error && <p role="alert" className="text-red-700">{error.message}</p>}{!data && !error && <p>{copy.loading}</p>}
-    {data && <><div className="card overflow-x-auto"><table className="table text-sm"><thead><tr><th>{copy.packages}</th><th>{copy.production}</th><th>{copy.contents}</th><th>{copy.total}</th><th>{copy.available}</th><th>{copy.reserved}</th><th>{copy.weight}</th><th>{copy.location}</th><th>{copy.status}</th><th>{copy.received}</th></tr></thead><tbody>
-      {data.packages.map(pkg => <tr key={pkg.id}><td><Link className="underline" href={`/packages/${pkg.id}`}>{pkg.package_no}</Link><div className="text-xs text-slate-500">{pkg.barcode}</div></td><td>{pkg.production_no || "—"}</td><td>{pkg.items.map((item, index) => <div key={index}>{item.color} · {item.size} × {item.quantity}</div>)}</td><td>{pkg.quantity}</td><td>{pkg.available}</td><td>{pkg.reserved}</td><td>{pkg.weight_kg ?? "—"}</td><td>{[pkg.cell, pkg.shelf].filter(Boolean).join(" / ") || "—"}</td><td>{statusLabel(pkg.status, t)}</td><td>{pkg.received_at ? new Date(pkg.received_at).toLocaleString(lang) : "—"}</td></tr>)}
-      {!data.packages.length && <tr><td colSpan={10}>{copy.empty}</td></tr>}
+    {data && <><div className="card overflow-x-auto"><table className="table text-sm"><thead><tr><th>{copy.packages}</th><th>{copy.production}</th><th>{copy.contents}</th><th>{copy.total}</th><th>{copy.available}</th><th>{copy.reserved}</th><th>{copy.weight}</th><th>{copy.location}</th><th>{copy.status}</th><th>{copy.received}</th><th>{t("common.actions")}</th></tr></thead><tbody>
+      {data.packages.map(pkg => <tr key={pkg.id}><td><Link className="underline" href={`/packages/${pkg.id}`}>{pkg.package_no}</Link><div className="text-xs text-slate-500">{pkg.barcode}</div></td><td>{pkg.production_no || "—"}</td><td>{pkg.items.map((item, index) => <div key={index}>{item.color} · {item.size} × {item.quantity}</div>)}</td><td>{pkg.quantity}</td><td>{pkg.available}</td><td>{pkg.reserved}</td><td>{pkg.weight_kg ?? "—"}</td><td>{[pkg.cell, pkg.shelf].filter(Boolean).join(" / ") || "—"}</td><td>{statusLabel(pkg.status, t)}</td><td>{pkg.received_at ? new Date(pkg.received_at).toLocaleString(lang) : "—"}</td><td><DeleteWarehousePackage id={pkg.id} packageNo={pkg.package_no} /></td></tr>)}
+      {!data.packages.length && <tr><td colSpan={11}>{copy.empty}</td></tr>}
     </tbody></table></div><div className="flex items-center gap-3"><button className="btn" disabled={page === 1} onClick={() => setPage(page - 1)}>{copy.previous}</button><span>{page} / {Math.max(1, Math.ceil(data.total / data.page_size))}</span><button className="btn" disabled={page * data.page_size >= data.total} onClick={() => setPage(page + 1)}>{copy.next}</button></div></>}
   </main>;
 }

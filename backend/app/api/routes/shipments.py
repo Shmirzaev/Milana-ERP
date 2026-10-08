@@ -1,3 +1,4 @@
+from app.services.package_dispatch import remaining_quantity, remaining_item_quantity, selected_items, select_dispatch_quantity, dispatch_selected
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from urllib.parse import quote
@@ -218,7 +219,7 @@ def _preparation_payload(
         scanned_ids = _matched_package_ids_for_shipment(db, int(shipment.id))
     elif sales_order_id:
         package_rows = [
-            (int(package.total_quantity or 0), package)
+            (remaining_quantity(package), package)
             for package, _model in _ready_packages_for_sales_order(db, sales_order_id)
         ]
         scanned_ids = set()
@@ -268,13 +269,16 @@ def _preparation_payload(
         else []
     )
     model_by_id = {int(model.id): model for model in models}
+    selected_by_package = {package.id: selected_items(shipment, package, package_items_by_id.get(package.id, []))
+                           if shipment else {str(item.id): remaining_item_quantity(package, item) for item in package_items_by_id.get(package.id, [])}
+                           for _, package in package_rows}
     prepared_by_variant: dict[tuple[int, str, str], int] = {}
     for package_quantity, package in package_rows:
         items = package_items_by_id.get(int(package.id), [])
         if items:
             for item in items:
                 key = (int(item.model_id), str(item.color or "").strip(), str(item.size or "").strip())
-                prepared_by_variant[key] = prepared_by_variant.get(key, 0) + int(item.quantity or 0)
+                prepared_by_variant[key] = prepared_by_variant.get(key, 0) + selected_by_package[package.id][str(item.id)]
         else:
             key = (int(package.model_id), str(package.color or "").strip(), "")
             prepared_by_variant[key] = prepared_by_variant.get(key, 0) + package_quantity
@@ -336,7 +340,7 @@ def _preparation_payload(
             {
                 "color": str(item.color or "").strip() or None,
                 "size": str(item.size or "").strip() or None,
-                "quantity": int(item.quantity or 0),
+                "quantity": selected_by_package[package.id][str(item.id)],
             }
             for item in package_items_by_id.get(int(package.id), [])
         ]
@@ -358,7 +362,8 @@ def _preparation_payload(
                 "scanned": int(package.id) in scanned_ids,
                 "items": item_lines,
                 "quantity_items": [{"item_id": item.id, "color": item.color, "size": item.size,
-                                    "quantity": item.quantity} for item in package_items_by_id.get(int(package.id), [])],
+                                    "quantity": selected_by_package[package.id][str(item.id)],
+                                    "available_quantity": remaining_item_quantity(package, item)} for item in package_items_by_id.get(int(package.id), [])],
             }
         )
         group = grouped.get(int(package.model_id))
@@ -502,7 +507,7 @@ def _orderless_package_error(db: DbSession, package: Package) -> str | None:
     )
     if (
         int(stock_count or 0) <= 0
-        or int(available_qty or 0) != int(package.total_quantity or 0)
+        or int(available_qty or 0) != remaining_quantity(package)
         or int(reserved_qty or 0) != 0
     ):
         return f"Package {package.package_no} is not fully available in finished-goods stock."
@@ -744,7 +749,7 @@ def _replace_unscanned_same_model_package(
 
     old_package_id = int(slot.package_id)
     slot.package_id = int(scanned_package.id)
-    slot.quantity = int(scanned_package.total_quantity or 0)
+    slot.quantity = remaining_quantity(scanned_package)
     db.flush()
     log_action(
         db,
@@ -839,9 +844,10 @@ def _ship_verified_packages(db: DbSession, shipment: Shipment, current: User) ->
         if package.status not in _READY_FOR_SHIPMENT_STATUSES:
             raise HTTPException(409, f"Package {package.package_no} is no longer ready to ship")
         stocks = stocks_by_package.get(int(package.id), [])
-        if (shipment_package.quantity != package.total_quantity or not stocks or
-                sum(row.available_qty + row.reserved_qty for row in stocks) != package.total_quantity or
-                any(row.sold_qty or row.quantity != row.available_qty + row.reserved_qty for row in stocks)):
+        if (not 0 < shipment_package.quantity <= remaining_quantity(package) or not stocks or
+                sum(row.sold_qty for row in stocks) != package.dispatched_quantity or
+                sum(row.available_qty + row.reserved_qty for row in stocks) != remaining_quantity(package) or
+                any(row.quantity != row.available_qty + row.reserved_qty + row.sold_qty for row in stocks)):
             raise HTTPException(409, f"Package {package.package_no} quantities do not match warehouse stock")
         if int(package.id) in foreign_reservation_package_ids:
             raise HTTPException(409, f"Package {package.package_no} is reserved for another order")
@@ -862,7 +868,7 @@ def _ship_verified_packages(db: DbSession, shipment: Shipment, current: User) ->
             matching = [package for package in packages if package.model_id == line.model_id]
             if len(matching) != requested:
                 raise HTTPException(409, f"Model requires exactly {requested} verified packages")
-            actual = sum(package.total_quantity for package in matching)
+            actual = sum(link.quantity for link in shipment.packages if link.package_id in {package.id for package in matching})
             changed.append({"item_id": line.id, "previous_quantity": line.quantity, "quantity": actual})
             line.quantity = actual
         if changed:
@@ -887,7 +893,10 @@ def _ship_verified_packages(db: DbSession, shipment: Shipment, current: User) ->
     shipment.dispatch_snapshot = {**shipment.dispatch_snapshot, "document": {**shipment.dispatch_snapshot["document"], "warehouse_person": current.name}}
     shipment_context = package_shipment_context(db, packages, stocks_by_package)
     for package in packages:
-        ship_package(db, package, current.id, sync_production=False, shipment_context=shipment_context)
+        if package.dispatched_quantities or str(package.id) in (shipment.dispatch_snapshot or {}).get("package_quantities", {}):
+            dispatch_selected(db, shipment, package, stocks_by_package[package.id], current)
+        else:
+            ship_package(db, package, current.id, sync_production=False, shipment_context=shipment_context)
     sync_package_production_orders(db, (package.production_order_id for package in packages))
     if (shipment.dispatch_snapshot or {}).get("manual"):
         from app.services.shipment_review import post_manual_shipment_invoice
@@ -964,7 +973,7 @@ def create_manual_shipment_customer(payload: PartyIn, db: DbSession,
 def eligible_orders(db: DbSession, _: CurrentUser):
     shipment_so_ids = _sales_order_ids_with_shipments(db)
     package_rows = (
-        db.query(Package.sales_order_id, func.coalesce(func.sum(Package.total_quantity), 0))
+        db.query(Package.sales_order_id, func.coalesce(func.sum(Package.total_quantity - Package.dispatched_quantity), 0))
         .filter(Package.sales_order_id.isnot(None), Package.status.in_(_READY_FOR_SHIPMENT_STATUSES))
         .group_by(Package.sales_order_id)
         .all()
@@ -1031,7 +1040,7 @@ def ready_packages(db: DbSession, _: CurrentUser, sales_order_id: int | None = N
             "model_id": p.model_id,
             "model_code": model.code if model else None,
             "color": p.color,
-            "total_quantity": p.total_quantity,
+            "total_quantity": remaining_quantity(p),
             "status": p.status,
             "storage_cell": p.storage_cell,
             "storage_shelf": p.storage_shelf,
@@ -1108,7 +1117,7 @@ def create_shipment(
             ).first()
             if exists:
                 continue
-            db.add(ShipmentPackage(shipment_id=sh.id, package_id=pkg.id, quantity=pkg.total_quantity))
+            db.add(ShipmentPackage(shipment_id=sh.id, package_id=pkg.id, quantity=remaining_quantity(pkg)))
             added += 1
     log_action(
         db,
@@ -1215,7 +1224,7 @@ def add_package(
     ).first()
     if exists:
         raise HTTPException(409, "Package already attached to this shipment")
-    db.add(ShipmentPackage(shipment_id=sh.id, package_id=pkg.id, quantity=pkg.total_quantity))
+    db.add(ShipmentPackage(shipment_id=sh.id, package_id=pkg.id, quantity=remaining_quantity(pkg)))
     log_action(db, current, "add_package", "Shipment", sh.id, new_value={"package_id": pkg.id})
     response = {"message": "added"}
     store_idempotent_response(
@@ -1254,7 +1263,7 @@ def add_ready_packages(
     for p in ready:
         if p.id in attached:
             continue
-        db.add(ShipmentPackage(shipment_id=sh.id, package_id=p.id, quantity=p.total_quantity))
+        db.add(ShipmentPackage(shipment_id=sh.id, package_id=p.id, quantity=remaining_quantity(p)))
         added += 1
     reported = added if added > 0 else len(attached & ready_ids)
     log_action(db, current, "add_ready_packages", "Shipment", sh.id, new_value={"added": added, "ready_attached": reported})
@@ -1293,7 +1302,10 @@ def review_package_quantity(sid: int, pid: int, payload: ShipmentQuantityReview,
     shipment = locked_shipment(db, sid)
     if pid not in _matched_package_ids_for_shipment(db, sid):
         raise HTTPException(409, "Scan the package before reviewing its quantity")
-    correct_received_quantity(db, shipment, pid, payload, current)
+    if payload.keep_remainder:
+        select_dispatch_quantity(db, shipment, pid, payload, current)
+    else:
+        correct_received_quantity(db, shipment, pid, payload, current)
     db.commit()
     return _shipment_preparation_payload(db, shipment)
 
@@ -1652,7 +1664,7 @@ def scan_package(
                     response=response,
                 )
     if not link:
-        db.add(ShipmentPackage(shipment_id=sh.id, package_id=pkg.id, quantity=pkg.total_quantity))
+        db.add(ShipmentPackage(shipment_id=sh.id, package_id=pkg.id, quantity=remaining_quantity(pkg)))
         db.flush()
         db.expire(sh, ["packages"])
         log_action(db, current, "add_package_scan", "Shipment", sh.id, new_value={"package_id": pkg.id})
@@ -1809,6 +1821,11 @@ def deliver(
     for sp in sh.packages:
         pkg = db.get(Package, sp.package_id)
         if pkg and pkg.status == "shipped":
+            if pkg.dispatched_quantities:
+                related = db.query(Shipment).join(ShipmentPackage).filter(
+                    ShipmentPackage.package_id == pkg.id, Shipment.id != sh.id, Shipment.status != "cancelled").all()
+                if any(other.status != "delivered" for other in related):
+                    continue
             mark_delivered(db, pkg, current.id)
     inv = invoice_for_frozen_delivery(db, sh, current)
     if inv:

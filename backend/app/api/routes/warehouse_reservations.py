@@ -1,3 +1,4 @@
+from app.services.package_dispatch import remaining_quantity
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
@@ -44,14 +45,16 @@ def resolve_reservation_pack(payload: ScanPack, db: DbSession,
     if (package.status != "received_in_storage" or package.sales_order_id or
             package.stock_kind != "standard" or not rows or
             sum(row.quantity for row in rows) != package.total_quantity or
-            any(row.quantity <= 0 or row.quantity != row.available_qty or row.reserved_qty or row.sold_qty
-                or row.status != "available" or row.sales_order_id for row in rows) or
+            sum(row.sold_qty for row in rows) != package.dispatched_quantity or
+            remaining_quantity(package) <= 0 or
+            any(row.quantity <= 0 or row.quantity != row.available_qty + row.sold_qty or row.reserved_qty
+                or row.status not in {"available", "sold"} or row.sales_order_id for row in rows) or
             _linked(db, [package.id]) or
             db.query(WarehousePackReservation.id).filter_by(package_id=package.id).first() or
             db.query(StockReservation.id).filter_by(package_id=package.id).first()):
         raise HTTPException(409, "Only complete available warehouse packs can be reserved")
     model = db.get(Model, package.model_id) if package.model_id else None
-    return {"id": package.id, "package_no": package.package_no, "quantity": package.total_quantity,
+    return {"id": package.id, "package_no": package.package_no, "quantity": remaining_quantity(package),
             "model_code": model.code if model else "", "model_name": model.name if model else ""}
 
 
@@ -78,7 +81,7 @@ def _stocks(db, ids):
 
 def _linked(db, ids):
     return db.query(ShipmentPackage.id).join(Shipment).filter(
-        ShipmentPackage.package_id.in_(ids), Shipment.status != "cancelled").first() is not None
+        ShipmentPackage.package_id.in_(ids), Shipment.status.in_(["draft", "created"])).first() is not None
 
 
 def _release(db, current, packages, stocks):
@@ -93,14 +96,16 @@ def _release(db, current, packages, stocks):
     for package in packages:
         rows = stocks[package.id]
         if (package.status != "reserved" or not rows or
-                by_package[package.id].quantity != package.total_quantity or
+                by_package[package.id].quantity != remaining_quantity(package) or
                 sum(row.quantity for row in rows) != package.total_quantity or
-                any(row.sold_qty or row.available_qty or row.reserved_qty != row.quantity or
-                    row.status != "reserved" for row in rows)):
+            sum(row.sold_qty for row in rows) != package.dispatched_quantity or
+            remaining_quantity(package) <= 0 or
+                any(row.available_qty or row.reserved_qty != row.quantity - row.sold_qty or
+                    row.status not in {"reserved", "sold"} for row in rows)):
             raise HTTPException(409, "Reserved pack stock changed; reload before releasing")
     for package in packages:
         for row in stocks[package.id]:
-            row.available_qty = row.quantity
+            row.available_qty = row.quantity - row.sold_qty
             row.reserved_qty = 0
             row.status = "available"
         package.status = "received_in_storage"
@@ -144,11 +149,11 @@ def list_packs(db: DbSession, current: User = Depends(require_permissions(*ACCES
         if customer_id:
             query = query.filter(WarehousePackReservation.customer_id == customer_id)
     else:
-        linked = db.query(ShipmentPackage.package_id).join(Shipment).filter(Shipment.status != "cancelled")
+        linked = db.query(ShipmentPackage.package_id).join(Shipment).filter(Shipment.status.in_(["draft", "created"]))
         query = query.filter(Package.status == "received_in_storage", Package.sales_order_id.is_(None),
                              Package.stock_kind == "standard", WarehousePackReservation.id.is_(None),
-                             totals.c.available == Package.total_quantity, totals.c.reserved == 0,
-                             totals.c.sold == 0, Package.id.notin_(linked))
+                             totals.c.available == Package.total_quantity - Package.dispatched_quantity, totals.c.reserved == 0,
+                             totals.c.sold == Package.dispatched_quantity, Package.id.notin_(linked))
     if q and q.strip():
         for word in q.strip().split():
             pattern = "%" + word.replace("%", "\\%").replace("_", "\\_") + "%"
@@ -156,7 +161,7 @@ def list_packs(db: DbSession, current: User = Depends(require_permissions(*ACCES
                                       (Package.package_no, Package.barcode, Model.code, Model.name, Customer.name))))
     total = query.count()
     rows = [{"id": package.id, "package_no": package.package_no, "model_code": code,
-             "model_name": name, "quantity": package.total_quantity,
+             "model_name": name, "quantity": remaining_quantity(package),
              "customer_id": hold.customer_id if hold else None, "customer_name": customer,
              "notes": hold.notes if hold else None, "reserved_at": hold.reserved_at if hold else None}
             for package, hold, customer, code, name in query.order_by(Package.id.desc())
@@ -185,19 +190,21 @@ def reserve_packs(payload: ReservePacks, db: DbSession,
         if (package.status != "received_in_storage" or package.sales_order_id or
                 package.stock_kind != "standard" or not rows or
                 sum(row.quantity for row in rows) != package.total_quantity or
-                any(row.quantity <= 0 or row.quantity != row.available_qty or row.reserved_qty or row.sold_qty
-                    or row.status != "available" or row.sales_order_id for row in rows)):
+            sum(row.sold_qty for row in rows) != package.dispatched_quantity or
+            remaining_quantity(package) <= 0 or
+                any(row.quantity <= 0 or row.quantity != row.available_qty + row.sold_qty or row.reserved_qty
+                    or row.status not in {"available", "sold"} or row.sales_order_id for row in rows)):
             raise HTTPException(409, "Only complete available warehouse packs can be reserved")
     for package in packages:
         for row in stocks[package.id]:
-            row.reserved_qty = row.quantity
+            row.reserved_qty = row.quantity - row.sold_qty
             row.available_qty = 0
             row.status = "reserved"
         package.status = "reserved"
         db.add(WarehousePackReservation(package_id=package.id, customer_id=payload.customer_id,
-                                       quantity=package.total_quantity, reserved_by=current.id, notes=payload.notes))
+                                       quantity=remaining_quantity(package), reserved_by=current.id, notes=payload.notes))
         log_action(db, current, "reserve_for_customer", "Package", package.id,
-                   new_value={"customer_id": payload.customer_id, "quantity": package.total_quantity, "notes": payload.notes})
+                   new_value={"customer_id": payload.customer_id, "quantity": remaining_quantity(package), "notes": payload.notes})
     response = {"reserved": len(packages)}
     store_idempotent_response(db, scope="warehouse-reservations.reserve", key=idempotency_key,
                               payload=fingerprint, response=response, user=current)
@@ -240,7 +247,7 @@ def prepare_shipment(payload: SelectedPacks, db: DbSession,
     db.add(shipment)
     db.flush()
     for package in packages:
-        db.add(ShipmentPackage(shipment_id=shipment.id, package_id=package.id, quantity=package.total_quantity))
+        db.add(ShipmentPackage(shipment_id=shipment.id, package_id=package.id, quantity=remaining_quantity(package)))
     log_action(db, current, "create_from_reservations", "Shipment", shipment.id,
                new_value={"package_ids": payload.package_ids, "customer_id": shipment.customer_id})
     response = {"id": shipment.id, "shipment_no": shipment.shipment_no}

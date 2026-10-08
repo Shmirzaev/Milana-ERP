@@ -49,7 +49,7 @@ def row_height(values, widths) -> float:
 def export_warehouse_report(db, lang: str) -> bytes:
     # Match Warehouse Stock's ready statuses, including imported and unplaced stock.
     quantities = (
-        db.query(Package.stock_kind, Package.model_id, func.count(Package.id), func.sum(Package.total_quantity))
+        db.query(Package.stock_kind, Package.model_id, func.count(Package.id), func.sum(Package.total_quantity - Package.dispatched_quantity))
         .filter(Package.status.in_(["packed", "received_in_storage", "reserved"]))
         .group_by(Package.stock_kind, Package.model_id)
         .all()
