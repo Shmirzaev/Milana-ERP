@@ -46,6 +46,8 @@ function render(code, fixtures) {
     "@/lib/variantDisplay": { formatVariantNumber: value => value },
     "@/lib/errorMessages": { localizeError: value => value },
     "@/lib/api": { api: { post() {} }, fetcher() {} },
+    "@/lib/auth": { useMe: () => ({ me: { factory_code: "MIL" } }) },
+    "@/components/sewing/BandFloor": { default: noop },
     "@/lib/i18n": { useT: () => ({ t }) },
     "@/lib/modelImages": { imagePreviewHref: value => value, storageThumbnailUrl: value => value },
     "@/lib/orderRef": { orderReference: (row, fallback) => row.order_no || row.production_no || fallback },

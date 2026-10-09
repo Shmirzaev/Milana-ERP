@@ -52,7 +52,6 @@ for (const [hasToken, me] of [[undefined, undefined], [true, { ...identity, fact
     if (name === "@/lib/access") return { isSewingRole: () => false, sewingWorkspaceHome: () => "/", factoryWorkspaceHome: () => "/", hasInventoryPathAccess: () => true };
     if (name === "@/lib/i18n") return { useT: () => ({ t: key => key }) };
     if (name === "@/lib/priceCalculationRequests") return {};
-    if (name === "@/components/sewing/BandWorkspace") return { default: "BandWorkspace" };
     throw new Error(name);
   });
   const rendered = exports.default({ children: "workspace" });
@@ -60,7 +59,6 @@ for (const [hasToken, me] of [[undefined, undefined], [true, { ...identity, fact
   assert.equal(logouts, 0);
   assert.deepEqual(redirects, hasToken === false ? ["/login"] : []);
   if (hasToken === undefined) assert.equal(rendered.props.role, "alert");
-  if (hasToken === true && !me?.sewing_band_id) assert.equal(rendered.props.children, "workspace");
-  if (me?.sewing_band_id) assert.equal(rendered.type, "BandWorkspace");
+  if (hasToken === true) assert.equal(rendered.props.children, "workspace");
 }
 console.log("AuthGate: outage retry, cached workspace, and definitive rejection passed.");

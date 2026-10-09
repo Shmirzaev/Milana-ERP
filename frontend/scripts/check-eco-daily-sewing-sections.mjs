@@ -61,7 +61,7 @@ for (const factory of [undefined, "MIL", "ECO", "BST"]) {
   const pageExports = {}, requests = [];
   const me = factory ? { factory_code: factory, permissions: ["*"] } : undefined;
   new Function("exports", "require", compiledPage)(pageExports, name => {
-    if (name === "react") return { useState: value => [typeof value === "function" ? value() : value, () => {}], useEffect() {}, useMemo: fn => fn() };
+    if (name === "react") return { useState: value => [typeof value === "function" ? value() : value, () => {}], useRef: value => ({ current: value }), useEffect() {}, useMemo: fn => fn() };
     if (name === "react/jsx-runtime") return { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) };
     if (name === "swr") return { default: key => { if (key) requests.push(key); return { data: undefined, isLoading: true, mutate() {} }; } };
     if (name === "@/lib/auth") return { useMe: () => ({ me }), can: () => Boolean(me) };

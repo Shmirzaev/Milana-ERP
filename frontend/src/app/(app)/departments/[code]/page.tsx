@@ -1,4 +1,7 @@
 "use client";
+import BandFloor from "@/components/sewing/BandFloor";
+import { useMe } from "@/lib/auth";
+
 import { formatVariantNumber } from "@/lib/variantDisplay";
 import { localizeError } from "@/lib/errorMessages";
 
@@ -106,6 +109,12 @@ function orderContextLine(row: any, t: (key: string, vars?: Record<string, strin
 }
 
 export default function DepartmentInboxPage() {
+  const { me } = useMe();
+  if (!me) return null;
+  return me.sewing_band_id ? <BandFloor /> : <FactoryDepartmentInboxPage />;
+}
+
+function FactoryDepartmentInboxPage() {
   const { t } = useT();
   const params = useParams<{ code: string }>();
   const router = useRouter();

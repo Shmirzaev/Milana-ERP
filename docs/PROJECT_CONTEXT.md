@@ -2,6 +2,12 @@
 
 Last updated: 2026-10-09
 
+## Eco band ERP interface correction prepared (2026-10-09)
+
+- Owner rejected the separate minimal band workspace and requested the normal ERP interface with only their line's information. The correction removes the AuthGate replacement and uses the same AppShell, Sidebar, Topbar, Sewing Flows, Daily Sewing Report, BundleScanPanel and DepartmentOrderList components as other ERP users. Band accounts keep four sewing navigation links, language/theme/logout controls and a fixed line; unrestricted search/notifications/tasks are not mounted for these accounts.
+- Daily entry, report history, correction and exports use existing server-scoped report APIs; completed or manager-finished assignments leave the band's work picker. Receipt uses the existing automatic band claim endpoint inside the standard scanner/manual-receipt page. Final output stays separate with payload-bound retry keys. A new read-only floor endpoint supplies model/material context only for owned assignments, and uses assignment output quantities instead of factory-wide work-order totals. General ERP API routes remain denied.
+- Dedicated worktree `C:/ERP/.codex-work/eco-band-erp-ui-20261009`, branch `codex/eco-band-erp-ui-20261009`, from reviewed `clone_main` at `c3bb11e6`; both live manifests verified blue `20261009_055210`, commit `0ee31c765e0628bcface25b5e71f3bdb25fad221`. Cutting-picture and invoice changes are preserved. No account, password, assignment or schema change is needed. Production remains unchanged until the verified correction is promoted.
+
 ## Optional metre cutting passports prepared (2026-10-09)
 
 - Owner requested the calculations from `01.10.2026 (2).xlsx`, an optional checkbox, push to `clone_main`, and fast deployment without extra tests or monitoring. Each fabric row defaults to kilogram mode; metre mode is persisted independently and uses lay length / selected size count + other binding per piece. Processed metres = per-piece metres * pieces + same-fabric binding total + scrap. Width, GSM and waste percentage do not enter the workbook's theoretical metre formula. The source's five-size range is 48–56; examples 7.72/5+0.015=1.559 and 7.88/5+0.015=1.591 yield 935.4 and 954.6 for 600 pieces.

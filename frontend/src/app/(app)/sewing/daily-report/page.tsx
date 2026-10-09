@@ -1,7 +1,7 @@
 "use client";
 import { ApiError } from "@/lib/errorMessages";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarDays,
   ClipboardList,
@@ -17,6 +17,7 @@ import {
 import useSWR from "swr";
 
 import { useDialogs } from "@/components/DialogProvider";
+import { type Band } from "@/lib/sewingBandText";
 import PageHeader from "@/components/PageHeader";
 import DefectReasonSelect from "@/components/DefectReasonSelect";
 import ManualModelIdentityFields, { type ManualModelIdentityValue } from "@/components/ManualModelIdentityFields";
@@ -159,6 +160,9 @@ const MAX_SECTION_COUNT = 20;
 export default function SewingDailyReportPage() {
   const { t, lang } = useT();
   const { me } = useMe();
+  const bandOnly = Boolean(me?.sewing_band_id);
+  const pendingWrites = useRef(new Map<string, string>());
+  const savingRef = useRef(false);
   const sessionFactory = (me?.factory_code || "MIL").toUpperCase();
   const factoryCode = sessionFactory === "BST" || sessionFactory === "ECO" ? sessionFactory : "MIL";
   const factoryName = factoryCode === "BST" ? "Besttex" : factoryCode === "ECO" ? "Eco Cotton" : "Milana";
@@ -184,7 +188,9 @@ export default function SewingDailyReportPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  const { data: flows } = useSWR<Flow[]>(canManageReport ? `/api/sewing-flows?factory_code=${factoryCode}` : null, fetcher, { refreshInterval: 30_000 });
+  const { data: factoryFlows } = useSWR<Flow[]>(canManageReport && !bandOnly ? `/api/sewing-flows?factory_code=${factoryCode}` : null, fetcher, { refreshInterval: 30_000 });
+  const { data: bands } = useSWR<Band[]>(bandOnly ? "/api/sewing-bands" : null, fetcher, { refreshInterval: 15000 });
+  const flows = useMemo(() => bandOnly ? bands?.map(b => ({ ...b, factory_code: "ECO", is_active: true })) : factoryFlows, [bandOnly, bands, factoryFlows]);
   const activeFlows = useMemo(() => (flows || []).filter((flow) => flow.is_active), [flows]);
   const selectedFlow = useMemo(
     () => activeFlows.find((flow) => flow.id === selectedFlowId) || null,
@@ -234,10 +240,10 @@ export default function SewingDailyReportPage() {
         setSectionEntries((current) => current.map((entry) => ({
           ...entry,
           workKey: "",
-          manualModel: { ...entry.manualModel, enabled: true },
+          manualModel: { ...entry.manualModel, enabled: !bandOnly },
         })));
       } else {
-        setManualModel((current) => ({ ...current, enabled: true }));
+        setManualModel((current) => ({ ...current, enabled: !bandOnly }));
       }
       return;
     }
@@ -254,7 +260,7 @@ export default function SewingDailyReportPage() {
       setSelectedWorkKey(sewingWorkKey(activeWork[0]));
       setKroyNo(activeWork[0].kroy_no || "");
     }
-  }, [lineContext, selectedWorkKey, usesSectionEntry]);
+  }, [lineContext, selectedWorkKey, usesSectionEntry, bandOnly]);
 
   const selectedWork = useMemo(
     () => (lineContext?.active_work_orders || []).find((work) => sewingWorkKey(work) === selectedWorkKey) || null,
@@ -325,6 +331,7 @@ export default function SewingDailyReportPage() {
   }
 
   async function saveReport() {
+    if (savingRef.current) return;
     setMessage("");
     setError("");
     if (selectedFlowId === "") {
@@ -347,6 +354,7 @@ export default function SewingDailyReportPage() {
           continue;
         }
         const work = activeWork.find((candidate) => sewingWorkKey(candidate) === entry.workKey);
+        if (bandOnly && !work) { setError(t("page.sewingDailyReport.noActiveOrder")); return; }
         const usesManualIdentity = entry.manualModel.enabled || !work;
         if (usesManualIdentity && !entry.manualModel.modelNo.trim()) {
           setError(t("page.sewingDailyReport.manualModelRequired"));
@@ -384,6 +392,7 @@ export default function SewingDailyReportPage() {
     } else {
       const sewn = numberOrZero(sewnQty);
       const defective = numberOrZero(defectiveQty);
+      if (bandOnly && !selectedWork) { setError(t("page.sewingDailyReport.noActiveOrder")); return; }
       const usesManualIdentity = manualModel.enabled || !selectedWork;
       if (usesManualIdentity && !manualModel.modelNo.trim()) {
         setError(t("page.sewingDailyReport.manualModelRequired"));
@@ -430,10 +439,15 @@ export default function SewingDailyReportPage() {
         return;
       }
     }
+    savingRef.current = true;
     setSaving(true);
     try {
       for (const payload of payloads) {
-        await api.post("/api/sewing-daily-reports", payload);
+        const fingerprint = JSON.stringify(payload);
+        const key = pendingWrites.current.get(fingerprint) || crypto.randomUUID();
+        pendingWrites.current.set(fingerprint, key);
+        await api.postWithHeaders("/api/sewing-daily-reports", payload, { "Idempotency-Key": key });
+        pendingWrites.current.delete(fingerprint);
         // Clear only saved sections so a later failure cannot duplicate them on retry.
         if (payload.section_no) setSectionEntries((rows) => rows.map((row, index) => index + 1 === payload.section_no ? { ...row, sewnQty: "", topQty: "", bottomQty: "", defectiveQty: "" } : row));
       }
@@ -454,6 +468,7 @@ export default function SewingDailyReportPage() {
       setError(err?.message || t("page.sewingDailyReport.saveFailed"));
       await Promise.all([mutateReport(), mutateLineContext()]);
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
@@ -492,6 +507,7 @@ export default function SewingDailyReportPage() {
             <div>
               <label className="label" htmlFor="daily-sewing-line">{t("field.line")}</label>
               <select
+                disabled={bandOnly}
                 id="daily-sewing-line"
                 className="input"
                 value={selectedFlowId}
@@ -523,13 +539,13 @@ export default function SewingDailyReportPage() {
               {!loadingLine && (lineContext?.active_work_orders || []).length === 0 && (
                 <div>
                   <div className="text-sm text-[#8a8472]">{t("page.sewingDailyReport.noActiveOrder")}</div>
-                  <ManualModelIdentityFields
+                  {!bandOnly && <ManualModelIdentityFields
                     value={manualModel}
                     onChange={setManualModel}
                     inputIdPrefix="daily-sewing-manual-only"
                     alwaysVisible
                     modelNoRequired
-                  />
+                  />}
                 </div>
               )}
               {(lineContext?.active_work_orders || []).length > 0 && (
@@ -546,7 +562,7 @@ export default function SewingDailyReportPage() {
                       }}
                     />
                   )}
-                  <ManualModelIdentityFields
+                  {!bandOnly && <ManualModelIdentityFields
                     value={manualModel}
                     onChange={(manualValue) => {
                       if (manualValue.enabled && !manualModel.enabled) setKroyNo("");
@@ -554,7 +570,7 @@ export default function SewingDailyReportPage() {
                       setManualModel(manualValue);
                     }}
                     inputIdPrefix="daily-sewing-manual"
-                  />
+                  />}
                   {selectedWork && !manualModel.enabled && (
                     <div className="space-y-2">
                       {workBatchLabel(selectedWork) && (
@@ -641,7 +657,7 @@ export default function SewingDailyReportPage() {
                         }}
                       />
                     )}
-                    <ManualModelIdentityFields
+                    {!bandOnly && <ManualModelIdentityFields
                       value={entry.manualModel}
                       onChange={(manualValue) => {
                         setSectionEntries((current) => current.map((item) => (
@@ -659,7 +675,7 @@ export default function SewingDailyReportPage() {
                       inputIdPrefix={`daily-sewing-section-${index + 1}-manual`}
                       alwaysVisible={!sectionWork}
                       modelNoRequired={!sectionWork}
-                    />
+                    />}
                     <div className="mt-2">
                       <label className="mb-1 block text-xs text-[#56503f]" htmlFor={`daily-sewing-section-kroy-${index + 1}`}>
                         {t("field.kroyNo")}

@@ -1,6 +1,7 @@
 import type { Lang } from "./i18n/types";
 
 const en = {
+  receiptHint: "Scan a bundle or cutting-sheet batch QR to receive and assign it to your line automatically.",
   floor: "Sewing Floor", flows: "Sewing Flows", report: "Daily Sewing Report", receive: "Receive bundles",
   available: "Available — needs work", reported: "Reported progress", actual: "Actual output recorded", remaining: "Remaining",
   finalPending: "Awaiting final order output", history: "Completed line work", order: "Order", model: "Model", batch: "Batch",
@@ -16,6 +17,7 @@ const en = {
   discrepancy: "Reported / actual", close: "Close", language: "Language", filter: "Filter bands or orders",
 };
 const ru: typeof en = {
+  receiptHint: "Сканируйте пачку или QR партии раскроя для приёма и автоматического назначения вашей линии.",
   floor: "Швейный цех", flows: "Швейные линии", report: "Ежедневный швейный отчёт", receive: "Приём пачек",
   available: "Свободна — нужно назначить работу", reported: "Прогресс по отчётам", actual: "Фактический выпуск", remaining: "Осталось",
   finalPending: "Ожидается итоговый выпуск по заказу", history: "Завершённая работа линии", order: "Заказ", model: "Модель", batch: "Партия",
@@ -31,6 +33,7 @@ const ru: typeof en = {
   discrepancy: "По отчётам / фактически", close: "Закрыть", language: "Язык", filter: "Поиск бригады или заказа",
 };
 const uz: typeof en = {
+  receiptHint: "Bog‘lam yoki bichish partiyasi QR kodini skanerlang — qabul qilinib, liniyangizga avtomatik biriktiriladi.",
   floor: "Tikuv sexi", flows: "Tikuv liniyalari", report: "Kunlik tikuv hisoboti", receive: "Bog‘lamlarni qabul qilish",
   available: "Bo‘sh — ish biriktirish kerak", reported: "Hisobot bo‘yicha bajarilish", actual: "Qayd etilgan haqiqiy chiqim", remaining: "Qoldiq",
   finalPending: "Buyurtmaning yakuniy chiqimi kutilmoqda", history: "Liniyaning tugallangan ishlari", order: "Buyurtma", model: "Model", batch: "Partiya",

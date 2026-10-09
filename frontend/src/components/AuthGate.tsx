@@ -8,7 +8,6 @@ import { api } from "@/lib/api";
 import { isSewingRole, isSewingWorkspacePath, sewingWorkspaceHome } from "@/lib/access";
 import { useT } from "@/lib/i18n";
 import { isAbbosbekPricingUser, isAccessoryPricingUser } from "@/lib/priceCalculationRequests";
-import BandWorkspace from "@/components/sewing/BandWorkspace";
 
 const SUPER_ADMIN_PERMISSION = "admin.super";
 const FACTORY_PAYROLL_CACHE = { provider: () => new Map() };
@@ -194,7 +193,6 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     return <div className="p-6 text-slate-500">{t("common.loading")}</div>;
   }
   if (!hasToken) return null;
-  if (me?.sewing_band_id) return <BandWorkspace key={me.id} me={me} />;
   if (redirectRestrictedSewingRole) return null;
   if (redirectNonMilanaHome) return null;
   if (canSwitchOperationalFactory && !factorySwitchError) {

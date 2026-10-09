@@ -555,7 +555,12 @@ def line_context(
     require_sewing_flow_access(current, flow)
     if not flow.is_active:
         raise HTTPException(400, "Sewing line is inactive")
-    return _line_context(db, flow)
+    result = _line_context(db, flow)
+    if current.sewing_band_id:
+        from app.services.sewing_band_progress import band_board
+        active_ids = {j["id"] for j in band_board(db, [flow.id])[0]["jobs"] if not j["line_finished"]}
+        result.active_work_orders = [w for w in result.active_work_orders if w.sewing_assignment_id in active_ids]
+    return result
 
 
 @router.post("", response_model=SewingDailyReportOut, status_code=201)

@@ -63,6 +63,7 @@ def test_reports_scoped_and_progress_never_credits_production(client, bands):
     assert len(board) == 1 and len(board[0]["jobs"]) == 1
     job = board[0]["jobs"][0]
     assert job["reported_qty"] == 100 and job["line_finished"] and job["awaiting_final"]
+    assert client.get(f"/api/sewing-daily-reports/line-context?sewing_flow_id={bands['flows'][0]}", headers=h).json()["active_work_orders"] == []
     with SessionLocal() as db:
         wo = db.get(WorkOrder, bands["jobs"][0][0]); assignment = db.get(SewingAssignment, bands["jobs"][0][1])
         assert (wo.passed_qty, wo.actual_output_qty, assignment.completed_qty) == (0, 0, 0)
@@ -70,8 +71,26 @@ def test_reports_scoped_and_progress_never_credits_production(client, bands):
     corrected = client.patch(f"/api/sewing-daily-reports/{done.json()['id']}", json={"report_date": date.today().isoformat(), "sewn_qty": 30}, headers=h)
     assert corrected.status_code == 200, corrected.text
     assert not client.get("/api/sewing-bands", headers=h).json()[0]["jobs"][0]["line_finished"]
+    assert len(client.get(f"/api/sewing-daily-reports/line-context?sewing_flow_id={bands['flows'][0]}", headers=h).json()["active_work_orders"]) == 1
     assert client.patch(f"/api/sewing-daily-reports/{done.json()['id']}", json={"report_date": date.today().isoformat(), "sewn_qty": 20}, headers=bands["headers"][1]).status_code == 403
     assert client.delete(f"/api/sewing-daily-reports/{done.json()['id']}", headers=bands["headers"][1]).status_code == 403
+
+
+def test_erp_floor_contains_only_owned_assignments_and_own_quantities(client, bands):
+    with SessionLocal() as db:
+        # A shared work order's totals must not leak into a band's floor quantity.
+        db.get(WorkOrder, bands["jobs"][0][0]).passed_qty = 70
+        db.get(SewingAssignment, bands["jobs"][0][1]).quantity = 40
+        db.commit()
+    response = client.get("/api/sewing-bands/orders?sewing_flow_id=" + str(bands["flows"][1]), headers=bands["headers"][0])
+    assert response.status_code == 200, response.text
+    rows = response.json()
+    assert len(rows) == 1
+    assert rows[0]["work_order_id"] == bands["jobs"][0][0]
+    assert rows[0]["sewing_assignment_id"] == bands["jobs"][0][1]
+    assert rows[0]["planned_output_qty"] == 40 and rows[0]["passed_qty"] == 0
+    assert "model_image_url" in rows[0] and "material_image_url" in rows[0]
+    assert client.get("/api/sewing-bands/orders", headers=bands["admin"]).status_code == 403
 
 
 def test_two_piece_progress_counts_pairs_across_days(client, bands):

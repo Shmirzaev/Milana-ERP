@@ -37,6 +37,28 @@ def board(db: DbSession, current: User = Depends(require_permissions("sewing.wor
     return band_board(db, [fid for fid, in query.all()])
 
 
+@router.get("/orders")
+def band_orders(db: DbSession, current: CurrentUser):
+    """ERP floor presentation, bounded by the authenticated band's assignments."""
+    from app.api.routes.inbox import _production_context_by_production_order, _material_payload_by_production_order
+    flow = own_band(db, current)
+    jobs = band_board(db, [flow.id])[0]["jobs"]
+    po_ids = list({j["production_order_id"] for j in jobs})
+    context = _production_context_by_production_order(db, po_ids)
+    materials = _material_payload_by_production_order(db, po_ids)
+    work_orders = {w.id: w for w in db.query(WorkOrder).filter(WorkOrder.id.in_([j["work_order_id"] for j in jobs])).all()} if jobs else {}
+    return [{
+        **context.get(j["production_order_id"], {}),
+        **materials.get(j["production_order_id"], {}),
+        **j,
+        "sewing_assignment_id": j["id"],
+        "operation": "sewing", "planned_output_qty": j["quantity"],
+        "passed_qty": j["actual_qty"],
+        "deadline": work_orders[j["work_order_id"]].deadline,
+        "queueKind": "completed" if j["status"] == "completed" else "in_progress",
+    } for j in jobs]
+
+
 def scope_assignments(db, wo, batch_id):
     return db.query(SewingAssignment).filter(
         SewingAssignment.work_order_id == wo.id,

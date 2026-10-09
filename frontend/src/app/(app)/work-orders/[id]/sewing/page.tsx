@@ -1,4 +1,7 @@
 "use client";
+import BandOrder from "@/components/sewing/BandOrder";
+import { useMe } from "@/lib/auth";
+
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
@@ -38,6 +41,12 @@ type LineOption = {
 };
 
 export default function SewingPage() {
+  const { me } = useMe();
+  if (!me) return null;
+  return me.sewing_band_id ? <BandOrder /> : <FactorySewingPage />;
+}
+
+function FactorySewingPage() {
   const { t } = useT();
   const params = useParams<{ id: string }>();
   const id = Number(params.id);

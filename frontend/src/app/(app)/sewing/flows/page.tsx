@@ -15,6 +15,8 @@ import { formatBatchLabel } from "@/lib/batchSerial";
 import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
 import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 import { can, useMe } from "@/lib/auth";
+import BandOutput from "@/components/sewing/BandOutput";
+import { type BandJob } from "@/lib/sewingBandText";
 import BandProgress from "@/components/sewing/BandProgress";
 import { sewingBandText, type Band } from "@/lib/sewingBandText";
 import { useDialogs } from "@/components/DialogProvider";
@@ -296,11 +298,12 @@ export default function SewingFlowsPage() {
   const factoryCode = requestedFactory === "BST" || requestedFactory === "ECO" ? requestedFactory : "MIL";
   const factoryName = factoryCode === "BST" ? "Besttex" : factoryCode === "ECO" ? "Eco Cotton" : "Milana";
   const flowsUrl = `/api/sewing-flows?factory_code=${factoryCode}`;
-  const { data: flows } = useSWR<Flow[]>(flowsUrl, fetcher, { refreshInterval: 10_000 });
+  const { data: flows } = useSWR<Flow[]>(me && !me.sewing_band_id ? flowsUrl : null, fetcher, { refreshInterval: 10_000 });
   const { data: bands, mutate: refreshBands } = useSWR<Band[]>(factoryCode === "ECO" ? "/api/sewing-bands" : null, fetcher, { refreshInterval: 10000 });
   const [filter, setFilter] = useState("");
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
-  const visibleFlows = flows || [];
+  const [output, setOutput] = useState<BandJob | null>(null);
+  const visibleFlows: Flow[] = me?.sewing_band_id ? (bands || []).map(b => ({ id: b.id, name: b.name, code: b.code, factory_code: "ECO", is_active: true, description: null, capacity_per_day: 0, active_work_orders: b.jobs.filter(j => !j.line_finished).length, planned_units: b.jobs.reduce((sum, j) => sum + j.quantity, 0), completed_units: b.jobs.reduce((sum, j) => sum + j.actual_qty, 0) })) : flows || [];
   const filteredFlows = visibleFlows.filter(f => !filter || `${f.name} ${f.code} ${(bands?.find(b => b.id === f.id)?.jobs || []).map(j => j.order_no).join(" ")}`.toLowerCase().includes(filter.toLowerCase()));
 
   return (
@@ -322,7 +325,7 @@ export default function SewingFlowsPage() {
                   {f.is_active ? t("field.active") : t("field.inactive")}
                 </span>
               </div>
-              {factoryCode === "ECO" ? (bands ? <BandProgress jobs={bands.find(b => b.id === f.id)?.jobs || []} manager={can(me, "sewing.flows", "planning.production")} refresh={() => { void refreshBands(); }} /> : <p>{t("common.loading")}</p>) : <>
+              {factoryCode === "ECO" ? (bands ? <BandProgress jobs={bands.find(b => b.id === f.id)?.jobs || []} manager={!me?.sewing_band_id && can(me, "sewing.flows", "planning.production")} onOutput={me?.sewing_band_id ? setOutput : undefined} refresh={() => { void refreshBands(); }} /> : <p>{t("common.loading")}</p>) : <>
               <dl className="mb-3 space-y-1 text-sm">
                 <div className="flex justify-between">
                   <dt className="text-slate-500">{t("page.sewingFlows.activeWOs")}</dt>
@@ -341,7 +344,7 @@ export default function SewingFlowsPage() {
                 <div className="h-full bg-brand-500" style={{ width: `${pctDone}%` }} />
               </div>
               </>}
-              <button
+              {!me?.sewing_band_id && <button
                 type="button"
                 className="btn w-full justify-center"
                 onClick={() => setExpanded((prev) => ({ ...prev, [f.id]: !prev[f.id] }))}
@@ -349,8 +352,8 @@ export default function SewingFlowsPage() {
                 {isExpanded
                   ? t("btn.cancel")
                   : ((factoryCode === "ECO" ? bands?.find(b => b.id === f.id)?.jobs.some(j => !j.line_finished) : f.active_work_orders > 0) ? t("page.sewingFlows.assigned") : t("page.sewingFlows.readyForWork"))}
-              </button>
-              {isExpanded && (
+              </button>}
+              {!me?.sewing_band_id && isExpanded && (
                 <FlowDetail
                   flow={f}
                   flows={visibleFlows}
@@ -362,6 +365,7 @@ export default function SewingFlowsPage() {
           );
         })}
       </div>
+      <BandOutput job={output} onClose={() => setOutput(null)} onSaved={() => { void refreshBands(); }} />
     </div>
   );
 }
