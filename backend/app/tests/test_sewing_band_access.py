@@ -81,6 +81,7 @@ def test_erp_floor_contains_only_owned_assignments_and_own_quantities(client, ba
         # A shared work order's totals must not leak into a band's floor quantity.
         db.get(WorkOrder, bands["jobs"][0][0]).passed_qty = 70
         db.get(SewingAssignment, bands["jobs"][0][1]).quantity = 40
+        db.get(Bundle, bands["bundles"][0]).status = "received_sewing"
         db.commit()
     response = client.get("/api/sewing-bands/orders?sewing_flow_id=" + str(bands["flows"][1]), headers=bands["headers"][0])
     assert response.status_code == 200, response.text
@@ -89,6 +90,7 @@ def test_erp_floor_contains_only_owned_assignments_and_own_quantities(client, ba
     assert rows[0]["work_order_id"] == bands["jobs"][0][0]
     assert rows[0]["sewing_assignment_id"] == bands["jobs"][0][1]
     assert rows[0]["planned_output_qty"] == 40 and rows[0]["passed_qty"] == 0
+    assert rows[0]["received_qty"] == 40
     assert "model_image_url" in rows[0] and "material_image_url" in rows[0]
     assert client.get("/api/sewing-bands/orders", headers=bands["admin"]).status_code == 403
 

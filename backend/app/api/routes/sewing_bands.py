@@ -46,6 +46,10 @@ def band_orders(db: DbSession, current: CurrentUser):
     po_ids = list({j["production_order_id"] for j in jobs})
     context = _production_context_by_production_order(db, po_ids)
     materials = _material_payload_by_production_order(db, po_ids)
+    received = {(pid, bid): int(qty or 0) for pid, bid, qty in db.query(
+        Bundle.production_order_id, Bundle.production_batch_id, func.sum(Bundle.quantity),
+    ).filter(Bundle.production_order_id.in_(po_ids), Bundle.sewing_factory_code == "ECO",
+             Bundle.status == "received_sewing").group_by(Bundle.production_order_id, Bundle.production_batch_id).all()} if po_ids else {}
     work_orders = {w.id: w for w in db.query(WorkOrder).filter(WorkOrder.id.in_([j["work_order_id"] for j in jobs])).all()} if jobs else {}
     return [{
         **context.get(j["production_order_id"], {}),
@@ -54,6 +58,7 @@ def band_orders(db: DbSession, current: CurrentUser):
         "sewing_assignment_id": j["id"],
         "operation": "sewing", "planned_output_qty": j["quantity"],
         "passed_qty": j["actual_qty"],
+        "received_qty": min(j["quantity"], received.get((j["production_order_id"], j["production_batch_id"]), 0)),
         "deadline": work_orders[j["work_order_id"]].deadline,
         "queueKind": "completed" if j["status"] == "completed" else "in_progress",
     } for j in jobs]

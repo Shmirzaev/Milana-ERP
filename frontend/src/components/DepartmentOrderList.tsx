@@ -181,7 +181,7 @@ export default function DepartmentOrderList({
                               : t("page.deptInbox.expectedReceived", { expected: Number(row.expected_qty || 0), received: Number(row.received_qty || 0) })
                             : t("page.deptInbox.passedPlanned", { passed: Number(row.passed_qty || 0), planned: Number(row.planned_output_qty || 0) })}
                           {kind !== "incoming" && Number(row.ready_qty || 0) > 0 ? <div className="text-xs text-[#56503f]">{t("page.deptInbox.readyReceived", { ready: Number(row.ready_qty || 0), received: Number(row.received_qty || 0) })}</div> : null}
-                          {row.operation === "sewing" ? <div className="text-xs text-[#56503f]">{t("field.received")}: {Number(row.received_bundle_count || 0)} {t("nav.bundles").toLowerCase()} / {Number(row.received_bundle_qty || row.actual_input_qty || 0)} {t("field.qty").toLowerCase()}</div> : null}
+                          {row.operation === "sewing" ? <div className="text-xs text-[#56503f]">{t("field.received")}: {row.sewing_assignment_id ? Number(row.received_qty || 0) : <>{Number(row.received_bundle_count || 0)} {t("nav.bundles").toLowerCase()} / {Number(row.received_bundle_qty || row.actual_input_qty || 0)}</>} {t("field.qty").toLowerCase()}</div> : null}
                           {row.bundle_count ? <div className="text-xs text-[#56503f]">{row.bundle_count} {t("nav.bundles").toLowerCase()}</div> : null}
                         </td>
                         {partialPackaging ? <><td>{row.already_packed}</td><td className="font-semibold">{row.remaining_qty}</td><td>{row.ready_qty}</td><td>{row.sewn_passed}</td></> : null}
