@@ -2,6 +2,14 @@
 
 Last updated: 2026-10-09
 
+## Optional metre cutting passports prepared (2026-10-09)
+
+- Owner requested the calculations from `01.10.2026 (2).xlsx`, an optional checkbox, push to `clone_main`, and fast deployment without extra tests or monitoring. Each fabric row defaults to kilogram mode; metre mode is persisted independently and uses lay length / selected size count + other binding per piece. Processed metres = per-piece metres * pieces + same-fabric binding total + scrap. Width, GSM and waste percentage do not enter the workbook's theoretical metre formula. The source's five-size range is 48–56; examples 7.72/5+0.015=1.559 and 7.88/5+0.015=1.591 yield 935.4 and 954.6 for 600 pieces.
+- EN/RU/UZ labels, saved/reopened forms and mixed-unit list rows identify metre quantities. Switching preserves numbers without unit conversion. Existing kg formulas remain unchanged. API field names retain their legacy `_kg` names for compatibility; the saved `meter_mode` determines their unit. Additive migration `0144_passport_meter_mode` defaults every existing passport to false; per-material flags live in the existing JSON.
+- Inventory handoff validates mode against batch/planned units, consumes metres as metres, and leaves kg-only cutting detail/autofill fields empty or zero for metre rows. Same-fabric metre binding is included once in actual usage; other binding remains separately calculated as in the workbook. Used passports cannot change units. Kilogram-based price calculation rejects metre passports instead of importing metre allowances as weights.
+- Dedicated worktree `C:/ERP/.codex-work/cutting-passport-metres-20261009`, branch `codex/cutting-passport-metres-20261009`, starts from verified `clone_main` at `c3bb11e6`; stale `main` and legacy changes are preserved. Both production manifests matched active blue `20261009_055210` before editing; green `20261009_050526` is the prior rollback. Production deployment result is pending below.
+- Rollback must preserve migration 0144. The previous application does not understand metre mode: after users save metre passports, do not roll back to it without first preventing those passports from being edited/consumed or providing a compatible fix. No existing business quantities are converted by the migration.
+
 ## Cutting sheet model picture parity deployed (20261009_055210; 2026-10-09)
 
 - Owner requested a fast fix and deployment without extra tests or monitoring after PO-0290 / TJ2220-V-6469 / CUT-342 printed a purple secondary photo while Cutting displayed the brown primary photo. Cutting sheets now embed the exact photo selected by the order-detail preview resolver. Primary selection and explicit print overrides therefore match the page. Material pictures, other label helpers and all business data are unchanged.

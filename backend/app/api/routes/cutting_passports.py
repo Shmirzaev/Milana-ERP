@@ -76,11 +76,14 @@ def _compute(p: CuttingPassport) -> dict:
     pieces_per_layer = round(pieces / total_layers, 4) if total_layers else None
     size_count = _size_count_from_range(p.size_range)
     per_piece_weight = None
-    if size_count:
+    meter_mode = bool(getattr(p, "meter_mode", False))
+    if size_count and meter_mode:
+        per_piece_weight = round(length / size_count + other_beka_per, 6)
+    elif size_count:
         per_piece_weight = round(
             width * length * gramage / size_count + beka_per + other_beka_per, 6
         )
-    theoretical_kg = round(per_piece_weight * pieces + scrap, 6) if per_piece_weight is not None else None
+    theoretical_kg = round(per_piece_weight * pieces + scrap + (total_beka if meter_mode else 0), 6) if per_piece_weight is not None else None
     actual_kg_per_piece = round(actual_kg / pieces, 6) if pieces else None
     gross_kg_per_piece = round(planned_kg / pieces, 6) if pieces else None
 
@@ -136,6 +139,7 @@ def _serialize(p: CuttingPassport, db=None, model_cache: dict | None = None, bat
         "lot_no": p.lot_no,
         "size_range": p.size_range,
         "rolls_count": p.rolls_count,
+        "meter_mode": p.meter_mode,
         "layer_weight_kg": float(p.layer_weight_kg) if p.layer_weight_kg is not None else None,
         "total_layers": p.total_layers,
         "planned_kg": float(p.planned_kg) if p.planned_kg is not None else None,
@@ -735,6 +739,11 @@ def update_passport(
     values = _passport_values(db, payload, current, p.id)
     if used and values.get("pieces") != p.pieces:
         raise HTTPException(409, "The passport piece count is locked after cutting records have been created")
+    if used:
+        old_modes = {row["stock_batch_id"]: bool(row.get("meter_mode")) for row in (p.materials or [])}
+        new_modes = {row["stock_batch_id"]: bool(row.get("meter_mode")) for row in values.get("materials", [])}
+        if values["meter_mode"] != p.meter_mode or old_modes != new_modes:
+            raise HTTPException(409, "The material unit is locked after cutting records have been created")
     for k, v in values.items():
         setattr(p, k, v)
     sync_passport_nastil(db, p, current)

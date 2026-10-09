@@ -12,7 +12,15 @@ def material_quantity(source):
             raise HTTPException(400, "Correct the material quantities in the cutting passport")
         return value
     layer, layers = number("layer_weight_kg"), number("total_layers")
-    return round(layer * layers + number("scrap_kg") if layer > 0 and layers > 0 else number("planned_kg"), 3)
+    binding = number("beka_per_piece_kg") * number("pieces") if source.get("meter_mode") else Decimal(0)
+    return round(layer * layers + number("scrap_kg") + binding if layer > 0 and layers > 0 else number("planned_kg"), 3)
+
+
+def passport_unit(source, batch_unit):
+    unit = "m" if source.get("meter_mode", False) else "kg"
+    if str(batch_unit or "").strip().lower() != unit:
+        raise HTTPException(400, f"Passport calculation unit ({unit}) must match the inventory batch unit ({batch_unit})")
+    return str(batch_unit)
 
 
 def validate_passport_stock(db, order, values, passport_id=None):
@@ -35,14 +43,15 @@ def validate_passport_stock(db, order, values, passport_id=None):
         ).group_by(StockMovement.batch_id).all())
     for source in sources:
         quantity = material_quantity(source)
-        if quantity <= 0:  # Incomplete passports may still be saved as before.
-            continue
         batch = db.get(StockBatch, source["stock_batch_id"])
         if not batch:
             raise HTTPException(404, "Cutting material inventory batch not found")
+        unit = passport_unit(source, batch.unit)
+        if quantity <= 0:  # Incomplete passports may still be saved as before.
+            continue
         available = Decimal(str(batch.quantity or 0)) + Decimal(str(consumed.get(batch.id, 0)))
         if quantity > available:
-            raise HTTPException(409, f"Insufficient fabric for passport: batch {batch.batch_no}; available {available:g} kg; required {quantity:g} kg")
+            raise HTTPException(409, f"Insufficient fabric for passport: batch {batch.batch_no}; available {available:g} {unit}; required {quantity:g} {unit}")
 
 
 def passport_material_usage(db, order, passport_id):
@@ -71,14 +80,17 @@ def passport_material_usage(db, order, passport_id):
         quantity = material_quantity(source)
         if quantity <= 0:
             raise HTTPException(400, "Enter the actual material amount in the cutting passport")
-        if str(units.get(source["stock_batch_id"], "kg")).strip().lower() != "kg":
-            raise HTTPException(400, "Passport material usage requires a kilogram inventory batch")
+        batch = db.get(StockBatch, source["stock_batch_id"])
+        if not batch:
+            raise HTTPException(404, "Cutting material inventory batch not found")
+        unit = passport_unit(source, batch.unit)
+        passport_unit(source, units.get(batch.id, batch.unit))
         pieces = number("pieces")
         waste = quantity * number("waste_pct") / 100 if number("waste_pct") > 0 else scrap
-        result.append({"stock_batch_id": source["stock_batch_id"], "quantity": float(round(quantity, 3)), "unit": "kg",
-                       "details": {"layer_material_kg": float(layer),
-                                   "beika_kg": float((number("beka_per_piece_kg") + number("other_beka_per_piece_kg")) * pieces),
+        result.append({"stock_batch_id": source["stock_batch_id"], "quantity": float(round(quantity, 3)), "unit": unit,
+                       "details": {"layer_material_kg": 0 if source.get("meter_mode") else float(layer),
+                                   "beika_kg": 0 if source.get("meter_mode") else float((number("beka_per_piece_kg") + number("other_beka_per_piece_kg")) * pieces),
                                    "material_rolls_used": float(number("rolls_count")),
                                    "layup_operator_name": source.get("operator_name_manual") or passport.operator_name_manual or "",
-                                   "cut_pieces": int(pieces), "waste_quantity": float(round(waste, 3)), "waste_unit": "kg"}})
+                                   "cut_pieces": int(pieces), "waste_quantity": float(round(waste, 3)), "waste_unit": unit}})
     return result

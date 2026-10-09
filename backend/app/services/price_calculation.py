@@ -415,6 +415,8 @@ def update_cutting_details(db: Session, request: PriceCalculationRequest, data: 
     before = cutting_status(request)
     kroy_no = str(data.get("kroy_no") or "").strip()
     passport = _passport_for_kroy(db, request, kroy_no)
+    if passport and (passport.meter_mode or any(row.get("meter_mode") for row in (passport.materials or []))):
+        raise HTTPException(400, "Metre cutting passports cannot supply kilogram-based price calculations")
     request.kroy_no = kroy_no
     request.cutting_passport_id = passport.id if passport else None
 

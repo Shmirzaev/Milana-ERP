@@ -21,6 +21,7 @@ class PassportMaterial(BaseModel):
     lot_no: str | None = None
     operator_name_manual: str | None = Field(default=None, max_length=128)
     rolls_count: int | None = Field(default=None, ge=0)
+    meter_mode: bool = False
     layer_weight_kg: float | None = Field(default=None, ge=0)
     total_layers: int | None = Field(default=None, ge=0)
     planned_kg: float | None = Field(default=None, ge=0)

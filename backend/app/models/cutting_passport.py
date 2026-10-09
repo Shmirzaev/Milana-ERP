@@ -33,6 +33,8 @@ class CuttingPassport(Base, PkMixin, TimestampMixin):
     lot_no: Mapped[str | None] = mapped_column(String(64))         # Партия рақам
     size_range: Mapped[str | None] = mapped_column(String(255))    # Matches the migrated legacy schema.
 
+    meter_mode: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+
     # Layup inputs (manual)
     rolls_count: Mapped[int | None] = mapped_column(Integer)       # Рулон сони
     layer_weight_kg: Mapped[float | None] = mapped_column(Numeric(14, 4))   # Бир қақат
