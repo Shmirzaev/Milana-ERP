@@ -8,7 +8,7 @@ import tailwind from 'tailwindcss';
 import autoprefixer from 'autoprefixer';
 const root=process.cwd();
 const stubs={
-  '@/lib/auth': `export const logout=()=>{}; export const useMe=()=>({me:window.me,loading:false,hasToken:true,refresh:async()=>{}}); export const can=(me,...perms)=>!!me?.permissions.some(p=>p==='*'||perms.includes(p));`,
+  '@/lib/auth': `import {useEffect,useState} from 'react'; export const logout=()=>{}; export const useMe=()=>{const [ready,setReady]=useState(false);useEffect(()=>{const id=setTimeout(()=>setReady(true),25);return()=>clearTimeout(id)},[]);return {me:ready?window.me:undefined,loading:!ready,hasToken:ready?true:undefined,refresh:async()=>{}}}; export const can=(me,...perms)=>!!me?.permissions.some(p=>p==='*'||perms.includes(p));`,
   'next/navigation': `const router={push:p=>window.navigations.push(p),replace:p=>window.navigations.push(p)}; const params=new URLSearchParams(window.testPath.split('?')[1]||''); export const usePathname=()=>window.testPath.split('?')[0]; export const useSearchParams=()=>params; export const useParams=()=>({id:'81',code:'ECO'}); export const useRouter=()=>router;`,
   'next/link': `export default function Link({children,...props}) {return <a {...props}>{children}</a>}`,
   '@/lib/api': `export async function fetcher(url){window.reads.push(url);
@@ -49,6 +49,8 @@ try{
     await page.evaluate(opts=>{Object.assign(window,opts);localStorage.setItem('erp_lang',opts.testLang||'en');},{calls:[],reads:[],navigations:[],me,testPath:'/sewing/flows?factory=ECO',bands:[{id:64,name:'1-Band',code:'ECO-01',jobs:[job]}],orders:[{...job,sewing_assignment_id:41,model_no:'1001',variant_no:'1',planned_output_qty:100,passed_qty:0,operation:'sewing'}],line:{sewing_flow_id:64,line_code:'ECO-01',line_name:'1-Band',active_work_orders:[work]},options:[{production_order_id:71,production_batch_id:91,model_id:1,order_no:'PO-100',model_code:'1001-1',batch_label:'Kroy 1',quantity:100,bundle_count:10}],...options});
     await page.addStyleTag({content:css});await page.addScriptTag({content:built.outputFiles[0].text});await page.locator('main h1').waitFor();
     assert.equal(await page.locator('aside:visible nav a').count(),4);assert.equal(await page.locator('aside:visible img').count(),1);
+    await page.waitForTimeout(100);
+    assert.deepEqual(await page.evaluate(()=>window.reads.filter(url=>!url.startsWith('/api/sewing-bands')&&!url.startsWith('/api/sewing-daily-reports'))),[],'No unscoped reads while session identity resolves');
   }
   await load();await page.getByText('Reported progress: 40 / 100',{exact:false}).waitFor();
   await page.getByRole('button',{name:'Enter final output',exact:true}).click();

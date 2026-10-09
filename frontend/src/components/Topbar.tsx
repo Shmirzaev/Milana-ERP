@@ -68,7 +68,7 @@ export default function Topbar() {
       <div className="order-2 min-w-0 basis-full break-words text-xs leading-tight text-[#8a8472] sm:text-sm md:hidden min-[1440px]:order-none min-[1440px]:flex min-[1440px]:basis-auto min-[1440px]:flex-1">
         {me?.sewing_band_id ? `${t("factory.ecoCotton")} · ${me.name}` : me?.department ? `${t("top.department")}: ${me.department}` : null}
       </div>
-      {!me?.sewing_band_id && <form onSubmit={submitSearch} className="order-3 flex h-10 w-full items-center gap-2 rounded-md border border-[#e3dfd3] bg-[#f1efe8] px-3 text-sm text-[#8a8472] md:order-none md:w-[320px] xl:w-[360px]">
+      {me && !me.sewing_band_id && <form onSubmit={submitSearch} className="order-3 flex h-10 w-full items-center gap-2 rounded-md border border-[#e3dfd3] bg-[#f1efe8] px-3 text-sm text-[#8a8472] md:order-none md:w-[320px] xl:w-[360px]">
         <Search className="h-4 w-4 shrink-0" />
         <input
           className="min-w-0 flex-1 bg-transparent text-sm text-[#2c2920] placeholder:text-[#8a8472] focus:outline-none"
@@ -97,12 +97,12 @@ export default function Topbar() {
           {isNight ? <Sun /> : <Moon />}
         </button>
         <LangSwitcher />
-        {!me?.sewing_band_id && <><div className="relative">
+        {me && !me.sewing_band_id && <><div className="relative">
           <NotificationBell />
         </div>
         <button className="icon-btn" title={t("common.settings")} onClick={() => router.push("/settings")}><Settings /></button>
         <TasksDrawer /></>}
-        <button className="hidden min-w-0 max-w-40 text-right text-sm min-[1440px]:block" onClick={() => { if (!me?.sewing_band_id) router.push("/profile"); }} title={t("common.profile")}>
+        <button className="hidden min-w-0 max-w-40 text-right text-sm min-[1440px]:block" onClick={() => { if (me && !me.sewing_band_id) router.push("/profile"); }} title={t("common.profile")}>
           <div className="truncate font-medium text-[#14110b]">{me?.name || "-"}</div>
           <div className="truncate text-xs text-[#8a8472]">{me?.role || ""}</div>
         </button>
