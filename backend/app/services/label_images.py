@@ -8,6 +8,7 @@ from sqlalchemy import inspect as sa_inspect
 
 from app.core.config import settings
 from app.models import Model, ModelBOM, ModelImage
+from app.services.model_images import model_preview_image_url
 
 
 PREVIEW_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
@@ -133,6 +134,15 @@ def fabric_label_image_src(model: Model | None) -> str | None:
             return src
 
     return None
+
+
+def model_preview_label_image_src(model: Model | None) -> str | None:
+    """Embed the same model picture selected by the order detail page."""
+    url = model_preview_image_url(model)
+    if not url or not model:
+        return None
+    image = next((img for img in model.images or [] if img.file_url == url), None)
+    return _model_image_src(image)
 
 
 def model_label_image_src(model: Model | None) -> str | None:

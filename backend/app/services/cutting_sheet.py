@@ -25,7 +25,7 @@ from app.models import (
     User,
     WorkOrder,
 )
-from app.services.label_images import fabric_label_image_src, model_label_image_src
+from app.services.label_images import fabric_label_image_src, model_preview_label_image_src
 from app.services.barcode import qr_png_data_uri
 
 
@@ -310,7 +310,7 @@ def render_cutting_sheet_html(db: Session, record: CuttingRecord, bundle_ids: li
         accessory_values["Beyka"] = f"{_format_quantity(record.beika_kg)} kg"
     if not accessory_values["Ribana"] and passport and float(passport.ribana_per_piece_kg or 0) > 0:
         accessory_values["Ribana"] = f"{_format_quantity(passport.ribana_per_piece_kg)} kg/pc"
-    image_src = model_label_image_src(model)
+    image_src = model_preview_label_image_src(model)
     image_html = (
         f"<img src='{_h(image_src)}' alt='Model image'>"
         if image_src

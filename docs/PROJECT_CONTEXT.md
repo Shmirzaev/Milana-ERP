@@ -2,6 +2,13 @@
 
 Last updated: 2026-10-09
 
+## Cutting sheet picture parity prepared (2026-10-09)
+
+- Owner reported PO-0290 / TJ2220-V-6469 / CUT-342 showing the brown primary photo on the Cutting page but a purple secondary photo on the sheet, then authorized a fast fix/deployment without extra tests or monitoring. Read-only production inspection confirmed both pictures belong to the same model; the print helper selected the first model image instead of the page's authoritative selection.
+- Dedicated worktree `C:/ERP/.codex-work/cutting-picture-match-20261009`, branch `codex/cutting-picture-match-20261009`, starts from exact active application commit `bb14dfe14ddd9be5f1d9102febf2c58f4a0222c6` on `clone_main`. The older `origin/main` baseline mismatch was reported before the deployment request. Both live manifests passed and all 1,283 manifest files matched that Git commit; active green is `20261009_050526`, manifest `381257f5b689a7875f8bbf41c2d0f021bff8da63bad131d7490a0fc0681a101e`, rollback blue `20261008_073950`. The baseline file is reconciled to this verified source; legacy checkout and `main` remain preserved.
+- Cutting sheets now embed the picture selected by the existing `model_preview_image_url` rule used by order details, including primary selection and print overrides. Other label helpers and material-picture rules are unchanged. No schema or business-data correction is needed.
+- Focused validation passed eight image-selection regressions and changed-file Ruff. Standard immutable release CI remains required; extra local suites, performance exercises and a new timed observation are omitted at the owner's request. Final active/rollback, backup and immediate verification results will be recorded after deployment.
+
 ## Eco Cotton band accounts and daily progress prepared (2026-10-09)
 
 - Owner approved ten Eco Cotton bands, separate Band1–Band10 accounts, automatic receipt assignment, band-only visibility, daily progress and separate final output; then explicitly authorized pushing to `clone_main` and deploying together with its latest invoice-reference work. Dedicated worktree `C:/ERP/.codex-work/eco-band-access-20261009`, branch `codex/eco-band-access-20261009`, starts at `f22a3ac9fac40259d369756ac11d1df75ea93046`. Both production source manifests, image revisions and blue slots verified release `20261008_073950`, baseline commit `f9236894c8e4ff77ce1d7ba32c6773eef70540af`; rollback green `20261007_134508`. Legacy checkout and `main` remain untouched.
