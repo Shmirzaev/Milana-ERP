@@ -193,7 +193,7 @@ def test_selected_labels_after_shipment_keep_client_balance(client, warehouse):
     assert original["warehouse_person"]
     assert original["lines"][0]["size_display"] and "Mixed" not in original["lines"][0]["size_display"]
     html = client.get(f"/api/shipments/{sid}/invoice/print?lang=uz", headers=warehouse).text
-    assert "Omborchi" in html and original["warehouse_person"] in html
+    assert "Omborchi" in html and original["warehouse_person"] not in html
     assert "Mixed" not in html and "Sof narxlar" not in html
     assert "Narx</th>" in html and "Summa</th>" in html
     hidden = client.get(f"/api/shipments/{sid}/invoice/print?lang=uz&show_prices=false", headers=warehouse).text

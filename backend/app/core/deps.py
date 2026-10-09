@@ -132,6 +132,8 @@ def get_current_user(
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired, please sign in again")
     bind_session_factory(user, payload.get("factory_code"))
     enforce_request_factory_scope(user, request)
+    from app.services.sewing_scope import enforce_band_request
+    enforce_band_request(user, request, db)
     bind_idempotency_identity(db, user)
     return user
 

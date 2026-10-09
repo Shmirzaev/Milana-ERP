@@ -4,7 +4,9 @@ from collections import defaultdict
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Annotated
+from fastapi import APIRouter, Depends, HTTPException, Header
+from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 from fastapi.responses import Response
 from sqlalchemy import func, case, or_
 from sqlalchemy.orm import joinedload, noload, selectinload
@@ -43,7 +45,7 @@ from app.services.sewing_daily_report_exports import (
     build_sewing_daily_report_pdf,
     build_sewing_daily_report_xlsx,
 )
-from app.services.sewing_scope import require_sewing_flow_access, sewing_line_factory_scope
+from app.services.sewing_scope import band_report_scope, require_sewing_flow_access, sewing_line_factory_scope
 
 router = APIRouter(prefix="/sewing-daily-reports", tags=["sewing-daily-reports"])
 
@@ -561,6 +563,7 @@ def create_report(
     payload: SewingDailyReportCreate,
     db: DbSession,
     current: User = Depends(require_permissions("sewing.workspace")),
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ):
     flow = db.get(SewingFlow, payload.sewing_flow_id)
     if not flow:
@@ -568,6 +571,11 @@ def create_report(
     require_sewing_flow_access(current, flow)
     if not flow.is_active:
         raise HTTPException(400, "Sewing line is inactive")
+    if current.sewing_band_id and (payload.work_order_id is None or payload.sewing_assignment_id is None):
+        raise HTTPException(403, "Select work assigned to your band")
+    replay = replay_idempotent_response(db, scope="sewing.daily-report", key=idempotency_key, payload=payload.model_dump())
+    if replay is not None:
+        return replay
     work_order = None
     assignment = None
     if payload.work_order_id is not None:
@@ -585,6 +593,10 @@ def create_report(
                 raise HTTPException(400, "Selected assignment does not belong to this sewing line and order")
         elif work_order.sewing_flow_id != flow.id:
             raise HTTPException(400, "Selected work order is not assigned to this sewing line")
+
+    if current.sewing_band_id and assignment:
+        if assignment.line_finished_at or assignment.status not in ("planned", "in_progress"):
+            raise HTTPException(409, "This line assignment is finished")
 
     report_batch_id = (
         assignment.production_batch_id
@@ -645,6 +657,8 @@ def create_report(
             "defective_qty": payload.defective_qty,
         },
     )
+    if idempotency_key:
+        store_idempotent_response(db, scope="sewing.daily-report", key=idempotency_key, payload=payload.model_dump(), response=_report_response(db, report), user=current, status_code=201)
     db.commit()
     db.refresh(report)
     return _report_response(db, report)
@@ -668,9 +682,15 @@ def update_report(
     if not flow:
         raise HTTPException(400, "The saved sewing line no longer exists")
     require_sewing_flow_access(current, flow)
+    if current.sewing_band_id:
+        assignment = db.get(SewingAssignment, report.sewing_assignment_id) if report.sewing_assignment_id else None
+        if not assignment or assignment.sewing_flow_id != current.sewing_band_id:
+            raise HTTPException(403, "Only a manager can correct reports for transferred or unassigned work")
     if report.work_order_id is None and not payload.manual_model_no:
         raise HTTPException(400, "Model number is required when no sewing order is attached")
 
+    if current.sewing_band_id and payload.manual_model_no:
+        raise HTTPException(403, "Band reports must remain linked to assigned work")
     old_value = _report_audit_values(report)
     if report.work_order_id and not payload.manual_model_no:
         work_order = locked_work_order
@@ -730,6 +750,10 @@ def delete_report(
     if not flow:
         raise HTTPException(400, "The saved sewing line no longer exists")
     require_sewing_flow_access(current, flow)
+    if current.sewing_band_id:
+        assignment = db.get(SewingAssignment, report.sewing_assignment_id) if report.sewing_assignment_id else None
+        if not assignment or assignment.sewing_flow_id != current.sewing_band_id:
+            raise HTTPException(403, "Only a manager can correct reports for transferred or unassigned work")
     log_action(db, current, "delete", "SewingDailyReport", report.id, old_value=_report_audit_values(report))
     db.delete(report)
     db.commit()
@@ -873,6 +897,7 @@ def download_report_excel(
     lang: ReportLanguage = "uz",
     current: User = Depends(require_permissions(*_REPORT_READ_PERMS)),
 ):
+    sewing_flow_id = band_report_scope(current, sewing_flow_id)
     factory = sewing_line_factory_scope(current, factory_code)
     resolved_from, resolved_to = _report_date_range(report_date, from_date, to_date)
     report = _report_list(
@@ -906,6 +931,7 @@ def download_report_pdf(
     lang: ReportLanguage = "uz",
     current: User = Depends(require_permissions(*_REPORT_READ_PERMS)),
 ):
+    sewing_flow_id = band_report_scope(current, sewing_flow_id)
     factory = sewing_line_factory_scope(current, factory_code)
     resolved_from, resolved_to = _report_date_range(report_date, from_date, to_date)
     report = _report_list(
@@ -938,6 +964,7 @@ def list_reports(
     sewing_flow_id: int | None = None,
     factory_code: str | None = None,
 ):
+    sewing_flow_id = band_report_scope(current, sewing_flow_id)
     factory = sewing_line_factory_scope(current, factory_code)
     resolved_from, resolved_to = _report_date_range(report_date, from_date, to_date)
     return _report_list(

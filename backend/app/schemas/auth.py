@@ -28,6 +28,7 @@ class TokenOut(BaseModel):
 
 
 class UserMe(BaseModel):
+    sewing_band_id: int | None = None
     id: int
     name: str
     email: EmailStr

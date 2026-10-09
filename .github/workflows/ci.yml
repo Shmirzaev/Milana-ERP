@@ -124,6 +124,7 @@ jobs:
           npx playwright install --with-deps chromium
           npm run test:load-more-browser
           node scripts/test-warehouse-pack-lifecycle.browser.mjs
+          node scripts/test-sewing-bands.browser.mjs
       - name: Optimized production build and contracts
         working-directory: frontend
         env:

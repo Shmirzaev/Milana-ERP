@@ -39,7 +39,7 @@ const runtime = await import("react/jsx-runtime");
 const gateSource = ts.transpile(fs.readFileSync(new URL("../src/components/AuthGate.tsx", import.meta.url), "utf8"), {
   module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX,
 });
-for (const [hasToken, me] of [[undefined, undefined], [true, { ...identity, factory_code: "MIL", available_factories: ["MIL"] }], [false, undefined]]) {
+for (const [hasToken, me] of [[undefined, undefined], [true, { ...identity, factory_code: "MIL", available_factories: ["MIL"] }], [false, undefined], [true, { ...identity, factory_code: "ECO", available_factories: ["ECO"], sewing_band_id: 64 }]]) {
   const effects = [], redirects = [], exports = {};
   let logouts = 0;
   new Function("exports", "require", gateSource)(exports, name => {
@@ -52,6 +52,7 @@ for (const [hasToken, me] of [[undefined, undefined], [true, { ...identity, fact
     if (name === "@/lib/access") return { isSewingRole: () => false, sewingWorkspaceHome: () => "/", factoryWorkspaceHome: () => "/", hasInventoryPathAccess: () => true };
     if (name === "@/lib/i18n") return { useT: () => ({ t: key => key }) };
     if (name === "@/lib/priceCalculationRequests") return {};
+    if (name === "@/components/sewing/BandWorkspace") return { default: "BandWorkspace" };
     throw new Error(name);
   });
   const rendered = exports.default({ children: "workspace" });
@@ -59,6 +60,7 @@ for (const [hasToken, me] of [[undefined, undefined], [true, { ...identity, fact
   assert.equal(logouts, 0);
   assert.deepEqual(redirects, hasToken === false ? ["/login"] : []);
   if (hasToken === undefined) assert.equal(rendered.props.role, "alert");
-  if (hasToken === true) assert.equal(rendered.props.children, "workspace");
+  if (hasToken === true && !me?.sewing_band_id) assert.equal(rendered.props.children, "workspace");
+  if (me?.sewing_band_id) assert.equal(rendered.type, "BandWorkspace");
 }
 console.log("AuthGate: outage retry, cached workspace, and definitive rejection passed.");

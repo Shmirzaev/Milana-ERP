@@ -24,6 +24,8 @@ class SewingAssignment(Base, PkMixin, TimestampMixin):
     sewing_flow_id: Mapped[int] = mapped_column(ForeignKey("sewing_flows.id"), nullable=False, index=True)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     completed_qty: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    line_finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    line_finish_reason: Mapped[str | None] = mapped_column(String(255))
     planned_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     planned_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     actual_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

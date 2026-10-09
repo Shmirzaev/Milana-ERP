@@ -304,6 +304,7 @@ def me(user: CurrentUser, db: DbSession):
     user.last_seen_at = utcnow()
     db.commit()
     return UserMe(
+        sewing_band_id=user.sewing_band_id,
         id=user.id,
         name=user.name,
         email=user.email,
@@ -334,6 +335,7 @@ def update_me(payload: ProfileUpdateIn, db: DbSession, user: CurrentUser):
     db.commit()
     db.refresh(user)
     return UserMe(
+        sewing_band_id=user.sewing_band_id,
         id=user.id,
         name=user.name,
         email=user.email,

@@ -4,6 +4,7 @@ import useSWR from "swr";
 import { fetcher, api } from "./api";
 
 export type Me = {
+  sewing_band_id?: number | null;
   id: number;
   name: string;
   email: string;

@@ -266,6 +266,8 @@ def update_assignment(
     if not flow.is_active:
         raise HTTPException(400, "Sewing flow is inactive")
     is_transfer = int(flow.id) != int(previous_flow.id)
+    if is_transfer and a.line_finished_at:
+        raise HTTPException(409, "Reopen the finished line assignment before transferring it")
     if is_transfer and a.status not in ("planned", "in_progress"):
         raise HTTPException(409, "Only active sewing assignments can be moved")
     if is_transfer and flow.factory_code != previous_flow.factory_code:

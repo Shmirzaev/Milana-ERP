@@ -1,3 +1,5 @@
+from fastapi import Header
+from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -5121,7 +5123,11 @@ def _validated_sewing_size_quantities(
 
 
 @router.post("/sewing/records", status_code=201)
-def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(require_permissions("sewing.records", "*"))):
+def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(require_permissions("sewing.records", "*")),
+                idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None):
+    replay = replay_idempotent_response(db, scope="sewing:output", key=idempotency_key, payload=payload.model_dump())
+    if replay is not None:
+        return replay
     wo = db.query(WorkOrder).filter(WorkOrder.id == payload.work_order_id).with_for_update().first()
     if not wo: raise HTTPException(404, "Work order not found")
     from app.services.factory_scope import require_work_order_factory_access
@@ -5286,6 +5292,7 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
             "size_quantities": size_quantities,
         },
     )
+    store_idempotent_response(db, scope="sewing:output", key=idempotency_key, payload=payload.model_dump(), response={"id": rec.id}, user=current)
     db.commit(); db.refresh(rec)
     return {
         "id": rec.id,

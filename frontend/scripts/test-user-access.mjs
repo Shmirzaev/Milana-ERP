@@ -79,6 +79,7 @@ for (const [factory, oldHome, packingHome] of [["BST", "/departments/BST", "/dep
         if (name === "@/lib/api") return { api: { post: () => { throw new Error("Unexpected factory switch"); } } };
         if (name === "@/lib/i18n") return { useT: () => ({ t: (key) => key }) };
         if (name === "@/lib/priceCalculationRequests") return {};
+        if (name === "@/components/sewing/BandWorkspace") return { default: "BandWorkspace" };
         throw new Error(name);
       },
     });

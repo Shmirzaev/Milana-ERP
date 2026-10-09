@@ -83,6 +83,7 @@ for (const factory of ["ECO", "MIL", "BST"]) {
       if (name === "@/lib/auth") return { useMe: () => ({ me, hasToken: true }), can: () => true };
       if (name === "@/lib/api" || name === "@/lib/priceCalculationRequests") return {};
       if (name === "@/lib/i18n") return { useT: () => ({ t: x => x }) };
+      if (name === "@/components/sewing/BandWorkspace") return { default: "BandWorkspace" };
       throw Error(name);
     } });
     const rendered = exports.default({ children: "payroll" });

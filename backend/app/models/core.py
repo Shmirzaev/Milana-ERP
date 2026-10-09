@@ -28,6 +28,7 @@ class User(Base, PkMixin, TimestampMixin):
     factory_code: Mapped[str] = mapped_column(String(3), nullable=False, default="MIL", server_default="MIL", index=True)
     extra_permissions: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     access_policy: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    sewing_band_id: Mapped[int | None] = mapped_column(ForeignKey("sewing_flows.id", name="fk_users_sewing_band", use_alter=True), nullable=True, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
