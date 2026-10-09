@@ -1,17 +1,19 @@
 """Read-only Excel version of the same shipment invoice used for printing."""
 from decimal import Decimal
 from io import BytesIO
+from pathlib import Path
 from textwrap import wrap
 
 from app.services.variant_display import format_variant_number
 
 from openpyxl import Workbook
+from openpyxl.drawing.image import Image
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.page import PageMargins
 
 from app.services.shipment_invoice import (
-    LABELS, build_invoice_rows, invoice_column_widths, invoice_headers,
+    INVOICE_CONTACT, LABELS, build_invoice_rows, invoice_column_widths, invoice_headers,
     invoice_metadata, invoice_notes, invoice_price_notes, recorded_weight,
 )
 
@@ -42,8 +44,12 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
         sheet.merge_cells(start_row=row, start_column=first, end_row=row, end_column=last)
         put(row, first, value, **style)
 
-    merged(2, 1, 11, "MILANA PREMIUM", bold=True, color="1F3864", size=24)
-    merged(3, 1, 11, text["title"], bold=True, color="2F5597", size=11)
+    merged(2, 1, 8, "MILANA PREMIUM", bold=True, color="1F3864", size=24)
+    merged(3, 1, 8, text["title"], bold=True, color="2F5597", size=11)
+    logo = Image(Path(__file__).resolve().parents[1] / "assets" / "milana-premium-logo.png")
+    logo.height = 140 * logo.height / logo.width
+    logo.width = 140
+    sheet.add_image(logo, "I2")
     sheet.row_dimensions[1].height = 4
     sheet.row_dimensions[2].height = 30
     sheet.row_dimensions[3].height = 35
@@ -64,7 +70,7 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
     if packages is None:
         packages = list({line["package_no"]: {"package_no": line["package_no"], "weight_kg": None} for line in document.get("lines", [])}.values())
     rows = document.get("invoice_rows") or build_invoice_rows(document.get("lines", []), packages)
-    line = Side(style="hair", color="8EA9DB")
+    line = Side(style="thin", color="8EA9DB")
     border = Border(left=line, right=line, top=line, bottom=line)
     for index, item in enumerate(rows, 1):
         row = index + 9
@@ -109,13 +115,14 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
     signature = {"en": "Warehouse signature", "ru": "Подпись кладовщика", "uz": "Omborchi imzosi"}[lang]
     merged(signature_row, 1, 5, officer, bold=True, fill="1F3864", color="FFFFFF", align="center", size=9)
     merged(signature_row, 6, 11, signature, bold=True, fill="2F5597", color="FFFFFF", align="center", size=9)
-    merged(signature_row + 1, 1, 5, document.get("warehouse_person") or "________________", bold=True, fill="F2F5FA", color="1F3864", align="center", size=11)
+    merged(signature_row + 1, 1, 5, None, bold=True, fill="F2F5FA", color="1F3864", align="center", size=11)
     merged(signature_row + 1, 6, 11, "________________________________", color="1F3864", align="center")
     sheet.row_dimensions[signature_row].height = 20
     sheet.row_dimensions[signature_row + 1].height = 36
     footer = signature_row + 3
-    for first, last, label in [(1, 3, "Milana Tex Logistics"), (4, 7, "www.milanatex.uz"), (8, 11, "info@milanatex.uz")]:
+    for (first, last), label in zip([(1, 3), (4, 7), (8, 11)], INVOICE_CONTACT):
         merged(footer, first, last, label, bold=True, fill="1F3864", color="FFFFFF", align="center")
+        sheet.cell(footer, first).number_format = "@"
     sheet.row_dimensions[footer].height = 25
     notes = invoice_notes(document, lang)
     if show_prices:
@@ -123,6 +130,19 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
     for row, note in enumerate(notes, footer + 2):
         merged(row, 1, last_column, note, color="575E66")
         sheet.row_dimensions[row].height = 24
+    # Match the reference's solid grid, navy frames, gold rules and double total.
+    outline = Side(style="medium", color="1F3864")
+    gold = Side(style="medium", color="D99B26")
+    total_bottom = Side(style="double", color="1F3864")
+    for first, last, heading in [(4, 7, None), (9, total_row, 9), (signature_row, signature_row + 1, signature_row)]:
+        for row in range(first, last + 1):
+            for column in range(1, last_column + 1):
+                sheet.cell(row, column).border = Border(
+                    left=outline if column == 1 else line,
+                    right=outline if column == last_column else line,
+                    top=outline if row in (first, total_row) else gold if heading == row - 1 else line,
+                    bottom=total_bottom if row == total_row else outline if row == last else gold if row == heading else line,
+                )
     sheet.freeze_panes = "D10"
     sheet.sheet_view.showGridLines = False
     sheet.print_title_rows = "9:9"

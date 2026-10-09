@@ -1,6 +1,13 @@
 # Milana ERP Project Context
 
-Last updated: 2026-10-08
+Last updated: 2026-10-09
+
+## Shipment invoice reference corrections prepared; not deployed (2026-10-09)
+
+- Owner requested print/PDF and Excel invoice corrections against `Faktura.xlsx`, pushing to `clone_main` without deployment. Dedicated worktree `C:/ERP/.codex-work/invoice-print-reference-20261009`, branch `codex/invoice-print-reference-20261009`, based on verified `clone_main` commit `ff102c5a0d722b5ca4ea620d00f5e41993bdd529` under the existing owner-approved baseline exception. The older `main` and dirty legacy checkout remain untouched.
+- Both exporters now embed the existing Milana Premium logo, leave the responsible warehouse officer name blank, remove the unknown-package-weight footer note, and show `+998501551010`, `Milanapremium.com`, and `wearmilana@gmail.com`. The phone is explicitly stored as text in Excel. Solid blue grids, navy outer frames, gold heading rules and a double totals rule follow the supplied reference. Frozen shipment/finance evidence and price-visibility behavior remain unchanged.
+- Validation: 38 affected invoice/export/print tests pass; changed-file Ruff and diff checks pass. Browser checks cover EN/RU/UZ with prices visible and hidden, including logo loading/placement, blank officer, footer and borders. All six 17-row fixture PDFs fit one A4 page. Reference and generated Excel/print previews were inspected; the spreadsheet preview renderer coerces the leading-plus phone into scientific notation, while the actual XLSX was independently verified to store the complete phone as an inline string with text format. No physical printer test is claimed.
+- Production was read-only verified at **blue `20261008_073950`**, application commit `f9236894c8e4ff77ce1d7ba32c6773eef70540af`, source manifest `c50768f861d810239b3c3ca03e73677d5dcede0584707311f8a0717a599f655e`. No deployment, migration or production business-data mutation occurred. `deploy/production-base.json` remains unchanged; these invoice corrections await separate deployment authorization.
 
 ## Warehouse package lifecycle and payroll label margin deployed (20261008_073950; 2026-10-08)
 

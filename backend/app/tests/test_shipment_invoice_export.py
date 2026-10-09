@@ -124,7 +124,14 @@ def test_invoice_pdf_excel_share_identity_metadata_notes_and_portrait_layout(lan
     values = [cell.value for row in sheet for cell in row]
     for note in invoice_notes(document, lang):
         assert note in values and note in html
-    assert "Storage" in values and "Milana Tex Logistics" in values
+    assert "Storage" not in values and "Milana Tex Logistics" not in values
+    assert all(contact in values and contact in html for contact in ("+998501551010", "Milanapremium.com", "wearmilana@gmail.com"))
+    assert sheet["A14"].value is None
+    assert sheet["A16"].data_type == "s" and sheet["A16"].number_format == "@"
+    assert len(sheet._images) == 1 and 'class="logo"' in html
+    assert sheet["B10"].border.bottom.style == "thin"
+    assert sheet["A10"].border.left.style == sheet["K10"].border.right.style == "medium"
+    assert sheet["A11"].border.bottom.style == "double"
     assert document == original
 
 

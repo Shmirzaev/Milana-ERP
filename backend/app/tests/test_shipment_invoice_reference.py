@@ -58,7 +58,7 @@ def test_dispatch_freezes_reference_fields_transport_weights_and_identity(client
         html = client.get(base + f"/invoice/print?lang={lang}", headers=auth_headers).text
         assert {"en": "Warehouse invoice", "ru": "Складская накладная", "uz": "Ombor hisob-fakturasi"}[lang] in html
         assert "MILANA PREMIUM" in html and "#1f3864" in html.lower()
-        assert "Milana Tex" in html
+        assert "+998501551010" in html
         assert "PJ1142-V-3599" not in html and "PJ1142" in html and "V-3599" in html
         assert "Synthetic driver" in html and "Changed directly" not in html
         assert "48 (4)" in html and "48 (4.00)" not in html
@@ -104,7 +104,7 @@ def test_legacy_source_identity_unknown_weight_and_prices_remain_explicit(client
     assert doc["invoice_rows"][0]["description"] == "Legacy garment"
     html = render_shipment_invoice(doc, "en")
     assert "LEGACY-STICKER-INTERNAL" not in html
-    assert ">—</td>" in html and "Some package weights are unknown" in html
+    assert ">—</td>" in html and "Some package weights are unknown" not in html
     assert "Price unavailable" not in html
 
 

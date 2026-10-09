@@ -106,11 +106,7 @@ def invoice_logo_uri() -> str:
     return "data:image/svg+xml;base64," + b64encode(artwork.read_bytes()).decode("ascii")
 
 
-WEIGHT_NOTE = {
-    "en": "Some package weights are unknown. Total includes recorded weights only.",
-    "ru": "Вес некоторых упаковок неизвестен. В итог включён только указанный вес.",
-    "uz": "Ayrim qadoqlar vazni noma’lum. Jami faqat kiritilgan vaznlardan hisoblangan.",
-}
+INVOICE_CONTACT = ("+998501551010", "Milanapremium.com", "wearmilana@gmail.com")
 
 
 def invoice_date(raw) -> str:
@@ -166,10 +162,6 @@ def invoice_notes(document: dict, lang: str) -> list[str]:
         notes.append({"en": "Historical snapshot has no original transport, model description or weight details; missing values are blank.",
                       "ru": "Исторический снимок не содержит исходные данные транспорта, описания модели или веса; пропуски оставлены пустыми.",
                       "uz": "Tarixiy nusxada asl transport, model tavsifi yoki vazn tafsilotlari yo‘q; qiymatlar bo‘sh qoldirildi."}[lang])
-    packages = document.get("package_details")
-    package_count = len(packages) if packages is not None else len({line["package_no"] for line in document.get("lines", [])})
-    if document.get("missing_weight_packages", package_count if document.get("invoice_layout_version") != 2 else 0):
-        notes.append(WEIGHT_NOTE[lang])
     notes.append(text["ledger"] + ": " + str(document.get("ledger_invoice_no") or "")
                  if document.get("finance_posting_status") == "posted"
                  else text.get(document.get("finance_posting_status"), text["posting"]))
@@ -249,34 +241,36 @@ def render_shipment_invoice(document: dict, language: str, *, show_prices: bool 
 h1{{font-size:11pt;line-height:1.2;font-weight:700;margin:2mm 0;color:#1f3864}}.supplier{{margin:0;font-size:24pt;font-weight:700;color:#1f3864}}.document-number{{margin:2mm 0 0;color:#9b242b;font-size:8pt;font-weight:700}}
 .logo{{width:38mm;height:auto;display:block;flex:none}}
 table{{width:100%;border-collapse:collapse;table-layout:fixed}}td,th{{overflow-wrap:anywhere;vertical-align:middle}}
-.meta{{margin:3mm 0 4mm}}.meta th,.meta td{{padding:1mm 2mm 1mm 0;text-align:left;border:.5pt solid #8ea9db}}
+.meta{{margin:3mm 0 4mm}}.meta th,.meta td{{padding:1mm 2mm 1mm 0;text-align:left;border:.75pt solid #8ea9db}}
+.meta,.items,.signatures{{border:1.5pt solid #1f3864}}
 .meta th{{font-size:8pt;font-weight:700;color:#4d5656;background:#f2f5fa}}.meta td{{font-size:8pt;font-weight:700}}.meta th:nth-child(3){{padding-left:5mm}}
-.items{{font-size:7pt;line-height:1.2}}.items th,.items td{{padding:1mm 1.1mm;border:.5pt solid #8ea9db;text-align:center}}
-.items thead th{{background:#2f5597;color:#fff;font-size:6.8pt;font-weight:700;padding:2mm .8mm;overflow-wrap:normal}}
+.items{{font-size:7pt;line-height:1.2}}.items th,.items td{{padding:1mm 1.1mm;border:.75pt solid #8ea9db;text-align:center}}
+.items thead th{{background:#2f5597;color:#fff;font-size:6.8pt;font-weight:700;padding:2mm .8mm;overflow-wrap:normal;border-bottom:1.5pt solid #d99b26}}
 
 .items .row-number{{white-space:nowrap;overflow-wrap:normal;color:#64717e;font-variant-numeric:tabular-nums;padding-left:.5mm;padding-right:.5mm}}
 .items .identity{{font-weight:700;color:#1f3864}}.items .description,.items .sizes{{text-align:left}}.items .sizes{{font-size:6.5pt;color:#444b52}}
 .items .numeric{{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-size:6.8pt}}
 .size-label{{display:inline-block;vertical-align:top;width:50%;white-space:normal;padding-right:1mm}}.size-label.multicolor{{width:100%;white-space:normal}}
 thead{{display:table-header-group}}tr{{break-inside:avoid}}.items tbody:first-of-type tr:last-child{{break-after:avoid}}
-.items .totals td{{font-weight:700;background:#c6d9f1;color:#1f3864;border-top:1.2pt solid #1f3864;padding-top:2mm;padding-bottom:2mm}}
+.items .totals td{{font-weight:700;background:#c6d9f1;color:#1f3864;border-top:1.5pt solid #1f3864;border-bottom:3pt double #1f3864;padding-top:2mm;padding-bottom:2mm}}
 .items .totals td:last-child{{background:#1f3864;color:white}}
 .items .totals .total-label{{font-size:8pt;text-align:right;padding-left:3mm}}
 .accounting{{margin-top:4mm;font-size:8pt;break-inside:avoid;color:#51565d}}p{{margin:1.5mm 0}}.warning{{padding-left:2mm;border-left:1.5pt solid #b82025}}
 .signatures{{margin-top:5mm;break-inside:avoid;color:#1f3864;font-size:8pt;text-align:center}}
-.signatures th{{background:#1f3864;color:white;padding:2mm;border-bottom:1pt solid #d9a441}}
-.signatures td{{height:13mm;border:1pt solid #8ea9db;background:#f2f5fa;font-weight:700}}
+.signatures th{{background:#1f3864;color:white;padding:2mm;border:.75pt solid #8ea9db;border-bottom:1.5pt solid #d99b26}}
+.signatures td{{height:13mm;border:.75pt solid #8ea9db;background:#f2f5fa;font-weight:700}}
+.signatures td:last-child{{background:white}}
 .contact{{display:flex;justify-content:space-around;background:#1f3864;color:white;padding:3mm 1mm;margin-top:4mm;border-top:1pt solid #d9a441;break-inside:avoid;font-weight:700}}
 @page{{size:A4 portrait;margin:10mm;@bottom-right{{content:counter(page) " / " counter(pages);font:8pt Arial,sans-serif;color:#67717a}}}}
 @media print{{body{{margin:0;max-width:none;width:100%}}.controls{{display:none}}*{{print-color-adjust:exact;-webkit-print-color-adjust:exact}}}}
 @media screen and (max-width:740px){{body{{min-width:700px;margin:16px}}}}
 </style></head><body><div class="controls"><button onclick="window.print()">{text["print"]}</button><a href="{toggle_url}">{toggle_text}</a></div>
-<header class="masthead"><div><p class="supplier">MILANA PREMIUM</p><h1>{text["title"]}</h1></div></header>
+<header class="masthead"><div><p class="supplier">MILANA PREMIUM</p><h1>{text["title"]}</h1></div><img class="logo" src="{invoice_logo_uri()}" alt="Milana Premium logo"></header>
 <table class="meta"><colgroup><col style="width:14%"><col style="width:25%"><col style="width:18%"><col style="width:43%"></colgroup><tbody>{metadata_html}</tbody></table>
 <table class="items"><colgroup>{columns}</colgroup><thead><tr>{"".join(f"<th scope='col'>{header}</th>" for header in headers)}</tr></thead>
 <tbody>{"".join(body)}</tbody><tbody><tr class="totals"><td class="total-label" colspan="5">{text["total"]}</td>
 <td class="numeric">{number(document["packages_count"], 0)}</td><td class="numeric">{number(document["quantity"], 0)}</td>
 <td class="numeric">{weights}</td><td class="numeric">{weights}</td>{money_total}</tr></tbody></table>
-<table class="signatures"><thead><tr><th>{warehouse_officer}</th><th>{warehouse_signature}</th></tr></thead><tbody><tr><td>{value(document.get("warehouse_person")) or "________________"}</td><td>________________________________</td></tr></tbody></table>
-<footer class="contact"><span>Milana Tex Logistics</span><span>www.milanatex.uz</span><span>info@milanatex.uz</span></footer>
+<table class="signatures"><thead><tr><th>{warehouse_officer}</th><th>{warehouse_signature}</th></tr></thead><tbody><tr><td></td><td>________________________________</td></tr></tbody></table>
+<footer class="contact">{"".join(f"<span>{value(contact)}</span>" for contact in INVOICE_CONTACT)}</footer>
 <div class="accounting">{warning}{price_notes}<p>{posting}</p></div></body></html>'''
