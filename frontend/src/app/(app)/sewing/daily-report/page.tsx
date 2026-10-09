@@ -219,7 +219,7 @@ export default function SewingDailyReportPage() {
     fetcher,
     { refreshInterval: 15_000 },
   );
-  const reportUrl = `/api/sewing-daily-reports?report_date=${encodeURIComponent(reportDate)}&factory_code=${factoryCode}`;
+  const reportUrl = me ? `/api/sewing-daily-reports?report_date=${encodeURIComponent(reportDate)}&factory_code=${factoryCode}` : null;
   const { data: report, mutate: mutateReport, isLoading: loadingReport } = useSWR<ReportList>(
     reportUrl,
     fetcher,

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
+import assert from "node:assert/strict";
 
 const helperSource = fs.readFileSync("src/lib/sewingDailyReportSections.ts", "utf8");
 const pageSource = fs.readFileSync("src/app/(app)/sewing/daily-report/page.tsx", "utf8");
@@ -50,3 +51,29 @@ if (!sidebarSource.includes('/sewing/daily-report?factory=ECO')) {
 }
 
 console.log("Factory daily sewing sections contract passed.");
+
+// A page's useMe hook initially has no session even when AuthGate has loaded it.
+// Exercise the actual page and ensure that this cannot issue a default-Milana read.
+const compiledPage = ts.transpileModule(pageSource, {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX },
+}).outputText;
+for (const factory of [undefined, "MIL", "ECO", "BST"]) {
+  const pageExports = {}, requests = [];
+  const me = factory ? { factory_code: factory, permissions: ["*"] } : undefined;
+  new Function("exports", "require", compiledPage)(pageExports, name => {
+    if (name === "react") return { useState: value => [typeof value === "function" ? value() : value, () => {}], useEffect() {}, useMemo: fn => fn() };
+    if (name === "react/jsx-runtime") return { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) };
+    if (name === "swr") return { default: key => { if (key) requests.push(key); return { data: undefined, isLoading: true, mutate() {} }; } };
+    if (name === "@/lib/auth") return { useMe: () => ({ me }), can: () => Boolean(me) };
+    if (name === "@/lib/i18n") return { useT: () => ({ t: key => key, lang: "en" }) };
+    if (name === "@/lib/numberInput") return { numberOrZero: value => Number(value) || 0 };
+    if (name === "@/lib/sewingDailyReportSections") return helperExports;
+    if (name === "@/components/DialogProvider") return { useDialogs: () => ({}) };
+    return {};
+  });
+  pageExports.default();
+  const reports = requests.filter(key => key.startsWith("/api/sewing-daily-reports?"));
+  assert.equal(reports.length, factory ? 1 : 0);
+  if (factory) assert.ok(reports[0].endsWith(`factory_code=${factory}`));
+}
+console.log("Daily report reads wait for the session and use its exact factory.");
