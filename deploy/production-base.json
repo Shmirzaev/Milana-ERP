@@ -1,6 +1,6 @@
 {
-  "release": "20261009_055210",
-  "source_manifest_sha256": "fe695bfc373c15dabdf954bc006b9b7993d3e19dbc6679189147e480f8bf373f",
-  "database_revision": "0143_sewing_band_access",
-  "git_baseline_commit": "0ee31c765e0628bcface25b5e71f3bdb25fad221"
+  "release": "20261009_065627",
+  "source_manifest_sha256": "49c494a9e10b453bc8dec1a2812109a2ec4df6ab3aca055df5be5e521a293734",
+  "database_revision": "0144_passport_meter_mode",
+  "git_baseline_commit": "aff1be4cd5a933b1697a2d70d5117f1ee5a05395"
 }
