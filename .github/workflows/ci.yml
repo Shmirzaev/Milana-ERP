@@ -74,6 +74,7 @@ jobs:
           backend/app/tests/test_traceability_postgres_plan.py
           backend/app/tests/test_packaging_receive_options_query_growth.py
           backend/app/tests/test_warehouse_pack_reservations_postgres.py
+          backend/app/tests/test_sewing_band_postgres.py
       - name: Deployment observation regression suite
         run: python -m unittest discover -s scripts -p 'test_observe_release.py' -v
       - name: Ismail PostgreSQL schema and reservation regressions

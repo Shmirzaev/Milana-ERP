@@ -24,7 +24,7 @@ def configure_eco_bands(db, actor, password=None, *, apply=False):
     if role and set(role.permissions) != set(BAND_PERMISSIONS):
         raise ValueError("Existing Eco Band role differs from the reviewed permissions")
     emails = [f"band{n}@milanapremium.uz" for n in range(1, 11)]
-    existing = {u.email.lower(): u for u in db.query(User).filter(func.lower(User.email).in_(emails)).with_for_update().all()}
+    existing = {u.email.lower(): u for u in db.query(User).filter(func.lower(User.email).in_(emails)).with_for_update(of=User).all()}
     for n, email in enumerate(emails, 1):
         user = existing.get(email)
         if user and (user.sewing_band_id != by_code[f"ECO-BAND-{n:02}"].id or user.factory_code != "ECO" or not role or user.role_id != role.id):
