@@ -1,6 +1,17 @@
 # Milana ERP Project Context
 
-Last updated: 2026-10-09
+Last updated: 2026-10-10
+
+## Catalog numeric-size cleanup applied (2026-10-10)
+
+- Owner confirmed: strip letter prefixes from combined labels (for example `XL-50` to `50`), remove standalone letter sizes, and merge duplicates within each model; retain numeric ranges and `Free Size`. Existing order, stock, packaging, payroll-label and other operational size snapshots remain unchanged.
+- Applied the exact reviewed maintenance script from commit `8cbf0a3ce7a7716fd9fb2b990503f3326279b7aa`, pushed to `clone_main` and `codex/size-cleanup-20261010`. Dedicated worktree `C:/ERP/.codex-work/size-cleanup-20261010`, based on verified `origin/clone_main` per the explicit branch request; `main` and the dirty legacy checkout were preserved. Both live manifests matched the clone branch production-base record before work; `main` records an older release.
+- One guarded transaction renamed **28,249** retained catalog rows, removed **300** duplicate rows and **14** standalone letter rows; `model_sizes` went from **31,989** to **31,675** rows. Numeric ranges were preserved, all Free Size spellings unified, and measurements preserved with conflicting values configured as a hard stop. No model, quantity, business history or schema was changed. Wrote **58** audit entries with exact before/after rows and backup provenance.
+- Dry-run fingerprint `c6d7598332d85beaaf1fd387526191b50ebe65e3ad0d8b124b38770a73c9dff0`; committed post-write fingerprint `514af09267078c7beb45b23f005c455ef925fa754ce689c6faefb5672ffa09b8`. The script is dry-run by default, requires the reviewed fingerprint and backup path for apply, locks catalog size writes, rejects new foreign-key dependencies/unrecognized sizes/conflicting measurements, and checks exact post-write rows plus idempotence before commit. This is a one-time catalog cleanup; it does not add a new ongoing API/schema validation rule.
+- Verified PostgreSQL backup `/opt/milana-erp/shared/backups/milana_erp_pre_20261010_050828.dump`: 70316010 bytes, mode 0600, 1246 restore objects; SHA-256 `1ff6e936e00e7459f25e2077a89d213b0e9fcabb629109968786532a32e556ae`, restore-list SHA-256 `a171802734e98eb20aeedb1af87ab2d9de638e6df6791a7b7ccdf84bdfb19737`. Full backup restoration is not an ordinary application rollback; use the recorded row-level audit evidence for any narrowly reviewed reversal.
+- Validation: **4 focused tests passed**, changed-file Ruff and diff checks passed. Production dry-run reviewed before apply; immediate post-commit dry-run reports zero remaining renames/deletions/duplicates and matches the expected fingerprint. All four internal/public health/login checks returned **200**. Owner requested fast deployment without extra tests or monitoring: no broad suite, image rebuild, browser exercise or extended observation was performed. Commits use `[skip ci]` because this change executes a reviewed data-maintenance script, not a new application release.
+- Active application stays **blue `20261009_074504`**, rollback **green `20261009_065627`**, database schema **`0144_passport_meter_mode`**. Both runtime slot states and full source manifests remain unchanged; no restart or traffic cutover occurred. Script retained as `/opt/milana-erp/shared/corrections/size-cleanup-8cbf0a3ce7a7716fd9fb2b990503f3326279b7aa.py`, SHA-256 `888b955d55ce8218014faf8b1e7375f4bfb60aa4720e1b16120c0458dcfaf47f`. Private dry-run, backup, apply and immediate-check evidence is in ignored `outputs/`. Historical unrelated security/audit risks are unchanged.
+
 
 
 
