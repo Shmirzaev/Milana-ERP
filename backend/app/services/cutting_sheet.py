@@ -26,6 +26,7 @@ from app.models import (
     WorkOrder,
 )
 from app.services.label_images import fabric_label_image_src, model_preview_label_image_src
+from app.services.model_images import model_preview_image_url
 from app.services.barcode import qr_png_data_uri
 
 
@@ -254,6 +255,31 @@ def _table_row(label: str, values: list[str], total: str = "", highlight: bool =
     return f"<tr{row_class}><th>{_h(label)}</th>{cells}<td class='total'>{_h(total)}</td></tr>"
 
 
+def _sheet_model_image_src(db: Session, model: Model | None) -> str | None:
+    # Preserve the variant's own picture/print override, including its selection
+    # when the stored file is unavailable. Only an absent selection inherits.
+    if not model or model_preview_image_url(model):
+        return model_preview_label_image_src(model)
+
+    model_no = _first(_general(model), "model_no", "modelNo")
+    if not model_no or model_no == model.code:
+        return None
+    parent = (
+        db.query(Model)
+        .options(selectinload(Model.images))
+        .filter(
+            Model.code == model_no,
+            Model.id != model.id,
+            Model.catalog_scope == model.catalog_scope,
+            Model.factory_code == model.factory_code,
+        )
+        .first()
+    )
+    if parent and _first(_general(parent), "variant_no", "variantNo"):
+        return None
+    return model_preview_label_image_src(parent)
+
+
 def render_cutting_sheet_html(db: Session, record: CuttingRecord, bundle_ids: list[int] | None = None) -> str:
     work_order = db.get(WorkOrder, record.work_order_id)
     if not work_order:
@@ -310,7 +336,7 @@ def render_cutting_sheet_html(db: Session, record: CuttingRecord, bundle_ids: li
         accessory_values["Beyka"] = f"{_format_quantity(record.beika_kg)} kg"
     if not accessory_values["Ribana"] and passport and float(passport.ribana_per_piece_kg or 0) > 0:
         accessory_values["Ribana"] = f"{_format_quantity(passport.ribana_per_piece_kg)} kg/pc"
-    image_src = model_preview_label_image_src(model)
+    image_src = _sheet_model_image_src(db, model)
     image_html = (
         f"<img src='{_h(image_src)}' alt='Model image'>"
         if image_src

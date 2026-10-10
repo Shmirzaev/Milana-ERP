@@ -2,6 +2,14 @@
 
 Last updated: 2026-10-10
 
+## Cutting report parent garment photo fallback prepared (2026-10-10)
+
+- Diagnosed production CUT-363 / PO-0337: variant PG10527-V-6510 has only a material photo, while parent PG10527 has a valid primary garment photo. The cutting report previously rendered an empty garment box.
+- Prepared a narrow report-only fallback: when the selected variant has no garment/print selection, resolve its explicit general.model_no/modelNo to the exact parent code in the same catalog scope and factory. Preserve variant-specific photos and print overrides; never borrow material or sibling-variant pictures. No catalog rows or other image consumers change.
+- Dedicated worktree `C:/ERP/.codex-work/cutting-parent-photo-20261010`, branch `codex/cutting-parent-photo-20261010`, based on verified `origin/clone_main` at `6d7a95f2fe327db1e15fcc62828c43e891165e19` with explicit owner authorization because `main` is stale. No merge or deployment has occurred.
+- Validation: 20 focused image/report/handoff tests passed, changed-file Ruff and diff checks passed. A read-only production transaction evaluated candidate code in an isolated process: CUT-363 HTML differed only by replacing the empty garment box with the embedded parent photo; CUT-342 retained its existing variant primary photo. No serving code, stored file, schema or business row changed.
+- Production remains blue `20261009_074504`, rollback green `20261009_065627`, schema `0144_passport_meter_mode`. Both VM release/manifest/slot records match the clone branch baseline. Deployment still requires authorization and the immutable release gates in DEPLOYMENT.md.
+
 ## Catalog numeric-size cleanup applied (2026-10-10)
 
 - Owner confirmed: strip letter prefixes from combined labels (for example `XL-50` to `50`), remove standalone letter sizes, and merge duplicates within each model; retain numeric ranges and `Free Size`. Existing order, stock, packaging, payroll-label and other operational size snapshots remain unchanged.
