@@ -1,6 +1,6 @@
 {
-  "release": "20261013_091420",
-  "source_manifest_sha256": "8ee2b9c0a065c6ed0b5acf515c02d23683a8f52dc03d8388237020cd25c95fe1",
+  "release": "20261013_100631",
+  "source_manifest_sha256": "00709a9051255e73b8f1d345ce9717dfd2232bedb80609849e788170a1869777",
   "database_revision": "0144_passport_meter_mode",
-  "git_baseline_commit": "ac4a13044884f63d96ffa88408b063023984771d"
+  "git_baseline_commit": "c520edd494334ba85095f267cbd512c1120c02e6"
 }
