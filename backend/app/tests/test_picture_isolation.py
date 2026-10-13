@@ -66,3 +66,22 @@ def test_cutting_composition_uses_actual_fabric_then_model_and_handles_blanks():
     assert _fabric_composition(model, None) == "Cotton 95% / Elastane 5%"
     assert _fabric_composition(None, None) == ""
     assert _composition_text([None, {"name": ""}, {"name": "Cotton", "percentage": "bad"}]) == "Cotton"
+
+
+def test_sales_history_and_usluga_keep_missing_identity_blank(client, auth_headers):
+    from app.api.routes.sales import _history_products
+    from app.api.routes.usluga import _model_payload
+
+    with SessionLocal() as db:
+        model = Model(code="ISOLATION-HISTORY", name="History", details_json={})
+        item = Item(sku="ISOLATION-HISTORY-FABRIC", name="Shared", category="fabric", unit="kg", image_url="https://example.com/shared.png")
+        db.add_all([model, item])
+        db.flush()
+        db.add(ModelBOM(model_id=model.id, item_id=item.id, unit="kg", quantity_per_piece=1, photo_url="https://example.com/shared.png"))
+        db.flush()
+        assert _history_products(db, {model.id})[0]["picture_url"] is None
+        assert _model_payload(model)["image_url"] is None
+        model.images.append(ModelImage(file_url="https://example.com/own.png", image_type="material"))
+        db.flush()
+        assert _history_products(db, {model.id})[0]["picture_url"] == "https://example.com/own.png"
+        assert _model_payload(model)["image_url"] is None

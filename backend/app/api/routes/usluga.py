@@ -132,14 +132,14 @@ class UslugaHandoverIn(BaseModel):
 
 
 def _model_payload(model: Model) -> dict:
-    primary = next((row for row in model.images if row.is_primary), None) or (model.images[0] if model.images else None)
+    from app.services.model_images import model_preview_image_url
     return {
         "id": model.id,
         "code": model.code,
         "name": model.name,
         "category": model.category,
         "description": model.description,
-        "image_url": primary.file_url if primary else None,
+        "image_url": model_preview_image_url(model),
         "sizes": [row.size for row in sorted(model.sizes, key=lambda row: row.id)],
         "colors": [row.color_name for row in sorted(model.colors, key=lambda row: row.id)],
         "created_at": model.created_at,

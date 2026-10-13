@@ -38,7 +38,7 @@ from app.services.numbering import next_sales_order_no
 from app.services.numbering import next_invoice_no
 from app.services.workflow import notify_department
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
-from app.services.model_images import material_preview_image_url, model_display_image_url
+from app.services.model_images import model_variant_picture_url
 
 router = APIRouter(prefix="/sales-orders", tags=["sales"])
 _SHIPMENT_READY_PACKAGE_STATUSES = ("received_in_storage", "reserved")
@@ -216,7 +216,7 @@ def _history_products(db: DbSession, model_ids: set[int]) -> list[dict]:
             or general.get("variantNo")
             or (code_parts[1] if len(code_parts) > 1 else "")
         ).strip()
-        picture_url = material_preview_image_url(model) or model_display_image_url(model)
+        picture_url = model_variant_picture_url(model)
         if picture_url and str(picture_url).startswith("/storage/"):
             picture_url = sign_path(picture_url)
         products.append(
