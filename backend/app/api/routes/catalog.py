@@ -40,7 +40,7 @@ from app.schemas.catalog import (
 from app.schemas.inventory import ItemOut
 from app.services.audit import log_action
 from app.services.factory_scope import selected_factory_code
-from app.services.model_images import model_display_image_url, model_print_image_url
+from app.services.model_images import model_print_image_url, model_variant_picture_url
 from app.services.numbering import next_model_variant_no, next_model_no, CATALOG_NUMBERING_BASE
 from app.services.paid_operations import (
     filter_paid_operations_for_factory,
@@ -299,15 +299,11 @@ def _model_code_parts(model: Model) -> tuple[str, str]:
 
 
 def _primary_model_image(model: Model) -> ModelImage | None:
-    images = sorted(list(model.images or []), key=lambda img: int(getattr(img, "id", 0) or 0), reverse=True)
-    primary_image = next((img for img in images if img.is_primary and img.image_type == "model" and _is_preview_image(img)), None)
-    if not primary_image:
-        primary_image = next((img for img in images if img.is_primary and _is_preview_image(img)), None)
-    if not primary_image:
-        primary_image = next((img for img in images if img.image_type == "model" and _is_preview_image(img)), None)
-    if not primary_image:
-        primary_image = next((img for img in images if _is_preview_image(img)), None)
-    return primary_image
+    images = sorted(
+        [img for img in model.images or [] if str(img.image_type or "").lower() in {"", "model"} and _is_preview_image(img)],
+        key=lambda img: int(getattr(img, "id", 0) or 0), reverse=True,
+    )
+    return next((img for img in images if img.is_primary), None) or next(iter(images), None)
 
 
 def _material_model_image(model: Model) -> ModelImage | None:
@@ -564,18 +560,7 @@ def _fabric_label_for_model(model: Model) -> str:
 
 
 def _variant_picture_url_for_model(model: Model) -> str | None:
-    material_image = _material_model_image(model)
-    if material_image:
-        return material_image.file_url
-    for row in _ordered_material_bom_rows(model):
-        item = getattr(row, "item", None)
-        picture = row.photo_url or getattr(item, "image_url", None)
-        if picture:
-            return picture
-    primary = _primary_model_image(model)
-    if primary:
-        return primary.file_url
-    return model_display_image_url(model)
+    return model_variant_picture_url(model)
 
 
 def _fabric_picture_url_for_model(model: Model) -> str | None:
@@ -713,7 +698,7 @@ def _compact_model_payload(model: Model) -> dict:
         "primary_image_url": (
             primary_payload["file_url"]
             if primary_payload
-            else model_display_image_url(model)
+            else None
         ),
         "image_count": len(images),
         "variant_no": variant_payload["variant_no"],
@@ -732,17 +717,12 @@ def _model_group_payload(models: list[Model], *, compact: bool = False) -> dict:
         for model in ordered_models
         if _clean_text(_model_code_parts(model)[1])
     ]
-    representative = max(models, key=lambda model: int(model.id or 0))
+    base_models = [model for model in ordered_models if not _clean_text(_model_code_parts(model)[1])]
+    representative = max(base_models or models, key=lambda model: int(model.id or 0))
     payload = _compact_model_payload(representative) if compact else _model_payload(representative)
     group_model_no, _ = _model_code_parts(representative)
-    group_picture = None
-    base_models = [model for model in ordered_models if not _clean_text(_model_code_parts(model)[1])]
-    picture_candidates = base_models + [model for model in ordered_models if model not in base_models]
-    for model in picture_candidates:
-        model_image = _primary_model_image(model)
-        if model_image:
-            group_picture = model_image.file_url
-            break
+    base_model = max(base_models, key=lambda model: int(model.id or 0)) if base_models else None
+    group_image = _primary_model_image(base_model) if base_model else None
     payload.update({
         "status": "approved" if any(model.status == "approved" for model in models) else representative.status,
         "group_key": _model_group_key(representative),
@@ -751,7 +731,8 @@ def _model_group_payload(models: list[Model], *, compact: bool = False) -> dict:
         "name": _group_display_name(models),
         "variant_count": len(variants),
         "variants": variants,
-        "primary_image_url": group_picture or payload.get("primary_image_url"),
+        "primary_image": _image_payload(group_image) if group_image else None,
+        "primary_image_url": group_image.file_url if group_image else None,
     })
     return payload
 
@@ -788,7 +769,7 @@ def _model_payload(m: Model, factory_scope: str | None = None) -> dict:
     primary_payload = _image_payload(primary_image) if primary_image else None
     variant_payload = _model_variant_payload(m)
     payload["primary_image"] = primary_payload
-    payload["primary_image_url"] = primary_payload["file_url"] if primary_payload else model_display_image_url(m)
+    payload["primary_image_url"] = primary_payload["file_url"] if primary_payload else None
     payload["image_count"] = len(images)
     payload["variant_no"] = variant_payload["variant_no"]
     payload["variant_fabric"] = variant_payload["fabric"]
@@ -849,7 +830,8 @@ def _model_thumbnail_subquery():
     )
     return (
         select(ModelImage.file_url)
-        .where(ModelImage.model_id == Model.id, preview_image)
+        .where(ModelImage.model_id == Model.id, preview_image,
+               or_(ModelImage.image_type.in_(["model", "print", ""]), ModelImage.image_type.is_(None)))
         .order_by(priority, ModelImage.id.desc())
         .limit(1)
         .correlate(Model)
@@ -2002,6 +1984,8 @@ def clone_model(
             )
         )
     for row in source.images or []:
+        if row.image_type != "pattern":
+            continue  # New model identities require their own picture uploads.
         db.add(
             ModelImage(
                 model_id=cloned.id,
@@ -2190,36 +2174,16 @@ def create_model_variant(
             )
         )
 
-    copied_material_image = False
+    # Pattern documents are shared construction data, not identity pictures.
     for row in source.images or []:
-        if row.image_type == "print":
-            continue  # Artwork belongs to the exact variant; never inherit a sibling print.
-        is_material_image = str(row.image_type or "").lower() == "material"
-        copied_material_image = copied_material_image or is_material_image
-        copied_file_url = picture_url if picture_url and is_material_image else row.file_url
-        copied_file_name = (
-            os.path.basename(picture_url.split("?", 1)[0]) or None
-            if picture_url and is_material_image
-            else row.file_name
-        )
-        copied_extension = os.path.splitext(copied_file_name or "")[1].lower()
-        copied_content_type = (
-            safe_content_type(copied_extension)
-            if picture_url and is_material_image and copied_extension in SAFE_IMAGE_EXTENSIONS
-            else row.content_type
-        )
-        db.add(
-            ModelImage(
-                model_id=cloned.id,
-                file_url=copied_file_url,
-                file_name=copied_file_name,
-                content_type=copied_content_type,
-                file_data=None if picture_url and is_material_image else row.file_data,
-                image_type=row.image_type,
-                is_primary=row.is_primary,
-            )
-        )
-    if picture_url and not copied_material_image:
+        if row.image_type == "pattern":
+            db.add(ModelImage(
+                model_id=cloned.id, file_url=row.file_url, file_name=row.file_name,
+                content_type=row.content_type, file_data=row.file_data,
+                image_type="pattern", is_primary=False,
+            ))
+    # New variants start without inherited pictures. Only explicit uploads belong here.
+    if picture_url:
         _set_variant_material_image(db, cloned, picture_url)
     if print_picture_url:
         _set_variant_print_image(db, cloned, print_picture_url)

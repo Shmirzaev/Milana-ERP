@@ -8,7 +8,7 @@ from sqlalchemy import inspect as sa_inspect
 
 from app.core.config import settings
 from app.models import Model, ModelBOM, ModelImage
-from app.services.model_images import model_preview_image_url
+from app.services.model_images import model_preview_image_url, model_variant_picture_url
 
 
 PREVIEW_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
@@ -147,18 +147,16 @@ def model_preview_label_image_src(model: Model | None) -> str | None:
 
 def model_label_image_src(model: Model | None) -> str | None:
     """Best printable model photo, embedded when it is stored locally."""
-    if not model:
-        return None
-
-    images = [img for img in (model.images or []) if is_preview_model_image(img)]
-    typed_model = next((img for img in images if str(img.image_type or "").lower() == "model"), None)
-    primary = next((img for img in images if img.is_primary), None)
-    return _model_image_src(typed_model or primary or (images[0] if images else None))
+    return model_preview_label_image_src(model)
 
 
 def variant_label_image_src(model: Model | None) -> str | None:
-    """Printable picture for the selected model variant."""
-    return model_label_image_src(model)
+    """Embed only the selected variant's own attachment, never shared fabric."""
+    url = model_preview_image_url(model) or model_variant_picture_url(model)
+    if not url or not model:
+        return None
+    image = next((img for img in model.images or [] if img.file_url == url), None)
+    return _model_image_src(image)
 
 
 def _bom_item_category(row: ModelBOM) -> str:

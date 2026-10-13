@@ -1286,6 +1286,11 @@ export default function ProcessQrPage() {
     )));
   }
 
+  function selectFactoryOperations(selected: boolean) {
+    markOperationsDirty();
+    setOperations(current => current.map(operation => paidOperationMatchesFactory(operation, printPaidOperationFactory) ? { ...operation, selected } : operation));
+  }
+
   function addOperation(template: {name: string; code: string; section: SectionCode}) {
     markOperationsDirty();
     setOperations((current) => current.some(operation => paidOperationMatchesFactory(operation, printPaidOperationFactory) && samePaidProcess(operation, template)) ? current : [
@@ -2117,8 +2122,15 @@ export default function ProcessQrPage() {
                 <tr>
                   <th scope="col" className="w-12">№</th>
                   <th scope="col" title={t("page.processQr.use")}>
-                    <CheckSquare className="h-4 w-4" aria-hidden="true" />
-                    <span className="sr-only">{t("page.processQr.use")}</span>
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      aria-label={t("page.packageScan.selectAll")}
+                      disabled={factoryOperations.length === 0}
+                      checked={factoryOperations.length > 0 && factoryOperations.every(operation => operation.selected)}
+                      ref={element => { if (element) element.indeterminate = factoryOperations.some(operation => operation.selected) && !factoryOperations.every(operation => operation.selected); }}
+                      onChange={event => selectFactoryOperations(event.target.checked)}
+                    />
                   </th>
                   <th>{t("field.section")}</th>
                   <th>{t("common.code")}</th>

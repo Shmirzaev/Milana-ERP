@@ -3799,9 +3799,8 @@ def split_scanned_record(
 @router.get("/records/{record_id}/split-labels/print")
 def print_split_record_labels(record_id: int, db: DbSession,
                               current: User = Depends(require_permissions("payroll.scan", "payroll.manage", "*"))):
-    from html import escape
     from fastapi.responses import HTMLResponse
-    from app.services.barcode import qr_png_data_uri
+    from app.services.payroll_labels import split_label_card, split_labels_html
 
     factory = selected_factory_code(current)
     original = db.query(PayrollQrLabel).filter_by(payroll_record_id=record_id, factory_code=factory).first()
@@ -3817,16 +3816,8 @@ def print_split_record_labels(record_id: int, db: DbSession,
         if not record or record.status != "recorded" or not employee or employee.factory_code != factory:
             raise HTTPException(409, "Split allocations are no longer recorded")
         token = _work_qr_token(label.id)
-        lines = [label.operation_name, label.model_code, label.production_no or label.sales_order_no,
-                 label.batch_no, employee.full_name, f'{employee.employee_no or str(employee.id).zfill(4)} · {label.size} · {label.quantity}']
-        cards.append('<article><div class="details">' + ''.join(f'<p>{escape(str(value or ""))}</p>' for value in lines) +
-                     f'</div><div class="qr"><img alt="QR" src="{qr_png_data_uri(token)}"><p>{escape(token)}</p></div></article>')
-    return HTMLResponse('<!doctype html><html><head><meta charset="utf-8"><title>Payroll stickers</title><style>'
-                        'body{font:12px Arial}article{width:96mm;height:56mm;display:grid;grid-template-columns:minmax(0,1fr) 30mm;gap:3mm;break-after:page;box-sizing:border-box;padding:3mm 7mm 3mm 3mm}'
-                        'p{margin:2mm 0}.details{min-width:0;overflow-wrap:anywhere}.qr{width:30mm;text-align:center}.qr img{display:block;width:30mm;height:30mm;max-width:100%}@page{size:100mm 60mm;margin:2mm}'
-                        '@media print{button{display:none}body{margin:0}}</style></head><body>'
-                        '<button onclick="window.print()">Print / Печать / Chop etish</button>' + ''.join(cards) + '</body></html>',
-                        headers={"Cache-Control": "no-store"})
+        cards.append(split_label_card(label, employee, token))
+    return HTMLResponse(split_labels_html(cards), headers={"Cache-Control": "no-store"})
 
 
 @router.post("/records/{record_id}/void", response_model=PayrollRecordOut)

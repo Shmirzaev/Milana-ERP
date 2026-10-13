@@ -224,8 +224,8 @@ def test_model_variant_groups_compact_payload_keeps_models_page_fields(client, a
         "composition": [{"name": "Cotton", "percentage": 100}],
     }
     assert compact["material_composition"] == []
-    assert compact["primary_image"]["file_url"] == picture_url
-    assert compact["primary_image_url"] == picture_url
+    assert compact["primary_image"] is None
+    assert compact["primary_image_url"] is None
     assert compact["image_count"] == 1
     assert compact["variant_count"] == 2
     assert [variant["model_id"] for variant in compact["variants"]] == created_ids
@@ -630,8 +630,7 @@ def test_clone_model_copies_full_plm_details(client, auth_headers):
     assert data["colors"][0]["color_name"] == "Black"
     assert len(data["bom"]) == 1
     assert data["bom"][0]["item_id"] == item_id
-    assert len(data["images"]) == 1
-    assert data["images"][0]["file_url"] == "https://example.com/model.png"
+    assert data["images"] == []
 
     second_clone = client.post(f"/api/models/{model_id}/clone", headers=auth_headers)
     assert second_clone.status_code == 201, second_clone.text
@@ -756,7 +755,7 @@ def test_variant_picture_uses_attached_material_image_without_bom(client, auth_h
     )
     assert groups.status_code == 200, groups.text
     assert groups.json()["total"] == 1
-    assert groups.json()["rows"][0]["primary_image_url"] == model_picture
+    assert groups.json()["rows"][0]["primary_image_url"] is None
     assert groups.json()["rows"][0]["variants"][0]["picture_url"] == material_picture
 
     mislabeled_upload = client.post(
@@ -867,7 +866,7 @@ def test_model_variant_groups_keep_underlying_model_ids(client, auth_headers):
     assert [row["variant_no"] for row in variant_rows] == ["V-1", "V-2"]
     assert "Variant fabric" in variant_rows[0]["fabric"]
     assert "Moss" in variant_rows[0]["fabric"]
-    assert variant_rows[0]["picture_url"].startswith("/storage/model-files/")
+    assert variant_rows[0]["picture_url"] is None  # Shared BOM photos do not define variant identity.
 
     inherited_update = client.patch(
         f"/api/models/{created_ids[0]}/variants/{created_ids[1]}",

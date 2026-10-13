@@ -167,7 +167,7 @@ def test_print_run_list_preserves_factory_filter_and_single_payload(client):
     headers = {"Authorization": f"Bearer {token}"}
     response = client.get("/api/packages/print-runs", headers=headers)
     assert response.status_code == 200, response.text
-    assert response.json() == [expected]
+    assert response.json() == [{**expected, "model_codes": []}]
     filtered = client.get("/api/packages/print-runs?production_order_id=2147483647", headers=headers)
     assert filtered.status_code == 200
     assert filtered.json() == []

@@ -376,8 +376,5 @@ def test_production_context_preserves_model_image_fallback_precedence():
     assert [payload[order_id]["model_image_url"] for order_id in order_ids] == [
         None,
         f"/storage/model-files/model-{suffix}.webp",
-        f"/storage/model-files/material-{suffix}.webp",
-        f"/storage/model-files/bom-{suffix}.webp",
-        f"/storage/model-files/batch-{suffix}.webp",
-        f"/storage/model-files/item-{suffix}.webp",
+        None, None, None, None,
     ]

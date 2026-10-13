@@ -215,12 +215,12 @@ def test_passport_list_preserves_image_fallbacks_missing_links_and_factory_scope
     by_id = {row["id"]: row for row in milana}
     assert [row["id"] for row in milana] == [manual_id, *reversed(passport_ids[:7])]
     assert by_id[passport_ids[0]]["model_image_url"] == f"/storage/model-files/primary-{suffix}.webp"
-    assert by_id[passport_ids[1]]["model_image_url"] == f"/storage/model-files/material-{suffix}.webp"
-    assert by_id[passport_ids[2]]["model_image_url"] == f"/storage/model-files/bom-{suffix}.webp"
+    assert by_id[passport_ids[1]]["model_image_url"] is None
+    assert by_id[passport_ids[2]]["model_image_url"] is None
     assert by_id[passport_ids[3]]["model_image_url"] == f"/storage/model-files/primary-{suffix}.webp"
     assert by_id[passport_ids[4]]["model_name"] == "LEGACY-MISSING"
-    assert by_id[passport_ids[5]]["model_image_url"] == f"/storage/model-files/batch-{suffix}.webp"
-    assert by_id[passport_ids[6]]["model_image_url"] == f"/storage/model-files/item-{suffix}.webp"
+    assert by_id[passport_ids[5]]["model_image_url"] is None
+    assert by_id[passport_ids[6]]["model_image_url"] is None
     assert by_id[manual_id]["model_name"] == "MANUAL-CODE"
     assert by_id[manual_id]["order_no"] == "MANUAL-ORDER"
 

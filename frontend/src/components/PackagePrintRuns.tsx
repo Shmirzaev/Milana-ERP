@@ -8,6 +8,7 @@ import { can, useMe } from "@/lib/auth";
 import { useDialogs } from "@/components/DialogProvider";
 import { mutate as mutateCache } from "swr";
 import { useState } from "react";
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 
 export default function PackagePrintRuns({ productionOrderId, refreshKey = 0 }: { productionOrderId?: number; refreshKey?: number }) {
   const { lang } = useT();
@@ -26,9 +27,10 @@ export default function PackagePrintRuns({ productionOrderId, refreshKey = 0 }: 
     {!data && !error && <p>{copy.loading}</p>}
     {data?.length === 0 && <p>{copy.empty}</p>}
     {!!data?.length && <div className="overflow-x-auto"><table className="table text-sm"><thead><tr>
-      <th>{copy.runs}</th><th>{copy.packages}</th><th>{copy.pieces}</th><th>{copy.status}</th><th>{copy.reprint}</th>
+      <th>{copy.runs}</th><th>{copy.model}</th><th>{copy.packages}</th><th>{copy.pieces}</th><th>{copy.status}</th><th>{copy.reprint}</th>
     </tr></thead><tbody>{data.map(run => <tr key={run.id}>
       <td>{run.run_no}<div className="text-xs text-slate-500">{new Date(run.created_at).toLocaleString(lang)}</div></td>
+      <td>{run.model_codes?.length ? run.model_codes.map(code => <div key={code}>{formatModelVariantCode(code)}</div>) : "—"}</td>
       <td>{run.count}</td><td>{run.quantity}</td><td>{run.received_at ? copy.complete : copy.pending}</td>
       <td><button type="button" className="btn" onClick={async () => {
         setPrintError("");

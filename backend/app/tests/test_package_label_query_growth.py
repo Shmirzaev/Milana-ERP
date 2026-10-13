@@ -623,7 +623,8 @@ def test_package_label_sheet_context_matches_scalar_cards(monkeypatch):
     assert case["fabric_name"] in batched_cards[0]
     assert case["fabric_name"] in batched_cards[1]
     assert "https://example.test/model.png" in batched_cards[0]
-    assert "https://example.test/fabric.png" in batched_cards[1]
+    assert "https://example.test/fabric.png" not in batched_cards[1]
+    assert "No variant picture" in batched_cards[1]
     assert "Rich batch 1" in batched_cards[0]
     assert "XS" in batched_cards[2] and "XL" in batched_cards[2]
 

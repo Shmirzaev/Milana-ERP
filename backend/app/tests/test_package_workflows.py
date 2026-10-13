@@ -142,6 +142,9 @@ def test_manual_receipt_once_with_real_source_and_reprints(client, warehouse):
         assert len(packs) == 2
         assert all(p.production_order_id is None and p.legacy_receipt_id is None and p.status == "received_in_storage" for p in packs)
         assert db.query(AuditLog).filter(AuditLog.action == "manual_receipt").count() == 1
+    listed = client.get("/api/packages/print-runs", headers=warehouse)
+    assert listed.status_code == 200, listed.text
+    assert listed.json()[0]["model_codes"] == ["T-SHIRT-001"]
     assert before == stock_fingerprint()
     lookup = client.get(BASE + f"/{saved['print_run']['package_ids'][0]}", headers=warehouse)
     assert lookup.json()["manual_source"]["receipt_no"] == saved["receipt_no"]

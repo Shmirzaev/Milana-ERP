@@ -85,7 +85,7 @@ from app.services.label_images import (
     material_label_image_src,
     variant_label_image_src,
 )
-from app.services.model_images import model_display_image_url, warehouse_stock_image_url
+from app.services.model_images import model_display_image_url, model_preview_image_url, warehouse_stock_image_url
 from app.services.audit import log_action
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
 from app.services.packaging_scope import (
@@ -239,12 +239,8 @@ def _load_selected_label_image_data(db: DbSession, models: dict[int, Model]) -> 
     selected_images = {}
     for model in models.values():
         images = [image for image in (model.images or []) if is_preview_model_image(image)]
-        typed_model = next(
-            (image for image in images if str(image.image_type or "").lower() == "model"),
-            None,
-        )
-        primary = next((image for image in images if image.is_primary), None)
-        selected = typed_model or primary or (images[0] if images else None)
+        selected_url = model_preview_image_url(model)
+        selected = next((image for image in images if image.file_url == selected_url), None)
         if selected is not None:
             selected_images[int(selected.id)] = selected
         typed_material = next(
@@ -658,10 +654,6 @@ def _variant_picture_html(model: Model | None) -> str:
     alt = "Variant picture"
     material_src = material_label_image_src(model)
     if src and material_src == src:
-        picture_class += " material-picture"
-        alt = "Material picture"
-    if not src:
-        src = material_src
         picture_class += " material-picture"
         alt = "Material picture"
     if not src:

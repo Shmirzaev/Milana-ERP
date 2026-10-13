@@ -210,8 +210,19 @@ def run_list_payload(db, runs):
     ).order_by(PackagePrintRunMember.id).all()
     for member in members:
         grouped[member.run_id].append(member)
+    model_ids = {m.snapshot.get("model_id") for m in members}
+    model_ids.update(item.get("model_id") for m in members for item in m.snapshot.get("items", []))
+    model_ids.discard(None)
+    model_codes = dict(db.query(Model.id, Model.code).filter(Model.id.in_(model_ids)).all()) if model_ids else {}
     # Pass all members, including deleted identities, through manifest validation.
-    return [run_payload(db, run, members=grouped[run.id]) for run in runs]
+    result = []
+    for run in runs:
+        payload = run_payload(db, run, members=grouped[run.id])
+        ids = {p.get("model_id") for p in payload["packages"]}
+        ids.update(item.get("model_id") for p in payload["packages"] for item in p.get("items", []))
+        payload["model_codes"] = sorted({model_codes[mid] for mid in ids if mid in model_codes})
+        result.append(payload)
+    return result
 
 
 def manual_receipt(db, current, payload):

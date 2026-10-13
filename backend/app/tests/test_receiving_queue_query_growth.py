@@ -418,7 +418,7 @@ def test_receiving_queue_remove_bounds_requested_packages_before_mutation(client
     assert after == before
 
 
-def test_shared_model_context_preserves_bom_stock_batch_image_fallback(client, auth_headers, monkeypatch):
+def test_shared_model_context_does_not_substitute_bom_stock_batch_picture(client, auth_headers, monkeypatch):
     package_ids = _receiving_queue_case(2)
     image_urls = [
         "https://example.test/perf08-batch-first.png",
@@ -503,7 +503,8 @@ def test_shared_model_context_preserves_bom_stock_batch_image_fallback(client, a
 
         cards, label_statements = _select_trace(db.bind, render_labels)
 
-    assert all(image_url in card for image_url, card in zip(image_urls, cards, strict=True))
+    assert all(image_url not in card for image_url, card in zip(image_urls, cards, strict=True))
+    assert all("No variant picture" in card for card in cards)
     assert _table_selects(label_statements, "stock_batches") == 0
 
 
