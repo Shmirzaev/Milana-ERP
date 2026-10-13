@@ -60,8 +60,8 @@ def _create_employee(client, admin_headers, name: str | None = None) -> dict:
     return r.json()
 
 
-def _create_period(client, headers, *, status: str = "open") -> dict:
-    now = datetime.now(timezone.utc)
+def _create_period(client, headers, *, status: str = "open", offset_days: int = 0) -> dict:
+    now = datetime.now(timezone.utc) + timedelta(days=offset_days)
     r = client.post(
         "/api/payroll/periods",
         json={
@@ -428,7 +428,7 @@ def test_adjustments_rejected_for_finalized_periods(client, auth_headers, status
 def test_paid_record_reversal_posts_one_audited_deduction_to_open_period(client, auth_headers):
     employee = _create_employee(client, auth_headers)
     source_period = _create_period(client, auth_headers)
-    target_period = _create_period(client, auth_headers)
+    target_period = _create_period(client, auth_headers, offset_days=20)
     payload = _record_payload(employee["id"], scan_uid=f"reversal-{uuid4().hex}")
     payload["payroll_period_id"] = source_period["id"]
     created = client.post("/api/payroll/records", json=payload, headers=auth_headers)
@@ -492,7 +492,7 @@ def test_paid_record_reversal_posts_one_audited_deduction_to_open_period(client,
 def test_open_record_must_be_voided_instead_of_reversed(client, auth_headers):
     employee = _create_employee(client, auth_headers)
     source_period = _create_period(client, auth_headers)
-    target_period = _create_period(client, auth_headers)
+    target_period = _create_period(client, auth_headers, offset_days=20)
     payload = _record_payload(employee["id"], scan_uid=f"open-reversal-{uuid4().hex}")
     payload["payroll_period_id"] = source_period["id"]
     created = client.post("/api/payroll/records", json=payload, headers=auth_headers)

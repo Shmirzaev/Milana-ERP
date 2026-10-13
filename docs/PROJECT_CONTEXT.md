@@ -1,6 +1,14 @@
 # Milana ERP Project Context
 
-Last updated: 2026-10-10
+Last updated: 2026-10-13
+
+## Payroll period overlap repair prepared (2026-10-13)
+
+- Read-only production diagnosis confirmed MIL locked `PAY-2026-07` (period 4, 9,859 recorded/voided wage rows) overlaps open, empty `PAY-2026-10` (period 5). The former covers August 1–October 30 and the latter October 6–31 in Tashkent. Both match the scanner's October 13 work date. Other historical period/date inconsistencies are retained for separate review.
+- Owner selected keeping `PAY-2026-07` locked and using `PAY-2026-10` for new work. Reviewed maintenance script `backend/scripts/repair_payroll_period_overlap_20261013.py` proposes October 13 00:00 Tashkent as the cutover, changing only period 4's end and period 5's start. All existing wages, including October 13 rows already assigned to period 4, retain their original period, amount and status; unassigned wages remain unassigned. Dry-run is default; apply requires a reviewed period fingerprint and verified backup, takes table locks, and verifies complete payroll-record/adjustment/QR fingerprints before committing two audit entries.
+- Application fix rejects overlapping creates and range extensions in the same factory, across all scanner-matching statuses and inclusive date boundaries. PostgreSQL advisory locking serializes period schedule writes. Legacy ranges can be narrowed and metadata edited without forcing unrelated historical corrections. Scan conflicts name the matching business period numbers/statuses; no closed-period guard is bypassed. New/edited timestamps are normalized to UTC.
+- Dedicated worktree `C:/ERP/.codex-work/payroll-period-overlap-20261013`, branch `codex/payroll-period-overlap-20261013`, based on verified `origin/clone_main` at `e7daee3d` per the owner's explicit branch request. `main` remains stale and the legacy checkout is preserved. Both active VM manifests/slot states match `clone_main`'s baseline: green `20261010_054324`, rollback blue `20261009_074504`, schema `0144_passport_meter_mode`.
+- Validation: 227 payroll tests passed, including real local PostgreSQL create/create and create/update concurrency, maintenance-script apply/preservation/idempotence, and the existing payroll race/scan/return/reversal suites. Changed-file Ruff and diff checks passed. The new PostgreSQL coverage is included in CI. Application deployment is not authorized by this task; the preventative API fix requires a later immutable release. Production correction outcome will be recorded below after execution.
 
 ## Cutting report parent garment photo deployed (20261010_054324; 2026-10-10)
 

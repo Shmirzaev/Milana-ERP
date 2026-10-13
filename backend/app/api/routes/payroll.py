@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
-from sqlalchemy import Date, String, and_, case, cast, func, or_
+from sqlalchemy import Date, String, and_, case, cast, func, or_, text
 from sqlalchemy.orm import load_only, object_session
 
 from app.core.deps import DbSession, require_permissions, is_admin, user_permissions
@@ -595,6 +595,38 @@ def _validate_period_dates(start_date: datetime, end_date: datetime) -> None:
         raise HTTPException(400, "Payroll period end_date must be after start_date")
 
 
+def _lock_period_schedule(db: DbSession, factory_code: str) -> None:
+    # A row lock cannot protect an empty date range from concurrent inserts.
+    # Take this before any period row lock in create/update to keep lock order.
+    if db.get_bind().dialect.name == "postgresql":
+        db.execute(
+            text("SELECT pg_advisory_xact_lock(1297107635, hashtext(:resource))"),
+            {"resource": f"payroll-periods:{factory_code}"},
+        )
+
+
+def _assert_period_dates_available(
+    db: DbSession, factory_code: str, start_date: datetime, end_date: datetime,
+    *, exclude_id: int | None = None,
+) -> None:
+    # Match the scanner's inclusive bounds and all statuses. Ignoring a locked
+    # period here would allow a new period to bypass its accounting cutoff.
+    query = db.query(PayrollPeriod).filter(
+        PayrollPeriod.factory_code == factory_code,
+        PayrollPeriod.start_date <= as_utc(end_date),
+        PayrollPeriod.end_date >= as_utc(start_date),
+    )
+    if exclude_id is not None:
+        query = query.filter(PayrollPeriod.id != exclude_id)
+    conflict = query.order_by(PayrollPeriod.id).first()
+    if conflict:
+        raise HTTPException(
+            409,
+            f"Payroll period dates overlap {conflict.period_no} ({conflict.status}); "
+            "choose non-overlapping dates",
+        )
+
+
 def _can_period_override(user: User) -> bool:
     perms = user_permissions(user)
     return is_admin(user) or "management.approve" in perms or "payroll.approve" in perms
@@ -1061,7 +1093,10 @@ def _record_period_candidate(
             query = query.populate_existing().with_for_update()
         periods = query.all()
         if len(periods) > 1:
-            raise HTTPException(409, "Payroll work date matches overlapping periods; resolve the periods first")
+            conflicts = ", ".join(f"{period.period_no} ({period.status})" for period in periods)
+            raise HTTPException(
+                409, f"Payroll work date matches overlapping periods: {conflicts}; resolve the periods first",
+            )
         return periods[0] if periods else None
     if preserve_unassigned_period and not data.get("payroll_period_id"):
         return None
@@ -1273,6 +1308,7 @@ def create_period(
         raise HTTPException(400, "New payroll periods must be draft or open")
     _validate_period_dates(payload.start_date, payload.end_date)
     factory_code = selected_factory_code(current)
+    _lock_period_schedule(db, factory_code)
     period_no = payload.period_no.strip() if payload.period_no else _period_no_for(db, payload.start_date, factory_code)
     if db.query(PayrollPeriod.id).filter(
         PayrollPeriod.factory_code == factory_code,
@@ -1281,12 +1317,13 @@ def create_period(
         raise HTTPException(400, "Payroll period number already exists")
     if len(payload.name) > 128:
         raise HTTPException(422, "Payroll period name exceeds the 128-character storage limit")
+    _assert_period_dates_available(db, factory_code, payload.start_date, payload.end_date)
     period = PayrollPeriod(
         factory_code=factory_code,
         period_no=period_no,
         name=payload.name,
-        start_date=payload.start_date,
-        end_date=payload.end_date,
+        start_date=as_utc(payload.start_date),
+        end_date=as_utc(payload.end_date),
         status=payload.status,
         created_by=current.id,
         notes=payload.notes,
@@ -1307,6 +1344,7 @@ def update_period(
     current: User = Depends(require_permissions("payroll.manage", "*")),
 ):
     factory_code = selected_factory_code(current)
+    _lock_period_schedule(db, factory_code)
     period = db.query(PayrollPeriod).filter(
         PayrollPeriod.id == period_id,
         PayrollPeriod.factory_code == factory_code,
@@ -1333,6 +1371,13 @@ def update_period(
             raise HTTPException(400, "Payroll period number already exists")
     if "name" in changes and changes["name"] is not None and len(changes["name"]) > 128:
         raise HTTPException(422, "Payroll period name exceeds the 128-character storage limit")
+    # Shrinking a legacy range can remove ambiguity without introducing any
+    # new overlap. Keep that repair available even if older overlaps remain.
+    if as_utc(start_date) < as_utc(period.start_date) or as_utc(end_date) > as_utc(period.end_date):
+        _assert_period_dates_available(db, factory_code, start_date, end_date, exclude_id=period.id)
+    for key in ("start_date", "end_date"):
+        if key in changes:
+            changes[key] = as_utc(changes[key])
     old = {key: getattr(period, key) for key in changes.keys() if hasattr(period, key)}
     for key, value in changes.items():
         setattr(period, key, value)
