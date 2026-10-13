@@ -57,8 +57,9 @@ def model_family():
         yield db, parent, variant
 
 
-def test_cutting_sheet_endpoint_embeds_parent_garment_and_keeps_variant_fabric(model_family, client, auth_headers):
+def test_cutting_sheet_endpoint_keeps_missing_garment_blank_and_variant_fabric(model_family, client, auth_headers):
     db, _, variant = model_family
+    variant.details_json = {**variant.details_json, "composition": [{"name": "Cotton", "percentage": 95}, {"name": "Elastane", "percentage": 5}]}
     order = ProductionOrder(production_no="PO-PARENT-PHOTO", production_type="branded_stock", model_id=variant.id)
     db.add(order)
     db.flush()
@@ -74,9 +75,10 @@ def test_cutting_sheet_endpoint_embeds_parent_garment_and_keeps_variant_fabric(m
 
     response = client.get(f"/api/cutting/records/{record.id}/production-sheet", headers=auth_headers)
     assert response.status_code == 200, response.text
-    assert "src='data:image/png;base64,cGFyZW50LXBpY3R1cmU=' alt='Model image'" in response.text
+    assert "cGFyZW50LXBpY3R1cmU=" not in response.text
     assert "src='https://example.com/fabric.jpg' alt='Fabric picture'" in response.text
-    assert "<div class='empty-photo'></div>" not in response.text
+    assert "Cotton 95% / Elastane 5%" in response.text
+    assert "<div class='empty-photo'></div>" in response.text
 
 
 @pytest.mark.parametrize("image_type", ["model", "print"])
@@ -110,7 +112,7 @@ def test_cutting_sheet_does_not_borrow_unrelated_or_fabric_photos(model_family, 
     assert _sheet_model_image_src(db, variant) is None
 
 
-def test_cutting_sheet_supports_legacy_camel_case_parent_link(model_family):
+def test_cutting_sheet_does_not_inherit_legacy_camel_case_parent_picture(model_family):
     db, _, variant = model_family
     variant.details_json = {"general": {"modelNo": "PG10527", "variantNo": "V-6510"}}
-    assert _sheet_model_image_src(db, variant) == "data:image/png;base64,cGFyZW50LXBpY3R1cmU="
+    assert _sheet_model_image_src(db, variant) is None

@@ -1017,7 +1017,7 @@ def test_process_tracking_pagination_search_status_contract(client, auth_headers
     assert image_url in exported.text
 
 
-def test_process_tracking_uses_bom_picture_when_model_picture_missing(client, auth_headers):
+def test_process_tracking_keeps_missing_model_picture_blank(client, auth_headers):
     suffix = uuid4().hex[:10].upper()
     bom_photo_url = f"https://example.com/process-bom-{suffix}.png"
     model = client.post(
@@ -1084,7 +1084,7 @@ def test_process_tracking_uses_bom_picture_when_model_picture_missing(client, au
     assert tracked.status_code == 200, tracked.text
     rows = tracked.json()["rows"]
     assert len(rows) == 1
-    assert rows[0]["model_image_url"] == bom_photo_url
+    assert rows[0]["model_image_url"] is None
     assert rows[0]["material_image_url"] == bom_photo_url
 
 

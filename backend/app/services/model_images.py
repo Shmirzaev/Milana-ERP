@@ -100,46 +100,12 @@ def model_variant_picture_url(model: Model | None) -> str | None:
     if typed_material:
         return typed_material.file_url
 
-    bom_rows = sorted(
-        [
-            row
-            for row in (model.bom or [])
-            if _bom_item_category(row) in VARIANT_BOM_CATEGORIES
-        ],
-        key=_bom_id,
-    )
-    for row in bom_rows:
-        for value in (
-            row.photo_url,
-            getattr(getattr(row, "item", None), "image_url", None),
-        ):
-            if value:
-                return str(value)
-
-    catalog_primary = (
-        next(
-            (
-                img
-                for img in images
-                if img.is_primary and str(img.image_type or "").lower() == "model"
-            ),
-            None,
-        )
-        or next((img for img in images if img.is_primary), None)
-        or next(
-            (img for img in images if str(img.image_type or "").lower() == "model"),
-            None,
-        )
-        or (images[0] if images else None)
-    )
-    if catalog_primary:
-        return catalog_primary.file_url
-
-    return material_preview_image_url(model)
+    # Shared BOM/item/batch photos are material evidence, never variant identity.
+    return model_preview_image_url(model)
 
 
 def model_display_image_url(model: Model | None) -> str | None:
-    return model_preview_image_url(model) or material_preview_image_url(model)
+    return model_preview_image_url(model)
 
 
 def warehouse_stock_image_url(model: Model | None) -> str | None:

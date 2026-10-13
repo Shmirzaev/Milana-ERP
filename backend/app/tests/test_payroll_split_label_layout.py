@@ -26,6 +26,9 @@ def test_split_label_long_identifiers(client, auth_headers, tmp_path):
     assert printed.text.count('<img alt="QR"') == 2
     assert "MAN-8360-9208-47K4CA-LONG-FACTORY-REFERENCE" in printed.text
     assert "Tugma qadash qolda" in printed.text
+    assert "size:60mm 40mm;margin:0" in printed.text
+    assert "font-size:9.5pt" in printed.text
+    assert "width:19mm;height:19mm" in printed.text
     (tmp_path / "payroll-split-label.html").write_text(printed.text, encoding="utf-8")
     with TestSessionLocal() as db:
         assert before == [(r.id, r.total_amount, r.status) for r in db.query(PayrollRecord)]

@@ -30,11 +30,7 @@ export default function SalesLineThumbnails({ modelId }: { modelId: number }) {
   const modelImages = images.filter((image) => image.image_type === "model" || !image.image_type);
   const modelImage = modelImages.find((image) => image.is_primary) || modelImages[0];
   const materialImage = images.find((image) => image.image_type === "material");
-  const fabrics = (model?.bom || [])
-    .filter((row) => ["fabric", "semi_finished", ""].includes(row.item?.category?.toLowerCase() || ""))
-    .slice()
-    .sort((a, b) => Number(b.material_role === "main") - Number(a.material_role === "main") || a.id - b.id);
-  const variantUrl = materialImage?.file_url || fabrics.map((row) => row.photo_url || row.item?.image_url).find(Boolean);
+  const variantUrl = materialImage?.file_url;
   const identity = modelOrderLabel(model);
   const emptyLabel = isLoading ? t("common.loading") : t("page.workOrder.noImage");
 

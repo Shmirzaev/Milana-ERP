@@ -1,6 +1,14 @@
 # Milana ERP Project Context
 
-Last updated: 2026-10-10
+Last updated: 2026-10-13
+
+## Package display, picture isolation and divided-process labels prepared (2026-10-13)
+
+- Owner requested scan-table alignment, model/variant identity in print runs, cutting-sheet fabric composition, a factory-scoped Process QR select-all checkbox, strict model/variant picture ownership, and larger/aligned divided-process labels. Confirmed label stock is **60 × 40 mm**. Push target is `clone_main`; deployment is authorized with **no 30-minute observation**. Immediate checks, immutable CI, backup, candidate QA and rollback protection remain required.
+- Verified both live servers are green `20261010_054324`, manifest `8236fbdcca2ecaa6d6d73b9d863b89330f6a1d90414513dc181a6c2a8e07e091`, rollback blue `20261009_074504`, schema `0144_passport_meter_mode`. Worktree `C:/ERP/.codex-work/model-picture-workflow-20261013`, branch `codex/model-picture-workflow-20261013`, based on requested `origin/clone_main` (`e7daee3d`). Stale `main` and the dirty legacy checkout were preserved.
+- Picture investigation found family headers borrowing variant photos, variant creation copying source pictures, shared BOM/item/batch fallback into model or variant slots, arbitrary attachment fallback in UI/labels, and the recent cutting-sheet parent fallback. Family headers now use only the base model attachment and open the base row where present; new variants and clones receive only explicit picture uploads while retaining pattern construction attachments; identity/garment slots no longer borrow shared material or parent pictures. Exact-row garment/material/print uploads remain available. Existing uploaded records/files are preserved: the system cannot infer whether historical duplicated attachments were intentional. No photo cleanup/backfill or business-data correction is authorized or performed.
+- Cutting composition uses the selected fabric item composition, then saved model composition when no actual composition exists; detailed consumed-material rows include their own composition. Label rendering changes only presentation: 60 × 40 mm media, larger operation/employee/model text, an inset 19 mm QR, compact quantities and wrapping of long identifiers. QR tokens, allocation amounts, scan authorization and history remain unchanged.
+- No migration is required. Production remains unchanged until the deployment entry above records a successful cutover. Historical unrelated security/audit risks remain outside this task.
 
 ## Cutting report parent garment photo deployed (20261010_054324; 2026-10-10)
 

@@ -53,6 +53,7 @@ export const packageWorkflowCopy: Record<Lang, Copy> = { en, ru, uz };
 export type PackagePrintRun = {
   id: number; run_no: string; code: string; count: number; quantity: number;
   manual_receipt?: boolean;
+  model_codes?: string[];
   packages: Array<{ id: number; package_no: string; quantity: number }>;
   package_ids: number[]; created_at: string; received_at: string | null;
 };

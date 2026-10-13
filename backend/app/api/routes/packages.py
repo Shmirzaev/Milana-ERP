@@ -661,10 +661,6 @@ def _variant_picture_html(model: Model | None) -> str:
         picture_class += " material-picture"
         alt = "Material picture"
     if not src:
-        src = material_src
-        picture_class += " material-picture"
-        alt = "Material picture"
-    if not src:
         return "<div class='variant-picture variant-picture--empty' aria-label='No variant picture'>No picture</div>"
     return f"<div class='{picture_class}'><img src='{_h(src)}' alt='{alt}'/></div>"
 

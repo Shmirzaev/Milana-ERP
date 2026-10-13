@@ -94,7 +94,7 @@ def _seed_packages(count, *, source="legacy", department="PKG"):
             )
             db.add(package)
             db.flush()
-            expected[package.id] = {"model_image_url": image_url}
+            expected[package.id] = {"model_image_url": image_url if source != "legacy" and kind == 0 else None}
         db.commit()
     return expected
 

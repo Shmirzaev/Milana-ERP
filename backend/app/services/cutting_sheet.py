@@ -26,7 +26,6 @@ from app.models import (
     WorkOrder,
 )
 from app.services.label_images import fabric_label_image_src, model_preview_label_image_src
-from app.services.model_images import model_preview_image_url
 from app.services.barcode import qr_png_data_uri
 
 
@@ -41,6 +40,7 @@ _ACCESSORY_ROWS = (
     "Kurjava",
     "IP",
     "Mato turi",
+    "Tarkibi / Composition / Состав",
     "Fabrika nomi",
 )
 _ACCESSORY_KEYWORDS = {
@@ -256,28 +256,31 @@ def _table_row(label: str, values: list[str], total: str = "", highlight: bool =
 
 
 def _sheet_model_image_src(db: Session, model: Model | None) -> str | None:
-    # Preserve the variant's own picture/print override, including its selection
-    # when the stored file is unavailable. Only an absent selection inherits.
-    if not model or model_preview_image_url(model):
-        return model_preview_label_image_src(model)
+    # A missing variant garment picture stays blank, even when its parent has one.
+    return model_preview_label_image_src(model)
 
-    model_no = _first(_general(model), "model_no", "modelNo")
-    if not model_no or model_no == model.code:
-        return None
-    parent = (
-        db.query(Model)
-        .options(selectinload(Model.images))
-        .filter(
-            Model.code == model_no,
-            Model.id != model.id,
-            Model.catalog_scope == model.catalog_scope,
-            Model.factory_code == model.factory_code,
-        )
-        .first()
-    )
-    if parent and _first(_general(parent), "variant_no", "variantNo"):
-        return None
-    return model_preview_label_image_src(parent)
+
+def _composition_text(rows) -> str:
+    if not isinstance(rows, list):
+        return ""
+    parts = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name = _text(row.get("name"))
+        if name:
+            percentage = _format_quantity(row.get("percentage"))
+            parts.append(f"{name} {percentage}%" if percentage else name)
+    return " / ".join(parts)
+
+
+def _fabric_composition(model, fabric_batch) -> str:
+    item = getattr(fabric_batch, "item", None)
+    batch_composition = _composition_text(getattr(item, "composition_json", None))
+    if batch_composition:
+        return batch_composition
+    details = model.details_json if model and isinstance(model.details_json, dict) else {}
+    return _composition_text(details.get("composition")) or _composition_text(model.material_composition if model else None)
 
 
 def render_cutting_sheet_html(db: Session, record: CuttingRecord, bundle_ids: list[int] | None = None) -> str:
@@ -336,6 +339,7 @@ def render_cutting_sheet_html(db: Session, record: CuttingRecord, bundle_ids: li
         accessory_values["Beyka"] = f"{_format_quantity(record.beika_kg)} kg"
     if not accessory_values["Ribana"] and passport and float(passport.ribana_per_piece_kg or 0) > 0:
         accessory_values["Ribana"] = f"{_format_quantity(passport.ribana_per_piece_kg)} kg/pc"
+    accessory_values["Tarkibi / Composition / Состав"] = _fabric_composition(model, fabric_batch)
     image_src = _sheet_model_image_src(db, model)
     image_html = (
         f"<img src='{_h(image_src)}' alt='Model image'>"
@@ -406,7 +410,7 @@ def render_cutting_sheet_html(db: Session, record: CuttingRecord, bundle_ids: li
             continue
         stock = usage.stock_batch
         name = stock.item.name if stock and stock.item else ""
-        values = [name, stock.batch_no if stock else "", f"{_format_quantity(usage.quantity)} {usage.unit}",
+        values = [name, _composition_text(stock.item.composition_json if stock and stock.item else None), stock.batch_no if stock else "", f"{_format_quantity(usage.quantity)} {usage.unit}",
                   _format_quantity(details.get("layer_material_kg")), _format_quantity(details.get("beika_kg")),
                   _format_quantity(details.get("material_rolls_used")), details.get("layup_operator_name"),
                   _format_quantity(details.get("cut_pieces")),
@@ -414,7 +418,7 @@ def render_cutting_sheet_html(db: Session, record: CuttingRecord, bundle_ids: li
         material_rows.append("<tr>" + "".join(f"<td>{_h(value)}</td>" for value in values) + "</tr>")
     material_table = (
         "<table class='summary'><caption>Material / Материал / Mato</caption>"
-        "<thead><tr><th>Material</th><th>Partiya</th><th>Sarf</th><th>Kg / layer</th>"
+        "<thead><tr><th>Material</th><th>Tarkibi / Composition / Состав</th><th>Partiya</th><th>Sarf</th><th>Kg / layer</th>"
         "<th>Beyka kg</th><th>Rulon</th><th>Nastilchi</th><th>Kesilgan dona</th><th>Chiqindi</th></tr></thead>"
         "<tbody>" + "".join(material_rows) + "</tbody></table>"
     ) if material_rows else ""
@@ -435,7 +439,7 @@ html,body{{margin:0;padding:0;background:#ececeb;color:#17191a;font-family:Arial
 .batch-qr{{display:flex;align-items:center;gap:1.5mm;text-align:left;white-space:nowrap;font-size:6pt;line-height:1.2}}
 .batch-qr img{{display:block;width:10mm;height:10mm;image-rendering:pixelated}}
 .top{{height:84mm;display:grid;grid-template-columns:54% 46%;gap:2mm;margin-top:2mm}}
-.lower{{height:85mm;min-height:0;display:grid;grid-template-columns:46% 54%;gap:2mm;margin-top:2mm;overflow:hidden}}
+.lower{{height:85mm;min-height:0;display:grid;grid-template-columns:minmax(0,46fr) minmax(0,54fr);gap:2mm;margin-top:2mm;overflow:hidden}}
 table{{width:100%;border-collapse:collapse;table-layout:fixed}} th,td{{border:1px solid #aeb5b8;padding:1.2mm;vertical-align:middle}}
 th{{background:#e8ecea;text-align:left;font-weight:700}} td{{text-align:center}}
 .identity{{height:100%;font-size:8pt}} .identity col.identity-label{{width:16%}} .identity col.identity-value{{width:44%}} .identity col.detail-label{{width:22%}} .identity col.detail-value{{width:18%}}
@@ -451,7 +455,10 @@ th{{background:#e8ecea;text-align:left;font-weight:700}} td{{text-align:center}}
 .process td{{padding:.45mm;text-align:center}} .process .total{{font-weight:700;background:#f3f5f4}}
 .process .cut-row th{{background:#dcecdf;color:#2e674e}} .process .cut-row td{{background:#f3faf5;color:#2e674e;font-weight:700}}
 .accessories{{height:auto;min-height:0;font-size:7.4pt}} .accessories caption{{height:8mm;padding:2mm;text-align:left;background:#17191a;color:#fff;font-weight:700}}
-.accessories th{{width:46%;height:7.4mm;padding-left:3mm}} .accessories td{{height:7.4mm;text-align:left;padding-left:3mm}}
+.accessories th{{width:46%;height:6.7mm;padding-left:3mm}} .accessories td{{height:6.7mm;text-align:left;padding-left:3mm}}
+.lower.has-materials{{grid-template-rows:auto minmax(0,1fr)}}
+.lower.has-materials>.summary{{grid-column:1 / -1;height:auto}}
+.lower.has-materials .accessories th,.lower.has-materials .accessories td{{height:auto;padding-top:.5mm;padding-bottom:.5mm}}
 .samples{{height:100%;min-height:0;display:grid;grid-template-columns:1fr 1fr;border:1px solid #aeb5b8;overflow:hidden}}
 .sample-column{{min-width:0;min-height:0;display:grid;grid-template-rows:9mm minmax(0,1fr);overflow:hidden}}
 .sample-column.right{{grid-template-rows:9mm minmax(0,1fr) 9mm minmax(0,1fr)}}
@@ -485,7 +492,7 @@ th{{background:#e8ecea;text-align:left;font-weight:700}} td{{text-align:center}}
       <table class="process"><tbody>{process_rows}</tbody></table>
     </div>
   </section>
-  <section class="lower">
+  <section class="lower{' has-materials' if material_rows else ''}">
     {material_table}
     <table class="accessories"><caption>Accessories / Material</caption><tbody>{accessory_rows}</tbody></table>
     <div class="samples">

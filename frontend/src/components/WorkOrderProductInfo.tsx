@@ -67,19 +67,17 @@ function imageFromUrl(fileUrl?: string | null, fileName?: string | null, source?
 
 function selectProductImages(model: any, po?: any, wo?: any): { modelImage: ProductImage | null; materialImage: ProductImage | null } {
   const images: ModelImage[] = Array.isArray(model?.images) ? model.images.filter(isPreviewImage) : [];
-  const typedModelImage = images.find((img) => String(img.image_type || "").toLowerCase() === "model") || null;
+  const typedModelImage = images.find((img) => img.is_primary && String(img.image_type || "").toLowerCase() === "model")
+    || images.find((img) => String(img.image_type || "").toLowerCase() === "model") || null;
   const typedMaterialImage = images.find((img) => String(img.image_type || "").toLowerCase() === "material") || null;
   const modelImage =
     imageFromUrl(po?.model_image_url || wo?.model_image_url, tSafeName(po?.model_code || wo?.production_no), "model")
     ||
     typedModelImage
-    || images.find((img) => img.is_primary && img !== typedMaterialImage)
-    || images.find((img) => img !== typedMaterialImage)
     || null;
   const materialImage =
     imageFromUrl(po?.material_image_url || wo?.material_image_url, tSafeName(po?.material_item_name || wo?.production_no), "material")
     || typedMaterialImage
-    || images.find((img) => img !== modelImage)
     || null;
 
   return { modelImage, materialImage };
