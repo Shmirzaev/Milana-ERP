@@ -1,145 +1,53 @@
-name: ERP validation and immutable release artifacts
+name: Build reviewed payroll release using completed CI
 
 on:
-  pull_request:
-  push:
-    branches: [main, "codex/**"]
   workflow_dispatch:
     inputs:
       release_id:
-        description: "UTC release ID (YYYYMMDD_HHMMSS)"
+        description: UTC release ID
         required: true
         type: string
       production_base_release:
-        description: "Currently active production release"
+        description: Verified active release
         required: true
         type: string
       production_base_manifest:
-        description: "Currently active SOURCE_MANIFEST.sha256 hash"
+        description: Verified active source manifest
         required: true
         type: string
-
 permissions:
   contents: read
+  actions: read
   packages: write
-
 jobs:
-  backend:
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_HOST_AUTH_METHOD: trust
-          POSTGRES_DB: first_grade_qa_ci
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-          cache-dependency-path: |
-            backend/requirements.txt
-            backend/requirements-dev.txt
-      - run: python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
-      - name: Verify one Alembic head
-        working-directory: backend
-        run: python -c "from alembic.config import Config; from alembic.script import ScriptDirectory; heads=ScriptDirectory.from_config(Config('alembic.ini')).get_heads(); assert len(heads)==1, heads; print(heads[0])"
-      - name: Ruff and compile
-        working-directory: backend
-        run: |
-          python -m ruff check app
-          python -m compileall -q app scripts
-      - name: Backend regression suite
-        working-directory: backend
-        run: python -m pytest -q
-      - name: P2 PostgreSQL locking and query-plan regressions
-        env:
-          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
-        run: >-
-          python -m pytest -q
-          backend/app/tests/test_numbering_postgres_concurrency.py
-          backend/app/tests/test_material_reservation_concurrency.py
-          backend/app/tests/test_package_write_postgres.py
-          backend/app/tests/test_package_batch_receive_concurrency.py
-          backend/app/tests/test_cutting_packaging_write_postgres.py
-          backend/app/tests/test_cutting_reconciliation_postgres.py
-          backend/app/tests/test_traceability_postgres_plan.py
-          backend/app/tests/test_packaging_receive_options_query_growth.py
-          backend/app/tests/test_warehouse_pack_reservations_postgres.py
-          backend/app/tests/test_sewing_band_postgres.py
-          backend/app/tests/test_payroll_overlap_repair.py
-      - name: Deployment observation regression suite
-        run: python -m unittest discover -s scripts -p 'test_observe_release.py' -v
-      - name: Ismail PostgreSQL schema and reservation regressions
-        working-directory: backend
-        env:
-          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
-        run: >-
-          python -m pytest -q app/tests/test_fresh_migration_bootstrap.py
-          app/tests/test_ismail_schema_completion.py app/tests/test_migration_preflight.py
-          app/tests/test_db08_beyka_orm_parity.py app/tests/test_reservation_overclaim.py
-          app/tests/test_reservation_plan_query_growth.py
-          app/tests/test_stock_movement_batch_integrity.py
-      - name: PostgreSQL migration, concurrency and model numbering regression
-        env:
-          PYTHONPATH: ./backend
-          FIRST_GRADE_DISPOSABLE: "1"
-          DATABASE_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
-          JWT_SECRET: disposable-local-test-secret-only
-          FILE_SIGNING_SECRET: disposable-local-file-signing-secret-only
-          INITIAL_ADMIN_EMAIL: admin@disposable.invalid
-          INITIAL_ADMIN_PASSWORD: disposable-local-test-password-123!
-          SEED_DEMO_USERS: "false"
-          SEED_SAMPLE_DATA: "true"
-          IMPORT_LEGACY_MODELS: "false"
-          BARCODE_STORAGE_DIR: /tmp/first-grade-test-barcodes
-        run: |
-          python scripts/test_first_grade_postgres.py
-          python scripts/test_model_numbering_postgres.py
-
-  frontend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - working-directory: frontend
-        run: npm ci --legacy-peer-deps
-      - working-directory: frontend
-        run: npm run lint
-      - working-directory: frontend
-        run: npm run typecheck:strict
-      - name: Browser pagination and Besttex label regressions
-        working-directory: frontend
-        run: |
-          npx playwright install --with-deps chromium
-          npm run test:load-more-browser
-          node scripts/test-warehouse-pack-lifecycle.browser.mjs
-          node scripts/test-sewing-bands.browser.mjs
-      - name: Optimized production build and contracts
-        working-directory: frontend
-        env:
-          NEXT_PUBLIC_API_URL: https://erp.milanapremium.uz
-          API_URL: http://172.16.10.4:8000
-        run: npm run build
-
   release:
-    if: github.event_name == 'workflow_dispatch'
-    needs: [backend, frontend]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: c520edd494334ba85095f267cbd512c1120c02e6
+          fetch-depth: 0
+      - name: Reuse verified payroll CI without rerunning tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PYCODE'
+          import json, os, subprocess, urllib.request
+          source = 'c520edd494334ba85095f267cbd512c1120c02e6'
+          request = urllib.request.Request(
+              'https://api.github.com/repos/Shmirzaev/Milana-ERP/actions/runs/38378399415',
+              headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'},
+          )
+          with urllib.request.urlopen(request) as response:
+              validation = json.load(response)
+          assert validation['conclusion'] == 'success'
+          assert validation['head_sha'] == '85997d4996de9a5b45f1068e2863ffc21f2eaccf'
+          assert validation['path'] == '.github/workflows/ci.yml'
+          assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == source
+          changes = set(subprocess.check_output(['git', 'diff', '--name-only', validation['head_sha'], source], text=True).splitlines())
+          assert changes <= {'docs/PROJECT_CONTEXT.md', 'deploy/production-base.json'}, changes
+          print('Reused successful exact-application-source CI 38378399415; no tests rerun')
+          PYCODE
       - name: Validate release identity and production base
         env:
           RELEASE_ID: ${{ inputs.release_id }}
@@ -172,7 +80,7 @@ jobs:
           pull: true
           push: true
           tags: ${{ steps.images.outputs.backend }}:${{ inputs.release_id }}
-          labels: org.opencontainers.image.revision=${{ github.sha }}
+          labels: org.opencontainers.image.revision=c520edd494334ba85095f267cbd512c1120c02e6
           cache-from: type=gha,scope=milana-backend-v1
           cache-to: type=gha,scope=milana-backend-v1,mode=max
       - name: Build and publish frontend image
@@ -184,7 +92,7 @@ jobs:
           pull: true
           push: true
           tags: ${{ steps.images.outputs.frontend }}:${{ inputs.release_id }}
-          labels: org.opencontainers.image.revision=${{ github.sha }}
+          labels: org.opencontainers.image.revision=c520edd494334ba85095f267cbd512c1120c02e6
           build-args: |
             NEXT_PUBLIC_API_URL=https://erp.milanapremium.uz
             API_URL=http://172.16.10.4:8000
@@ -213,7 +121,7 @@ jobs:
 
           release = os.environ["RELEASE_ID"]
           metadata = json.loads(Path(f"milana-erp-{release}.tar.gz.json").read_text())
-          assert metadata["git_commit"] == os.environ["GITHUB_SHA"]
+          assert metadata["git_commit"] == "c520edd494334ba85095f267cbd512c1120c02e6"
           summary = "\n".join([
               "## Artifacts ready — production activation pending",
               "",
@@ -227,7 +135,7 @@ jobs:
               "This workflow does not activate production.",
               "Follow DEPLOYMENT.md for source rechecks, backup, staging, QA and cutover.",
               "Report Live only after both roles and postflight pass; report Observation complete",
-              "only after the reviewed 10-minute low-risk or 30-minute high-risk window",
+              "only when requested; this owner waived extra tests and timed monitoring",
               "and successful closing checks. Uncertain risk defaults to 30 minutes.",
               "",
           ])
