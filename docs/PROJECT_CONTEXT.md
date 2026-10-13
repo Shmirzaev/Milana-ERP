@@ -2,6 +2,14 @@
 
 Last updated: 2026-10-13
 
+## Payroll period overlap corrected in production (2026-10-13)
+
+- APPLIED: the owner chose to retain locked `PAY-2026-07` and use `PAY-2026-10` for new work. Reviewed script commit `59dd831c9ebec8222c29c8e5f293595f445c63a4` changed only period 4's end to October 12 23:59:59.999999 Tashkent and period 5's start to October 13 00:00. Period 5 still ends October 31. Earlier saved October 13 wages remain in locked period 4 by explicit preservation policy; they were not moved, recalculated, paid or unlocked. Existing unassigned wages and older period/date inconsistencies remain unchanged.
+- The locked transaction verified byte-equivalent row fingerprints for all **22,884 payroll records**, **54,294 payroll QR labels**, and zero adjustments. Exactly two audit entries (`59477`, `59478`) record the date correction and backup provenance; their local hash-chain continuation passed. Historical audit-chain issue `#744` is not claimed fixed.
+- Read-only execution of the active scanner's actual date resolver verified October 12 -> locked `PAY-2026-07`, October 13 and 31 -> open `PAY-2026-10`. No test wage/QR or business row was created. All four internal/public health/login checks returned 200. The actual scanner submission was not exercised against production because it would create a wage; local regression tests cover that write path.
+- Verified backup `/opt/milana-erp/shared/backups/milana_erp_pre_20261013_093830.dump`: 73,810,732 bytes, SHA-256 `d510cafc35bf3ba0c12e18af801619c132360faeb5e59532e92abc96c2cd260d`, 1,246 restore objects; restore-list SHA-256 `343055eb67b87a6f54d85977b1e877c9ec986a43f26425c376e7abf114ddee23`. Retained script `/opt/milana-erp/shared/corrections/payroll-overlap-59dd831c9ebec8222c29c8e5f293595f445c63a4.py`, SHA-256 `3af2bbb4f8c992a151087f41a75f6aae2cdaf3772ef7c6a68a4a1b51faa98586`. Private preview/apply/verification evidence is under the task worktree's ignored `outputs/`.
+- No application deployment, restart, migration or traffic switch occurred. Active green remains `20261010_054324`, rollback blue `20261009_074504`, schema `0144_passport_meter_mode`. The API prevention fix remains undeployed; users can still introduce a new overlap until it is released. Code-branch CI: https://github.com/Shmirzaev/Milana-ERP/actions/runs/38377945502. Dedicated task branch is pushed; `clone_main` promotion follows successful CI.
+
 ## Payroll period overlap repair prepared (2026-10-13)
 
 - Read-only production diagnosis confirmed MIL locked `PAY-2026-07` (period 4, 9,859 recorded/voided wage rows) overlaps open, empty `PAY-2026-10` (period 5). The former covers August 1–October 30 and the latter October 6–31 in Tashkent. Both match the scanner's October 13 work date. Other historical period/date inconsistencies are retained for separate review.
