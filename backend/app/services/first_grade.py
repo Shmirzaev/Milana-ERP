@@ -76,7 +76,7 @@ def packaging_size_entry(db, production_order_id, batch_id):
 def save_packaging_size_entry(db, order, batch_id, payload, current):
     from app.services.audit import log_action
     state = _size_evidence(db, order.id, batch_id)
-    if state["version"] != payload.version:
+    if state["version"] != payload.version or not state["needs_size_entry"]:
         raise HTTPException(409, "FIRST_GRADE_SIZE_STALE")
     allowed = {row["size"]: row for row in state["sizes"]}
     submitted = {}

@@ -280,6 +280,14 @@ def test_packaging_size_snapshot_invalidates_when_sewing_output_changes(client, 
     assert save_sizes(client, auth_headers, output, [{"size": "S", "quantity": 4}, {"size": "M", "quantity": 3}]).status_code == 200
 
 
+def test_packaging_entry_cannot_override_complete_sewing_size_evidence(client, auth_headers, output):
+    response = save_sizes(client, auth_headers, output, [{"size": "S", "quantity": 8}])
+    assert response.status_code == 409
+    assert response.json()["detail"] == "FIRST_GRADE_SIZE_STALE"
+    with SessionLocal() as db:
+        assert db.get(ProductionOrder, output["production_order_id"]).packaging_size_breakdowns is None
+
+
 def test_packaging_size_entry_batch_scope_and_legacy_sewing_batch(client, auth_headers, output):
     from app.models import ProductionBatch
     rid = missing_size_evidence(output)
