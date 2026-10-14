@@ -4212,7 +4212,7 @@ def test_cutting_split_batches_can_exceed_plan_and_report_actual_quantity(client
     assert r.status_code == 200, r.text
     po = r.json()
     assert int(po["planned_quantity"]) == 900
-    assert int(po["actual_quantity"]) == 1500
+    assert int(po["actual_quantity"]) == 0  # A batch plan is not department output.
     assert len(po["batches"]) == 1
     assert int(po["batches"][0]["planned_quantity"]) == 1500
     refreshed_cutting = next(w for w in po["work_orders"] if w["operation"] == "cutting")
@@ -4679,7 +4679,7 @@ def test_packaging_actual_quantity_tracks_sewing_handoff_and_allows_breakdown_ed
     assert sorted((i["size"], int(i["planned_quantity"])) for i in po["items"]) == [("L", 310), ("M", 310)]
 
 
-def test_packaging_can_create_sticker_without_sewing_total(client, auth_headers):
+def test_packaging_rejects_output_without_sewing_total(client, auth_headers):
     r = client.post(
         "/api/planning/create-branded-production",
         json={
@@ -4718,47 +4718,10 @@ def test_packaging_can_create_sticker_without_sewing_total(client, auth_headers)
         },
         headers=auth_headers,
     )
-    assert r.status_code == 201, r.text
-
-    r = client.post(
-        "/api/packaging/records",
-        json={
-            "work_order_id": packaging_wo["id"],
-            "production_batch_id": batch["id"],
-            "input_qty": 43,
-            "packed_qty": 43,
-            "damaged_qty": 0,
-        },
-        headers=auth_headers,
-    )
     assert r.status_code == 400, r.text
-    assert "packaging batch plan 462" in r.text
-
-    r = client.post(
-        "/api/packages",
-        json={
-            "production_order_id": po_id,
-            "production_batch_id": batch["id"],
-            "model_id": 1,
-            "color": "white",
-            "package_type": "bag",
-            "capacity": 60,
-            "items": [
-                {"model_id": 1, "color": "white", "size": "M", "quantity": 60},
-            ],
-        },
-        headers=auth_headers,
-    )
-    assert r.status_code == 201, r.text
-    package_id = int(r.json()["id"])
-
-    r = client.get(f"/api/packages/{package_id}/label", headers=auth_headers)
-    assert r.status_code == 200, r.text
-    assert "Package Label" in r.text
-
-    r = client.get(f"/api/work-orders/{sewing_wo['id']}", headers=auth_headers)
-    assert r.status_code == 200, r.text
-    assert int(r.json()["passed_qty"]) == 0
+    assert "sewing passed output 0" in r.text
+    with SessionLocal() as db:
+        assert db.query(PackagingRecord).filter_by(work_order_id=packaging_wo["id"]).count() == 0
 
 
 def test_internal_batches_flow_separately_across_printing_sewing_packaging(client, auth_headers):
@@ -4927,7 +4890,7 @@ def test_internal_batches_flow_separately_across_printing_sewing_packaging(clien
         headers=auth_headers,
     )
     assert r.status_code == 400, r.text
-    assert "packaging batch plan 60" in r.text
+    assert "sewing passed output 58" in r.text
 
     r = client.post(
         "/api/packaging/records",

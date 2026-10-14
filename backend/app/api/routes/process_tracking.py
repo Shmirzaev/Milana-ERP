@@ -56,8 +56,12 @@ def _positive_int(value) -> int:
 
 
 def _actual_output_quantity(stages: list[dict]) -> int:
-    """Return the highest verified output reached by any production stage."""
-    return max((_positive_int(stage.get("completed")) for stage in stages), default=0)
+    """Return passed output from the furthest department with output evidence."""
+    for stage in sorted(stages, key=lambda row: _OP_RANK.get(row.get("operation"), -1), reverse=True):
+        output = _positive_int(stage.get("completed"))
+        if output or _positive_int(stage.get("failed")) or _positive_int(stage.get("rework")):
+            return output
+    return 0
 
 
 def _stage_dict(wo, flow, now: datetime) -> dict:
@@ -306,7 +310,7 @@ def _internal_batch_stage_rows(db, po: ProductionOrder, base_stages: list[dict])
                 batch_id,
                 "sewing",
                 completed=int(passed_sum or 0),
-                failed=int(failed_sum or 0),
+                failed=int(failed_sum or 0) + int(rejected_sum or 0),
                 rework=int(rework_sum or 0),
                 activity=(
                     int(input_sum or 0)
@@ -572,7 +576,7 @@ def _bulk_internal_batch_evidence(
                 batch_id,
                 "sewing",
                 completed=int(passed_sum or 0),
-                failed=int(failed_sum or 0),
+                failed=int(failed_sum or 0) + int(rejected_sum or 0),
                 rework=int(rework_sum or 0),
                 output_qty=int(passed_sum or 0),
                 activity=sum(int(value or 0) for value in (

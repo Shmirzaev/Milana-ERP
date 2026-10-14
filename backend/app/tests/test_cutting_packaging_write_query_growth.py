@@ -16,6 +16,7 @@ from app.models import (
     ModelBOM,
     PackagingRecord,
     ProductionOrder,
+    SewingRecord,
     StockBatch,
     StockMovement,
     Warehouse,
@@ -202,6 +203,8 @@ def _packaging_work_order(bom_count: int) -> tuple[int, list[int]]:
             )
         ]
         db.add_all(work_orders)
+        db.flush()
+        db.add(SewingRecord(work_order_id=work_orders[0].id, input_qty=1, sewn_qty=1, passed_qty=1))
         db.commit()
         return int(work_orders[1].id), [int(batch.id) for batch in stock_batches]
 

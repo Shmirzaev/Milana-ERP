@@ -615,14 +615,7 @@ export default function CuttingPage() {
     && (wo.production_batch_id === null || wo.production_batch_id === undefined)
   );
   const splitTotal = splitRows.reduce((sum, row) => sum + numberOrZero(row.planned_quantity), 0);
-  const splitPlannedQty = Number(wo?.planned_output_qty || po?.planned_quantity || 0);
-  const productInfoPo = useMemo(() => {
-    if (!po || !canSplitHere || splitTotal <= splitPlannedQty) return po;
-    return {
-      ...po,
-      actual_quantity: Math.max(Number(po?.actual_quantity || 0), splitTotal),
-    };
-  }, [canSplitHere, po, splitPlannedQty, splitTotal]);
+  const productInfoPo = po;
   const batchItems = useMemo(
     () => Array.isArray(batchProgress?.items) ? batchProgress.items : [],
     [batchProgress?.items],

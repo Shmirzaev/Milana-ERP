@@ -1,15 +1,23 @@
 from app.api.routes.process_tracking import _actual_output_quantity
 
 
-def test_actual_output_quantity_uses_highest_verified_stage_output():
+def test_actual_output_quantity_uses_latest_department_output():
     stages = [
         {"operation": "cutting", "completed": 612},
-        {"operation": "sewing", "completed": 620},
-        {"operation": "packaging", "completed": 620},
+        {"operation": "sewing", "completed": 590},
+        {"operation": "packaging", "completed": 585},
         {"operation": "storage_transfer", "completed": 0},
     ]
 
-    assert _actual_output_quantity(stages) == 620
+    assert _actual_output_quantity(stages) == 585
+
+
+def test_actual_output_quantity_keeps_zero_after_all_output_failed():
+    assert _actual_output_quantity([
+        {"operation": "cutting", "completed": 590},
+        {"operation": "sewing", "completed": 0, "failed": 590},
+        {"operation": "packaging", "completed": 0},
+    ]) == 0
 
 
 def test_actual_output_quantity_is_zero_before_production_starts():

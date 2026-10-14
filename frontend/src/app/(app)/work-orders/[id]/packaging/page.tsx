@@ -141,51 +141,12 @@ export default function PackagingPage() {
     return Array.from(bySize.entries()).map(([size, planned_quantity]) => ({ size, planned_quantity }));
   }, [po?.items, color]);
 
-  const totalOrderColorQty = useMemo(
-    () => orderColorItems.reduce((s: number, it: any) => s + Number(it?.planned_quantity || 0), 0),
-    [orderColorItems],
-  );
-  const totalOrderQty = useMemo(
-    () => (po?.items || []).reduce((s: number, it: any) => s + Math.max(0, Number(it?.planned_quantity || 0)), 0),
-    [po?.items],
-  );
-
-  const packageableColorQty = useMemo(() => {
-    if (isAlreadyBatched && selectedBatchProgress) {
-      const hasPackageAccounting =
-        Number(selectedBatchProgress.packed_qty || 0) > 0 || Number(selectedBatchProgress.packaged_qty || 0) > 0;
-      if (hasPackageAccounting) {
-        return Math.max(0, Number(selectedBatchProgress.available_to_package ?? selectedBatchProgress.packed_qty ?? 0));
-      }
-    }
-    const packedQty = isAlreadyBatched
-      ? selectedBatchProgress
-        ? 0
-        : Number(rec.packed_qty || 0)
-      : Number(wo?.passed_qty || wo?.actual_output_qty || rec.packed_qty || 0);
-    if (packedQty > 0) return packedQty;
-
-    const stagePlannedQty = Math.max(
-      0,
-      Number(wo?.planned_output_qty || 0),
-      Number(po?.planned_quantity || 0),
-      totalOrderQty,
-    );
-    if (totalOrderQty > 0 && totalOrderColorQty > 0) {
-      return Math.max(totalOrderColorQty, Math.round((stagePlannedQty * totalOrderColorQty) / totalOrderQty));
-    }
-    return Math.max(totalOrderColorQty, stagePlannedQty);
-  }, [
-    isAlreadyBatched,
-    po?.planned_quantity,
-    rec.packed_qty,
-    selectedBatchProgress,
-    totalOrderColorQty,
-    totalOrderQty,
-    wo?.actual_output_qty,
-    wo?.passed_qty,
-    wo?.planned_output_qty,
-  ]);
+  const availableInputQty = Math.max(0, Number(
+    (isAlreadyBatched ? selectedBatchProgress : batchProgress)?.available_input_qty ?? 0,
+  ));
+  const packageableColorQty = isAlreadyBatched
+    ? Math.max(0, Number(selectedBatchProgress?.available_to_package ?? 0))
+    : Math.max(0, Number(wo?.passed_qty ?? wo?.actual_output_qty ?? 0));
 
   const colorOrderItems = useMemo(
     () => allocateDemandBySize(orderColorItems, packageableColorQty),
@@ -668,9 +629,9 @@ export default function PackagingPage() {
                   }}
                 >
                   <option value={0}>{t("batch.selectBatch")}</option>
-                  {(po?.batches || []).map((b: any) => (
+                  {batchItems.map((b: any) => (
                     <option key={b.id} value={b.id}>
-                      {formatBatchLabel(b, po?.id)} ({b.planned_quantity})
+                      {formatBatchLabel(b, po?.id)} ({b.sewing_output_qty})
                     </option>
                   ))}
                 </select>
@@ -678,11 +639,12 @@ export default function PackagingPage() {
             )}
             <div>
               <label className="label">{t("field.inputQty")}</label>
-              <input className="input" type="number" value={rec.input_qty} onChange={(e) => setRec({ ...rec, input_qty: parseNumberInput(e.target.value) })} />
+              <div className="text-xs text-slate-500">{t("field.available")}: {availableInputQty}</div>
+              <input className="input" type="number" min={0} max={availableInputQty} value={rec.input_qty} onChange={(e) => setRec({ ...rec, input_qty: parseNumberInput(e.target.value) })} />
             </div>
             <div>
               <label className="label">{t("field.output")}</label>
-              <input className="input" type="number" value={rec.packed_qty} onChange={(e) => setRec({ ...rec, packed_qty: parseNumberInput(e.target.value) })} />
+              <input className="input" type="number" min={0} max={Math.min(availableInputQty, numberOrZero(rec.input_qty))} value={rec.packed_qty} onChange={(e) => setRec({ ...rec, packed_qty: parseNumberInput(e.target.value) })} />
             </div>
             <div>
               <label className="label">{t("field.damaged")}</label>
@@ -707,7 +669,7 @@ export default function PackagingPage() {
                 <thead>
                   <tr>
                     <th>{t("field.batch")}</th>
-                    <th>{t("statusValue.planned")}</th>
+                    <th>{t("field.sewn")}</th>
                     <th>{t("field.packed")}</th>
                     <th>{t("field.damaged")}</th>
                     <th>{t("field.remaining")}</th>
@@ -721,10 +683,10 @@ export default function PackagingPage() {
                         <div className="font-medium">{formatBatchLabel(row, po?.id)}</div>
                         <div className="text-xs text-slate-500">{formatBatchSerial(row, po?.id)}</div>
                       </td>
-                      <td>{row.planned_quantity}</td>
+                      <td>{row.sewing_output_qty}</td>
                       <td>{row.packed_qty}</td>
                       <td>{row.damaged_qty}</td>
-                      <td>{row.remaining_quantity}</td>
+                      <td>{row.available_input_qty}</td>
                       <td>{row.progress_pct}%</td>
                     </tr>
                   ))}

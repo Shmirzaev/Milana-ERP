@@ -172,17 +172,8 @@ export default function WorkOrderProductInfo({
     : 0;
   const plannedQty = Number(po?.planned_quantity ?? wo?.planned_output_qty ?? 0);
   const displayedPlannedQty = plannedQty > 0 ? plannedQty : itemPlanTotal;
-  const batchQtyTotal = Array.isArray(po?.batches)
-    ? po.batches.reduce((sum: number, batch: any) => sum + Math.max(0, Number(batch?.planned_quantity || 0)), 0)
-    : 0;
-  const displayedActualQty = Math.max(
-    0,
-    Number(po?.actual_quantity || 0),
-    Number(po?.actual_cut_quantity || 0),
-    Number(po?.actual_bundle_quantity || 0),
-    batchQtyTotal,
-  );
-  const showActualQty = displayedActualQty > 0 && displayedActualQty !== Number(displayedPlannedQty || 0);
+  const displayedActualQty = Math.max(0, Number(po?.actual_quantity ?? 0));
+  const showActualQty = po?.actual_quantity != null;
   const isSewingWorkOrder = String(wo?.operation || "").toLowerCase() === "sewing";
   const receivedBundleCount = Number(wo?.received_bundle_count || 0);
   const receivedBundleQty = Number(wo?.received_bundle_qty || wo?.actual_input_qty || 0);

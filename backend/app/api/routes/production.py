@@ -602,55 +602,40 @@ def _production_order_actuals(db: DbSession, production_order_id: int) -> dict[s
     if actual_bundle_quantity <= 0:
         actual_bundle_quantity = int(bundled_qty_from_records or 0)
 
-    batch_plan_quantity = int(
-        db.query(func.coalesce(func.sum(ProductionBatch.planned_quantity), 0))
-        .filter(ProductionBatch.production_order_id == production_order_id)
-        .scalar()
-        or 0
-    )
     actual_cut_quantity = int(cut_qty or 0)
-
-    sewing_passed_quantity = int(
-        db.query(func.coalesce(func.sum(SewingRecord.passed_qty), 0))
-        .join(WorkOrder, WorkOrder.id == SewingRecord.work_order_id)
-        .filter(WorkOrder.production_order_id == production_order_id)
-        .scalar()
-        or 0
-    )
-    packaging_input_quantity, packaging_packed_quantity = (
-        db.query(
-            func.coalesce(func.sum(PackagingRecord.input_qty), 0),
-            func.coalesce(func.sum(PackagingRecord.packed_qty), 0),
-        )
-        .join(WorkOrder, WorkOrder.id == PackagingRecord.work_order_id)
-        .filter(WorkOrder.production_order_id == production_order_id)
-        .one()
-    )
-    work_order_stage_quantities: list[int] = []
-    for operation, actual_input_qty, actual_output_qty, passed_qty in (
-        db.query(
-            WorkOrder.operation,
-            WorkOrder.actual_input_qty,
-            WorkOrder.actual_output_qty,
-            WorkOrder.passed_qty,
-        )
-        .filter(WorkOrder.production_order_id == production_order_id)
-        .all()
+    # Use the furthest department with output evidence, even when losses make
+    # its passed output smaller (or zero). Plans and receipts are not output.
+    stage_outputs: dict[str, int] = {}
+    for row in db.query(WorkOrder).filter(
+        WorkOrder.production_order_id == production_order_id,
+        WorkOrder.status != "cancelled",
+    ).all():
+        output = max(int(row.actual_output_qty or 0), int(row.passed_qty or 0))
+        if output or row.failed_qty or row.rework_qty:
+            stage_outputs[row.operation] = stage_outputs.get(row.operation, 0) + output
+    for operation, record, output_column, processed_column in (
+        ("cutting", CuttingRecord, CuttingRecord.passed_pieces, CuttingRecord.cut_pieces),
+        ("printing", PrintingRecord, PrintingRecord.passed_qty, PrintingRecord.printed_qty),
+        ("sewing", SewingRecord, SewingRecord.passed_qty,
+         SewingRecord.sewn_qty + SewingRecord.failed_qty + SewingRecord.rejected_qty + SewingRecord.rework_qty),
+        ("packaging", PackagingRecord, PackagingRecord.packed_qty, PackagingRecord.packed_qty + PackagingRecord.damaged_qty),
     ):
-        if operation == "packaging":
-            work_order_stage_quantities.extend([actual_input_qty, actual_output_qty, passed_qty])
-        elif operation in ("cutting", "printing", "sewing"):
-            work_order_stage_quantities.extend([actual_output_qty, passed_qty])
-    stage_actual_quantity = max(
-        0,
-        sewing_passed_quantity,
-        int(packaging_input_quantity or 0),
-        int(packaging_packed_quantity or 0),
-        *(max(0, int(qty or 0)) for qty in work_order_stage_quantities),
-    )
+        query = db.query(func.count(record.id), func.coalesce(func.sum(output_column), 0)).join(
+            WorkOrder, WorkOrder.id == record.work_order_id,
+        ).filter(WorkOrder.production_order_id == production_order_id, WorkOrder.status != "cancelled",
+                 processed_column > 0)
+        if operation == "cutting":
+            query = query.filter(CuttingRecord.approval_status == "approved")
+        count, output = query.one()
+        if count:
+            stage_outputs[operation] = int(output)
+    actual_quantity = actual_bundle_quantity
+    for operation in ("cutting", "printing", "sewing", "packaging", "storage_transfer"):
+        if operation in stage_outputs:
+            actual_quantity = stage_outputs[operation]
 
     return {
-        "actual_quantity": max(actual_bundle_quantity, actual_cut_quantity, batch_plan_quantity, stage_actual_quantity),
+        "actual_quantity": actual_quantity,
         "actual_bundle_quantity": actual_bundle_quantity,
         "actual_bundle_count": int(bundle_count or 0),
         "actual_cut_quantity": actual_cut_quantity,
@@ -2870,8 +2855,7 @@ def packaging_batch_progress(wid: int, db: DbSession, _: User = Depends(require_
         raise HTTPException(400, "Work order is not a packaging operation")
 
     _, batches = _ordered_batches_for_work_order(db, wo)
-    if not batches:
-        return {"work_order_id": wo.id, "items": []}
+    input_budgets = _packaging_input_budgets(db, wo)
 
     rows = (
         db.query(
@@ -2949,12 +2933,15 @@ def packaging_batch_progress(wid: int, db: DbSession, _: User = Depends(require_
         packaged = int(packaged_by_batch.get(int(b.id), 0))
         planned = int(b.planned_quantity or 0)
         processed = min(planned, packed + damaged + sewing_defects_by_batch.get(int(b.id), 0))
+        budget = input_budgets.get(int(b.id), {})
         items.append({
             "id": b.id,
             "batch_no": b.batch_no,
             "batch_index": b.batch_index,
             "name": b.name,
             "planned_quantity": planned,
+            "sewing_output_qty": budget.get("sewing_output_qty", 0),
+            "available_input_qty": budget.get("available_input_qty", 0),
             "input_qty": int(totals.get("input_qty", 0)),
             "packed_qty": packed,
             "packaged_qty": packaged,
@@ -2966,7 +2953,8 @@ def packaging_batch_progress(wid: int, db: DbSession, _: User = Depends(require_
             "deadline": b.deadline,
             "notes": b.notes,
         })
-    return {"work_order_id": wo.id, "items": items}
+    scope_budget = input_budgets.get(wo.production_batch_id, {})
+    return {"work_order_id": wo.id, "items": items, **scope_budget}
 
 
 # ===== Cutting =====
@@ -5316,6 +5304,34 @@ def get_sewing(rid: int, db: DbSession, _: User = Depends(require_permissions(*P
 
 
 # ===== Packaging =====
+def _packaging_input_budgets(db: DbSession, wo: WorkOrder) -> dict[int | None, dict[str, int]]:
+    """Passed Sewing output is the ceiling; physical receipts can narrow it."""
+    sewing_batch = func.coalesce(SewingRecord.production_batch_id, WorkOrder.production_batch_id)
+    sewn = dict(db.query(sewing_batch, func.sum(SewingRecord.passed_qty)).join(
+        WorkOrder, WorkOrder.id == SewingRecord.work_order_id,
+    ).filter(
+        WorkOrder.production_order_id == wo.production_order_id,
+        WorkOrder.operation == "sewing",
+        WorkOrder.status != "cancelled",
+    ).group_by(sewing_batch).all())
+    receipts = dict(db.query(PackagingReceipt.production_batch_id, func.sum(PackagingReceipt.quantity)).filter(
+        PackagingReceipt.work_order_id == wo.id,
+    ).group_by(PackagingReceipt.production_batch_id).all())
+    inputs = dict(db.query(PackagingRecord.production_batch_id, func.sum(PackagingRecord.input_qty)).filter(
+        PackagingRecord.work_order_id == wo.id,
+    ).group_by(PackagingRecord.production_batch_id).all())
+    budgets = {}
+    for batch_id in sewn.keys() | receipts.keys() | inputs.keys():
+        output = int(sewn.get(batch_id) or 0)
+        limit = min(output, int(receipts.get(batch_id) or 0)) if receipts else output
+        budgets[batch_id] = {
+            "sewing_output_qty": output,
+            "input_limit_qty": limit,
+            "available_input_qty": max(0, limit - int(inputs.get(batch_id) or 0)),
+        }
+    return budgets
+
+
 def _packaging_source_work_order(
     db: DbSession,
     production_order_id: int,
@@ -5870,9 +5886,10 @@ def receive_packaging_from_sewing(
 def post_packaging(payload: PackagingRecordIn, db: DbSession, current: User = Depends(require_permissions("packaging.records", "*"))):
     target = db.get(WorkOrder, payload.work_order_id)
     if target:
-        source = _context_work_order(db, target, "sewing")
-        if source:
-            db.query(WorkOrder).filter_by(id=source.id).with_for_update().populate_existing().one()
+        db.query(WorkOrder).filter(
+            WorkOrder.production_order_id == target.production_order_id,
+            WorkOrder.operation == "sewing",
+        ).order_by(WorkOrder.id).with_for_update().populate_existing().all()
     wo = db.query(WorkOrder).filter(WorkOrder.id == payload.work_order_id).with_for_update(of=WorkOrder).populate_existing().first()
     if not wo: raise HTTPException(404, "Work order not found")
     if wo.operation != "packaging": raise HTTPException(400, "Work order is not a packaging operation")
@@ -5892,51 +5909,11 @@ def post_packaging(payload: PackagingRecordIn, db: DbSession, current: User = De
         .first()
     )
 
-    if batch_id is not None:
-        current_input = int(
-            db.query(func.coalesce(func.sum(PackagingRecord.input_qty), 0))
-            .filter(
-                PackagingRecord.work_order_id == wo.id,
-                PackagingRecord.production_batch_id == batch_id,
-            )
-            .scalar()
-            or 0
-        )
-        next_total = current_input + int(payload.input_qty or 0)
-        receipt_total = int(
-            db.query(func.coalesce(func.sum(PackagingReceipt.quantity), 0))
-            .filter(
-                PackagingReceipt.work_order_id == wo.id,
-                PackagingReceipt.production_batch_id == batch_id,
-            )
-            .scalar()
-            or 0
-        )
-        batch = db.get(ProductionBatch, batch_id)
-        packaging_plan = int(batch.planned_quantity or 0) if batch else 0
-        input_limit = receipt_total if uses_receipts else packaging_plan
-        if next_total > input_limit:
-            source = "received from sewing" if uses_receipts else "packaging batch plan"
-            raise HTTPException(400, f"Packaging input {next_total} exceeds {source} {input_limit} for this batch")
-    else:
-        processed_input = int(
-            db.query(func.coalesce(func.sum(PackagingRecord.input_qty), 0))
-            .filter(PackagingRecord.work_order_id == wo.id)
-            .scalar()
-            or 0
-        )
-        receipt_total = int(
-            db.query(func.coalesce(func.sum(PackagingReceipt.quantity), 0))
-            .filter(PackagingReceipt.work_order_id == wo.id)
-            .scalar()
-            or 0
-        )
-        packaging_plan = max(int(wo.planned_input_qty or 0), int(wo.planned_output_qty or 0))
-        input_limit = receipt_total if uses_receipts else packaging_plan
-        next_total = processed_input + int(payload.input_qty or 0)
-        if next_total > input_limit:
-            source = "received from sewing" if uses_receipts else "packaging plan"
-            raise HTTPException(400, f"Packaging input {next_total} exceeds {source} {input_limit}")
+    budget = _packaging_input_budgets(db, wo).get(batch_id, {})
+    available = int(budget.get("available_input_qty", 0))
+    if int(payload.input_qty or 0) > available:
+        source = "received from sewing" if uses_receipts else "sewing passed output"
+        raise HTTPException(400, f"Packaging input exceeds {source} {budget.get('input_limit_qty', 0)}; available {available} for this batch")
 
     rec_data = payload.model_dump()
     rec_data["production_batch_id"] = batch_id
