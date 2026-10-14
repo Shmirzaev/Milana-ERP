@@ -17,7 +17,7 @@ from app.models import (
     Bundle, BundleScanLog, CuttingRecord, ProductionBatch, ProductionOrder,
     SewingAssignment, User, WorkOrder,
 )
-from app.services.audit import log_action
+from app.services.audit import _finalize_postgres_audits, log_action
 from app.services.factory_scope import bind_session_factory
 
 
@@ -47,7 +47,9 @@ def operation(mode, function_source, source_hash, expected=None, backup=None):
     assert mode in ('inspect', 'rehearse', 'apply')
     assert hashlib.sha256(function_source.encode()).hexdigest() == source_hash
     with SessionLocal() as db:
-        db.execute(text('SET TRANSACTION ISOLATION LEVEL SERIALIZABLE'))
+        # The audit append queue requires READ COMMITTED. Explicit order/work/
+        # record/bundle locks serialize the correction with production writers.
+        db.execute(text('SET TRANSACTION ISOLATION LEVEL READ COMMITTED'))
         db.execute(text("SET LOCAL lock_timeout = '5s'"))
         po = db.query(ProductionOrder).filter_by(id=271).with_for_update(of=ProductionOrder).one()
         assert po.source_type == 'usluga' and po.order_no == 'USL-0008'
@@ -119,10 +121,14 @@ def operation(mode, function_source, source_hash, expected=None, backup=None):
                 assert fields <= allowed.get(table, {}).get(old['id'], set()), (table, old['id'], fields)
                 if fields:
                     changed[table].append({'id': old['id'], 'fields': sorted(fields)})
-        log_action(db, None, 'owner_correct_nastil_0271', 'CuttingRecord', 251,
-                   old_value=before, new_value={'snapshot': after, 'backup': backup, 'source_hash': source_hash})
+        audits.append(log_action(db, None, 'owner_correct_nastil_0271', 'CuttingRecord', 251,
+                      old_value=before, new_value={'snapshot': after, 'backup': backup, 'source_hash': source_hash}))
+        # Exercise the real audit commit gate in rehearsal too, before rollback.
+        _finalize_postgres_audits(db)
+        assert all(row.id and row.entry_hash for row in audits)
         output = {'changed': changed, 'before': fingerprint, 'after': digest(after),
-                  'sizes': {size: 110 for size in sizes}, 'total': 660}
+                  'sizes': {size: 110 for size in sizes}, 'total': 660,
+                  'audit_ids': [row.id for row in audits]}
         if mode == 'apply':
             commit()
         else:
