@@ -214,7 +214,7 @@ def test_usluga_main_batch_size_counts_update_existing_bundles_only(client):
         f"/api/cutting/records/{record_id}/usluga-size-counts",
         json={
             "sizes": [
-                {"color": "серый", "size": "M", "quantity": 9},
+                {"color": "серый", "size": "M", "quantity": 7},
                 {"color": "серый", "size": "L", "quantity": 4},
             ]
         },

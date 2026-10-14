@@ -3253,7 +3253,7 @@ def update_usluga_bundle_size_counts(
     db: DbSession,
     current: User = Depends(require_permissions("cutting.records", "*")),
 ):
-    rec = db.query(CuttingRecord).filter(CuttingRecord.id == rid).with_for_update().first()
+    rec = db.get(CuttingRecord, rid)
     if not rec:
         raise HTTPException(404, "Cutting batch not found")
     wo = db.get(WorkOrder, rec.work_order_id)
@@ -3262,6 +3262,14 @@ def update_usluga_bundle_size_counts(
         raise HTTPException(409, "Size counts can be edited only for a main Usluga cutting batch")
     from app.services.factory_scope import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
+
+    # Serialize with Sewing/Packaging submissions before reading their evidence.
+    db.refresh(po, with_for_update=True)
+    work_orders = (
+        db.query(WorkOrder).filter(WorkOrder.production_order_id == po.id)
+        .order_by(WorkOrder.id).with_for_update().populate_existing().all()
+    )
+    db.refresh(rec, with_for_update=True)
 
     bundles = (
         db.query(Bundle)
@@ -3293,8 +3301,8 @@ def update_usluga_bundle_size_counts(
 
     old_total = sum(int(bundle.quantity or 0) for bundle in bundles)
     new_total = sum(requested.values())
-    if new_total != old_total:
-        raise HTTPException(400, f"Size counts must keep the batch total at {old_total}")
+    if new_total < old_total:
+        raise HTTPException(400, f"Size counts cannot reduce the batch total below {old_total}")
     for key, group in groups.items():
         if requested[key] < len(group):
             raise HTTPException(
@@ -3318,6 +3326,23 @@ def update_usluga_bundle_size_counts(
         for bundle in bundles
     ]
 
+    evidence = _cutting_scope_evidence(db, int(po.id), rec.production_batch_id)
+    if evidence.has_identity_evidence and any(
+        requested[key] < sum(int(bundle.quantity or 0) for bundle in group)
+        for key, group in groups.items()
+    ):
+        raise HTTPException(409, "Size counts cannot be reduced after sewn or packaged output is recorded")
+    if new_total != old_total:
+        sewing_wo = _context_work_order(db, wo, "sewing")
+        if sewing_wo and sewing_wo.status == "completed":
+            raise HTTPException(409, "A completed sewing work order cannot be resized from Cutting")
+        scope_total = int(_bundle_scope_filter(
+            db.query(func.coalesce(func.sum(Bundle.quantity), 0)), int(po.id), rec.production_batch_id,
+        ).scalar() or 0) + new_total - old_total
+        if scope_total < evidence.downstream_quantity:
+            raise HTTPException(409, "Bundle total cannot be lower than recorded downstream output")
+        _sync_sewing_assignments_to_bundle_total(db, sewing_wo, rec.production_batch_id, scope_total)
+
     for key, group in groups.items():
         target = requested[key]
         current_group_total = sum(int(bundle.quantity or 0) for bundle in group)
@@ -3326,6 +3351,19 @@ def update_usluga_bundle_size_counts(
         quotient, remainder = divmod(target, len(group))
         for index, bundle in enumerate(group):
             bundle.quantity = quotient + (1 if index < remainder else 0)
+
+    if new_total != old_total:
+        delta = new_total - old_total
+        rec.total_bundled_quantity = new_total
+        rec.passed_pieces = new_total
+        rec.cut_pieces = new_total + int(rec.defective_pieces or 0)
+        rec.bundle_count = len(bundles)
+        if rec.production_batch_id:
+            batch = db.get(ProductionBatch, rec.production_batch_id)
+            batch.planned_quantity = max(int(batch.planned_quantity or 0) + delta, scope_total)
+        db.flush()
+        _sync_cutting_work_order_from_records(db, wo)
+        _reconcile_cutting_workflow_plans(db, wo, work_orders=work_orders)
 
     new_bundle_rows = [
         {
