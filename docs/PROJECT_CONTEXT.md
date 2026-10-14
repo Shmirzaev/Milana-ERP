@@ -2,6 +2,13 @@
 
 Last updated: 2026-10-14
 
+## Packaging size-entry fix prepared (2026-10-14)
+
+- Owner requested that the missing accepted-size breakdown for First Grade singles be entered directly in Packaging, pushed to `clone_main` and deployed without 30-minute monitoring. The previous balance endpoint rejected missing Sewing size rows with HTTP 409 and offered no Packaging entry form. The new EN/RU/UZ form asks for the complete accepted size counts, including already-packed pieces, before enabling singles allocation.
+- Packaging stores its own audited per-batch evidence on the production order through nullable JSON column `packaging_size_breakdowns` (additive migration `0145_packaging_size_entry`). Sewing records, department totals, packages and stock are not rewritten by this entry. Counts must equal actual passed Sewing output and cannot fall below existing packages. Source fingerprints invalidate the evidence after Sewing changes; optimistic versions and upstream/order locks reject stale or concurrent submissions. Existing total, size, warehouse-receipt and sale controls remain enforced. Unknown/foreign batches, missing batch selection, mixed-batch ambiguity and unsupported customer-owned output remain blocked. Existing `packaging.packages` permission and factory scope control both the form and API.
+- Local validation passed 176 focused backend tests, a real React/Chromium save-to-singles test with EN/RU/UZ and permission checks, Ruff, compilation, strict TypeScript, all frontend contracts and the optimized 92-page build. Full frontend lint has zero errors and nine inherited warnings. Full backend/CI, PostgreSQL race/migration gates and production QA remain pending at this preparation stage.
+- Dedicated worktree `C:/ERP/.codex-work/packaging-size-entry-20261014`, branch `codex/packaging-size-entry-20261014`, based on owner-requested `origin/clone_main` at `13f4238a`. Both complete source manifests and slot states matched active blue `20261014_081450`, manifest `0236d0756df6c28850ce7e9cda995e882fe3d3ebd08423aed46eb40663556a77`, rollback green `20261013_100631`, schema `0144_passport_meter_mode`. The legacy checkout and stale `main` are preserved. No production business row has been changed for this fix.
+
 ## clone_main deployed: department quantities and concurrent fixes (2026-10-14)
 
 - LIVE: owner authorized deployment of all reviewed `clone_main` changes and explicitly waived the 30-minute monitoring period. Both VMs activated blue release `20261014_081450` at 08:40 UTC / 13:40 Asia/Tashkent from exact commit `39399207da588876b9de1bbd4f26d6acbbb01e95`. Green `20261013_100631` remains running for rollback. This deployment supersedes the not-deployed status in the preparation entries below.

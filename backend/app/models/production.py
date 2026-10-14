@@ -57,6 +57,7 @@ class ProductionOrder(Base, PkMixin, TimestampMixin):
         ),
     )
     production_no: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    packaging_size_breakdowns: Mapped[dict | None] = mapped_column(JSON)
     production_type: Mapped[str] = mapped_column(String(32), nullable=False)  # client_order, branded_stock
     source_type: Mapped[str] = mapped_column(String(16), nullable=False, default="standard", server_default="standard", index=True)
     planning_order_id: Mapped[int | None] = mapped_column(ForeignKey("branded_planning_orders.id"), index=True)

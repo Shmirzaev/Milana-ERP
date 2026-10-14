@@ -96,6 +96,54 @@ def first_grade_balance(production_order_id: int, db: DbSession, production_batc
     return {"sizes": size_balance(db, order.id, production_batch_id)}
 
 
+class PackagingSizeRowIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    size: str = Field(min_length=1, max_length=32)
+    quantity: int = Field(ge=0, le=2_147_483_647, strict=True)
+
+
+class PackagingSizeEntryIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: str = Field(min_length=64, max_length=64)
+    sizes: list[PackagingSizeRowIn] = Field(min_length=1, max_length=1000)
+
+
+def _size_entry_order(db, current, production_order_id, batch_id, *, lock=False):
+    from app.models import WorkOrder
+    if lock:
+        # Same upstream-before-downstream order as Packaging output; serialize
+        # Sewing changes and package creation while validating the size budget.
+        db.query(WorkOrder).filter_by(production_order_id=production_order_id, operation="sewing").order_by(
+            WorkOrder.id).with_for_update().all()
+    query = db.query(ProductionOrder).filter_by(id=production_order_id)
+    order = (query.with_for_update().populate_existing() if lock else query).first()
+    if not order:
+        raise HTTPException(404, "Production order not found")
+    packaging_department_scope(current, packaging_department_for_order(db, order.id, batch_id))
+    if order.source_type != "standard" or order.sales_order_id:
+        raise HTTPException(409, "FIRST_GRADE_CUSTOMER_OWNED")
+    return order
+
+
+@router.get("/first-grade/size-entry/{production_order_id}")
+def get_packaging_size_entry(production_order_id: int, db: DbSession, production_batch_id: int | None = None,
+                             current: User = Depends(require_permissions("packaging.packages", "*"))):
+    from app.services.first_grade import packaging_size_entry
+    order = _size_entry_order(db, current, production_order_id, production_batch_id)
+    return packaging_size_entry(db, order.id, production_batch_id)
+
+
+@router.put("/first-grade/size-entry/{production_order_id}")
+def put_packaging_size_entry(production_order_id: int, payload: PackagingSizeEntryIn, db: DbSession,
+                             production_batch_id: int | None = None,
+                             current: User = Depends(require_permissions("packaging.packages", "*"))):
+    from app.services.first_grade import save_packaging_size_entry
+    order = _size_entry_order(db, current, production_order_id, production_batch_id, lock=True)
+    result = save_packaging_size_entry(db, order, production_batch_id, payload, current)
+    db.commit()
+    return result
+
+
 @router.get("/warehouse-model/{model_id}")
 def warehouse_model_packages(model_id: int, db: DbSession, stock_kind: str = "standard",
                               page: int = Query(1, ge=1),

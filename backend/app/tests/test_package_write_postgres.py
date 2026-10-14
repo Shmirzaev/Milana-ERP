@@ -119,6 +119,71 @@ def _stub_package_side_effects(monkeypatch) -> None:
     monkeypatch.setattr(package_service, "sync_production_order_status", lambda *_args, **_kwargs: None)
 
 
+def test_packaging_size_save_waits_for_package_creation_and_rejects_stale_counts(
+    package_write_postgres_sessions, monkeypatch,
+):
+    from fastapi import HTTPException
+    from app.models import SewingRecord, ProductionOrderItem
+    from app.api.routes.package_workflows import _size_entry_order, PackagingSizeEntryIn
+    from app.services.first_grade import packaging_size_entry, save_packaging_size_entry
+    sessions, engine = package_write_postgres_sessions
+    order_id, model_id = _seed_packaged_order(sessions, 2)
+    _stub_package_side_effects(monkeypatch)
+    with sessions.begin() as db:
+        db.get(ProductionOrder, order_id).source_type = "standard"
+        department = Department(code=f"SZ{uuid4().hex[:8]}", name="Size evidence sewing")
+        db.add(department); db.flush()
+        wo = WorkOrder(production_order_id=order_id, department_id=department.id, operation="sewing")
+        db.add(wo); db.flush()
+        db.add(SewingRecord(work_order_id=wo.id, input_qty=2, sewn_qty=2, passed_qty=2, size_quantities=[]))
+        db.add(ProductionOrderItem(production_order_id=order_id, model_id=model_id, color="navy", size="M", planned_quantity=2))
+    with sessions() as db:
+        state = packaging_size_entry(db, order_id, None)
+    payload = PackagingSizeEntryIn(version=state["version"], sizes=[{"size": "M", "quantity": 2}])
+    ready, release = Event(), Event()
+    pids = Queue()
+
+    def pack():
+        with sessions() as db:
+            pids.put(db.execute(text("SELECT pg_backend_pid()")).scalar_one())
+            db.query(ProductionOrder).filter_by(id=order_id).with_for_update().one()
+            ready.set()
+            assert release.wait(10)
+            package_service.create_package(db, **_package_kwargs(order_id, model_id))
+            db.commit()
+
+    def save():
+        with sessions() as db:
+            pids.put(db.execute(text("SELECT pg_backend_pid()")).scalar_one())
+            order = _size_entry_order(db, None, order_id, None, lock=True)
+            with pytest.raises(HTTPException) as error:
+                save_packaging_size_entry(db, order, None, payload, None)
+            assert error.value.detail == "FIRST_GRADE_SIZE_STALE"
+            db.rollback()
+
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        writer = workers.submit(pack)
+        assert ready.wait(10)
+        pack_pid = pids.get(timeout=10)
+        saver = workers.submit(save)
+        save_pid = pids.get(timeout=10)
+        try:
+            deadline = monotonic() + 10
+            with engine.connect() as observer:
+                while monotonic() < deadline:
+                    if pack_pid in observer.execute(text("SELECT pg_blocking_pids(:pid)"), {"pid": save_pid}).scalar_one():
+                        break
+                    sleep(0.02)
+                else:
+                    pytest.fail("Size evidence must wait for the package writer's order lock")
+        finally:
+            release.set()
+        writer.result(timeout=10)
+        saver.result(timeout=10)
+    with sessions() as db:
+        assert db.get(ProductionOrder, order_id).packaging_size_breakdowns is None
+
+
 def test_postgres_bulk_and_scalar_share_order_then_number_lock_order(
     package_write_postgres_sessions,
     monkeypatch,

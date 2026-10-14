@@ -7,8 +7,10 @@ import { can, useMe } from "@/lib/auth";
 import { firstGradeText } from "@/lib/firstGradeText";
 import { postPackageWorkflow, type PackagePrintRun } from "@/lib/packageWorkflow";
 import PendingPackageWorkflow from "@/components/PendingPackageWorkflow";
+import PackagingSizeEntry from "@/components/PackagingSizeEntry";
 
-type Balance = { sizes: { size: string; accepted: number; packed: number; remaining: number }[] };
+export type PackagingSizeBalance = { needs_size_entry: boolean; total: number; version: string;
+  sizes: { size: string; accepted: number | null; packed: number; remaining: number }[] };
 export default function FirstGradePackaging({ productionOrderId, batchId, modelId, color, onChanged }: {
   productionOrderId: number; batchId?: number; modelId: number; color: string; onChanged: () => Promise<unknown>;
 }) {
@@ -16,7 +18,8 @@ export default function FirstGradePackaging({ productionOrderId, batchId, modelI
   const [open, setOpen] = useState(false); const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [busy, setBusy] = useState(false); const [message, setMessage] = useState(""); const [run, setRun] = useState<PackagePrintRun | null>(null);
   const path = "/api/packages/print-runs/create-packages";
-  const { data, error, mutate } = useSWR<Balance>(open ? `/api/packages/first-grade/balance/${productionOrderId}${batchId ? `?production_batch_id=${batchId}` : ""}` : null, fetcher);
+  const sizePath = `/api/packages/first-grade/size-entry/${productionOrderId}${batchId ? `?production_batch_id=${batchId}` : ""}`;
+  const { data, error, mutate } = useSWR<PackagingSizeBalance>(open ? sizePath : null, fetcher);
   if (!can(me, "packaging.packages")) return null;
   const total = Object.values(quantities).reduce((a, b) => a + b, 0);
   return <section className="card p-4">
@@ -25,7 +28,8 @@ export default function FirstGradePackaging({ productionOrderId, batchId, modelI
       <PendingPackageWorkflow path={path} onResolved={async () => { await mutate(); await onChanged(); }} />
       {error && <p role="alert" className="text-red-700">{error.message}</p>}
       {!data && !error && <p>{copy.loading}</p>}
-      {data && <form onSubmit={async e => {
+      {data?.needs_size_entry && <PackagingSizeEntry key={data.version} data={data} path={sizePath} onSaved={async () => { setQuantities({}); await mutate(); }} />}
+      {data && !data.needs_size_entry && <form onSubmit={async e => {
         e.preventDefault(); if (!me || busy || total < 1 || total > 200) return;
         setBusy(true); setMessage("");
         try {
