@@ -57,10 +57,22 @@ def model_family():
         yield db, parent, variant
 
 
-def test_cutting_sheet_endpoint_keeps_missing_garment_blank_and_variant_fabric(model_family, client, auth_headers):
-    db, _, variant = model_family
+@pytest.mark.parametrize("production_type", ["branded_stock", "usluga"])
+@pytest.mark.parametrize("has_variant_fabric", [True, False])
+def test_cutting_sheet_endpoint_uses_parent_garment_and_variant_fabric(
+    model_family, client, auth_headers, production_type, has_variant_fabric,
+):
+    db, parent, variant = model_family
+    if production_type == "usluga":
+        parent.catalog_scope = variant.catalog_scope = "usluga"
+        parent.factory_code = variant.factory_code = "ECO"
+    parent.images.append(ModelImage(
+        file_url="https://example.com/parent-fabric.jpg", content_type="image/jpeg", image_type="material",
+    ))
+    if not has_variant_fabric:
+        variant.images.clear()
     variant.details_json = {**variant.details_json, "composition": [{"name": "Cotton", "percentage": 95}, {"name": "Elastane", "percentage": 5}]}
-    order = ProductionOrder(production_no="PO-PARENT-PHOTO", production_type="branded_stock", model_id=variant.id)
+    order = ProductionOrder(production_no="PO-PARENT-PHOTO", production_type=production_type, model_id=variant.id)
     db.add(order)
     db.flush()
     work = WorkOrder(
@@ -75,21 +87,25 @@ def test_cutting_sheet_endpoint_keeps_missing_garment_blank_and_variant_fabric(m
 
     response = client.get(f"/api/cutting/records/{record.id}/production-sheet", headers=auth_headers)
     assert response.status_code == 200, response.text
-    assert "cGFyZW50LXBpY3R1cmU=" not in response.text
-    assert "src='https://example.com/fabric.jpg' alt='Fabric picture'" in response.text
+    assert "src='data:image/png;base64,cGFyZW50LXBpY3R1cmU=' alt='Model image'" in response.text
+    if has_variant_fabric:
+        assert "src='https://example.com/fabric.jpg' alt='Fabric picture'" in response.text
+    else:
+        assert "alt='Fabric picture'" not in response.text
+    assert "parent-fabric.jpg" not in response.text
     assert "Cotton 95% / Elastane 5%" in response.text
-    assert "<div class='empty-photo'></div>" in response.text
+    assert "<div class='empty-photo'></div>" not in response.text
 
 
 @pytest.mark.parametrize("image_type", ["model", "print"])
-def test_cutting_sheet_prefers_variant_photo_or_print_override(model_family, image_type):
+def test_cutting_sheet_prefers_parent_over_variant_photo_or_print_override(model_family, image_type):
     db, _, variant = model_family
     variant.images.append(ModelImage(
         file_url="https://example.com/variant.jpg", content_type="image/jpeg",
         image_type=image_type, is_primary=True,
     ))
     db.flush()
-    assert _sheet_model_image_src(db, variant) == "https://example.com/variant.jpg"
+    assert _sheet_model_image_src(db, variant) == "data:image/png;base64,cGFyZW50LXBpY3R1cmU="
 
 
 @pytest.mark.parametrize("condition", ["missing", "material_only", "scope", "factory", "sibling", "no_link"])
@@ -112,7 +128,40 @@ def test_cutting_sheet_does_not_borrow_unrelated_or_fabric_photos(model_family, 
     assert _sheet_model_image_src(db, variant) is None
 
 
-def test_cutting_sheet_does_not_inherit_legacy_camel_case_parent_picture(model_family):
+def test_cutting_sheet_resolves_legacy_camel_case_parent_picture(model_family):
     db, _, variant = model_family
     variant.details_json = {"general": {"modelNo": "PG10527", "variantNo": "V-6510"}}
+    assert _sheet_model_image_src(db, variant) == "data:image/png;base64,cGFyZW50LXBpY3R1cmU="
+
+
+@pytest.mark.parametrize("condition", ["missing_parent", "empty_parent", "material_parent", "standalone"])
+def test_cutting_sheet_retains_own_garment_without_parent_photo(model_family, condition):
+    db, parent, variant = model_family
+    if condition == "missing_parent":
+        parent.code = "OTHER-PARENT"
+    elif condition == "empty_parent":
+        parent.images.clear()
+    elif condition == "material_parent":
+        parent.images[0].image_type = "material"
+    else:
+        variant.details_json = {"general": {"model_no": variant.code}}
+    variant.images.append(ModelImage(
+        file_url="https://example.com/own.jpg", content_type="image/jpeg", image_type="model",
+    ))
+    db.flush()
+    assert _sheet_model_image_src(db, variant) == "https://example.com/own.jpg"
+
+
+def test_cutting_sheet_missing_parent_file_does_not_substitute_variant(model_family):
+    db, parent, variant = model_family
+    parent.images[0].file_data = None
+    variant.images.append(ModelImage(
+        file_url="https://example.com/own.jpg", content_type="image/jpeg", image_type="model",
+    ))
+    db.flush()
     assert _sheet_model_image_src(db, variant) is None
+
+
+def test_cutting_sheet_without_model_has_no_garment(model_family):
+    db, _, _ = model_family
+    assert _sheet_model_image_src(db, None) is None

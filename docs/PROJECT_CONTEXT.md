@@ -1,6 +1,14 @@
 # Milana ERP Project Context
 
-Last updated: 2026-10-13
+Last updated: 2026-10-14
+
+## Cutting sheet parent garment picture restored (2026-10-14; not deployed)
+
+- Owner explicitly requested that all cutting sheets show the parent model picture separately from the selected variant fabric picture, with the correction pushed to `clone_main`. This supersedes the October 13 parent-photo isolation rule only for the cutting sheet garment box. Other catalog, variant, package and label image consumers remain unchanged.
+- The report resolves the explicit `general.model_no` / legacy `modelNo` to an exact parent code in the same catalog scope and factory, excludes rows identified as sibling variants, and prefers the parent's garment/print selection. Without a parent garment selection it retains the selected model/variant's own garment/print selection. Material pictures never fill the garment box; missing files for a selected parent picture remain blank. Fabric rendering continues to use the selected variant, without borrowing the parent's fabric. No image attachments are copied or rewritten.
+- Read-only production diagnosis reproduced CUT-407 / PO-0366: PG10528 has a valid garment file, while V-6533 has only its fabric photo. Candidate rendering in an isolated read-only transaction changed exactly the empty garment box to the parent image; the fabric image and all other HTML were identical. All three PG10528 variants resolved to the same parent picture. No serving source or production record changed.
+- Validation passed 130 tests across cutting-picture selection, picture isolation, model images, print overrides, the complete production-flow module (including cutting-sheet QR acceptance into Sewing), and Usluga; changed-file Ruff, Python compilation and diff whitespace checks passed. Coverage includes parent priority, legacy metadata, missing photos, standalone models, standard/Usluga reports and factory/catalog/sibling isolation. Physical printing was not tested.
+- Dedicated worktree `C:/ERP/.codex-work/cutting-parent-picture-20261014`, branch `codex/cutting-parent-picture-20261014`, based on owner-requested `origin/clone_main` at `7904d4f0`. Stale `main` and the dirty legacy checkout are preserved. Before edits, both complete source manifests, image revisions, current symlinks and slot states matched the branch's production baseline: green `20261013_100631`, manifest `00709a9051255e73b8f1d345ce9717dfd2232bedb80609849e788170a1869777`, rollback blue `20261013_091420`, recorded schema `0144_passport_meter_mode`. No deployment, migration or business-data change occurred; production still requires a separately authorized release of this correction.
 
 ## Telegram picture backfill: existing records only (2026-10-13)
 
