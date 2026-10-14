@@ -2046,7 +2046,7 @@ export default function CuttingPage() {
                             <button
                               type="button"
                               className="btn btn-primary"
-                              disabled={uslugaSizeCountEditBusy || sizeCountEditTotal !== requiredSizeCountTotal}
+                              disabled={uslugaSizeCountEditBusy || sizeCountEditTotal < requiredSizeCountTotal || uslugaSizeCountEdits.some((entry) => !Number.isInteger(entry.quantity) || Number(entry.quantity) < entry.bundle_count)}
                               onClick={() => saveUslugaSizeCounts(Number(row.id))}
                             >
                               {t("common.save")}

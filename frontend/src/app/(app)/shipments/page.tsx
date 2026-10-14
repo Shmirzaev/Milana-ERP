@@ -22,6 +22,7 @@ import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { ShipmentTransportFields, normalizeTransportDetails, type TransportDetails } from "@/components/ShipmentTransportDetails";
 import { shipmentTransportText } from "@/lib/shipmentTransportText";
+import { previousShipmentScanMessage, type ShipmentScanResult } from "@/lib/shipmentScan";
 
 type ShipmentRow = ShipmentSummary & {
   shipment_type?: "sales_order" | "warehouse_exit" | "manual";
@@ -72,6 +73,7 @@ function ShipmentOrderWorkspace({
   const [scanCode, setScanCode] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [scanWarning, setScanWarning] = useState("");
   const [isCreating, setIsCreating] = useState(false);
 
   async function refresh() {
@@ -81,6 +83,7 @@ function ShipmentOrderWorkspace({
   async function createShipment(transportDetails: TransportDetails | null) {
     if (shipmentId || isCreating) return;
     setError("");
+    setScanWarning("");
     setMessage("");
     setIsCreating(true);
     try {
@@ -100,6 +103,7 @@ function ShipmentOrderWorkspace({
   async function addAllReady() {
     if (!shipmentId) return;
     setError("");
+    setScanWarning("");
     setMessage("");
     try {
       await api.post(`/api/shipments/${shipmentId}/add-ready-packages`);
@@ -113,13 +117,18 @@ function ShipmentOrderWorkspace({
   async function scanPackage() {
     if (!shipmentId || !scanCode.trim()) return;
     setError("");
+    setScanWarning("");
     setMessage("");
     try {
-      const result = await api.post<Record<string, unknown>>(`/api/shipments/${shipmentId}/scan-package`, {
+      const result = await api.post<ShipmentScanResult>(`/api/shipments/${shipmentId}/scan-package`, {
         code: scanCode.trim(),
       });
-      if (String(result.sign || "") === "error") {
-        setError(result.message ? localizeError(String(result.message), 400) : t("page.shipments.scanMismatch"));
+      const previousScan = previousShipmentScanMessage(result, lang);
+      if (result.sign === "error") {
+        const reason = result.message ? localizeError(result.message, 400) : t("page.shipments.scanMismatch");
+        setError(previousScan ? `${reason} ${previousScan}` : reason);
+      } else if (result.sign === "warning") {
+        setScanWarning(previousScan || localizeError(result.message || "", 400) || t("page.shipments.scanMismatch"));
       } else {
         setMessage(t("page.shipments.scanProcessed"));
       }
@@ -133,6 +142,7 @@ function ShipmentOrderWorkspace({
   async function ship() {
     if (!shipmentId || !(await dialogs.ask({ message: order.shipment?.shipment_type === "manual" ? manualShipmentText[lang].confirm : t("page.shipments.confirmMarkShipped") }))) return;
     setError("");
+    setScanWarning("");
     setMessage("");
     try {
       await api.post(`/api/shipments/${shipmentId}/ship`);
@@ -146,6 +156,7 @@ function ShipmentOrderWorkspace({
   async function deliver() {
     if (!shipmentId || !(await dialogs.ask({ message: t("page.shipments.confirmMarkDelivered") }))) return;
     setError("");
+    setScanWarning("");
     setMessage("");
     try {
       await api.post(`/api/shipments/${shipmentId}/deliver`);
@@ -160,6 +171,7 @@ function ShipmentOrderWorkspace({
     <article id={order.id ? `shipment-order-${order.id}` : `shipment-${shipmentId}`} className="scroll-mt-4">
       {message ? <div className="border-x border-t border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">{message}</div> : null}
       {error ? <div className="border-x border-t border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-800">{error}</div> : null}
+      {scanWarning ? <div role="status" className="border-x border-t border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">{scanWarning}</div> : null}
       <ShipmentPreparationWorkspace
         preparation={preparation}
         isLoading={isLoading}

@@ -159,6 +159,13 @@ class ShipmentScanIn(BaseModel):
     code: str
 
 
+class ShipmentPreviousScan(BaseModel):
+    shipment_no: str
+    customer_name: str | None = None
+    scanned_by_name: str | None = None
+    scanned_at: datetime
+
+
 class ShipmentScanOut(BaseModel):
     ok: bool
     sign: str
@@ -167,6 +174,7 @@ class ShipmentScanOut(BaseModel):
     package_id: Optional[int] = None
     package_no: Optional[str] = None
     package_model_code: Optional[str] = None
+    previous_scan: ShipmentPreviousScan | None = None
     required_count: int = 0
     scanned_count: int = 0
     remaining_count: int = 0

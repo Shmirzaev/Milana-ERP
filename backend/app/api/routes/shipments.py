@@ -27,7 +27,7 @@ from app.models import (
     Customer,
     Invoice,
 )
-from app.schemas.sales import ShipmentIn, ShipmentOut, ShipmentScanIn, ShipmentScanOut
+from app.schemas.sales import ShipmentIn, ShipmentOut, ShipmentScanIn, ShipmentScanOut, ShipmentPreviousScan
 from app.schemas.catalog import PartyIn
 from app.schemas.shipment_review import ShipmentAmountReview, ShipmentPackageRemoval, ShipmentQuantityReview, ShipmentTransportDetails, ShipmentReopen
 from app.services.shipment_reopen import reopen_shipment
@@ -590,6 +590,43 @@ def _valid_matched_scan():
     ))
 
 
+def _previous_package_scan(db: DbSession, package_id: int, shipment_id: int) -> ShipmentPreviousScan | None:
+    # Only report successful scans for retained links. Detached/cancelled history
+    # must never be presented as the package's current shipment assignment.
+    row = (
+        db.query(ShipmentScanLog, Shipment)
+        .join(Shipment, Shipment.id == ShipmentScanLog.shipment_id)
+        .join(ShipmentPackage, and_(
+            ShipmentPackage.shipment_id == Shipment.id,
+            ShipmentPackage.package_id == ShipmentScanLog.package_id,
+        ))
+        .filter(
+            ShipmentScanLog.package_id == package_id,
+            _valid_matched_scan(),
+            Shipment.status != "cancelled",
+            Shipment.deleted_at.is_(None),
+        )
+        .order_by((Shipment.id == shipment_id).desc(), Shipment.id.desc(), ShipmentScanLog.id.asc())
+        .first()
+    )
+    if not row:
+        return None
+    scan, shipment = row
+    order = db.get(SalesOrder, shipment.sales_order_id) if shipment.sales_order_id else None
+    customer_id = shipment.customer_id or (order.customer_id if order else None)
+    customer = db.get(Customer, customer_id) if customer_id else None
+    actor = db.get(User, scan.scanned_by) if scan.scanned_by else None
+    scanned_at = scan.scanned_at
+    if scanned_at.tzinfo is None:
+        scanned_at = scanned_at.replace(tzinfo=timezone.utc)
+    return ShipmentPreviousScan(
+        shipment_no=shipment.shipment_no,
+        customer_name=customer.name if customer else None,
+        scanned_by_name=actor.name if actor else None,
+        scanned_at=scanned_at,
+    )
+
+
 def _matched_package_ids_for_shipment(db: DbSession, shipment_id: int) -> set[int]:
     matched_rows = (
         db.query(ShipmentScanLog.package_id)
@@ -778,6 +815,7 @@ def _scan_response(
     scanned_count: int,
     remaining_count: int,
     is_complete: bool,
+    previous_scan: ShipmentPreviousScan | None = None,
 ) -> ShipmentScanOut:
     return ShipmentScanOut(
         ok=ok,
@@ -787,6 +825,7 @@ def _scan_response(
         package_id=int(package.id) if package else None,
         package_no=package.package_no if package else None,
         package_model_code=package_model_code,
+        previous_scan=previous_scan,
         required_count=required_count,
         scanned_count=scanned_count,
         remaining_count=remaining_count,
@@ -1568,6 +1607,7 @@ def scan_package(
             scanned_count=scanned_count,
             remaining_count=remaining_count,
             is_complete=is_complete,
+            previous_scan=_previous_package_scan(db, pkg.id, sh.id),
         )
         return _commit_scan_response(
             db,
@@ -1601,6 +1641,7 @@ def scan_package(
             scanned_count=scanned_count,
             remaining_count=remaining_count,
             is_complete=is_complete,
+            previous_scan=_previous_package_scan(db, pkg.id, sh.id),
         )
         return _commit_scan_response(
             db,
@@ -1713,6 +1754,7 @@ def scan_package(
         scanned_count=scanned_count,
         remaining_count=remaining_count,
         is_complete=is_complete,
+        previous_scan=_previous_package_scan(db, pkg.id, sh.id) if duplicate else None,
     )
     return _commit_scan_response(
         db,
