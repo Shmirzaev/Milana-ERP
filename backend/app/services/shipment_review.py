@@ -289,6 +289,7 @@ def shipment_document(db: Session, shipment: Shipment, *, scanned_ids: set[int] 
         pack_count += 1
         pieces += link.quantity
         package_details.append({"package_no": package.package_no, "quantity": link.quantity,
+                                "is_partial": link.quantity < max(package.total_quantity, package.capacity),
                                 "weight_kg": str(package.weight_kg) if package.weight_kg is not None else None})
         package_items = contents_by_package.get(package.id, ())
         quantities = selected_items(shipment, package, package_items)

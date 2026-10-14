@@ -2,6 +2,13 @@
 
 Last updated: 2026-10-14
 
+## Invoice complete-pack grouping (2026-10-14; not deployed)
+
+- Owner requested grouping scanned complete packs of the same model/variant into one invoice row, with partial packs separate, and pushing the correction to `clone_main`. Print and Excel share the grouping. Quantities, matching size/color counts and amounts are summed; differing recorded pack weights do not split a row. Kg/pack shows the average recorded weight and total kg retains the exact sum. Different prices and mixed-model/price packs retain separate rows/shared pack cells so prices and physical pack weights are not misrepresented.
+- New shipment documents freeze completeness from the selected quantity against the package total and capacity. Older snapshots receive presentation-only completeness from linked package metadata; frozen quantities, prices, amounts and weights are preserved. Unknown completeness is kept separate, and missing weights/prices remain unknown. Invoice reads do not rewrite dispatch snapshots, stock, Finance or other business records.
+- Validation passed the invoice export/reference/review regressions (78 tests in the initial run), then the added receipt -> scan -> partial selection -> dispatch -> reprint handoff and wider manual dispatch/reopen/query-growth/invoice-integrity regressions (73 passed, seven optional PostgreSQL tests skipped). EN/RU/UZ and shown/hidden prices are covered. Changed-file Ruff, Python compilation and whitespace checks passed; the Uzbek HTML example was rendered in headless Chromium and visually inspected. No physical printer test or signed-in production write was used.
+- Dedicated worktree `C:/ERP/.codex-work/invoice-complete-packs-20261014`, branch `codex/invoice-complete-packs-20261014`, based on owner-requested `origin/clone_main` at `c24f3d69`. Both live symlinks and complete source manifests matched the recorded active release `20261013_100631`, manifest `00709a9051255e73b8f1d345ce9717dfd2232bedb80609849e788170a1869777`; recorded rollback is `20261013_091420`, schema `0144_passport_meter_mode`. Runtime slot-state files were permission-denied over available SSH. No deployment, migration, production data change or legacy-checkout edit occurred. Separate deployment authorization is required.
+
 ## Process QR eligibility by completed nastil (2026-10-14; not deployed)
 
 - Owner requested that Process QR allow a finished nastil while sibling nastils remain in Sewing, with the fix pushed to `clone_main`. This supersedes the August 15 requirement to close all Sewing work orders before displaying a batched order.

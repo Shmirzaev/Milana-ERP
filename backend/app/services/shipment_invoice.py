@@ -33,8 +33,9 @@ def invoice_model_identity(model, source: dict | None = None) -> tuple[str | Non
 
 
 def build_invoice_rows(lines: list[dict], packages: list[dict]) -> list[dict]:
-    """One row per package/model/price; shared pack and weight cells span splits."""
+    """Combine complete single-variant packs; keep partial/mixed packs distinct."""
     result = []
+    complete_groups = {}
     # Index the lines by package once; scanning every line per package made this
     # O(packages x lines). Insertion order keeps each package's lines in order.
     lines_by_package = defaultdict(list)
@@ -64,8 +65,36 @@ def build_invoice_rows(lines: list[dict], packages: list[dict]) -> list[dict]:
             group["package_rowspan"] = len(groups) if index == 0 else 0
             group["pack_count"] = 1 if index == 0 else 0
             group["weight_kg"] = package.get("weight_kg") if index == 0 else None
+            # Never allocate a mixed pack's shared weight/count to one variant.
+            # Missing completeness evidence is deliberately not treated as full.
+            if len(groups) == 1 and package.get("is_partial") is False and group["model_no"]:
+                key = (group["model_no"], format_variant_number(group["variant_no"]),
+                       group["description"], group["unit_price"])
+                previous = complete_groups.get(key)
+                if previous is not None:
+                    previous["pack_count"] += 1
+                    previous["quantity"] += group["quantity"]
+                    for field in ("amount", "weight_kg"):
+                        previous[field] = (str(Decimal(previous[field]) + Decimal(group[field]))
+                                           if previous[field] is not None and group[field] is not None else None)
+                    sizes = {(item["size"], item["color"], item["aggregate"]): item for item in previous["sizes"]}
+                    for item in group["sizes"]:
+                        size_key = (item["size"], item["color"], item["aggregate"])
+                        if size_key in sizes:
+                            sizes[size_key]["quantity"] += item["quantity"]
+                        else:
+                            previous["sizes"].append(item)
+                            sizes[size_key] = item
+                    continue
+                complete_groups[key] = group
             result.append(group)
     return result
+
+
+def invoice_pack_weight(row: dict):
+    """Average recorded weight per pack; total weight stays exact separately."""
+    total = row.get("weight_kg")
+    return str(Decimal(str(total)) / max(1, row.get("pack_count", 1))) if total is not None else None
 
 
 LABELS = {
@@ -209,7 +238,8 @@ def render_shipment_invoice(document: dict, language: str, *, show_prices: bool 
                                for item in row.get("sizes", []))
         span = row["package_rowspan"]
         pack_cell = f'<td rowspan="{span}" class="numeric">{number(row["pack_count"], 0)}</td>' if span else ""
-        weight_cells = f'<td rowspan="{span}" class="numeric">{weight(row.get("weight_kg"))}</td>' * 2 if span else ""
+        weight_cells = (f'<td rowspan="{span}" class="numeric">{weight(invoice_pack_weight(row))}</td>'
+                        f'<td rowspan="{span}" class="numeric">{weight(row.get("weight_kg"))}</td>') if span else ""
         price_cells = (f'<td class="numeric">{weight(row.get("unit_price"))}</td>'
                        f'<td class="numeric">{weight(row.get("amount"))}</td>') if show_prices else '<td class="numeric"></td><td class="numeric"></td>'
         body.append(f'<tr><td class="row-number">{index}</td><td class="identity">{value(row.get("model_no"))}</td>'

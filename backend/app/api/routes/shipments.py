@@ -1344,6 +1344,17 @@ def _invoice_print_details(db, shipment, document):
     from app.services.shipment_review import manual_invoice_sizes
     from app.services.shipment_invoice import build_invoice_rows
     lines = [dict(line) for line in document.get("lines", [])]
+    # Older dispatch snapshots lack completeness metadata. Enrich a copy for
+    # presentation, retaining all frozen quantities, prices and recorded weights.
+    details = document.get("package_details")
+    if details is not None and any("is_partial" not in row for row in details):
+        pack_sizes = {p.package_no: max(p.total_quantity, p.capacity) for p in db.query(Package).join(
+            ShipmentPackage, ShipmentPackage.package_id == Package.id
+        ).filter(ShipmentPackage.shipment_id == shipment.id)}
+        document["package_details"] = [
+            {**row, "is_partial": row.get("is_partial", (row.get("quantity") or 0) < pack_sizes.get(row["package_no"], float("inf")))}
+            for row in details
+        ]
     if any(str(line.get("size")).lower() == "mixed" and not line.get("size_display") for line in lines):
         packages = {p.package_no: p for p in db.query(Package).join(ShipmentPackage, ShipmentPackage.package_id == Package.id).filter(ShipmentPackage.shipment_id == shipment.id)}
         for line in lines:

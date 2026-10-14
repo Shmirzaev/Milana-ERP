@@ -14,7 +14,7 @@ from openpyxl.worksheet.page import PageMargins
 
 from app.services.shipment_invoice import (
     INVOICE_CONTACT, LABELS, build_invoice_rows, invoice_column_widths, invoice_headers,
-    invoice_metadata, invoice_notes, invoice_price_notes, recorded_weight,
+    invoice_metadata, invoice_notes, invoice_pack_weight, invoice_price_notes, recorded_weight,
 )
 
 
@@ -81,8 +81,10 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
         span = item["package_rowspan"]
         weight = float(Decimal(str(item["weight_kg"]))) if item.get("weight_kg") is not None else None
         displayed_weight = weight if weight is not None else "—" if span else None
+        per_pack = invoice_pack_weight(item)
+        displayed_per_pack = float(Decimal(per_pack)) if per_pack is not None else displayed_weight
         values = [index, item.get("model_no"), format_variant_number(item.get("variant_no")), item.get("description"), size_text,
-                  item["pack_count"] if span else None, item["quantity"], displayed_weight, displayed_weight]
+                  item["pack_count"] if span else None, item["quantity"], displayed_per_pack, displayed_weight]
         if show_prices:
             values.extend(float(Decimal(str(item[key]))) if item.get(key) is not None else "—" for key in ("unit_price", "amount"))
         else:
