@@ -85,7 +85,7 @@ const required = [
   ["superseded labels stay hidden but prevent accidental reissue", "label.status !== \"superseded\""],
   ["superseded tombstones are fetched to prevent accidental reissue", "include_superseded=true"],
   ["edited labels can be printed separately", "printIssuedLabels(editedIssuedLabels)"],
-  ["ERP order picker requests sewing-closed work only", "sewing_completed_only=true"],
+  ["ERP order picker requests sewing-ready batches only", "sewing_completed_only=true"],
   ["ERP quantities use sewing-entered output", "process.sewing_completed_quantity"],
   ["ERP size quantities are read-only", "readOnly={!selectedProcess?.is_manual}"],
   ["ERP labels use exact batch-and-size sewing output", "batch.sewingSizes.find((row) => sameSize(row.size, sizeOption.size))?.sewing_completed_quantity"],
