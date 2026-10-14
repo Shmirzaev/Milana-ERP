@@ -1,6 +1,6 @@
 {
   "release": "20261014_081450",
   "source_manifest_sha256": "0236d0756df6c28850ce7e9cda995e882fe3d3ebd08423aed46eb40663556a77",
-  "database_revision": "0144_passport_meter_mode",
+  "database_revision": "0145_packaging_size_entry",
   "git_baseline_commit": "39399207da588876b9de1bbd4f26d6acbbb01e95"
 }
