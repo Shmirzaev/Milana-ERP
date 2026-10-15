@@ -4,6 +4,9 @@ import type { Lang } from "./types";
 // legacy dictionary easier to audit without rewriting that large file.
 export const supplemental: Record<Lang, Record<string, string>> = {
   en: {
+    "cuttingBundles.count": "Number of bundles",
+    "cuttingBundles.itemsPerBundle": "Items per bundle",
+    "cuttingBundles.summary": "{bundles} bundles · {items} items",
     "passportMeters.enabled": "Fabric measured in metres (M)",
     "passportMeters.hint": "Enter quantities and allowances in metres. Switching does not convert existing numbers.",
     "passportMeters.layerWeightKg": "One layer (m)",
@@ -1104,6 +1107,9 @@ export const supplemental: Record<Lang, Record<string, string>> = {
     "page.hrEmployees.loadMore": "Load more employees",
   },
   ru: {
+    "cuttingBundles.count": "Количество связок",
+    "cuttingBundles.itemsPerBundle": "Штук в связке",
+    "cuttingBundles.summary": "Связок: {bundles} · Изделий: {items}",
     "passportMeters.enabled": "Ткань в метрах (М)",
     "passportMeters.hint": "Введите количество и припуски в метрах. Переключение не пересчитывает введённые числа.",
     "passportMeters.layerWeightKg": "Один слой (м)",
@@ -2318,6 +2324,9 @@ export const supplemental: Record<Lang, Record<string, string>> = {
     "page.hrEmployees.loadMore": "\u0417\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0435\u0449\u0451 \u0441\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a\u043e\u0432",
   },
   uz: {
+    "cuttingBundles.count": "Bogʻlamlar soni",
+    "cuttingBundles.itemsPerBundle": "Har bir bogʻlamdagi dona",
+    "cuttingBundles.summary": "{bundles} ta bogʻlam · {items} dona",
     "passportMeters.enabled": "Mato metrda (M)",
     "passportMeters.hint": "Miqdor va qo‘shimchalarni metrda kiriting. Almashtirish kiritilgan sonlarni aylantirmaydi.",
     "passportMeters.layerWeightKg": "Bir qavat (m)",

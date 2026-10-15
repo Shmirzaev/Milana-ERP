@@ -1,5 +1,8 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+  "cuttingBundles.count": "Bogʻlamlar soni",
+  "cuttingBundles.itemsPerBundle": "Har bir bogʻlamdagi dona",
+  "cuttingBundles.summary": "{bundles} ta bogʻlam · {items} dona",
   "passportMeters.enabled": "Mato metrda (M)",
   "passportMeters.hint": "Miqdor va qo‘shimchalarni metrda kiriting. Almashtirish kiritilgan sonlarni aylantirmaydi.",
   "passportMeters.layerWeightKg": "Bir qavat (m)",
