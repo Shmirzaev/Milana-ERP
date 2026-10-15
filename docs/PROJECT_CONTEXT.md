@@ -2,6 +2,15 @@
 
 Last updated: 2026-10-15
 
+## PO-0438 and PO-0439 fully removed (2026-10-15)
+
+- At the owner's explicit request, deleted unused branded-stock production orders `PO-0438` (ID 477, HM11507-V-6586) and `PO-0439` (ID 478, HM11507-V-6594), each planned for 600 pieces. The owner clarified that `clone_main` is the production context; its baseline matched both live manifests before work. Legacy checkout and stale `main` were preserved.
+- A guarded transaction removed exactly 2 production orders, 8 waiting work orders (1870–1877), 12 uncompleted size rows (2771–2782), and 2 material-plan rows (439–440). Inspection and commit-time checks found no cutting, bundles, production batches, reservations, payroll, packaging, stock output, or other linked activity. Shared models 8617/8626, fabric batches 1879/1883, planning parent 53 and its nine other orders were preserved. No inventory quantity was adjusted and no image file was removed.
+- Fresh verified PostgreSQL backup: `/opt/milana-erp/shared/backups/milana_erp_pre_20261015_053458.dump`, 77,117,263 bytes, mode 0600, 1,246 restore objects; SHA-256 `c29a9ef02fe8e3297a66da19a4159d3afa9dcae00d05d9e0621cb77a8502acbf`. Restore-list SHA-256 `f59d84a4c2c740b2e4fa49c734ae7df87d564ef66b8854bfb177205fdecf4bff`.
+- Transactional deletion rehearsal passed and rolled back before the real deletion. Independent post-commit reconciliation found zero target order/workflow rows and verified new audit rows 69893/69894, their hashes and preceding-chain links. Historical audit records remain. All four internal/public health/login checks returned HTTP 200. Browser interaction was not exercised; verification used direct database reconciliation and health endpoints.
+- Live application remains blue `20261015_052733`, immutable commit `6e568bbd1ee364e51d4d09ad4b37785aa8e931b6`, manifest `d211e72b5349bd43984ab64062df24a8e6a7f0f04c34f53c71bbe39770f0b52b`; green `20261015_050959` remains rollback. Schema stays `0145_packaging_size_entry`. No deployment, migration, restart, permission or application-code change occurred. Historical unrelated risks remain open.
+- Dedicated worktree: `C:/ERP/.codex-work/delete-po0438-0439-20261015`; branch `codex/delete-po0438-0439-20261015`, based on `origin/clone_main` at `71e04e6a`. Private inspection, rehearsal, backup and verification evidence is in the worktree's ignored `outputs/` directory. Only this context record is committed for handoff; no merge into `clone_main` or `main` is part of this data cleanup.
+
 
 ## Saved model sizes deployed in branded production controls (2026-10-15)
 
