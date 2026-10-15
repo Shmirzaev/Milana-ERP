@@ -487,8 +487,7 @@ export default function ModelDetail() {
   })), [accessoryItems]);
   const sizeRows = m?.sizes || [];
   const colorRows = m?.colors || [];
-  const primaryImage = (m?.images || []).find((img: any) => img.is_primary && img.image_type === "model")
-    || (m?.images || []).find((img: any) => img.image_type === "model");
+  const primaryImage = m?.primary_image;
   const translatedName = details.translation?.[lang] || (lang === "ru" ? details.translation?.ru : "") || m?.name || "";
   const qolipNoValue = String(
     details.general?.qolip_no

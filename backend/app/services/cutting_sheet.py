@@ -26,7 +26,6 @@ from app.models import (
     WorkOrder,
 )
 from app.services.label_images import fabric_label_image_src, model_preview_label_image_src
-from app.services.model_images import model_preview_image_url
 from app.services.barcode import qr_png_data_uri
 
 
@@ -257,30 +256,8 @@ def _table_row(label: str, values: list[str], total: str = "", highlight: bool =
 
 
 def _sheet_model_image_src(db: Session, model: Model | None) -> str | None:
-    # The garment box describes the parent model; the fabric box below remains
-    # bound to the selected variant. Never substitute a sibling or another scope.
-    if not model:
-        return None
-    model_no = _first(_general(model), "model_no", "modelNo")
-    if model_no and model_no != model.code:
-        parent = (
-            db.query(Model)
-            .options(selectinload(Model.images))
-            .filter(
-                Model.code == model_no,
-                Model.catalog_scope == model.catalog_scope,
-                Model.factory_code == model.factory_code,
-            )
-            .first()
-        )
-        if (
-            parent
-            and not _first(_general(parent), "variant_no", "variantNo")
-            and model_preview_image_url(parent)
-        ):
-            return model_preview_label_image_src(parent)
-    # Standalone models and families without a parent photo retain their own
-    # garment selection; material pictures cannot fill this box.
+    # Use the same scoped family garment as every workflow screen. Fabric and
+    # print boxes retain their separate selected-variant sources.
     return model_preview_label_image_src(model)
 
 

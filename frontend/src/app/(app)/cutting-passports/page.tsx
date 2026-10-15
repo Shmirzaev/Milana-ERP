@@ -605,7 +605,7 @@ export default function CuttingPassportsPage() {
   }
 
   function imageValue(p: Passport) {
-    return p.image_ref || storageThumbnailUrl(p.model_image_url, 160) || "";
+    return storageThumbnailUrl(p.model_image_url, 160) || p.image_ref || "";
   }
 
   function looksLikeImage(value: string) {

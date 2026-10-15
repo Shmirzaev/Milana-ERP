@@ -27,10 +27,8 @@ export default function SalesLineThumbnails({ modelId }: { modelId: number }) {
   if (!modelId) return null;
 
   const images = (model?.images || []).filter(isPreviewModelImage).slice().sort((a, b) => b.id - a.id);
-  const modelImages = images.filter((image) => image.image_type === "model" || !image.image_type);
-  const modelImage = modelImages.find((image) => image.is_primary) || modelImages[0];
-  const materialImage = images.find((image) => image.image_type === "material");
-  const variantUrl = materialImage?.file_url;
+  const modelUrl = model?.primary_image_url;
+  const variantUrl = model?.variant_picture_url;
   const identity = modelOrderLabel(model);
   const emptyLabel = isLoading ? t("common.loading") : t("page.workOrder.noImage");
 
@@ -39,7 +37,7 @@ export default function SalesLineThumbnails({ modelId }: { modelId: number }) {
   return (
     <div className="mt-2 flex gap-3" aria-busy={isLoading}>
       {[
-        { label: t("field.model"), url: modelImage?.file_url },
+        { label: t("field.model"), url: modelUrl },
         { label: t("page.modelDetail.variant"), url: variantUrl },
         ...(images.some((image) => image.image_type === "print")
           ? [{ label: t("page.modelDetail.printPicture"), url: images.find((image) => image.image_type === "print")?.file_url }] : []),
