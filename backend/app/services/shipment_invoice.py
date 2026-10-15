@@ -167,8 +167,18 @@ def invoice_headers(lang: str) -> list[str]:
             text["qty"], text["weight"], text["totalWeight"], text["price"], text["amount"]]
 
 
-def invoice_column_widths() -> list[int]:
-    return [4, 10, 10, 15, 13, 6, 6, 10, 8, 8, 10]
+def invoice_column_widths() -> list[float]:
+    return [100 / 11] * 11
+
+
+def invoice_size_labels(sizes: list[dict]) -> list[str]:
+    """Compact size × pieces labels shared by print and Excel, without losing colors."""
+    multicolor = len({item.get("color") for item in sizes if item.get("color")}) > 1
+    return [
+        (f'{item.get("color") or ""} / ' if multicolor else "") + str(item.get("size") or "")
+        + ("" if item.get("aggregate") else f'×{int(item["quantity"])}')
+        for item in sizes
+    ]
 
 
 def invoice_price_notes(document: dict, lang: str) -> list[str]:
@@ -231,11 +241,7 @@ def render_shipment_invoice(document: dict, language: str, *, show_prices: bool 
     invoice_rows = document.get("invoice_rows") or build_invoice_rows(document.get("lines", []), packages)
     body = []
     for index, row in enumerate(invoice_rows, 1):
-        sizes = "".join(f'<span class="size-label">{value(item.get("size"))} {"" if item.get("aggregate") else "(" + str(int(item["quantity"])) + ")"}</span>' for item in row.get("sizes", []))
-        colors = list(dict.fromkeys(item.get("color") for item in row.get("sizes", []) if item.get("color")))
-        if len(colors) > 1:
-            sizes = "".join(f'<span class="size-label multicolor">{value(item.get("color"))} / {value(item.get("size"))} {"" if item.get("aggregate") else "(" + str(int(item["quantity"])) + ")"}</span>'
-                               for item in row.get("sizes", []))
+        sizes = ", ".join(f'<span class="size-label">{value(label)}</span>' for label in invoice_size_labels(row.get("sizes", [])))
         span = row["package_rowspan"]
         pack_cell = f'<td rowspan="{span}" class="numeric">{number(row["pack_count"], 0)}</td>' if span else ""
         weight_cells = (f'<td rowspan="{span}" class="numeric">{weight(invoice_pack_weight(row))}</td>'
@@ -280,7 +286,7 @@ table{{width:100%;border-collapse:collapse;table-layout:fixed}}td,th{{overflow-w
 .items .row-number{{white-space:nowrap;overflow-wrap:normal;color:#64717e;font-variant-numeric:tabular-nums;padding-left:.5mm;padding-right:.5mm}}
 .items .identity{{font-weight:700;color:#1f3864}}.items .description,.items .sizes{{text-align:left}}.items .sizes{{font-size:6.5pt;color:#444b52}}
 .items .numeric{{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-size:6.8pt}}
-.size-label{{display:inline-block;vertical-align:top;width:50%;white-space:normal;padding-right:1mm}}.size-label.multicolor{{width:100%;white-space:normal}}
+.size-label{{display:inline;white-space:normal}}
 thead{{display:table-header-group}}tr{{break-inside:avoid}}.items tbody:first-of-type tr:last-child{{break-after:avoid}}
 .items .totals td{{font-weight:700;background:#c6d9f1;color:#1f3864;border-top:1.5pt solid #1f3864;border-bottom:3pt double #1f3864;padding-top:2mm;padding-bottom:2mm}}
 .items .totals td:last-child{{background:#1f3864;color:white}}

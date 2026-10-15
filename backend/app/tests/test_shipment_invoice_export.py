@@ -14,6 +14,40 @@ from app.services.variant_display import format_variant_number
 from app.tests.test_shipment_review import dispatch as dispatch, ship
 
 
+@pytest.mark.parametrize("lang", ["en", "ru", "uz"])
+@pytest.mark.parametrize("show_prices", [True, False])
+def test_equal_invoice_columns_compact_sizes_and_hidden_excel_grid(lang, show_prices):
+    from app.services.shipment_invoice import invoice_column_widths, invoice_size_labels
+    from openpyxl.utils import get_column_letter
+
+    packages = [{"package_no": "LAYOUT", "quantity": 60, "weight_kg": "27.22"}]
+    lines = [{"package_no": "LAYOUT", "model_no": "XJ3062", "variant_no": "5775", "size": str(size),
+              "quantity": 10, "unit_price": "5.80", "amount": "58.00"} for size in (48, 50, 52, 54, 56, 58)]
+    document = {"shipment_no": "LAYOUT", "package_details": packages, "lines": lines,
+                "packages_count": 1, "quantity": 60, "amount": "348.00", "invoice_layout_version": 2}
+    original = deepcopy(document)
+    sheet = load_workbook(BytesIO(shipment_invoice_workbook(document, lang, show_prices=show_prices))).active
+    widths = [sheet.column_dimensions[get_column_letter(column)].width for column in range(1, 12)]
+    assert len(set(widths)) == 1
+    assert sum(invoice_column_widths()) == pytest.approx(100)
+    assert sheet["E10"].value == "48×10, 50×10, 52×10, 54×10, 56×10, 58×10"
+    assert sheet.row_dimensions[10].height < 6 * 8.4 + 6  # Former one-line-per-size height.
+    assert sheet.sheet_view.showGridLines is False
+    assert sheet.sheet_view.showRowColHeaders is False
+    assert sheet.print_options.gridLines is False and sheet.print_options.headings is False
+    assert sheet["F11"].value == 1 and sheet["G11"].value == 60 and sheet["I11"].value == 27.22
+    assert sheet["K11"].value == (348 if show_prices else None)
+    html = render_shipment_invoice(document, lang, show_prices=show_prices)
+    assert html.count('<col style="width:9.090909090909092%">') == 11
+    assert '48×10</span>, <span class="size-label">50×10' in html
+    assert invoice_size_labels([
+        {"size": "M", "color": "Red", "quantity": 4},
+        {"size": "L", "color": "Blue", "quantity": 6},
+        {"size": "ASSORTED (12)", "color": "Blue", "aggregate": True, "quantity": 12},
+    ]) == ["Red / M×4", "Blue / L×6", "Blue / ASSORTED (12)"]
+    assert document == original
+
+
 def test_partial_weight_excel_shared_pack_and_literal_text():
     packages = [{"package_no": "A", "quantity": 7, "weight_kg": "12.50"}, {"package_no": "B", "quantity": 3, "weight_kg": None}]
     lines = [{"package_no": "A", "model_no": "=1+1", "description": "First", "size": "48", "quantity": 4, "amount": None},
