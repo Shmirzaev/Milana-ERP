@@ -17,7 +17,7 @@ COPY --from=dependencies /app/node_modules ./node_modules
 COPY frontend/ ./
 # Cross-layer build contracts read ../backend. This source stays in the builder.
 COPY backend/app/ /backend/app/
-RUN npm run build
+RUN npx next build
 
 FROM node:20-alpine AS runtime
 
