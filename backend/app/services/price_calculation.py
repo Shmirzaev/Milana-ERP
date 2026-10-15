@@ -147,6 +147,8 @@ def _size_count_from_range(value: str | None) -> int:
     text = str(value or "").strip()
     if not text:
         return 0
+    if text.endswith(" ×2"):
+        return 2 * len({part.strip() for part in text[:-3].split(",") if part.strip()})
     if "," in text:
         return len({part.strip() for part in text.split(",") if part.strip()})
     if "-" not in text:

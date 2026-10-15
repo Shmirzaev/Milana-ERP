@@ -212,6 +212,8 @@ function uniqueSizes(values: unknown[]) {
 function expandSizeSelection(value: string | null | undefined) {
   const raw = cleanSize(value);
   if (!raw) return [];
+  // Doubled layups store the exact model labels, including combined sizes.
+  if (raw.endsWith(" ×2")) return uniqueSizes(raw.slice(0, -3).split(","));
   const rangeMatch = raw.match(/^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)$/);
   if (!rangeMatch) return uniqueSizes(raw.split(","));
 
@@ -243,6 +245,7 @@ function sizeRangeLabel(sizes: string[]) {
 function sizeCountForSelection(value: string | number, sizes: string[]) {
   const selected = cleanSize(value);
   if (!selected) return 0;
+  if (selected.endsWith(" ×2")) return expandSizeSelection(selected).length * 2;
   const choices = uniqueSizes(sizes);
   if (choices.length === 1 && selected === choices[0]) return 1;
   if (selected === sizeRangeLabel(choices)) return choices.length;
@@ -315,6 +318,10 @@ export default function CuttingPassportsPage() {
       options.push({
         value: range,
         label: choices.length > 1 ? t("page.cuttingPassports.sizeUnit", { count: choices.length, size: range }) : range,
+      });
+      options.push({
+        value: `${choices.join(", ")} ×2`,
+        label: t("page.cuttingPassports.sizeUnit", { count: choices.length * 2, size: `${range} ×2` }),
       });
     }
     for (const size of choices) {
