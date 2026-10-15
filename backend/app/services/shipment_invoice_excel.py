@@ -14,7 +14,7 @@ from openpyxl.worksheet.page import PageMargins
 
 from app.services.shipment_invoice import (
     INVOICE_CONTACT, LABELS, build_invoice_rows, invoice_column_widths, invoice_headers,
-    invoice_metadata, invoice_notes, invoice_pack_weight, invoice_price_notes, recorded_weight,
+    invoice_metadata, invoice_notes, invoice_pack_weight, invoice_price_notes, invoice_size_labels, recorded_weight,
 )
 
 
@@ -74,10 +74,7 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
     border = Border(left=line, right=line, top=line, bottom=line)
     for index, item in enumerate(rows, 1):
         row = index + 9
-        sizes = item.get("sizes", [])
-        multicolor = len({s.get("color") for s in sizes if s.get("color")}) > 1
-        size_text = "\n".join((f'{s.get("color") or ""} / ' if multicolor else "") + str(s.get("size") or "") +
-                              ("" if s.get("aggregate") else f' ({int(s["quantity"])})') for s in sizes)
+        size_text = ", ".join(invoice_size_labels(item.get("sizes", [])))
         span = item["package_rowspan"]
         weight = float(Decimal(str(item["weight_kg"]))) if item.get("weight_kg") is not None else None
         displayed_weight = weight if weight is not None else "—" if span else None
@@ -147,6 +144,9 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
                 )
     sheet.freeze_panes = "D10"
     sheet.sheet_view.showGridLines = False
+    sheet.sheet_view.showRowColHeaders = False
+    sheet.print_options.gridLines = False
+    sheet.print_options.headings = False
     sheet.print_title_rows = "9:9"
     sheet.print_options.horizontalCentered = True
     sheet.page_setup.orientation = "portrait"

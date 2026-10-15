@@ -46,7 +46,7 @@ def test_complete_packs_combine_across_partial_with_exact_print_excel_totals(lan
     assert partial["package_no"] == "PART" and partial["quantity"] == 15 and partial["pack_count"] == 1
     html = render_shipment_invoice(document, lang, show_prices=prices)
     assert html.count('<td>V-6451</td>') == 2
-    assert '>23.12</td>' in html and '>46.24</td>' in html and '48 (30)' in html
+    assert '>23.12</td>' in html and '>46.24</td>' in html and '48×30' in html
     sheet = load_workbook(BytesIO(shipment_invoice_workbook(document, lang, show_prices=prices))).active
     assert [sheet.cell(10, col).value for col in (6, 7, 8, 9)] == [2, 180, 23.12, 46.24]
     assert [sheet.cell(11, col).value for col in (6, 7)] == [1, 15]

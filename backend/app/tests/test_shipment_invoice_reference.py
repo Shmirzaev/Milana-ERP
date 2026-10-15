@@ -61,7 +61,7 @@ def test_dispatch_freezes_reference_fields_transport_weights_and_identity(client
         assert "+998501551010" in html
         assert "PJ1142-V-3599" not in html and "PJ1142" in html and "V-3599" in html
         assert "Synthetic driver" in html and "Changed directly" not in html
-        assert "48 (4)" in html and "48 (4.00)" not in html
+        assert "48×4" in html and "48×4.00" not in html
 
 
 def test_mixed_pack_model_or_price_rows_share_weight_without_proportional_guess():
