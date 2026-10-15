@@ -2,6 +2,16 @@
 
 Last updated: 2026-10-15
 
+## Besttex scanning and direct Packaging corrections prepared (2026-10-15)
+
+- Owner requested Shagovoy/Kontrol separation, optional Control scan closure with unscanned QRs kept separately, PO-0291 routing to Besttex, direct Packaging edits/deletes without admin approval, a clone_main push and fast deployment without extra suites or monitoring.
+- Verified both production source manifests and slots at blue `20261015_080112`, manifest `7c234d9ff6e98ff3c45927ed80d9eadd9944899dd440f9b46717087abafcc288`, rollback green `20261015_071517`, schema `0145_packaging_size_entry`. Stale main is preserved. Dedicated worktree `C:/ERP/.codex-work/besttex-payroll-packaging-20261015`, branch `codex/besttex-payroll-packaging-20261015`, starts from exact live commit `3ae07a89`; separate pending clone_main changes are excluded from the release.
+- Production Shagovoy label OP-0581 has section control. Control recognition now uses operation name/code, never its section. Optional closure requires a reason, locks the exact factory/order/batch/model/size/line/passport group, credits only Control and archives available labels with no payroll credit. QR Control has a separate closed-unscanned section. EN/RU/UZ text is provided.
+- Authorized Packaging/Storage operators apply package edits/deletes immediately with audited request history and existing factory scope. Printed edits replace the receiving manifest, preserve the old snapshots and receipt state, and rotate the edited QR. Deletion retains print/count evidence and permits receipt of the surviving group. Reservations, shipments, dispatched pieces, adjustments, manual receipt evidence and production/size budgets remain guarded.
+- Migration `0146_payroll_qr_closure` adds closed-QR evidence/status and print-run supersession. After a correction supersedes a print run, the older application cannot safely handle its membership; retain this schema and use a compatible forward fix if rollback is needed. Downgrade refuses to erase closure/correction evidence.
+- PO-0291 (316) inspection: 600 planned, 400 cut across five bundles, no Sewing records, assignments, packages or started downstream output. Reviewed script moves only its bundle destinations and Sewing/Packaging departments to BST/BPK, preserving quantities and Cutting history. Apply only after a verified production backup. No production data has changed at preparation.
+
+
 ## Management dashboard restored to real API data (2026-10-15; prepared)
 
 - Owner requested the pictured dashboard show real data and be pushed to `clone_main`. The hardcoded presentation mode disabled both API requests and displayed generated orders, production quantities and finance amounts. Removed its UI branches and unused demo generator. The dashboard now exclusively reads `/api/dashboard/overview` and the permission-gated `/api/dashboard/finance`; empty and failed requests retain truthful zero/empty/error states without synthetic fallback.
