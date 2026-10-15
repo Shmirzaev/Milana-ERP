@@ -43,6 +43,7 @@ export default function PackagesPage() {
   const returnText = packageReturnText[lang];
   const [returnedOnly, setReturnedOnly] = useState(false);
   const canApprovePackageChange = can(me, "management.approve");
+  const canChangePackage = can(me, "packaging.packages") || can(me, "storage.packages");
   const canTraceability = can(me, "traceability.view");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
@@ -418,8 +419,8 @@ export default function PackagesPage() {
                             </Link>
                           )}
                           <button type="button" disabled={p.status === "returned_to_packaging"} className="text-slate-600 hover:underline" onClick={() => api.openLabel(`/api/packages/${p.id}/label`)}>{t("btn.label")}</button>
-                          <button type="button" className="text-blue-700 hover:underline disabled:text-slate-400 disabled:no-underline" disabled={!!pending || busy || (p.status === "returned_to_packaging" && !can(me, "packaging.packages"))} onClick={() => openEdit(p)}>{t("common.edit")}</button>
-                          <button type="button" className="text-red-700 hover:underline disabled:text-slate-400 disabled:no-underline" disabled={!!pending || busy || p.status === "returned_to_packaging"} onClick={() => setDeleting(p)}>{t("common.delete")}</button>
+                          <button type="button" className="text-blue-700 hover:underline disabled:text-slate-400 disabled:no-underline" disabled={!canChangePackage || busy || (p.status === "returned_to_packaging" && !can(me, "packaging.packages"))} onClick={() => openEdit(p)}>{t("common.edit")}</button>
+                          <button type="button" className="text-red-700 hover:underline disabled:text-slate-400 disabled:no-underline" disabled={!canChangePackage || busy} onClick={() => setDeleting(p)}>{t("common.delete")}</button>
                           {p.status === "returned_to_packaging" && can(me, "packaging.packages") && <button type="button" className="btn" disabled={busy} onClick={async () => {
                             setBusy(true); setError("");
                             try {

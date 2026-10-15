@@ -99,6 +99,8 @@ class PayrollControlScanIn(BaseModel):
 class PayrollControlConfirmIn(PayrollControlScanIn):
     review_token: str
     work_date: date | None = None
+    close_unscanned: bool = False
+    closure_reason: str | None = Field(default=None, max_length=1000)
 
 
 class PayrollScanSplitPartIn(BaseModel):
@@ -226,6 +228,7 @@ class PayrollQrLabelSplitIn(PayrollQrLabelEditIn):
 
 
 class PayrollQrLabelOut(ORMModel):
+    closure_details: dict | None = None
     id: int
     factory_code: str
     label_uid: str
@@ -280,6 +283,7 @@ class PayrollQrOrderCount(BaseModel):
 
 
 class PayrollQrControlOut(BaseModel):
+    closed_count: int = 0
     items: list[PayrollQrLabelOut]
     total: int
     available_count: int

@@ -30,6 +30,7 @@ class PackagePrintRun(Base, PkMixin):
     deleted_package_ids: Mapped[list] = mapped_column(JSON, default=list, server_default="[]", nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     returned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     returned_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     return_reason: Mapped[str | None] = mapped_column(String(1000))
 

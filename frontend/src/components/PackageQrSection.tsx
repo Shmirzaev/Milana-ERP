@@ -39,6 +39,7 @@ export default function PackageQrSection({
   const [runRefresh, setRunRefresh] = useState(0);
   const { me } = useMe();
   const canApprovePackageChange = can(me, "management.approve");
+  const canChangePackage = can(me, "packaging.packages") || can(me, "storage.packages");
   const packagesKey = productionOrderId
     ? `/api/packages?production_order_id=${productionOrderId}&include_total=true&page=1&page_size=500`
     : null;
@@ -76,6 +77,7 @@ export default function PackageQrSection({
 
   async function refreshPackages() {
     await Promise.all([mutate(), mutatePendingRequests(), onChanged?.()]);
+    setRunRefresh(value => value + 1);
   }
 
   async function openEdit(pkg: any) {
@@ -336,8 +338,8 @@ export default function PackageQrSection({
                           {t("page.packaging.downloadQr")}
                         </a>
                       )}
-                      <button type="button" className="text-blue-700 hover:underline disabled:text-slate-400 disabled:no-underline" disabled={!!pending || busy} onClick={() => openEdit(p)}>{t("common.edit")}</button>
-                      <button type="button" className="text-red-700 hover:underline disabled:text-slate-400 disabled:no-underline" disabled={!!pending || busy} onClick={() => setDeleting(p)}>{t("common.delete")}</button>
+                      <button type="button" className="text-blue-700 hover:underline disabled:text-slate-400 disabled:no-underline" disabled={!canChangePackage || busy} onClick={() => openEdit(p)}>{t("common.edit")}</button>
+                      <button type="button" className="text-red-700 hover:underline disabled:text-slate-400 disabled:no-underline" disabled={!canChangePackage || busy} onClick={() => setDeleting(p)}>{t("common.delete")}</button>
                       {pending && canApprovePackageChange && (
                         <Fragment>
                           <button type="button" className="text-green-700 hover:underline disabled:text-slate-400" disabled={busy} onClick={() => approveRequest(pending)}>{t("btn.approve")}</button>
