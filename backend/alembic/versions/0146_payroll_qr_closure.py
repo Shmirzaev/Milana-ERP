@@ -14,6 +14,17 @@ def upgrade():
     op.drop_constraint("ck_payroll_qr_labels_status", "payroll_qr_labels", type_="check")
     op.create_check_constraint("ck_payroll_qr_labels_status", "payroll_qr_labels",
                                "status IN ('available', 'scanned', 'superseded', 'closed')")
+    if op.get_bind().dialect.name == "postgresql":
+        # Preserve every print snapshot. Deletion requires explicit retirement
+        # in every historical run, for production and manual packages alike.
+        op.execute("""CREATE OR REPLACE FUNCTION protect_printed_package_deletion() RETURNS trigger AS $$
+        BEGIN
+          IF EXISTS (SELECT 1 FROM package_print_run_members m JOIN package_print_runs r ON r.id=m.run_id
+                     WHERE m.package_id=OLD.id AND r.deleted_at IS NULL
+                       AND NOT r.deleted_package_ids::jsonb @> jsonb_build_array(OLD.id))
+          THEN RAISE EXCEPTION 'Retire every printed label before deleting this package'; END IF;
+          RETURN OLD;
+        END; $$ LANGUAGE plpgsql""")
 
 
 def downgrade():
@@ -28,3 +39,12 @@ def downgrade():
                                "status IN ('available', 'scanned', 'superseded')")
     op.drop_column("payroll_qr_labels", "closure_details")
     op.drop_column("package_print_runs", "superseded_at")
+    if op.get_bind().dialect.name == "postgresql":
+        op.execute("""CREATE OR REPLACE FUNCTION protect_printed_package_deletion() RETURNS trigger AS $$
+        BEGIN
+          IF EXISTS (SELECT 1 FROM package_print_run_members m JOIN package_print_runs r ON r.id=m.run_id
+                     WHERE m.package_id=OLD.id AND (OLD.manual_receipt_id IS NULL OR
+                       (r.deleted_at IS NULL AND NOT r.deleted_package_ids::jsonb @> jsonb_build_array(OLD.id))))
+          THEN RAISE EXCEPTION 'Printed package must have a deleted manual label'; END IF;
+          RETURN OLD;
+        END; $$ LANGUAGE plpgsql""")

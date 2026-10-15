@@ -61,3 +61,18 @@ def test_direct_correction_preserves_reserved_stock(client, auth_headers, packag
     with SessionLocal() as db:
         assert db.get(Package, pid) is not None
         assert db.get(PackagePrintRun, run["id"]).superseded_at is None
+
+
+def test_delete_then_edit_then_delete_retains_all_historical_labels(client, auth_headers, packaging_order):
+    run = create_run(client, auth_headers, packaging_order, 2)
+    first, second = run["package_ids"]
+    for pid, payload in [(first, {"request_type": "delete"}),
+                         (second, {"request_type": "edit", "payload": {"weight_kg": 2.5}}),
+                         (second, {"request_type": "delete"})]:
+        response = client.post(f"/api/packages/{pid}/change-requests", headers=auth_headers, json=payload)
+        assert response.status_code == 201, response.text
+    with SessionLocal() as db:
+        assert db.get(Package, first) is None and db.get(Package, second) is None
+        for member in db.query(PackagePrintRunMember).filter(PackagePrintRunMember.package_id.in_([first, second])):
+            parent = db.get(PackagePrintRun, member.run_id)
+            assert parent.deleted_at or member.package_id in parent.deleted_package_ids
