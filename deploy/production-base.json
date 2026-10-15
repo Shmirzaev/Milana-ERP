@@ -1,6 +1,6 @@
 {
-  "release": "20261015_080112",
-  "source_manifest_sha256": "7c234d9ff6e98ff3c45927ed80d9eadd9944899dd440f9b46717087abafcc288",
-  "database_revision": "0145_packaging_size_entry",
-  "git_baseline_commit": "3ae07a8942652ad23045be453e8700d082262dd6"
+  "release": "20261015_085639",
+  "source_manifest_sha256": "422ff7362f44f3a1efc880abfa9c064ab6d3a53ba663d5cd37cb04f65656b19f",
+  "database_revision": "0146_payroll_qr_closure",
+  "git_baseline_commit": "080900a766dc8a95265b47bf0557bc8e0415414b"
 }
