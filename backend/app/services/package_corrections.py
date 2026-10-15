@@ -20,7 +20,9 @@ def correct_package(db, current, pid, payload):
     # Receiving uses run -> order -> package -> stock. Recheck membership after
     # obtaining locks so a concurrent reprint/correction cannot bypass the gate.
     members = active_members(db).filter(PackagePrintRunMember.package_id == pid).all()
-    run_ids = sorted({member.run_id for member in members})
+    active_run_ids = {member.run_id for member in members}
+    history = db.query(PackagePrintRunMember).filter_by(package_id=pid).all() if payload.request_type == "delete" else members
+    run_ids = sorted({member.run_id for member in history})
     runs = db.query(PackagePrintRun).filter(PackagePrintRun.id.in_(run_ids)).order_by(
         PackagePrintRun.id).with_for_update().populate_existing().all()
     order_id = db.query(Package.production_order_id).filter_by(id=pid).scalar()
@@ -30,7 +32,7 @@ def correct_package(db, current, pid, payload):
     if not pkg:
         raise HTTPException(404, "Package not found")
     require_package_access(current, pkg)
-    if {m.run_id for m in active_members(db).filter(PackagePrintRunMember.package_id == pid).all()} != set(run_ids):
+    if {m.run_id for m in active_members(db).filter(PackagePrintRunMember.package_id == pid).all()} != active_run_ids:
         raise HTTPException(409, "Package print run changed; refresh and retry")
     _ensure_package_can_change(db, pkg, allow_printed=True)
     if payload.request_type not in {"edit", "delete"}:
@@ -53,6 +55,8 @@ def correct_package(db, current, pid, payload):
     if payload.request_type == "delete":
         retire_label_numbers(db, [pkg.package_no])
         for run in runs:
+            if run.deleted_at is not None:
+                continue
             run.deleted_package_ids = sorted(set(run.deleted_package_ids or []) | {pid})
             if set(run.deleted_package_ids) == set(run.package_ids):
                 run.deleted_at = now
@@ -65,14 +69,15 @@ def correct_package(db, current, pid, payload):
         pkg.qr_code_url = None
         db.flush()
         for run in runs:
-            old_members = run_members(db, run)
+            old_members = [member for member in run_members(db, run)
+                           if member.package_id not in set(run.deleted_package_ids or [])]
             run.superseded_at = now
             replacement = PackagePrintRun(
                 run_no=_next(db, PackagePrintRun, "run_no", "PRN"), code=f"PACKRUN:{uuid4().hex}",
                 packaging_department_code=run.packaging_department_code,
-                package_ids=list(run.package_ids), created_by=current.id,
+                package_ids=[member.package_id for member in old_members], created_by=current.id,
                 received_by=run.received_by, received_at=run.received_at,
-                receipt_location=run.receipt_location, deleted_package_ids=list(run.deleted_package_ids or []),
+                receipt_location=run.receipt_location, deleted_package_ids=[],
             )
             db.add(replacement)
             db.flush()
