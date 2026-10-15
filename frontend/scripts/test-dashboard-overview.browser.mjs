@@ -43,8 +43,10 @@ function fixture(days, factory = 'ALL') {
 (async () => {
   const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH });
   const errors = [];
-  const context = await browser.newContext({ viewport: { width: 1720, height: 1120 }, timezoneId: 'Asia/Tashkent' });
+  const context = await browser.newContext({ viewport: { width: 1720, height: 1120 }, timezoneId: 'Asia/Tashkent', locale: 'en-US' });
   let mode = 'normal'; let permissions = ['*'];
+  let finance = snapshot?.finance || { revenue_total: 1234, payments_received: 5678 };
+  let financeRequests = 0;
   await context.route('**/api/**', async route => {
     const url = new URL(route.request().url());
     assert.equal(url.origin, origin);
@@ -58,7 +60,10 @@ function fixture(days, factory = 'ALL') {
       if (mode === 'empty') { data.active_orders = 0; data.late_orders = 0; data.planned_quantity = 0; data.by_status = {}; data.orders = []; for (const k in data.totals) data.totals[k] = 0; data.daily.forEach(p => { for (const k in data.totals) p[k] = 0; }); for(const code in data.sewing_reports.totals) data.sewing_reports.totals[code] = 0; data.sewing_reports.daily.forEach(p => { for(const code in p.values) p.values[code] = 0; }); data.factories.forEach(f => { f.active_orders = 0; f.planned_quantity = 0; for(const k in f.totals) f.totals[k] = 0; }); }
       return send(data);
     }
-    if (url.pathname === '/api/dashboard/finance') return send(snapshot?.finance || { revenue_total: 0, payments_received: 0 });
+    if (url.pathname === '/api/dashboard/finance') {
+      financeRequests++;
+      return send(finance);
+    }
     if (url.pathname.includes('/notifications/summary')) return send({ count: 0, rows: [] });
     if (url.pathname.includes('/tasks/count')) return send({ count: 0 });
     return send([]);
@@ -68,6 +73,19 @@ function fixture(days, factory = 'ALL') {
   page.on('console', message => { if (message.type() === 'error' && mode === 'normal') errors.push(message.text()); });
   await page.goto(origin);
   await page.getByRole('heading', { name: 'Daily sewing reports' }).waitFor();
+  assert.equal(await page.getByText('Demo data', { exact: true }).count(), 0);
+  assert(!/Illustrative figures|Â·|â€/.test(await page.locator('main').innerText()));
+  const initial = snapshot?.['7:ALL'] || fixture(7);
+  assert.equal(await page.getByText('Active production orders', { exact: true }).first().locator('..').locator('.tabular-nums').innerText(), initial.active_orders.toLocaleString('en-US'));
+  const financePanel = page.getByRole('heading', { name: 'Finance · all factories · all time' }).locator('..');
+  await financePanel.getByText(`$${finance.revenue_total.toLocaleString('en-US')}`, { exact: true }).waitFor();
+  finance = { revenue_total: 2345, payments_received: 6789 };
+  const refreshedOverview = page.waitForResponse(r => r.url().includes('/api/dashboard/overview') && r.ok());
+  const refreshedFinance = page.waitForResponse(r => r.url().endsWith('/api/dashboard/finance') && r.ok());
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await Promise.all([refreshedOverview, refreshedFinance]);
+  await financePanel.getByText('$2,345', { exact: true }).waitFor();
+  await financePanel.getByText('$6,789', { exact: true }).waitFor();
   if (snapshot) assert((await page.locator('main a[href^="/usluga/orders/"]').count()) > 0);
   await page.screenshot({ path: path.join(out, 'dashboard-desktop.png'), fullPage: true });
   await page.getByRole('heading', { name: 'Daily sewing reports' }).locator('..').locator('..').screenshot({ path: path.join(out, 'activity-chart.png') });
@@ -148,11 +166,15 @@ function fixture(days, factory = 'ALL') {
   mode = 'error'; await page.reload();
   await page.getByText('Dashboard data could not be loaded. Please retry.', { exact: false }).waitFor();
   assert.equal(await page.getByRole('heading', { name: 'Daily sewing reports' }).count(), 0);
+  assert.equal(await page.getByRole('button', { name: 'Export sewing reports' }).isDisabled(), true);
+  assert.equal(await page.getByText('Active production orders', { exact: true }).first().locator('..').locator('.tabular-nums').innerText(), '—');
+  const previousFinanceRequests = financeRequests;
   mode = 'normal'; permissions = ['management.view']; await page.reload();
   await page.getByRole('heading', { name: 'Daily sewing reports' }).waitFor();
   assert.equal(await page.getByRole('link', { name: 'New order', exact: true }).count(), 0);
   assert.equal(await page.getByRole('heading', { name: 'Finance · all factories · all time' }).count(), 0);
+  assert.equal(financeRequests, previousFinanceRequests);
   assert.deepEqual(errors, []);
   await browser.close();
-  console.log('PASS: separate report/stage sources and CSV, seven-day default, three factory filters/comparison, desktop/mobile, EN/RU/UZ, period, series toggles, search, CSV, empty/error and restricted permissions; zero page exceptions.');
+  console.log('PASS: API-backed metrics/finance, manual refresh of both sources, no demo fallback, separate report/stage sources and CSV, seven-day default, three factory filters/comparison, desktop/mobile, EN/RU/UZ, period, series toggles, search, CSV, empty/error and restricted permissions; zero page exceptions.');
 })().catch(error => { console.error(error); process.exit(1); });
