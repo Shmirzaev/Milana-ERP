@@ -135,7 +135,7 @@ export default function ModelsPage() {
   }
 
   function variantThumbUrl(variant: NonNullable<Model["variants"]>[number]) {
-    return storageThumbnailUrl(variant.picture_url || variant.variant_picture_url || variant.primary_image_url || "", 160);
+    return storageThumbnailUrl(variant.picture_url || variant.variant_picture_url || "", 160);
   }
 
   async function approve(id: number) {
