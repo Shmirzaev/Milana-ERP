@@ -3,6 +3,15 @@
 Last updated: 2026-10-15
 
 
+## Production size controls restricted to saved model sizes (2026-10-15; prepared)
+
+- Owner requested the branded-production size dropdown, Add line and Distribute equally use only the selected model's saved sizes, pushed to `clone_main` and deployed fast without extra tests or monitoring.
+- Removed the generic garment chart and hardcoded size 46 from this form. Saved size labels are trimmed/deduplicated/sorted without expanding range labels into invented sizes. Add line chooses an unused saved size or the first saved size; distribution slices only saved sizes and restricts the end selector to sizes at/after the start. Model switches clear old line sizes while preserving quantities for the existing allocation behavior. Loading/missing-size models cannot add/distribute/submit; missing sizes use the existing EN/RU/UZ size-chart guidance. Unsupported forecast/stale selections must be corrected before submission.
+- Read-only production evidence: TJ2219-V-6305 and its sibling rows have saved sizes 48, 50, 52, 54. The former edit dropdown merged all generic sizes and Add line chose 46. No model, order or quantity record was modified.
+- Dedicated worktree `C:/ERP/.codex-work/model-sizes-only-20261015`, branch `codex/model-sizes-only-20261015`, from verified `origin/clone_main` at `4118d93c`. Both active manifests match green `20261015_050959`, commit `0487579d9b52d94f42fde1f3f36893cdeb0f21c9`, manifest `5e29322cc6635f64b733cc6a4dd417bb2ea2c3d08dd4a69f7cdd5aa5b1371300`; rollback blue `20261015_043855`. Release uses exact active source plus this frontend-only patch and baseline/context metadata, excluding pending Packaging code.
+- Owner waived automated test suites, browser QA, performance benchmarks and timed monitoring. Diff review, immutable compilation/build, backup, source/image identity and immediate health checks remain. No backend/schema/business-data change.
+
+
 ## Family photos deployed across screens and cutting reports (2026-10-15)
 
 - LIVE: green `20261015_050959`, immutable release commit `0487579d9b52d94f42fde1f3f36893cdeb0f21c9`, activated on both VMs at 2026-10-15T05:18:07.524363+00:00. Blue `20261015_043855` remains running for rollback. Source manifest `5e29322cc6635f64b733cc6a4dd417bb2ea2c3d08dd4a69f7cdd5aa5b1371300`; database remains `0145_packaging_size_entry`, no schema or business-data changes.

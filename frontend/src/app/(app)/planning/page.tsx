@@ -17,7 +17,6 @@ import BrandedModelVariantSelect from "@/components/BrandedModelVariantSelect";
 import BrandedCustomerDialog from "@/components/BrandedCustomerDialog";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
-import { GARMENT_SIZE_OPTIONS } from "@/lib/garmentSizes";
 import { numberOrFallback, numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 
 type FabricBatch = {
@@ -188,22 +187,11 @@ type MaterialReservationStatus = {
   reservations: MaterialReservation[];
 };
 
-const SIZE_OPTIONS = GARMENT_SIZE_OPTIONS;
 const DEFAULT_MATERIAL_UNIT = "kg";
 const MATERIAL_ESTIMATE_LABEL_CLASS = "label md:min-h-[32px]";
 
-function expandSizeValue(value: string | null | undefined): string[] {
-  const token = String(value || "").trim();
-  const match = token.match(/^(\d+)\s*[-\u2013\u2014]\s*(\d+)$/);
-  if (!match) return token ? [token] : [];
-  const first = Number(match[1]);
-  const last = Number(match[2]);
-  if (first > last || (last - first) % 2 !== 0 || (last - first) / 2 > 50) return [token];
-  return Array.from({ length: ((last - first) / 2) + 1 }, (_, index) => String(first + (index * 2)));
-}
-
 function uniqueSortedSizes(values: Array<string | null | undefined>): string[] {
-  return Array.from(new Set(values.flatMap(expandSizeValue)))
+  return Array.from(new Set(values.map((value) => String(value || "").trim()).filter(Boolean)))
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
 }
 
@@ -355,10 +343,10 @@ export default function PlanningDashboard() {
     deadline: "",
     cutting_department_code: "CUT",
     sewing_factory_code: "MIL",
-    lines: [{ color: "white", size: "46", quantity: 600, printing_required: false }],
+    lines: [{ color: "white", size: "", quantity: 600, printing_required: false }],
   });
-  const [brandedSizeFrom, setBrandedSizeFrom] = useState("46");
-  const [brandedSizeTo, setBrandedSizeTo] = useState("56");
+  const [brandedSizeFrom, setBrandedSizeFrom] = useState("");
+  const [brandedSizeTo, setBrandedSizeTo] = useState("");
   const [brandedDistributeQty, setBrandedDistributeQty] = useState<NumberInputValue>(6000);
   const [brandedLinesEditing, setBrandedLinesEditing] = useState(false);
   const [brandedLinesModelId, setBrandedLinesModelId] = useState(0);
@@ -408,9 +396,13 @@ export default function PlanningDashboard() {
     .filter((batch) => !["failed", "rejected"].includes(String(batch.qc_status || "").toLowerCase())), [fabricBatches]);
   const selectedBrandedModel = selectedBrandedModelDetail || null;
   const selectedBrandedBrand = activeBrands.find((brand) => Number(brand.id) === Number(brandedForm.brand_id)) || null;
+  const brandedModelLoaded = Boolean(brandedForm.model_id)
+    && Number(selectedBrandedModelDetail?.id) === Number(brandedForm.model_id);
   const selectedBrandedModelSizes = useMemo(
-    () => uniqueSortedSizes((selectedBrandedModelDetail?.sizes || []).map((row) => row.size)),
-    [selectedBrandedModelDetail],
+    () => brandedModelLoaded
+      ? uniqueSortedSizes((selectedBrandedModelDetail?.sizes || []).map((row) => row.size))
+      : [],
+    [brandedModelLoaded, selectedBrandedModelDetail],
   );
   const selectedBrandedFabricItemIds = useMemo(
     () => modelFabricItemIds(selectedBrandedModelDetail),
@@ -420,14 +412,17 @@ export default function PlanningDashboard() {
     () => fabricBatchOptions(availableFabricBatches, selectedBrandedFabricItemIds, true),
     [availableFabricBatches, selectedBrandedFabricItemIds],
   );
-  const brandedSizeOptions = useMemo(
-    () => uniqueSortedSizes([
-      ...SIZE_OPTIONS,
-      ...selectedBrandedModelSizes,
-      ...brandedForm.lines.map((line) => line.size),
-    ]),
-    [brandedForm.lines, selectedBrandedModelSizes],
-  );
+  const brandedSizeOptions = selectedBrandedModelSizes;
+  const brandedSizesReady = brandedModelLoaded && brandedSizeOptions.length > 0;
+  const brandedLinesHaveValidSizes = brandedSizesReady
+    && brandedForm.lines.every((line) => brandedSizeOptions.includes(line.size));
+  const brandedSizeEndOptions = brandedSizeOptions.slice(Math.max(0, brandedSizeOptions.indexOf(brandedSizeFrom)));
+
+  useEffect(() => {
+    setBrandedSizeFrom((previous) => brandedSizeOptions.includes(previous) ? previous : brandedSizeOptions[0] || "");
+    setBrandedSizeTo((previous) => brandedSizeOptions.includes(previous) ? previous : brandedSizeOptions[brandedSizeOptions.length - 1] || "");
+  }, [brandedSizeOptions]);
+
   const selectedBrandedOrder = brandedOrders?.find((order) => Number(order.id) === Number(selectedBrandedOrderId)) || null;
   const forecastPrefillKey = searchParams.toString();
 
@@ -436,7 +431,7 @@ export default function PlanningDashboard() {
     const modelId = Number(params.get("model_id") || 0);
     if (!modelId) return;
     const color = String(params.get("color") || "white").trim() || "white";
-    const size = String(params.get("size") || "46").trim() || "46";
+    const size = String(params.get("size") || "").trim();
     const quantity = Math.max(1, Number(params.get("qty") || 1));
     setBrandedForm((prev) => ({
       ...prev,
@@ -495,11 +490,14 @@ export default function PlanningDashboard() {
   }, [availableFabricBatches, brandedForm.materials, brandedForm.model_id, selectedBrandedFabricItemIds]);
 
   function selectBrandedModel(modelId: number) {
+    setBrandedSizeFrom("");
+    setBrandedSizeTo("");
     setBrandedLinesModelId(0);
     setBrandedLinesEditing(false);
     setBrandedForm((prev) => ({
       ...prev,
       model_id: Number(modelId),
+      lines: prev.lines.map((line) => ({ ...line, size: "" })),
       brand_id: 0,
       materials: [{ fabric_batch_id: 0, estimated_material_amount: "" }],
     }));
@@ -577,6 +575,7 @@ export default function PlanningDashboard() {
   }
 
   function updateBrandedLine(i: number, patch: Partial<BrandedLine>) {
+    if (patch.size !== undefined && !brandedSizeOptions.includes(patch.size)) return;
     setBrandedForm((prev) => ({
       ...prev,
       lines: prev.lines.map((line, idx) => (idx === i ? { ...line, ...patch } : line)),
@@ -584,9 +583,10 @@ export default function PlanningDashboard() {
   }
 
   function addBrandedLine() {
+    if (!brandedSizesReady) return;
     setBrandedForm((prev) => ({
       ...prev,
-      lines: [...prev.lines, { color: prev.lines[0]?.color || "white", size: "46", quantity: 1, printing_required: false }],
+      lines: [...prev.lines, { color: prev.lines[0]?.color || "white", size: brandedSizeOptions.find((size) => !prev.lines.some((line) => line.size === size)) || brandedSizeOptions[0], quantity: 1, printing_required: false }],
     }));
   }
 
@@ -598,6 +598,7 @@ export default function PlanningDashboard() {
   }
 
   function distributeBrandedBySizeRange() {
+    if (!brandedSizesReady) return;
     setBrandedErr("");
     const startIdx = brandedSizeOptions.indexOf(brandedSizeFrom);
     const endIdx = brandedSizeOptions.indexOf(brandedSizeTo);
@@ -907,6 +908,10 @@ export default function PlanningDashboard() {
       setBrandedErr(t("newso.selectModel"));
       return;
     }
+    if (!brandedLinesHaveValidSizes) {
+      setBrandedErr(t(brandedSizesReady ? "newso.invalidSizeRange" : "usluga.noSizes"));
+      return;
+    }
     if (!brandedForm.brand_id) {
       setBrandedErr(t("newso.brandSelect"));
       return;
@@ -940,7 +945,7 @@ export default function PlanningDashboard() {
       .map((line) => ({
         model_id: brandedForm.model_id,
         color: String(line.color || "").trim() || "white",
-        size: String(line.size || "").trim() || "46",
+        size: String(line.size || "").trim(),
         planned_quantity: numberOrZero(line.quantity),
         printing_required: Boolean(line.printing_required),
       }))
@@ -988,7 +993,7 @@ export default function PlanningDashboard() {
         brand_id: 0,
         materials: [{ fabric_batch_id: 0, estimated_material_amount: "" }],
         deadline: "",
-        lines: [{ color: "white", size: "46", quantity: 600, printing_required: false }],
+        lines: [{ color: "white", size: "", quantity: 600, printing_required: false }],
       }));
       setBrandedLinesModelId(0);
       setBrandedLinesEditing(false);
@@ -1754,29 +1759,38 @@ export default function PlanningDashboard() {
                       <RotateCcw />{t("common.cancel")}
                     </button>
                   )}
-                  <button type="button" className="btn" onClick={addBrandedLine}><Plus />{t("newso.addLine")}</button>
+                  <button type="button" className="btn" onClick={addBrandedLine} disabled={!brandedSizesReady}><Plus />{t("newso.addLine")}</button>
                 </>
               ) : (
-                <button type="button" className="btn" onClick={() => setBrandedLinesEditing(true)}>
+                <button type="button" className="btn" onClick={() => setBrandedLinesEditing(true)} disabled={!brandedSizesReady}>
                   <Pencil />{t("common.edit")}
                 </button>
               )}
             </div>
           </div>
+          {brandedForm.model_id > 0 && !brandedSizesReady && (
+            <p className="px-5 py-3 text-sm text-[#8a8472]" role="status">
+              {t(brandedModelLoaded ? "usluga.noSizes" : "common.loading")}
+            </p>
+          )}
           {brandedLinesEditing && (
           <div className="border-b border-[#ecebe3] px-5 py-4">
             <div className="mb-2 text-sm font-semibold text-[#14110b]">{t("newso.sizeHelper")}</div>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-[140px_140px_180px_auto] md:items-end">
               <div>
                 <label className="label">{t("newso.sizeFrom")}</label>
-                <select className="input" value={brandedSizeFrom} onChange={(e) => setBrandedSizeFrom(e.target.value)}>
+                <select className="input" value={brandedSizeFrom} disabled={!brandedSizesReady} onChange={(e) => {
+                  const next = e.target.value;
+                  setBrandedSizeFrom(next);
+                  if (brandedSizeOptions.indexOf(brandedSizeTo) < brandedSizeOptions.indexOf(next)) setBrandedSizeTo(next);
+                }}>
                   {brandedSizeOptions.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
               <div>
                 <label className="label">{t("newso.sizeTo")}</label>
-                <select className="input" value={brandedSizeTo} onChange={(e) => setBrandedSizeTo(e.target.value)}>
-                  {brandedSizeOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+                <select className="input" value={brandedSizeTo} disabled={!brandedSizesReady} onChange={(e) => setBrandedSizeTo(e.target.value)}>
+                  {brandedSizeEndOptions.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
               <div>
@@ -1790,7 +1804,7 @@ export default function PlanningDashboard() {
                 />
               </div>
               <div className="flex items-end md:pb-[1px]">
-                <button type="button" className="btn btn-primary" onClick={distributeBrandedBySizeRange}>
+                <button type="button" className="btn btn-primary" onClick={distributeBrandedBySizeRange} disabled={!brandedSizesReady}>
                   {t("newso.distributeEvenly")}
                 </button>
               </div>
@@ -1813,7 +1827,8 @@ export default function PlanningDashboard() {
                   <tr key={i}>
                     <td><input className="input min-w-28" value={line.color} onChange={(e) => updateBrandedLine(i, { color: e.target.value })} disabled={!brandedLinesEditing} /></td>
                     <td>
-                      <select className="input min-w-24" value={line.size} onChange={(e) => updateBrandedLine(i, { size: e.target.value })} disabled={!brandedLinesEditing}>
+                      <select className="input min-w-24" value={brandedSizeOptions.includes(line.size) ? line.size : ""} onChange={(e) => updateBrandedLine(i, { size: e.target.value })} disabled={!brandedLinesEditing || !brandedSizesReady}>
+                        {!brandedSizeOptions.includes(line.size) && <option value="" disabled>—</option>}
                         {brandedSizeOptions.map((s) => <option key={s} value={s}>{s}</option>)}
                       </select>
                     </td>
@@ -1954,7 +1969,7 @@ export default function PlanningDashboard() {
               </div>
             ) : null}
             {brandedErr && <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">{brandedErr}</div>}
-            <button className="btn btn-primary w-full" disabled={brandedSaving || !selectedBrandedOrderId}>
+            <button className="btn btn-primary w-full" disabled={brandedSaving || !selectedBrandedOrderId || !brandedLinesHaveValidSizes}>
               {brandedSaving ? t("newso.creating") : t("page.planning.addProduction")}
             </button>
           </div>
