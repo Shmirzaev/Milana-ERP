@@ -2,6 +2,12 @@
 
 Last updated: 2026-10-15
 
+## Invoice layout and unused-package deletion release (2026-10-15; preparing)
+
+- Owner approved the invoice preview and requested a push to `clone_main` and immediate deployment including the package-deletion update, without extra tests or monitoring. Application commits through `c3ffce2b` are pushed. Invoice item rows have equal compact heights, sizes are horizontal in a wider Size column, Excel gridlines remain visible outside the white invoice, frozen panes are removed, and explanatory text below the contact footer is omitted in Excel and print. Financial records and amounts are unchanged.
+- Release is based on exact active `20261015_052733` / `6e568bbd1ee364e51d4d09ad4b37785aa8e931b6`, plus the approved invoice and package-deletion patches. Separately pending Packaging changes on `clone_main` are excluded. Existing live family-photo and saved-size updates are retained. No migration or business-data changes are planned.
+- Prior validation: 81 package/history backend tests, frontend localization/browser/type checks, 58 invoice backend tests, six invoice print variants and native Excel preview checks passed. Owner waived additional test suites, browser QA, benchmarks and timed observation for this deployment. Immutable build, source/image verification, fresh backup, readiness and immediate four health checks remain.
+
 ## Unused warehouse package deletion preserves inventory counts (2026-10-15; prepared)
 
 - Owner requested deletion of unused packages while retaining inventory-count history, specific deletion-block reasons, and a push to `clone_main`. No deployment was requested. The motivating package `OLD-20407-9` had 60 available pieces, no reservation/shipment/sales links and five inventory-count rows; the count-history guard alone blocked deletion.
