@@ -398,11 +398,24 @@ export default function PlanningDashboard() {
   const selectedBrandedBrand = activeBrands.find((brand) => Number(brand.id) === Number(brandedForm.brand_id)) || null;
   const brandedModelLoaded = Boolean(brandedForm.model_id)
     && Number(selectedBrandedModelDetail?.id) === Number(brandedForm.model_id);
-  const selectedBrandedModelSizes = useMemo(
+  const ownBrandedModelSizes = useMemo(
     () => brandedModelLoaded
       ? uniqueSortedSizes((selectedBrandedModelDetail?.sizes || []).map((row) => row.size))
       : [],
     [brandedModelLoaded, selectedBrandedModelDetail],
+  );
+  const needsBrandedFamilySizes = brandedModelLoaded && ownBrandedModelSizes.length === 0;
+  const { data: brandedFamilySizes, error: brandedFamilySizesError } = useSWR<{
+    model_id: number; sizes: string[]; resolution: "own" | "inherited" | "missing" | "conflict";
+  }>(needsBrandedFamilySizes ? `/api/models/${brandedForm.model_id}/resolved-sizes` : null, fetcher);
+  const resolvedBrandedFamilySizes = needsBrandedFamilySizes
+    && brandedFamilySizes?.model_id === Number(brandedForm.model_id) ? brandedFamilySizes : undefined;
+  const brandedSizesLoaded = brandedModelLoaded
+    && (ownBrandedModelSizes.length > 0 || Boolean(resolvedBrandedFamilySizes));
+  const selectedBrandedModelSizes = useMemo(
+    () => ownBrandedModelSizes.length > 0 ? ownBrandedModelSizes
+      : uniqueSortedSizes(resolvedBrandedFamilySizes?.sizes || []),
+    [ownBrandedModelSizes, resolvedBrandedFamilySizes],
   );
   const selectedBrandedFabricItemIds = useMemo(
     () => modelFabricItemIds(selectedBrandedModelDetail),
@@ -445,9 +458,9 @@ export default function PlanningDashboard() {
 
   useEffect(() => {
     const modelId = Number(brandedForm.model_id || 0);
-    if (!modelId || Number(selectedBrandedModelDetail?.id || 0) !== modelId || brandedLinesModelId === modelId) return;
+    if (!modelId || !brandedSizesLoaded || brandedLinesModelId === modelId) return;
 
-    const sizes = uniqueSortedSizes((selectedBrandedModelDetail?.sizes || []).map((row) => row.size));
+    const sizes = selectedBrandedModelSizes;
     setBrandedLinesModelId(modelId);
     if (!sizes.length) {
       setBrandedLinesEditing(true);
@@ -461,7 +474,7 @@ export default function PlanningDashboard() {
     setBrandedSizeFrom(sizes[0]);
     setBrandedSizeTo(sizes[sizes.length - 1]);
     setBrandedLinesEditing(false);
-  }, [brandedForm.model_id, brandedLinesModelId, selectedBrandedModelDetail]);
+  }, [brandedForm.model_id, brandedLinesModelId, brandedSizesLoaded, selectedBrandedModelSizes]);
 
   useEffect(() => {
     if (!brandedForm.model_id || brandedForm.brand_id) return;
@@ -1770,7 +1783,9 @@ export default function PlanningDashboard() {
           </div>
           {brandedForm.model_id > 0 && !brandedSizesReady && (
             <p className="px-5 py-3 text-sm text-[#8a8472]" role="status">
-              {t(brandedModelLoaded ? "usluga.noSizes" : "common.loading")}
+              {t(brandedFamilySizesError ? "planning.sizesLoadFailed"
+                : resolvedBrandedFamilySizes?.resolution === "conflict" ? "planning.conflictingModelSizes"
+                : brandedSizesLoaded ? "usluga.noSizes" : "common.loading")}
             </p>
           )}
           {brandedLinesEditing && (
