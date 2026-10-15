@@ -13,7 +13,7 @@ from openpyxl.worksheet.page import PageMargins
 
 from app.services.shipment_invoice import (
     INVOICE_CONTACT, LABELS, build_invoice_rows, invoice_column_widths, invoice_headers,
-    invoice_metadata, invoice_notes, invoice_pack_weight, invoice_price_notes, invoice_size_labels, recorded_weight,
+    invoice_metadata, invoice_pack_weight, invoice_size_labels, recorded_weight,
 )
 
 
@@ -121,12 +121,11 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
         merged(footer, first, last, label, bold=True, fill="1F3864", color="FFFFFF", align="center")
         sheet.cell(footer, first).number_format = "@"
     sheet.row_dimensions[footer].height = 25
-    notes = invoice_notes(document, lang)
-    if show_prices:
-        notes = notes[:-1] + invoice_price_notes(document, lang) + notes[-1:]
-    for row, note in enumerate(notes, footer + 2):
-        merged(row, 1, last_column, note, color="575E66")
-        sheet.row_dimensions[row].height = 24
+    # Keep the invoice paper white while leaving Excel's surrounding grid visible.
+    for row in sheet.iter_rows(min_row=1, max_row=footer, max_col=last_column):
+        for cell in row:
+            if cell.fill.patternType is None:
+                cell.fill = PatternFill("solid", fgColor="FFFFFF")
     # Match the reference's solid grid, navy frames, gold rules and double total.
     outline = Side(style="medium", color="1F3864")
     gold = Side(style="medium", color="D99B26")
@@ -140,9 +139,8 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
                     top=outline if row in (first, total_row) else gold if heading == row - 1 else line,
                     bottom=total_bottom if row == total_row else outline if row == last else gold if row == heading else line,
                 )
-    sheet.freeze_panes = "D10"
-    sheet.sheet_view.showGridLines = False
-    sheet.sheet_view.showRowColHeaders = False
+    sheet.sheet_view.showGridLines = True
+    sheet.sheet_view.showRowColHeaders = True
     sheet.print_options.gridLines = False
     sheet.print_options.headings = False
     sheet.print_title_rows = "9:9"
