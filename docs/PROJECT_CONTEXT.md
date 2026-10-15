@@ -2,6 +2,14 @@
 
 Last updated: 2026-10-15
 
+## Unused warehouse package deletion preserves inventory counts (2026-10-15; prepared)
+
+- Owner requested deletion of unused packages while retaining inventory-count history, specific deletion-block reasons, and a push to `clone_main`. No deployment was requested. The motivating package `OLD-20407-9` had 60 available pieces, no reservation/shipment/sales links and five inventory-count rows; the count-history guard alone blocked deletion.
+- Warehouse deletion no longer treats `WarehouseStocktakeRow` as an operational dependency. These rows already store independent historical package identities and count-start, scan and completion snapshots without a package foreign key. Deletion leaves every count row and scan field intact. Open counts report the package as no longer present while retaining recorded pieces; completed counts and CSV exports stay unchanged. Legacy receipt evidence remains intact. No migration is needed.
+- Existing warehouse permission/factory scope and all operational guards remain: non-received status, sales links, shortfall, dispatched pieces, shipment links/scans, stock and warehouse reservations, quantity adjustments, correction requests and unavailable/inconsistent stock. Each guard now returns a distinct reason translated into EN/RU/UZ instead of the generic 409 fallback. Delete confirmation explains that inventory-count history is preserved.
+- Validation: 81 distinct affected backend tests passed across warehouse lifecycle, deletion/history, stocktake, package handoff, manual dispatch and scan-evidence suites (43 and 57 passes, with 19 shared tests). Scoped Ruff, Python compilation, strict frontend TypeScript, scoped ESLint, error-localization tests and a fixture-only Chrome browser regression passed. Browser coverage verifies EN/RU/UZ blocker text, retry, inventory refresh, confirmation and permission visibility. No production mutation or full-suite/production-browser claim.
+- Dedicated worktree `C:/ERP/.codex-work/package-delete-history-20261015`, branch `codex/package-delete-history-20261015`, based on verified `origin/clone_main` at `71e04e6a`. Both live source manifests remain verified at blue `20261015_052733` / commit `6e568bbd1ee364e51d4d09ad4b37785aa8e931b6`, manifest `d211e72b5349bd43984ab64062df24a8e6a7f0f04c34f53c71bbe39770f0b52b`; recorded rollback is green `20261015_050959`, schema `0145_packaging_size_entry`. Runtime slot JSON could not be read with the available account; source symlinks and full manifests were verified on both hosts. Stale `main`, legacy checkout and separate pending `clone_main` changes are preserved. Production packages/data remain unchanged; this fix requires a later authorized deployment.
+
 
 ## Production size controls restricted to saved model sizes (2026-10-15; prepared)
 

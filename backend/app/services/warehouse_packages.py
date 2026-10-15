@@ -8,7 +8,6 @@ from app.models import (FinishedGoodsStock, Package, PackageChangeRequest, Packa
                         PackagePrintRunMember, ShipmentPackage, ShipmentScanLog, StockReservation,
                         WarehousePackReservation)
 from app.models.shipment_review import PackageQuantityAdjustment
-from app.models.stocktake import WarehouseStocktakeRow
 from app.schemas.package_workflows import PrintRunReceiveIn
 from app.services import package_workflows as workflows
 from app.services.audit import log_action
@@ -68,18 +67,39 @@ def delete_warehouse_package(db, current, pid):
     if not package:
         raise HTTPException(404, "Package not found")
     require_package_access(current, package)
-    if (package.status != "received_in_storage" or package.sales_order_id
-            or package.quantity_shortfall or package.dispatched_quantities):
-        raise HTTPException(409, "Only unused received packages can be deleted")
-    for model in (ShipmentPackage, ShipmentScanLog, StockReservation, WarehousePackReservation,
-                  PackageQuantityAdjustment, WarehouseStocktakeRow, PackageChangeRequest):
+    if package.status != "received_in_storage":
+        raise HTTPException(409, "Only packages received in the warehouse can be deleted")
+    if package.sales_order_id:
+        raise HTTPException(409, "Package is linked to a sales order and cannot be deleted")
+    if package.quantity_shortfall:
+        raise HTTPException(409, "Package has a recorded quantity shortfall and cannot be deleted")
+    if package.dispatched_quantities:
+        raise HTTPException(409, "Package has dispatched pieces and cannot be deleted")
+    # Stocktake rows are independent historical snapshots, not operational links.
+    # Keep their package identity, count/scan/final snapshots and scan evidence intact.
+    for model, reason in (
+        (ShipmentPackage, "Package is linked to a shipment and cannot be deleted"),
+        (ShipmentScanLog, "Package has shipment scan history and cannot be deleted"),
+        (StockReservation, "Package has stock reservation history and cannot be deleted"),
+        (WarehousePackReservation, "Package has a warehouse reservation and cannot be deleted"),
+        (PackageQuantityAdjustment, "Package has quantity adjustment history and cannot be deleted"),
+        (PackageChangeRequest, "Package has an edit or delete request and cannot be deleted"),
+    ):
         if db.query(model).filter_by(package_id=pid).first():
-            raise HTTPException(409, "Package is reserved, linked or used and cannot be deleted")
+            raise HTTPException(409, reason)
     stocks = db.query(FinishedGoodsStock).filter_by(package_id=pid).order_by(FinishedGoodsStock.id).with_for_update().all()
-    if (not stocks or sum(s.quantity for s in stocks) != package.total_quantity
-            or any(s.sales_order_id or s.sold_qty or s.reserved_qty or s.available_qty != s.quantity or s.status != "available" for s in stocks)
-            or db.query(StockReservation.id).filter(StockReservation.finished_goods_stock_id.in_([s.id for s in stocks])).first()):
-        raise HTTPException(409, "Package stock is reserved, used or inconsistent")
+    if not stocks or sum(s.quantity for s in stocks) != package.total_quantity:
+        raise HTTPException(409, "Package stock is missing or does not match the package quantity")
+    if any(s.sales_order_id for s in stocks):
+        raise HTTPException(409, "Package stock is linked to a sales order and cannot be deleted")
+    if any(s.sold_qty for s in stocks):
+        raise HTTPException(409, "Package stock has sold pieces and cannot be deleted")
+    if any(s.reserved_qty for s in stocks):
+        raise HTTPException(409, "Package stock is reserved and cannot be deleted")
+    if any(s.available_qty != s.quantity or s.status != "available" for s in stocks):
+        raise HTTPException(409, "Package stock is not fully available and cannot be deleted")
+    if db.query(StockReservation.id).filter(StockReservation.finished_goods_stock_id.in_([s.id for s in stocks])).first():
+        raise HTTPException(409, "Package stock has reservation history and cannot be deleted")
     log_action(db, current, "delete_warehouse_package", "Package", pid, old_value=workflows.contents(package))
     from app.services.numbering import retire_label_numbers
     import re

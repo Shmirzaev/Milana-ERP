@@ -21,6 +21,22 @@ export function systemLanguage(): Lang {
   return "en";
 }
 const messages: Record<string, [string, string]> = {
+  "Only packages received in the warehouse can be deleted": ["Удалить можно только упаковки, принятые на склад.", "Faqat omborga qabul qilingan qadoqlarni o‘chirish mumkin."],
+  "Package is linked to a sales order and cannot be deleted": ["Упаковку нельзя удалить: она связана с заказом клиента.", "Qadoqni o‘chirib bo‘lmaydi: u mijoz buyurtmasiga bog‘langan."],
+  "Package has a recorded quantity shortfall and cannot be deleted": ["Упаковку нельзя удалить: по ней зарегистрирована недостача.", "Qadoqni o‘chirib bo‘lmaydi: unda kamomad qayd etilgan."],
+  "Package has dispatched pieces and cannot be deleted": ["Упаковку нельзя удалить: часть изделий уже отгружена.", "Qadoqni o‘chirib bo‘lmaydi: uning mahsulotlari qisman jo‘natilgan."],
+  "Package is linked to a shipment and cannot be deleted": ["Упаковку нельзя удалить: она добавлена в отгрузку.", "Qadoqni o‘chirib bo‘lmaydi: u jo‘natmaga qo‘shilgan."],
+  "Package has shipment scan history and cannot be deleted": ["Упаковку нельзя удалить: сохранена история её сканирования для отгрузки.", "Qadoqni o‘chirib bo‘lmaydi: jo‘natish uchun skanerlash tarixi mavjud."],
+  "Package has stock reservation history and cannot be deleted": ["Упаковку нельзя удалить: сохранена история резервирования её остатков.", "Qadoqni o‘chirib bo‘lmaydi: uning qoldig‘ini band qilish tarixi mavjud."],
+  "Package has a warehouse reservation and cannot be deleted": ["Упаковку нельзя удалить: она зарезервирована на складе.", "Qadoqni o‘chirib bo‘lmaydi: u omborda band qilingan."],
+  "Package has quantity adjustment history and cannot be deleted": ["Упаковку нельзя удалить: сохранена история корректировки её количества.", "Qadoqni o‘chirib bo‘lmaydi: uning miqdorini tuzatish tarixi mavjud."],
+  "Package has an edit or delete request and cannot be deleted": ["Упаковку нельзя удалить: для неё сохранён запрос на изменение или удаление.", "Qadoqni o‘chirib bo‘lmaydi: uni o‘zgartirish yoki o‘chirish so‘rovi mavjud."],
+  "Package stock is missing or does not match the package quantity": ["Упаковку нельзя удалить: складской остаток отсутствует или не совпадает с количеством в упаковке.", "Qadoqni o‘chirib bo‘lmaydi: ombor qoldig‘i yo‘q yoki qadoq miqdoriga mos emas."],
+  "Package stock is linked to a sales order and cannot be deleted": ["Упаковку нельзя удалить: её складской остаток связан с заказом клиента.", "Qadoqni o‘chirib bo‘lmaydi: ombor qoldig‘i mijoz buyurtmasiga bog‘langan."],
+  "Package stock has sold pieces and cannot be deleted": ["Упаковку нельзя удалить: часть её складского остатка уже продана.", "Qadoqni o‘chirib bo‘lmaydi: uning ombor qoldig‘ida sotilgan mahsulotlar bor."],
+  "Package stock is reserved and cannot be deleted": ["Упаковку нельзя удалить: её складской остаток зарезервирован.", "Qadoqni o‘chirib bo‘lmaydi: uning ombor qoldig‘i band qilingan."],
+  "Package stock is not fully available and cannot be deleted": ["Упаковку нельзя удалить: её складской остаток доступен не полностью.", "Qadoqni o‘chirib bo‘lmaydi: uning ombor qoldig‘i to‘liq mavjud emas."],
+  "Package stock has reservation history and cannot be deleted": ["Упаковку нельзя удалить: складской остаток связан с записью резервирования.", "Qadoqni o‘chirib bo‘lmaydi: ombor qoldig‘i band qilish yozuviga bog‘langan."],
   "Enter the actual piece count for this passport Nastil": ["Укажите фактическое количество изделий для настила этого паспорта.", "Ushbu pasport nastili uchun haqiqiy dona sonini kiriting."],
   "The passport piece count is locked after cutting records have been created": ["Количество изделий в паспорте заблокировано после записи раскроя.", "Bichish qayd etilgach, pasportdagi dona soni o‘zgartirilmaydi."],
   "Select the existing Nastil work order before adding another passport": ["Перед добавлением паспорта выберите задание существующего настила.", "Yangi pasport qo‘shishdan oldin mavjud nastil topshirig‘ini tanlang."],
