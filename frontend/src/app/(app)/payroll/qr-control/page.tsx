@@ -1,4 +1,5 @@
 "use client";
+import { payrollClosureText } from "@/lib/payrollClosureText";
 import { formatOrderReference } from "@/lib/orderRef";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
@@ -35,7 +36,8 @@ type QrLabel = {
   quantity: number | string;
   rate_per_piece: number | string;
   currency: string;
-  status: "available" | "scanned";
+  status: "available" | "scanned" | "closed";
+  closure_details?: { reason?: string; closed_at?: string } | null;
   payroll_record_id?: number | null;
   employee_id?: number | null;
   employee_name?: string | null;
@@ -51,6 +53,7 @@ type QrControlResponse = {
   items: QrLabel[];
   total: number;
   available_count: number;
+  closed_count: number;
   scanned_count: number;
   order_counts: { order_no: string; total: number; scanned: number }[];
 };
@@ -100,12 +103,13 @@ function uniqueText(values: Array<string | null | undefined>): string[] {
 }
 
 export default function PayrollQrControlPage() {
-  const { t } = useT();
+  const { t, lang } = useT();
+  const closureText = payrollClosureText[lang];
   const dialogs = useDialogs();
   const { me } = useMe();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState<"all" | "available" | "scanned">("all");
+  const [status, setStatus] = useState<"all" | "available" | "scanned" | "closed">("all");
   const [page, setPage] = useState(0);
   const [returningId, setReturningId] = useState<number | null>(null);
   const [printingOrder, setPrintingOrder] = useState<string | null>(null);
@@ -152,10 +156,10 @@ export default function PayrollQrControlPage() {
       rows: groupRows,
       models: uniqueText(groupRows.map((row) => row.model_code)),
       batches: uniqueText(groupRows.map((row) => row.batch_no)),
-      scanned: data?.order_counts?.find((count) => count.order_no === groupOrderNo)?.scanned ?? 0,
-      total: data?.order_counts?.find((count) => count.order_no === groupOrderNo)?.total ?? groupRows.length,
+      scanned: status === "closed" ? 0 : data?.order_counts?.find((count) => count.order_no === groupOrderNo)?.scanned ?? 0,
+      total: status === "closed" ? groupRows.length : data?.order_counts?.find((count) => count.order_no === groupOrderNo)?.total ?? groupRows.length,
     }));
-  }, [rows, data?.order_counts]);
+  }, [rows, data?.order_counts, status]);
   const canReturn = can(me, "payroll.manage");
   const from = data?.total ? page * PAGE_SIZE + 1 : 0;
   const to = Math.min((page + 1) * PAGE_SIZE, data?.total || 0);
@@ -262,6 +266,7 @@ export default function PayrollQrControlPage() {
                 <option value="all">{t("page.payrollQrControl.allStatuses")}</option>
                 <option value="available">{t("page.payrollQrControl.notScanned")}</option>
                 <option value="scanned">{t("page.payrollQrControl.scanned")}</option>
+                <option value="closed">{closureText.archived}</option>
               </select>
             </div>
           </div>
@@ -272,6 +277,10 @@ export default function PayrollQrControlPage() {
           </div>
         </div>
 
+        <div className="flex gap-2 border-b p-3" role="tablist">
+          <button className="btn" role="tab" aria-selected={status !== "closed"} onClick={() => setStatus("all")}>{closureText.active}</button>
+          <button className="btn" role="tab" aria-selected={status === "closed"} onClick={() => setStatus("closed")}>{closureText.archived} ({data?.closed_count || 0})</button>
+        </div>
         <div className="overflow-x-auto">
           <table className="table qr-control-table min-w-[1020px]">
             <thead>
@@ -298,7 +307,7 @@ export default function PayrollQrControlPage() {
                             {expanded[group.orderNo] ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
                             {formatOrderReference(group.orderNo)}
                           </button>
-                          <span>{t(group.scanned === 0 ? "qrOrders.none" : group.scanned === group.total ? "qrOrders.all" : "qrOrders.partial")}</span>
+                          <span>{status === "closed" ? closureText.archived : t(group.scanned === 0 ? "qrOrders.none" : group.scanned === group.total ? "qrOrders.all" : "qrOrders.partial")}</span>
                           <span>{t("common.model")}: <b>{group.models.join(", ") || "-"}</b></span>
                           <span>{t("field.batch")}: <b>{group.batches.join(", ") || "-"}</b></span>
                           <span>{t("page.payrollQrControl.labelCount", { count: group.total })}</span>
@@ -309,7 +318,7 @@ export default function PayrollQrControlPage() {
                           type="button"
                           className="btn shrink-0"
                           onClick={() => reprintOrder(group.orderNo)}
-                          disabled={printingOrder !== null}
+                          disabled={printingOrder !== null || status === "closed"}
                         >
                           <Printer className={printingOrder === group.orderNo ? "animate-pulse" : ""} />
                           {printingOrder === group.orderNo
@@ -334,12 +343,13 @@ export default function PayrollQrControlPage() {
                       <td className="whitespace-nowrap"><b>{row.size || "-"}</b> / {numberText(row.quantity)}</td>
                       <td>
                         <span className={`badge ${row.status === "scanned" ? "badge-green" : "badge-yellow"}`}>
-                          {row.status === "scanned"
+                          {row.status === "closed" ? closureText.closed : row.status === "scanned"
                             ? t("page.payrollQrControl.scanned")
                             : row.return_count > 0
                               ? t("page.payrollQrControl.returnedAvailable")
                               : t("page.payrollQrControl.notScanned")}
                         </span>
+                        {row.closure_details && row.status === "closed" && <div className="mt-1 text-xs">{row.closure_details.reason}<br />{closureText.date}: {formatDateTime(row.closure_details.closed_at)}</div>}
                       </td>
                       <td>
                         <span className="font-medium">{row.employee_name || "-"}</span>

@@ -22,7 +22,7 @@ def receive_order_packages(db, current, order_id, ids):
     members = workflows.active_members(db).filter(PackagePrintRunMember.package_id.in_(ids)).all()
     runs = db.query(PackagePrintRun).filter(PackagePrintRun.id.in_({m.run_id for m in members})).order_by(
         PackagePrintRun.id).with_for_update().populate_existing().all()
-    if any(not set(run.package_ids).issubset(ids) for run in runs):
+    if any(not (set(run.package_ids) - set(run.deleted_package_ids or [])).issubset(ids) for run in runs):
         raise HTTPException(409, "Select the complete print run before receiving")
     gate = prepare_locked_package_receive(db, ids)
     packages = list(gate.packages_by_id.values())

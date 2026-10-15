@@ -92,7 +92,7 @@ class PayrollQrLabel(Base, PkMixin, TimestampMixin):
         CheckConstraint("quantity >= 0", name="ck_payroll_qr_labels_quantity_nonnegative"),
         CheckConstraint("rate_per_piece >= 0", name="ck_payroll_qr_labels_rate_nonnegative"),
         CheckConstraint("return_count >= 0", name="ck_payroll_qr_labels_return_count_nonnegative"),
-        CheckConstraint("status IN ('available', 'scanned', 'superseded')", name="ck_payroll_qr_labels_status"),
+        CheckConstraint("status IN ('available', 'scanned', 'superseded', 'closed')", name="ck_payroll_qr_labels_status"),
         CheckConstraint("factory_code IN ('MIL', 'BST', 'ECO')", name="ck_payroll_qr_labels_factory_code"),
         UniqueConstraint("factory_code", "label_uid", name="uq_payroll_qr_labels_factory_label_uid"),
     )
@@ -123,6 +123,7 @@ class PayrollQrLabel(Base, PkMixin, TimestampMixin):
     rate_per_piece: Mapped[Decimal] = mapped_column(Numeric(14, 4), default=0, nullable=False)
     currency: Mapped[str] = mapped_column(String(8), default="UZS", nullable=False)
     status: Mapped[str] = mapped_column(String(16), default="available", nullable=False, index=True)
+    closure_details: Mapped[dict | None] = mapped_column(JSON)
     payroll_record_id: Mapped[int | None] = mapped_column(ForeignKey("payroll_records.id"), index=True)
     issued_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

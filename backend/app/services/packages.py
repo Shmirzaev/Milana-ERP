@@ -1081,23 +1081,32 @@ def normalize_package_edit_payload(db: Session, pkg: Package, payload: dict | No
     }
 
 
-def _ensure_package_can_change(db: Session, pkg: Package) -> list[FinishedGoodsStock]:
+def _ensure_package_can_change(db: Session, pkg: Package, *, allow_printed: bool = False) -> list[FinishedGoodsStock]:
     from app.models.package_workflows import PackagePrintRunMember
     from app.services.package_workflows import active_members
     if pkg.manual_receipt_id:
         raise HTTPException(409, "Manual receipt evidence cannot be edited or deleted through package correction")
-    if active_members(db).filter(PackagePrintRunMember.package_id == pkg.id).first():
+    if not allow_printed and active_members(db).filter(PackagePrintRunMember.package_id == pkg.id).first():
         raise HTTPException(409, "Printed package membership is immutable; review the receiving run before correction")
     if pkg.status not in PACKAGE_CHANGE_ALLOWED_STATUSES:
         raise HTTPException(400, f"Package in status '{pkg.status}' cannot be edited or deleted")
+    if pkg.dispatched_quantity or pkg.dispatched_quantities or pkg.quantity_shortfall:
+        raise HTTPException(409, "Package has dispatched pieces or quantity corrections")
+    from app.models import ShipmentScanLog
+    from app.models.shipment_review import PackageQuantityAdjustment
+    for model in (WarehousePackReservation, ShipmentScanLog, PackageQuantityAdjustment):
+        if db.query(model).filter(model.package_id == pkg.id).first():
+            raise HTTPException(409, "Package has a reservation, shipment or quantity correction")
     if db.query(StockReservation.id).filter(StockReservation.package_id == pkg.id).first():
         raise HTTPException(409, "Package has stock reservations and cannot be edited or deleted")
     if db.query(ShipmentPackage.id).filter(ShipmentPackage.package_id == pkg.id).first():
         raise HTTPException(409, "Package is attached to a shipment and cannot be edited or deleted")
 
-    rows = db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id == pkg.id).all()
+    rows = db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id == pkg.id).order_by(FinishedGoodsStock.id).with_for_update().all()
+    if rows and db.query(StockReservation.id).filter(StockReservation.finished_goods_stock_id.in_([row.id for row in rows])).first():
+        raise HTTPException(409, "Package stock has reservation history")
     for row in rows:
-        if int(row.reserved_qty or 0) > 0 or int(row.sold_qty or 0) > 0:
+        if int(row.reserved_qty or 0) > 0 or int(row.sold_qty or 0) > 0 or row.available_qty != row.quantity:
             raise HTTPException(409, "Package stock is already reserved or sold")
     return rows
 
@@ -1233,7 +1242,7 @@ def _replace_finished_goods_for_package(
         )
 
 
-def _apply_package_edit_request(db: Session, request: PackageChangeRequest, user_id: int | None) -> Package:
+def _apply_package_edit_request(db: Session, request: PackageChangeRequest, user_id: int | None, *, allow_printed: bool = False) -> Package:
     identity = db.query(Package.production_order_id).filter(Package.id == request.package_id).first()
     po = None
     if identity and identity[0]:
@@ -1243,7 +1252,7 @@ def _apply_package_edit_request(db: Session, request: PackageChangeRequest, user
     pkg = db.query(Package).filter(Package.id == request.package_id).with_for_update().populate_existing().first()
     if not pkg:
         raise HTTPException(404, "Package not found")
-    _ensure_package_can_change(db, pkg)
+    _ensure_package_can_change(db, pkg, allow_printed=allow_printed)
 
     target = request.payload_json or {}
     items = list(target.get("items") or [])
@@ -1324,11 +1333,11 @@ def _apply_package_edit_request(db: Session, request: PackageChangeRequest, user
     return pkg
 
 
-def _apply_package_delete_request(db: Session, request: PackageChangeRequest) -> None:
+def _apply_package_delete_request(db: Session, request: PackageChangeRequest, *, allow_printed: bool = False) -> None:
     pkg = db.query(Package).filter(Package.id == request.package_id).with_for_update().populate_existing().first()
     if not pkg:
         raise HTTPException(404, "Package not found")
-    _ensure_package_can_change(db, pkg)
+    _ensure_package_can_change(db, pkg, allow_printed=allow_printed)
     production_order_id = pkg.production_order_id
 
     db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id == pkg.id).delete(synchronize_session=False)

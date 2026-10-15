@@ -407,7 +407,7 @@ def create_packages_and_run(payload: PrintRunCreatePackagesIn, db: DbSession,
 def list_print_runs(db: DbSession, production_order_id: int | None = None,
                     page: int | None = Query(None, ge=1), page_size: int = Query(50, ge=1, le=100),
                     current: User = Depends(require_permissions("packaging.packages", "packaging.records", "storage.packages", "storage.shipment", "*"))):
-    query = db.query(PackagePrintRun).filter(PackagePrintRun.deleted_at.is_(None), PackagePrintRun.returned_at.is_(None))
+    query = db.query(PackagePrintRun).filter(PackagePrintRun.deleted_at.is_(None), PackagePrintRun.returned_at.is_(None), PackagePrintRun.superseded_at.is_(None))
     if production_order_id:
         query = query.filter(PackagePrintRun.id.in_(db.query(PackagePrintRunMember.run_id).join(
             Package, Package.id == PackagePrintRunMember.package_id).filter(Package.production_order_id == production_order_id)))

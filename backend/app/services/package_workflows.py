@@ -71,7 +71,7 @@ def _package_children(db, packages):
 
 
 def active_members(db):
-    return db.query(PackagePrintRunMember).join(PackagePrintRun, PackagePrintRun.id == PackagePrintRunMember.run_id).filter(PackagePrintRun.returned_at.is_(None))
+    return db.query(PackagePrintRunMember).join(PackagePrintRun, PackagePrintRun.id == PackagePrintRunMember.run_id).filter(PackagePrintRun.returned_at.is_(None), PackagePrintRun.superseded_at.is_(None))
 
 
 def require_current_code(db, pkg, code):
@@ -80,7 +80,7 @@ def require_current_code(db, pkg, code):
         raise HTTPException(409, "Package is returned to Packaging for correction")
     candidates = set(_package_lookup_candidates(code))
     old = db.query(PackagePrintRunMember).join(PackagePrintRun).filter(
-        PackagePrintRunMember.package_id == pkg.id, PackagePrintRun.returned_at.is_not(None),
+        PackagePrintRunMember.package_id == pkg.id, or_(PackagePrintRun.returned_at.is_not(None), PackagePrintRun.superseded_at.is_not(None)),
     ).all()
     if any(m.snapshot.get("barcode") in candidates and m.snapshot.get("barcode") != pkg.barcode for m in old):
         raise HTTPException(409, "Outdated package label; use the corrected QR")
@@ -141,6 +141,8 @@ def run_members(db, run, *, members=None):
 
 
 def require_active_run(run):
+    if run.superseded_at is not None:
+        raise HTTPException(409, "Package contents were corrected; use the new print run")
     if run.returned_at is not None:
         raise HTTPException(409, "Print run was returned to Packaging; use the corrected print run")
     if run.deleted_at is not None:
@@ -314,7 +316,8 @@ def receive_run(db, current, payload):
     # One persistent receipt per group; a retried scan returns that same receipt.
     if run.received_at:
         return run, [], run_members(db, run)
-    members = run_members(db, run)
+    all_members = run_members(db, run)
+    members = active_run_members(db, run, members=all_members)
     ids = [m.package_id for m in members]
     receive_gate = prepare_locked_package_receive(db, ids, print_run_id=run.id)
     if len(receive_gate.packages_by_id) != len(members) or not members:
@@ -375,7 +378,7 @@ def receive_run(db, current, payload):
     run.receipt_location = {"warehouse_id": payload.warehouse_id, "storage_cell": cell, "storage_shelf": shelf}
     log_action(db, current, "receive_print_run", "PackagePrintRun", run.id,
                new_value={"run_no": run.run_no, "package_ids": ids, **run.receipt_location})
-    return run, packages, members
+    return run, packages, all_members
 
 
 def delete_manual_run(db, current, run, package_ids=None):

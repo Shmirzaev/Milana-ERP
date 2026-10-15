@@ -864,7 +864,7 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
     inputRef.current?.focus();
   }
 
-  async function confirmControlReview() {
+  async function confirmControlReview(closeUnscanned = false, reason = "") {
     const review = controlReviewRef.current;
     if (!review || controlConfirmRef.current || !canSavePayroll) return;
     const session = employeeSessionRef.current;
@@ -876,6 +876,8 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
         label_uid: review.preview.work.label_id,
         employee_id: review.employee.employee_id,
         review_token: review.preview.review_token,
+        close_unscanned: closeUnscanned,
+        closure_reason: reason || undefined,
         work_date: review.workDate,
       }, 30_000);
       if (saved.status === "voided") throw new Error("Cancelled Control record");
@@ -1306,7 +1308,7 @@ function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
         replacements.forEach(row => showSessionRecord(row, splitRecord.session));
         setNotice(allocationText.saved, "success");
       }} />}
-      {controlReview ? <ControlScanReview preview={controlReview.preview} employeeName={controlReview.employee.employee_name} busy={controlBusy} error={controlError} onConfirm={() => void confirmControlReview()} onCancel={cancelControlReview} /> : null}
+      {controlReview ? <ControlScanReview key={controlReview.preview.review_token} preview={controlReview.preview} employeeName={controlReview.employee.employee_name} busy={controlBusy} error={controlError} onConfirm={(close, reason) => void confirmControlReview(close, reason)} onCancel={cancelControlReview} /> : null}
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(320px,440px)_minmax(0,1fr)]">
         <section className="card p-4">

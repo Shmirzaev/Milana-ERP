@@ -75,7 +75,6 @@ from app.services.packages import (
     prepare_locked_package_receive,
     sync_package_production_orders,
     format_storage_location,
-    create_package_change_request,
     approve_package_change_request,
     reject_package_change_request,
 )
@@ -1434,28 +1433,8 @@ def request_package_change(
     db: DbSession,
     current: User = Depends(require_permissions("packaging.packages", "storage.packages", "*")),
 ):
-    p = db.get(Package, pid)
-    if not p:
-        raise HTTPException(404, "Package not found")
-    require_package_access(current, p)
-    payload_dict = payload.payload.model_dump(exclude_unset=True) if payload.payload else None
-    req = create_package_change_request(
-        db,
-        pkg=p,
-        request_type=payload.request_type,
-        payload=payload_dict,
-        reason=payload.reason,
-        user_id=current.id,
-    )
-    log_action(
-        db,
-        current,
-        f"request_package_{payload.request_type}",
-        "PackageChangeRequest",
-        req.id,
-        old_value=req.before_json,
-        new_value=req.payload_json or {"request_type": payload.request_type, "package_no": req.package_no},
-    )
+    from app.services.package_corrections import correct_package
+    req = correct_package(db, current, pid, payload)
     db.commit()
     db.refresh(req)
     return req

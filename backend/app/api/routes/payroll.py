@@ -1561,6 +1561,7 @@ def _serialize_qr_label(
         "rate_per_piece": label.rate_per_piece,
         "currency": label.currency,
         "status": label.status,
+        "closure_details": label.closure_details,
         "payroll_record_id": label.payroll_record_id,
         "employee_id": record.employee_id if record else None,
         "employee_name": employee.full_name if employee else None,
@@ -1593,7 +1594,7 @@ def _order_qr_label_query(db: DbSession, order_no: str, factory_code: str):
     variants = _payroll_order_reference_variants(db, order_no)
     return db.query(PayrollQrLabel).filter(
         PayrollQrLabel.factory_code == factory_code,
-        PayrollQrLabel.status != "superseded",
+        PayrollQrLabel.status.notin_(["superseded", "closed"]),
         or_(
             PayrollQrLabel.sales_order_no.in_(variants),
             PayrollQrLabel.production_no.in_(variants),
@@ -2750,7 +2751,8 @@ def _qr_label_scan_payload(label: PayrollQrLabel) -> dict[str, Any]:
 
 def _is_control_operation(value: PayrollQrLabel | dict[str, Any]) -> bool:
     aliases = {"control", "kontrol", "контроль", "nazorat", "qc"}
-    for field in ("operation_section", "operation_name", "operation_code"):
+    # A section groups operations; it does not identify the payable operation.
+    for field in ("operation_name", "operation_code"):
         text = value.get(field) if isinstance(value, dict) else getattr(value, field, None)
         if aliases.intersection(re.findall(r"[^\W\d_]+", str(text or "").casefold())):
             return True
@@ -2764,13 +2766,17 @@ def _control_review_token(label: PayrollQrLabel, employee_id: int) -> str:
     return hashlib.sha256(json.dumps(jsonable_encoder(snapshot), sort_keys=True).encode()).hexdigest()
 
 
-def _control_preview(db: DbSession, label: PayrollQrLabel, employee_id: int) -> dict[str, Any]:
+def _control_label_query(db: DbSession, label: PayrollQrLabel):
     # Exact context prevents a manual order or another size/factory leaking into review.
     query = db.query(PayrollQrLabel).filter(
         PayrollQrLabel.factory_code == label.factory_code,
         PayrollQrLabel.status != "superseded",
         PayrollQrLabel.size == label.size,
         PayrollQrLabel.model_id == label.model_id,
+        PayrollQrLabel.production_batch_id == label.production_batch_id,
+        PayrollQrLabel.sewing_flow_id == label.sewing_flow_id,
+        PayrollQrLabel.cutting_passport_id == label.cutting_passport_id,
+        PayrollQrLabel.batch_no == label.batch_no,
     )
     if not label.model_id:
         query = query.filter(PayrollQrLabel.model_code == label.model_code)
@@ -2787,7 +2793,11 @@ def _control_preview(db: DbSession, label: PayrollQrLabel, employee_id: int) -> 
         if not any((label.sales_order_no, label.production_no, label.batch_no, label.cutting_passport_no)):
             # An unidentifiable legacy context must not combine unrelated work.
             query = query.filter(PayrollQrLabel.label_uid == label.label_uid)
-    labels = query.order_by(PayrollQrLabel.id).all()
+    return query
+
+
+def _control_preview(db: DbSession, label: PayrollQrLabel, employee_id: int) -> dict[str, Any]:
+    labels = _control_label_query(db, label).order_by(PayrollQrLabel.id).all()
     record_ids = {row.payroll_record_id for row in labels if row.payroll_record_id}
     records = {
         row.id: row for row in db.query(PayrollRecord).filter(
@@ -2858,6 +2868,9 @@ def confirm_control_scan(
     current: User = Depends(require_permissions("payroll.scan", "payroll.manage", "*")),
 ):
     label = _load_control_scan(db, payload, current, for_update=False)
+    reason = (payload.closure_reason or "").strip()
+    if payload.close_unscanned and not reason:
+        raise HTTPException(422, "Enter a reason for closing unscanned QRs")
     if payload.review_token != _control_review_token(label, payload.employee_id):
         raise HTTPException(409, "Control QR or employee changed since review; scan the QR again")
 
@@ -2865,15 +2878,39 @@ def confirm_control_scan(
         if payload.review_token != _control_review_token(locked_label, payload.employee_id):
             raise HTTPException(409, "Control QR or employee changed since review; scan the QR again")
 
-    record, created = _create_record_from_payload(
-        db,
-        PayrollRecordIn(
-            scan_uid=label.label_uid, employee_id=payload.employee_id,
-            work_date=payload.work_date,
-            work=jsonable_encoder(_qr_label_scan_payload(label)), source="payroll_control_confirm",
-        ),
-        current=current, control_confirmed=True, issued_label_validator=validate_locked_label,
+    record_payload = PayrollRecordIn(
+        scan_uid=label.label_uid, employee_id=payload.employee_id,
+        work_date=payload.work_date,
+        work=jsonable_encoder(_qr_label_scan_payload(label)), source="payroll_control_confirm",
     )
+    # Match the ledger's period -> labels -> records lock order. Lock the whole
+    # reviewed group in stable order before confirming or closing any label.
+    period = _record_period_candidate(db, record_payload, _prepare_record_data(record_payload, None),
+                                      selected_factory_code(current), for_update=True)
+    labels = _control_label_query(db, label).order_by(PayrollQrLabel.id).populate_existing().with_for_update().all()
+    locked_labels = {row.label_uid: row for row in labels}
+    if label.label_uid not in locked_labels:
+        raise HTTPException(409, "Control QR changed since review; scan the QR again")
+    validate_locked_label(locked_labels[label.label_uid])
+    record, created = _create_record_from_payload(
+        db, record_payload,
+        current=current, control_confirmed=True, issued_label_validator=validate_locked_label,
+        prelocked_period=period, locked_labels=locked_labels,
+    )
+    if payload.close_unscanned and not label.closure_details:
+        if record.status == "voided":
+            raise HTTPException(409, "Cancelled Control cannot close scanning")
+        details = {"control_label_uid": label.label_uid, "closed_by": current.id,
+                   "closed_at": utcnow().isoformat(), "reason": reason}
+        closed_ids = []
+        for row in labels:
+            if row.status == "available" and not row.payroll_record_id:
+                row.status = "closed"
+                row.closure_details = details
+                closed_ids.append(row.id)
+        label.closure_details = {**details, "closed_label_ids": closed_ids}
+        log_action(db, current, "close_unscanned_qrs", "PayrollQrLabel", label.id,
+                   new_value=label.closure_details)
     db.commit()
     db.refresh(record)
     employees, departments = _load_employee_maps(db, {int(record.employee_id)})
@@ -3021,7 +3058,7 @@ def list_qr_labels(
     limit: int = 100,
     offset: int = 0,
 ):
-    if status and status not in {"available", "scanned", "superseded"}:
+    if status and status not in {"available", "scanned", "superseded", "closed"}:
         raise HTTPException(400, "Invalid payroll QR status")
     qry = (
         db.query(PayrollQrLabel)
@@ -3061,10 +3098,11 @@ def list_qr_labels(
         qry = qry.filter(PayrollQrLabel.production_order_id == production_order_id)
     available_count = qry.filter(PayrollQrLabel.status == "available").count()
     scanned_count = qry.filter(PayrollQrLabel.status == "scanned").count()
+    closed_count = qry.filter(PayrollQrLabel.status == "closed").count()
     if status:
         qry = qry.filter(PayrollQrLabel.status == status)
     elif not include_superseded:
-        qry = qry.filter(PayrollQrLabel.status != "superseded")
+        qry = qry.filter(PayrollQrLabel.status.notin_(["superseded", "closed"]))
     total = qry.count()
     labels = (
         qry.order_by(PayrollQrLabel.issued_at.desc(), PayrollQrLabel.id.desc())
@@ -3098,6 +3136,7 @@ def list_qr_labels(
         "total": total,
         "available_count": available_count,
         "scanned_count": scanned_count,
+        "closed_count": closed_count,
     }
 
 
