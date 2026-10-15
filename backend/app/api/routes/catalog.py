@@ -1834,6 +1834,7 @@ def get_model_selling_price(
     }
 
 
+@router.get("/models/{mid}/resolved-sizes")
 @router.get("/models/{mid}/process-qr-sizes")
 def get_process_qr_model_sizes(
     mid: int,
@@ -1841,7 +1842,7 @@ def get_process_qr_model_sizes(
     _: CurrentUser,
     catalog_scope: str = Depends(_standard_catalog_scope),
 ):
-    """Resolve manual Process QR sizes without changing editable model rows."""
+    """Resolve saved workflow sizes without changing editable model rows."""
     model = _catalog_model(db, mid, catalog_scope)
     if not model:
         raise HTTPException(404, "Model not found")
@@ -1866,6 +1867,7 @@ def get_process_qr_model_sizes(
     group_key = _model_group_key(model)
     family_query = db.query(Model).options(selectinload(Model.sizes)).filter(
         Model.catalog_scope == model.catalog_scope,
+        Model.factory_code == model.factory_code,
     )
     if db.get_bind().dialect.name == "postgresql":
         # Use the indexed 0084 identity, including base rows, without taking

@@ -2,6 +2,13 @@
 
 Last updated: 2026-10-15
 
+## Model-family size fallback prepared (2026-10-15)
+
+- Branded-production creation now resolves an empty variant size chart from saved sizes in its exact model family, catalog and factory. Own saved sizes retain priority. The existing indexed family resolver is shared through `/api/models/{mid}/resolved-sizes`; agreeing populated charts are inherited, conflicting or entirely missing charts remain blocked. No generic sizes, range expansion, record copying or business-data changes.
+- Initial lines, size dropdowns, Add line, Distribute equally and submission validation all use the same resolved size list. Initialization waits for the selected model's family response; old responses cannot populate a new selection. Missing/conflicting/failed loads have EN/RU/UZ guidance. XJ3150 V-5380 and V-5381 can inherit 44, 46, 48, 50, 52, 54 from the agreeing family charts.
+- Dedicated worktree `C:/ERP/.codex-work/family-sizes-20261015`, branch `codex/family-sizes-20261015`, based on verified owner-requested `origin/clone_main` at `d5b8ee3b`. Both live manifests, slot identities and symlinks match baseline blue `20261015_092953`, commit `0b8b7eb611af9aa7ddcc22e928c6368e759808c8`, manifest `177c4fdccb1d49b9f83271ab5de01247ca32e828b7aa9764f999e2026f0aeed5`; rollback green `20261015_085639`. Main remains stale and the legacy checkout is preserved.
+- Owner requests push to clone_main and fast deployment without extra tests or monitoring. No automated suites, browser QA, benchmarks or timed observation; diff review, immutable compilation, exact source/image verification, backup, slot readiness and immediate four health checks remain. No migration or business-data changes.
+
 ## Doubled cutting-passport size sets deployed (2026-10-15)
 
 - LIVE: blue `20261015_092953`, immutable commit `0b8b7eb611af9aa7ddcc22e928c6368e759808c8`. Green `20261015_085639` remains running for rollback. Both live slot states, source manifests, image identities and current symlinks agree; manifest `177c4fdccb1d49b9f83271ab5de01247ca32e828b7aa9764f999e2026f0aeed5`. Database remains `0146_payroll_qr_closure`. All four immediate internal/public health/login checks returned 200; both candidate containers have zero restarts/OOM.
