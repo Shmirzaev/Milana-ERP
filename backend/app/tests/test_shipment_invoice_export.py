@@ -16,7 +16,7 @@ from app.tests.test_shipment_review import dispatch as dispatch, ship
 
 @pytest.mark.parametrize("lang", ["en", "ru", "uz"])
 @pytest.mark.parametrize("show_prices", [True, False])
-def test_equal_invoice_rows_horizontal_sizes_and_hidden_excel_grid(lang, show_prices):
+def test_equal_invoice_rows_horizontal_sizes_and_surrounding_excel_grid(lang, show_prices):
     from app.services.shipment_invoice import invoice_column_widths, invoice_size_labels
     from openpyxl.utils import get_column_letter
 
@@ -33,8 +33,12 @@ def test_equal_invoice_rows_horizontal_sizes_and_hidden_excel_grid(lang, show_pr
     assert sheet["E10"].value == "48×10, 50×10, 52×10, 54×10, 56×10, 58×10"
     assert sheet.row_dimensions[10].height == 23.1
     assert not sheet["E10"].alignment.wrap_text and sheet["E10"].alignment.shrink_to_fit is True
-    assert sheet.sheet_view.showGridLines is False
-    assert sheet.sheet_view.showRowColHeaders is False
+    assert sheet.sheet_view.showGridLines is True
+    assert sheet.sheet_view.showRowColHeaders is True
+    assert sheet.freeze_panes is None
+    assert sheet.max_row == 16 and sheet.max_column == 11
+    assert all(sheet[coordinate].fill.fgColor.rgb == "00FFFFFF" for coordinate in ("A1", "K3", "A8", "K12"))
+    assert sheet["L10"].fill.patternType is None and sheet["A17"].fill.patternType is None
     assert sheet.print_options.gridLines is False and sheet.print_options.headings is False
     assert sheet["F11"].value == 1 and sheet["G11"].value == 60 and sheet["I11"].value == 27.22
     assert sheet["K11"].value == (348 if show_prices else None)
@@ -129,7 +133,7 @@ def test_variant_presentation_is_idempotent(raw, expected):
 
 @pytest.mark.parametrize("lang", ["en", "ru", "uz"])
 @pytest.mark.parametrize("historical", [False, True])
-def test_invoice_pdf_excel_share_identity_metadata_notes_and_portrait_layout(lang, historical):
+def test_invoice_pdf_excel_share_identity_metadata_and_end_at_contact_footer(lang, historical):
     from app.services.shipment_invoice import LABELS, invoice_notes
     document = {
         "supplier": "Milana Tex", "shipment_no": "SH-2026-000011", "customer": "Customer",
@@ -158,7 +162,9 @@ def test_invoice_pdf_excel_share_identity_metadata_notes_and_portrait_layout(lan
     assert sheet["B9"].fill.fgColor.rgb == "002F5597"
     values = [cell.value for row in sheet for cell in row]
     for note in invoice_notes(document, lang):
-        assert note in values and note in html
+        assert note not in values and note not in html
+    assert sheet.max_row == 16
+    assert 'class="accounting"' not in html
     assert "Storage" not in values and "Milana Tex Logistics" not in values
     assert all(contact in values and contact in html for contact in ("+998501551010", "Milanapremium.com", "wearmilana@gmail.com"))
     assert sheet["A14"].value is None
@@ -194,13 +200,13 @@ def test_price_columns_and_hidden_exports_preserve_saved_amounts(lang, price, am
             assert sheet["J10"].value == (float(price) if price is not None else "—")
             assert sheet["K10"].value == (float(amount) if amount is not None else "—")
             assert sheet["K11"].value == 36500
-            assert "36\u00a0500.00" in html and "&lt;review&gt;" in html
+            assert "36\u00a0500.00" in html
         else:
             assert sheet["J10"].value is sheet["K10"].value is sheet["K11"].value is None
             assert sheet["J10"].border.left.style and sheet["K10"].border.right.style
             assert '<td class="numeric"></td><td class="numeric"></td></tr>' in html
             assert '<td></td><td class="numeric"></td></tr>' in html
             assert "36500" not in html and "36\u00a0500.00" not in html
-            assert "Agreed" not in html
-            assert not any("Agreed" in str(cell.value) for row in sheet for cell in row)
+        assert "Agreed" not in html
+        assert not any("Agreed" in str(cell.value) for row in sheet for cell in row)
     assert document == before

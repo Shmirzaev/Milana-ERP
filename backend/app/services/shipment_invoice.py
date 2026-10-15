@@ -252,9 +252,6 @@ def render_shipment_invoice(document: dict, language: str, *, show_prices: bool 
                     f'<td>{value(format_variant_number(row.get("variant_no")))}</td><td class="description">{value(row.get("description"))}</td>'
                     f'<td class="sizes">{sizes}</td>{pack_cell}<td class="numeric">{number(row["quantity"], 0)}</td>'
                     f'{weight_cells}{price_cells}</tr>')
-    notes = invoice_notes(document, lang)
-    warning = "".join(f'<p class="warning">{value(caution)}</p>' for caution in notes[:-1])
-    posting = value(notes[-1])
     metadata = invoice_metadata(document, text)
     metadata_html = "".join(f'<tr><th>{value(left)}</th><td>{value(left_value) or "—"}</td>'
                             f'<th>{value(right)}</th><td>{value(right_value) or "—"}</td></tr>'
@@ -262,7 +259,6 @@ def render_shipment_invoice(document: dict, language: str, *, show_prices: bool 
     headers = invoice_headers(lang)
     columns = "".join(f'<col style="width:{width}%">' for width in invoice_column_widths())
     money_total = f'<td></td><td class="numeric">{weight(document.get("amount")) if show_prices else ""}</td>'
-    price_notes = "".join(f'<p>{value(note)}</p>' for note in invoice_price_notes(document, lang)) if show_prices else ""
     toggle_url = f'?lang={lang}&amp;show_prices={str(not show_prices).lower()}'
     toggle_text = text["hide_prices" if show_prices else "show_prices"]
     weights = number(recorded_weight(document))
@@ -292,7 +288,6 @@ thead{{display:table-header-group}}tr{{break-inside:avoid}}.items tbody:first-of
 .items .totals td{{font-weight:700;background:#c6d9f1;color:#1f3864;border-top:1.5pt solid #1f3864;border-bottom:3pt double #1f3864;padding-top:2mm;padding-bottom:2mm}}
 .items .totals td:last-child{{background:#1f3864;color:white}}
 .items .totals .total-label{{font-size:8pt;text-align:right;padding-left:3mm}}
-.accounting{{margin-top:4mm;font-size:8pt;break-inside:avoid;color:#51565d}}p{{margin:1.5mm 0}}.warning{{padding-left:2mm;border-left:1.5pt solid #b82025}}
 .signatures{{margin-top:5mm;break-inside:avoid;color:#1f3864;font-size:8pt;text-align:center}}
 .signatures th{{background:#1f3864;color:white;padding:2mm;border:.75pt solid #8ea9db;border-bottom:1.5pt solid #d99b26}}
 .signatures td{{height:13mm;border:.75pt solid #8ea9db;background:#f2f5fa;font-weight:700}}
@@ -310,4 +305,4 @@ thead{{display:table-header-group}}tr{{break-inside:avoid}}.items tbody:first-of
 <td class="numeric">{weights}</td><td class="numeric">{weights}</td>{money_total}</tr></tbody></table>
 <table class="signatures"><thead><tr><th>{warehouse_officer}</th><th>{warehouse_signature}</th></tr></thead><tbody><tr><td></td><td>________________________________</td></tr></tbody></table>
 <footer class="contact">{"".join(f"<span>{value(contact)}</span>" for contact in INVOICE_CONTACT)}</footer>
-<div class="accounting">{warning}{price_notes}<p>{posting}</p></div></body></html>'''
+</body></html>'''
