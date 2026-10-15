@@ -16,7 +16,7 @@ from app.tests.test_shipment_review import dispatch as dispatch, ship
 
 @pytest.mark.parametrize("lang", ["en", "ru", "uz"])
 @pytest.mark.parametrize("show_prices", [True, False])
-def test_equal_invoice_columns_compact_sizes_and_hidden_excel_grid(lang, show_prices):
+def test_equal_invoice_rows_horizontal_sizes_and_hidden_excel_grid(lang, show_prices):
     from app.services.shipment_invoice import invoice_column_widths, invoice_size_labels
     from openpyxl.utils import get_column_letter
 
@@ -28,17 +28,18 @@ def test_equal_invoice_columns_compact_sizes_and_hidden_excel_grid(lang, show_pr
     original = deepcopy(document)
     sheet = load_workbook(BytesIO(shipment_invoice_workbook(document, lang, show_prices=show_prices))).active
     widths = [sheet.column_dimensions[get_column_letter(column)].width for column in range(1, 12)]
-    assert len(set(widths)) == 1
+    assert widths[4] == max(widths) == 27
     assert sum(invoice_column_widths()) == pytest.approx(100)
     assert sheet["E10"].value == "48×10, 50×10, 52×10, 54×10, 56×10, 58×10"
-    assert sheet.row_dimensions[10].height < 6 * 8.4 + 6  # Former one-line-per-size height.
+    assert sheet.row_dimensions[10].height == 23.1
+    assert not sheet["E10"].alignment.wrap_text and sheet["E10"].alignment.shrink_to_fit is True
     assert sheet.sheet_view.showGridLines is False
     assert sheet.sheet_view.showRowColHeaders is False
     assert sheet.print_options.gridLines is False and sheet.print_options.headings is False
     assert sheet["F11"].value == 1 and sheet["G11"].value == 60 and sheet["I11"].value == 27.22
     assert sheet["K11"].value == (348 if show_prices else None)
     html = render_shipment_invoice(document, lang, show_prices=show_prices)
-    assert html.count('<col style="width:9.090909090909092%">') == 11
+    assert '<col style="width:27%">' in html
     assert '48×10</span>, <span class="size-label">50×10' in html
     assert invoice_size_labels([
         {"size": "M", "color": "Red", "quantity": 4},

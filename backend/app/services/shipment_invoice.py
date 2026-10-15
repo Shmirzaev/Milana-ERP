@@ -167,8 +167,8 @@ def invoice_headers(lang: str) -> list[str]:
             text["qty"], text["weight"], text["totalWeight"], text["price"], text["amount"]]
 
 
-def invoice_column_widths() -> list[float]:
-    return [100 / 11] * 11
+def invoice_column_widths() -> list[int]:
+    return [3, 8, 8, 14, 27, 4, 5, 8, 7, 7, 9]
 
 
 def invoice_size_labels(sizes: list[dict]) -> list[str]:
@@ -284,9 +284,10 @@ table{{width:100%;border-collapse:collapse;table-layout:fixed}}td,th{{overflow-w
 .items thead th{{background:#2f5597;color:#fff;font-size:6.8pt;font-weight:700;padding:2mm .8mm;overflow-wrap:normal;border-bottom:1.5pt solid #d99b26}}
 
 .items .row-number{{white-space:nowrap;overflow-wrap:normal;color:#64717e;font-variant-numeric:tabular-nums;padding-left:.5mm;padding-right:.5mm}}
-.items .identity{{font-weight:700;color:#1f3864}}.items .description,.items .sizes{{text-align:left}}.items .sizes{{font-size:6.5pt;color:#444b52}}
+.items tbody tr{{height:23.1pt}}
+.items .identity{{font-weight:700;color:#1f3864}}.items .description,.items .sizes{{text-align:left}}.items .sizes{{font-size:6.5pt;color:#444b52;white-space:nowrap}}
 .items .numeric{{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-size:6.8pt}}
-.size-label{{display:inline;white-space:normal}}
+.size-label{{display:inline;white-space:nowrap}}
 thead{{display:table-header-group}}tr{{break-inside:avoid}}.items tbody:first-of-type tr:last-child{{break-after:avoid}}
 .items .totals td{{font-weight:700;background:#c6d9f1;color:#1f3864;border-top:1.5pt solid #1f3864;border-bottom:3pt double #1f3864;padding-top:2mm;padding-bottom:2mm}}
 .items .totals td:last-child{{background:#1f3864;color:white}}
