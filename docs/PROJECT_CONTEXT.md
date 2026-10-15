@@ -3,6 +3,14 @@
 Last updated: 2026-10-15
 
 
+## Model and variant picture selection corrected (2026-10-15; deployment pending)
+
+- Owner requested the correction on `clone_main` and fast deployment without extra tests or monitoring. Existing family garment uploads now populate the model-list picture even when no separate base row exists; an explicit base garment stays preferred, otherwise the newest garment upload in the exact family/catalog/factory scope is selected. Fabric/artwork cannot fill the family picture. No base records or attachments are created.
+- Variant thumbnails now require their own material attachment. Garment/print/BOM fallbacks and frontend primary-image substitution are removed. A material filename explicitly naming a different numeric variant is withheld from display, without deleting/replacing the attachment or silently choosing an older image. Exact-source correction remains necessary for ambiguous historical copies.
+- Read-only audit scanned 7,870 model records and 8,877 stored attachment URLs: 889 visible standard families have hidden garment photos, 160 variants use garment/print fallbacks, 19 lack any selected photo, and 307 selected material filenames name a different variant. Shared URLs and filename flags are review evidence, not proof that every historical image is wrong. All referenced files were available; image validation passed.
+- Both live manifests, slot states and revisions verified against `clone_main` metadata: green `20261015_032551`, application `0da03526c25ce375f3d179f8e5f91f888472e22a`, manifest `3e323cd88e3272252b6646ded9597bd4727c63f28e74d94c69a6c2b247acb156`; rollback blue `20261014_081450`, schema `0145_packaging_size_entry`. The release will contain only this picture patch on exact active source, preserving the separately pending Packaging changes on `clone_main`.
+- Worktree `C:/ERP/.codex-work/model-variant-pictures-20261015`, branch `codex/model-variant-pictures-20261015`, based on `origin/clone_main` at `cb4b3773`. Legacy checkout/main preserved. No business data or pictures changed. Automated test runs, browser QA, performance tests and timed monitoring are omitted under the owner request; immutable compilation, source review, fresh backup, startup/health and rollback checks remain.
+
 ## Cutting bundle/item inputs deployed (2026-10-15)
 
 - LIVE: green release `20261015_032551`, exact immutable commit `0da03526c25ce375f3d179f8e5f91f888472e22a`, activated on both VMs at 03:32 UTC / 08:32 Asia/Tashkent. Blue `20261014_081450` remains running for rollback. Both complete manifests, image identities, current symlinks and slot states agree.

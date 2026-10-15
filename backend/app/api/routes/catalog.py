@@ -723,6 +723,19 @@ def _model_group_payload(models: list[Model], *, compact: bool = False) -> dict:
     group_model_no, _ = _model_code_parts(representative)
     base_model = max(base_models, key=lambda model: int(model.id or 0)) if base_models else None
     group_image = _primary_model_image(base_model) if base_model else None
+    if not group_image:
+        # Imported families often have no separate base row: their garment
+        # uploads live on variant rows. Reuse only a garment photo from this
+        # exact family and catalog/factory scope, never its fabric or artwork.
+        family_images = [
+            image
+            for member in models
+            if _model_group_key(member) == _model_group_key(representative)
+            and member.catalog_scope == representative.catalog_scope
+            and member.factory_code == representative.factory_code
+            if (image := _primary_model_image(member)) is not None
+        ]
+        group_image = max(family_images, key=lambda image: int(image.id or 0), default=None)
     payload.update({
         "status": "approved" if any(model.status == "approved" for model in models) else representative.status,
         "group_key": _model_group_key(representative),

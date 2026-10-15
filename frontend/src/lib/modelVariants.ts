@@ -72,7 +72,7 @@ export function modelVariantFabric(model: ModelVariantModel | null | undefined):
 }
 
 export function modelVariantPictureUrl(model: ModelVariantModel | null | undefined): string {
-  return clean(model?.variant_picture_url) || clean(model?.picture_url) || clean(model?.primary_image_url) || clean(model?.primary_image?.file_url);
+  return clean(model?.variant_picture_url) || clean(model?.picture_url);
 }
 
 export function modelVariantGroupKey(model: ModelVariantModel | null | undefined): string {

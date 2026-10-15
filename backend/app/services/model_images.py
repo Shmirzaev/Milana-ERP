@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import re
 from urllib.parse import urlsplit
 
 from app.models import Model, ModelBOM, ModelImage
+from app.services.model_identity import model_number_fields
 
 
 PREVIEW_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
@@ -98,10 +100,24 @@ def model_variant_picture_url(model: Model | None) -> str | None:
         None,
     )
     if typed_material:
+        # Historical imports/clones can attach another variant's named file.
+        # Keep the attachment, but do not display it or silently pick an older
+        # picture when its explicit source identity contradicts this variant.
+        source_variants = re.findall(
+            r"(?<![a-z0-9])(?:v[-_ ]?|variant[-_ ])(\d+)(?![a-z0-9])",
+            str(typed_material.file_name or urlsplit(typed_material.file_url or "").path.rsplit("/", 1)[-1]),
+            flags=re.IGNORECASE,
+        )
+        if source_variants:
+            variant = model_number_fields(model)["variant_no"] or ""
+            match = re.fullmatch(r"(?:v[-_ ]?)?(\d+)", variant, flags=re.IGNORECASE)
+            if match and any(int(source) != int(match[1]) for source in source_variants):
+                return None
         return typed_material.file_url
 
-    # Shared BOM/item/batch photos are material evidence, never variant identity.
-    return model_preview_image_url(model)
+    # Garment/print pictures belong in their own columns. A missing variant
+    # photo must not borrow a family garment or shared BOM/item/batch picture.
+    return None
 
 
 def model_display_image_url(model: Model | None) -> str | None:
