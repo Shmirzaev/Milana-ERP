@@ -1,5 +1,8 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+  "cuttingBundles.count": "Number of bundles",
+  "cuttingBundles.itemsPerBundle": "Items per bundle",
+  "cuttingBundles.summary": "{bundles} bundles · {items} items",
   "passportMeters.enabled": "Fabric measured in metres (M)",
   "passportMeters.hint": "Enter quantities and allowances in metres. Switching does not convert existing numbers.",
   "passportMeters.layerWeightKg": "One layer (m)",

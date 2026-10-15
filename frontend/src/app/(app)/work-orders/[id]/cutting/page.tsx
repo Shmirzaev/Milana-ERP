@@ -647,10 +647,6 @@ export default function CuttingPage() {
     : plannedItemTotal;
   const cutPieces = numberOrZero(form.cut_pieces);
   const bundleTargetTotal = cutPieces > 0 ? cutPieces : batchTargetTotal;
-  const bundleTargetQtyByKey = useMemo(
-    () => distributeBundleTargets(po?.items || [], bundleTargetTotal),
-    [po?.items, bundleTargetTotal],
-  );
   const createdBundlesBatch = useMemo(() => {
     const productionBatches = Array.isArray(po?.batches) ? po.batches : [];
     const selectedId = Number(form.production_batch_id || wo?.production_batch_id || 0);
@@ -728,7 +724,6 @@ export default function CuttingPage() {
     if (!Array.isArray(po?.items) || po.items.length === 0 || departments.length === 0) return;
     const hasPrintingStage = Array.isArray(po?.work_orders) && po.work_orders.some((w: any) => w.operation === "printing");
     const nextStage: "sewing" | "printing" = hasPrintingStage ? "printing" : "sewing";
-    const defaultBundleQty = 50;
     const targetMap = distributeBundleTargets(po.items, bundleTargetTotal);
     setBundles((prev) => {
       const byKey = new Map(prev.map((row) => [itemKey(row.color, row.size), row]));
@@ -741,7 +736,9 @@ export default function CuttingPage() {
           const existing = byKey.get(key);
           const targetQty = targetMap.get(key) || 0;
           if (targetQty <= 0) return null;
-          const preferredQty = Math.max(1, Number(existing?.quantity || defaultBundleQty));
+          const preferredQty = existing && Number(existing.count) > 1
+            ? Math.max(1, Number(existing.quantity || targetQty))
+            : targetQty;
           const qtyPerBundle = Math.max(1, Math.min(preferredQty, targetQty));
           return {
             color,
@@ -879,18 +876,6 @@ export default function CuttingPage() {
 
   function setB(i: number, p: Partial<BundlePlan>) {
     setBundles((prev) => prev.map((b, j) => (applyBundleColumnToAll || i === j ? { ...b, ...p } : b)));
-  }
-  function setBQty(i: number, nextQtyRaw: string | number) {
-    const parsedQty = parseWholeInput(nextQtyRaw);
-    setBundles((prev) => prev.map((b, j) => {
-      if (!applyBundleColumnToAll && i !== j) return b;
-      if (parsedQty === "") return { ...b, quantity: "" };
-      const nextQty = Math.max(1, parsedQty);
-      const key = itemKey(b.color, b.size);
-      const targetQty = bundleTargetQtyByKey.get(key) ?? (Number(b.quantity || 0) * Number(b.count || 1));
-      const nextCount = Math.max(1, Math.ceil(Number(targetQty || 0) / nextQty));
-      return { ...b, quantity: nextQty, count: nextCount };
-    }));
   }
   function addB() {
     const first = bundles[0];
@@ -2320,6 +2305,7 @@ export default function CuttingPage() {
         {!isSecondaryUslugaFabric && <div>
           <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
             <h3 className="font-medium">{t("page.cutting.bundlePlan")}</h3>
+            <p className="text-sm">{t("cuttingBundles.summary", { bundles: bundles.reduce((sum, row) => sum + Math.max(0, numberOrZero(row.count)), 0), items: bundlePlanTotal })}</p>
             <div className="flex flex-wrap items-center gap-3">
               <label className="flex items-center gap-2 text-sm font-medium text-[#56503f]">
                 <input
@@ -2339,8 +2325,8 @@ export default function CuttingPage() {
               <tr>
                 <th>{t("field.color")}</th>
                 <th>{t("field.size")}</th>
-                <th>{t("field.bundleQty")}</th>
-                <th>{t("field.count")}</th>
+                <th>{t("cuttingBundles.count")}</th>
+                <th>{t("cuttingBundles.itemsPerBundle")}</th>
                 <th>{t("field.sewingFactory")}</th>
                 <th>{t("field.next")}</th>
                 <th>{t("field.actions")}</th>
@@ -2351,8 +2337,8 @@ export default function CuttingPage() {
                 <tr key={i}>
                   <td><input className="input" value={b.color} onChange={(e) => setB(i, { color: e.target.value })} /></td>
                   <td><input className="input" value={b.size} onChange={(e) => setB(i, { size: e.target.value })} /></td>
-                  <td><input className="input" type="number" value={b.quantity} onChange={(e) => setBQty(i, e.target.value)} /></td>
-                  <td><input className="input" type="number" value={b.count} onChange={(e) => setB(i, { count: parseWholeInput(e.target.value) })} /></td>
+                  <td><input className="input" type="number" min={1} step={1} aria-label={t("cuttingBundles.count")} value={b.count} onChange={(e) => setB(i, { count: parseWholeInput(e.target.value) })} /></td>
+                  <td><input className="input" type="number" min={1} step={1} aria-label={t("cuttingBundles.itemsPerBundle")} value={b.quantity} onChange={(e) => setB(i, { quantity: parseWholeInput(e.target.value) })} /></td>
                   <td>
                     <select className="input" disabled={isUsluga} value={isUsluga ? "eco_cotton" : (b.sewing_factory || "milana")} onChange={(e) => setB(i, { sewing_factory: e.target.value as SewingFactory })}>
                       <option value="milana">{t("factory.milana")}</option>

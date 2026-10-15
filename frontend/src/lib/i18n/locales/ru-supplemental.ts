@@ -1,5 +1,8 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+  "cuttingBundles.count": "Количество связок",
+  "cuttingBundles.itemsPerBundle": "Штук в связке",
+  "cuttingBundles.summary": "Связок: {bundles} · Изделий: {items}",
   "passportMeters.enabled": "Ткань в метрах (М)",
   "passportMeters.hint": "Введите количество и припуски в метрах. Переключение не пересчитывает введённые числа.",
   "passportMeters.layerWeightKg": "Один слой (м)",
