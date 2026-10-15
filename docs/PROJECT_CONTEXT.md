@@ -3,6 +3,15 @@
 Last updated: 2026-10-15
 
 
+## Family photos across workflows and reports prepared (2026-10-15)
+
+- Owner requested all screens and cutting reports use the existing model-family garment photo, with variant/material/print pictures kept separate, pushed to `clone_main` and deployed fast without extra tests or monitoring.
+- Shared transaction-scoped, batched lookup uses the indexed family identity and exact catalog/factory scope, excluding internal legacy rows. It prefers the latest base record's garment, otherwise the newest selected family garment; files and business data are not replaced. Production, cutting, sewing, packaging, planning, pricing, warehouse, shipment and process-tracking photo consumers share this selector. Catalog detail/options, sales thumbnails, Usluga and cutting passport displays also use the family photo. Printable model photos embed the same selected upload, including DB-only uploads; variant labels never borrow it.
+- Confirmed example: PO-0411 points to XJ3195-V-6570, which has only a material upload. Existing XJ3195 garment uploads are on sibling records. The former workflow lookup and parent-only cutting report lookup returned no picture despite the catalog showing the family photo.
+- Verified active baseline remains blue `20261015_043855` / `43ec9d2201c0efaebe3c427b2156ba802ed6c800`, manifest `8cb3754c4aea3f1ae75baf08eb0190ee976c105f8893d082f71724a927fe4451`, rollback green `20261015_032551`. App worktree `C:/ERP/.codex-work/family-photos-all-screens-20261015`, branch `codex/family-photos-all-screens-20261015`, based on `origin/clone_main` at `81388b0f`. Separate pending Packaging implementation stays out of the release.
+- Automated tests, browser QA, benchmarks and timed monitoring are omitted by owner request. Source review, compilation, immutable build, backup and immediate health/rollback checks remain. No schema, attachment or business-data change.
+
+
 ## Model and variant pictures deployed (2026-10-15)
 
 - LIVE: blue `20261015_043855`, exact immutable application commit `43ec9d2201c0efaebe3c427b2156ba802ed6c800`, activated on both VMs at 04:45 UTC / 09:45 Asia/Tashkent. Green `20261015_032551` remains running for rollback. Full source manifests, image revisions, slot states and symlinks agree. Schema remains `0145_packaging_size_entry`; startup Alembic checks were a no-op and seeding was disabled.

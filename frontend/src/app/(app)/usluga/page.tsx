@@ -19,6 +19,7 @@ import { useT } from "@/lib/i18n";
 import { storageThumbnailUrl } from "@/lib/modelImages";
 
 type UslugaModel = {
+  primary_image_url?: string | null;
   id: number;
   code: string;
   name: string;
@@ -332,7 +333,7 @@ export default function UslugaPage() {
           <h2 className="text-base font-semibold text-[#242117]">{t("usluga.planSummary")}</h2>
           {selectedModel ? <div className="mt-4 flex gap-3 border-b border-[#ecebe3] pb-4">
             <div className="h-24 w-[72px] shrink-0 overflow-hidden rounded-md border border-[#dedbd0] bg-[#f1efe8]">
-              {selectedModel.images?.find((image: any) => image.image_type === "model")?.file_url ? <VerticalModelPhoto src={storageThumbnailUrl(selectedModel.images?.find((image: any) => image.image_type === "model")?.file_url, 240)} alt={selectedModel.name} className="h-full w-full" width={144} height={192} /> : null}
+              {selectedModel.primary_image_url ? <VerticalModelPhoto src={storageThumbnailUrl(selectedModel.primary_image_url, 240)} alt={selectedModel.name} className="h-full w-full" width={144} height={192} /> : null}
             </div>
             <div className="min-w-0"><div className="mono text-xs text-[#8a8472]">{formatModelVariantCode(selectedModel.code)}</div><div className="mt-1 font-semibold text-[#242117]">{selectedModel.name}</div><div className="mt-1 text-xs text-[#8a8472]">{selectedModel.category || "—"}</div></div>
           </div> : <p className="mt-3 text-sm text-[#8a8472]">{t("usluga.selectModel")}</p>}

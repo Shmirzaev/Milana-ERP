@@ -271,6 +271,9 @@ class ModelOut(ORMModel):
 
 
 class ModelDetail(ModelOut):
+    primary_image: Optional[ModelImageOut] = None
+    primary_image_url: Optional[str] = None
+    variant_picture_url: Optional[str] = None
     images: list[ModelImageOut] = []
     sizes: list[ModelSizeOut] = []
     colors: list[ModelColorOut] = []

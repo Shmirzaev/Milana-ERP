@@ -10,7 +10,7 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Depends, Query, Response
 from fastapi import UploadFile, File, Form
 from sqlalchemy import and_, case, func, literal_column, or_, select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import defer, selectinload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions, user_permissions
 from app.core.config import settings
@@ -41,6 +41,9 @@ from app.schemas.inventory import ItemOut
 from app.services.audit import log_action
 from app.services.factory_scope import selected_factory_code
 from app.services.model_images import model_print_image_url, model_variant_picture_url
+from app.services.model_family_images import (
+    family_image_from_members, family_images_for_models, model_family_image, own_model_image,
+)
 from app.services.numbering import next_model_variant_no, next_model_no, CATALOG_NUMBERING_BASE
 from app.services.paid_operations import (
     filter_paid_operations_for_factory,
@@ -299,11 +302,7 @@ def _model_code_parts(model: Model) -> tuple[str, str]:
 
 
 def _primary_model_image(model: Model) -> ModelImage | None:
-    images = sorted(
-        [img for img in model.images or [] if str(img.image_type or "").lower() in {"", "model"} and _is_preview_image(img)],
-        key=lambda img: int(getattr(img, "id", 0) or 0), reverse=True,
-    )
-    return next((img for img in images if img.is_primary), None) or next(iter(images), None)
+    return own_model_image(model)
 
 
 def _material_model_image(model: Model) -> ModelImage | None:
@@ -681,7 +680,7 @@ def _compact_model_payload(model: Model) -> dict:
         key=lambda img: int(getattr(img, "id", 0) or 0),
         reverse=True,
     )
-    primary_image = _primary_model_image(model)
+    primary_image = model_family_image(model)
     primary_payload = _image_payload(primary_image) if primary_image else None
     variant_payload = _model_variant_payload(model)
     return {
@@ -721,21 +720,7 @@ def _model_group_payload(models: list[Model], *, compact: bool = False) -> dict:
     representative = max(base_models or models, key=lambda model: int(model.id or 0))
     payload = _compact_model_payload(representative) if compact else _model_payload(representative)
     group_model_no, _ = _model_code_parts(representative)
-    base_model = max(base_models, key=lambda model: int(model.id or 0)) if base_models else None
-    group_image = _primary_model_image(base_model) if base_model else None
-    if not group_image:
-        # Imported families often have no separate base row: their garment
-        # uploads live on variant rows. Reuse only a garment photo from this
-        # exact family and catalog/factory scope, never its fabric or artwork.
-        family_images = [
-            image
-            for member in models
-            if _model_group_key(member) == _model_group_key(representative)
-            and member.catalog_scope == representative.catalog_scope
-            and member.factory_code == representative.factory_code
-            if (image := _primary_model_image(member)) is not None
-        ]
-        group_image = max(family_images, key=lambda image: int(image.id or 0), default=None)
+    group_image = family_image_from_members(representative, models)
     payload.update({
         "status": "approved" if any(model.status == "approved" for model in models) else representative.status,
         "group_key": _model_group_key(representative),
@@ -778,7 +763,7 @@ def _model_payload(m: Model, factory_scope: str | None = None) -> dict:
     payload = ModelOut.model_validate(m).model_dump()
     payload["details_json"] = filter_paid_operations_for_factory(payload.get("details_json"), factory_scope)
     images = sorted(list(m.images or []), key=lambda img: int(getattr(img, "id", 0) or 0), reverse=True)
-    primary_image = _primary_model_image(m)
+    primary_image = model_family_image(m)
     primary_payload = _image_payload(primary_image) if primary_image else None
     variant_payload = _model_variant_payload(m)
     payload["primary_image"] = primary_payload
@@ -825,33 +810,6 @@ def _variant_models_query(db: DbSession, catalog_scope: str = "standard"):
     ).filter(Model.catalog_scope == _normalize_catalog_scope(catalog_scope))
 
 
-def _model_thumbnail_subquery():
-    preview_image = or_(
-        ModelImage.content_type.ilike("image/%"),
-        func.lower(ModelImage.file_url).like("%.png"),
-        func.lower(ModelImage.file_url).like("%.jpg"),
-        func.lower(ModelImage.file_url).like("%.jpeg"),
-        func.lower(ModelImage.file_url).like("%.webp"),
-        func.lower(ModelImage.file_url).like("%.gif"),
-    )
-    priority = case(
-        (ModelImage.image_type == "print", -1),
-        (and_(ModelImage.is_primary.is_(True), ModelImage.image_type == "model"), 0),
-        (ModelImage.is_primary.is_(True), 1),
-        (ModelImage.image_type == "model", 2),
-        else_=3,
-    )
-    return (
-        select(ModelImage.file_url)
-        .where(ModelImage.model_id == Model.id, preview_image,
-               or_(ModelImage.image_type.in_(["model", "print", ""]), ModelImage.image_type.is_(None)))
-        .order_by(priority, ModelImage.id.desc())
-        .limit(1)
-        .correlate(Model)
-        .scalar_subquery()
-    )
-
-
 def _model_summary_query(db: DbSession, catalog_scope: str = "standard"):
     return db.query(
         Model.id,
@@ -862,8 +820,27 @@ def _model_summary_query(db: DbSession, catalog_scope: str = "standard"):
         Model.status,
         Model.created_at,
         Model.updated_at,
-        _model_thumbnail_subquery().label("thumbnail_url"),
+        Model.details_json,
+        Model.catalog_scope,
+        Model.factory_code,
     ).filter(Model.catalog_scope == _normalize_catalog_scope(catalog_scope))
+
+
+def _summary_family_photos(db: DbSession, rows) -> dict[int, str | None]:
+    from app.services.model_family_images import _family_key
+    images = family_images_for_models(db, rows)
+    photos = {row.id: (image.file_url if (image := images.get(_family_key(row))) else None)
+              for row in rows if not isinstance(row.details_json, dict) or row.details_json.get("legacy_import") is not True}
+    legacy_ids = [row.id for row in rows if row.id not in photos]
+    if legacy_ids:
+        legacy_images = db.scalars(select(ModelImage).where(ModelImage.model_id.in_(legacy_ids)).options(
+            defer(ModelImage.file_data, raiseload=True),
+        )).all()
+        from types import SimpleNamespace
+        for model_id in legacy_ids:
+            image = own_model_image(SimpleNamespace(images=[image for image in legacy_images if image.model_id == model_id]))
+            photos[model_id] = image.file_url if image else None
+    return photos
 
 
 def _catalog_model(db: DbSession, model_id: int, catalog_scope: str = "standard") -> Model | None:
@@ -878,7 +855,7 @@ def _standard_model(db: DbSession, model_id: int) -> Model | None:
     return _catalog_model(db, model_id, "standard")
 
 
-def _model_summary_payload(row) -> dict:
+def _model_summary_payload(row, thumbnail_url: str | None = None) -> dict:
     return ModelSummaryOut(
         id=row.id,
         code=row.code,
@@ -886,7 +863,7 @@ def _model_summary_payload(row) -> dict:
         category=row.category,
         brand_id=row.brand_id,
         status=row.status,
-        thumbnail_url=row.thumbnail_url,
+        thumbnail_url=thumbnail_url,
         created_at=row.created_at,
         updated_at=row.updated_at,
     ).model_dump()
@@ -1448,12 +1425,13 @@ def list_model_options(
             .all()
         )
         has_more = len(result) > page_size
+        photos = _summary_family_photos(db, result[:page_size])
         items = [
             {
                 "id": row.id,
                 "code": row.code,
                 "name": row.name,
-                "thumbnail_url": row.thumbnail_url,
+                "thumbnail_url": photos.get(row.id),
             }
             for row in result[:page_size]
         ]
@@ -1481,12 +1459,13 @@ def list_model_options(
         .all()
     )
     has_more = len(rows) > page_size
+    photos = _summary_family_photos(db, rows[:page_size])
     items = [
         {
             "id": row.id,
             "code": row.code,
             "name": row.name,
-            "thumbnail_url": row.thumbnail_url,
+            "thumbnail_url": photos.get(row.id),
         }
         for row in rows[:page_size]
     ]
@@ -1545,7 +1524,8 @@ def list_models(
         .all()
     )
     has_more = len(result) > page_size
-    rows = [_model_summary_payload(row) for row in result[:page_size]]
+    photos = _summary_family_photos(db, result[:page_size])
+    rows = [_model_summary_payload(row, photos.get(row.id)) for row in result[:page_size]]
     response.headers["X-Page"] = str(page)
     response.headers["X-Page-Size"] = str(page_size)
     response.headers["X-Has-More"] = "true" if has_more else "false"
@@ -1920,6 +1900,10 @@ def get_model(
     m = _models_query(db, catalog_scope).filter(Model.id == mid).first()
     if not m: raise HTTPException(404, "Model not found")
     payload = ModelDetail.model_validate(m).model_dump()
+    photo = model_family_image(m)
+    payload["primary_image"] = _image_payload(photo) if photo else None
+    payload["primary_image_url"] = photo.file_url if photo else None
+    payload["variant_picture_url"] = model_variant_picture_url(m)
     payload["details_json"] = filter_paid_operations_for_factory(
         payload.get("details_json"),
         _catalog_paid_operation_factory_scope(current, catalog_scope),

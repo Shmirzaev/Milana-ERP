@@ -8,7 +8,8 @@ from sqlalchemy import inspect as sa_inspect
 
 from app.core.config import settings
 from app.models import Model, ModelBOM, ModelImage
-from app.services.model_images import model_preview_image_url, model_variant_picture_url
+from app.services.model_images import model_variant_picture_url
+from app.services.model_family_images import model_family_image
 
 
 PREVIEW_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
@@ -81,8 +82,8 @@ def _bom_image_src(row: ModelBOM) -> str | None:
 def material_label_image_src(model: Model | None) -> str | None:
     """Best printable picture for bundle/package QR labels.
 
-    Prefer the exact model-variant material image, then BOM fallbacks, then a
-    normal model preview so printed labels still have a useful visual cue.
+    Prefer the exact model-variant material image, then BOM material fallbacks.
+    Garment photos belong only in model-photo fields.
     """
     if not model:
         return None
@@ -106,9 +107,7 @@ def material_label_image_src(model: Model | None) -> str | None:
         if src:
             return src
 
-    typed_model = next((img for img in images if str(img.image_type or "").lower() == "model"), None)
-    primary = next((img for img in images if img.is_primary), None)
-    return _model_image_src(typed_model or primary or (images[0] if images else None))
+    return None
 
 
 def fabric_label_image_src(model: Model | None) -> str | None:
@@ -138,11 +137,15 @@ def fabric_label_image_src(model: Model | None) -> str | None:
 
 def model_preview_label_image_src(model: Model | None) -> str | None:
     """Embed the same model picture selected by the order detail page."""
-    url = model_preview_image_url(model)
-    if not url or not model:
-        return None
-    image = next((img for img in model.images or [] if img.file_url == url), None)
-    return _model_image_src(image)
+    image = model_family_image(model)
+    src = _model_image_src(image)
+    if src or image is None:
+        return src
+    # Rare DB-only uploads must also work in self-contained printed reports.
+    from sqlalchemy.orm import object_session
+    db = object_session(image)
+    data = db.query(ModelImage.file_data).filter(ModelImage.id == image.id).scalar() if db else None
+    return _uploaded_file_data_uri(image.file_url, image.content_type, data)
 
 
 def model_label_image_src(model: Model | None) -> str | None:
@@ -152,7 +155,7 @@ def model_label_image_src(model: Model | None) -> str | None:
 
 def variant_label_image_src(model: Model | None) -> str | None:
     """Embed only the selected variant's own attachment, never shared fabric."""
-    url = model_preview_image_url(model) or model_variant_picture_url(model)
+    url = model_variant_picture_url(model)
     if not url or not model:
         return None
     image = next((img for img in model.images or [] if img.file_url == url), None)

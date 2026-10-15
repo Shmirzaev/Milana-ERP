@@ -5,6 +5,7 @@ from urllib.parse import urlsplit
 
 from app.models import Model, ModelBOM, ModelImage
 from app.services.model_identity import model_number_fields
+from app.services.model_family_images import model_family_image
 
 
 PREVIEW_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
@@ -29,28 +30,8 @@ def model_print_image_url(model: Model | None) -> str | None:
 
 
 def model_preview_image_url(model: Model | None) -> str | None:
-    print_image = model_print_image_url(model)
-    if print_image:
-        return print_image
-    if not model:
-        return None
-    images = sorted(
-        [img for img in (model.images or []) if is_preview_model_image(img)],
-        key=_image_id,
-        reverse=True,
-    )
-    model_images = [
-        img
-        for img in images
-        if str(img.image_type or "").lower() in {"", "model"}
-    ]
-    primary = (
-        next((img for img in model_images if img.is_primary and str(img.image_type or "").lower() == "model"), None)
-        or next((img for img in model_images if img.is_primary), None)
-        or next((img for img in model_images if str(img.image_type or "").lower() == "model"), None)
-        or (model_images[0] if model_images else None)
-    )
-    return primary.file_url if primary else None
+    image = model_family_image(model)
+    return image.file_url if image else None
 
 
 def material_preview_image_url(model: Model | None) -> str | None:
