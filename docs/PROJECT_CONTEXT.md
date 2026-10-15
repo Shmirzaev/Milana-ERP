@@ -1,6 +1,13 @@
 # Milana ERP Project Context
 
-Last updated: 2026-10-14
+Last updated: 2026-10-15
+
+
+## Cutting bundle/item input clarification prepared (2026-10-15)
+
+- Owner clarified that each photographed row means one bundle containing 100 items, authorized pushing to `clone_main` and deployment, and explicitly waived tests and monitoring. The form now orders Number of bundles before Items per bundle, defaults each size to one bundle, keeps edits independent, and displays both totals in EN/RU/UZ. The existing backend 1,000-bundle record limit remains; item quantity is not capped at 1,000.
+- Release candidate descends from verified active commit `39399207`, blue release `20261014_081450`, manifest `0236d0756df6c28850ce7e9cda995e882fe3d3ebd08423aed46eb40663556a77`. Both full VM manifests and slot states matched. Rolled-back Packaging application changes in `clone_main` are excluded. Only its already-applied `0145_packaging_size_entry` migration file is retained to recognize the live schema; no new migration or business-data change is intended.
+- Worktree `C:/ERP/.codex-work/cutting-bundle-items-20261015`, branch `codex/cutting-bundle-items-20261015`. Application patch `6baff9f5` is separately integrated into `clone_main`. Release-branch-only workflow skips test jobs and compiles with `next build`, per explicit owner instruction; these temporary build exceptions are not changes to `clone_main` CI. Immutable images, verified backup, source reconciliation, blue/green warm-up, immediate health checks and rollback retention remain. Tests, browser QA, performance measurements and timed monitoring are omitted, not claimed passed. Deployment result is recorded separately after cutover.
 
 ## Packaging uses Sewing output and actual quantity follows department output (2026-10-14; not deployed)
 
