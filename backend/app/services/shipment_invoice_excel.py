@@ -2,7 +2,6 @@
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
-from textwrap import wrap
 
 from app.services.variant_display import format_variant_number
 
@@ -91,14 +90,13 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
                        align="right" if column >= 6 else "left" if column in (4, 5) else "center",
                        bold=column in (1, 2, 11), size=7)
             cell.border = border
+            cell.alignment = Alignment(horizontal=cell.alignment.horizontal, vertical="center", wrap_text=False, shrink_to_fit=True)
             if column >= 6:
                 cell.number_format = '#,##0.00' if column >= 8 else '#,##0'
         for column in (6, 8, 9):
             if span > 1:
                 sheet.merge_cells(start_row=row, end_row=row + span - 1, start_column=column, end_column=column)
-        # Column widths use the workbook's 11pt default; invoice text is 7pt.
-        line_count = max(sum(max(1, len(wrap(part, max(1, int((width - 1) * 11 / 7))))) for part in str(value or "").split("\n")) for value, width in zip(values, widths))
-        sheet.row_dimensions[row].height = max(23.1, line_count * 8.4 + 6)
+        sheet.row_dimensions[row].height = 23.1
     total_row = 10 + len(rows)
     merged(total_row, 1, 5, text["total"], bold=True, fill="C6D9F1", color="1F3864")
     for column, value in enumerate([document["packages_count"], document["quantity"], float(recorded_weight(document)), float(recorded_weight(document))], 6):
