@@ -37,10 +37,10 @@ function App(){
  <PaginationControls page={page} pageSize={50} total={pager.data?.total||0} count={pager.data?.rows.length||0} onPageChange={setPage} onPageSizeChange={()=>{}} loading={pager.isValidating} error={pager.error} onRetry={()=>pager.mutate()}/></>;
 }
 const isLabels=location.pathname==="/labels";
-createRoot(document.getElementById("root")).render(isLabels ? <section className="print-sheet work-print-section"><div className="label-grid"><IssuedProcessLabel label={label} qrImage=${JSON.stringify(qrImage)} operationNumber={1}/><IssuedProcessLabel label={{...label,factory_code:"MIL",sewing_line_code:"SEW-06"}} qrImage=${JSON.stringify(qrImage)} operationNumber={1}/></div></section> : <App/>);
+createRoot(document.getElementById("root")).render(isLabels ? <section className="print-sheet work-print-section"><div className="label-grid">{["BST","MIL","ECO"].map(factory=><IssuedProcessLabel key={factory} label={{...label,factory_code:factory,sewing_line_code:factory==="BST"?"BST-BAND-06":"SEW-01",model_code:"BJ5030-V-5796",sales_order_no:"MAN-7345-9415-1ULI",sewing_line_name:"Bozorova Nargiza"}} qrImage=${JSON.stringify(qrImage)} operationNumber={8}/>)}</div></section> : <App/>);
 `;
 // Strip types through esbuild, preserving the real component implementation.
-const built=await build({stdin:{contents:entry,resolveDir:root,loader:"tsx"},bundle:true,write:false,format:"iife",plugins:[{name:"fixture-i18n",setup(b){b.onResolve({filter:/^@\/lib\/i18n$/},()=>({path:"i18n",namespace:"fixture"}));b.onLoad({filter:/.*/,namespace:"fixture"},()=>({contents:`export const useT=()=>({lang:'uz',t:(key,args)=>({'common.loadMore':'Load more','common.retry':'Retry','common.loading':'Loading','common.model':'Model','field.orderNo':'Buyurt','field.batch':'Partiya','page.processQr.line':'Liniya','field.size':"O‘lcham",'field.qty':'Miqdor','field.unitPcs':'dona','page.processQr.rate':'Narx','page.processQr.kroyNo':'Kroy no'}[key]||key)});`,loader:"js"}));}}]});
+const built=await build({stdin:{contents:entry,resolveDir:root,loader:"tsx"},bundle:true,write:false,format:"iife",plugins:[{name:"fixture-i18n",setup(b){b.onResolve({filter:/^@\/lib\/i18n$/},()=>({path:"i18n",namespace:"fixture"}));b.onLoad({filter:/.*/,namespace:"fixture"},()=>({contents:`const lang=new URLSearchParams(location.search).get('lang')||'uz';const keys=['common.model','field.orderNo','field.batch','page.processQr.line','field.size','field.qty','page.processQr.rate','page.processQr.kroyNo'];const values={en:['Model','Order','Batch','Line','Size','Quantity','Rate','Cut no'],ru:['Модель','Заказ','Партия','Линия','Размер','Количество','Цена','Крой №'],uz:['Model','Buyurtma','Partiya','Liniya',"O‘lcham",'Miqdor','Narx','Kroy no']};const captions=Object.fromEntries(keys.map((key,i)=>[key,values[lang][i]]));export const useT=()=>({lang,t:(key)=>({...captions,'common.loadMore':'Load more','common.retry':'Retry','common.loading':'Loading','field.unitPcs':'dona'}[key]||key)});`,loader:"js"}));}}]});
 let failNext=false;const calls=[];
 const server=http.createServer(async(req,res)=>{
  const url=new URL(req.url,"http://local");
@@ -77,11 +77,30 @@ try{
  assert(calls.every(call=>call.page_size==="50"));assert(calls.some(call=>call.page==="3"));
  await page.goto(url+"/labels");await page.emulateMedia({media:"print"});await page.locator(".process-label--besttex").waitFor({state:"attached"});
  assert(!(await page.locator(".process-label--besttex").innerText()).includes("BST-BAND-06"));
- assert((await page.locator(".process-label--besttex").innerText()).includes("Muqadamxon"));
- assert((await page.locator(".process-label:not(.process-label--besttex)").innerText()).includes("SEW-06"));
+ assert((await page.locator(".process-label--besttex").innerText()).includes("Bozorova Nargiza"));
+ assert((await page.locator(".process-label:not(.process-label--besttex)").first().innerText()).includes("SEW-01"));
  await page.emulateMedia({media:"print"});
  const sizes=await page.locator(".process-label__qr").evaluateAll(nodes=>nodes.map(node=>parseFloat(getComputedStyle(node).width)));
  assert(Math.abs(sizes[0]-18*96/25.4)<1);assert(Math.abs(sizes[1]-21*96/25.4)<1);
+ for(const lang of ["uz","ru","en"]){
+  await page.goto(url+"/labels?lang="+lang);
+  await page.locator(".process-label").nth(2).waitFor({state:"attached"});
+  const labels=await page.locator(".process-label").evaluateAll(nodes=>nodes.map(node=>({
+   headings:[...node.querySelectorAll(".process-label__line > span:first-child")].map(el=>({text:el.textContent,title:el.title})),
+   values:[...node.querySelectorAll(".process-label__value")].map(el=>({text:el.textContent,width:el.clientWidth,scroll:el.scrollWidth,height:el.clientHeight,scrollHeight:el.scrollHeight})),
+   footer:node.querySelector(".process-label__footer").textContent,
+   width:node.getBoundingClientRect().width,height:node.getBoundingClientRect().height,
+  })));
+  for(const label of labels){
+   assert(label.headings.every(h=>h.text===Array.from(h.title)[0]),lang+": initial-only captions");
+   assert.equal(label.values[0].text,"BJ5030-V-5796");
+   assert.equal(label.values[1].text,"MAN-7345-9415-1ULI");
+   for(const value of label.values){assert(value.scroll<=value.width+1,lang+": clipped "+value.text);assert(value.scrollHeight<=value.height+1,lang+": vertically clipped "+value.text);}
+   assert(label.footer.includes("QR 200028408"));
+   assert(Math.abs(label.width-60*96/25.4)<1);assert(Math.abs(label.height-40*96/25.4)<1);
+  }
+  await page.screenshot({path:path.join(output,"process-qr-initials-"+lang+".png"),fullPage:true});
+ }
  await page.locator(".process-label--besttex").screenshot({path:path.join(output,"besttex-process-qr.png")});
- assert.deepEqual(errors,[]);console.log("PASS: real SWR appends 50/100/123, retry preserves rows, search/scope reset, stale search suppressed; Besttex-only 18mm QR and name-only line.");
+ assert.deepEqual(errors,[]);console.log("PASS: real SWR pagination; Besttex-only QR/name rules; all three factories and EN/RU/UZ use initials and show full model/order/values on 60x40mm labels without clipping.");
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

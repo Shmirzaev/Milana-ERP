@@ -2,6 +2,12 @@
 
 Last updated: 2026-10-16
 
+## Process QR label initials prepared (2026-10-16)
+
+- Owner requested initial-only field captions so full model/order numbers fit on work labels for every factory, push to `clone_main`, and deployment without the 30-minute observation window. The previously approved `origin/clone_main` base is retained. Dedicated worktree `C:/ERP/.codex-work/qr-label-initials-20261016`, branch `codex/qr-label-initials-20261016`, starts at `0965187e` and includes the previously tested Packaging nastil completion fix.
+- Shared issued work labels now use each translated caption's first character and a 2.5 mm print caption column instead of 9.5 mm. Values gain 7 mm without changing the 60x40 mm label, QR identifier/size, model/order formatting, quantity, rate, or factory-specific line rules. Employee badges and input forms keep their full captions. EN/RU/UZ browser print checks across MIL/BST/ECO verify full model/order and all value bounds without clipping, preserving canonical QR payload checks.
+- Before edits, both live source manifests and symlinks matched blue `20261016_075611`, manifest `8e5bcfcccc86a6281e00980ef1c72455053801743149023f4390c4d9c9a006b9`; green `20261016_071406` remains rollback. Full lint and strict types pass (nine inherited lint warnings). Build/release validation and deployment are pending at this preparation point. Timed observation is waived by the owner; all other release gates remain required. No label issuance or business-data mutation is part of this request.
+
 ## PO-0293 packaging access corrected in production (2026-10-16)
 
 - Applied the exact rehearsed correction after the verified backup below. Audit `76099` records Cutting work order `1248.failed_qty` from 300 to 0 (both Cutting records prove 600 good pieces and zero defects), Packaging `1250` from completed to in-progress with cleared end time, and parent `318` from storage_transfer to packaging. Only those fields, normal update timestamps and the audit entry changed. Sewing, receipt/input counters and every execution record remain unchanged.

@@ -3090,7 +3090,7 @@ export default function ProcessQrPage() {
           }
 
           .process-label--work .process-label__line {
-            grid-template-columns: 9.5mm minmax(0, 1fr) !important;
+            grid-template-columns: 2.5mm minmax(0, 1fr) !important;
             min-height: 0 !important;
             align-items: center !important;
           }
@@ -3309,21 +3309,24 @@ function IssuedProcessLabel({
             label={t("common.model")}
             value={formatModelVariantCode(label.model_code) || "-"}
             valueClassName="process-label__identity-value"
+            initial
           />
-          <LabelLine label={t("field.orderNo")} value={orderReference(label)} valueClassName="process-label__identity-value" />
-          <LabelLine label={t("field.batch")} value={label.batch_no || "-"} />
+          <LabelLine label={t("field.orderNo")} value={orderReference(label)} valueClassName="process-label__identity-value" initial />
+          <LabelLine label={t("field.batch")} value={label.batch_no || "-"} initial />
           <LabelLine
             label={t("page.processQr.line")}
             value={sewingLine}
             strong
             wrap
             valueClassName="process-label__identity-value process-label__sewing-line-value"
+            initial
           />
-          <LabelLine label={t("field.size")} value={label.size || "-"} strong />
-          <LabelLine label={t("field.qty")} value={`${Number(label.quantity).toLocaleString()} ${t("field.unitPcs")}`} strong />
+          <LabelLine label={t("field.size")} value={label.size || "-"} strong initial />
+          <LabelLine label={t("field.qty")} value={`${Number(label.quantity).toLocaleString()} ${t("field.unitPcs")}`} strong initial />
           <LabelLine
             label={t("page.processQr.rate")}
             value={Number(label.rate_per_piece) ? `${Number(label.rate_per_piece).toLocaleString()} ${label.currency}` : "-"}
+            initial
           />
         </div>
         {qrImage ? (
@@ -3335,7 +3338,7 @@ function IssuedProcessLabel({
 
       <div className="process-label__footer mt-1 flex items-center justify-between gap-2 pt-1 text-[9px] font-bold text-[#14110b]">
         <span className="process-label__kroy">
-          {t("page.processQr.kroyNo")} {label.cutting_passport_no || "-"}
+          {Array.from(t("page.processQr.kroyNo"))[0]} {label.cutting_passport_no || "-"}
         </span>
         <span className="shrink-0 font-mono">QR {label.qr_token}</span>
       </div>
@@ -3349,16 +3352,18 @@ function LabelLine({
   strong = false,
   wrap = false,
   valueClassName = "",
+  initial = false,
 }: {
   label: string;
   value: string;
   strong?: boolean;
   wrap?: boolean;
   valueClassName?: string;
+  initial?: boolean;
 }) {
   return (
-    <div className="process-label__line grid grid-cols-[33px_minmax(0,1fr)] gap-1">
-      <span className="text-[#7a725f]">{label}</span>
+    <div className={`process-label__line grid ${initial ? "grid-cols-[10px_minmax(0,1fr)]" : "grid-cols-[33px_minmax(0,1fr)]"} gap-1`}>
+      <span className="text-[#7a725f]" title={label}>{initial ? Array.from(label)[0] : label}</span>
       <span className={`process-label__value ${wrap ? "process-label__value--wrap" : ""} ${strong ? "font-bold" : "font-medium"} ${valueClassName}`}>{value}</span>
     </div>
   );
