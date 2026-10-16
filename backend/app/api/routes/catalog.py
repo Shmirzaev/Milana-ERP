@@ -9,7 +9,7 @@ from pathlib import Path
 from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Depends, Query, Response
 from fastapi import UploadFile, File, Form
-from sqlalchemy import and_, case, func, literal_column, or_, select
+from sqlalchemy import and_, func, literal_column, or_, select
 from sqlalchemy.orm import defer, selectinload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions, user_permissions
