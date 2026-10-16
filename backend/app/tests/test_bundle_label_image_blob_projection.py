@@ -54,7 +54,8 @@ def test_bundle_label_loads_only_selected_material_image_blob(client, auth_heade
     assert "where model_images.id = ?" in blob_reads[0]
 
 
-def test_bundle_label_loads_database_only_model_fallback_blob(client, auth_headers):
+@pytest.mark.parametrize("batched", [False, True])
+def test_bundle_label_does_not_substitute_garment_for_missing_material(client, auth_headers, batched):
     bundle_data = _create_bundle_for_scan(client, auth_headers)
     marker = uuid4().hex[:10]
     image_bytes = f"database-only-model-fallback-{marker}".encode()
@@ -83,7 +84,9 @@ def test_bundle_label_loads_database_only_model_fallback_blob(client, auth_heade
 
         event.listen(db.bind, "before_cursor_execute", capture)
         try:
-            context = _label_context(db, db.get(Bundle, bundle_id))
+            bundle = db.get(Bundle, bundle_id)
+            references = _bundle_label_reference_context(db, [bundle]) if batched else None
+            context = _label_context(db, bundle, references)
         finally:
             event.remove(db.bind, "before_cursor_execute", capture)
 
@@ -92,11 +95,8 @@ def test_bundle_label_loads_database_only_model_fallback_blob(client, auth_heade
         for statement in statements
         if " from model_images " in statement and "model_images.file_data" in statement
     ]
-    assert context["material_image_src"] == (
-        "data:image/webp;base64," + base64.b64encode(image_bytes).decode()
-    )
-    assert len(blob_reads) == 1
-    assert "where model_images.id = ?" in blob_reads[0]
+    assert context["material_image_src"] == ""
+    assert blob_reads == []
 
 
 @pytest.mark.parametrize("model_count", [1, 50])

@@ -147,7 +147,8 @@ assert.equal(active.requests.filter((key) => key?.startsWith(pendingPrefix)).len
 assert.match(textContent(activeTree), /PKG-71/);
 assert.match(textContent(activeTree), /page\.packages\.pendingEdit/);
 const editButton = find(activeTree, (node) => node.type === "button" && textContent(node) === "common.edit");
-assert.equal(editButton?.props.disabled, true, "pending package edits must remain disabled");
+assert.ok(editButton, "authorized package edit control must render");
+assert.equal(editButton.props.disabled, false, "authorized direct corrections remain available with older pending requests");
 
 const denied = createHarness({ denied: true });
 const deniedTree = denied.render();

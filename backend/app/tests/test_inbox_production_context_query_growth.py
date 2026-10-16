@@ -66,7 +66,7 @@ def test_production_context_model_assets_have_bounded_queries_without_blobs():
                 event.remove(db.bind, "before_cursor_execute", capture)
             results.append((payload, statements))
 
-    assert [len(statements) for _payload, statements in results] == [6, 6, 6, 8]
+    assert [len(statements) for _payload, statements in results] == [7, 7, 7, 9]  # One additional batched family-photo lookup.
     for order_ids, (payload, statements) in zip(cases, results, strict=True):
         assert set(payload) == set(order_ids)
         assert all(row["model_image_url"].endswith(".webp") for row in payload.values())

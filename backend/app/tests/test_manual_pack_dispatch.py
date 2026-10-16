@@ -113,7 +113,7 @@ def test_unpriced_manual_invoice_print_and_later_amount(client, warehouse, deliv
     draft = client.get(base + "/invoice", headers=warehouse).json()
     assert draft["finance_posting_status"] == "draft" and draft["amount"] is None
     printed = client.get(base + "/invoice/print", headers=warehouse)
-    assert printed.status_code == 200 and "Draft invoice" in printed.text
+    assert printed.status_code == 200 and "Warehouse invoice" in printed.text
     with SessionLocal() as db:
         before_invoices = db.query(Invoice).count()
         assert db.get(Package, pid).status == "received_in_storage"
@@ -124,7 +124,7 @@ def test_unpriced_manual_invoice_print_and_later_amount(client, warehouse, deliv
     pending = client.get(base + "/invoice", headers=warehouse).json()
     assert pending["amount"] is None and pending["lines"][0]["unit_price"] is None
     assert pending["finance_posting_status"] == "pending_price"
-    for lang, label in [("en", "Price pending"), ("ru", "Цена не указана"), ("uz", "Narx kutilmoqda")]:
+    for lang, label in [("en", "Warehouse invoice"), ("ru", "Складская накладная"), ("uz", "Ombor hisob-fakturasi")]:
         printed = client.get(base + f"/invoice/print?lang={lang}", headers=warehouse)
         assert printed.status_code == 200 and label in printed.text
         assert "window.print()" in printed.text

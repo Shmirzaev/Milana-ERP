@@ -280,6 +280,7 @@ def _run(db, current, rid):
         PackagePrintRun.packaging_department_code, PackagePrintRun.package_ids,
         PackagePrintRun.created_at, PackagePrintRun.received_at,
         PackagePrintRun.deleted_package_ids, PackagePrintRun.deleted_at, PackagePrintRun.returned_at,
+        PackagePrintRun.superseded_at,
     )).filter(PackagePrintRun.id == rid).first()
     if not run:
         raise HTTPException(404, "Print run not found")

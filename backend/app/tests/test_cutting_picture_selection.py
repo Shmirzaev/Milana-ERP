@@ -27,10 +27,10 @@ def test_cutting_picture_uses_primary_even_when_other_photos_come_first():
         assert model_preview_label_image_src(SimpleNamespace(images=images)) == primary.file_url
 
 
-def test_cutting_picture_respects_the_pages_latest_print_override():
+def test_cutting_picture_keeps_garment_separate_from_print_artwork():
     newest = image(4, "print")
     model = SimpleNamespace(images=[image(3, "print"), image(2, primary=True), newest])
-    assert model_preview_label_image_src(model) == newest.file_url
+    assert model_preview_label_image_src(model) == "https://example.com/2.jpg"
 
 
 def test_cutting_picture_does_not_substitute_material_when_model_picture_is_empty():
@@ -108,11 +108,12 @@ def test_cutting_sheet_prefers_parent_over_variant_photo_or_print_override(model
     assert _sheet_model_image_src(db, variant) == "data:image/png;base64,cGFyZW50LXBpY3R1cmU="
 
 
-@pytest.mark.parametrize("condition", ["missing", "material_only", "scope", "factory", "sibling", "no_link"])
+@pytest.mark.parametrize("condition", ["missing", "material_only", "scope", "factory", "no_link"])
 def test_cutting_sheet_does_not_borrow_unrelated_or_fabric_photos(model_family, condition):
     db, parent, variant = model_family
     if condition == "missing":
         parent.code = "OTHER-PARENT"
+        parent.details_json = {"general": {"model_no": "OTHER-PARENT"}}
     elif condition == "material_only":
         parent.images[0].image_type = "material"
     elif condition == "scope":
@@ -120,8 +121,6 @@ def test_cutting_sheet_does_not_borrow_unrelated_or_fabric_photos(model_family, 
         parent.factory_code = variant.factory_code = "ECO"
     elif condition == "factory":
         parent.factory_code = "BST"
-    elif condition == "sibling":
-        parent.details_json = {"general": {"model_no": "PG10527", "variant_no": "V-6511"}}
     else:
         variant.details_json = None
     db.flush()
@@ -139,6 +138,7 @@ def test_cutting_sheet_retains_own_garment_without_parent_photo(model_family, co
     db, parent, variant = model_family
     if condition == "missing_parent":
         parent.code = "OTHER-PARENT"
+        parent.details_json = {"general": {"model_no": "OTHER-PARENT"}}
     elif condition == "empty_parent":
         parent.images.clear()
     elif condition == "material_parent":
@@ -165,3 +165,10 @@ def test_cutting_sheet_missing_parent_file_does_not_substitute_variant(model_fam
 def test_cutting_sheet_without_model_has_no_garment(model_family):
     db, _, _ = model_family
     assert _sheet_model_image_src(db, None) is None
+
+
+def test_cutting_sheet_shares_garment_from_same_family_sibling(model_family):
+    db, sibling, variant = model_family
+    sibling.details_json = {"general": {"model_no": "PG10527", "variant_no": "V-6511"}}
+    db.flush()
+    assert _sheet_model_image_src(db, variant) == "data:image/png;base64,cGFyZW50LXBpY3R1cmU="

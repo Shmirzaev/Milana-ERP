@@ -80,7 +80,7 @@ def test_storage_map_selects_image_metadata_without_binary_at_constant_query_cou
         int(row["model_id"]): row["model_image_url"]
         for row in result["placements"]
     }
-    assert actual_urls == expected_urls
-    assert len(statements) == 6
+    assert actual_urls == dict.fromkeys(expected_urls, url)  # All rows belong to the same family.
+    assert len(statements) == 7
     assert len(image_reads) == 1
     assert "model_images.file_data" not in image_reads[0]

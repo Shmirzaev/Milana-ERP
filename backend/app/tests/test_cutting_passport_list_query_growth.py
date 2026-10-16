@@ -104,7 +104,7 @@ def test_passport_list_models_and_sales_references_are_chunk_bounded_without_blo
             ))
 
     (one, one_sql), (fifty, fifty_sql), (chunked, chunked_sql) = results
-    assert (len(one_sql), len(fifty_sql), len(chunked_sql)) == (4, 4, 7)
+    assert (len(one_sql), len(fifty_sql), len(chunked_sql)) == (5, 5, 9)  # Includes one scoped family-photo read per model chunk.
     for payload, passport_ids, statements in (
         (one, one_ids, one_sql), (fifty, fifty_ids, fifty_sql), (chunked, chunked_ids, chunked_sql),
     ):

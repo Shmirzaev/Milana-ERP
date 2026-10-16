@@ -46,7 +46,7 @@ def test_payroll_label_global_reference_queries_are_bounded(client, auth_headers
         counts.append(len(statements))
         previous = size
     print(f"Payroll one-label page SELECTs for 1/10/50 reference groups: {counts}")
-    assert counts == [9, 9, 9], counts
+    assert counts == [10, 10, 10], counts
 
 
 @pytest.fixture
@@ -243,7 +243,7 @@ def test_alias_payload_query_count_is_flat_for_one_and_many_labels(client, auth_
             counts.append(len(statements))
         previous = size
     print(f"Payroll alias/payload SELECTs (one/full page) for 1/10/50 groups: {counts}")
-    assert counts == [14] * 6, counts
+    assert counts == [15] * 6, counts
 
 
 def test_reference_batches_cross_400_without_per_reference_queries(client, auth_headers):
@@ -254,7 +254,7 @@ def test_reference_batches_cross_400_without_per_reference_queries(client, auth_
     response, statements = _captured_get(client, auth_headers, "/api/payroll/qr-labels?limit=1")
     assert response.status_code == 200, response.text
     assert len(response.json()["order_counts"]) == 401
-    assert len(statements) == 12
+    assert len(statements) == 13
 
 
 def test_page_only_payload_ambiguity_is_not_suppressed(client, auth_headers, order_references):

@@ -224,8 +224,8 @@ def test_model_variant_groups_compact_payload_keeps_models_page_fields(client, a
         "composition": [{"name": "Cotton", "percentage": 100}],
     }
     assert compact["material_composition"] == []
-    assert compact["primary_image"] is None
-    assert compact["primary_image_url"] is None
+    assert compact["primary_image"]["file_url"] == picture_url
+    assert compact["primary_image_url"] == picture_url
     assert compact["image_count"] == 1
     assert compact["variant_count"] == 2
     assert [variant["model_id"] for variant in compact["variants"]] == created_ids
@@ -329,7 +329,7 @@ def test_variant_search_expands_the_full_model_family_and_keeps_family_picture(c
     assert group["primary_image_url"] == family_picture
     assert group["variant_count"] == 1
     assert [row["model_id"] for row in group["variants"]] == [variant_id]
-    assert group["variants"][0]["picture_url"] == variant_picture
+    assert group["variants"][0]["picture_url"] is None  # The upload is a garment, not variant fabric.
 
 
 def test_model_variant_group_pagination_keeps_groups_whole_and_ordered(client, auth_headers):
@@ -755,7 +755,7 @@ def test_variant_picture_uses_attached_material_image_without_bom(client, auth_h
     )
     assert groups.status_code == 200, groups.text
     assert groups.json()["total"] == 1
-    assert groups.json()["rows"][0]["primary_image_url"] is None
+    assert groups.json()["rows"][0]["primary_image_url"] == model_picture
     assert groups.json()["rows"][0]["variants"][0]["picture_url"] == material_picture
 
     mislabeled_upload = client.post(

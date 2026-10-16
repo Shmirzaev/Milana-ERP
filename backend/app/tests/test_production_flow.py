@@ -2670,7 +2670,7 @@ def test_manual_sewing_receive_by_order_model_removes_bundle_inventory(client, a
     assert int(bundle["id"]) not in inventory_ids
 
 
-def test_package_edit_request_applies_after_management_approval(client, auth_headers):
+def test_package_edit_request_applies_directly_with_audit_request(client, auth_headers):
     pkg_id = _create_package_for_change_request(client, auth_headers, quantity=20)
 
     r = client.post(
@@ -2691,16 +2691,6 @@ def test_package_edit_request_applies_after_management_approval(client, auth_hea
         headers=auth_headers,
     )
     assert r.status_code == 201, r.text
-    req_id = int(r.json()["id"])
-    assert r.json()["status"] == "pending"
-
-    r = client.get(f"/api/packages/{pkg_id}", headers=auth_headers)
-    assert r.status_code == 200, r.text
-    assert int(r.json()["total_quantity"]) == 20
-    assert r.json()["package_type"] == "bag"
-
-    r = client.post(f"/api/packages/change-requests/{req_id}/approve", headers=auth_headers)
-    assert r.status_code == 200, r.text
     assert r.json()["status"] == "approved"
 
     r = client.get(f"/api/packages/{pkg_id}", headers=auth_headers)
@@ -2722,7 +2712,7 @@ def test_package_edit_request_applies_after_management_approval(client, auth_hea
         db.close()
 
 
-def test_package_delete_request_removes_package_after_management_approval(client, auth_headers):
+def test_package_delete_request_removes_package_directly_with_audit_request(client, auth_headers):
     pkg_id = _create_package_for_change_request(client, auth_headers, quantity=15)
 
     r = client.post(
@@ -2731,13 +2721,6 @@ def test_package_delete_request_removes_package_after_management_approval(client
         headers=auth_headers,
     )
     assert r.status_code == 201, r.text
-    req_id = int(r.json()["id"])
-
-    r = client.get(f"/api/packages/{pkg_id}", headers=auth_headers)
-    assert r.status_code == 200, r.text
-
-    r = client.post(f"/api/packages/change-requests/{req_id}/approve", headers=auth_headers)
-    assert r.status_code == 200, r.text
     assert r.json()["status"] == "approved"
 
     r = client.get(f"/api/packages/{pkg_id}", headers=auth_headers)

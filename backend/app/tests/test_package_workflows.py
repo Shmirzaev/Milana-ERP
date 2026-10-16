@@ -349,19 +349,20 @@ def test_stale_resolved_run_refreshes_receipt_after_lock(client, auth_headers, p
         assert [member.package_id for member in members] == run["package_ids"]
 
 
-def test_pending_correction_cannot_change_newly_grouped_package(client, auth_headers, warehouse, packaging_order):
+def test_direct_deletion_cannot_be_grouped_or_received_again(client, auth_headers, warehouse, packaging_order):
     created = client.post(BASE, headers=auth_headers, json=packaging_order)
     assert created.status_code == 201, created.text
     pid = created.json()["id"]
+    old_qr = package_qr(pid)
     request = client.post(BASE + f"/{pid}/change-requests", headers=auth_headers,
                           json={"request_type": "delete", "reason": "Test correction before print grouping"})
     assert request.status_code == 201, request.text
     run = client.post(BASE + "/print-runs", headers=auth_headers,
                       json={"request_key": str(uuid4()), "package_ids": [pid]})
-    assert run.status_code == 201, run.text
-    approval = client.post(BASE + f"/change-requests/{request.json()['id']}/approve", headers=auth_headers)
-    assert approval.status_code == 409, approval.text
-    assert client.post(BASE + "/print-runs/receive", headers=warehouse, json={"code": package_qr(pid)}).status_code == 200
+    assert request.json()["status"] == "approved"
+    assert run.status_code == 404, run.text
+    assert client.get(BASE + f"/{pid}", headers=auth_headers).status_code == 404
+    assert client.post(BASE + "/print-runs/receive", headers=warehouse, json={"code": old_qr}).status_code == 404
 
 
 def test_0115_migration_roundtrip_preserves_existing_packages():

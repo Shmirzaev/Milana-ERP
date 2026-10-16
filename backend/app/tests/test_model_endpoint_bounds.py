@@ -88,7 +88,8 @@ def test_models_default_and_filtered_requests_are_always_bounded(client, auth_he
     assert default.headers["x-page"] == "1"
     assert default.headers["x-page-size"] == "50"
     assert default.headers["x-has-more"] in {"true", "false"}
-    model_statements = [statement for statement in statements if " FROM models " in f" {statement} "]
+    assert sum("JOIN model_images" in statement for statement in statements) == 1
+    model_statements = [statement for statement in statements if " FROM models " in f" {statement} " and "JOIN model_images" not in statement]
     assert len(model_statements) == 1
     assert "model_bom" not in model_statements[0].lower()
 
@@ -131,7 +132,8 @@ def test_models_count_uses_the_same_filters_without_disabling_pagination(client,
     assert body["page"] == 12
     assert body["page_size"] == 100
     assert body["has_more"] is False
-    model_statements = [statement for statement in statements if " FROM models " in f" {statement} "]
+    assert sum("JOIN model_images" in statement for statement in statements) == 1
+    model_statements = [statement for statement in statements if " FROM models " in f" {statement} " and "JOIN model_images" not in statement]
     assert len(model_statements) == 2
     assert all("models.status" in statement and "lower" in statement.lower() for statement in model_statements)
 
@@ -164,7 +166,8 @@ def test_model_options_are_compact_searchable_and_support_selected_ids(client, a
     assert set(body["items"][0]) == {
         "id", "code", "name", "thumbnail_url",
     }
-    model_statements = [statement for statement in statements if " FROM models " in f" {statement} "]
+    assert sum("JOIN model_images" in statement for statement in statements) == 1
+    model_statements = [statement for statement in statements if " FROM models " in f" {statement} " and "JOIN model_images" not in statement]
     assert len(model_statements) == 1
     assert "model_bom" not in model_statements[0].lower()
 

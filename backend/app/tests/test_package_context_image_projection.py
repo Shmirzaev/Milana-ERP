@@ -58,6 +58,6 @@ def test_package_context_preserves_preview_url_without_selecting_image_binary():
         "model_name": "Package context projection",
         "model_image_url": image_url,
     }
-    assert len(statements) == 3
+    assert len(statements) == 4  # Includes the family-photo metadata query.
     assert len(image_reads) == 1
     assert "model_images.file_data" not in image_reads[0]
