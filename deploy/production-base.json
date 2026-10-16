@@ -1,6 +1,6 @@
 {
-  "release": "20261016_075611",
-  "source_manifest_sha256": "8e5bcfcccc86a6281e00980ef1c72455053801743149023f4390c4d9c9a006b9",
+  "release": "20261016_091448",
+  "source_manifest_sha256": "9912d8510b7f4ae6d32c7d04df7e4230da1b8c6b91d18fda77a112aadc7bc40f",
   "database_revision": "0146_payroll_qr_closure",
-  "git_baseline_commit": "e774f1cbd9cd119231e6bf968a1b4a0b04db781f"
+  "git_baseline_commit": "34294bc6fc58b3325ec56f29d612a42bb3dd9ee5"
 }
