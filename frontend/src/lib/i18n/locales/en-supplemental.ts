@@ -19,8 +19,8 @@ export default {
   "passportMeters.perPieceGr": "Per piece (m)",
   "passportMeters.layerGrLong": "Actual per piece (m)",
   "passportMeters.grossGr": "Gross per piece (m)",
-  "passportMeters.formula.processedKg": "= Per piece × piece count + binding total + scrap",
-  "passportMeters.formula.perPieceGr": "= Layup length / size count + other binding per piece",
+  "passportMeters.formula.processedKg": "= Per piece × piece count + scrap",
+  "passportMeters.formula.perPieceGr": "= Layup length / size count + binding per piece + other binding per piece",
   "passportMeters.formula.layerGr": "= Actual metres / piece count",
   "passportMeters.formula.grossGr": "= Issued metres / piece count",
 

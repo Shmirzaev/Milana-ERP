@@ -186,8 +186,8 @@ function compute(f: typeof EMPTY_FORM, sizeCount: number) {
   const AC = R * AD;
   const P = M * N + AB + X;
   const piecesPerLayer = N ? R / N : 0;
-  const AE = sizeCount ? (f.meter_mode ? T / sizeCount + AA : S * T * V / sizeCount + Y + AA) : 0;
-  const Q = f.meter_mode ? (sizeCount ? AE * R + X + AB : 0) : (AE ? AE * R + AB : 0);
+  const AE = sizeCount ? (f.meter_mode ? T / sizeCount + Y + AA : S * T * V / sizeCount + Y + AA) : 0;
+  const Q = f.meter_mode ? (sizeCount ? AE * R + AB : 0) : (AE ? AE * R + AB : 0);
   const AF = R ? P / R : 0;
   const AG = R ? O / R : 0;
 

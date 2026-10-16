@@ -19,8 +19,8 @@ export default {
   "passportMeters.perPieceGr": "Bir ishga (m)",
   "passportMeters.layerGrLong": "Amalda bir ishga (m)",
   "passportMeters.grossGr": "Bir ishga brutto (m)",
-  "passportMeters.formula.processedKg": "= Bir ishga × ish soni + jami beyka + brak",
-  "passportMeters.formula.perPieceGr": "= Nastil uzunligi / o‘lchamlar soni + bir ishga boshqa beyka",
+  "passportMeters.formula.processedKg": "= Bir ishga × ish soni + brak",
+  "passportMeters.formula.perPieceGr": "= Nastil uzunligi / o‘lchamlar soni + bir ishga beyka + bir ishga boshqa beyka",
   "passportMeters.formula.layerGr": "= Amaldagi metr / ish soni",
   "passportMeters.formula.grossGr": "= Berilgan metr / ish soni",
 

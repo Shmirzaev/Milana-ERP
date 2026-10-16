@@ -2,6 +2,12 @@
 
 Last updated: 2026-10-16
 
+## Cutting Passport metre binding correction prepared (2026-10-16)
+
+- Owner requested inclusion of binding per piece in every metre-mode Cutting Passport, push to `clone_main`, and deployment without the 30-minute observation. Both live manifests and slot states matched green `20261016_091448` / `9912d8510b7f4ae6d32c7d04df7e4230da1b8c6b91d18fda77a112aadc7bc40f`; rollback blue `20261016_075611`. `origin/main` remains stale; the explicitly requested `clone_main` matches production and is the dedicated worktree base.
+- Frontend previews and backend serialized results now calculate layup length / size count + binding per piece + other binding per piece. The total uses this inclusive per-piece amount without adding binding again. Screenshot regression: 7.88 / 5 + 0.1 = 1.676 m, total 527.940 m for 315 pieces. Kilogram formulas, actual usage, reservations, stock deductions and unit guards are unchanged. Existing saved passports recalculate on read; no stored business row or migration needs changing. EN/RU/UZ formula descriptions are aligned.
+- Dedicated worktree `C:/ERP/.codex-work/cutting-meter-beyka-20261016`, branch `codex/cutting-meter-beyka-20261016`. Focused backend validation passed 47 tests including metre/kg handoff. Full local/release checks and deployment are pending. Timed observation is waived; immediate release gates remain required.
+
 ## Process QR initials and Packaging nastil access deployed (2026-10-16)
 
 - LIVE: green **20261016_091448**, exact immutable source commit `34294bc6fc58b3325ec56f29d612a42bb3dd9ee5`. Blue **20261016_075611** remains running for rollback. Both complete source manifests, immutable image identities, active slot states and current symlinks agree; manifest `9912d8510b7f4ae6d32c7d04df7e4230da1b8c6b91d18fda77a112aadc7bc40f`. Database remains `0146_payroll_qr_closure`; no migration or business-data correction was performed by this deployment, and startup seeding was disabled.

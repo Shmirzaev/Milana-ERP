@@ -25,12 +25,24 @@ def test_workbook_metre_formulas(length, per_piece, total):
 
 def test_binding_is_added_once_and_ratios_use_metres():
     result = calculation(layer_weight_kg=7.72, total_layers=120, beka_per_piece_kg=0.01, scrap_kg=2, planned_kg=960)
+    assert result["per_piece_weight_kg"] == 1.569
     assert result["actual_kg"] == 934.4
     assert result["theoretical_kg"] == 943.4
     assert result["actual_kg_per_piece"] == round(934.4 / 600, 6)
     assert result["gross_kg_per_piece"] == 1.6
     assert calculation(size_range="")["per_piece_weight_kg"] is None
     assert calculation(pieces=0)["actual_kg_per_piece"] is None
+
+
+def test_screenshot_metre_binding_is_included_per_piece_once():
+    result = calculation(pieces=315, lay_length_m=7.88, layer_weight_kg=7.85,
+                         total_layers=63, planned_kg=495, beka_per_piece_kg=0.1,
+                         other_beka_per_piece_kg=0)
+    assert result["per_piece_weight_kg"] == 1.676
+    assert result["theoretical_kg"] == 527.94
+    assert result["total_beka_kg"] == 31.5
+    assert result["actual_kg"] == 526.05
+    assert result["actual_kg_per_piece"] == 1.67
 
 
 def test_mode_defaults_off_and_round_trips(client, auth_headers):
@@ -70,6 +82,7 @@ def test_mixed_unit_handoff(client, auth_headers, passport_cutting):
     saved = client.patch(f"/api/cutting-passports/{pid}", headers=auth_headers, json=form)
     assert saved.status_code == 200, saved.text
     assert [row["meter_mode"] for row in saved.json()["materials"]] == [True, False]
+    assert saved.json()["materials"][0]["per_piece_weight_kg"] == 2.01
     result = client.post("/api/cutting/records", headers=auth_headers, json=payload)
     assert result.status_code == 201, result.text
     assert [(row["quantity"], row["unit"]) for row in result.json()["materials"]] == [(6.6, "m"), (6.5, "kg")]

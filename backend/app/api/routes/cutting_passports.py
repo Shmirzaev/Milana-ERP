@@ -81,12 +81,12 @@ def _compute(p: CuttingPassport) -> dict:
     per_piece_weight = None
     meter_mode = bool(getattr(p, "meter_mode", False))
     if size_count and meter_mode:
-        per_piece_weight = round(length / size_count + other_beka_per, 6)
+        per_piece_weight = round(length / size_count + beka_per + other_beka_per, 6)
     elif size_count:
         per_piece_weight = round(
             width * length * gramage / size_count + beka_per + other_beka_per, 6
         )
-    theoretical_kg = round(per_piece_weight * pieces + scrap + (total_beka if meter_mode else 0), 6) if per_piece_weight is not None else None
+    theoretical_kg = round(per_piece_weight * pieces + scrap, 6) if per_piece_weight is not None else None
     actual_kg_per_piece = round(actual_kg / pieces, 6) if pieces else None
     gross_kg_per_piece = round(planned_kg / pieces, 6) if pieces else None
 

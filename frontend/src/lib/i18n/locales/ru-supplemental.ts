@@ -19,8 +19,8 @@ export default {
   "passportMeters.perPieceGr": "На изделие (м)",
   "passportMeters.layerGrLong": "Фактически на изделие (м)",
   "passportMeters.grossGr": "Брутто на изделие (м)",
-  "passportMeters.formula.processedKg": "= На изделие × количество + бейка всего + брак",
-  "passportMeters.formula.perPieceGr": "= Длина настила / количество размеров + другая бейка на изделие",
+  "passportMeters.formula.processedKg": "= На изделие × количество + брак",
+  "passportMeters.formula.perPieceGr": "= Длина настила / количество размеров + бейка на изделие + другая бейка на изделие",
   "passportMeters.formula.layerGr": "= Фактически в метрах / количество изделий",
   "passportMeters.formula.grossGr": "= Выдано в метрах / количество изделий",
 
