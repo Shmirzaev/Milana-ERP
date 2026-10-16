@@ -193,7 +193,7 @@ def test_print_run_receive_batches_package_stock_member_and_response_reads(monke
         "orders": _table_selects(statements, "production_orders"),
     }
     assert measured == {
-        "total": 13 * expected_chunks + 6,  # Scoped family-photo metadata.
+        "total": 14 * expected_chunks + 6,  # Scoped family-photo metadata.
         "packages": expected_chunks + 1,
         "members": expected_chunks + 1,
         "stocks": 1,
@@ -236,7 +236,7 @@ def test_batch_receive_batches_locked_guards_and_response_context(monkeypatch, p
     assert _table_selects(statements, "package_items") == expected_chunks
     assert _table_selects(statements, "package_scan_logs") == expected_chunks
     assert _table_selects(statements, "production_orders") == 2 * expected_chunks
-    assert len(statements) == 11 * expected_chunks + 2
+    assert len(statements) == 12 * expected_chunks + 2
 
 
 @pytest.mark.parametrize("package_count", [1, 50, 401])
@@ -276,7 +276,7 @@ def test_batch_place_batches_fresh_source_checks_and_response_context(monkeypatc
     assert _table_selects(statements, "package_items") == expected_chunks
     assert _table_selects(statements, "package_scan_logs") == expected_chunks
     assert _table_selects(statements, "production_orders") == 2 * expected_chunks
-    assert len(statements) <= 12 * expected_chunks + 1
+    assert len(statements) <= 12 * expected_chunks + 2
 
 
 def test_batch_place_rejects_other_factory_before_any_mutation():

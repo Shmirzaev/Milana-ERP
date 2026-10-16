@@ -7,7 +7,7 @@ from typing import Literal
 from app.services.print_response import warehouse_print_response
 from app.services.package_label_pages import label_document
 from sqlalchemy import func, or_
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import joinedload, load_only, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
 import base64
 from datetime import date
@@ -84,7 +84,7 @@ from app.services.label_images import (
     material_label_image_src,
     variant_label_image_src,
 )
-from app.services.model_images import model_display_image_url, warehouse_stock_image_url
+from app.services.model_images import model_display_image_url, warehouse_stock_image_urls
 from app.services.model_family_images import model_family_image
 from app.services.audit import log_action
 from app.services.idempotency import replay_idempotent_response, store_idempotent_response
@@ -567,18 +567,6 @@ def _label_model(db: DbSession, model_id: int | None) -> Model | None:
     if model is not None:
         _load_selected_label_image_data(db, {int(model.id): model})
     return model
-
-
-def _warehouse_model_image_loader():
-    return selectinload(Model.images).load_only(
-        ModelImage.id,
-        ModelImage.model_id,
-        ModelImage.file_url,
-        ModelImage.file_name,
-        ModelImage.content_type,
-        ModelImage.image_type,
-        ModelImage.is_primary,
-    )
 
 
 def _package_label_reference_context(db: DbSession, packages: list[Package]) -> dict:
@@ -1144,7 +1132,7 @@ def storage_map(
         .join(Model, Model.id == Package.model_id)
         .outerjoin(SalesOrder, SalesOrder.id == Package.sales_order_id)
         .outerjoin(ProductionOrder, ProductionOrder.id == Package.production_order_id)
-        .options(_warehouse_model_image_loader(), selectinload(Model.bom).joinedload(ModelBOM.item))
+        .options(load_only(Model.id, Model.code, Model.name, raiseload=True))
         .filter(Package.status.in_(ready_statuses), Package.stock_kind == stock_kind)
         .order_by(Package.storage_cell.asc(), Package.storage_shelf.asc(), Package.id.desc())
     )
@@ -1166,7 +1154,9 @@ def storage_map(
     placements: list[dict] = []
     matches: list[dict] = []
     by_cell: dict[str, list[dict]] = {}
-    for pkg, model, sales_order, production_order in query.all():
+    package_rows = query.all()
+    image_urls = warehouse_stock_image_urls(db, {model.id for _, model, _, _ in package_rows})
+    for pkg, model, sales_order, production_order in package_rows:
         model_code = model.code if model else None
         model_name = model.name if model else None
         fields = [
@@ -1195,7 +1185,7 @@ def storage_map(
             "model_id": pkg.model_id,
             "model_code": model_code,
             "model_name": model_name,
-            "model_image_url": warehouse_stock_image_url(model),
+            "model_image_url": image_urls.get(pkg.model_id),
             "color": pkg.color,
             "package_type": pkg.package_type,
             "total_quantity": remaining_quantity(pkg),
@@ -1249,13 +1239,14 @@ def storage_map(
             int(model.id): model
             for model in (
                 db.query(Model)
-                .options(_warehouse_model_image_loader(), selectinload(Model.bom).joinedload(ModelBOM.item))
+                .options(load_only(Model.id, Model.code, Model.name, raiseload=True))
                 .filter(Model.id.in_(model_ids))
                 .all()
                 if model_ids
                 else []
             )
         }
+        image_urls.update(warehouse_stock_image_urls(db, model_ids - image_urls.keys()))
         representatives = {
             int(pkg.id): pkg
             for pkg in (
@@ -1298,7 +1289,7 @@ def storage_map(
                 "model_id": model_id,
                 "model_code": model_code,
                 "model_name": model_name,
-                "model_image_url": warehouse_stock_image_url(model),
+                "model_image_url": image_urls.get(model_id),
                 "color": color,
                 "package_type": package_type,
                 "total_quantity": int(total_quantity or 0),

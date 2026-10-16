@@ -373,7 +373,7 @@ def test_package_label_sheet_batches_reference_context(client, auth_headers, mon
     assert counts == {
         "members": expected_chunks,
         "models": 2,  # Own model plus family-photo metadata.
-        "images": 2,
+        "images": 3,  # Own images, family candidates and selected label binaries.
         "bom": 1,
         "orders": 1,
         "allocations": expected_chunks,
@@ -384,7 +384,7 @@ def test_package_label_sheet_batches_reference_context(client, auth_headers, mon
     blob_reads = [statement for statement in image_reads if "file_data" in statement]
     assert len(blob_reads) == 1, blob_reads
     assert "model_images.id in (?, ?)" in blob_reads[0], blob_reads
-    assert len(statements) == 12 + (2 * expected_chunks)  # Includes the returned-package guard., statements
+    assert len(statements) == 13 + (2 * expected_chunks)  # Includes the returned-package guard., statements
     positions = [response.text.index(package_no) for package_no in package_nos]
     assert positions == sorted(positions)
 
@@ -431,7 +431,7 @@ def test_print_run_label_batches_reference_context_and_bounds_rendering(
     assert rendered_package_ids == package_ids
     assert "run-summary" in response.text  # Current labels use a summary, not a cover QR.
     assert package_nos[0] in response.text and package_nos[-1] in response.text
-    assert len(statements) == 15, statements
+    assert len(statements) == 16, statements
 
 
 def test_print_run_label_rejects_over_limit_before_members_packages_or_rendering(
@@ -532,11 +532,11 @@ def test_package_label_context_chunks_distinct_models_and_orders(monkeypatch):
 
     assert len(cards) == 401
     assert _table_selects(statements, "models") == 3
-    assert _table_selects(statements, "model_images") == 2
+    assert _table_selects(statements, "model_images") == 4
     assert _table_selects(statements, "model_bom") == 2
     assert _table_selects(statements, "production_orders") == 2
     assert _table_selects(statements, "package_batch_allocations") == 2
-    assert len(statements) == 13, statements
+    assert len(statements) == 15, statements
 
 
 def test_package_label_sheet_rejects_deleted_label_before_qr_side_effect(client, auth_headers, monkeypatch):

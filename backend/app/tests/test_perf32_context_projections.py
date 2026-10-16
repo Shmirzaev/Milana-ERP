@@ -43,7 +43,7 @@ def test_process_tracking_projects_image_metadata_without_changing_precedence(co
     assert all(row["model_image_url"].startswith(f"/storage/model-files/{marker}") for row in rows)
     assert all(row["material_image_url"].startswith(f"/storage/model-files/material-{marker}") for row in rows)
     image_queries = [sql for sql in statements if " from model_images " in sql]
-    assert len(image_queries) == 1
+    assert len(image_queries) == 1 + (count + 399) // 400  # Page images plus family metadata chunks.
     assert all("file_data" not in sql for sql in statements)
     assert sum(" from model_bom " in sql for sql in statements) == 1
     assert not any(sql.startswith(("insert", "update", "delete")) for sql in statements)
