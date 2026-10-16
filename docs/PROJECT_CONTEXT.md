@@ -2,6 +2,12 @@
 
 Last updated: 2026-10-16
 
+## PO-0293 packaging access corrected in production (2026-10-16)
+
+- Applied the exact rehearsed correction after the verified backup below. Audit `76099` records Cutting work order `1248.failed_qty` from 300 to 0 (both Cutting records prove 600 good pieces and zero defects), Packaging `1250` from completed to in-progress with cleared end time, and parent `318` from storage_transfer to packaging. Only those fields, normal update timestamps and the audit entry changed. Sewing, receipt/input counters and every execution record remain unchanged.
+- Immediate committed readback under Packaging user 6 confirms the order is in the in-progress inbox and Nastil 2 has 20 pieces available. All 14 packages/560 pieces, linked stock, barcode/print history and QR file bytes have the same protected fingerprint before, during rehearsal, and after commit: `d3fb6c2c7953959b98fae838829cc9a2d4a980a5d11754de2e57ac434e77bce0`.
+- Both runtime slot states, symlinks and complete manifests remain blue `20261016_075611`; no application deployment or migration occurred. All four internal/public health/login checks return 200. The frontend production build, strict types, rendered navigation/localization checks and scoped lint pass; the first CI attempt caught a reserved test-harness variable name, now corrected without changing the application. Full CI is required before advancing `clone_main`.
+
 ## Packaging nastil completion repair prepared (2026-10-16)
 
 - Owner requested keeping later nastils accessible, correcting PO-0293 without changing existing packages/labels, and pushing to `clone_main`. After the required mismatch report, owner explicitly approved `origin/clone_main` as the worktree base and destination; `main` is stale. Both live manifests match blue `20261016_075611`, manifest `8e5bcfcccc86a6281e00980ef1c72455053801743149023f4390c4d9c9a006b9`; rollback remains green `20261016_071406`. No application deployment is authorized by this request.

@@ -17,14 +17,14 @@ const dependencies = {
   "@/lib/orderRef": { orderReference: row => row.production_no, formatOrderReference: value => value },
   "@/lib/variantDisplay": { formatVariantNumber: value => value },
 };
-const module = { exports: {} };
+const componentModule = { exports: {} };
 new Function("require", "module", "exports", compiled)(name => {
   assert.ok(name in dependencies, name);
   return dependencies[name];
-}, module, module.exports);
+}, componentModule, componentModule.exports);
 for (const operation of ["packaging", "sewing"]) {
   for (const queueKind of ["in_progress", "completed"]) {
-    const html = renderToStaticMarkup(React.createElement(module.exports.default, {
+    const html = renderToStaticMarkup(React.createElement(componentModule.exports.default, {
       rows: [{ id: 1250, production_order_id: 318, production_no: "PO-0293", operation, queueKind,
         status: queueKind, planned_output_qty: 600, passed_qty: 300 }],
       title: "Orders", emptyLabel: "Empty", t: key => key,
