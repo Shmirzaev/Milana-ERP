@@ -138,6 +138,20 @@ def password_change_postgres_sessions():
         connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
     try:
         Base.metadata.create_all(engine)
+        # The shared fixture also exercises package/model serializers. These
+        # indexed generated columns are migration-owned, absent from ORM DDL.
+        import importlib.util
+        from pathlib import Path
+        from alembic.migration import MigrationContext
+        from alembic.operations import Operations
+
+        path = Path(__file__).resolve().parents[2] / "alembic" / "versions" / "0084_model_group_key.py"
+        spec = importlib.util.spec_from_file_location("race_model_family_migration", path)
+        migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(migration)
+        with engine.begin() as connection:
+            migration.op = Operations(MigrationContext.configure(connection))
+            migration.upgrade()
         yield sessionmaker(bind=engine, autoflush=False, expire_on_commit=False), engine
     finally:
         with engine.begin() as connection:
