@@ -199,7 +199,8 @@ def test_price_list_batches_model_asset_reads(client, auth_headers):
 
     assert len(payload) == 25
     for table, count in asset_queries.items():
-        assert count <= 1, f"{table} was read {count} times for one page; expected a single batched read"
+        budget = 2 if table == "model_images" else 1  # Own assets plus family-photo metadata.
+        assert count <= budget, f"{table} was read {count} times for one page; budget {budget}"
 
 
 def test_price_list_preserves_response_fields_and_semantics(client, auth_headers):
@@ -227,7 +228,8 @@ def test_price_list_preserves_response_fields_and_semantics(client, auth_headers
     assert row["purchasing_status"] == "new"
     assert row["cutting_status"] == "new"
     assert row["accessories_status"] == "complete"
-    assert row["model_image_url"] is not None and row["variant_image_url"] is not None
+    assert row["model_image_url"] is not None
+    assert row["variant_image_url"] is None  # Garment/BOM photos are not variant attachments.
     assert row["model_no"] == "PERF23-shape" and row["model_category"] == "T-shirt"
     assert row["packaging_cost"] == 0.1
 
@@ -250,6 +252,7 @@ def test_price_request_mutation_uses_the_shared_preload(client, auth_headers):
     # The mutation must still serialize the model assets, so a shared preload
     # cannot simply drop them.
     assert body["model_sizes"] == ["S", "M"]
-    assert body["model_image_url"] is not None and body["variant_image_url"] is not None
+    assert body["model_image_url"] is not None
+    assert body["variant_image_url"] is None  # Garment/BOM photos are not variant attachments.
     assert body["purchasing_status"] == "complete"
     assert body["fabric_price"] == 12.5 and body["sewing_cost"] == 3.25

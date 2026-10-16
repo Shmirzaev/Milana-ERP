@@ -180,7 +180,8 @@ def _passport_model_cache(db: DbSession, passports: list[CuttingPassport]) -> di
         models = (
             db.query(CatalogModel)
             .options(
-                load_only(CatalogModel.id, CatalogModel.code, CatalogModel.name),
+                load_only(CatalogModel.id, CatalogModel.code, CatalogModel.name,
+                          CatalogModel.details_json, CatalogModel.catalog_scope, CatalogModel.factory_code),
                 selectinload(CatalogModel.images).load_only(
                     ModelImage.id,
                     ModelImage.model_id,

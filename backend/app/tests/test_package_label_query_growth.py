@@ -372,7 +372,7 @@ def test_package_label_sheet_batches_reference_context(client, auth_headers, mon
     }
     assert counts == {
         "members": expected_chunks,
-        "models": 1,
+        "models": 2,  # Own model plus family-photo metadata.
         "images": 2,
         "bom": 1,
         "orders": 1,
@@ -384,7 +384,7 @@ def test_package_label_sheet_batches_reference_context(client, auth_headers, mon
     blob_reads = [statement for statement in image_reads if "file_data" in statement]
     assert len(blob_reads) == 1, blob_reads
     assert "model_images.id in (?, ?)" in blob_reads[0], blob_reads
-    assert len(statements) == 11 + (2 * expected_chunks)  # Includes the returned-package guard., statements
+    assert len(statements) == 12 + (2 * expected_chunks)  # Includes the returned-package guard., statements
     positions = [response.text.index(package_no) for package_no in package_nos]
     assert positions == sorted(positions)
 
@@ -431,7 +431,7 @@ def test_print_run_label_batches_reference_context_and_bounds_rendering(
     assert rendered_package_ids == package_ids
     assert "run-summary" in response.text  # Current labels use a summary, not a cover QR.
     assert package_nos[0] in response.text and package_nos[-1] in response.text
-    assert len(statements) == 14, statements
+    assert len(statements) == 15, statements
 
 
 def test_print_run_label_rejects_over_limit_before_members_packages_or_rendering(
@@ -531,12 +531,12 @@ def test_package_label_context_chunks_distinct_models_and_orders(monkeypatch):
         cards, statements = _select_trace(db.bind, render_cards)
 
     assert len(cards) == 401
-    assert _table_selects(statements, "models") == 2
+    assert _table_selects(statements, "models") == 3
     assert _table_selects(statements, "model_images") == 2
     assert _table_selects(statements, "model_bom") == 2
     assert _table_selects(statements, "production_orders") == 2
     assert _table_selects(statements, "package_batch_allocations") == 2
-    assert len(statements) == 12, statements
+    assert len(statements) == 13, statements
 
 
 def test_package_label_sheet_rejects_deleted_label_before_qr_side_effect(client, auth_headers, monkeypatch):
@@ -622,7 +622,8 @@ def test_package_label_sheet_context_matches_scalar_cards(monkeypatch):
     assert case["direct_customer"] in batched_cards[1]
     assert case["fabric_name"] in batched_cards[0]
     assert case["fabric_name"] in batched_cards[1]
-    assert "https://example.test/model.png" in batched_cards[0]
+    assert "https://example.test/model.png" not in batched_cards[0]
+    assert "No variant picture" in batched_cards[0]
     assert "https://example.test/fabric.png" not in batched_cards[1]
     assert "No variant picture" in batched_cards[1]
     assert "Rich batch 1" in batched_cards[0]
@@ -636,4 +637,4 @@ def test_single_package_label_preserves_selected_embedded_image(client, auth_hea
     monkeypatch.setattr(package_routes, "_qr_data_uri_for_package", lambda *_args: "data:image/png;base64,AA==")
     response = client.get(f"/api/packages/{package_id}/label", headers=auth_headers)
     assert response.status_code == 200, response.text
-    assert base64.b64encode(b"PERF12 package label image bytes").decode() in response.text
+    assert base64.b64encode(b"PERF12 material image 2").decode() in response.text

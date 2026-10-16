@@ -21,7 +21,8 @@ def _seed_packages(count, *, source="legacy", department="PKG"):
         warehouse = db.query(Warehouse).first()
         for index in range(count):
             suffix = f"{marker}-{index}"
-            model = Model(code=f"PERF-{suffix}", name=f"Package model {index}")
+            model = Model(code=f"PERF-{suffix}", name=f"Package model {index}",
+                          details_json={"general": {"model_no": f"PERF-{suffix}"}})
             db.add(model)
             db.flush()
             image_url = None
@@ -124,7 +125,7 @@ def test_package_list_query_count_is_bounded(client, auth_headers, source):
         assert [row["id"] for row in response.json()] == sorted(ids, reverse=True)[:size]
         counts.append(len(statements))
     print(f"Package list SELECTs, {source}, 1/10/50 rows: {counts}")
-    assert max(counts) <= 9, counts
+    assert max(counts) <= 10, counts
     assert counts[0] == counts[1] == counts[2], counts
 
 

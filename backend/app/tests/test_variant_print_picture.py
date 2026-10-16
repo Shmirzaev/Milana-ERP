@@ -1,7 +1,7 @@
 from uuid import uuid4
 
 from app.models import Item, Model, ModelBOM
-from app.services.model_images import material_preview_image_url, model_preview_image_url
+from app.services.model_images import material_preview_image_url, model_preview_image_url, model_print_image_url
 from app.tests.conftest import TestSessionLocal
 
 
@@ -24,7 +24,8 @@ def test_variant_artwork_is_exact_preserved_and_used_in_workflow(client, auth_he
     assert actual["picture_url"].split("?")[0] == "/storage/model-files/fabric.png"
     with TestSessionLocal() as db:
         variant = db.get(Model, variant_id)
-        assert model_preview_image_url(variant) == "/storage/model-files/artwork.png"
+        assert model_print_image_url(variant) == "/storage/model-files/artwork.png"
+        assert model_preview_image_url(variant) is None
         assert material_preview_image_url(variant) == "/storage/model-files/fabric.png"
         assert model_preview_image_url(db.get(Model, mid)) != "/storage/model-files/artwork.png"
     changed = client.patch(f"/api/models/{mid}/variants/{variant_id}", json={"variant_no": "PRINT-A", "color": "red"}, headers=auth_headers)
@@ -34,8 +35,8 @@ def test_variant_artwork_is_exact_preserved_and_used_in_workflow(client, auth_he
     sibling_detail = client.get(f"/api/models/{sibling.json()['id']}", headers=auth_headers).json()
     assert not any(image["image_type"] == "print" for image in sibling_detail["images"])
     with TestSessionLocal() as db:
-        assert model_preview_image_url(db.get(Model, variant_id)) == "/storage/model-files/artwork.png"
+        assert model_print_image_url(db.get(Model, variant_id)) == "/storage/model-files/artwork.png"
     removed = client.patch(f"/api/models/{mid}/variants/{variant_id}", json={"variant_no": "PRINT-A", "print_picture_url": None}, headers=auth_headers)
     assert removed.status_code == 200, removed.text
     with TestSessionLocal() as db:
-        assert model_preview_image_url(db.get(Model, variant_id)) != "/storage/model-files/artwork.png"
+        assert model_print_image_url(db.get(Model, variant_id)) != "/storage/model-files/artwork.png"

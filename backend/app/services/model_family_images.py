@@ -95,18 +95,21 @@ def family_images_for_models(db: Session, models) -> dict:
         for scope, factory, group in keys:
             grouped_keys[scope, factory].append(group)
         members = defaultdict(list)
+        # Select scalar candidates, then hydrate only the winning photographs.
+        # Loading every image in a family grows ORM hydration with off-page
+        # variants even when the request itself has a fixed page size.
+        photo_columns = [column for column in ModelImage.__table__.columns if column.name != "file_data"]
         for (scope, factory), groups in grouped_keys.items():
             for offset in range(0, len(groups), 400):
                 chunk = set(groups[offset:offset + 400])
                 statement = select(
                     Model.id, Model.code, Model.name, Model.details_json,
-                    Model.catalog_scope, Model.factory_code, ModelImage,
+                    Model.catalog_scope, Model.factory_code,
+                    *(column.label("photo_" + column.name) for column in photo_columns),
                 ).select_from(Model).outerjoin(ModelImage, and_(
                     ModelImage.model_id == Model.id,
                     func.lower(func.coalesce(ModelImage.image_type, "")).in_(("", "model")),
-                )).where(Model.catalog_scope == scope, Model.factory_code == factory).options(
-                    defer(ModelImage.file_data, raiseload=True),
-                )
+                )).where(Model.catalog_scope == scope, Model.factory_code == factory)
                 if db.get_bind().dialect.name == "postgresql":
                     statement = statement.where(
                         literal_column("models.is_legacy_import").is_(False),
@@ -118,14 +121,31 @@ def family_images_for_models(db: Session, models) -> dict:
                         id=row.id, code=row.code, name=row.name, details_json=row.details_json,
                         catalog_scope=row.catalog_scope, factory_code=row.factory_code, images=[],
                     ))
-                    if row.ModelImage is not None:
-                        member.images.append(row.ModelImage)
+                    if row.photo_id is not None:
+                        member.images.append(SimpleNamespace(**{
+                            column.name: getattr(row, "photo_" + column.name) for column in photo_columns
+                        }))
                 for member in by_id.values():
                     member_key = _family_key(member)
                     if not _legacy(member) and member_key[2] in chunk:
                         members[member_key].append(member)
+        selected = {}
         for family_key in keys:
             family = members[family_key]
-            cache[family_key] = family_image_from_members(family[0], family) if family else None
+            selected[family_key] = family_image_from_members(family[0], family) if family else None
+        images = {}
+        missing = []
+        for image_id in {image.id for image in selected.values() if image is not None}:
+            loaded = db.identity_map.get(db.identity_key(ModelImage, image_id))
+            if loaded is not None and {"id", "file_url", "file_name", "content_type", "image_type", "is_primary"}.issubset(loaded.__dict__):
+                images[image_id] = loaded
+            else:
+                missing.append(image_id)
+        for offset in range(0, len(missing), 400):
+            images.update({image.id: image for image in db.scalars(select(ModelImage).where(
+                ModelImage.id.in_(missing[offset:offset + 400]),
+            ).options(defer(ModelImage.file_data, raiseload=True)))})
+        for family_key, image in selected.items():
+            cache[family_key] = images[image.id] if image is not None else None
         db.info[_CACHE] = (db.get_transaction(), cache)
     return cache

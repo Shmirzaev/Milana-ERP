@@ -1677,7 +1677,7 @@ def _production_context_by_production_order(db: DbSession, production_order_ids:
         for model in (
             db.query(Model)
             .options(
-                load_only(Model.id, Model.code, Model.name, Model.details_json),
+                load_only(Model.id, Model.code, Model.name, Model.details_json, Model.catalog_scope, Model.factory_code),
                 selectinload(Model.images).load_only(
                     ModelImage.id,
                     ModelImage.model_id,

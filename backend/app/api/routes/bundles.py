@@ -330,12 +330,7 @@ def _bundle_label_image_sources(db: DbSession, models: dict[int, Model]) -> dict
             key=lambda image: int(image.id), reverse=True,
         )
         material = next((image for image in images if str(image.image_type or "").lower() == "material"), None)
-        fallback = (
-            next((image for image in images if str(image.image_type or "").lower() == "model"), None)
-            or next((image for image in images if image.is_primary), None)
-            or (images[0] if images else None)
-        )
-        candidates[model_id] = (material, fallback)
+        candidates[model_id] = material
 
     def load_selected(images):
         by_id = {int(image.id): image for image in images if image is not None}
@@ -346,9 +341,7 @@ def _bundle_label_image_sources(db: DbSession, models: dict[int, Model]) -> dict
             ).all():
                 set_committed_value(by_id[int(image_id)], "file_data", data)
 
-    load_selected(pair[0] for pair in candidates.values())
-    sources = {model_id: material_label_image_src(model) for model_id, model in models.items()}
-    load_selected(candidates[model_id][1] for model_id, source in sources.items() if source is None)
+    load_selected(candidates.values())
     return {model_id: material_label_image_src(model) for model_id, model in models.items()}
 
 
@@ -480,13 +473,6 @@ def _label_context(db: DbSession, b: Bundle, reference_context: dict | None = No
             if material_image is not None:
                 load_image_data(material_image)
             material_image_src = material_label_image_src(model)
-            if material_image_src is None:
-                typed_model = next((image for image in images if str(image.image_type or "").lower() == "model"), None)
-                primary = next((image for image in images if image.is_primary), None)
-                fallback_image = typed_model or primary or (images[0] if images else None)
-                if fallback_image is not None and fallback_image is not material_image:
-                    load_image_data(fallback_image)
-                    material_image_src = material_label_image_src(model)
     return {
         "bundle_no": _h(b.bundle_no),
         "order_no": _h(row.get("order_no") or row.get("production_no") or b.production_order_id),

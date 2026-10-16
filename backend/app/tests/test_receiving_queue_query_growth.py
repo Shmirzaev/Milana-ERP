@@ -508,7 +508,7 @@ def test_shared_model_context_does_not_substitute_bom_stock_batch_picture(client
     assert _table_selects(label_statements, "stock_batches") == 0
 
 
-def test_label_context_eagerly_loads_distinct_embedded_model_images(monkeypatch):
+def test_label_context_eagerly_loads_distinct_embedded_material_images(monkeypatch):
     package_ids = _receiving_queue_case(50)
     monkeypatch.setattr(
         package_routes,
@@ -516,6 +516,11 @@ def test_label_context_eagerly_loads_distinct_embedded_model_images(monkeypatch)
         lambda _db, _package: "data:image/png;base64,AA==",
     )
     with SessionLocal() as db:
+        model_ids = db.query(Package.model_id).filter(Package.id.in_(package_ids))
+        db.query(ModelImage).filter(ModelImage.model_id.in_(model_ids)).update(
+            {ModelImage.image_type: "material"}, synchronize_session=False,
+        )
+        db.commit()
         packages = (
             db.query(Package)
             .options(selectinload(Package.items))
