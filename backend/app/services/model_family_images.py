@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections import defaultdict
 from types import SimpleNamespace
 
-from sqlalchemy import and_, event, func, inspect, literal_column, select
+from sqlalchemy import event, func, inspect, literal_column, select
 from sqlalchemy.orm import Session, defer, object_session
 
 from app.models import Model, ModelImage
@@ -99,27 +99,40 @@ def family_images_for_models(db: Session, models) -> dict:
             for offset in range(0, len(groups), 400):
                 chunk = set(groups[offset:offset + 400])
                 statement = select(
-                    Model.id, Model.code, Model.name, Model.details_json,
-                    Model.catalog_scope, Model.factory_code, ModelImage,
-                ).select_from(Model).outerjoin(ModelImage, and_(
-                    ModelImage.model_id == Model.id,
-                    func.lower(func.coalesce(ModelImage.image_type, "")).in_(("", "model")),
-                )).where(Model.catalog_scope == scope, Model.factory_code == factory).options(
-                    defer(ModelImage.file_data, raiseload=True),
-                )
+                    Model.id, Model.code, Model.name,
+                    Model.details_json["general"].label("identity_general"),
+                    Model.catalog_scope, Model.factory_code,
+                ).where(Model.catalog_scope == scope, Model.factory_code == factory)
                 if db.get_bind().dialect.name == "postgresql":
                     statement = statement.where(
                         literal_column("models.is_legacy_import").is_(False),
                         literal_column("models.model_group_key").in_(chunk),
                     )
+                else:
+                    # SQLite JSON scalars decode true as integer 1; test the
+                    # JSON type so only a literal true marks a legacy model.
+                    statement = statement.where(
+                        func.coalesce(func.json_type(Model.details_json, "$.legacy_import"), "null") != "true",
+                    )
                 by_id = {}
                 for row in db.execute(statement):
-                    member = by_id.setdefault(row.id, SimpleNamespace(
-                        id=row.id, code=row.code, name=row.name, details_json=row.details_json,
+                    member = SimpleNamespace(
+                        id=row.id, code=row.code, name=row.name,
+                        # Fetch identity once per model, not once per picture.
+                        # Technical/image payloads are not family identity.
+                        details_json={"general": row.identity_general, "legacy_import": False},
                         catalog_scope=row.catalog_scope, factory_code=row.factory_code, images=[],
-                    ))
-                    if row.ModelImage is not None:
-                        member.images.append(row.ModelImage)
+                    )
+                    if _family_key(member)[2] in chunk:
+                        by_id[row.id] = member
+                member_ids = list(by_id)
+                for image_offset in range(0, len(member_ids), 400):
+                    images = db.scalars(select(ModelImage).where(
+                        ModelImage.model_id.in_(member_ids[image_offset:image_offset + 400]),
+                        func.lower(func.coalesce(ModelImage.image_type, "")).in_(("", "model")),
+                    ).options(defer(ModelImage.file_data, raiseload=True)))
+                    for image in images:
+                        by_id[image.model_id].images.append(image)
                 for member in by_id.values():
                     member_key = _family_key(member)
                     if not _legacy(member) and member_key[2] in chunk:

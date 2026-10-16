@@ -1,6 +1,14 @@
 # Milana ERP Project Context
 
-Last updated: 2026-10-15
+Last updated: 2026-10-16
+
+## Warehouse stock loading fix prepared and speed-tested (2026-10-16)
+
+- Prepared for owner-requested `clone_main`; not deployed. Warehouse Stock timed out at the browser's existing 12-second limit while production `/api/packages/storage-map` requests took 21-80 seconds. Profiling identified repeated loading/decoding of full model technical JSON during family-picture selection as the dominant cost.
+- Family-picture lookup now fetches the identity section once per model and loads picture metadata separately in bounded batches. Storage Map loads only displayed model fields and resolves pictures in bulk, without full technical JSON, BOM hydration or image binary data. Family/base/primary-picture precedence, legacy evidence fallback, factory/catalog separation, quantities, dates, classification, search and storage placement remain unchanged. No timeout increase, pagination change or schema change.
+- A separate diagnostic process tested exact candidate modules against production PostgreSQL under a single repeatable-read, read-only transaction. Three baseline samples were 20.8973/19.5442/20.7557 seconds; seven candidate samples were 3.5283/3.5575/3.4800/3.4491/3.4532/3.4721/3.4513 seconds. Median improved from 20.7557 to 3.4721 seconds (83.27%). Every response had identical normalized JSON SHA-256 `7097cef715715f203a15b7be9eed63e62c0ad99442e9783bef3ea3e310ca3f8b`, 1,252,148 bytes, 1,804 placement rows and 6,739 packages. Timing includes the endpoint and JSON conversion/serialization, not public network transport or browser rendering. No running service code, file, image or configuration was replaced.
+- Validation: 36 focused image/warehouse/report/lifecycle/legacy tests passed. A wider selection returned 110 passed, 19 failed, 10 optional PostgreSQL tests skipped; all 19 failures reproduced on untouched `clone_main`. The three directly affected Storage Map tests were refreshed to reflect existing family-picture behavior, large identity payloads and bounded 400-model batches; the final projection/Storage Map selection passed all 13 tests (including 1/50/401-model cases). The remaining 16 inherited catalog/label/package test failures are not claimed fixed. Scoped Ruff, compilation and whitespace review passed. Detailed evidence: `docs/WAREHOUSE_STOCK_SPEED_2026-10-16.md`.
+- Dedicated worktree `C:/ERP/.codex-work/warehouse-stock-speed-20261016`, branch `codex/warehouse-stock-speed-20261016`, based on verified `origin/clone_main` `4dd8ff4ebe18e4a027671f3259a832d000bd429b`. Its application code matches the live baseline; `origin/main` remains stale. Both live manifests were fully verified against recorded green `20261015_095050`, commit `b0f960c780bd3793bc20d71dd9e76d9b9c12fde0`, manifest `eddf97c6bce9409fc73a7bf16000723b04e8b17d9fd18110b874de69f78f6e9b`. Blue `20261015_092953` remains the recorded rollback. Legacy checkout preserved. No business data, permissions, schema, release or runtime state changed; deployment remains pending.
 
 ## Model-family size fallback deployed (2026-10-15)
 

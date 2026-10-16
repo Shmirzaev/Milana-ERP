@@ -1,4 +1,5 @@
 from hashlib import sha256
+from math import ceil
 from uuid import uuid4
 
 import pytest
@@ -10,7 +11,7 @@ from app.tests.conftest import TestSessionLocal
 
 
 @pytest.mark.parametrize("model_count", [1, 50, 401])
-def test_storage_map_selects_image_metadata_without_binary_at_constant_query_count(model_count):
+def test_storage_map_selects_small_identity_and_image_metadata_in_bounded_batches(model_count):
     marker = uuid4().hex[:10]
     with TestSessionLocal() as db:
         models = [
@@ -18,6 +19,10 @@ def test_storage_map_selects_image_metadata_without_binary_at_constant_query_cou
                 code=f"PERF35-MAP-{marker}-{index}",
                 name=f"Storage map model {index}",
                 status="approved",
+                details_json={
+                    "general": {"model_no": f"MAP-{marker}-{index}", "variant_no": "1"},
+                    "unused_technical_data": "large model details " * 1000,
+                },
             )
             for index in range(model_count)
         ]
@@ -81,6 +86,10 @@ def test_storage_map_selects_image_metadata_without_binary_at_constant_query_cou
         for row in result["placements"]
     }
     assert actual_urls == expected_urls
-    assert len(statements) == 6
-    assert len(image_reads) == 1
-    assert "model_images.file_data" not in image_reads[0]
+    chunks = ceil(model_count / 400)
+    # Each chunk loads identity/pictures and scoped family identity/pictures.
+    # No per-model query, model technical payload or image binary is allowed.
+    assert len(statements) <= 4 + 4 * chunks
+    assert len(image_reads) <= 2 * chunks
+    assert all("model_images.file_data" not in sql for sql in statements)
+    assert all("models.details_json as models_details_json" not in sql for sql in statements)
