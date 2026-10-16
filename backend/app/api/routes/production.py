@@ -1983,9 +1983,13 @@ def collect_printing_wo(
 
 @router.post("/work-orders/{wid}/complete", response_model=WorkOrderOut)
 def complete_wo(wid: int, db: DbSession, current: User = Depends(require_permissions(*_WORK_ORDER_COMMAND_PERMS))):
-    wo = db.get(WorkOrder, wid)
+    wo = db.query(WorkOrder).filter(WorkOrder.id == wid).with_for_update(of=WorkOrder).populate_existing().first()
     if not wo: raise HTTPException(404, "Work order not found")
     _authorize_work_order_command(db, current, wo)
+    if wo.operation == "packaging":
+        planned = int(wo.planned_output_qty or 0)
+        if planned <= 0 or processed_work_order_qty(db, wo) < planned:
+            raise HTTPException(409, "Packaging still has unfinished quantities. Continue packaging the remaining nastils.")
     wo.status = "completed"
     wo.end_time = datetime.now(timezone.utc)
     log_action(db, current, "complete", "WorkOrder", wo.id)

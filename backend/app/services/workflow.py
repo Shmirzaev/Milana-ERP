@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session, lazyload
 
 from app.models import (
@@ -113,8 +113,19 @@ def _upstream_failed_qty(db: Session, wo: WorkOrder) -> int:
     if op_index <= 0:
         return 0
     prior_operations = WORKFLOW_SEQUENCE[:op_index]
+    # A previously accepted shortage may remain in failed_qty after a later
+    # nastil supplies those pieces. It cannot still reduce downstream targets.
+    remaining = case(
+        (WorkOrder.planned_output_qty > WorkOrder.passed_qty,
+         WorkOrder.planned_output_qty - WorkOrder.passed_qty),
+        else_=0,
+    )
+    effective_failed = case(
+        (WorkOrder.failed_qty > remaining, remaining),
+        else_=WorkOrder.failed_qty,
+    )
     qry = (
-        db.query(func.coalesce(func.sum(WorkOrder.failed_qty), 0))
+        db.query(func.coalesce(func.sum(effective_failed), 0))
         .filter(
             WorkOrder.production_order_id == wo.production_order_id,
             WorkOrder.operation.in_(prior_operations),
@@ -185,6 +196,9 @@ def _complete_if_done(db: Session, wo: WorkOrder) -> None:
     if planned > 0 and processed >= planned and wo.status != "completed":
         wo.status = "completed"
         wo.end_time = datetime.now(timezone.utc)
+    elif wo.operation == "packaging" and processed < planned and wo.status == "completed":
+        wo.status = "in_progress"
+        wo.end_time = None
 
 
 def _work_order_has_started(wo: WorkOrder) -> bool:
