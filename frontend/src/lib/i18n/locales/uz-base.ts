@@ -1,5 +1,10 @@
 // Generated mechanically from dict.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "page.processQr.autoSizeSplit": "O‘lchamlarga ajratilmagan tikuv miqdori model o‘lchamlariga teng taqsimlandi. Yorliqlarni chiqarishdan oldin tekshiring va tuzating. Avval kiritilgan o‘lcham miqdorlari saqlanadi.",
+    "page.processQr.sizeSplitTotal": "Taqsimlangan: {assigned} / {total} dona",
+    "page.processQr.sizeSplitInvalid": "Jami tikuv miqdoriga teng bo‘lgan butun, manfiy bo‘lmagan sonlarni kiriting. Avval kiritilgan o‘lcham miqdorlarini kamaytirib bo‘lmaydi.",
+    "page.processQr.sizeSplitMissing": "Model yoki buyurtma uchun o‘lchamlar belgilanmagan. Yorliqlarni chiqarishdan oldin model o‘lchamlarini belgilang.",
+    "page.processQr.sizeSplitIssuedConflict": "Bu taqsimot avval chiqarilgan yorliqlardan farq qiladi. Yangi yorliqlarni chiqarishdan oldin ularning miqdorini tiklang; mavjud yorliqlarni chiqarilgan yorliqlar bo‘limida tuzating.",
     "auth.connectionFailed": "Seansni tekshirib bo‘lmadi. Internet aloqasini tekshirib, qayta urinib ko‘ring.",
     "fabricRollEntry.method": "Vazn kiritish",
     "fabricRollEntry.individual": "Har bir rulon uchun kg kiritish",

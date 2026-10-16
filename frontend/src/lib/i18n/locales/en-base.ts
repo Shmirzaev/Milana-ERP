@@ -1,5 +1,10 @@
 // Generated mechanically from dict.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "page.processQr.autoSizeSplit": "Unallocated Sewing output was split evenly across model sizes. Review and adjust before issuing. Recorded size quantities are preserved.",
+    "page.processQr.sizeSplitTotal": "Allocated: {assigned} / {total} pieces",
+    "page.processQr.sizeSplitInvalid": "Use whole, non-negative quantities that total the recorded Sewing output. Existing recorded size quantities cannot be reduced.",
+    "page.processQr.sizeSplitMissing": "No sizes are configured for this model or order. Configure the model sizes before issuing labels.",
+    "page.processQr.sizeSplitIssuedConflict": "This split differs from already issued labels. Restore their quantities before issuing more labels; use the issued-label controls to correct existing labels.",
     "auth.connectionFailed": "Unable to check your session. Check your connection and retry.",
     "fabricRollEntry.method": "Weight entry",
     "fabricRollEntry.individual": "Enter kg for each roll",

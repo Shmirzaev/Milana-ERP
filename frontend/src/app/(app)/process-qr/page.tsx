@@ -45,6 +45,8 @@ import {
 } from "@/lib/modelPaidOperations";
 import PaidProcessPicker from "@/components/PaidProcessPicker";
 import ManualModelSizes from "@/components/ManualModelSizes";
+import ProcessQrBatchSizes from "@/components/ProcessQrBatchSizes";
+import { allocateLabelSizes, allocationQuantity, issuedSizeAllocationConflicts, type SizeAllocation } from "@/lib/processQrSizeAllocation";
 import ProcessQrSizeEditor, { type ProcessQrSizeEdit } from "@/components/ProcessQrSizeEditor";
 import { paidSectionLabel } from "@/lib/paidProcessSections";
 import PageHeader from "@/components/PageHeader";
@@ -384,10 +386,6 @@ function batchDisplayName(batch: BatchOption): string {
 
 function payrollQuantity(batch: BatchOption): number {
   return batch.sewingCompletedQuantity;
-}
-
-function sameSize(left: string, right: string): boolean {
-  return left.trim().toLocaleLowerCase() === right.trim().toLocaleLowerCase();
 }
 
 function money(value: number, currency: string): string {
@@ -741,6 +739,9 @@ export default function ProcessQrPage() {
   const [sameSizeQuantity, setSameSizeQuantity] = useState<NumberInputValue>(0);
   const [customSizeQuantities, setCustomSizeQuantities] = useState<Record<string, NumberInputValue>>({});
   const initializedSizeSourceKey = useRef("");
+  const [batchSizeDrafts, setBatchSizeDrafts] = useState<Record<string, {
+    fingerprint: string; quantities: Record<string, NumberInputValue>;
+  }>>({});
   const [manualSizeOverride, setManualSizeOverride] = useState<{ modelId: number; sizes: string[] } | null>(null);
   const [exportingOperations, setExportingOperations] = useState(false);
   const [operations, setOperations] = useState<PaidOperation[]>([]);
@@ -819,7 +820,7 @@ export default function ProcessQrPage() {
   const { mutate: mutateModelCache } = useSWRConfig();
   const selectedModelIdRef = useRef(selectedModelId);
   useEffect(() => { selectedModelIdRef.current = selectedModelId; }, [selectedModelId]);
-  const needsFamilySizes = sourceMode === "manual" && selectedModel?.id === selectedModelId
+  const needsFamilySizes = selectedModel?.id === selectedModelId
     && !(selectedModel.sizes || []).some(row => String(row.size || "").trim());
   const { data: familySizes, error: familySizesError, mutate: mutateFamilySizes } = useSWR<{
     model_id: number; sizes: string[]; resolution: "own" | "inherited" | "missing" | "conflict";
@@ -901,14 +902,33 @@ export default function ProcessQrPage() {
     if (inferredPaidOperationFactory) setPrintPaidOperationFactory(inferredPaidOperationFactory);
   }, [accountPaidOperationFactory, inferredPaidOperationFactory, selectedProcess?.production_order_id]);
   const batchOptions = useMemo(() => batchesForProcess(selectedProcess, t), [selectedProcess, t]);
-  const selectedBatchOption = useMemo(
-    () => batchOptions.find((batch) => batch.key === selectedBatchKey),
-    [batchOptions, selectedBatchKey],
-  );
+  const batchesToPrint = useMemo(() => {
+    if (batchMode === "all") return batchOptions;
+    return batchOptions.filter((batch) => batch.key === selectedBatchKey);
+  }, [batchMode, batchOptions, selectedBatchKey]);
+  const allocationScope = `${accountPaidOperationFactory}:${selectedProcess?.production_order_id}:${selectedModelId}`;
+  const erpSizeAllocations = useMemo<Map<string, SizeAllocation>>(() => {
+    if (!selectedProcess || selectedProcess.is_manual) return new Map();
+    const ownSizes = selectedModel?.id === selectedModelId
+      ? (selectedModel.sizes || []).map(row => row.size).filter(size => size?.trim() && size !== "-") : [];
+    const orderSizes = (selectedProcess.sizes || []).map(row => row.size).filter(size => size?.trim() && size !== "-");
+    const modelSizes = [...(ownSizes.length ? ownSizes : orderSizes.length ? orderSizes : resolvedFamilySizes?.sizes || [])].sort(compareGarmentSizes);
+    return new Map(batchOptions.map(batch => [batch.key, allocateLabelSizes(
+      batch.sewingCompletedQuantity, batch.sewingSizes, modelSizes,
+      batchSizeDrafts[`${allocationScope}:${batch.key}`],
+    )]));
+  }, [selectedProcess, selectedModel, selectedModelId, resolvedFamilySizes, batchOptions, batchSizeDrafts, allocationScope]);
+  const invalidSizeAllocation = !selectedProcess?.is_manual && batchesToPrint.some(batch => !erpSizeAllocations.get(batch.key)?.valid);
   const sizeOptions = useMemo<ProcessSize[]>(() => {
-    const rows = !selectedProcess?.is_manual && batchMode === "selected" && selectedBatchOption
-      ? selectedBatchOption.sewingSizes
-      : selectedProcess?.sizes || [];
+    if (selectedProcess && !selectedProcess.is_manual) {
+      const sizes = new Map<string, ProcessSize>();
+      for (const batch of batchesToPrint) for (const row of erpSizeAllocations.get(batch.key)?.rows || []) {
+        const key = row.size.toLowerCase();
+        if (!sizes.has(key)) sizes.set(key, { size: row.size, planned_quantity: 0, completed_quantity: 0 });
+      }
+      return [...sizes.values()].sort((left, right) => compareGarmentSizes(left.size, right.size));
+    }
+    const rows = selectedProcess?.sizes || [];
     if (rows.length > 0) return [...rows].sort((left, right) => compareGarmentSizes(left.size, right.size));
     if (selectedProcess?.is_manual) return [];
     return [{
@@ -917,7 +937,7 @@ export default function ProcessQrPage() {
       completed_quantity: 0,
       sewing_completed_quantity: numberOrZero(selectedProcess?.sewing_completed_quantity),
     }];
-  }, [batchMode, selectedBatchOption, selectedProcess]);
+  }, [batchesToPrint, erpSizeAllocations, selectedProcess]);
   function applyManualSizes(rows: ProcessQrSizeEdit[]) {
     if (!selectedProcess?.is_manual || !selectedModelId) return;
     const sizes = rows.map((row) => row.size).sort(compareGarmentSizes);
@@ -1076,10 +1096,7 @@ export default function ProcessQrPage() {
     };
   }, []);
 
-  const batchesToPrint = useMemo(() => {
-    if (batchMode === "all") return batchOptions;
-    return batchOptions.filter((batch) => batch.key === selectedBatchKey);
-  }, [batchMode, batchOptions, selectedBatchKey]);
+
 
   const factoryOperations = useMemo(
     () => operations.filter((operation) => paidOperationMatchesFactory(operation, printPaidOperationFactory)),
@@ -1105,21 +1122,20 @@ export default function ProcessQrPage() {
     [factoryOperations],
   );
 
-  const labels = useMemo<LabelRow[]>(() => {
-    if (!selectedProcess || !selectedSewingLine || !selectedModel || loadedOperationsModelId !== selectedModelId || issuedLabelsLoading || issuedLabelsError) return [];
+  const candidateLabels = useMemo<LabelRow[]>(() => {
+    if (!selectedProcess || !selectedSewingLine || !selectedModel || loadedOperationsModelId !== selectedModelId || issuedLabelsLoading || issuedLabelsError || invalidSizeAllocation) return [];
     if (selectedProcess.is_manual && !selectedProcess.manual_kroy_no?.trim()) return [];
     const rows: LabelRow[] = [];
     for (const sizeOption of sizeOptions) {
       for (const batch of batchesToPrint) {
-        for (const operation of selectedOperations) {
+        for (const operation of factoryOperations) {
+          if (!operation.code.trim() || !operation.name.trim()) continue;
           const totalSizeQuantity = sizeQuantityMode === "same"
             ? Math.max(0, numberOrZero(sameSizeQuantity))
             : Math.max(0, numberOrZero(customSizeQuantities[sizeOption.size]));
           const baseQuantity = selectedProcess.is_manual
             ? distributeQuantityAcrossBatches(totalSizeQuantity, batchesToPrint).get(batch.key) ?? 0
-            : numberOrZero(
-                batch.sewingSizes.find((row) => sameSize(row.size, sizeOption.size))?.sewing_completed_quantity,
-              );
+            : allocationQuantity(erpSizeAllocations.get(batch.key), sizeOption.size);
           if (baseQuantity <= 0) continue;
           const copies = Math.max(1, Math.floor(numberOrZero(operation.copies) || 1));
           const rate = Math.max(0, numberOrZero(operation.rate));
@@ -1170,7 +1186,12 @@ export default function ProcessQrPage() {
       }
     }
     return rows;
-  }, [selectedModel, loadedOperationsModelId, selectedModelId, issuedLabelsLoading, issuedLabelsError, batchesToPrint, currency, customSizeQuantities, operationLabelTokens, sameSizeQuantity, selectedOperations, selectedProcess, selectedSewingLine, sizeOptions, sizeQuantityMode]);
+  }, [invalidSizeAllocation, erpSizeAllocations, selectedModel, loadedOperationsModelId, selectedModelId, issuedLabelsLoading, issuedLabelsError, batchesToPrint, currency, customSizeQuantities, operationLabelTokens, sameSizeQuantity, factoryOperations, selectedProcess, selectedSewingLine, sizeOptions, sizeQuantityMode]);
+
+  const labels = useMemo(() => candidateLabels.filter(label => label.operation.selected), [candidateLabels]);
+  const issuedSizeConflict = useMemo(() => !selectedProcess?.is_manual && issuedSizeAllocationConflicts(
+    candidateLabels.filter(label => erpSizeAllocations.get(label.batch.key)?.suggested), issuedLabels,
+  ), [candidateLabels, erpSizeAllocations, issuedLabels, selectedProcess]);
 
   const issuedLabelUids = useMemo(
     () => new Set(issuedLabels.map((label) => label.label_uid)),
@@ -1375,7 +1396,7 @@ export default function ProcessQrPage() {
   }
 
   async function issueLabels() {
-    if (unissuedLabels.length === 0 || issuingLabels || issuedLabelsLoading || operationIdentityNeedsReview) return;
+    if (unissuedLabels.length === 0 || issuingLabels || issuedLabelsLoading || operationIdentityNeedsReview || invalidSizeAllocation || issuedSizeConflict) return;
     setIssuingLabels(true);
     setPrintError("");
     setIssueNotice("");
@@ -1662,7 +1683,7 @@ export default function ProcessQrPage() {
                 <Users />
                 <span>{t("page.processQr.printEmployees")}</span>
               </button>
-              <button type="button" className="btn btn-primary" onClick={issueLabels} disabled={unissuedLabels.length === 0 || issuingLabels || issuedLabelsLoading || operationIdentityNeedsReview}>
+              <button type="button" className="btn btn-primary" onClick={issueLabels} disabled={unissuedLabels.length === 0 || issuingLabels || issuedLabelsLoading || operationIdentityNeedsReview || invalidSizeAllocation || issuedSizeConflict}>
                 {issuingLabels ? <RefreshCw className="animate-spin" /> : <Printer />}
                 <span>{t(issuingLabels ? "page.processQr.issuingLabels" : "page.processQr.issueLabels")}</span>
               </button>
@@ -1985,7 +2006,7 @@ export default function ProcessQrPage() {
               key={selectedModelId} sizes={sizeOptions.map((row) => row.size)}
               sizeToken={(size) => compactQrValue(size).slice(0, 12)} onApply={applyManualSizes}
             />}
-            {needsFamilySizes && !hasManualSizeOverride && selectedModelId && <div className="mb-4"><ManualModelSizes modelId={selectedModelId} onSaved={() => { void mutateSelectedModel(); void mutateFamilySizes(); }} /></div>}
+            {selectedProcess?.is_manual && needsFamilySizes && !hasManualSizeOverride && selectedModelId && <div className="mb-4"><ManualModelSizes modelId={selectedModelId} onSaved={() => { void mutateSelectedModel(); void mutateFamilySizes(); }} /></div>}
             {needsFamilySizes && !hasManualSizeOverride && !resolvedFamilySizes && !familySizesError && <p role="status">{t("common.loading")}</p>}
             {needsFamilySizes && !hasManualSizeOverride && familySizesError && (
               <p role="alert" className="text-sm text-red-700">{t("page.processQr.sizesLoadFailed")}</p>
@@ -1999,7 +2020,20 @@ export default function ProcessQrPage() {
               </div>
             )}
 
-            {selectedProcess?.is_manual && sizeOptions.length > 0 && sizeQuantityMode === "same" ? (
+            {issuedSizeConflict && <p role="alert" className="mb-3 text-sm text-red-700">{t("page.processQr.sizeSplitIssuedConflict")}</p>}
+            {selectedProcess && !selectedProcess.is_manual ? batchesToPrint.map(batch => {
+              const allocation = erpSizeAllocations.get(batch.key);
+              if (!allocation) return null;
+              return <ProcessQrBatchSizes key={batch.key} name={`${batch.serial} · ${batch.name}`}
+                allocation={allocation} disabled={issuingLabels || issuedLabelsLoading}
+                onChange={(size, quantity) => setBatchSizeDrafts(current => ({
+                  ...current,
+                  [`${allocationScope}:${batch.key}`]: {
+                    fingerprint: allocation.fingerprint,
+                    quantities: { ...Object.fromEntries(allocation.rows.map(row => [row.size, row.quantity])), [size]: quantity },
+                  },
+                }))} />;
+            }) : selectedProcess?.is_manual && sizeOptions.length > 0 && sizeQuantityMode === "same" ? (
               <div>
                 <label className="label">{t("page.processQr.quantityPerSize")}</label>
                 <input
@@ -2518,7 +2552,7 @@ export default function ProcessQrPage() {
               <CheckSquare className="h-4 w-4" />
               {t("page.processQr.unissuedLabelCount", { count: unissuedLabels.length.toLocaleString() })}
             </div>
-            <button type="button" className="btn btn-primary" onClick={issueLabels} disabled={unissuedLabels.length === 0 || issuingLabels || issuedLabelsLoading || operationIdentityNeedsReview}>
+            <button type="button" className="btn btn-primary" onClick={issueLabels} disabled={unissuedLabels.length === 0 || issuingLabels || issuedLabelsLoading || operationIdentityNeedsReview || invalidSizeAllocation || issuedSizeConflict}>
               {issuingLabels ? <RefreshCw className="animate-spin" /> : <QrCode />}
               <span>{t(issuingLabels ? "page.processQr.issuingLabels" : "page.processQr.issueLabels")}</span>
             </button>

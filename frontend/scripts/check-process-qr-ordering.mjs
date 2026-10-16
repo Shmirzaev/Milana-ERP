@@ -42,7 +42,7 @@ for (const [code, name, expected] of printTextCases) {
 const required = [
   ["numeric garment-size comparator", "const leftNumber = leftNumbers.at(-1);"],
   ["configured sizes sorted smallest-first", "[...rows].sort((left, right) => compareGarmentSizes(left.size, right.size))"],
-  ["size-major label generation", "for (const sizeOption of sizeOptions) {\n      for (const batch of batchesToPrint) {\n        for (const operation of selectedOperations)"],
+  ["size-major label generation", "for (const sizeOption of sizeOptions) {\n      for (const batch of batchesToPrint) {\n        for (const operation of factoryOperations)"],
   ["canonical issued-label comparator", "function compareIssuedLabelOrder("],
   ["canonical order compares sizes before operations", "compareGarmentSizes(leftSize, rightSize)\n    || operationNumberForLabel(left, operationNumbers)"],
   ["all bulk print requests are re-sorted at the print boundary", "const rowsInPrintOrder = [...rows].sort((left, right) => (\n        compareIssuedLabelOrder(left, right, issuedSizeOrder, issuedOperationNumbers)"],
@@ -87,8 +87,8 @@ const required = [
   ["edited labels can be printed separately", "printIssuedLabels(editedIssuedLabels)"],
   ["ERP order picker requests sewing-ready batches only", "sewing_completed_only=true"],
   ["ERP quantities use sewing-entered output", "process.sewing_completed_quantity"],
-  ["ERP size quantities are read-only", "readOnly={!selectedProcess?.is_manual}"],
-  ["ERP labels use exact batch-and-size sewing output", "batch.sewingSizes.find((row) => sameSize(row.size, sizeOption.size))?.sewing_completed_quantity"],
+  ["ERP size quantities use the reviewed per-batch editor", "<ProcessQrBatchSizes"],
+  ["ERP labels use reviewed batch-and-size allocations", "allocationQuantity(erpSizeAllocations.get(batch.key), sizeOption.size)"],
 ];
 
 if (source.includes("№ {label.id}")) throw new Error("Database label ID is still used as the printed operation number");

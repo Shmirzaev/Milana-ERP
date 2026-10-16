@@ -1,5 +1,10 @@
 // Generated mechanically from dict.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "page.processQr.autoSizeSplit": "Выпуск швейного цеха без распределения разделён поровну по размерам модели. Проверьте и исправьте перед выпуском ярлыков. Записанные количества по размерам сохранены.",
+    "page.processQr.sizeSplitTotal": "Распределено: {assigned} / {total} шт.",
+    "page.processQr.sizeSplitInvalid": "Введите целые неотрицательные количества, сумма которых равна выпуску швейного цеха. Уже записанные количества по размерам уменьшать нельзя.",
+    "page.processQr.sizeSplitMissing": "Для модели или заказа не заданы размеры. Укажите размеры модели перед выпуском ярлыков.",
+    "page.processQr.sizeSplitIssuedConflict": "Распределение отличается от уже выпущенных ярлыков. Восстановите их количества перед выпуском новых; существующие ярлыки исправляйте в разделе выпущенных ярлыков.",
     "auth.connectionFailed": "Не удалось проверить сеанс. Проверьте соединение и повторите попытку.",
     "fabricRollEntry.method": "Ввод веса",
     "fabricRollEntry.individual": "Вес каждого рулона в кг",
