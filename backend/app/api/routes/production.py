@@ -4128,6 +4128,11 @@ def finish_milana_cutting_and_print(
     # Render/validate before changing workflow state. GET and repeated prints
     # remain read-only; a browser/printer cannot report physical paper delivery.
     html = cutting_production_sheet(rid, db, current, bundle_ids)
+    # A saved later Nastil keeps Cutting open independently of the original
+    # quantity target. Printing an earlier sheet must not close that work or
+    # route it through shortage completion merely because it is still open.
+    if pending_work_order_passport_batches(db, wo).first() is not None:
+        return html
     if wo.status == "completed":
         return html
     _sync_cutting_work_order_from_records(db, wo)
