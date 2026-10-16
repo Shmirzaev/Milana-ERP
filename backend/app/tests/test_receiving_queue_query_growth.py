@@ -548,5 +548,6 @@ def test_label_context_eagerly_loads_distinct_embedded_material_images(monkeypat
     image_selects = [statement for statement in statements if " from model_images " in statement]
     metadata_selects = [statement for statement in image_selects if "model_images.file_data" not in statement]
     blob_selects = [statement for statement in image_selects if "model_images.file_data" in statement]
-    assert len(metadata_selects) == len(blob_selects) == 1
+    assert len(metadata_selects) == 2  # Own plus scoped family metadata.
+    assert len(blob_selects) == 1
     assert "model_images.file_data" in blob_selects[0]

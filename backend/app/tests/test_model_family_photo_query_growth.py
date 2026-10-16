@@ -1,4 +1,5 @@
 from uuid import uuid4
+from math import ceil
 
 import pytest
 from sqlalchemy import event, inspect
@@ -55,5 +56,5 @@ def test_family_photo_hydrates_only_selected_garment_and_caches_transaction(vari
             event.remove(db, "loaded_as_persistent", loaded)
 
     assert hydrated_images == [expected_image]
-    assert len(statements) == 2  # Candidate metadata plus the selected ORM image.
+    assert len(statements) == 2 + ceil((variant_count + 1) / 400)  # Identity, candidate metadata, winner.
     assert all("file_data" not in statement for statement in statements)

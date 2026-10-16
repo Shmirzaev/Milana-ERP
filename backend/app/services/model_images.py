@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import re
+from types import SimpleNamespace
 from urllib.parse import urlsplit
+
+from sqlalchemy import func, select
+from sqlalchemy.orm import defer
 
 from app.models import Model, ModelBOM, ModelImage
 from app.services.model_identity import model_number_fields
-from app.services.model_family_images import model_family_image
+from app.services.model_family_images import (
+    _family_key, _legacy, family_images_for_models, model_family_image, own_model_image,
+)
 
 
 PREVIEW_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
@@ -116,6 +122,10 @@ def warehouse_stock_image_url(model: Model | None) -> str | None:
     display_url = model_display_image_url(model)
     if display_url or not model:
         return display_url
+    return _warehouse_evidence_image_url(model)
+
+
+def _warehouse_evidence_image_url(model) -> str | None:
     warehouse_images = sorted(
         [
             img
@@ -127,6 +137,38 @@ def warehouse_stock_image_url(model: Model | None) -> str | None:
         reverse=True,
     )
     return warehouse_images[0].file_url if warehouse_images else None
+
+
+def warehouse_stock_image_urls(db, model_ids) -> dict[int, str | None]:
+    """Resolve warehouse pictures without hydrating full model technical data."""
+    ids = sorted(set(model_ids))
+    models = {}
+    legacy = Model.details_json["legacy_import"]
+    if db.get_bind().dialect.name == "sqlite":
+        legacy = func.json_type(Model.details_json, "$.legacy_import") == "true"
+    for offset in range(0, len(ids), 400):
+        chunk = ids[offset:offset + 400]
+        for row in db.execute(select(
+            Model.id, Model.code, Model.name, Model.catalog_scope, Model.factory_code,
+            Model.details_json["general"].label("identity_general"),
+            legacy.label("identity_legacy"),
+        ).where(Model.id.in_(chunk))):
+            models[row.id] = SimpleNamespace(
+                id=row.id, code=row.code, name=row.name, catalog_scope=row.catalog_scope,
+                factory_code=row.factory_code,
+                details_json={"general": row.identity_general, "legacy_import": row.identity_legacy},
+                images=[],
+            )
+        for image in db.scalars(select(ModelImage).where(ModelImage.model_id.in_(chunk)).options(
+            defer(ModelImage.file_data, raiseload=True),
+        )):
+            models[image.model_id].images.append(image)
+    families = family_images_for_models(db, models.values())
+    result = {}
+    for mid, model in models.items():
+        image = own_model_image(model) if _legacy(model) else families.get(_family_key(model))
+        result[mid] = image.file_url if image else _warehouse_evidence_image_url(model)
+    return result
 
 
 def _bom_preview_url(row: ModelBOM) -> str | None:

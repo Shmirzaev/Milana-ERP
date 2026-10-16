@@ -98,8 +98,8 @@ def test_awaiting_packaging_page_has_exact_totals_and_constant_query_count(batch
     assert first_rows[0]["batch_no"] == "B001"
     assert last_rows[0]["production_batch_id"] == batches[-1].id
     assert {row["ready_qty"] for row in first_rows + last_rows} == {80}
-    assert first_query_count <= 13
-    assert last_query_count <= 13
+    assert first_query_count <= 14
+    assert last_query_count <= 14
     assert abs(first_query_count - last_query_count) <= 1
 
 

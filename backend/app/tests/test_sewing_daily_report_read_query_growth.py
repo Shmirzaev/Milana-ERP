@@ -182,15 +182,15 @@ def test_daily_report_list_and_line_context_batch_read_metadata(row_count):
     list_counts = _target_select_counts(list_statements)
     context_counts = _target_select_counts(context_statements)
     assert list_counts["models"] == 2 * expected_chunks, list_counts
-    assert list_counts["images"] == expected_chunks, list_counts
+    assert list_counts["images"] == 2 * expected_chunks, list_counts
     assert list_counts["bom"] == expected_chunks, list_counts
     assert list_counts["passports"] == 0, list_counts
     assert context_counts["models"] == 2 * expected_chunks, context_counts
-    assert context_counts["images"] == expected_chunks, context_counts
+    assert context_counts["images"] == 2 * expected_chunks, context_counts
     assert context_counts["bom"] == expected_chunks, context_counts
     assert context_counts["passports"] == expected_chunks, context_counts
-    assert list_counts["total"] == (11 if row_count == 401 else 6), list_counts
-    assert context_counts["total"] == (16 if row_count == 401 else 11), context_counts
+    assert list_counts["total"] == (13 if row_count == 401 else 7), list_counts
+    assert context_counts["total"] == (18 if row_count == 401 else 12), context_counts
     assert all("file_data" not in statement for statement in [*list_statements, *context_statements])
     assert [row.id for row in listed.rows] == list(reversed(case["report_ids"]))
     assert [row.work_order_id for row in context.active_work_orders] == case["work_order_ids"]
