@@ -2,6 +2,13 @@
 
 Last updated: 2026-10-16
 
+## PO-0431 duplicate Nastil 2 counting removed (2026-10-16)
+
+- Owner confirmed the later six 70-piece bundles describe the same 420 pieces, not additional Cutting. After fresh backup and a rollback-only rehearsal, unbundled duplicate Cutting record 469 was retained with cut/passed quantities zero and an explanatory note pointing to CUT-487. Record 487 and all twelve bundles/creation scans were verified unchanged; Nastil 1 stays 480 and Nastil 2 is 420, both 100%, total 900. Cutting actual counters and Sewing/Packaging/Storage plans reconcile to 900. No materials, stock, receipts, payroll, package, production-order or batch rows changed.
+- Guarded script `backend/scripts/deduplicate_po0431_nastil2_20261016.py` defaults to plan, checks expected dependencies/quantities and an exact snapshot fingerprint, locks dependencies for the short transaction, allowlists changed fields, and audits original values. Rehearsal (rolled back), atomic apply, independent persisted-field comparison, audit hash/predecessor verification and authenticated browser checks passed; zero browser writes/errors. Audit **75967**. Duplicate history was preserved rather than deleted.
+- Backup `/opt/milana-erp/shared/backups/pre_deduplicate_po0431_nastil2_20261016_070009.dump`: 78981915 bytes, mode 0600, 1246 restore objects, SHA-256 `93fdac37774d00ea4ff786273244a1c05ac12982e98b8fbe9b35ea0b645574cd`; restore-list SHA-256 `cc08f105f623d5438398dcbe909e27f472a8c573ff2febd3e83eef72c90009e0`. Private evidence/screenshots are under the Cutting worktree `outputs/deduplicate-*` and `outputs/backup-deduplicate.json`.
+- Active release remains blue `20261016_061945`, commit `3c2f2f5334bf4739804824352506832e6fd60c27`; both live manifests matched the recorded baseline before correction. No application redeployment, schema change or timed monitoring was needed. This resolves the duplicate-count clarification recorded below.
+
 ## Cutting printing and CI repairs deployed (2026-10-16)
 
 - LIVE: blue **20261016_061945**, immutable commit `3c2f2f5334bf4739804824352506832e6fd60c27`. Green **20261015_095050** remains running for rollback. Both source manifests, image identities, slot states and current symlinks agree; manifest `9648021400223f7b080504b91c64f2b4ecc767b5905e4da4f7a1370a983a56aa`. Database remains `0146_payroll_qr_closure`; this deployment applied no migration and startup seeding was disabled. The separate Packaging deployment was stopped by its owner without promotion; its unmerged changes were not included or interrupted.
