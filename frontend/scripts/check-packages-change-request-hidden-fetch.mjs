@@ -44,6 +44,7 @@ const packagePage = {
 
 function createHarness({ denied = false } = {}) {
   const requests = [];
+  const writes = [];
   const states = [];
   let stateCursor = 0;
   const jsx = (type, props) => ({ type, props: props || {} });
@@ -74,7 +75,9 @@ function createHarness({ denied = false } = {}) {
     },
     "next/link": { default: "link" },
     "next/navigation": { useSearchParams: () => new URLSearchParams() },
-    "@/lib/api": { api: { openLabel() {}, get: async () => ({}), post: async () => ({}) }, fetcher() {} },
+    "@/lib/api": { api: { openLabel() {}, get: async () => ({}), post: async (path, body) => {
+      writes.push({ path, body }); return {};
+    } }, fetcher() {} },
     "@/lib/access": { packagingDepartmentForSession: () => "PKG" },
     "@/components/PendingPackageWorkflow": { default: "pending-workflow" },
     "@/lib/packageReturnText": { packageReturnText: { en: {} } },
@@ -96,6 +99,7 @@ function createHarness({ denied = false } = {}) {
 
   return {
     requests,
+    writes,
     render() {
       stateCursor = 0;
       return loadedModule.exports.default();
@@ -149,6 +153,17 @@ assert.match(textContent(activeTree), /page\.packages\.pendingEdit/);
 const editButton = find(activeTree, (node) => node.type === "button" && textContent(node) === "common.edit");
 assert.ok(editButton, "authorized package edit control must render");
 assert.equal(editButton.props.disabled, false, "authorized direct corrections remain available with older pending requests");
+assert.equal(editButton?.props.disabled, false, "authorized operators can replace historical pending corrections directly");
+const deleteButton = find(activeTree, (node) => node.type === "button" && textContent(node) === "common.delete");
+assert.equal(deleteButton?.props.disabled, false);
+deleteButton.props.onClick();
+activeTree = active.render();
+const confirmation = find(activeTree, (node) => node.type === "confirm-dialog");
+assert.equal(confirmation.props.message, "page.packages.deleteOutputMessage");
+assert.equal(active.writes.length, 0, "opening the confirmation must not delete data");
+await confirmation.props.onConfirm();
+assert.deepEqual(active.writes, [{ path: "/api/packages/71/change-requests", body: { request_type: "delete" } }]);
+assert.match(textContent(active.render()), /page\.packages\.outputReset/);
 
 const denied = createHarness({ denied: true });
 const deniedTree = denied.render();
