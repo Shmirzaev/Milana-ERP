@@ -5933,7 +5933,7 @@ def post_packaging(payload: PackagingRecordIn, db: DbSession, current: User = De
     if target:
         # Package creation/deletion locks the order before its work/output rows.
         # Use the same order so entry cannot race a reset or invert those locks.
-        db.query(ProductionOrder).filter_by(id=target.production_order_id).with_for_update().one()
+        db.query(ProductionOrder.id).filter(ProductionOrder.id == target.production_order_id).with_for_update().one()
         db.query(WorkOrder).filter(
             WorkOrder.production_order_id == target.production_order_id,
             WorkOrder.operation == "sewing",

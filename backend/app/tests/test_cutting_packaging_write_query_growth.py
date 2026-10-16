@@ -471,7 +471,9 @@ def test_packaging_record_complete_bom_query_growth(
 
     assert response.status_code == 201, response.text
     counts = _table_select_counts(statements)
-    assert len(statements) == 26
+    # One order lock serializes entry with QR deletion; reads remain flat for
+    # one, fifty and 401 BOM items.
+    assert len(statements) == 27
     assert counts["model_bom"] == 1
     assert counts["stock_batches"] == 2
     with TestSessionLocal() as db:
