@@ -168,8 +168,9 @@ export default function PackageQrSection({
     setMessage("");
     try {
       await api.post(`/api/packages/${deleting.id}/change-requests`, { request_type: "delete" });
+      setSelectedIds((ids) => ids.filter((id) => id !== deleting.id));
       setDeleting(null);
-      setMessage(t("page.packages.deleteRequestSent"));
+      setMessage(t("page.packages.outputReset"));
       await refreshPackages();
     } catch (err: any) {
       setError(err?.message || t("page.packages.deleteRequestFailed"));
@@ -450,7 +451,7 @@ export default function PackageQrSection({
       <ConfirmDialog
         isOpen={!!deleting}
         title={t("page.packages.deleteTitle")}
-        message={deleting ? t("page.packages.deleteMessage", { package: deleting.package_no }) : ""}
+        message={deleting ? t("page.packages.deleteOutputMessage", { package: deleting.package_no }) : ""}
         confirmText={t("page.packages.requestDelete")}
         onConfirm={submitDeleteRequest}
         onCancel={() => setDeleting(null)}

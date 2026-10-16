@@ -2954,7 +2954,14 @@ def packaging_batch_progress(wid: int, db: DbSession, _: User = Depends(require_
             "notes": b.notes,
         })
     scope_budget = input_budgets.get(wo.production_batch_id, {})
-    return {"work_order_id": wo.id, "items": items, **scope_budget}
+    scope_labels = {}
+    if not batches:
+        from app.services.packages import _existing_package_totals_by_batch
+        packed = sum(int(packed_sum or 0) for batch_id, _, packed_sum, _ in rows if batch_id is None)
+        packaged = _existing_package_totals_by_batch(db, wo.production_order_id).get(None, 0)
+        scope_labels = {"packed_qty": packed, "packaged_qty": packaged,
+                        "available_to_package": max(0, packed - packaged)}
+    return {"work_order_id": wo.id, "items": items, **scope_budget, **scope_labels}
 
 
 # ===== Cutting =====
@@ -5924,6 +5931,9 @@ def receive_packaging_from_sewing(
 def post_packaging(payload: PackagingRecordIn, db: DbSession, current: User = Depends(require_permissions("packaging.records", "*"))):
     target = db.get(WorkOrder, payload.work_order_id)
     if target:
+        # Package creation/deletion locks the order before its work/output rows.
+        # Use the same order so entry cannot race a reset or invert those locks.
+        db.query(ProductionOrder).filter_by(id=target.production_order_id).with_for_update().one()
         db.query(WorkOrder).filter(
             WorkOrder.production_order_id == target.production_order_id,
             WorkOrder.operation == "sewing",

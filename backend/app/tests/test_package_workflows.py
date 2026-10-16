@@ -353,13 +353,18 @@ def test_pending_correction_cannot_change_newly_grouped_package(client, auth_hea
     created = client.post(BASE, headers=auth_headers, json=packaging_order)
     assert created.status_code == 201, created.text
     pid = created.json()["id"]
-    request = client.post(BASE + f"/{pid}/change-requests", headers=auth_headers,
-                          json={"request_type": "delete", "reason": "Test correction before print grouping"})
-    assert request.status_code == 201, request.text
+    # Model an existing pending approval. The public endpoint now applies an
+    # authorized operator's correction immediately instead of queuing it.
+    from app.services.packages import create_package_change_request
+    with SessionLocal() as db:
+        request = create_package_change_request(db, pkg=db.get(Package, pid), request_type="delete",
+                                                payload=None, reason="Historical pending correction", user_id=1)
+        db.commit()
+        request_id = request.id
     run = client.post(BASE + "/print-runs", headers=auth_headers,
                       json={"request_key": str(uuid4()), "package_ids": [pid]})
     assert run.status_code == 201, run.text
-    approval = client.post(BASE + f"/change-requests/{request.json()['id']}/approve", headers=auth_headers)
+    approval = client.post(BASE + f"/change-requests/{request_id}/approve", headers=auth_headers)
     assert approval.status_code == 409, approval.text
     assert client.post(BASE + "/print-runs/receive", headers=warehouse, json={"code": package_qr(pid)}).status_code == 200
 

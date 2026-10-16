@@ -9,7 +9,7 @@ const compiled = ts.transpileModule(source, { compilerOptions: {
   module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.React,
 } }).outputText;
 
-function render(sewn, remaining, batched = true) {
+function render(sewn, remaining, batched = true, events = {}) {
   let stateIndex = 0;
   const batch = { id: 1, name: "Nastil 1", batch_no: "0306-01", planned_quantity: 684,
     sewing_output_qty: sewn, available_input_qty: remaining, packed_qty: 0, available_to_package: 0 };
@@ -18,7 +18,8 @@ function render(sewn, remaining, batched = true) {
     react: { ...React, useState: initial => React.useState(stateIndex++ === 0
       ? { ...initial, production_batch_id: batched ? 1 : 0 } : initial) },
     "next/navigation": { useParams: () => ({ id: "3" }) },
-    swr: { default: key => ({ mutate: noop, data:
+    swr: { useSWRConfig: () => ({ mutate: async predicate => { events.sizePredicate = predicate; } }),
+      default: key => ({ mutate: async () => { (events.refreshed ??= []).push(key); }, data:
       key?.includes("packaging-batch-progress") ? { ...batch, items: batched ? [batch] : [] }
       : key?.includes("production-orders") ? { id: 1, planned_quantity: 684,
         batches: batched ? [batch] : [], items: [{ size: "M", color: "white", planned_quantity: 684 }] }
@@ -33,6 +34,7 @@ function render(sewn, remaining, batched = true) {
     "@/lib/orderRef": { orderReference: () => "PO-0306" },
     "@/lib/numberInput": { numberOrZero: value => Number(value || 0), numberOrFallback: (v, f) => Number(v || f), parseNumberInput: Number },
     "@/components/StagePipeline": { operationLabel: value => value, statusLabel: value => value },
+    "@/components/PackageQrSection": { default: props => { events.packageChanged = props.onChanged; return null; } },
   };
   const exports = {};
   new Function("exports", "React", "require", compiled)(exports, React, name => {
@@ -51,6 +53,21 @@ for (const [sewn, remaining] of [[590, 590], [585, 285], [0, 0]]) {
   assert.ok(html.includes(`field.available: ${remaining}`));
 }
 assert.match(render(585, 285, false), /min="0" max="285" value=""/);
+
+// A successful QR change must refresh both entry counters and size balances,
+// including other cached batches of this order, without invalidating other orders.
+const events = {};
+render(120, 60, true, events);
+await events.packageChanged();
+assert.deepEqual(events.refreshed.sort(), [
+  "/api/production-orders/1", "/api/work-orders/3", "/api/work-orders/3/packaging-batch-progress",
+].sort());
+for (const key of ["/api/packages/first-grade/size-entry/1", "/api/packages/first-grade/size-entry/1?production_batch_id=2"]) {
+  assert.equal(events.sizePredicate(key), true);
+}
+for (const key of ["/api/packages/first-grade/size-entry/10", "/api/work-orders/3", null]) {
+  assert.equal(events.sizePredicate(key), false);
+}
 
 const infoSource = fs.readFileSync(new URL("../src/components/WorkOrderProductInfo.tsx", import.meta.url), "utf8");
 const infoCompiled = ts.transpileModule(infoSource, { compilerOptions: {
