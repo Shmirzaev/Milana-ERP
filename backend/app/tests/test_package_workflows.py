@@ -391,3 +391,23 @@ def test_0115_migration_roundtrip_preserves_existing_packages():
         assert connection.execute(text("SELECT id, production_order_id FROM packages")).one() == (1, 12)
         assert "manual_package_receipts" not in inspect(connection).get_table_names()
     engine.dispose()
+
+
+def test_historical_pending_delete_cannot_invalidate_new_print_run(client, auth_headers, warehouse, packaging_order):
+    created = client.post(BASE, headers=auth_headers, json=packaging_order)
+    assert created.status_code == 201, created.text
+    pid = created.json()["id"]
+    # Model an existing pending approval. The public endpoint now applies an
+    # authorized operator's correction immediately instead of queuing it.
+    from app.services.packages import create_package_change_request
+    with SessionLocal() as db:
+        request = create_package_change_request(db, pkg=db.get(Package, pid), request_type="delete",
+                                                payload=None, reason="Historical pending correction", user_id=1)
+        db.commit()
+        request_id = request.id
+    run = client.post(BASE + "/print-runs", headers=auth_headers,
+                      json={"request_key": str(uuid4()), "package_ids": [pid]})
+    assert run.status_code == 201, run.text
+    approval = client.post(BASE + f"/change-requests/{request_id}/approve", headers=auth_headers)
+    assert approval.status_code == 409, approval.text
+    assert client.post(BASE + "/print-runs/receive", headers=warehouse, json={"code": package_qr(pid)}).status_code == 200

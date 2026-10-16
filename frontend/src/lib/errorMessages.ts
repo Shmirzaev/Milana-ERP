@@ -21,6 +21,10 @@ export function systemLanguage(): Lang {
   return "en";
 }
 const messages: Record<string, [string, string]> = {
+  "Package batch evidence does not match its quantity": ["Данные партий не совпадают с количеством в упаковке.", "Partiya ma’lumotlari qadoq miqdoriga mos emas."],
+  "Packaging output cannot be reset without affecting other packages": ["Нельзя отменить это количество: оно связано с другими упаковками. Проверьте записи упаковки.", "Bu miqdorni bekor qilish boshqa qadoqlarga ta’sir qiladi. Qadoqlash yozuvlarini tekshiring."],
+  "Packaging record quantities require review before deletion": ["Перед удалением проверьте количества в записи упаковки.", "O‘chirishdan oldin qadoqlash yozuvidagi miqdorlarni tekshiring."],
+  "Packaging material usage must be corrected before deleting this package": ["Перед удалением упаковки нужно скорректировать связанный расход упаковочных материалов.", "Qadoqni o‘chirishdan oldin unga bog‘liq qadoqlash materiallari sarfini tuzatish kerak."],
   "Only packages received in the warehouse can be deleted": ["Удалить можно только упаковки, принятые на склад.", "Faqat omborga qabul qilingan qadoqlarni o‘chirish mumkin."],
   "Package is linked to a sales order and cannot be deleted": ["Упаковку нельзя удалить: она связана с заказом клиента.", "Qadoqni o‘chirib bo‘lmaydi: u mijoz buyurtmasiga bog‘langan."],
   "Package has a recorded quantity shortfall and cannot be deleted": ["Упаковку нельзя удалить: по ней зарегистрирована недостача.", "Qadoqni o‘chirib bo‘lmaydi: unda kamomad qayd etilgan."],

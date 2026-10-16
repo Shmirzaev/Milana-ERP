@@ -2,6 +2,12 @@
 
 Last updated: 2026-10-16
 
+## Packaging QR deletion/re-entry promotion prepared (2026-10-16)
+
+- Owner authorized merging the saved Packaging fix into `clone_main` and deploying only after all CI checks pass, without timed monitoring. New worktree/branch `C:/ERP/.codex-work/packaging-promote-20261016` / `codex/packaging-promote-20261016` reconciles exact active production commit `3c2f2f5334bf4739804824352506832e6fd60c27` with current `clone_main` `c4b72dfb`; both live manifests match blue `20261016_061945`. Existing Cutting, warehouse and CI repairs are preserved. Main and the legacy checkout remain untouched.
+- Reviewed saved Packaging change `bd3ae430` and bounded order-lock repair `54e0fc96`: deleting an eligible unused production package reverses only its allocated Packaging output, reopens the affected work and permits quantity re-entry/new labels. Sewing receipts, defects, other packages and historical print evidence remain; reserved, used, material-linked and incompatible Usluga records are guarded. Batched/unbatched availability and EN/RU/UZ confirmation/counter refresh follow the reset. Old labels remain retired.
+- The integration retains current direct-delete regressions and adds coverage for historical pending approvals. Full CI, immutable builds, backup, candidate/public read-only browser QA, performance and health gates are required. This promotion does not authorize deleting any production package or replaying the earlier Besttex data reset. No production data changes are planned.
+
 ## PO-0431 duplicate Nastil 2 counting removed (2026-10-16)
 
 - Owner confirmed the later six 70-piece bundles describe the same 420 pieces, not additional Cutting. After fresh backup and a rollback-only rehearsal, unbundled duplicate Cutting record 469 was retained with cut/passed quantities zero and an explanatory note pointing to CUT-487. Record 487 and all twelve bundles/creation scans were verified unchanged; Nastil 1 stays 480 and Nastil 2 is 420, both 100%, total 900. Cutting actual counters and Sewing/Packaging/Storage plans reconcile to 900. No materials, stock, receipts, payroll, package, production-order or batch rows changed.

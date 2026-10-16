@@ -1334,11 +1334,16 @@ def _apply_package_edit_request(db: Session, request: PackageChangeRequest, user
 
 
 def _apply_package_delete_request(db: Session, request: PackageChangeRequest, *, allow_printed: bool = False) -> None:
+    identity = db.query(Package.production_order_id).filter(Package.id == request.package_id).first()
+    if identity and identity[0]:
+        db.query(ProductionOrder).filter_by(id=identity[0]).with_for_update().populate_existing().one()
     pkg = db.query(Package).filter(Package.id == request.package_id).with_for_update().populate_existing().first()
     if not pkg:
         raise HTTPException(404, "Package not found")
     _ensure_package_can_change(db, pkg, allow_printed=allow_printed)
     production_order_id = pkg.production_order_id
+    from app.services.packaging_corrections import finish_package_output_reset, undo_package_output
+    correction = undo_package_output(db, pkg)
 
     db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id == pkg.id).delete(synchronize_session=False)
     db.query(PackageScanLog).filter(PackageScanLog.package_id == pkg.id).delete(synchronize_session=False)
@@ -1348,6 +1353,7 @@ def _apply_package_delete_request(db: Session, request: PackageChangeRequest, *,
     db.delete(pkg)
     db.flush()
     _sync_package_production(db, production_order_id)
+    finish_package_output_reset(db, production_order_id, request, correction)
 
 
 def approve_package_change_request(
