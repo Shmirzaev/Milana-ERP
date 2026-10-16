@@ -233,7 +233,7 @@ export default function PackagesPage() {
     try {
       await api.post(`/api/packages/${deleting.id}/change-requests`, { request_type: "delete" });
       setDeleting(null);
-      setMessage(t("page.packages.deleteRequestSent"));
+      setMessage(t(deleting.production_order_id ? "page.packages.outputReset" : "page.packages.deleteRequestSent"));
       await refreshPackages();
     } catch (err: any) {
       setError(err?.message || t("page.packages.deleteRequestFailed"));
@@ -546,7 +546,7 @@ export default function PackagesPage() {
       <ConfirmDialog
         isOpen={!!deleting}
         title={t("page.packages.deleteTitle")}
-        message={deleting ? t("page.packages.deleteMessage", { package: deleting.package_no }) : ""}
+        message={deleting ? t(deleting.production_order_id ? "page.packages.deleteOutputMessage" : "page.packages.deleteMessage", { package: deleting.package_no }) : ""}
         confirmText={t("page.packages.requestDelete")}
         onConfirm={submitDeleteRequest}
         onCancel={() => setDeleting(null)}

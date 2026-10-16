@@ -2,7 +2,7 @@
 import { localizeError } from "@/lib/errorMessages";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
 import { api, fetcher } from "@/lib/api";
 import { formatBatchLabel, formatBatchSerial } from "@/lib/batchSerial";
 import FirstGradePackaging from "@/components/FirstGradePackaging";
@@ -84,6 +84,7 @@ export default function PackagingPage() {
   const { me } = useMe();
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
+  const { mutate: mutateCache } = useSWRConfig();
   const { data: wo, mutate: mutateWo } = useSWR<any>(`/api/work-orders/${id}`, fetcher);
   const { data: po, mutate: mutatePo } = useSWR<any>(wo ? `/api/production-orders/${wo.production_order_id}` : null, fetcher);
   const { data: batchProgress, mutate: mutateBatchProgress } = useSWR<any>(
@@ -144,9 +145,9 @@ export default function PackagingPage() {
   const availableInputQty = Math.max(0, Number(
     (isAlreadyBatched ? selectedBatchProgress : batchProgress)?.available_input_qty ?? 0,
   ));
-  const packageableColorQty = isAlreadyBatched
-    ? Math.max(0, Number(selectedBatchProgress?.available_to_package ?? 0))
-    : Math.max(0, Number(wo?.passed_qty ?? wo?.actual_output_qty ?? 0));
+  const packageableColorQty = Math.max(0, Number(
+    (isAlreadyBatched ? selectedBatchProgress : batchProgress)?.available_to_package ?? 0,
+  ));
 
   const colorOrderItems = useMemo(
     () => allocateDemandBySize(orderColorItems, packageableColorQty),
@@ -949,7 +950,15 @@ export default function PackagingPage() {
         key={`${po?.id || "none"}-${packageQrRefreshKey}`}
         productionOrderId={po?.id}
         onChanged={async () => {
-          await Promise.all([mutateBatchProgress(), mutateWo()]);
+          const sizePath = `/api/packages/first-grade/size-entry/${po?.id}`;
+          await Promise.all([
+            mutateBatchProgress(), mutateWo(), mutatePo(),
+            mutateCache((key) => typeof key === "string" && (key === sizePath || key.startsWith(`${sizePath}?`))),
+          ]);
+          setRec((previous) => ({ ...previous, input_qty: "", packed_qty: "", damaged_qty: "" }));
+          setCopiesTouched(false);
+          setPkg(null);
+          setPkgNotice(null);
         }}
       />
 
