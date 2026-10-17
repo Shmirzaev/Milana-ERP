@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.services.passport_sizes import passport_order_sizes, size_count_from_range as _size_count_from_range
+
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime, timezone
 
@@ -141,28 +143,6 @@ def _model_parts(model: Model) -> tuple[str, str]:
     model_no = str(general.get("model_no") or general.get("modelNo") or (left if separator else code)).strip()
     variant_no = str(general.get("variant_no") or general.get("variantNo") or (right if separator else "")).strip()
     return model_no, variant_no
-
-
-def _size_count_from_range(value: str | None) -> int:
-    text = str(value or "").strip()
-    if not text:
-        return 0
-    if text.endswith(" ×2"):
-        return 2 * len({part.strip() for part in text[:-3].split(",") if part.strip()})
-    if "," in text:
-        return len({part.strip() for part in text.split(",") if part.strip()})
-    if "-" not in text:
-        return 1
-    start_text, end_text = [part.strip() for part in text.split("-", 1)]
-    try:
-        start = float(start_text)
-        end = float(end_text)
-    except ValueError:
-        return 1
-    if start >= end:
-        return 1
-    step = 2 if start.is_integer() and end.is_integer() and end - start >= 2 else 1
-    return int((end - start) // step) + 1
 
 
 def _stage_status(required_values: list[bool]) -> str:
@@ -430,7 +410,7 @@ def update_cutting_details(db: Session, request: PriceCalculationRequest, data: 
         )
     request.fabric_width_m = passport.fabric_width_m if passport and passport.fabric_width_m is not None else data.get("fabric_width_m")
     request.lay_length_m = passport.lay_length_m if passport and passport.lay_length_m is not None else data.get("lay_length_m")
-    passport_size_count = _size_count_from_range(passport.size_range) if passport else 0
+    passport_size_count = _size_count_from_range(passport.size_range, passport_order_sizes(passport)) if passport else 0
     request.size_count = passport_size_count or data.get("size_count")
     request.gramage = passport.gramage if passport and passport.gramage is not None else data.get("gramage")
     request.binding_kg_per_piece = passport_binding if passport_binding is not None else data.get("binding_kg_per_piece")

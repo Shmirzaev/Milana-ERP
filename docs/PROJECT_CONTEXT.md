@@ -2,6 +2,13 @@
 
 Last updated: 2026-10-17
 
+## Cutting Passport exact order size correction prepared (2026-10-17)
+
+- Owner requested exact order sizes, corrected fabric-per-piece calculations, publication to `clone_main`, and deployment without the 30-minute monitoring window while preserving the concurrent warehouse release. Dedicated worktree `C:/ERP/.codex-work/passport-order-sizes-20261017`, branch `codex/passport-order-sizes-20261017`, based on reviewed `origin/clone_main` `7999f4d0`. Both production manifests matched recorded release `20261017_050708` before editing. The concurrent deployment must finish before this task publishes to `clone_main` or stages production slots.
+- PO-0369 / PG10529-V-6538 has six order sizes (122, 128, 134, 140, 146, 152); the catalog variant separately has adult sizes 46–56. Passport defaults and editing now prefer the exact order list and do not union catalog sizes into it. Numeric range counts use the labels present on that order, so 122–152 is six and its doubled layup is twelve. Combined labels stay atomic; unlinked legacy passports retain their prior range fallback.
+- One shared backend counter drives passport detail/list, every fabric calculation, Excel reporting and new price-calculation autofill. The frontend preview uses the same exact-selection rules for kg and metre formulas. Existing saved passports recalculate on read; no model/order size rows, manufacturing quantities, inventory ledger, historic finance request snapshot or business data are rewritten. No schema migration is needed.
+- Validation and production completion will be recorded after their gates pass. Main and the legacy dirty checkout remain preserved.
+
 ## Shipment scan piece count and combined warehouse deployment approved (2026-10-17)
 
 - Owner approved deploying the warehouse unpacking/navigation changes below plus a shipment scan confirmation fix, pushing to `clone_main`, and explicitly skipping the 30-minute timed monitoring period. All other deployment gates remain required.

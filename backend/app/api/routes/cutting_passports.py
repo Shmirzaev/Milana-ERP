@@ -19,6 +19,7 @@ from app.services.inventory import create_material_reservations
 from app.services.factory_scope import require_work_order_factory_access
 from app.schemas.cutting_passport import CuttingOperatorOut, CuttingPassportIn, CuttingPassportOut
 from app.services.audit import log_action
+from app.services.passport_sizes import passport_order_sizes, size_count_from_range as _size_count_from_range
 from app.services.cutting_passport_usage import validate_passport_stock
 from app.services.passport_nastil import passport_batch_map, sync_passport_nastil
 from app.services.factory_scope import available_factory_codes, selected_factory_code
@@ -35,35 +36,7 @@ def _query_chunks(values):
         yield ordered[start:start + _DEFAULTS_QUERY_CHUNK_SIZE]
 
 
-def _size_count_from_range(value: str | None) -> int:
-    text = str(value or "").strip()
-    if not text:
-        return 0
-    if text.endswith(" ×2"):
-        # Explicit model labels: a combined size such as 40-42 is one size.
-        return 2 * len({part.strip() for part in text[:-3].split(",") if part.strip()})
-    if "," in text:
-        return len({part.strip() for part in text.split(",") if part.strip()})
-    if "-" not in text:
-        return 1
-    start_text, end_text = [part.strip() for part in text.split("-", 1)]
-    try:
-        start = float(start_text)
-        end = float(end_text)
-    except ValueError:
-        return 1
-    if start >= end:
-        return 1
-    step = 2 if start.is_integer() and end.is_integer() and end - start >= 2 else 1
-    count = 0
-    current = start
-    while current <= end:
-        count += 1
-        current += step
-    return count
-
-
-def _compute(p: CuttingPassport) -> dict:
+def _compute(p: CuttingPassport, sizes: list[str] | None = None) -> dict:
     pieces = p.pieces or 0
     beka_per = float(p.beka_per_piece_kg or 0)
     other_beka_per = float(p.other_beka_per_piece_kg or 0)
@@ -82,7 +55,7 @@ def _compute(p: CuttingPassport) -> dict:
     actual_kg = round(layer_weight * total_layers + scrap + total_beka, 6)
 
     pieces_per_layer = round(pieces / total_layers, 4) if total_layers else None
-    size_count = _size_count_from_range(p.size_range)
+    size_count = _size_count_from_range(p.size_range, passport_order_sizes(p) if sizes is None else sizes)
     per_piece_weight = None
     meter_mode = bool(getattr(p, "meter_mode", False))
     if size_count and meter_mode:
@@ -168,7 +141,7 @@ def _serialize(p: CuttingPassport, db=None, model_cache: dict | None = None, bat
         "operator_name": op.name if op else p.operator_name_manual,
     }
     d["materials"] = [
-        {**row, **_compute(SimpleNamespace(**row, size_range=p.size_range))}
+        {**row, **_compute(SimpleNamespace(**row, size_range=p.size_range), passport_order_sizes(p))}
         for row in (p.materials or [])
     ]
     d.update(_compute(p))
@@ -366,7 +339,7 @@ def _passport_defaults_payload(
         "has_print": has_print,
         "size_range": _size_range_from_options(sizes),
         "sizes": sizes,
-        "available_sizes": list(dict.fromkeys(sizes + [str(row.size).strip() for row in (model.sizes if model else []) if str(row.size or "").strip()])),
+        "available_sizes": sizes,
         "size_count": len(sizes),
         "pieces": int(po.planned_quantity or 0) or None,
         "planned_kg": planned_kg,
@@ -549,6 +522,7 @@ def list_passports(
     qry = _filtered_passports(db, current, q, production_order_id, cutting_department_code, date_from, date_to)
     qry = qry.options(joinedload(CuttingPassport.production_order).options(
         joinedload(ProductionOrder.sales_order), noload(ProductionOrder.materials),
+        selectinload(ProductionOrder.items).load_only(ProductionOrderItem.id, ProductionOrderItem.size),
     ))
     used = db.query(CuttingRecord.id).filter(or_(CuttingRecord.cutting_passport_id == CuttingPassport.id,
                                                CuttingRecord.production_batch_id == ProductionBatch.id)).exists()
@@ -570,6 +544,7 @@ def _report_passports(db, current, q, cutting_department_code, date_from, date_t
     query = query.options(
         joinedload(CuttingPassport.production_order).load_only(ProductionOrder.id, ProductionOrder.production_no, ProductionOrder.sales_order_id).noload("*"),
         joinedload(CuttingPassport.production_order).joinedload(ProductionOrder.sales_order).load_only(SalesOrder.id, SalesOrder.order_no).noload("*"),
+        joinedload(CuttingPassport.production_order).selectinload(ProductionOrder.items).load_only(ProductionOrderItem.id, ProductionOrderItem.size),
         joinedload(CuttingPassport.operator).load_only(User.id, User.name).noload("*"),
     )
     query = query.outerjoin(ProductionOrder, ProductionOrder.id == CuttingPassport.production_order_id).outerjoin(
@@ -588,7 +563,7 @@ def _report_rows(query):
             )
         }]
         for row in materials:
-            row.update(_compute(SimpleNamespace(**row, size_range=p.size_range)))
+            row.update(_compute(SimpleNamespace(**row, size_range=p.size_range), passport_order_sizes(p)))
         yield p, materials, model_code or p.model_code
 
 

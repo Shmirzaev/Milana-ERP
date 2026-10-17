@@ -166,7 +166,7 @@ def test_nastil_migration_preserves_custom_names():
         assert list(conn.execute(text('SELECT name FROM production_batches ORDER BY id')).scalars()) == ['Nastil 1', 'Nastil 2', 'Customer special', 'Nastil 4']
 
 
-def test_passport_offers_model_sizes_without_rewriting_order_plan(client):
+def test_passport_offers_exact_order_sizes_without_rewriting_order_plan(client):
     from app.models.catalog import ModelSize
     from app.api.routes.cutting_passports import material_defaults
     from app.tests.test_cutting_passport_defaults_query_growth import _material_order, _factory_user
@@ -178,7 +178,7 @@ def test_passport_offers_model_sizes_without_rewriting_order_plan(client):
         data = material_defaults(pid, db, _factory_user())
         assert data['sizes'] == ['M', 'L']
         assert data['size_count'] == 2
-        assert data['available_sizes'] == ['M', 'L', 'XL']
+        assert data['available_sizes'] == ['M', 'L']
 
 
 def test_numeric_fallback_employee_number_resolves_and_never_credits_ambiguous_id(client, auth_headers):

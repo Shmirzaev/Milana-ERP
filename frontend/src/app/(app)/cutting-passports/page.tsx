@@ -250,11 +250,24 @@ function sizeRangeLabel(sizes: string[]) {
 function sizeCountForSelection(value: string | number, sizes: string[]) {
   const selected = cleanSize(value);
   if (!selected) return 0;
-  if (selected.endsWith(" ×2")) return expandSizeSelection(selected).length * 2;
+  const doubled = selected.endsWith(" ×2");
+  const raw = doubled ? selected.slice(0, -3) : selected;
   const choices = uniqueSizes(sizes);
-  if (choices.length === 1 && selected === choices[0]) return 1;
-  if (selected === sizeRangeLabel(choices)) return choices.length;
-  return expandSizeSelection(selected).length || (choices.includes(selected) ? 1 : 0);
+  const multiplier = doubled ? 2 : 1;
+  if (choices.length) {
+    if (choices.includes(raw)) return multiplier;
+    if (raw.includes(",")) {
+      const requested = uniqueSizes(raw.split(","));
+      return choices.filter((size) => requested.includes(size)).length * multiplier;
+    }
+    const range = raw.match(/^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)$/);
+    if (range) {
+      return choices.filter((size) => /^\d+(?:\.\d+)?$/.test(size)
+        && Number(size) >= Number(range[1]) && Number(size) <= Number(range[2])).length * multiplier;
+    }
+    return 0;
+  }
+  return expandSizeSelection(selected).length * multiplier;
 }
 
 function modelQolipNo(model: any): string {
@@ -390,7 +403,7 @@ export default function CuttingPassportsPage() {
       void api.get<MaterialDefault>(`/api/cutting-passports/material-defaults?production_order_id=${p.production_order_id}`)
         .then((defaults) => {
           if (request !== orderRequest.current) return;
-          setSizeChoices(defaults.available_sizes?.length ? defaults.available_sizes : defaults.sizes?.length ? defaults.sizes : expandSizeSelection(defaults.size_range || p.size_range));
+          setSizeChoices(defaults.sizes?.length ? defaults.sizes : defaults.available_sizes?.length ? defaults.available_sizes : expandSizeSelection(defaults.size_range || p.size_range));
         }).catch((error) => {
           if (request === orderRequest.current) setErr(error.message);
         });
@@ -582,7 +595,7 @@ export default function CuttingPassportsPage() {
       })));
       const parts = model ? modelCodeParts(model) : null;
       const qolipNo = modelQolipNo(model);
-      setSizeChoices(defaults.available_sizes?.length ? defaults.available_sizes : defaults.sizes?.length ? defaults.sizes : expandSizeSelection(defaults.size_range));
+      setSizeChoices(defaults.sizes?.length ? defaults.sizes : defaults.available_sizes?.length ? defaults.available_sizes : expandSizeSelection(defaults.size_range));
       setForm((prev) => {
         if (String(prev.production_order_id) !== value) return prev;
         return {
