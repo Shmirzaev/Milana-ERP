@@ -1,6 +1,6 @@
 {
-  "release": "20261017_050708",
-  "source_manifest_sha256": "a0b5ce692e00b1a3362566442d4b4a2a42e7a78e8737e7f17f7a28ec899e49ab",
+  "release": "20261017_071249",
+  "source_manifest_sha256": "74696cb35fb11128e00c9da07ad7288a88e177f4805a42727caba2c54c598d8a",
   "database_revision": "0147_passport_tepa_pass",
-  "git_baseline_commit": "6221fa23cb22b790fb58caf9b82441a8c3291174"
+  "git_baseline_commit": "7999f4d00f541eb3f26655eae93e930ce7896bf0"
 }
