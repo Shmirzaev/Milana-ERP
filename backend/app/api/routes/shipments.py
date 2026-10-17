@@ -824,6 +824,7 @@ def _scan_response(
         message=message,
         package_id=int(package.id) if package else None,
         package_no=package.package_no if package else None,
+        package_quantity=remaining_quantity(package) if package else None,
         package_model_code=package_model_code,
         previous_scan=previous_scan,
         required_count=required_count,

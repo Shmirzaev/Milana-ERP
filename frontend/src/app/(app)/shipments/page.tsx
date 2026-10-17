@@ -22,7 +22,7 @@ import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { ShipmentTransportFields, normalizeTransportDetails, type TransportDetails } from "@/components/ShipmentTransportDetails";
 import { shipmentTransportText } from "@/lib/shipmentTransportText";
-import { previousShipmentScanMessage, type ShipmentScanResult } from "@/lib/shipmentScan";
+import { previousShipmentScanMessage, successfulShipmentScanMessage, type ShipmentScanResult } from "@/lib/shipmentScan";
 
 type ShipmentRow = ShipmentSummary & {
   shipment_type?: "sales_order" | "warehouse_exit" | "manual";
@@ -130,7 +130,7 @@ function ShipmentOrderWorkspace({
       } else if (result.sign === "warning") {
         setScanWarning(previousScan || localizeError(result.message || "", 400) || t("page.shipments.scanMismatch"));
       } else {
-        setMessage(t("page.shipments.scanProcessed"));
+        setMessage(successfulShipmentScanMessage(result, lang) || t("page.shipments.scanProcessed"));
       }
       setScanCode("");
       await refresh();
@@ -169,7 +169,7 @@ function ShipmentOrderWorkspace({
 
   return (
     <article id={order.id ? `shipment-order-${order.id}` : `shipment-${shipmentId}`} className="scroll-mt-4">
-      {message ? <div className="border-x border-t border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">{message}</div> : null}
+      {message ? <div role="status" className="border-x border-t border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">{message}</div> : null}
       {error ? <div className="border-x border-t border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-800">{error}</div> : null}
       {scanWarning ? <div role="status" className="border-x border-t border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">{scanWarning}</div> : null}
       <ShipmentPreparationWorkspace

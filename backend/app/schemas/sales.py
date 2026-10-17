@@ -173,6 +173,7 @@ class ShipmentScanOut(BaseModel):
     message: str
     package_id: Optional[int] = None
     package_no: Optional[str] = None
+    package_quantity: Optional[int] = None
     package_model_code: Optional[str] = None
     previous_scan: ShipmentPreviousScan | None = None
     required_count: int = 0

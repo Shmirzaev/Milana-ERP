@@ -23,6 +23,7 @@ def test_repeat_scan_reports_original_customer_actor_and_time(client, warehouse,
     sid = shipment(client, warehouse)
     first = scan(client, warehouse, sid, pid)
     assert first["sign"] == "success" and first["previous_scan"] is None
+    assert first["package_quantity"] == 7
     with SessionLocal() as db:
         original = db.query(ShipmentScanLog).filter_by(shipment_id=sid, scan_result="matched").one()
         original.scanned_at = datetime(2026, 10, 14, 3, 4, 5, tzinfo=timezone.utc)

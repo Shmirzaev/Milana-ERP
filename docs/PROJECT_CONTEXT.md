@@ -2,6 +2,12 @@
 
 Last updated: 2026-10-17
 
+## Shipment scan piece count and combined warehouse deployment approved (2026-10-17)
+
+- Owner approved deploying the warehouse unpacking/navigation changes below plus a shipment scan confirmation fix, pushing to `clone_main`, and explicitly skipping the 30-minute timed monitoring period. All other deployment gates remain required.
+- Successful shipment scans now display the package number and its current remaining piece quantity, for example `PKG-... · 60 pieces scanned.` / `60 dona skanerlandi.`. The API returns `package_quantity` from server-side package evidence; duplicate/error scans retain their existing warnings and do not announce a new successful quantity. EN/RU/UZ, singular English and older responses without the field are handled. No shipment quantity or scan acceptance rule changes.
+- Fresh checks confirmed green `20261017_050708` and rollback blue `20261017_041443` on both VMs, matching both complete source manifests and the Git production baseline. Implementation stays in the clean warehouse worktree/branch. Deployment validation is in progress; no activation has occurred at this preparation point.
+
 ## Warehouse unpacking and navigation prepared, awaiting deployment approval (2026-10-17)
 
 - Owner requested using `clone_main` as the base and push target, with screenshots before deployment approval. Worktree `C:/ERP/.codex-work/warehouse-unpack-navigation-20261017`, branch `codex/warehouse-unpack-navigation-20261017`, base `3c2d71e29e317de0c7935a3803d88da2743ce22f`. Main and the dirty legacy checkout are preserved.

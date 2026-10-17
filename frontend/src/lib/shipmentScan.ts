@@ -4,6 +4,7 @@ export type ShipmentScanResult = {
   sign: string;
   message?: string;
   package_no?: string | null;
+  package_quantity?: number | null;
   previous_scan?: {
     shipment_no: string;
     customer_name?: string | null;
@@ -17,6 +18,17 @@ const copy = {
   ru: { already: "Упаковка уже отсканирована", shipment: "Отгрузка", customer: "Клиент", by: "Кто сканировал", when: "Дата сканирования", unknown: "Не указано" },
   uz: { already: "Qadoq avval skanerlangan", shipment: "Jo‘natma", customer: "Mijoz", by: "Skanerlagan", when: "Skanerlangan vaqt", unknown: "Qayd etilmagan" },
 };
+
+export function successfulShipmentScanMessage(result: ShipmentScanResult, lang: Lang): string | null {
+  const quantity = result.package_quantity;
+  if (result.sign !== "success" || quantity == null || !Number.isInteger(quantity) || quantity < 0) return null;
+  const message = {
+    en: `${quantity} ${quantity === 1 ? "piece" : "pieces"} scanned.`,
+    ru: `Отсканировано: ${quantity} шт.`,
+    uz: `${quantity} dona skanerlandi.`,
+  }[lang];
+  return result.package_no ? `${result.package_no} · ${message}` : message;
+}
 
 export function previousShipmentScanMessage(result: ShipmentScanResult, lang: Lang): string | null {
   const scan = result.previous_scan;
