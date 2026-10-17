@@ -1,6 +1,6 @@
 {
-  "release": "20261016_113524",
-  "source_manifest_sha256": "960e2b9ea94b70a18b1c37f33c53a8580c2c319caeb955a3a9293119c4d8b9b2",
-  "database_revision": "0146_payroll_qr_closure",
-  "git_baseline_commit": "edc4da186108aa3adaf9c8670ba9adeb4489dfe5"
+  "release": "20261017_041443",
+  "source_manifest_sha256": "502c79073c7e62658074d2e0c33f9526b0e5f5260ee788a5e59747a6732b7ba7",
+  "database_revision": "0147_passport_tepa_pass",
+  "git_baseline_commit": "f40bb6f0f5ab5a062c6c9263c94c7eecfef5ec28"
 }
