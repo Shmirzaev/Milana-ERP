@@ -86,14 +86,19 @@ if (!serve) {
   const page = await browser.newPage({ viewport: { width: 1600, height: 1050 } });
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   try {
+    // UTC is still Friday; the factory is already on Saturday in Tashkent.
+    await page.clock.setFixedTime(new Date('2026-10-16T20:00:00Z'));
     await page.goto(url);
     await page.getByText('CP-0106', { exact: true }).waitFor();
     await page.screenshot({ path: path.join(out, 'passports.png'), fullPage: true });
     await page.getByRole('tab', { name: 'Dashboard', exact: true }).click();
     await page.locator('[data-metric="pieces"]').getByText('2,100', { exact: true }).waitFor();
     await page.screenshot({ path: path.join(out, 'dashboard.png'), fullPage: true });
-    await page.getByLabel('From date', { exact: true }).fill('2026-10-17');
-    await page.getByLabel('To date', { exact: true }).fill('2026-10-17');
+    for (const [label, from] of [['This week', '2026-10-12'], ['This month', '2026-10-01'], ['Today', '2026-10-17']]) {
+      await page.getByRole('button', { name: label, exact: true }).click();
+      assert.equal(await page.getByLabel('From date', { exact: true }).inputValue(), from);
+      assert.equal(await page.getByLabel('To date', { exact: true }).inputValue(), '2026-10-17');
+    }
     await page.locator('[data-metric="pieces"]').getByText('600', { exact: true }).waitFor();
     const download = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Export to Excel', exact: true }).click();
@@ -117,6 +122,8 @@ if (!serve) {
     for (const lang of ['ru', 'uz']) {
       await page.setViewportSize({ width: 390, height: 844 }); await page.goto(url + '&lang=' + lang);
       await page.getByRole('tab', { name: dictionaries[lang]['passportReport.dashboard'], exact: true }).click();
+      await page.getByRole('button', { name: dictionaries[lang]['passportReport.thisWeek'], exact: true }).click();
+      assert.equal(await page.getByLabel(dictionaries[lang]['passportReport.from'], { exact: true }).inputValue(), '2026-10-12');
       await page.locator('[data-metric="pieces"]').waitFor();
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
       await page.screenshot({ path: path.join(out, `dashboard-${lang}-mobile.png`), fullPage: true });

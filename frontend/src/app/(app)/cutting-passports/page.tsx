@@ -283,6 +283,17 @@ export default function CuttingPassportsPage() {
   const [view, setView] = useState<"passports" | "dashboard">("passports");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  function selectPeriod(period: "today" | "thisWeek" | "thisMonth") {
+    const today = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Tashkent", year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(new Date());
+    // Calculate calendar boundaries in UTC after resolving the factory's local day.
+    const start = new Date(`${today}T00:00:00Z`);
+    if (period === "thisWeek") start.setUTCDate(start.getUTCDate() - (start.getUTCDay() + 6) % 7);
+    if (period === "thisMonth") start.setUTCDate(1);
+    setDateFrom(start.toISOString().slice(0, 10));
+    setDateTo(today);
+  }
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState("");
   const invalidPeriod = !!dateFrom && !!dateTo && dateFrom > dateTo;
@@ -672,6 +683,7 @@ export default function CuttingPassportsPage() {
       <div className="mb-4 flex flex-wrap items-end gap-3">
         <label className="text-sm">{t("passportReport.from")}<input className="input mt-1" type="date" value={dateFrom} max={dateTo || undefined} onChange={(e) => setDateFrom(e.target.value)} /></label>
         <label className="text-sm">{t("passportReport.to")}<input className="input mt-1" type="date" value={dateTo} min={dateFrom || undefined} onChange={(e) => setDateTo(e.target.value)} /></label>
+        {(["today", "thisWeek", "thisMonth"] as const).map((period) => <button key={period} type="button" className="btn" onClick={() => selectPeriod(period)}>{t(`passportReport.${period}`)}</button>)}
         <button type="button" className="btn" onClick={() => { setDateFrom(""); setDateTo(""); }}>{t("passportReport.allTime")}</button>
         {canReport && <button type="button" className="btn flex items-center gap-2" disabled={exporting || invalidPeriod} onClick={() => void exportPassports()}><Download className="h-4 w-4" />{t(exporting ? "passportReport.exporting" : "passportReport.export")}</button>}
       </div>
