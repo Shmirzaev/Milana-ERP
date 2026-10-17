@@ -572,11 +572,14 @@ def _report_passports(db, current, q, cutting_department_code, date_from, date_t
         joinedload(CuttingPassport.production_order).joinedload(ProductionOrder.sales_order).load_only(SalesOrder.id, SalesOrder.order_no).noload("*"),
         joinedload(CuttingPassport.operator).load_only(User.id, User.name).noload("*"),
     )
+    query = query.outerjoin(ProductionOrder, ProductionOrder.id == CuttingPassport.production_order_id).outerjoin(
+        CatalogModel, CatalogModel.id == ProductionOrder.model_id,
+    ).add_columns(CatalogModel.code)
     return _report_rows(query)
 
 
 def _report_rows(query):
-    for p in query.yield_per(200):
+    for p, model_code in query.yield_per(200):
         materials = [dict(row) for row in p.materials] if p.materials else [{
             key: getattr(p, key) for key in (
                 "fabric_type", "lot_no", "rolls_count", "meter_mode", "layer_weight_kg", "total_layers",
@@ -586,7 +589,7 @@ def _report_rows(query):
         }]
         for row in materials:
             row.update(_compute(SimpleNamespace(**row, size_range=p.size_range)))
-        yield p, materials
+        yield p, materials, model_code or p.model_code
 
 
 _REPORT_PERMISSIONS = ("cutting.records", "cutting.bundles", "planning.production", "*")

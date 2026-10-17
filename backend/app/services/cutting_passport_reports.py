@@ -14,7 +14,7 @@ def _zero():
 def build_dashboard(passports):
     total = _zero()
     days = {}
-    for passport, materials in passports:
+    for passport, materials, _model_code in passports:
         day = passport.date.date().isoformat()
         row = days.setdefault(day, _zero())
         row["passports"] += 1
@@ -80,9 +80,9 @@ def export_workbook(passports, lang="en"):
     _append(summary, _HEADERS[lang][:12], header=True)
     _append(detail, _HEADERS[lang][:8] + _HEADERS[lang][12:], header=True)
     count = material_count = 0
-    for p, materials in passports:
+    for p, materials, model_code in passports:
         identity = [p.passport_no, p.date.date().isoformat(), p.production_order.order_no if p.production_order else p.order_no,
-                    p.model_code, p.variant, p.mold_no, p.size_range, p.operator.name if p.operator else p.operator_name_manual]
+                    model_code, p.variant, p.mold_no, p.size_range, p.operator.name if p.operator else p.operator_name_manual]
         # Excel preserves original quantities. Tepa pass never doubles an export.
         _append(summary, identity + [p.has_print, p.tepa_pass, p.pieces, p.notes])
         count += 1

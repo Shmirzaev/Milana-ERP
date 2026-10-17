@@ -112,6 +112,10 @@ def test_reports_enforce_permission_and_factory_and_are_read_only(client, endpoi
     else:
         sheet = load_workbook(BytesIO(response.content))["Passports"]
         assert sheet.max_row == 2 and sheet["L2"].value == "MIL private cutting notes"
+        # Linked passports display the current order model even if their manual
+        # model_code was left blank. Export must match the screen.
+        detail = client.get(f"/api/cutting-passports/{mil[0][1]}", headers=headers).json()
+        assert detail["model_code"] and sheet["D2"].value == detail["model_code"]
     assert writes == [] and [_snapshot(mil), _snapshot(eco)] == before
     eco_response = client.get("/api/cutting-passports" + endpoint, headers=_headers(_actor("ECO"), "ECO"))
     assert eco_response.status_code == 200
