@@ -14,6 +14,7 @@ from app.models import (
     ModelBOM,
     ModelImage,
     ProductionOrder,
+    ProductionOrderItem,
     SalesOrder,
     StockBatch,
     Warehouse,
@@ -68,12 +69,14 @@ def _passport_set(db, count):
         CuttingPassport(
             passport_no=f"PERF14-L-CP-{suffix}-{number:04d}",
             date=datetime(2026, 9, 20, tzinfo=timezone.utc),
-            production_order_id=orders[number].id, model_code="stale-model-code",
+            production_order_id=orders[number].id, model_code="stale-model-code", size_range="122-152",
         )
         for number in range(count)
     ]
     db.add_all([
         *passports,
+        *[ProductionOrderItem(production_order_id=order.id, model_id=order.model_id, color="white", size=size, planned_quantity=1)
+          for order in orders for size in ["122", "152"]],
         *[
             ModelImage(
                 model_id=model.id, file_url=f"/storage/model-files/{suffix}-{number}.webp",
@@ -104,7 +107,7 @@ def test_passport_list_models_and_sales_references_are_chunk_bounded_without_blo
             ))
 
     (one, one_sql), (fifty, fifty_sql), (chunked, chunked_sql) = results
-    assert (len(one_sql), len(fifty_sql), len(chunked_sql)) == (6, 6, 11)  # Separate batched family identity and photo metadata reads.
+    assert (len(one_sql), len(fifty_sql), len(chunked_sql)) == (7, 7, 12)  # One extra batched scalar read for exact order sizes; never one query per passport.
     for payload, passport_ids, statements in (
         (one, one_ids, one_sql), (fifty, fifty_ids, fifty_sql), (chunked, chunked_ids, chunked_sql),
     ):
@@ -112,6 +115,8 @@ def test_passport_list_models_and_sales_references_are_chunk_bounded_without_blo
         assert all(row["model_name"].startswith("List model ") for row in payload)
         assert all(row["model_image_url"].endswith(".webp") for row in payload)
         assert all(row["order_no"].startswith("SO-PERF14-L-") for row in payload)
+        assert all(row["size_count"] == 2 for row in payload)
+        assert sum("FROM production_order_items" in statement for statement in statements) == 1
         assert "file_data" not in "\n".join(statements).lower()
 
 
