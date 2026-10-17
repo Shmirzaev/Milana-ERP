@@ -2,6 +2,12 @@
 
 Last updated: 2026-10-17
 
+## XD model prefix prepared (2026-10-17)
+
+- Owner requested adding XD to the model-number prefix selector, starting at `XD109001`, using `clone_main` as base and push target. Added the owner-approved floor `109000` to the shared numbering configuration; `source_id` is null because this is a new owner-defined stream, not an imported legacy record. The existing API supplies the selector options and reserves numbers transactionally on save.
+- Seven focused numbering regressions passed, including XD selector availability, first number, stale-preview sequential saves, deleted-number retirement, occupied-family skipping, read-only previews and preservation of existing streams. Scoped Ruff and whitespace checks passed. No frontend code or schema change is needed.
+- Worktree `C:/ERP/.codex-work/model-xd-prefix-20261017`, branch `codex/model-xd-prefix-20261017`, based on `origin/clone_main` `46e671f9`. Both complete production source manifests and slot states matched active green `20261017_081043`, rollback blue `20261017_071249`, before editing. No deployment or production business-data/counter change was requested or performed; XD becomes available in production only after a future deployment.
+
 ## Cutting Passport exact order sizes deployed (2026-10-17)
 
 - LIVE: green **20261017_081043**, immutable source commit `7e117133c185cdc2472bde21661cff7ed4945368`, published to owner-requested `clone_main`. The warehouse release completed first; blue **20261017_071249** stays running for rollback. Both full source manifests, image identities, current symlinks and slot states agree. Source manifest `e1abad76c6286597479eec07de2ee36528edd96ece3f1c879da3215f189035bf`; archive `d64bf689e5c044c71a2c3ccdd9f734cb80e6fd0abf44245e8023dd859889a720`; 1344 files verified against exact Git source.

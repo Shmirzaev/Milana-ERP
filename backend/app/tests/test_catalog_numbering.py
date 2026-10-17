@@ -1,3 +1,5 @@
+import pytest
+
 from app.models import Model, SystemSetting
 from app.services.numbering import next_model_no, next_model_variant_no
 from app.tests.conftest import TestSessionLocal
@@ -34,20 +36,33 @@ def test_model_prefix_stream_skips_existing_variants_and_keeps_other_prefixes():
         assert next_model_no(db, "PJ") == "PJ1254"
 
 
-def test_model_create_reserves_server_number_even_after_stale_preview(client, auth_headers):
-    preview = client.get("/api/models/next-number?prefix=XJ", headers=auth_headers)
+@pytest.mark.parametrize(("prefix", "start"), [("XJ", 3201), ("XD", 109001)])
+def test_model_create_reserves_server_number_even_after_stale_preview(client, auth_headers, prefix, start):
+    preview = client.get(f"/api/models/next-number?prefix={prefix}", headers=auth_headers)
     assert preview.status_code == 200, preview.text
-    assert preview.json()["model_no"] == "XJ3201"
-    payload = {"code": "XJ3201", "automatic_model_prefix": "XJ", "name": "Auto model",
-               "details_json": {"general": {"model_no": "XJ3201"}}}
+    assert prefix in preview.json()["prefixes"]
+    assert preview.json()["model_no"] == f"{prefix}{start}"
+    payload = {"code": f"{prefix}{start}", "automatic_model_prefix": prefix, "name": "Auto model",
+               "details_json": {"general": {"model_no": f"{prefix}{start}"}}}
     first = client.post("/api/models", json=payload, headers=auth_headers)
     second = client.post("/api/models", json=payload, headers=auth_headers)
     assert first.status_code == second.status_code == 201
-    assert first.json()["code"] == "XJ3201"
-    assert second.json()["code"] == "XJ3202"
-    assert second.json()["details_json"]["general"]["model_no"] == "XJ3202"
+    assert first.json()["code"] == f"{prefix}{start}"
+    assert second.json()["code"] == f"{prefix}{start + 1}"
+    assert second.json()["details_json"]["general"]["model_no"] == f"{prefix}{start + 1}"
     assert client.delete(f"/api/models/{second.json()['id']}", headers=auth_headers).status_code == 204
-    assert client.get("/api/models/next-number?prefix=XJ", headers=auth_headers).json()["model_no"] == "XJ3203"
+    assert client.get(f"/api/models/next-number?prefix={prefix}", headers=auth_headers).json()["model_no"] == f"{prefix}{start + 2}"
+
+
+def test_xd_preview_skips_occupied_family_without_consuming_number():
+    with TestSessionLocal() as db:
+        db.add(Model(code="XD109001-V-9000", name="Existing XD family"))
+        db.commit()
+        before = db.query(SystemSetting).count()
+        assert next_model_no(db, "XD") == "XD109002"
+        assert next_model_no(db, "XD") == "XD109002"
+        assert db.query(SystemSetting).count() == before
+        assert next_model_no(db, "XJ") == "XJ3201"
 
 
 def test_number_preview_is_read_only_and_failed_create_does_not_consume(client, auth_headers):
