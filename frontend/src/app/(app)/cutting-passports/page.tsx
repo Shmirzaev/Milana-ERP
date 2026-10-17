@@ -4,8 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR, { useSWRConfig } from "swr";
 import SearchableSelect from "@/components/SearchableSelect";
-import { Plus, Search, Pencil, Trash2, BookOpen } from "lucide-react";
-import { fetcher, api } from "@/lib/api";
+import { Plus, Search, Pencil, Trash2, BookOpen, Download } from "lucide-react";
+import CuttingPassportDashboard from "@/components/CuttingPassportDashboard";
+import { fetcher, api, fetchResponse } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import { formatOrderReference, orderReference, rawOrderReference } from "@/lib/orderRef";
@@ -13,6 +14,7 @@ import { modelCodeParts } from "@/lib/modelCode";
 import { useDialogs } from "@/components/DialogProvider";
 import { storageThumbnailUrl } from "@/lib/modelImages";
 import { useT } from "@/lib/i18n";
+import { can, useMe } from "@/lib/auth";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -35,6 +37,7 @@ type Passport = {
   lot_no: string | null;
   size_range: string | null;
   rolls_count: number | null;
+  tepa_pass: boolean;
   meter_mode: boolean;
   layer_weight_kg: number | null;
   total_layers: number | null;
@@ -114,6 +117,7 @@ const EXCEL_EXAMPLE = {
   operator_name_manual: "musi",
   fabric_type: "",
   has_print: false,
+  tepa_pass: false,
   meter_mode: false,
   order_no: "1588",
   lot_no: "D#11C#4",
@@ -146,6 +150,7 @@ const EMPTY_FORM = {
   operator_name_manual: "",
   fabric_type: "",
   has_print: false,
+  tepa_pass: false,
   meter_mode: false,
   order_no: "",
   lot_no: "",
@@ -268,16 +273,29 @@ function modelQolipNo(model: any): string {
 
 export default function CuttingPassportsPage() {
   const dialogs = useDialogs();
-  const { t } = useT();
+  const { t, lang } = useT();
+  const { me } = useMe();
+  const canReport = can(me, "cutting.records", "cutting.bundles", "planning.production");
   const searchParams = useSearchParams();
   const cuttingDepartment = searchParams.get("cutting_department") === "ECT" ? "ECT" : "CUT";
   const factoryName = cuttingDepartment === "ECT" ? t("factory.ecoCotton") : t("factory.milana");
   const [q, setQ] = useState("");
+  const [view, setView] = useState<"passports" | "dashboard">("passports");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
+  const invalidPeriod = !!dateFrom && !!dateTo && dateFrom > dateTo;
+  const reportParams = new URLSearchParams({ cutting_department_code: cuttingDepartment });
+  if (dateFrom) reportParams.set("date_from", dateFrom);
+  if (dateTo) reportParams.set("date_to", dateTo);
+  if (q.trim()) reportParams.set("q", q.trim());
+  const reportQuery = reportParams.toString();
   const passportSearch = q.trim();
   const passportUrl = `/api/cutting-passports?formula_version=20260706_ishlangan_kg&limit=500&cutting_department_code=${cuttingDepartment}${
     passportSearch ? `&q=${encodeURIComponent(passportSearch)}` : ""
-  }`;
-  const { data: passports = [], mutate } = useSWR<Passport[]>(passportUrl, fetcher, { keepPreviousData: true });
+  }${dateFrom ? `&date_from=${dateFrom}` : ""}${dateTo ? `&date_to=${dateTo}` : ""}`;
+  const { data: passports = [], mutate, error: listError, isLoading: listLoading } = useSWR<Passport[]>(invalidPeriod ? null : passportUrl, fetcher);
   const { data: prodOrders = [] } = useSWR<any[]>("/api/production-orders?page_size=500", fetcher);
   const { data: users = [] } = useSWR<any[]>("/api/cutting-passports/operators", fetcher);
 
@@ -378,6 +396,7 @@ export default function CuttingPassportsPage() {
       operator_name_manual: p.operator_name_manual ?? "",
       fabric_type: p.fabric_type ?? "",
       has_print: p.has_print,
+      tepa_pass: p.tepa_pass ?? false,
       meter_mode: p.meter_mode ?? false,
       order_no: p.order_no ?? p.production_order_no ?? "",
       lot_no: p.lot_no ?? "",
@@ -441,6 +460,7 @@ export default function CuttingPassportsPage() {
       operator_name_manual: form.operator_name_manual || null,
       fabric_type: form.fabric_type || null,
       has_print: form.has_print,
+      tepa_pass: form.tepa_pass,
       meter_mode: form.meter_mode,
       order_no: form.order_no || null,
       lot_no: form.lot_no || null,
@@ -462,6 +482,26 @@ export default function CuttingPassportsPage() {
     };
   }
 
+  async function exportPassports() {
+    if (exporting || invalidPeriod) return;
+    setExporting(true);
+    setExportError("");
+    try {
+      const response = await fetchResponse(`/api/cutting-passports/export.xlsx?${reportQuery}&lang=${lang}`, { credentials: "include" });
+      if (!response.ok) throw new Error(t("passportReport.exportError"));
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `cutting-passports-${dateFrom || "all"}-${dateTo || "all"}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch {
+      setExportError(t("passportReport.exportError"));
+    } finally { setExporting(false); }
+  }
+
   async function save(e: React.FormEvent) {
     e.preventDefault();
     if (saving) return;
@@ -475,7 +515,7 @@ export default function CuttingPassportsPage() {
         await api.post("/api/cutting-passports", payload);
       }
       await mutate();
-      await refreshCache((key) => typeof key === "string" && (key.startsWith("/api/inbox") || key.startsWith("/api/production-orders") || key.startsWith("/api/inventory/reservations") || key.startsWith("/api/inventory/batches")), undefined, { revalidate: true });
+      await refreshCache((key) => typeof key === "string" && (key.startsWith("/api/cutting-passports/dashboard") || key.startsWith("/api/inbox") || key.startsWith("/api/production-orders") || key.startsWith("/api/inventory/reservations") || key.startsWith("/api/inventory/batches")), undefined, { revalidate: true });
       resetMaterialPicker();
       setShowForm(false);
     } catch (e: any) {
@@ -626,12 +666,25 @@ export default function CuttingPassportsPage() {
         subtitle={t("page.cuttingPassports.subtitle")}
       />
 
+      {canReport && <div role="tablist" aria-label={t("page.cuttingPassports.title")} className="mb-4 flex gap-5 border-b border-slate-200">
+        {(["passports", "dashboard"] as const).map((tab) => <button key={tab} type="button" role="tab" aria-selected={view === tab} onClick={() => setView(tab)} className={`border-b-2 px-1 py-3 text-sm ${view === tab ? "border-[#8d8151] font-semibold text-[#524a30]" : "border-transparent text-slate-500"}`}>{t(`passportReport.${tab}`)}</button>)}
+      </div>}
+      <div className="mb-4 flex flex-wrap items-end gap-3">
+        <label className="text-sm">{t("passportReport.from")}<input className="input mt-1" type="date" value={dateFrom} max={dateTo || undefined} onChange={(e) => setDateFrom(e.target.value)} /></label>
+        <label className="text-sm">{t("passportReport.to")}<input className="input mt-1" type="date" value={dateTo} min={dateFrom || undefined} onChange={(e) => setDateTo(e.target.value)} /></label>
+        <button type="button" className="btn" onClick={() => { setDateFrom(""); setDateTo(""); }}>{t("passportReport.allTime")}</button>
+        {canReport && <button type="button" className="btn flex items-center gap-2" disabled={exporting || invalidPeriod} onClick={() => void exportPassports()}><Download className="h-4 w-4" />{t(exporting ? "passportReport.exporting" : "passportReport.export")}</button>}
+      </div>
+      {invalidPeriod && <p role="alert" className="mb-4 text-sm text-red-600">{t("passportReport.invalidPeriod")}</p>}
+      {exportError && <p role="alert" className="mb-4 text-sm text-red-600">{exportError}</p>}
+
       {/* Toolbar */}
       <div className="mb-4 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
           <input
             className="input pl-8"
+            style={{ paddingLeft: "2rem" }}
             placeholder={t("page.cuttingPassports.searchPlaceholder")}
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -642,7 +695,12 @@ export default function CuttingPassportsPage() {
         </button>
       </div>
 
+      {canReport && view === "dashboard" && <CuttingPassportDashboard query={reportQuery} invalid={invalidPeriod} />}
+      {view === "passports" && listError && <p role="alert" className="mb-4 text-sm text-red-600">{t("passportReport.loadError")}</p>}
+      {view === "passports" && listLoading && <p role="status" className="mb-4 text-sm">{t("common.loading")}</p>}
+      {view === "passports" && passports.length === 500 && <p className="mb-4 text-sm text-slate-600">{t("passportReport.listLimit")}</p>}
       {/* Table */}
+      {view === "passports" && !invalidPeriod && (
       <div className="card p-0 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-max text-xs border-collapse">
@@ -785,6 +843,7 @@ export default function CuttingPassportsPage() {
         </div>
       </div>
 
+      )}
       {/* Form modal */}
       <Modal
         open={showForm}
@@ -795,6 +854,10 @@ export default function CuttingPassportsPage() {
       >
         <form onSubmit={save} className="space-y-5">
           <p className="text-sm text-[#6f684f]">{t("passportBatch.help")}</p>
+          <div className="border-b border-slate-200 pb-4">
+            <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={form.tepa_pass} onChange={(event) => setForm((current) => ({ ...current, tepa_pass: event.target.checked }))} />Tepa pass</label>
+            <p className="mt-1 text-sm text-slate-600">{t("passportReport.tepaHint")}</p>
+          </div>
 
           {!editing && (
             <div className="flex items-center gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">

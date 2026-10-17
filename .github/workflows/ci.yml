@@ -128,6 +128,7 @@ jobs:
           node scripts/test-warehouse-pack-lifecycle.browser.mjs
           node scripts/test-sewing-bands.browser.mjs
           node scripts/test-packaging-size-entry.browser.mjs
+          node scripts/test-cutting-passport-reports.browser.mjs
       - name: Optimized production build and contracts
         working-directory: frontend
         env:

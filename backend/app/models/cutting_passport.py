@@ -33,6 +33,9 @@ class CuttingPassport(Base, PkMixin, TimestampMixin):
     lot_no: Mapped[str | None] = mapped_column(String(64))         # Партия рақам
     size_range: Mapped[str | None] = mapped_column(String(255))    # Matches the migrated legacy schema.
 
+    # Reporting only: never changes manufacturing or material quantities.
+    tepa_pass: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+
     meter_mode: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
 
     # Layup inputs (manual)

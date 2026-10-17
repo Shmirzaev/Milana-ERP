@@ -39,6 +39,7 @@ class CuttingPassportIn(BaseModel):
     lot_no: Optional[str] = None
     size_range: Optional[str] = None
     rolls_count: Optional[int] = None
+    tepa_pass: bool = False
     meter_mode: bool = False
     layer_weight_kg: Optional[float] = None
     total_layers: Optional[int] = None
@@ -91,6 +92,7 @@ class CuttingPassportOut(ORMModel):
     lot_no: Optional[str] = None
     size_range: Optional[str] = None
     rolls_count: Optional[int] = None
+    tepa_pass: bool = False
     meter_mode: bool = False
     layer_weight_kg: Optional[float] = None
     total_layers: Optional[int] = None

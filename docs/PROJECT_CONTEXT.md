@@ -1,6 +1,15 @@
 # Milana ERP Project Context
 
-Last updated: 2026-10-16
+Last updated: 2026-10-17
+
+## Cutting passport Excel export and dashboard prepared (2026-10-17)
+
+- Owner requested implementation on `clone_main`, publication to that branch and an ERP preview before deployment approval. Dedicated worktree `C:/ERP/.codex-work/cutting-passport-dashboard-20261017`, branch `codex/cutting-passport-dashboard-20261017`, based on `c4e261b13ea3af18c5c4ebd2cdba25c670fc2150`. Both live source manifests fully verified against recorded green release `20261016_113524`, manifest `960e2b9ea94b70a18b1c37f33c53a8580c2c319caeb955a3a9293119c4d8b9b2`. Running backend/frontend green image identities match the baseline; retained blue images match `20261016_101413`. Direct slot-state file access requires interactive sudo and was unavailable; no runtime changes were attempted. `main` is stale and preserved, as is the legacy checkout.
+- Cutting Passports now offers inclusive From/To passport-date filters, All time and Excel export. Export includes every matching passport within the current factory/search/date scope, beyond the screen's 500-passport cap. Workbook sheets separate original passport quantities from per-fabric measurements/calculations, identify kg/m units and write user text literally to prevent Excel formula execution. EN/RU/UZ headers and UI labels are provided.
+- A Dashboard tab shows recorded actual fabric usage separately in kg and metres, rolls used, pieces cut, daily trends and totals. Multiple materials contribute their own usage/rolls; pieces count once per passport. Dashboard totals are based on saved passport measurements/date, not inventory ledger scans or confirmation time. It uses the existing actual-usage calculation and existing Cutting factory scope, with explicit existing Cutting/Planning permission checks.
+- Optional passport-level `tepa_pass` defaults false. It doubles only dashboard piece totals (300 -> 600); saved quantities, Excel, fabric calculations, stock consumption, Nastil plans, bundles and downstream production stay unchanged. Creation and editing persist and audit the flag. Additive migration `0147_passport_tepa_pass` is prepared, not applied to production; existing rows receive false. Production remains at `0146_payroll_qr_closure`.
+- Focused tests cover date boundaries/errors, >500 exports, mixed units/materials, factory/permission isolation, literal Excel strings, unchanged stock/bundle/downstream handoff, and migration preservation/defaults. Frontend lint has zero errors and nine inherited warnings; strict types, i18n, build contracts and optimized production build pass. Browser tests exercise the actual ERP page/shell in EN/RU/UZ, desktop/phone layout, date filters, download, checkbox payload, permissions and empty/error states. Preview uses only local disposable samples. Full backend/remote CI results will be recorded at handoff.
+- No production database row, schema, permission, source, image, symlink or service was changed. No deployment has been authorized or performed. Historical unrelated security/audit risks remain outside scope. Local preview and screenshots are under ignored `outputs/passport-preview/`.
 
 ## Eco Cotton paid-process release deployed (2026-10-16)
 

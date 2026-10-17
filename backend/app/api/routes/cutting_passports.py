@@ -1,4 +1,8 @@
+from datetime import date, datetime, time, timedelta, timezone
+from typing import Literal
 from types import SimpleNamespace
+from fastapi.responses import Response
+from app.services.cutting_passport_reports import build_dashboard, export_workbook
 from app.core.order_reference import canonical_business_order_reference, order_reference_contains
 from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy import or_
@@ -9,6 +13,7 @@ from app.core.model_search import normalized_model_code_column, normalized_model
 from app.models.cutting_passport import CuttingPassport
 from app.models import Bundle, CuttingRecord, Department, Item, ModelBOM, ProductionBatch, ProductionOrder, ProductionOrderItem, StockBatch, User, WorkOrder
 from app.models.catalog import Model as CatalogModel, ModelImage
+from app.models.sales import SalesOrder
 from app.models import ProductionOrderMaterial, MaterialReservation
 from app.services.inventory import create_material_reservations
 from app.services.factory_scope import require_work_order_factory_access
@@ -142,6 +147,7 @@ def _serialize(p: CuttingPassport, db=None, model_cache: dict | None = None, bat
         "lot_no": p.lot_no,
         "size_range": p.size_range,
         "rolls_count": p.rolls_count,
+        "tepa_pass": p.tepa_pass,
         "meter_mode": p.meter_mode,
         "layer_weight_kg": float(p.layer_weight_kg) if p.layer_weight_kg is not None else None,
         "total_layers": p.total_layers,
@@ -479,23 +485,12 @@ def cutting_operator_options(
     return [user for user in users if factory_code in available_factory_codes(user)]
 
 
-@router.get("", response_model=list[CuttingPassportOut])
-def list_passports(
-    db: DbSession,
-    current: CurrentUser,
-    q: str | None = None,
-    production_order_id: int | None = None,
-    cutting_department_code: str | None = None,
-    limit: int = Query(200, ge=1, le=500),
-):
+def _filtered_passports(db, current, q=None, production_order_id=None,
+                        cutting_department_code=None, date_from=None, date_to=None):
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(422, "Start date must not be after end date")
     qry = (
         db.query(CuttingPassport)
-        .options(
-            joinedload(CuttingPassport.production_order).options(
-                joinedload(ProductionOrder.sales_order),
-                noload(ProductionOrder.materials),
-            )
-        )
         .order_by(CuttingPassport.date.desc(), CuttingPassport.id.desc())
     )
     from app.services.factory_scope import cutting_department_scope
@@ -529,6 +524,32 @@ def list_passports(
             | order_reference_contains(CuttingPassport.order_no, like)
             | CuttingPassport.operator_name_manual.ilike(like)
         )
+    # Passport date is the calendar date entered in the form, stored at UTC midnight.
+    if date_from:
+        qry = qry.filter(CuttingPassport.date >= datetime.combine(date_from, time.min, timezone.utc))
+    if date_to:
+        if date_to == date.max:
+            qry = qry.filter(CuttingPassport.date <= datetime.combine(date_to, time.max, timezone.utc))
+        else:
+            qry = qry.filter(CuttingPassport.date < datetime.combine(date_to + timedelta(days=1), time.min, timezone.utc))
+    return qry
+
+
+@router.get("", response_model=list[CuttingPassportOut])
+def list_passports(
+    db: DbSession,
+    current: CurrentUser,
+    q: str | None = None,
+    production_order_id: int | None = None,
+    cutting_department_code: str | None = None,
+    limit: int = Query(200, ge=1, le=500),
+    date_from: date | None = None,
+    date_to: date | None = None,
+):
+    qry = _filtered_passports(db, current, q, production_order_id, cutting_department_code, date_from, date_to)
+    qry = qry.options(joinedload(CuttingPassport.production_order).options(
+        joinedload(ProductionOrder.sales_order), noload(ProductionOrder.materials),
+    ))
     used = db.query(CuttingRecord.id).filter(or_(CuttingRecord.cutting_passport_id == CuttingPassport.id,
                                                CuttingRecord.production_batch_id == ProductionBatch.id)).exists()
     used = or_(used, db.query(Bundle.id).filter(Bundle.production_batch_id == ProductionBatch.id).exists())
@@ -540,6 +561,63 @@ def list_passports(
     batch_map = {row.id: {"production_batch_id": bid, "nastil_name": name, "used_for_cutting": is_used}
                  for row, bid, name, is_used in result}
     return [_serialize(r, db, model_cache, batch_map) for r in rows]
+
+
+def _report_passports(db, current, q, cutting_department_code, date_from, date_to):
+    # Reuse exactly the list's factory/search/date scope, without its UI row limit
+    # or photo, batch, reservation and business-data hydration.
+    query = _filtered_passports(db, current, q, None, cutting_department_code, date_from, date_to)
+    query = query.options(
+        joinedload(CuttingPassport.production_order).load_only(ProductionOrder.id, ProductionOrder.production_no, ProductionOrder.sales_order_id).noload("*"),
+        joinedload(CuttingPassport.production_order).joinedload(ProductionOrder.sales_order).load_only(SalesOrder.id, SalesOrder.order_no).noload("*"),
+        joinedload(CuttingPassport.operator).load_only(User.id, User.name).noload("*"),
+    )
+    return _report_rows(query)
+
+
+def _report_rows(query):
+    for p in query.yield_per(200):
+        materials = [dict(row) for row in p.materials] if p.materials else [{
+            key: getattr(p, key) for key in (
+                "fabric_type", "lot_no", "rolls_count", "meter_mode", "layer_weight_kg", "total_layers",
+                "planned_kg", "pieces", "fabric_width_m", "lay_length_m", "gramage", "waste_pct",
+                "beka_per_piece_kg", "other_beka_per_piece_kg", "scrap_kg", "ribana_per_piece_kg",
+            )
+        }]
+        for row in materials:
+            row.update(_compute(SimpleNamespace(**row, size_range=p.size_range)))
+        yield p, materials
+
+
+_REPORT_PERMISSIONS = ("cutting.records", "cutting.bundles", "planning.production", "*")
+
+
+@router.get("/dashboard")
+def passport_dashboard(
+    db: DbSession,
+    current: User = Depends(require_permissions(*_REPORT_PERMISSIONS)),
+    q: str | None = None,
+    cutting_department_code: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+):
+    return build_dashboard(_report_passports(db, current, q, cutting_department_code, date_from, date_to))
+
+
+@router.get("/export.xlsx")
+def export_passports(
+    db: DbSession,
+    current: User = Depends(require_permissions(*_REPORT_PERMISSIONS)),
+    q: str | None = None,
+    cutting_department_code: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    lang: Literal["en", "ru", "uz"] = "en",
+):
+    content = export_workbook(_report_passports(db, current, q, cutting_department_code, date_from, date_to), lang)
+    filename = f"cutting-passports-{date_from or 'all'}-{date_to or 'all'}.xlsx"
+    return Response(content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"})
 
 
 @router.get("/{pid}", response_model=CuttingPassportOut)
@@ -716,7 +794,7 @@ def create_passport(
     db.add(p)
     db.flush()
     sync_passport_nastil(db, p, current, is_new=True)
-    log_action(db, current, "create", "CuttingPassport", p.id, new_value={"passport_no": p.passport_no})
+    log_action(db, current, "create", "CuttingPassport", p.id, new_value={"passport_no": p.passport_no, "tepa_pass": p.tepa_pass})
     db.commit()
     db.refresh(p)
     return _serialize(p, db)
@@ -751,7 +829,7 @@ def update_passport(
     for k, v in values.items():
         setattr(p, k, v)
     sync_passport_nastil(db, p, current)
-    log_action(db, current, "update", "CuttingPassport", p.id, new_value={"passport_no": p.passport_no})
+    log_action(db, current, "update", "CuttingPassport", p.id, new_value={"passport_no": p.passport_no, "tepa_pass": p.tepa_pass})
     db.commit()
     db.refresh(p)
     return _serialize(p, db)
