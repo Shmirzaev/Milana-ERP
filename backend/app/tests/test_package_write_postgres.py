@@ -299,3 +299,76 @@ def test_postgres_bulk_number_range_is_reused_after_rollback(
 
     assert retried == rolled_back
     assert len(set(retried)) == 2
+
+
+@pytest.mark.parametrize("same_package", [False, True])
+def test_warehouse_delete_serializes_output_and_retires_print_evidence(
+    package_write_postgres_sessions, monkeypatch, same_package,
+):
+    """Concurrent warehouse deletions conserve output under PostgreSQL's label guard."""
+    import ast
+    from pathlib import Path
+    from threading import Barrier
+    from fastapi import HTTPException
+    from app.models import User, PackagePrintRun, PackagePrintRunMember, FinishedGoodsStock
+    from app.services.package_workflows import contents
+    from app.services.warehouse_packages import delete_warehouse_package
+
+    sessions, engine = package_write_postgres_sessions
+    order_id, model_id = _seed_packaged_order(sessions, 2)
+    _stub_package_side_effects(monkeypatch)
+    with sessions.begin() as db:
+        db.get(ProductionOrder, order_id).source_type = "standard"
+        work = db.query(WorkOrder).filter_by(production_order_id=order_id, operation="packaging").one()
+        record = db.query(PackagingRecord).filter_by(work_order_id=work.id).one()
+        record.package_count = record.total_packed_quantity = 0
+        actor = User(name="Warehouse test", email=f"warehouse-{uuid4().hex}@example.invalid", password_hash="unused")
+        db.add(actor)
+        db.flush()
+        actor_id, record_id = actor.id, record.id
+        packages = [package_service.create_package(db, **_package_kwargs(order_id, model_id)) for _ in range(2)]
+        ids = [package.id for package in packages]
+        for package in packages:
+            package.status = "received_in_storage"
+            for historical in (True, False):
+                run = PackagePrintRun(run_no=f"QA-{uuid4().hex}", code=f"PACKRUN:{uuid4().hex}",
+                                      package_ids=[package.id], deleted_package_ids=[], created_by=actor.id,
+                                      packaging_department_code="PKG",
+                                      superseded_at=package.created_at if historical else None)
+                db.add(run)
+                db.flush()
+                db.add(PackagePrintRunMember(run_id=run.id, package_id=package.id, snapshot=contents(package)))
+    # Execute the deployed guard function verbatim, without replaying schema changes.
+    migration = Path(__file__).resolve().parents[2] / "alembic/versions/0146_payroll_qr_closure.py"
+    tree = ast.parse(migration.read_text())
+    upgrade = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "upgrade")
+    guard = next(node.value for node in ast.walk(upgrade) if isinstance(node, ast.Constant)
+                 and isinstance(node.value, str) and "CREATE OR REPLACE FUNCTION protect_printed_package_deletion" in node.value)
+    with engine.begin() as connection:
+        connection.exec_driver_sql(guard)
+        connection.exec_driver_sql("CREATE TRIGGER warehouse_delete_qa BEFORE DELETE ON packages FOR EACH ROW EXECUTE FUNCTION protect_printed_package_deletion()")
+    barrier = Barrier(2)
+    def remove(pid):
+        with sessions() as db:
+            actor = db.get(User, actor_id)
+            barrier.wait(timeout=10)
+            try:
+                result = delete_warehouse_package(db, actor, pid)
+                db.commit()
+                return result["deleted_count"]
+            except HTTPException as error:
+                db.rollback()
+                return error.status_code
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(remove, pid) for pid in ([ids[0], ids[0]] if same_package else ids)]
+            results = sorted(future.result(timeout=25) for future in futures)
+        assert results == ([1, 404] if same_package else [1, 1])
+        with sessions() as db:
+            assert db.get(PackagingRecord, record_id).packed_qty == (1 if same_package else 0)
+            assert db.query(Package).filter(Package.id.in_(ids)).count() == (1 if same_package else 0)
+            assert db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id.in_(ids)).count() == (1 if same_package else 0)
+            assert db.query(PackagePrintRunMember).filter(PackagePrintRunMember.package_id.in_(ids)).count() == 4
+    finally:
+        with engine.begin() as connection:
+            connection.exec_driver_sql("DROP TRIGGER warehouse_delete_qa ON packages")

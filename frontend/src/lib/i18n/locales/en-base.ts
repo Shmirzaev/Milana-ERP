@@ -1,5 +1,7 @@
 // Generated mechanically from dict.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "nav.physicalPrintRuns": "Physical print runs",
+    "page.physicalPrintRuns.subtitle": "Review package print runs, reprint labels, and correct mistaken physical receipts.",
     "page.processQr.autoSizeSplit": "Unallocated Sewing output was split evenly across model sizes. Review and adjust before issuing. Recorded size quantities are preserved.",
     "page.processQr.sizeSplitTotal": "Allocated: {assigned} / {total} pieces",
     "page.processQr.sizeSplitInvalid": "Use whole, non-negative quantities that total the recorded Sewing output. Existing recorded size quantities cannot be reduced.",

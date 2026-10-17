@@ -16,7 +16,7 @@ export default function DeleteWarehousePackage({ id, packageNo }: { id: number; 
     setBusy(true); setError("");
     try {
       await api.del(`/api/packages/warehouse/${id}`);
-      await mutate(key => typeof key === "string" && ["/api/packages", "/api/finished-goods", "/api/inbox"].some(prefix => key.startsWith(prefix)));
+      await mutate(key => typeof key === "string" && ["/api/packages", "/api/finished-goods", "/api/inbox", "/api/work-orders", "/api/packaging", "/api/production-orders"].some(prefix => key.startsWith(prefix)));
     } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); }
     finally { setBusy(false); }
   }}>{c.delete}</button>{error && <p className="text-sm text-red-700" role="alert">{error}</p>}</>;

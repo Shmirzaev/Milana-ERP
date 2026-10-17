@@ -39,6 +39,7 @@ const messages: Record<string, [string, string]> = {
   "Package stock is missing or does not match the package quantity": ["Упаковку нельзя удалить: складской остаток отсутствует или не совпадает с количеством в упаковке.", "Qadoqni o‘chirib bo‘lmaydi: ombor qoldig‘i yo‘q yoki qadoq miqdoriga mos emas."],
   "Package stock is linked to a sales order and cannot be deleted": ["Упаковку нельзя удалить: её складской остаток связан с заказом клиента.", "Qadoqni o‘chirib bo‘lmaydi: ombor qoldig‘i mijoz buyurtmasiga bog‘langan."],
   "Package stock has sold pieces and cannot be deleted": ["Упаковку нельзя удалить: часть её складского остатка уже продана.", "Qadoqni o‘chirib bo‘lmaydi: uning ombor qoldig‘ida sotilgan mahsulotlar bor."],
+  "Package print run changed; refresh and retry": ["Группа печати изменилась. Обновите страницу и повторите действие.", "Chop etish guruhi o‘zgardi. Sahifani yangilang va qayta urinib ko‘ring."],
   "Package stock is reserved and cannot be deleted": ["Упаковку нельзя удалить: её складской остаток зарезервирован.", "Qadoqni o‘chirib bo‘lmaydi: uning ombor qoldig‘i band qilingan."],
   "Package stock is not fully available and cannot be deleted": ["Упаковку нельзя удалить: её складской остаток доступен не полностью.", "Qadoqni o‘chirib bo‘lmaydi: uning ombor qoldig‘i to‘liq mavjud emas."],
   "Package stock has reservation history and cannot be deleted": ["Упаковку нельзя удалить: складской остаток связан с записью резервирования.", "Qadoqni o‘chirib bo‘lmaydi: ombor qoldig‘i band qilish yozuviga bog‘langan."],

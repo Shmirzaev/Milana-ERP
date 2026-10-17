@@ -6,7 +6,7 @@ from fastapi import HTTPException
 
 from app.models import (FinishedGoodsStock, Package, PackageChangeRequest, PackagePrintRun,
                         PackagePrintRunMember, ShipmentPackage, ShipmentScanLog, StockReservation,
-                        WarehousePackReservation)
+                        WarehousePackReservation, ProductionOrder)
 from app.models.shipment_review import PackageQuantityAdjustment
 from app.schemas.package_workflows import PrintRunReceiveIn
 from app.services import package_workflows as workflows
@@ -60,13 +60,18 @@ def receive_order_packages(db, current, order_id, ids):
 
 
 def delete_warehouse_package(db, current, pid):
-    members = workflows.active_members(db).filter(PackagePrintRunMember.package_id == pid).all()
+    members = db.query(PackagePrintRunMember).filter_by(package_id=pid).all()
     runs = db.query(PackagePrintRun).filter(PackagePrintRun.id.in_({m.run_id for m in members})).order_by(
         PackagePrintRun.id).with_for_update().populate_existing().all()
+    order_id = db.query(Package.production_order_id).filter_by(id=pid).scalar()
+    if order_id:
+        db.query(ProductionOrder).filter_by(id=order_id).with_for_update().populate_existing().one()
     package = db.query(Package).filter_by(id=pid).with_for_update().populate_existing().first()
     if not package:
         raise HTTPException(404, "Package not found")
     require_package_access(current, package)
+    if {m.run_id for m in db.query(PackagePrintRunMember).filter_by(package_id=pid)} != {r.id for r in runs}:
+        raise HTTPException(409, "Package print run changed; refresh and retry")
     if package.status != "received_in_storage":
         raise HTTPException(409, "Only packages received in the warehouse can be deleted")
     if package.sales_order_id:
@@ -100,6 +105,9 @@ def delete_warehouse_package(db, current, pid):
         raise HTTPException(409, "Package stock is not fully available and cannot be deleted")
     if db.query(StockReservation.id).filter(StockReservation.finished_goods_stock_id.in_([s.id for s in stocks])).first():
         raise HTTPException(409, "Package stock has reservation history and cannot be deleted")
+    from app.services.packaging_corrections import finish_package_output_reset, undo_package_output
+    correction = undo_package_output(db, package)
+    package_no = package.package_no
     log_action(db, current, "delete_warehouse_package", "Package", pid, old_value=workflows.contents(package))
     from app.services.numbering import retire_label_numbers
     import re
@@ -115,4 +123,6 @@ def delete_warehouse_package(db, current, pid):
     db.delete(package)
     db.flush()
     sync_package_production_orders(db, [order_id])
+    finish_package_output_reset(db, order_id, None, correction, actor=current,
+                                package_id=pid, package_no=package_no)
     return {"deleted_count": 1}

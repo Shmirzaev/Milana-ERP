@@ -13,7 +13,7 @@ import { can, useMe } from "@/lib/auth";
 import { storageThumbnailUrl } from "@/lib/modelImages";
 import WarehouseMap from "@/components/WarehouseMap";
 import ManualPackageReceipt from "@/components/ManualPackageReceipt";
-import PackagePrintRuns from "@/components/PackagePrintRuns";
+import ReceivePackages from "@/components/ReceivePackages";
 import { packageWorkflowCopy, type PackagePrintRun } from "@/lib/packageWorkflow";
 
 type ScannedPackage = {
@@ -67,7 +67,6 @@ const BLOCKED_MAP_MOVE_STATUSES = new Set(["shipped", "delivered", "damaged"]);
 export default function ScanPackagePage() {
   const { lang } = useT();
   const copy = packageWorkflowCopy[lang];
-  const [runRefresh, setRunRefresh] = useState(0);
   const { t } = useT();
   const { me } = useMe();
   const codeInputRef = useRef<HTMLInputElement>(null);
@@ -140,7 +139,7 @@ export default function ScanPackagePage() {
           const ids = new Set(result.packages.map(p => p.id));
           setScannedPackages(previous => [...result.packages, ...previous.filter(p => !ids.has(p.id))]);
           setSelectedIds([]); setActivePackageId(result.packages[0]?.id || null);
-          setCode(""); setRunRefresh(value => value + 1);
+          setCode("");
           setMsg(`${copy.runReceived}: ${result.run_no} (${result.count})`);
           await mutateMap();
           return;
@@ -260,14 +259,14 @@ export default function ScanPackagePage() {
     <div>
       <PageHeader title={t("page.packageScan.title")} subtitle={t("page.packageScan.subtitle")} />
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <ManualPackageReceipt onCreated={() => { setRunRefresh(value => value + 1); void mutateMap(); }} />
+        <ReceivePackages />
+        <ManualPackageReceipt onCreated={() => { void mutateMap(); }} />
         <button className="btn" type="button" disabled={!selectedIds.length} onClick={async () => {
           try { await api.openLabel(`/api/packages/label-sheet/by-ids?ids=${selectedIds.join(",")}`); }
           catch (e: any) { setMsg(e.message); }
         }}>{copy.printSelected}</button>
       </div>
       <p className="mb-4 text-sm">{copy.scanHint}</p>
-      <PackagePrintRuns refreshKey={runRefresh} />
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[minmax(560px,700px)_minmax(0,1fr)]">
         <div className="space-y-4">
           <div className="card p-4">

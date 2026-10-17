@@ -10,7 +10,7 @@ import { mutate as mutateCache } from "swr";
 import { useState } from "react";
 import { formatModelVariantCode } from "@/lib/variantDisplay";
 
-export default function PackagePrintRuns({ productionOrderId, refreshKey = 0 }: { productionOrderId?: number; refreshKey?: number }) {
+export default function PackagePrintRuns({ productionOrderId, refreshKey = 0, standalone = false }: { productionOrderId?: number; refreshKey?: number; standalone?: boolean }) {
   const { lang } = useT();
   const { me } = useMe();
   const dialogs = useDialogs();
@@ -21,8 +21,8 @@ export default function PackagePrintRuns({ productionOrderId, refreshKey = 0 }: 
   const path = `/api/packages/print-runs${productionOrderId ? `?production_order_id=${productionOrderId}` : ""}`;
   const { data, error, mutate } = useSWR<PackagePrintRun[]>([path, refreshKey], ([url]: [string, number]) => fetcher(url));
   const [printError, setPrintError] = useState("");
-  return <section className="mt-4 border-t pt-4">
-    <h3 className="mb-3 font-medium">{copy.runs}</h3>
+  return <section className={standalone ? "" : "mt-4 border-t pt-4"}>
+    {!standalone && <h3 className="mb-3 font-medium">{copy.runs}</h3>}
     {(error || printError) && <p role="alert" className="text-red-700">{printError || error.message}</p>}
     {!data && !error && <p>{copy.loading}</p>}
     {data?.length === 0 && <p>{copy.empty}</p>}

@@ -1,5 +1,7 @@
 // Generated mechanically from dict.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "nav.physicalPrintRuns": "Qadoqlarni chop etish guruhlari",
+    "page.physicalPrintRuns.subtitle": "Chop etish guruhlarini ko‘ring, yorliqlarni qayta chop eting va xato haqiqiy qabullarni tuzating.",
     "page.processQr.autoSizeSplit": "O‘lchamlarga ajratilmagan tikuv miqdori model o‘lchamlariga teng taqsimlandi. Yorliqlarni chiqarishdan oldin tekshiring va tuzating. Avval kiritilgan o‘lcham miqdorlari saqlanadi.",
     "page.processQr.sizeSplitTotal": "Taqsimlangan: {assigned} / {total} dona",
     "page.processQr.sizeSplitInvalid": "Jami tikuv miqdoriga teng bo‘lgan butun, manfiy bo‘lmagan sonlarni kiriting. Avval kiritilgan o‘lcham miqdorlarini kamaytirib bo‘lmaydi.",

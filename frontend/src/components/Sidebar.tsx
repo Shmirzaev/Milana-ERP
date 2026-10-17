@@ -26,6 +26,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   QrCode,
+  Printer,
   Scissors,
   Settings,
   Shirt,
@@ -254,6 +255,7 @@ const SECTIONS: Section[] = [
       { href: "/warehouse-stock/reservations", labelKey: "warehouseReservations.title", perms: ["storage.packages", "storage.shipment"], icon: PackageSearch },
       { href: "/warehouse-stock/count", labelKey: "nav.stocktake", perms: ["storage.packages", "storage.shipment"], icon: FileSearch },
       { href: "/packages/scan", labelKey: "nav.scanPackage", perms: ["storage.packages"], icon: QrCode },
+      { href: "/packages/print-runs", labelKey: "nav.physicalPrintRuns", perms: ["storage.packages"], icon: Printer },
       { href: "/warehouse-map", labelKey: "nav.warehouseMap", perms: ["storage.packages", "storage.shipment"], icon: Warehouse },
       { href: "/shipments", labelKey: "nav.shipments", perms: ["storage.shipment"], icon: Truck },
       { href: "/shipments/history", labelKey: "page.shipments.history", perms: ["storage.shipment"], icon: Truck },
@@ -417,7 +419,7 @@ export default function Sidebar() {
     const currentCuttingDepartment = searchParams.get("cutting_department") || "CUT";
     const currentPackagingDepartment = packagingDepartmentForSession(me, searchParams.get("packaging_department"));
     const bundlesScanMismatch = basePath === "/bundles" && pathname.startsWith("/bundles/scan");
-    const packagesScanMismatch = basePath === "/packages" && pathname.startsWith("/packages/scan");
+    const packagesScanMismatch = basePath === "/packages" && (pathname.startsWith("/packages/scan") || pathname.startsWith("/packages/print-runs"));
     const inventoryGroupMismatch = basePath === "/inventory" && (pathname !== "/inventory" || itemGroup !== inventoryGroup);
     const inventoryReceiveGroupMismatch = basePath === "/inventory/receive" && itemGroup !== inventoryGroup;
     const cuttingDepartmentMismatch = ["/cutting-passports", "/cutting-inventory", "/bundles"].includes(basePath)

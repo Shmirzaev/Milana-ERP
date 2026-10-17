@@ -157,7 +157,8 @@ def test_rejected_delete_does_not_release_quantity_or_retire_label(client, auth_
         assert db.query(AuditLog).filter_by(action="undo_package_output").count() == 0
 
 
-def test_mixed_batch_delete_releases_exact_allocations_and_keeps_siblings(client, auth_headers):
+@pytest.mark.parametrize("warehouse_delete", [False, True])
+def test_mixed_batch_delete_releases_exact_allocations_and_keeps_siblings(client, auth_headers, warehouse_delete):
     headers, ids, template, _ = setup_output(client)
     with SessionLocal() as db:
         sewing = db.query(WorkOrder).filter_by(production_order_id=ids["order"], operation="sewing").one()
@@ -187,8 +188,14 @@ def test_mixed_batch_delete_releases_exact_allocations_and_keeps_siblings(client
     assert response.status_code == 201, response.text
     run = response.json()
     upstream = upstream_snapshot()
-    result = delete(client, headers, run["package_ids"][0])
-    assert result.status_code == 201, result.text
+    if warehouse_delete:
+        receipt = client.post("/api/packages/print-runs/receive", headers=headers, json={"code": run["code"]})
+        assert receipt.status_code == 200, receipt.text
+        pid = run["package_ids"][0]
+        result = client.delete(f"/api/packages/warehouse/{pid}", headers=headers)
+    else:
+        result = delete(client, headers, run["package_ids"][0])
+    assert result.status_code == (200 if warehouse_delete else 201), result.text
     with SessionLocal() as db:
         assert {r.production_batch_id: r.packed_qty for r in db.query(PackagingRecord).filter_by(work_order_id=ids["packaging"])} == {ids["batch"]: 60, second_id: 40}
         assert [db.get(Package, pid).total_quantity for pid in run["package_ids"][1:]] == [60, 40]

@@ -110,9 +110,12 @@ def undo_package_output(db, package):
             "work_after": [_work_state(by_id[work_id]) for work_id in sorted(changed_work_ids)]}
 
 
-def finish_package_output_reset(db, production_order_id, request, correction):
+def finish_package_output_reset(db, production_order_id, request, correction, *,
+                                actor=None, package_id=None, package_no=None):
     if not correction:
         return
+    # Persist recalculated storage counters before refreshing locked work orders.
+    db.flush()
     from app.models import Package, User
     from app.services.workflow import sync_production_order_status
 
@@ -120,7 +123,7 @@ def finish_package_output_reset(db, production_order_id, request, correction):
         Package.production_order_id == production_order_id,
         Package.status.in_(["received_in_storage", "reserved", "shipped", "delivered"]),
     ).scalar()
-    if not received:
+    if not received or request is None:
         for work in db.query(WorkOrder).filter_by(
             production_order_id=production_order_id, operation="storage_transfer",
         ).order_by(WorkOrder.id).with_for_update().populate_existing():
@@ -131,12 +134,20 @@ def finish_package_output_reset(db, production_order_id, request, correction):
                 work.status = "waiting"
                 work.start_time = work.end_time = None
                 correction["work_after"].append(_work_state(work))
+            elif request is None and work.status == "completed" and work.passed_qty < work.planned_output_qty:
+                correction["work_before"].append(_work_state(work))
+                work.status = "in_progress" if work.passed_qty else "waiting"
+                work.end_time = None
+                correction["work_after"].append(_work_state(work))
     db.flush()
     sync_production_order_status(db, production_order_id)
-    actor_id = request.reviewed_by or request.requested_by
-    actor = db.get(User, actor_id) if actor_id else None
-    log_action(db, actor, "undo_package_output", "PackageChangeRequest", request.id,
+    if request is not None:
+        actor_id = request.reviewed_by or request.requested_by
+        actor = db.get(User, actor_id) if actor_id else None
+        package_no = request.package_no
+    log_action(db, actor, "undo_package_output", "PackageChangeRequest" if request else "Package",
+               request.id if request else package_id,
                old_value={"records": correction["before"], "work_orders": correction["work_before"]},
-               new_value={"package_no": request.package_no, "quantity": correction["quantity"],
+               new_value={"package_no": package_no, "quantity": correction["quantity"],
                           "records": correction["after"], "work_orders": correction["work_after"],
                           "sewing_receipts_preserved": True})

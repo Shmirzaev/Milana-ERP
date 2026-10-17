@@ -14,7 +14,7 @@ for (const lang of ["ru", "uz"]) {
 const deletionSource = fs.readFileSync("../backend/app/services/warehouse_packages.py", "utf8").split("def delete_warehouse_package")[1];
 const deletionReasons = [...deletionSource.matchAll(/"((?:Package |Only packages )[^"\n]+)"/g)]
   .map(match => match[1]).filter(reason => reason !== "Package not found");
-assert.equal(deletionReasons.length, 16);
+assert.equal(deletionReasons.length, 17);
 for (const lang of ["en", "ru", "uz"]) {
   globalThis.document = { documentElement: { lang } };
   const rendered = deletionReasons.map(reason => {

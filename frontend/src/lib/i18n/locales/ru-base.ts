@@ -1,5 +1,7 @@
 // Generated mechanically from dict.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "nav.physicalPrintRuns": "Группы печати упаковок",
+    "page.physicalPrintRuns.subtitle": "Просмотр групп печати, повторная печать этикеток и исправление ошибочной фактической приёмки.",
     "page.processQr.autoSizeSplit": "Выпуск швейного цеха без распределения разделён поровну по размерам модели. Проверьте и исправьте перед выпуском ярлыков. Записанные количества по размерам сохранены.",
     "page.processQr.sizeSplitTotal": "Распределено: {assigned} / {total} шт.",
     "page.processQr.sizeSplitInvalid": "Введите целые неотрицательные количества, сумма которых равна выпуску швейного цеха. Уже записанные количества по размерам уменьшать нельзя.",
