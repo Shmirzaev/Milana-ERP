@@ -4,6 +4,9 @@ import type { Lang } from "./types";
 // legacy dictionary easier to audit without rewriting that large file.
 export const supplemental: Record<Lang, Record<string, string>> = {
   en: {
+    "employeeExport.download": "Download Excel",
+    "employeeExport.loading": "Downloading…",
+    "employeeExport.error": "Could not download the employee list. Please try again.",
     "cuttingBundles.count": "Number of bundles",
     "cuttingBundles.itemsPerBundle": "Items per bundle",
     "cuttingBundles.summary": "{bundles} bundles · {items} items",
@@ -1109,6 +1112,9 @@ export const supplemental: Record<Lang, Record<string, string>> = {
     "page.hrEmployees.loadMore": "Load more employees",
   },
   ru: {
+    "employeeExport.download": "Скачать Excel",
+    "employeeExport.loading": "Загрузка…",
+    "employeeExport.error": "Не удалось скачать список сотрудников. Попробуйте ещё раз.",
     "cuttingBundles.count": "Количество связок",
     "cuttingBundles.itemsPerBundle": "Штук в связке",
     "cuttingBundles.summary": "Связок: {bundles} · Изделий: {items}",
@@ -2328,6 +2334,9 @@ export const supplemental: Record<Lang, Record<string, string>> = {
     "page.hrEmployees.loadMore": "\u0417\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0435\u0449\u0451 \u0441\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a\u043e\u0432",
   },
   uz: {
+    "employeeExport.download": "Excel yuklab olish",
+    "employeeExport.loading": "Yuklanmoqda…",
+    "employeeExport.error": "Xodimlar ro‘yxatini yuklab bo‘lmadi. Qayta urinib ko‘ring.",
     "cuttingBundles.count": "Bogʻlamlar soni",
     "cuttingBundles.itemsPerBundle": "Har bir bogʻlamdagi dona",
     "cuttingBundles.summary": "{bundles} ta bogʻlam · {items} dona",

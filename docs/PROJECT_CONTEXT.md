@@ -2,6 +2,14 @@
 
 Last updated: 2026-10-19
 
+## Per-fabric passport sizes and employee Excel prepared (2026-10-19)
+
+- Owner requested independent size counts for two passport fabrics and an employee-list Excel download, based on and published to `clone_main`, with deployment and no timed 30-minute monitoring. Before edits both complete production source manifests and slots matched blue `20261019_074555`, manifest `869bc629a8d721b4c744624c2621967e075b374ab432b412c191ab6b84ea5435`, source `668b58d730e3c9dd8639596109a9aceebf1347ef`, rollback green `20261019_052805` and schema `0147_passport_tepa_pass`. The branch head differed only in completion documentation and the verified baseline.
+- Each passport fabric now saves its own size selection in the existing materials JSON, with independent size counts and consumption calculations. First-material values remain the passport summary/price-calculation source. Older rows without a size selection inherit the saved passport selection without a data rewrite. Editing, new Nastils, added fabrics, list rows and material Excel details retain the correct selection. Stock usage and single garment output are unchanged; no migration is needed.
+- HR, Admin and Payroll share the new Download Excel button. It exports every matching employee in the selected factory using the same escaped search, order and private-field visibility as the directory, independently of UI pagination. Columns contain employee number, name, factory, department, position, manager, status, hire date and phone where authorized. Numbers/phone/formula-like names remain literal text; no salary or private profile fields are exported. Button, errors, headers and statuses support EN/RU/UZ.
+- Focused backend checks passed 55 tests with one existing skip. Real React/Chromium tests passed separate selections, save/reopen, EN/RU/UZ downloads/search/failure handling, and existing HR pagination. Full local and CI release checks are pending at this preparation entry. No production business rows have been written by this task.
+- Dedicated worktree `C:/ERP/.codex-work/passport-fabric-employee-excel-20261019`, branch `codex/passport-fabric-employee-excel-20261019`. Legacy checkout and `main` are preserved. Deployment completion evidence will supersede this preparation entry.
+
 ## Cutting, Sewing actual output and Payroll update deployed (2026-10-19)
 
 - Active production is blue `20261019_074555` on both VMs, from reviewed source `668b58d730e3c9dd8639596109a9aceebf1347ef`. Full source manifest SHA-256 `869bc629a8d721b4c744624c2621967e075b374ab432b412c191ab6b84ea5435`; schema remains `0147_passport_tepa_pass`. Green `20261019_052805` remains running and available for rollback. Owner explicitly authorized `clone_main` as base/publication target and deployment without the timed 30-minute observation. Immediate and closing checks passed; no timed observer was started.

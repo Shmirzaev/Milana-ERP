@@ -57,6 +57,7 @@ class CuttingPassportIn(BaseModel):
 
 
 class PassportMaterialOut(PassportMaterial):
+    size_count: int | None = None
     total_beka_kg: float | None = None
     other_beka_kg: float | None = None
     actual_kg: float | None = None

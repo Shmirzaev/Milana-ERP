@@ -1,5 +1,8 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "employeeExport.download": "Excel yuklab olish",
+    "employeeExport.loading": "Yuklanmoqda…",
+    "employeeExport.error": "Xodimlar ro‘yxatini yuklab bo‘lmadi. Qayta urinib ko‘ring.",
   "passportReport.passports": "Pasportlar",
   "passportReport.dashboard": "Ko‘rsatkichlar",
   "passportReport.from": "Boshlanish sanasi",

@@ -89,6 +89,7 @@ def export_workbook(passports, lang="en"):
         for material in materials:
             material["unit"] = "m" if material.get("meter_mode") else "kg"
             material_identity = identity.copy()
+            material_identity[6] = material.get("size_range") if material.get("size_range") is not None else p.size_range
             material_identity[7] = material.get("operator_name_manual") or identity[7]
             _append(detail, material_identity + [material.get(key) for key in _MATERIAL_KEYS])
             material_count += 1

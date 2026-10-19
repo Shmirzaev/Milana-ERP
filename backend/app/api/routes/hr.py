@@ -359,6 +359,42 @@ def list_employees(
 
 
 
+def _employee_directory_query(db, current, search):
+    query = db.query(Employee).filter(Employee.factory_code == selected_factory_code(current))
+    normalized = (search or "").strip()
+    if normalized:
+        pattern = '%' + normalized.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
+        query = query.filter(or_(Employee.full_name.ilike(pattern, escape='\\'),
+                                 Employee.employee_no.ilike(pattern, escape='\\'),
+                                 Employee.position.ilike(pattern, escape='\\')))
+    return query
+
+
+@router.get('/employees/export.xlsx')
+def export_employees(
+    db: DbSession,
+    current: CurrentUser,
+    search: str = Query("", max_length=120),
+    lang: Literal["en", "ru", "uz"] = "en",
+):
+    from fastapi.responses import Response
+    from sqlalchemy.orm import aliased
+    from app.models import Department
+    from app.models.hr import HrPosition
+    from app.services.employee_export import employee_workbook
+
+    factory = selected_factory_code(current)
+    manager = aliased(Employee)
+    rows = _employee_directory_query(db, current, search).with_entities(
+        Employee, Department.name, HrPosition.name, manager.full_name,
+    ).outerjoin(Department, Department.id == Employee.department_id).outerjoin(
+        HrPosition, (HrPosition.id == Employee.hr_position_id) & (HrPosition.factory_code == factory),
+    ).outerjoin(manager, (manager.id == Employee.manager_employee_id) & (manager.factory_code == factory)).order_by(Employee.id.desc())
+    content = employee_workbook(rows.yield_per(200), lang, include_private=_can_view_private_employee_fields(current))
+    return Response(content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="employees-{factory}.xlsx"', "Cache-Control": "no-store"})
+
+
 def _employee_directory_page(db, current, *, search, page, page_size):
     from sqlalchemy import case, select, cast
     from sqlalchemy.orm import aliased, load_only
@@ -367,12 +403,7 @@ def _employee_directory_page(db, current, *, search, page, page_size):
     factory = selected_factory_code(current)
     private = _can_view_private_employee_fields(current)
     normalized = (search or "").strip()
-    query = db.query(Employee).filter(Employee.factory_code == factory)
-    if normalized:
-        pattern = '%' + normalized.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
-        query = query.filter(or_(Employee.full_name.ilike(pattern, escape='\\'),
-                                 Employee.employee_no.ilike(pattern, escape='\\'),
-                                 Employee.position.ilike(pattern, escape='\\')))
+    query = _employee_directory_query(db, current, normalized)
     total, active = query.with_entities(func.count(Employee.id), func.sum(case((Employee.status == 'active', 1), else_=0))).one()
     total, active = int(total or 0), int(active or 0)
     coverage = None

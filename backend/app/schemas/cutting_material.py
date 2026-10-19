@@ -17,6 +17,7 @@ class PassportMaterial(BaseModel):
     model_config = ConfigDict(allow_inf_nan=False)
 
     stock_batch_id: int = Field(gt=0)
+    size_range: str | None = Field(default=None, max_length=512)
     fabric_type: str | None = None
     lot_no: str | None = None
     operator_name_manual: str | None = Field(default=None, max_length=128)

@@ -1,6 +1,6 @@
 "use client";
 import { formatModelVariantCode, formatVariantNumber } from "@/lib/variantDisplay";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR, { useSWRConfig } from "swr";
 import SearchableSelect from "@/components/SearchableSelect";
@@ -346,12 +346,7 @@ export default function CuttingPassportsPage() {
 
   const rows = passports.flatMap((p) => p.materials?.length ? p.materials.map((row) => ({ ...p, ...row, operator_name: row.operator_name_manual || p.operator_name })) : [p]);
 
-  const selectedSizeCount = useMemo(
-    () => sizeCountForSelection(form.size_range, sizeChoices),
-    [form.size_range, sizeChoices],
-  );
-
-  const sizeSelectOptions = useMemo(() => {
+  function sizeOptions(selection: string) {
     const choices = uniqueSizes(sizeChoices);
     const range = sizeRangeLabel(choices);
     const options: { value: string; label: string }[] = [];
@@ -370,7 +365,7 @@ export default function CuttingPassportsPage() {
       if (size !== range) options.push({ value: size, label: size });
     }
 
-    const current = cleanSize(form.size_range);
+    const current = cleanSize(selection);
     if (current && !options.some((option) => option.value === current)) {
       const count = sizeCountForSelection(current, choices);
       options.unshift({
@@ -380,7 +375,7 @@ export default function CuttingPassportsPage() {
     }
 
     return options;
-  }, [form.size_range, sizeChoices, t]);
+  }
 
   function openCreate() {
     orderRequest.current += 1;
@@ -396,7 +391,7 @@ export default function CuttingPassportsPage() {
   function openEdit(p: Passport) {
     const request = ++orderRequest.current;
     resetMaterialPicker();
-    setMaterialForms((p.materials || []).map((row) => ({ ...EMPTY_FORM, ...Object.fromEntries(Object.entries(row).map(([key, value]) => [key, value ?? ""])), stock_batch_id: row.stock_batch_id })));
+    setMaterialForms((p.materials || []).map((row) => ({ ...EMPTY_FORM, ...Object.fromEntries(Object.entries(row).map(([key, value]) => [key, value ?? ""])), stock_batch_id: row.stock_batch_id, size_range: row.size_range ?? p.size_range ?? "" })));
     setSizeChoices(expandSizeSelection(p.size_range));
     // A saved single-size layup is a selection, not the order's size catalogue.
     if (p.production_order_id) {
@@ -459,7 +454,7 @@ export default function CuttingPassportsPage() {
     }));
     setMaterialForms((current) => current.map((material) => ({
       ...EMPTY_FORM, stock_batch_id: material.stock_batch_id,
-      meter_mode: material.meter_mode,
+      meter_mode: material.meter_mode, size_range: material.size_range,
       fabric_type: material.fabric_type, lot_no: material.lot_no,
       fabric_width_m: material.fabric_width_m, gramage: material.gramage,
     })));
@@ -590,7 +585,7 @@ export default function CuttingPassportsPage() {
       ]);
       if (request !== orderRequest.current) return;
       setMaterialForms((defaults.materials || []).map((row) => ({
-        ...EMPTY_FORM, stock_batch_id: row.stock_batch_id, fabric_type: row.fabric_type || "", lot_no: row.lot_no || "",
+        ...EMPTY_FORM, stock_batch_id: row.stock_batch_id, size_range: defaults.size_range || "", fabric_type: row.fabric_type || "", lot_no: row.lot_no || "",
         pieces: row.pieces ?? "", planned_kg: row.planned_kg ?? "", fabric_width_m: row.fabric_width_m ?? "", gramage: row.gramage ?? "",
       })));
       const parts = model ? modelCodeParts(model) : null;
@@ -650,7 +645,7 @@ export default function CuttingPassportsPage() {
         const byBatch = new Map(current.map((row) => [row.stock_batch_id, row]));
         const assigned = (defaults.materials || []).map((row, index) => byBatch.get(row.stock_batch_id) || ({
           ...EMPTY_FORM, ...(current.length === 0 && index === 0 ? form : {}),
-          stock_batch_id: row.stock_batch_id, fabric_type: row.fabric_type || "", lot_no: row.lot_no || "",
+          stock_batch_id: row.stock_batch_id, size_range: form.size_range, fabric_type: row.fabric_type || "", lot_no: row.lot_no || "",
           planned_kg: current.length === 0 && index === 0 ? (form.planned_kg || row.planned_kg || "") : row.planned_kg ?? "",
           pieces: current.length === 0 && index === 0 ? form.pieces : row.pieces ?? "",
           fabric_width_m: current.length === 0 && index === 0 ? form.fabric_width_m : row.fabric_width_m ?? "", gramage: current.length === 0 && index === 0 ? form.gramage : row.gramage ?? "",
@@ -667,7 +662,7 @@ export default function CuttingPassportsPage() {
     if (!selectedMaterial || !Number.isFinite(amount) || amount <= 0) { setErr(t("passportMaterial.amountRequired")); return; }
     if (materialForms.some((row) => row.stock_batch_id === selectedMaterial.id)) { setErr(t("passportMaterial.duplicate")); return; }
     setMaterialForms((rows) => [...rows, {
-      ...EMPTY_FORM, stock_batch_id: selectedMaterial.id, fabric_type: selectedMaterial.item_name || "",
+      ...EMPTY_FORM, stock_batch_id: selectedMaterial.id, size_range: materialForms[0]?.size_range ?? form.size_range, fabric_type: selectedMaterial.item_name || "",
       lot_no: selectedMaterial.batch_no || selectedMaterial.internal_batch_no || "", pieces: form.pieces,
       planned_kg: amount, fabric_width_m: selectedMaterial.width ?? "", gramage: selectedMaterial.gsm ?? "",
     }]);
@@ -977,11 +972,13 @@ export default function CuttingPassportsPage() {
           )}
 
           {(materialForms.length ? materialForms : [{ ...form, stock_batch_id: 0 }]).map((material, index) => {
-            const f = materialForms.length ? { ...form, ...material, size_range: form.size_range } : form;
+            const f = materialForms.length ? { ...form, ...material } : form;
+            const selectedSizeCount = sizeCountForSelection(f.size_range, sizeChoices);
+            const sizeSelectOptions = sizeOptions(f.size_range);
             const calc = compute(f, selectedSizeCount);
             const sf = (key: keyof typeof EMPTY_FORM) => (e: React.ChangeEvent<any>) => {
               const value = e.target.type === "checkbox" ? e.target.checked : e.target.value;
-              if (!materialForms.length || key === "size_range") setForm((prev) => ({ ...prev, [key]: value }));
+              if (!materialForms.length) setForm((prev) => ({ ...prev, [key]: value }));
               else setMaterialForms((rows) => rows.map((row, i) => i === index ? { ...row, [key]: value } : row));
             };
             return <div key={material.stock_batch_id} className="space-y-4 border-t border-[#e3e0d5] pt-4">

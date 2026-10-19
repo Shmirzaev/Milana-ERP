@@ -82,6 +82,13 @@ def _compute(p: CuttingPassport, sizes: list[str] | None = None) -> dict:
     }
 
 
+def _material_values(passport, row):
+    values = dict(row)
+    if values.get("size_range") is None:
+        values["size_range"] = passport.size_range
+    return {**values, **_compute(SimpleNamespace(**values), passport_order_sizes(passport))}
+
+
 def _serialize(p: CuttingPassport, db=None, model_cache: dict | None = None, batch_map: dict | None = None) -> dict:
     po = p.production_order
     op = p.operator
@@ -140,10 +147,7 @@ def _serialize(p: CuttingPassport, db=None, model_cache: dict | None = None, bat
         "model_image_url": model_image_url,
         "operator_name": op.name if op else p.operator_name_manual,
     }
-    d["materials"] = [
-        {**row, **_compute(SimpleNamespace(**row, size_range=p.size_range), passport_order_sizes(p))}
-        for row in (p.materials or [])
-    ]
+    d["materials"] = [_material_values(p, row) for row in (p.materials or [])]
     d.update(_compute(p))
     return d
 
@@ -563,7 +567,7 @@ def _report_rows(query):
             )
         }]
         for row in materials:
-            row.update(_compute(SimpleNamespace(**row, size_range=p.size_range), passport_order_sizes(p)))
+            row.update(_material_values(p, row))
         yield p, materials, model_code or p.model_code
 
 
@@ -743,6 +747,9 @@ def _passport_values(db, payload: CuttingPassportIn, current, passport_id=None) 
             planned = {row.stock_batch_id for row in order.materials}
             if len(ids) != len(set(ids)) or set(ids) != planned:
                 raise HTTPException(400, "Passport materials must match the fabrics selected in planning")
+            for material in values["materials"]:
+                if material["size_range"] is None:
+                    material["size_range"] = payload.size_range
             values.update({key: value for key, value in values["materials"][0].items() if key != "stock_batch_id"})
         # A stale form must not overwrite the linked order's live reference.
         values["order_no"] = order.order_no

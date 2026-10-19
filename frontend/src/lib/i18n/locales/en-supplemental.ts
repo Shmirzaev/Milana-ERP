@@ -1,5 +1,8 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "employeeExport.download": "Download Excel",
+    "employeeExport.loading": "Downloading…",
+    "employeeExport.error": "Could not download the employee list. Please try again.",
   "passportReport.passports": "Passports",
   "passportReport.dashboard": "Dashboard",
   "passportReport.from": "From date",

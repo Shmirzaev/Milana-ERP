@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
-import { api, fetcher } from "@/lib/api";
+import { api, fetcher, fetchResponse } from "@/lib/api";
 import Modal from "@/components/Modal";
 import { HrHeader, LoadState, MetricGrid } from "@/components/hr/HrUi";
 import { useT } from "@/lib/i18n";
@@ -57,7 +57,7 @@ function toForm(employee?: Employee | null): FormState {
 }
 
 export default function EmployeesPage() {
-  const { t } = useT();
+  const { t, lang } = useT();
   const PAGE_SIZE = 50;
   const [page, setPage] = useState(1);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -81,6 +81,23 @@ export default function EmployeesPage() {
   const [section, setSection] = useState<keyof typeof PROFILE_FIELDS>("Personal");
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
+
+  async function downloadEmployees() {
+    if (exporting) return;
+    setExporting(true); setExportError("");
+    try {
+      const response = await fetchResponse(`/api/employees/export.xlsx?search=${encodeURIComponent(query)}&lang=${lang}`, { credentials: "include" });
+      if (!response.ok) throw new Error("Employee export failed");
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url; link.download = "employees.xlsx";
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch { setExportError(t("employeeExport.error")); }
+    finally { setExporting(false); }
+  }
 
   useEffect(() => {
     if (!data || data.page !== page || data.search !== query.trim()) return;
@@ -118,7 +135,8 @@ export default function EmployeesPage() {
   }
 
   return <div>
-    <HrHeader title="Employees" subtitle="Central employee database and complete digital personnel profiles." actions={<button className="btn btn-primary" onClick={() => open()}>Add employee</button>} />
+    <HrHeader title="Employees" subtitle="Central employee database and complete digital personnel profiles." actions={<><button className="btn" onClick={downloadEmployees} disabled={exporting}>{t(exporting ? "employeeExport.loading" : "employeeExport.download")}</button><button className="btn btn-primary" onClick={() => open()}>Add employee</button></>} />
+    {exportError && <p role="alert" className="mb-4 text-sm text-red-600">{exportError}</p>}
     <MetricGrid items={[{ label: "Total profiles", value: activePageData?.total ?? "—" }, { label: "Active", value: activePageData?.active_total ?? "—" }, { label: "Inactive / leave", value: activePageData?.inactive_total ?? "—" }, { label: "Profile coverage", value: activePageData?.profile_coverage_percent == null ? "—" : `${activePageData.profile_coverage_percent}%` }]} />
     <div className="card mb-4 p-4"><input className="input max-w-xl" placeholder="Search by employee ID, name or position" value={query} onChange={(event) => changeQuery(event.target.value)} /></div>
     <LoadState loading={isLoading || !activePageData} error={error} empty={!isLoading && Boolean(activePageData) && filtered.length === 0}>
