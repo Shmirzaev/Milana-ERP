@@ -4971,7 +4971,7 @@ def test_sewing_record_updates_selected_line_assignment_progress(client, auth_he
     assert assignment["completed_qty"] == 25
     assert assignment["status"] == "in_progress"
 
-    # Over-completion is capped at planned assignment quantity.
+    # Actual over-completion expands the assignment instead of dropping output credit.
     r = client.post(
         "/api/sewing/records",
         json={
@@ -4989,7 +4989,8 @@ def test_sewing_record_updates_selected_line_assignment_progress(client, auth_he
     r = client.get(f"/api/work-orders/{sewing_wo['id']}/assignments", headers=auth_headers)
     assert r.status_code == 200, r.text
     assignment = next(a for a in r.json() if a["id"] == assignment_id)
-    assert assignment["completed_qty"] == 40
+    assert assignment["completed_qty"] == 55
+    assert assignment["quantity"] == 55
     assert assignment["status"] == "completed"
 
 
@@ -5125,8 +5126,7 @@ def test_sewing_records_partial_output_by_size_and_tracks_remaining(client, auth
         },
         headers=auth_headers,
     )
-    assert r.status_code == 400, r.text
-    assert "exceeds remaining 30" in r.text
+    assert r.status_code == 201, r.text
 
     r = client.post(f"/api/work-orders/{sewing_wo['id']}/complete", headers=auth_headers)
     assert r.status_code == 200, r.text
@@ -5141,16 +5141,16 @@ def test_sewing_records_partial_output_by_size_and_tracks_remaining(client, auth
     assert len(payload["rows"]) == 1
     tracked = payload["rows"][0]
     assert int(tracked["planned_quantity"]) == 100
-    assert int(tracked["sewing_completed_quantity"]) == 40
+    assert int(tracked["sewing_completed_quantity"]) == 71
     assert int(tracked["sewing_unallocated_quantity"]) == 0
     tracked_sizes = {row["size"]: row for row in tracked["sizes"]}
-    assert int(tracked_sizes["M"]["sewing_completed_quantity"]) == 30
+    assert int(tracked_sizes["M"]["sewing_completed_quantity"]) == 61
     assert int(tracked_sizes["L"]["sewing_completed_quantity"]) == 10
     assert len(tracked["batches"]) == 1
-    assert int(tracked["batches"][0]["sewing_completed_quantity"]) == 40
+    assert int(tracked["batches"][0]["sewing_completed_quantity"]) == 71
     batch_sizes = {row["size"]: row for row in tracked["batches"][0]["sewing_sizes"]}
-    assert int(batch_sizes["M"]["completed_quantity"]) == 30
-    assert int(batch_sizes["M"]["sewing_completed_quantity"]) == 30
+    assert int(batch_sizes["M"]["completed_quantity"]) == 61
+    assert int(batch_sizes["M"]["sewing_completed_quantity"]) == 61
     assert int(batch_sizes["L"]["completed_quantity"]) == 10
 
 

@@ -119,7 +119,10 @@ def locked_record(db, rid, user, version):
 
 
 def apply(db, wo, row, user, payload=None):
-    from app.api.routes.production import _context_work_order, _validated_sewing_size_quantities
+    from app.api.routes.production import (
+        _context_work_order, _validated_sewing_size_quantities,
+        _revised_sewing_input_limit, _lift_sewing_output_plans,
+    )
     from app.schemas.production import SewingRecordIn
     old = snapshot(row)
     assignment, applied = assignment_for(db, wo, row)
@@ -135,7 +138,7 @@ def apply(db, wo, row, user, payload=None):
         SewingRecord.work_order_id == wo.id, SewingRecord.production_batch_id == row.production_batch_id).one()
     after_input = totals[0] - row.input_qty + new_input
     after_sewn = totals[1] - row.sewn_qty + new_sewn
-    if after_sewn > after_input:
+    if after_input < totals[0] and after_sewn > after_input:
         raise HTTPException(409, "sewingEdit.invalidQuantity")
     cut = _context_work_order(db, wo, "cutting")
     printing = _context_work_order(db, wo, "printing")
@@ -148,6 +151,8 @@ def apply(db, wo, row, user, payload=None):
                 model.production_batch_id == row.production_batch_id).scalar())
         printed = passed(PrintingRecord, PrintingRecord.passed_qty, printing)
         limit = printed if printed > 0 else passed(CuttingRecord, CuttingRecord.passed_pieces, cut)
+        if not printing or printing.status == "skipped":
+            limit = _revised_sewing_input_limit(db, wo, row.production_batch_id, limit)
         proposed_input = after_input
     else:
         limit = int((printing.passed_qty if printing and printing.passed_qty else cut.passed_qty if cut else 0) or 0)
@@ -156,8 +161,9 @@ def apply(db, wo, row, user, payload=None):
         raise HTTPException(409, "sewingEdit.upstreamLimit")
     if assignment:
         next_completed = assignment.completed_qty - applied + new_passed
-        if next_completed < 0 or next_completed > assignment.quantity:
+        if next_completed < 0:
             raise HTTPException(409, "sewingEdit.assignmentLimit")
+        assignment.quantity = max(assignment.quantity, next_completed)
         assignment.completed_qty = next_completed
         assignment.status = "completed" if next_completed == assignment.quantity else "in_progress" if next_completed else "planned"
         assignment.actual_end = datetime.now(timezone.utc) if assignment.status == "completed" else None
@@ -187,6 +193,7 @@ def apply(db, wo, row, user, payload=None):
         wo.status = "in_progress"
         wo.end_time = None
     db.flush()
+    _lift_sewing_output_plans(db, wo)
     advance_workflow(db, wo)
     log_action(db, user, "update" if payload else "delete", "SewingRecord", old["id"],
                old_value=old, new_value=snapshot(row) if payload else None)

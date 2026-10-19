@@ -599,6 +599,7 @@ export default {
     "page.sewingReport.reset": "Tozalash",
     "page.sewingReport.apply": "Hisobotni tuzish",
     "page.sewingReport.records": "Yozuvlar",
+    "page.sewingReport.totalProducts": "Ishlab chiqarilgan mahsulotlar",
     "page.sewingReport.totalQuantity": "Bajarilgan miqdor",
     "page.sewingReport.totalAmount": "Umumiy summa",
     "page.sewingReport.printTotals": "Hisobot jami",

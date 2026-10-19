@@ -37,6 +37,7 @@ from app.models import (
     SewingFlow,
     User,
     WorkOrder,
+    SewingRecord,
 )
 from app.schemas.payroll import (
     PayrollAdjustmentIn,
@@ -2294,6 +2295,46 @@ def _sewing_salary_summary(qry) -> list[dict]:
     return list(employees.values())
 
 
+def _sewing_report_product_quantity(qry, *, size: str | None = None) -> Decimal:
+    """Count produced batches once, never once per paid operation/employee.
+
+    Linked batches use saved Sewing output. Legacy/manual work without Sewing
+    records uses the largest operation subtotal per batch/model/size; split
+    labels and work shared by employees are summed before deduplication.
+    """
+    order = func.coalesce(cast(PayrollRecord.production_order_id, String), PayrollRecord.production_no, PayrollRecord.sales_order_no, "")
+    batch = func.coalesce(cast(PayrollRecord.production_batch_id, String), PayrollQrLabel.cutting_passport_no, PayrollRecord.batch_no, "")
+    model = func.coalesce(PayrollRecord.model_code, "")
+    size_key = func.coalesce(PayrollQrLabel.size, PayrollRecord.raw_work_json["size"].as_string(), "")
+    operation = func.coalesce(PayrollRecord.operation_code, PayrollRecord.operation_name, "")
+    rows = qry.with_entities(
+        PayrollRecord.production_order_id, PayrollRecord.production_batch_id,
+        order, batch, model, size_key, operation, func.sum(PayrollRecord.quantity),
+    ).group_by(PayrollRecord.production_order_id, PayrollRecord.production_batch_id,
+               order, batch, model, size_key, operation).all()
+    fallback = {}
+    linked = set()
+    for po_id, batch_id, order_ref, batch_ref, model_ref, label_size, _, quantity in rows:
+        key = (po_id, batch_id, order_ref, batch_ref, model_ref, label_size)
+        fallback[key] = max(fallback.get(key, Decimal(0)), quantity or Decimal(0))
+        if po_id is not None:
+            linked.add((po_id, batch_id))
+    actual = {}
+    if linked and not size:
+        record_batch = func.coalesce(SewingRecord.production_batch_id, WorkOrder.production_batch_id)
+        for po_id, batch_id, quantity in qry.session.query(
+            WorkOrder.production_order_id, record_batch, func.sum(SewingRecord.passed_qty),
+        ).join(SewingRecord, SewingRecord.work_order_id == WorkOrder.id).filter(
+            WorkOrder.production_order_id.in_({key[0] for key in linked}),
+            WorkOrder.operation == "sewing", WorkOrder.status != "cancelled",
+        ).group_by(WorkOrder.production_order_id, record_batch).all():
+            if (po_id, batch_id) in linked:
+                actual[(po_id, batch_id)] = Decimal(quantity or 0)
+    return sum(actual.values(), Decimal(0)) + sum(
+        (quantity for key, quantity in fallback.items() if key[:2] not in actual), Decimal(0),
+    )
+
+
 @router.get("/reports/sewing-production", response_model=SewingProductionReportOut)
 def sewing_production_report(
     db: DbSession,
@@ -2365,6 +2406,7 @@ def sewing_production_report(
         "offset": safe_offset,
         "limit": safe_limit,
         "total_quantity": aggregate[0],
+        "total_product_quantity": _sewing_report_product_quantity(qry, size=size),
         "total_amount": aggregate[1],
         "currency": report_currency,
         "options": _sewing_report_options(db, factory_code),

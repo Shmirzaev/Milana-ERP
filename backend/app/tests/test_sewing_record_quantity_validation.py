@@ -23,7 +23,6 @@ def _payload(**changes):
     "changes",
     [
         {"input_qty": -1},
-        {"sewn_qty": 101},
         {"passed_qty": 96, "failed_qty": 3, "rejected_qty": 2},
         {"passed_qty": -1},
         {"failed_qty": -1},
@@ -48,6 +47,12 @@ def test_valid_partial_output_with_rejections_is_conserved():
 
     assert record.sewn_qty == 60
     assert record.passed_qty + record.failed_qty + record.rejected_qty == 60
+
+
+def test_actual_output_can_exceed_the_original_cutting_input():
+    record = SewingRecordIn(**_payload(input_qty=100, sewn_qty=106, passed_qty=101, failed_qty=3, rejected_qty=2))
+    assert record.input_qty == 100
+    assert record.passed_qty + record.failed_qty + record.rejected_qty == 106
 
 
 def test_failed_pieces_can_be_separate_from_sewn_pieces():

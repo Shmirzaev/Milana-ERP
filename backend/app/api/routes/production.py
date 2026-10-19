@@ -2278,8 +2278,8 @@ def update_cutting_batch(
 
     from app.services.factory_scope import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
-    department_code = db.query(Department.code).filter(Department.id == wo.department_id).scalar()
-    if str(department_code or "").upper() != "ECT":
+    source_type = db.query(ProductionOrder.source_type).filter(ProductionOrder.id == wo.production_order_id).scalar()
+    if source_type != "usluga":
         return _update_standard_cutting_batch(db, current, wo, batch_id, payload)
 
     po = (
@@ -5107,6 +5107,43 @@ def get_printing(rid: int, db: DbSession, _: User = Depends(require_permissions(
 
 
 # ===== Sewing =====
+def _revised_sewing_input_limit(db: DbSession, wo: WorkOrder, batch_id: int, cutting_passed: int) -> int:
+    """A confirmed standard Nastil uses Cutting's explicitly revised count.
+
+    An unconfirmed passport/plan grants no input. Usluga approval and Printing
+    evidence remain separate gates; neither is replaced by a standard plan.
+    """
+    if cutting_passed <= 0:
+        return 0
+    from app.models import AuditLog
+    revised_count = db.query(AuditLog.id).filter(
+        AuditLog.entity_type == "ProductionBatch", AuditLog.entity_id == batch_id,
+        AuditLog.action == "update_cutting_batch",
+        AuditLog.new_value_json["planned_quantity"].as_integer() == ProductionBatch.planned_quantity,
+        AuditLog.old_value_json["planned_quantity"].as_integer() != AuditLog.new_value_json["planned_quantity"].as_integer(),
+    ).exists()
+    revised = db.query(ProductionBatch.planned_quantity).join(
+        ProductionOrder, ProductionOrder.id == ProductionBatch.production_order_id,
+    ).filter(
+        ProductionBatch.id == batch_id,
+        ProductionBatch.production_order_id == wo.production_order_id,
+        ProductionOrder.source_type == "standard",
+        revised_count,
+    ).scalar()
+    return max(cutting_passed, int(revised or 0))
+
+
+def _lift_sewing_output_plans(db: DbSession, wo: WorkOrder) -> None:
+    if wo.passed_qty <= int(wo.planned_output_qty or 0):
+        return
+    wo.planned_output_qty = wo.passed_qty
+    for operation in ("packaging", "storage_transfer"):
+        downstream = _context_work_order(db, wo, operation)
+        if downstream:
+            downstream.planned_input_qty = max(int(downstream.planned_input_qty or 0), wo.passed_qty)
+            downstream.planned_output_qty = max(int(downstream.planned_output_qty or 0), wo.passed_qty)
+
+
 def _validated_sewing_size_quantities(
     db: DbSession,
     wo: WorkOrder,
@@ -5138,11 +5175,6 @@ def _validated_sewing_size_quantities(
         raise HTTPException(400, "Sewing size quantities must equal the passed output quantity")
 
     progress = _sewing_size_progress_payload(db, wo, production_batch_id)
-    if size_total > int(progress["remaining_quantity"] or 0):
-        raise HTTPException(
-            400,
-            f"Sewing size output {size_total} exceeds total remaining {progress['remaining_quantity']}",
-        )
     planned_by_size = {
         _sewing_size_key(str(row["size"])): row
         for row in progress["items"]
@@ -5153,12 +5185,6 @@ def _validated_sewing_size_quantities(
             raise HTTPException(400, f"Unknown sewing size(s): {', '.join(unknown_sizes)}")
         for key, row in submitted.items():
             plan_row = planned_by_size[key]
-            remaining = max(0, int(plan_row["remaining_quantity"] or 0))
-            if int(row["quantity"]) > remaining:
-                raise HTTPException(
-                    400,
-                    f"Sewing size {plan_row['size']} quantity {row['quantity']} exceeds remaining {remaining}",
-                )
             row["size"] = str(plan_row["size"])
 
     return list(submitted.values())
@@ -5246,6 +5272,8 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
                 or 0
             )
         upstream_passed = printing_passed if printing_passed > 0 else cutting_passed
+        if not prt_wo or prt_wo.status == "skipped":
+            upstream_passed = _revised_sewing_input_limit(db, wo, batch_id, cutting_passed)
         current_input = int(
             db.query(func.coalesce(func.sum(SewingRecord.input_qty), 0))
             .filter(
@@ -5283,6 +5311,7 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
     wo.rework_qty += payload.rework_qty
     consumed_total = int(payload.passed_qty or 0) + int(payload.failed_qty or 0) + int(payload.rejected_qty or 0)
     if assignment and consumed_total > 0:
+        assignment.quantity = max(int(assignment.quantity or 0), int(assignment.completed_qty or 0) + consumed_total)
         remaining = max(0, int(assignment.quantity or 0) - int(assignment.completed_qty or 0))
         consumed = min(remaining, consumed_total)
         rec.assignment_applied_qty = consumed
@@ -5312,6 +5341,9 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
         created_by=current.id,
     )
     packaging_department_code = sync_packaging_department_for_bundle_route(db, wo.production_order_id, batch_id)
+    # Actual Sewing output can exceed Cutting's count. Keep downstream plans
+    # large enough while the Packaging input gate still uses passed records.
+    _lift_sewing_output_plans(db, wo)
     advance_workflow(db, wo, trigger_output_qty=int(payload.passed_qty or 0))
     if int(payload.passed_qty or 0) > 0:
         pkg_wo = _context_work_order(db, wo, "packaging")
@@ -5331,6 +5363,9 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
         rec.id,
         new_value={
             "work_order_id": wo.id,
+            "production_batch_id": batch_id,
+            "input_qty": rec.input_qty,
+            "passed_qty": rec.passed_qty,
             "size_quantities": size_quantities,
         },
     )

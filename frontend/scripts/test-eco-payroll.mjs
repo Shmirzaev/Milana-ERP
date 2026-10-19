@@ -47,7 +47,7 @@ const program = ts.transpileModule(`${sectionDecl.getText(ast)}\n${visibleDecl.g
   compilerOptions: { target: ts.ScriptTarget.ES2020 },
 }).outputText;
 const icons = Object.fromEntries([...source.matchAll(/icon: (\w+)/g)].map(m => [m[1], () => null]));
-const expected = ["/payroll", "/payroll/reports/sewing-production", "/payroll/reports/order-qr-status", "/process-qr", "/payroll/scan", "/payroll/qr-control"];
+const expected = ["/payroll", "/payroll/reports/sewing-production", "/payroll/reports/order-qr-status", "/process-qr", "/payroll/scan", "/payroll/qr-control", "/payroll/employees"];
 function links(factory, permissions) {
   const me = { factory_code: factory, permissions };
   const sections = JSON.parse(vm.runInNewContext(program, {
@@ -65,6 +65,11 @@ assert.deepEqual(links("BST", ["payroll.scan"]), ["/process-qr", "/payroll/scan"
 assert.equal(access.factoryWorkspaceHome({ factory_code: "BST", permissions: ["payroll.scan"] }), "/payroll/scan");
 assert.deepEqual(links("ECO", ["cutting.records"]), []);
 assert.deepEqual(links("ECO", ["payroll.scan"]), ["/process-qr", "/payroll/scan"]);
+
+for (const factory of ["MIL", "BST", "ECO"]) {
+  assert(links(factory, ["payroll.manage"]).includes("/payroll/employees"));
+  assert(!links(factory, ["payroll.view"]).includes("/payroll/employees"));
+}
 
 const runtime = await import("react/jsx-runtime");
 const gateCode = ts.transpileModule(fs.readFileSync("src/components/AuthGate.tsx", "utf8"), {

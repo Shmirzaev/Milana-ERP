@@ -412,7 +412,7 @@ export default function SewingProductionReportPage() {
         </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-3 no-print">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 no-print">
         <div className="kpi-card">
           <div className="label">{t("page.sewingReport.records")}</div>
           <div className="text-2xl font-semibold tabular-nums">{Number(data?.total || 0).toLocaleString(lang)}</div>
@@ -428,6 +428,10 @@ export default function SewingProductionReportPage() {
               ? t("page.sewingReport.separateCurrencies")
               : <>{Number(data?.total_amount || 0).toLocaleString(lang, { maximumFractionDigits: 2 })} {data?.currency || "UZS"}</>}
           </div>
+        </div>
+        <div className="kpi-card">
+          <div className="label">{t("page.sewingReport.totalProducts")}</div>
+          <div className="text-2xl font-semibold tabular-nums">{Number(data?.total_product_quantity || 0).toLocaleString(lang)}</div>
         </div>
       </div>
 

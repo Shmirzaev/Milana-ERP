@@ -1649,8 +1649,8 @@ export default function PlanningDashboard() {
                     cutting_department_code: e.target.value as CuttingDepartmentCode,
                   }))}
                 >
-                  <option value="CUT">{t("nav.cuttingFloor")}</option>
-                  <option value="ECT">{t("nav.ecoCottonCutting")}</option>
+                  <option value="CUT">{t("factory.milana")}</option>
+                  <option value="ECT">{t("factory.ecoCotton")}</option>
                 </select>
               </div>
               <div>

@@ -599,6 +599,7 @@ export default {
     "page.sewingReport.reset": "Сбросить",
     "page.sewingReport.apply": "Сформировать отчёт",
     "page.sewingReport.records": "Записи",
+    "page.sewingReport.totalProducts": "Произведено изделий",
     "page.sewingReport.totalQuantity": "Выполненное количество",
     "page.sewingReport.totalAmount": "Общая сумма",
     "page.sewingReport.printTotals": "Итоги отчёта",

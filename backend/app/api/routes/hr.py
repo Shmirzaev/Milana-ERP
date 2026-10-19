@@ -258,7 +258,7 @@ def _ensure_employee_no_available(
 
 def _can_view_private_employee_fields(user: User) -> bool:
     perms = user_permissions(user)
-    return "*" in perms or "hr.employees" in perms
+    return bool({"*", "hr.employees", "payroll.manage"}.intersection(perms))
 
 
 def _serialize(r: Employee, *, include_private: bool = False) -> dict:
@@ -447,7 +447,7 @@ def get_employee(eid: int, db: DbSession, current: CurrentUser):
 
 
 @router.post("/employees", status_code=201)
-def create_employee(payload: EmployeeIn, db: DbSession, current: User = Depends(require_permissions("hr.employees", "*"))):
+def create_employee(payload: EmployeeIn, db: DbSession, current: User = Depends(require_permissions("hr.employees", "payroll.manage", "*"))):
     factory_code = selected_factory_code(current)
     _validate_employee_references(
         db, factory_code, payload.user_id, payload.department_id,
@@ -478,7 +478,7 @@ def create_employee(payload: EmployeeIn, db: DbSession, current: User = Depends(
 
 
 @router.patch("/employees/{eid}")
-def update_employee(eid: int, payload: EmployeeUpdate, db: DbSession, current: User = Depends(require_permissions("hr.employees", "*"))):
+def update_employee(eid: int, payload: EmployeeUpdate, db: DbSession, current: User = Depends(require_permissions("hr.employees", "payroll.manage", "*"))):
     factory_code = selected_factory_code(current)
     e = db.query(Employee).filter(Employee.id == eid, Employee.factory_code == factory_code).first()
     if not e: raise HTTPException(404, "Employee not found")

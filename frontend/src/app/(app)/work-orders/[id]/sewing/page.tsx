@@ -177,7 +177,7 @@ function FactorySewingPage() {
         work_order_id: id,
         ...f,
         input_qty: numberOrZero(f.input_qty),
-        sewn_qty: outputQty,
+        sewn_qty: outputQty + failedQty,
         failed_qty: failedQty,
         rework_qty: 0,
         rejected_qty: 0,

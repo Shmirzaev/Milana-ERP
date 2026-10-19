@@ -408,6 +408,7 @@ class SewingProductionReportOut(BaseModel):
     offset: int
     limit: int
     total_quantity: Decimal
+    total_product_quantity: Decimal
     total_amount: Decimal
     currency: str
     options: SewingProductionReportOptions

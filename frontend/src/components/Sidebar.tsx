@@ -239,6 +239,7 @@ const SECTIONS: Section[] = [
       { href: "/process-qr", labelKey: "nav.processQr", perms: ["payroll.scan", "*"], icon: QrCode },
       { href: "/payroll/scan", labelKey: "nav.payrollScan", perms: ["payroll.scan", "*"], icon: Calculator },
       { href: "/payroll/qr-control", labelKey: "nav.payrollQrControl", perms: ["payroll.view", "payroll.manage", "*"], icon: FileSearch },
+      { href: "/payroll/employees", labelKey: "nav.employees", perms: ["payroll.manage"], icon: Users },
     ],
   },
   {

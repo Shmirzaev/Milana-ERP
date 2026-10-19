@@ -58,6 +58,7 @@ export type SewingProductionReportResponse = {
   offset: number;
   limit: number;
   total_quantity: number | string;
+  total_product_quantity?: number | string;
   total_amount: number | string;
   currency: string;
   options: SewingProductionReportOptions;

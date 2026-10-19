@@ -599,6 +599,7 @@ export default {
     "page.sewingReport.reset": "Reset",
     "page.sewingReport.apply": "Build report",
     "page.sewingReport.records": "Records",
+    "page.sewingReport.totalProducts": "Products produced",
     "page.sewingReport.totalQuantity": "Completed quantity",
     "page.sewingReport.totalAmount": "Total amount",
     "page.sewingReport.printTotals": "Report totals",
