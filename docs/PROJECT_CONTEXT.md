@@ -1,6 +1,14 @@
 # Milana ERP Project Context
 
-Last updated: 2026-10-17
+Last updated: 2026-10-19
+
+## Employee cleanup, report team, warehouse identity and branded Excel prepared (2026-10-19)
+
+- Owner requested `clone_main` as base and publication target, deployment, and no 30-minute observation. Both full production source manifests and slot states matched blue `20261017_102057`, rollback green `20261017_081043`, before work. Dedicated worktree `C:/ERP/.codex-work/employee-reports-orders-20261019`, branch `codex/employee-reports-orders-20261019`; legacy checkout and main are preserved.
+- Read-only review found 1,591 employees, 160 Cyrillic names, 332 Latin/capitalization/punctuation corrections and six identical-name pairs within factories. Owner explicitly authorized merging all identical full names within each factory despite different employee numbers. A reviewed private plan preserves distinct spellings, reassigns every employee foreign key, retains payroll amounts/snapshots and old badge aliases, and audits each correction. No production data has yet changed. The plan and private source evidence remain in ignored outputs, not Git.
+- Existing MIL packaging/pressing master Aliyeva Mushtariy has 34 direct reports. An HR profile flag adds her manager/team choice only to the payroll production report filter, with the same factory authorization and shared scan/salary/Excel query. No Sewing flow or operational assignment is created. Badge alias resolution preserves old numeric employee QR and employee-number lookups; merged numbers cannot be reassigned to another employee.
+- Receive by order adds the saved business model and variant numbers, preserving package scope, receipt actions and quantities. Each branded planning order gains an Excel download matching the supplied 19-column Uzbek form, with embedded model/material pictures, saved sizes, quantities, materials, work departments and notes. Additional sheets retain size allocations, materials and stored model/order/print-file details. Unknown fields stay blank, user text is literal, external image URLs are not fetched and WebP uploads are converted to Excel-compatible PNG.
+- Validation so far: 18 focused report/alias/merge/export/warehouse handoff tests passed; full Ruff, frontend lint (nine inherited warnings), strict TypeScript, build contracts and optimized build passed. A read-only export of live order 0057 was rendered and inspected. Full backend/release CI and candidate/live browser and deployment gates remain pending. Database remains `0147_passport_tepa_pass`; no schema migration is required. Existing unrelated audit/security risks remain outside scope.
 
 ## XD model prefix deployed (2026-10-17)
 

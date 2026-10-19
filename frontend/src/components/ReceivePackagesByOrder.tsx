@@ -9,7 +9,7 @@ import { can, useMe } from "@/lib/auth";
 import { warehousePackageText } from "@/lib/warehousePackageText";
 import { packageReturnText } from "@/lib/packageReturnText";
 
-type Order = { id: number; production_no: string; sales_order_no?: string; package_ids: number[]; count: number; quantity: number };
+type Order = { id: number; production_no: string; sales_order_no?: string; model_no?: string; variant_no?: string; model_name?: string; package_ids: number[]; count: number; quantity: number };
 export default function ReceivePackagesByOrder() {
   const { me } = useMe(); const { lang, t } = useT(); const c = warehousePackageText[lang]; const p = packageReturnText[lang];
   const dialogs = useDialogs(); const [open, setOpen] = useState(false); const [query, setQuery] = useState("");
@@ -35,7 +35,7 @@ export default function ReceivePackagesByOrder() {
       {(message || error) && <p role="status">{message || error.message}</p>}
       {!data && !error && <p>{p.loading}</p>}{data?.rows.length === 0 && <p>{p.empty}</p>}
       <div className="divide-y">{data?.rows.map(row => <div key={row.id} className="py-3 flex flex-wrap items-center justify-between gap-3">
-        <div><p>{row.production_no}{row.sales_order_no ? ` · ${row.sales_order_no}` : ""}</p><p className="text-sm">{row.count} {p.packages} · {row.quantity} {p.pieces}</p>{row.count > 500 && <p>{c.tooMany}</p>}</div>
+        <div><p>{row.production_no}{row.sales_order_no ? ` · ${row.sales_order_no}` : ""}</p><p className="text-sm">{t("field.model")}: {row.model_no || row.model_name || "—"} · {t("field.variantNo")}: {row.variant_no || "—"}</p><p className="text-sm">{row.count} {p.packages} · {row.quantity} {p.pieces}</p>{row.count > 500 && <p>{c.tooMany}</p>}</div>
         <button className="btn btn-primary" type="button" disabled={busy || row.count > 500} onClick={() => void receive(row)}>{c.receive}</button>
       </div>)}</div>
       <div className="mt-4 flex justify-between"><button className="btn" disabled={busy || page === 1} onClick={() => setPage(value => value - 1)}>{t("common.previous")}</button><span>{page}</span><button className="btn" disabled={busy || !data?.has_more} onClick={() => setPage(value => value + 1)}>{p.more}</button></div>

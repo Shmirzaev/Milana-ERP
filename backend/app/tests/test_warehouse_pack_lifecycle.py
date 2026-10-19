@@ -87,6 +87,12 @@ def test_receive_by_order_and_delete_one_pack(client, auth_headers, warehouse, p
     assert options.status_code == 200, options.text
     row = options.json()["rows"][0]
     assert row["package_ids"] == ids
+    from app.models import Model, ProductionOrder
+    from app.services.model_identity import model_number_fields
+    with SessionLocal() as db:
+        model = db.get(Model, db.get(ProductionOrder, row["id"]).model_id)
+        assert row["model_no"] == model_number_fields(model)["model_no"]
+        assert row["variant_no"] == model_number_fields(model)["variant_no"]
     before = stock_fingerprint()
     url = f'/api/packages/receive-order/{row["id"]}'
     assert client.post(url, headers=warehouse, json={"package_ids": ids[:1]}).status_code == 409

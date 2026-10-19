@@ -3,7 +3,8 @@ import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ChevronDown, Plus, Search } from "lucide-react";
+import { ChevronDown, Download, Plus, Search } from "lucide-react";
+import { fetchResponse } from "@/lib/api";
 import ImageThumbnail from "@/components/ImageThumbnail";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
@@ -64,6 +65,22 @@ export default function BrandedOrderHistory({
   const { t } = useT();
   const [searchText, setSearchText] = useState("");
   const [query, setQuery] = useState("");
+  const [exporting, setExporting] = useState<number | null>(null);
+  const [exportError, setExportError] = useState("");
+  async function exportOrder(order: BrandedPlanningOrder) {
+    if (exporting !== null) return;
+    setExporting(order.id); setExportError("");
+    try {
+      const response = await fetchResponse(`/api/planning/branded-orders/${order.id}/export.xlsx`, { credentials: "same-origin" });
+      if (!response.ok) throw new Error(t("page.sewingReport.exportFailed"));
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url; link.download = `${order.order_no.replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`;
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (caught) { setExportError(caught instanceof Error ? caught.message : String(caught)); }
+    finally { setExporting(null); }
+  }
   const modelById = useMemo(() => new Map(models.map((model) => [Number(model.id), model])), [models]);
   const normalizedQuery = normalizeModelSearch(query);
   const filteredOrders = useMemo(() => {
@@ -111,6 +128,7 @@ export default function BrandedOrderHistory({
       </div>
 
       {error ? <div className="border-b border-[#ecebe3] px-5 py-3 text-sm text-red-700">{error}</div> : null}
+      {exportError && <p role="alert" className="px-5 py-3 text-red-700">{exportError}</p>}
 
       <form onSubmit={submitSearch} className="flex flex-col gap-2 border-b border-[#ecebe3] px-5 py-3 sm:flex-row">
         <label className="relative min-w-0 flex-1">
@@ -226,7 +244,10 @@ export default function BrandedOrderHistory({
                   <div className="text-sm text-[#8a8472]">{t("page.planning.noProductions")}</div>
                 )}
 
-                <div className="mt-4 flex justify-end">
+                <div className="mt-4 flex justify-end gap-2">
+                  <button type="button" className="btn" disabled={exporting !== null} onClick={() => void exportOrder(order)}>
+                    <Download />{exporting === order.id ? t("common.loading") : "Excel"}
+                  </button>
                   <button type="button" className="btn" onClick={() => onAddProduction(order.id)}>
                     <Plus />
                     {t("page.planning.addProductionToThisOrder")}

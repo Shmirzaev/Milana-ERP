@@ -34,8 +34,9 @@ class ReceiveOrderPackagesIn(BaseModel):
 def receiving_orders(db: DbSession, q: str = "", page: int = Query(1, ge=1),
                      current: User = Depends(require_permissions("storage.packages", "*"))):
     from sqlalchemy import func, or_
-    from app.models import SalesOrder
-    query = db.query(ProductionOrder.id, ProductionOrder.production_no, SalesOrder.order_no).join(
+    from app.models import SalesOrder, Model
+    from app.services.model_identity import model_number_fields
+    query = db.query(ProductionOrder.id, ProductionOrder.production_no, SalesOrder.order_no, ProductionOrder.model_id).join(
         Package, Package.production_order_id == ProductionOrder.id).outerjoin(
         SalesOrder, SalesOrder.id == ProductionOrder.sales_order_id).filter(
         Package.status == "packed", ProductionOrder.source_type != "usluga")
@@ -56,9 +57,12 @@ def receiving_orders(db: DbSession, q: str = "", page: int = Query(1, ge=1),
     ranked = ranked.subquery()
     package_rows = db.query(ranked).filter(ranked.c.position <= 501).order_by(ranked.c.id).all()
     rows = []
-    for oid, number, sales_number in orders[:20]:
+    models = {model.id: model for model in db.query(Model).filter(Model.id.in_([order.model_id for order in orders[:20]])).all()}
+    for oid, number, sales_number, model_id in orders[:20]:
         packs = [p for p in package_rows if p.production_order_id == oid]
+        model = models.get(model_id)
         rows.append({"id": oid, "production_no": number, "sales_order_no": sales_number,
+                     **model_number_fields(model), "model_name": model.name if model else None,
                      "package_ids": [p.id for p in packs], "count": packs[0].count if packs else 0,
                      "quantity": packs[0].quantity if packs else 0})
     return {"rows": rows, "has_more": len(orders) > 20}

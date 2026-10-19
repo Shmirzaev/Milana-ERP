@@ -80,6 +80,7 @@ from app.services.factory_scope import require_factory_access, selected_factory_
 from app.services.paid_operations import filter_operation_rows, paid_operations_from_details
 from app.services.payroll_factory_scope import production_order_factory_condition, require_production_order_factory, require_work_order_factory
 from app.services.payroll_reports import ReportLanguage, build_sewing_production_report_xlsx, build_sewing_salary_summary_xlsx, salary_report_days
+from app.services.employee_aliases import merged_employee
 
 router = APIRouter(prefix="/payroll", tags=["payroll"])
 
@@ -758,7 +759,10 @@ def _validate_and_enrich_record(
         ).first()
     )
     if not employee:
+        employee = merged_employee(db, factory_code, employee_id=employee_id)
+    if not employee:
         raise HTTPException(404, "Employee not found")
+    data["employee_id"] = employee.id
     if not data.get("employee_user_id") and employee.user_id:
         data["employee_user_id"] = employee.user_id
     if data.get("employee_user_id"):
@@ -1136,6 +1140,10 @@ def _create_record_from_payload(
             ).first()
         )
         if existing:
+            if data.get("employee_id") and int(existing.employee_id) != int(data["employee_id"]):
+                alias = merged_employee(db, factory_code, employee_id=data["employee_id"])
+                if alias:
+                    data["employee_id"] = alias.id
             if data.get("employee_id") and int(existing.employee_id) != int(data["employee_id"]):
                 raise HTTPException(
                     409,
@@ -1950,6 +1958,15 @@ def _sewing_report_options(db: DbSession, factory_code: str) -> dict[str, list[d
     if factory_code:
         configured_line_qry = configured_line_qry.filter(SewingFlow.factory_code == factory_code)
     configured_lines = configured_line_qry.order_by(SewingFlow.code.asc(), SewingFlow.name.asc()).all()
+    # HR teams can be report filters without creating operational Sewing flows.
+    report_managers = db.query(Employee).filter(
+        Employee.factory_code == factory_code, Employee.status == "active",
+    ).all()
+    report_groups = [
+        {"value": f"manager:{manager.id}", "label": f"{manager.full_name} | {factory_code}"}
+        for manager in report_managers
+        if (manager.hr_profile_json or {}).get("payroll_report_group") is True
+    ]
 
     model_qry = (
         db.query(PayrollRecord.model_code, Model.name, Model.product_type)
@@ -2105,7 +2122,7 @@ def _sewing_report_options(db: DbSession, factory_code: str) -> dict[str, list[d
             }
             for code, name, factory_code in configured_lines
             if code or name
-        ]),
+        ] + report_groups),
         "models": unique_options([
             {"value": str(code), "label": make_label(code, name, product_type)}
             for code, name, product_type in [*models, *production_models]
@@ -2179,7 +2196,16 @@ def _filtered_sewing_production_report_query(
         qry = qry.filter(normalized_model_code_column(PayrollRecord.model_code).ilike(normalized_model_code_pattern(model_code)))
     if sewing_flow_id:
         qry = qry.filter(PayrollQrLabel.sewing_flow_id == sewing_flow_id)
-    if sewing_line and sewing_line.strip():
+    if sewing_line and sewing_line.strip().startswith("manager:"):
+        try:
+            manager_id = int(sewing_line.strip().removeprefix("manager:"))
+        except ValueError:
+            raise HTTPException(400, "Invalid report group") from None
+        manager = db.query(Employee).filter(Employee.id == manager_id, Employee.factory_code == factory_code).first()
+        if not manager or (manager.hr_profile_json or {}).get("payroll_report_group") is not True:
+            raise HTTPException(404, "Report group not found")
+        qry = qry.filter(Employee.factory_code == factory_code, or_(Employee.id == manager_id, Employee.manager_employee_id == manager_id))
+    elif sewing_line and sewing_line.strip():
         pattern = f"%{sewing_line.strip()}%"
         qry = qry.filter(or_(
             PayrollQrLabel.sewing_line_code.ilike(pattern),
@@ -2707,6 +2733,10 @@ def resolve_employee_number(
             Employee.factory_code == selected_factory_code(current),
         ).first()
     if not employee:
+        employee = merged_employee(db, selected_factory_code(current), employee_no=normalized)
+    if not employee and normalized.upper().startswith("EMP-") and normalized[4:].isdigit():
+        employee = merged_employee(db, selected_factory_code(current), employee_id=int(normalized[4:]))
+    if not employee:
         raise HTTPException(404, "Payroll employee number was not found")
     return _employee_scan_payload(
         employee,
@@ -2946,6 +2976,8 @@ def record_numeric_work_scan(
         Employee.factory_code == factory_code,
     ).first()
     if not employee:
+        employee = merged_employee(db, factory_code, employee_id=payload.employee_id)
+    if not employee:
         raise HTTPException(404, "Employee not found")
 
     work_payload = jsonable_encoder(_qr_label_scan_payload(label))
@@ -3000,6 +3032,8 @@ def resolve_qr_token(
             Employee.id == record_id,
             Employee.factory_code == factory_code,
         ).first()
+        if not employee:
+            employee = merged_employee(db, factory_code, employee_id=record_id)
         if not employee:
             raise HTTPException(404, "Payroll employee QR was not found")
         return _employee_scan_payload(

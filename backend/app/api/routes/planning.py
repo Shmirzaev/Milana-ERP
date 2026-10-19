@@ -22,6 +22,19 @@ from app.services.numbering import next_branded_planning_order_no
 
 router = APIRouter(prefix="/planning", tags=["planning"])
 
+
+@router.get("/branded-orders/{order_id}/export.xlsx")
+def export_branded_order(order_id: int, db: DbSession,
+                         _: User = Depends(require_permissions("planning.production", "*"))):
+    from fastapi.responses import Response
+    from app.services.branded_order_export import build_branded_order_workbook
+    order = db.get(BrandedPlanningOrder, order_id)
+    if not order:
+        raise HTTPException(404, "Branded order not found")
+    return Response(build_branded_order_workbook(db, order),
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="branded-order-{order.id}.xlsx"'})
+
 BRANDED_ORDER_PARTIES = {
     "milana": "Milana",
     "eco_cotton": "Eco Cotton",

@@ -250,6 +250,10 @@ def _ensure_employee_no_available(
         qry = qry.filter(Employee.id != exclude_id)
     if qry.first():
         raise HTTPException(409, "Employee number already exists in this factory")
+    from app.services.employee_aliases import merged_employee
+    alias = merged_employee(db, factory_code, employee_no=employee_no)
+    if alias and alias.id != exclude_id:
+        raise HTTPException(409, "Employee number is retained for a merged employee in this factory")
 
 
 def _can_view_private_employee_fields(user: User) -> bool:
