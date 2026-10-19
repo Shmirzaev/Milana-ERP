@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
+import pytest
+
 from app.models import Employee, PayrollRecord, SewingRecord
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_payroll import _create_user_with_permissions
@@ -68,3 +70,23 @@ def test_manual_batches_sum_split_work_then_deduplicate_operations(client, auth_
     response = client.get(f"/api/payroll/reports/sewing-production?employee_id={eid}&limit=1", headers=auth_headers)
     assert response.status_code == 200, response.text
     assert float(response.json()["total_product_quantity"]) == 1200
+
+
+@pytest.mark.parametrize("currencies,expected", [([], "UZS"), (["UZS", "UZS"], "UZS"),
+                                                (["USD", "UZS"], "MIXED"), (["", "UZS"], "UZS")])
+def test_report_aggregate_preserves_counts_amounts_and_currency(client, auth_headers, currencies, expected):
+    with TestSessionLocal() as db:
+        employee = Employee(full_name="Currency report team", factory_code="MIL")
+        db.add(employee); db.flush(); eid = employee.id
+        for currency in currencies:
+            db.add(PayrollRecord(factory_code="MIL", employee_id=eid, dedupe_key=uuid4().hex,
+                                quantity=10, rate_per_piece=2, total_amount=20, currency=currency,
+                                scanned_at=datetime.now(timezone.utc)))
+        db.commit()
+    response = client.get(f"/api/payroll/reports/sewing-production?employee_id={eid}&limit=1", headers=auth_headers)
+    assert response.status_code == 200, response.text
+    report = response.json()
+    assert report["total"] == len(currencies)
+    assert float(report["total_quantity"]) == len(currencies) * 10
+    assert float(report["total_amount"]) == len(currencies) * 20
+    assert report["currency"] == expected

@@ -2307,14 +2307,21 @@ def _sewing_report_product_quantity(qry, *, size: str | None = None) -> Decimal:
     model = func.coalesce(PayrollRecord.model_code, "")
     size_key = func.coalesce(PayrollQrLabel.size, PayrollRecord.raw_work_json["size"].as_string(), "")
     operation = func.coalesce(PayrollRecord.operation_code, PayrollRecord.operation_name, "")
-    rows = qry.with_entities(
-        PayrollRecord.production_order_id, PayrollRecord.production_batch_id,
-        order, batch, model, size_key, operation, func.sum(PayrollRecord.quantity),
+    operation_totals = qry.with_entities(
+        PayrollRecord.production_order_id.label("po_id"), PayrollRecord.production_batch_id.label("batch_id"),
+        order.label("order_ref"), batch.label("batch_ref"), model.label("model_ref"),
+        size_key.label("size_ref"), operation.label("operation_ref"), func.sum(PayrollRecord.quantity).label("quantity"),
     ).group_by(PayrollRecord.production_order_id, PayrollRecord.production_batch_id,
-               order, batch, model, size_key, operation).all()
+               order, batch, model, size_key, operation).subquery()
+    # Collapse operations in SQL: a report can contain tens of thousands of paid
+    # operations but only hundreds of physical batches. Avoid materializing every
+    # operation in Python just to retain the largest subtotal for each batch.
+    physical_keys = [operation_totals.c[name] for name in
+                     ("po_id", "batch_id", "order_ref", "batch_ref", "model_ref", "size_ref")]
+    rows = qry.session.query(*physical_keys, func.max(operation_totals.c.quantity)).group_by(*physical_keys).all()
     fallback = {}
     linked = set()
-    for po_id, batch_id, order_ref, batch_ref, model_ref, label_size, _, quantity in rows:
+    for po_id, batch_id, order_ref, batch_ref, model_ref, label_size, quantity in rows:
         key = (po_id, batch_id, order_ref, batch_ref, model_ref, label_size)
         fallback[key] = max(fallback.get(key, Decimal(0)), quantity or Decimal(0))
         if po_id is not None:
@@ -2376,17 +2383,16 @@ def sewing_production_report(
         status=status,
     )
 
-    total = qry.count()
     aggregate = qry.with_entities(
         func.coalesce(func.sum(PayrollRecord.quantity), 0),
         func.coalesce(func.sum(PayrollRecord.total_amount), 0),
+        func.count(),
+        func.min(func.nullif(PayrollRecord.currency, "")),
+        func.max(func.nullif(PayrollRecord.currency, "")),
     ).one()
-    currencies = {
-        str(value)
-        for (value,) in qry.with_entities(PayrollRecord.currency).distinct().all()
-        if value
-    }
-    report_currency = next(iter(currencies)) if len(currencies) == 1 else ("MIXED" if currencies else "UZS")
+    total = int(aggregate[2])
+    first_currency, last_currency = aggregate[3], aggregate[4]
+    report_currency = (first_currency if first_currency == last_currency else "MIXED") or "UZS"
     safe_limit = max(1, min(limit, 5000))
     safe_offset = max(0, offset)
     salary_summary = _sewing_salary_summary(qry) if report_view == "salary" else []
