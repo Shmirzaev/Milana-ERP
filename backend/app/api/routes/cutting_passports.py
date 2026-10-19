@@ -798,7 +798,8 @@ def update_passport(
         raise HTTPException(404, "Cutting passport not found")
     if p.production_order_id:
         _passport_order(db, p.production_order_id, current, lock=True)
-        db.refresh(p, with_for_update=True)
+        # Joined optional order/operator relationships must not be locked by PostgreSQL.
+        db.refresh(p, with_for_update={"of": CuttingPassport})
     linked_batch = db.query(ProductionBatch).filter_by(cutting_passport_id=p.id).first()
     used = db.query(CuttingRecord.id).filter(CuttingRecord.cutting_passport_id == p.id).first()
     if payload.production_order_id != p.production_order_id and (used or linked_batch):

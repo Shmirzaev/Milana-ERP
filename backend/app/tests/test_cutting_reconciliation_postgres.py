@@ -3,13 +3,16 @@ from queue import Queue
 from time import monotonic, sleep
 from uuid import uuid4
 
+import pytest
 from sqlalchemy import text
 
+from app.api.routes import cutting_passports as passport_routes
 from app.api.routes import production as production_routes
 from app.models import (
     AuditLog,
     Bundle,
     CuttingRecord,
+    CuttingPassport,
     Department,
     Model,
     ProductionBatch,
@@ -20,6 +23,71 @@ from app.models import (
 from app.tests.test_password_change_races import (
     password_change_postgres_sessions as password_change_postgres_sessions,
 )
+
+
+@pytest.mark.parametrize("has_operator", [False, True])
+def test_postgres_linked_passport_edit_with_optional_operator(password_change_postgres_sessions, has_operator):
+    sessions, engine = password_change_postgres_sessions
+    marker = uuid4().hex
+    with sessions() as db:
+        actor = User(name="Passport editor", email=f"passport-{marker}@example.invalid",
+                     password_hash="test-only", factory_code="MIL", extra_permissions=["admin.super"])
+        model = Model(code=f"EDIT-{marker}", name="Passport edit regression")
+        department = Department(name=f"Cutting {marker[:12]}", code=f"CUT-{marker[:8]}")
+        db.add_all([actor, model, department])
+        db.flush()
+        order = ProductionOrder(production_no=f"EDIT-{marker}", production_type="branded_stock",
+                                model_id=model.id, planned_quantity=300, status="cutting")
+        db.add(order)
+        db.flush()
+        work = WorkOrder(production_order_id=order.id, department_id=department.id,
+                         operation="cutting", status="in_progress", planned_input_qty=300, planned_output_qty=300)
+        db.add(work)
+        db.commit()
+        payload = passport_routes.CuttingPassportIn(
+            passport_no=marker[:20], date="2026-10-19T00:00:00Z", production_order_id=order.id,
+            operator_id=actor.id if has_operator else None, pieces=300, total_layers=50,
+            layer_weight_kg=1.1, planned_kg=51,
+        )
+        created = passport_routes.create_passport(payload, db, actor)
+        actor_id, passport_id, batch_id = actor.id, created["id"], created["production_batch_id"]
+
+    contender_pid = Queue()
+
+    def edit():
+        with sessions() as db:
+            contender_pid.put(db.execute(text("SELECT pg_backend_pid()")).scalar_one())
+            return passport_routes.update_passport(
+                passport_id, payload.model_copy(update={"beka_per_piece_kg": 0.005}), db, db.get(User, actor_id),
+            )
+
+    with sessions() as blocker, ThreadPoolExecutor(max_workers=1) as executor:
+        blocker.query(CuttingPassport).filter_by(id=passport_id).with_for_update(of=CuttingPassport).one()
+        future = executor.submit(edit)
+        try:
+            pid = contender_pid.get(timeout=10)
+            deadline = monotonic() + 10
+            with engine.connect() as observer:
+                while monotonic() < deadline:
+                    if observer.execute(text("SELECT cardinality(pg_blocking_pids(:pid))"), {"pid": pid}).scalar_one():
+                        break
+                    assert not future.done(), "Passport edit did not wait for its row lock"
+                    sleep(0.02)
+                else:
+                    raise AssertionError("Passport edit never waited for its row lock")
+        finally:
+            blocker.rollback()
+        updated = future.result(timeout=15)
+    assert updated["actual_kg"] == 56.5
+    assert updated["production_batch_id"] == batch_id
+    with sessions() as db:
+        saved = db.get(CuttingPassport, passport_id)
+        assert float(saved.beka_per_piece_kg) == 0.005
+        assert db.query(ProductionBatch).filter_by(cutting_passport_id=passport_id).count() == 1
+        assert db.get(ProductionBatch, batch_id).passport_actual_quantity == 300
+        assert db.query(CuttingRecord).filter_by(cutting_passport_id=passport_id).count() == 0
+        assert db.query(Bundle).filter_by(production_batch_id=batch_id).count() == 0
+        assert db.query(AuditLog).filter_by(entity_type="CuttingPassport", entity_id=passport_id, action="update").count() == 1
 
 
 def _bundle_adjustment_fixture(sessions) -> tuple[int, int, int]:

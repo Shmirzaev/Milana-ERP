@@ -2,6 +2,14 @@
 
 Last updated: 2026-10-19
 
+## Cutting Passport edit PostgreSQL error repaired locally (2026-10-19)
+
+- Production logs on green `20261019_101556` confirm linked-passport edits fail at `Session.refresh(..., with_for_update=True)`: PostgreSQL rejects locking the nullable side of the eagerly loaded order/operator outer joins. This is the same failure noted during the PO-0276 correction; it is unrelated to the entered binding value or user permission.
+- The fix scopes the refresh lock to `CuttingPassport`, preserving the existing order/work-order lock sequence, fresh-state reload and stock/quantity/factory guards. No schema or business-rule change is required.
+- Real disposable PostgreSQL reproduced the original exception with and without an operator. Both cases now wait for a competing passport row lock, then save binding `0.005` with actual kg `56.5`, persist one audit update and preserve the single Nastil without creating Cutting records or bundles. All 70 focused PostgreSQL/passport/handoff tests and scoped Ruff/whitespace checks passed. The regression is included in the existing CI PostgreSQL suite.
+- Owner approved using verified `origin/clone_main` because `origin/main` records obsolete release `20261002_043701`. Dedicated worktree `C:/ERP/.codex-work/cutting-passport-edit-20261019`, branch `codex/cutting-passport-edit-20261019`, starts at `ce1fa691b57d1f975909a41f1e8979e95839c40f`. Both complete live source manifests match `c1862f7ff170466dce4e795e0c580cb0c1db273b66d0f166f1a9d80dec1d54e9`.
+- NOT DEPLOYED at this preparation entry. Active release remains `20261019_101556`, rollback `20261019_074555`, schema `0147_passport_tepa_pass`. No production business data, permissions, source or runtime state changed; production editing remains affected until the fix is deployed.
+
 ## PO-0276 returned to Sewing arrival and six-size plan applied (2026-10-19)
 
 - **LIVE DATA CORRECTION COMPLETE** at 11:42:49 UTC / 16:42:49 Tashkent, from reviewed maintenance commit `073b70773882ce882d8c64692b83451d7e2f9dee`, published to owner-requested `clone_main`. PO-0276 is back at Sewing; Nastil 0301-01 has zero output/defects, 402 remaining and 0% completion. Its six unchanged BST bundles await receipt. The approved order plan is **402: 67 each in sizes 48, 50, 52, 54, 56, 58**. Browser and public signed API readback verified the six size rows, no saved Sewing records, zero received/processed quantity, and no Packaging receive balance or receipts.
