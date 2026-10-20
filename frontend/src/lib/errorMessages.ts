@@ -39,6 +39,7 @@ const messages: Record<string, [string, string]> = {
   "Waste history needs review before deleting this cutting batch": ["Перед удалением настила проверьте историю отходов.", "Nastilni o‘chirishdan oldin chiqindi tarixini tekshiring."],
   "Sold waste cannot be reversed": ["Нельзя отменить проданные отходы.", "Sotilgan chiqindini bekor qilib bo‘lmaydi."],
   "Packaging still has unfinished quantities. Continue packaging the remaining nastils.": ["Осталось незавершённое количество. Продолжите упаковку остальных настилов.", "Qadoqlanmagan miqdor qolgan. Qolgan nastillarni qadoqlashni davom ettiring."],
+  "Sewing still has unfinished quantities. Continue sewing the remaining nastils.": ["Осталось незавершённое количество. Продолжите пошив остальных настилов.", "Tikilmagan miqdor qolgan. Qolgan nastillarni tikishni davom ettiring."],
   "Package batch evidence does not match its quantity": ["Данные партий не совпадают с количеством в упаковке.", "Partiya ma’lumotlari qadoq miqdoriga mos emas."],
   "Packaging output cannot be reset without affecting other packages": ["Нельзя отменить это количество: оно связано с другими упаковками. Проверьте записи упаковки.", "Bu miqdorni bekor qilish boshqa qadoqlarga ta’sir qiladi. Qadoqlash yozuvlarini tekshiring."],
   "Packaging record quantities require review before deletion": ["Перед удалением проверьте количества в записи упаковки.", "O‘chirishdan oldin qadoqlash yozuvidagi miqdorlarni tekshiring."],

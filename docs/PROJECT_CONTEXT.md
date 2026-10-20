@@ -2,6 +2,12 @@
 
 Last updated: 2026-10-20
 
+## Sewing nastil completion safeguard (2026-10-20)
+
+- Extended the existing Packaging safeguard to Sewing for MIL, BST and ECO. Completing one nastil or line assignment does not close the whole Sewing work order while quantities remain. Manual completion rejects unfinished work; genuine accepted upstream shortages and Sewing defects still count toward completion.
+- Completed Sewing inbox rows open the Sewing work screen so remaining nastils stay accessible. Recording partial output on a historically completed Sewing order restores `in_progress` and clears its end time. Existing selected-batch input limits, factory authorization, assignment records, packages and QR labels are preserved. No bulk status repair or business-data mutation is part of this change.
+- Prepared from verified `origin/clone_main` (`2209e240`) in `C:/ERP/.codex-work/sewing-nastil-access-20261020`, branch `codex/sewing-nastil-access-20261020`; the owner-approved base/destination exception to stale `origin/main` remains in force. Production is still green `20261020_063942` until the verified release record below is updated. The owner waived timed 30-minute monitoring; all immediate and closing deployment gates remain required.
+
 ## Packaging grades, exact Kontrol, salary Masters and Cutting routing prepared (2026-10-20)
 
 - **PREPARED, NOT DEPLOYED.** Owner requested `clone_main` as source and push target. Worktree `C:/ERP/.codex-work/packaging-payroll-routing-20261020`, branch `codex/packaging-payroll-routing-20261020`, starts at `2209e240`. Before edits, both complete production manifests and slot states matched active green `20261020_063942`, rollback blue `20261019_115728`, schema `0147_passport_tepa_pass`. Main and the legacy checkout are preserved. No production business data or runtime state was changed.

@@ -189,7 +189,7 @@ export default function DepartmentOrderList({
                         <td className="whitespace-nowrap font-medium">{t(`page.deptInbox.state.${state}`)}</td>
                         <td>
                           <div className="flex items-center justify-end gap-2 whitespace-nowrap">
-                            <Link className="btn btn-primary h-8 px-3 text-[11px]" href={orderHref ? orderHref(row) : kind === "completed" && row.operation !== "packaging" ? `/production-orders/${row.production_order_id}` : actionHref(row)}>{kind === "completed" && row.operation !== "packaging" ? t("page.deptInbox.viewOrder") : t("btn.open")}</Link>
+                            <Link className="btn btn-primary h-8 px-3 text-[11px]" href={orderHref ? orderHref(row) : kind === "completed" && !["sewing", "packaging"].includes(row.operation || "") ? `/production-orders/${row.production_order_id}` : actionHref(row)}>{kind === "completed" && !["sewing", "packaging"].includes(row.operation || "") ? t("page.deptInbox.viewOrder") : t("btn.open")}</Link>
                           </div>
                         </td>
                       </tr>
