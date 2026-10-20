@@ -22,16 +22,16 @@ new Function("require", "module", "exports", compiled)(name => {
   assert.ok(name in dependencies, name);
   return dependencies[name];
 }, componentModule, componentModule.exports);
-for (const operation of ["packaging", "sewing"]) {
+for (const operation of ["packaging", "sewing", "cutting", "printing"]) {
   for (const queueKind of ["in_progress", "completed"]) {
     const html = renderToStaticMarkup(React.createElement(componentModule.exports.default, {
       rows: [{ id: 1250, production_order_id: 318, production_no: "PO-0293", operation, queueKind,
         status: queueKind, planned_output_qty: 600, passed_qty: 300 }],
       title: "Orders", emptyLabel: "Empty", t: key => key,
     }));
-    const label = queueKind === "completed" && operation !== "packaging" ? "page.deptInbox.viewOrder" : "btn.open";
+    const label = queueKind === "completed" && !["packaging", "sewing"].includes(operation) ? "page.deptInbox.viewOrder" : "btn.open";
     const path = label === "btn.open" ? `/work-orders/1250/${operation}` : "/production-orders/318";
     assert.ok(html.includes(`href="${path}">${label}</a>`), `${operation} ${queueKind} must retain its correct action`);
   }
 }
-console.log("PASS: completed Packaging remains accessible; other department actions are unchanged.");
+console.log("PASS: completed Sewing and Packaging remain accessible; Cutting and Printing actions are unchanged.");

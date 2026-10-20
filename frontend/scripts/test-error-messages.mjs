@@ -6,9 +6,11 @@ const exports = {};
 new Function("exports", ts.transpile(source, { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }))(exports);
 const { localizeError, ApiError } = exports;
 for (const lang of ["ru", "uz"]) {
-  const detail = "Packaging still has unfinished quantities. Continue packaging the remaining nastils.";
-  assert.notEqual(localizeError(detail, 409, lang), detail);
-  assert.notEqual(localizeError(detail, 409, lang), localizeError("Unknown backend detail", 409, lang));
+  for (const operation of ["Sewing", "Packaging"]) {
+    const detail = `${operation} still has unfinished quantities. Continue ${operation.toLowerCase()} the remaining nastils.`;
+    assert.notEqual(localizeError(detail, 409, lang), detail);
+    assert.notEqual(localizeError(detail, 409, lang), localizeError("Unknown backend detail", 409, lang));
+  }
 }
 // Every warehouse deletion conflict must reach the user with its specific reason.
 const deletionSource = fs.readFileSync("../backend/app/services/warehouse_packages.py", "utf8").split("def delete_warehouse_package")[1];

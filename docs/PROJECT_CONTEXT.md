@@ -2,6 +2,12 @@
 
 Last updated: 2026-10-20
 
+## Sewing nastil completion safeguard (2026-10-20)
+
+- Extended the existing Packaging safeguard to Sewing for MIL, BST and ECO. Completing one nastil or line assignment does not close the whole Sewing work order while quantities remain. Manual completion rejects unfinished work; genuine accepted upstream shortages and Sewing defects still count toward completion.
+- Completed Sewing inbox rows open the Sewing work screen so remaining nastils stay accessible. Recording partial output on a historically completed Sewing order restores `in_progress` and clears its end time. Existing selected-batch input limits, factory authorization, assignment records, packages and QR labels are preserved. No bulk status repair or business-data mutation is part of this change.
+- Prepared from verified `origin/clone_main` (`2209e240`) in `C:/ERP/.codex-work/sewing-nastil-access-20261020`, branch `codex/sewing-nastil-access-20261020`; the owner-approved base/destination exception to stale `origin/main` remains in force. Production is still green `20261020_063942` until the verified release record below is updated. The owner waived timed 30-minute monitoring; all immediate and closing deployment gates remain required.
+
 ## Process QR and Cutting safeguards deployed (2026-10-20)
 
 - **LIVE:** green `20261020_063942` on both application VMs, exact reviewed source `a9568961dd74660eab18dbd6828739c231322691`, merged into `clone_main`. Blue `20261019_115728` remains running for rollback. Both manifests, image identities, slot states and symlinks agree. Source manifest `d00a13b8be1ce77473054d99a7ad943803c20e814a6b3e31cef06c00326d1bb7`; schema remains `0147_passport_tepa_pass`. No schema changes or startup seeding. Owner explicitly waived the timed 30-minute observation; immediate and closing verification remained mandatory and passed.

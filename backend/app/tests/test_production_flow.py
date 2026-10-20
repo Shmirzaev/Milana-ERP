@@ -5129,7 +5129,12 @@ def test_sewing_records_partial_output_by_size_and_tracks_remaining(client, auth
     assert r.status_code == 201, r.text
 
     r = client.post(f"/api/work-orders/{sewing_wo['id']}/complete", headers=auth_headers)
-    assert r.status_code == 200, r.text
+    assert r.status_code == 409, r.text
+    # Historical prematurely completed orders must still report their actual
+    # size quantities. New completion requests cannot create that state.
+    with SessionLocal() as db:
+        db.get(WorkOrder, sewing_wo["id"]).status = "completed"
+        db.commit()
 
     r = client.get(
         f"/api/process-tracking?sewing_completed_only=true&include_total=true&q={po['production_no']}",
@@ -5638,6 +5643,11 @@ def test_assignment_capacity_ignores_completed_work_orders(client, auth_headers)
     )
     assert r.status_code == 201, r.text
 
+    # This capacity fixture represents a fully processed work order.
+    with SessionLocal() as db:
+        wo = db.get(WorkOrder, sew_1["id"])
+        wo.actual_output_qty = wo.passed_qty = 200
+        db.commit()
     r = client.post(f"/api/work-orders/{sew_1['id']}/complete", headers=auth_headers)
     assert r.status_code == 200, r.text
 

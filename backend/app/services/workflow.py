@@ -196,7 +196,7 @@ def _complete_if_done(db: Session, wo: WorkOrder) -> None:
     if planned > 0 and processed >= planned and wo.status != "completed":
         wo.status = "completed"
         wo.end_time = datetime.now(timezone.utc)
-    elif wo.operation == "packaging" and processed < planned and wo.status == "completed":
+    elif wo.operation in ("sewing", "packaging") and processed < planned and wo.status == "completed":
         wo.status = "in_progress"
         wo.end_time = None
 
