@@ -5,7 +5,7 @@ from fastapi.responses import Response
 from app.services.cutting_passport_reports import build_dashboard, export_workbook
 from app.core.order_reference import canonical_business_order_reference, order_reference_contains
 from fastapi import APIRouter, HTTPException, Depends, Query
-from sqlalchemy import or_
+from sqlalchemy import or_, select
 from sqlalchemy.orm import joinedload, load_only, noload, selectinload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
@@ -16,7 +16,7 @@ from app.models.catalog import Model as CatalogModel, ModelImage
 from app.models.sales import SalesOrder
 from app.models import ProductionOrderMaterial, MaterialReservation
 from app.services.inventory import create_material_reservations
-from app.services.cutting_batch_guard import require_cutting_batch_mutable, sewing_output_batch_ids
+from app.services.cutting_batch_guard import require_cutting_batch_mutable, sewing_output_batch_ids, sewing_output_batch_query
 from app.services.factory_scope import require_work_order_factory_access
 from app.schemas.cutting_passport import CuttingOperatorOut, CuttingPassportIn, CuttingPassportOut
 from app.services.audit import log_action
@@ -373,10 +373,18 @@ def material_defaults(
 ):
     po, work_order = _passport_order(db, production_order_id, current)
     model = db.get(CatalogModel, po.model_id, options=[joinedload(CatalogModel.sizes)])
+    # Both flags describe the same order; fetch them together instead of adding
+    # a database round trip for the Sewing-output guard.
+    has_print, has_sewing_output = db.query(
+        select(WorkOrder.id).where(
+            WorkOrder.production_order_id == po.id, WorkOrder.operation == "printing",
+        ).exists(),
+        select(1).select_from(sewing_output_batch_query(po.id).subquery()).exists(),
+    ).one()
     can_add_material = (po.source_type != "usluga"
                         and po.status not in {"completed", "cancelled", "rejected"}
                         and work_order.status not in {"cancelled", "rejected"}
-                        and not sewing_output_batch_ids(db, po.id))
+                        and not has_sewing_output)
 
     if po.materials:
         materials = sorted(po.materials, key=lambda row: row.position)
@@ -385,11 +393,6 @@ def material_defaults(
             for chunk in _query_chunks(material.stock_batch_id for material in materials)
             for batch in db.query(StockBatch).filter(StockBatch.id.in_(chunk)).all()
         }
-        has_print = bool(
-            db.query(WorkOrder.id)
-            .filter(WorkOrder.production_order_id == po.id, WorkOrder.operation == "printing")
-            .first()
-        )
         sizes = _size_options(db, po, model)
         rows = []
         for material in materials:
@@ -407,7 +410,7 @@ def material_defaults(
     if po.fabric_batch_id:
         batch = db.get(StockBatch, po.fabric_batch_id)
         item = db.get(Item, batch.item_id) if batch else None
-        row = _passport_defaults_payload(db=db, po=po, model=model, item=item, batch=batch, can_add_material=can_add_material)
+        row = _passport_defaults_payload(db=db, po=po, model=model, item=item, batch=batch, has_print=has_print, can_add_material=can_add_material)
         row["stock_batch_id"] = po.fabric_batch_id
         return {**row, "materials": [row]}
 
@@ -422,7 +425,7 @@ def material_defaults(
         .all()
     )
     if not bom_rows:
-        return _passport_defaults_payload(db=db, po=po, model=model, item=None, batch=None, can_add_material=can_add_material)
+        return _passport_defaults_payload(db=db, po=po, model=model, item=None, batch=None, has_print=has_print, can_add_material=can_add_material)
 
     item_priority = {int(bom.item_id): idx for idx, (bom, _) in enumerate(bom_rows)}
     item_ids = sorted(item_priority.keys())
@@ -439,7 +442,7 @@ def material_defaults(
     )
     if not candidates:
         bom, item = bom_rows[0]
-        return _passport_defaults_payload(db=db, po=po, model=model, item=item, batch=None, can_add_material=can_add_material)
+        return _passport_defaults_payload(db=db, po=po, model=model, item=item, batch=None, has_print=has_print, can_add_material=can_add_material)
 
     order_refs = _order_reference_set(po)
 
@@ -451,7 +454,7 @@ def material_defaults(
         return (order_match, item_priority.get(int(batch.item_id), 999), has_gramage, -int(batch.id))
 
     batch, item = min(candidates, key=score)
-    return _passport_defaults_payload(db=db, po=po, model=model, item=item, batch=batch, can_add_material=can_add_material)
+    return _passport_defaults_payload(db=db, po=po, model=model, item=item, batch=batch, has_print=has_print, can_add_material=can_add_material)
 
 
 @router.get("/operators", response_model=list[CuttingOperatorOut])

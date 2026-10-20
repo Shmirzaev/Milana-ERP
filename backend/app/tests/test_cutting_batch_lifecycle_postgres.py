@@ -3,7 +3,7 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 
-from app.api.routes import production
+from app.api.routes import cutting_passports, production
 from app.models import CuttingRecord, Department, Model, ProductionBatch, ProductionOrder, SewingRecord, User, WorkOrder
 from app.tests.test_password_change_races import password_change_postgres_sessions as password_change_postgres_sessions
 
@@ -64,6 +64,8 @@ def test_postgres_progress_preserves_output_without_bundles(password_change_post
     sessions, _ = password_change_postgres_sessions
     actor_id, cutting_id, sewing_id, batch_id = _fixture(sessions)
     with sessions.begin() as db:
+        order_id = db.get(WorkOrder, cutting_id).production_order_id
+        assert cutting_passports.material_defaults(order_id, db, db.get(User, actor_id))["can_add_material"] is True
         db.add(SewingRecord(
             work_order_id=sewing_id, production_batch_id=None if legacy else batch_id,
             input_qty=1, sewn_qty=1, passed_qty=1,
@@ -74,6 +76,7 @@ def test_postgres_progress_preserves_output_without_bundles(password_change_post
         assert row["bundle_count"] == 0
         assert row["sewing_output_recorded"] is True
         assert row["deletable"] is False
+        assert cutting_passports.material_defaults(order_id, db, db.get(User, actor_id))["can_add_material"] is False
 
 
 def test_postgres_delete_returns_consumption_once_with_audit(password_change_postgres_sessions):

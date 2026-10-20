@@ -123,7 +123,7 @@ def test_multi_material_defaults_queries_are_chunk_bounded_and_payload_is_stable
             ))
 
     (one, one_count), (fifty, fifty_count), (chunked, chunked_count) = results
-    assert (one_count, fifty_count, chunked_count) == (11, 11, 12)
+    assert (one_count, fifty_count, chunked_count) == (10, 10, 11)
     for payload, batch_ids in ((one, one_batches), (fifty, fifty_batches), (chunked, chunked_batches)):
         assert [row["stock_batch_id"] for row in payload["materials"]] == batch_ids
         assert [row["planned_kg"] for row in payload["materials"][:2]] == (
@@ -185,7 +185,7 @@ def test_multi_material_defaults_preserve_distinct_items_and_false_empty_context
             lambda: cutting_passports.material_defaults(order_id, db, _factory_user()),
         )
 
-    assert count == 11  # Includes the fixed-cost Sewing output guard. Includes separate family identity/image metadata; No BOM-image fallback query; model sizes share the model lookup.
+    assert count == 10  # Printing and Sewing flags share one read; model sizes share the model lookup.
     assert [row["material_item_name"] for row in payload["materials"]] == [
         "Performance fabric", "Distinct secondary fabric",
     ]
@@ -198,3 +198,35 @@ def test_multi_material_defaults_preserve_distinct_items_and_false_empty_context
 def test_material_defaults_requires_authentication(client):
     response = client.get("/api/cutting-passports/material-defaults?production_order_id=1")
     assert response.status_code == 401
+
+
+@pytest.mark.parametrize("has_print", [False, True])
+def test_defaults_combined_flags_freeze_after_output_on_completed_cutting(has_print):
+    from app.models import SewingRecord
+    with SessionLocal() as db:
+        order_id, _ = _material_order(db, 1)
+        cutting = db.query(WorkOrder).filter_by(production_order_id=order_id, operation="cutting").one()
+        cutting.status = "completed"
+        if not has_print:
+            db.query(WorkOrder).filter_by(production_order_id=order_id, operation="printing").delete()
+        sewing = WorkOrder(
+            production_order_id=order_id, department_id=cutting.department_id, operation="sewing",
+        )
+        db.add(sewing)
+        db.commit()
+        sewing_id = sewing.id
+    with SessionLocal() as db:
+        before, count = _select_count(db, lambda: cutting_passports.material_defaults(order_id, db, _factory_user()))
+        assert count == 10
+        assert before["has_print"] is has_print
+        assert before["can_add_material"] is True
+        db.add(SewingRecord(
+            work_order_id=sewing_id, production_batch_id=None,
+            input_qty=1, sewn_qty=1, passed_qty=1,
+        ))
+        db.commit()
+    with SessionLocal() as db:
+        after, count = _select_count(db, lambda: cutting_passports.material_defaults(order_id, db, _factory_user()))
+        assert count == 10
+        assert after["has_print"] is has_print
+        assert after["can_add_material"] is False

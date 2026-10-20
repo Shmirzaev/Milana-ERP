@@ -159,8 +159,8 @@ def test_cutting_progress_guards_share_existing_query_budget(batch_count, legacy
         payload, statements = _select_trace(
             db, lambda: production.cutting_batch_progress(work_id, db, _eco_user()),
         )
-    # Work order, order + selectin materials, batches, totals, combined evidence.
-    assert len(statements) == 6
+    # Work order, order, batches, totals, combined evidence; no unused materials.
+    assert len(statements) == 5
     assert len(payload["items"]) == batch_count
     for row in payload["items"]:
         locked = legacy or row["id"] == target_id

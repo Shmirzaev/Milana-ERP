@@ -10,7 +10,7 @@ from fastapi import APIRouter, Body, HTTPException, Depends, File, Query, Upload
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import String, and_, case, cast, func, literal, or_, select, union_all
-from sqlalchemy.orm import aliased, joinedload, selectinload
+from sqlalchemy.orm import aliased, joinedload, noload, selectinload
 
 from app.core.config import settings
 from app.core.deps import (
@@ -352,8 +352,13 @@ def _estimated_material_composition(db: DbSession, material_code: str | None) ->
     return _item_composition(item)
 
 
-def _ordered_batches_for_work_order(db: DbSession, wo: WorkOrder) -> tuple[ProductionOrder, list[ProductionBatch]]:
-    po = db.get(ProductionOrder, wo.production_order_id)
+def _ordered_batches_for_work_order(
+    db: DbSession, wo: WorkOrder, *, include_materials: bool = True,
+) -> tuple[ProductionOrder, list[ProductionBatch]]:
+    po = db.get(
+        ProductionOrder, wo.production_order_id,
+        options=None if include_materials else [noload(ProductionOrder.materials)],
+    )
     if not po:
         raise HTTPException(404, "Production order not found")
     batches = (
@@ -2522,7 +2527,8 @@ def cutting_batch_progress(wid: int, db: DbSession, _: User = Depends(require_pe
     if wo.operation != "cutting":
         raise HTTPException(400, "Work order is not a cutting operation")
 
-    po, batches = _ordered_batches_for_work_order(db, wo)
+    # Progress reads batch evidence only; do not eagerly load material plans.
+    po, batches = _ordered_batches_for_work_order(db, wo, include_materials=False)
     if not batches:
         return {"work_order_id": wo.id, "items": []}
 
