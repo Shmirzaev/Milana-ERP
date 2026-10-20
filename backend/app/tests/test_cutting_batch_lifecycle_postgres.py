@@ -59,6 +59,29 @@ def test_postgres_delete_and_edit_reject_concurrent_then_committed_sewing(passwo
         assert not db.query(CuttingRecord).filter_by(production_batch_id=batch_id).count()
 
 
+def test_factory_change_serializes_with_sewing_output(password_change_postgres_sessions):
+    sessions, _ = password_change_postgres_sessions
+    actor_id, cutting_id, sewing_id, batch_id = _fixture(sessions)
+    with sessions() as writer:
+        writer.query(WorkOrder).filter_by(id=sewing_id).with_for_update(of=WorkOrder).one()
+        with sessions() as db:
+            with pytest.raises(HTTPException, match="Sewing is being updated") as caught:
+                production.update_cutting_sewing_factory(
+                    cutting_id, production.CuttingSewingFactoryIn(sewing_factory_code="BST"),
+                    db, db.get(User, actor_id),
+                )
+            assert caught.value.status_code == 409
+        writer.add(SewingRecord(work_order_id=sewing_id, production_batch_id=batch_id,
+                                input_qty=1, sewn_qty=1, passed_qty=1))
+        writer.commit()
+    with sessions() as db:
+        with pytest.raises(HTTPException, match="Sewing output"):
+            production.update_cutting_sewing_factory(
+                cutting_id, production.CuttingSewingFactoryIn(sewing_factory_code="BST"),
+                db, db.get(User, actor_id),
+            )
+
+
 @pytest.mark.parametrize("legacy", [False, True])
 def test_postgres_progress_preserves_output_without_bundles(password_change_postgres_sessions, legacy):
     sessions, _ = password_change_postgres_sessions

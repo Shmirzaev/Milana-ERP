@@ -42,7 +42,7 @@ def contents(pkg, *, items=None, batch_allocations=None):
     package_items = pkg.items if items is None else items
     allocations = pkg.batch_allocations if batch_allocations is None else batch_allocations
     return {
-        **({"stock_kind": "first_grade"} if pkg.stock_kind == "first_grade" else {}),
+        **({"stock_kind": pkg.stock_kind} if pkg.stock_kind in {"first_grade", "second_grade"} else {}),
         "package_no": pkg.package_no, "barcode": pkg.barcode,
         "model_id": pkg.model_id, "color": pkg.color,
         "production_order_id": pkg.production_order_id, "production_batch_id": pkg.production_batch_id,

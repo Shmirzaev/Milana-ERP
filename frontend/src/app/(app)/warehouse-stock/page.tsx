@@ -110,7 +110,7 @@ export default function WarehouseStockPage() {
   const { t, lang } = useT();
   const copy = firstGradeText[lang];
   const search = useSearchParams();
-  const [stockKind, setStockKind] = useState(search.get("stock_kind") === "first_grade" ? "first_grade" : "standard");
+  const [stockKind, setStockKind] = useState(["first_grade", "second_grade"].includes(search.get("stock_kind") || "") ? search.get("stock_kind")! : "standard");
   const { me } = useMe();
   const canTraceability = can(me, "traceability.view");
   const [query, setQuery] = useState("");
@@ -277,6 +277,7 @@ export default function WarehouseStockPage() {
       <div className="mb-4 flex flex-wrap gap-2">
         <button className={`btn ${stockKind === "standard" ? "btn-primary" : ""}`} onClick={() => setStockKind("standard")}>{copy.standard}</button>
         <button className={`btn ${stockKind === "first_grade" ? "btn-primary" : ""}`} onClick={() => setStockKind("first_grade")}>{copy.title}</button>
+        <button className={`btn ${stockKind === "second_grade" ? "btn-primary" : ""}`} onClick={() => setStockKind("second_grade")}>{lang === "ru" ? "2-й сорт" : lang === "uz" ? "2-nav" : "2nd Grade"}</button>
         {stockKind === "first_grade" && can(me, "sales.orders") && <Link className="btn" href="/sales-orders/first-grade">{copy.sale}</Link>}
       </div>
       {error && <p role="alert" className="mb-4 text-red-700">{error.message}</p>}

@@ -70,7 +70,7 @@ def export_warehouse_report(db, lang: str) -> bytes:
     widths = {"A": 24, "B": 52, "C": 24, "D": 30, "E": 16, "F": 18}
     thin = Side(style="thin", color="D9DDE3")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
-    for kind, title in [("standard", labels[1]), ("first_grade", labels[2])]:
+    for kind, title in [("standard", labels[1]), ("first_grade", labels[2]), ("second_grade", {"en": "Second Grade", "ru": "Второй сорт", "uz": "Ikkinchi nav"}[lang])]:
         sheet = workbook.create_sheet(title)
         metadata = [labels[0], f"{detail[2]}: {generated}",
                     f"{detail[3]}: ERP — {labels[0]} — {title}", labels[8]]

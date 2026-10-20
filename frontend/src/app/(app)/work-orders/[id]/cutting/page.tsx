@@ -3,6 +3,7 @@ import { localizeError } from "@/lib/errorMessages";
 import { useParams } from "next/navigation";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
+import CuttingSewingFactory from "@/components/CuttingSewingFactory";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
 import { formatBatchLabel, formatBatchSerial } from "@/lib/batchSerial";
@@ -1777,6 +1778,12 @@ export default function CuttingPage() {
             </button>
           </div>
         </div>
+      )}
+
+      {!isUsluga && can(me, "cutting.records", "*") && wo && po && (
+        <CuttingSewingFactory workOrderId={Number(id)} factory={po.sewing_factory_code || "MIL"}
+          locked={batchItems.some((row: any) => row.sewing_output_recorded) || (po.work_orders || []).some((row: any) => row.operation === "sewing" && (row.actual_output_qty > 0 || row.passed_qty > 0 || row.failed_qty > 0))}
+          onSaved={() => Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles()])} />
       )}
 
       {visibleBundles.length > 0 && (

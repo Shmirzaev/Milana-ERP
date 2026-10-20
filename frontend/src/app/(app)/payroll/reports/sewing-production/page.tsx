@@ -276,7 +276,7 @@ export default function SewingProductionReportPage() {
         {(["details", "salary"] as const).map((view) => (
           <button key={view} type="button" aria-pressed={reportView === view} disabled={Boolean(action)}
             className={`border-b-2 px-1 py-3 text-sm ${reportView === view ? "border-[#14110b] font-semibold" : "border-transparent text-[#8a8472]"}`}
-            onClick={() => { setReportView(view); setPage(1); setActionError(""); }}>
+            onClick={() => { setReportView(view); setDraft(current => ({ ...current, sewingLine: "" })); setApplied(current => ({ ...current, sewingLine: "" })); setPage(1); setActionError(""); }}>
             {t(view === "salary" ? "page.sewingReport.salarySummary" : "page.sewingReport.scanDetails")}
           </button>
         ))}
@@ -350,11 +350,11 @@ export default function SewingProductionReportPage() {
           />
           <ReportFilterSelect
             id="sewing-report-line"
-            label={t("page.sewingReport.line")}
+            label={reportView === "salary" ? (lang === "ru" ? "Мастер" : "Master") : t("page.sewingReport.line")}
             value={draft.sewingLine}
-            options={options?.sewing_lines || []}
-            allLabel={t("page.sewingReport.allLines")}
-            searchPlaceholder={t("page.sewingReport.searchLine")}
+            options={(reportView === "salary" ? options?.salary_masters : options?.sewing_lines) || []}
+            allLabel={reportView === "salary" ? (lang === "ru" ? "Все мастера" : lang === "uz" ? "Barcha masterlar" : "All Masters") : t("page.sewingReport.allLines")}
+            searchPlaceholder={reportView === "salary" ? (lang === "ru" ? "Поиск мастера" : lang === "uz" ? "Masterni qidirish" : "Search Masters") : t("page.sewingReport.searchLine")}
             noResultsText={t("page.sewingReport.noFilterOptions")}
             onChange={(value) => update("sewingLine", value)}
           />

@@ -54,7 +54,7 @@ class BundleScanLog(Base, PkMixin):
 class Package(Base, PkMixin, TimestampMixin):
     __tablename__ = "packages"
     __table_args__ = (
-        CheckConstraint("stock_kind IN ('standard', 'first_grade')", name="ck_packages_stock_kind"),
+        CheckConstraint("stock_kind IN ('standard', 'first_grade', 'second_grade')", name="ck_packages_stock_kind"),
         CheckConstraint("stock_kind != 'first_grade' OR (total_quantity <= 1 AND capacity = 1)", name="ck_packages_single_quantity"),
         CheckConstraint("total_quantity >= 0", name="ck_packages_total_quantity_nonnegative"),
         CheckConstraint("quantity_shortfall >= 0", name="ck_packages_shortfall_nonnegative"),

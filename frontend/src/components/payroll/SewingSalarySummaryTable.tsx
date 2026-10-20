@@ -1,5 +1,6 @@
 "use client";
 
+import { Fragment } from "react";
 import type { CtxT } from "@/lib/i18n";
 import type { SewingSalarySummaryRow } from "@/lib/sewingProductionReport";
 
@@ -38,7 +39,9 @@ export default function SewingSalarySummaryTable({ rows, days, lang, t }: {
         <tbody>
           {rows.length === 0 && <tr><td colSpan={visibleDays.length + 5} className="py-10 text-center text-[#8a8472]">{t("page.sewingReport.empty")}</td></tr>}
           {rows.map((row, index) => (
-            <tr key={`${row.employee_id}-${row.currency}`}>
+            <Fragment key={`${row.employee_id}-${row.currency}`}>
+            {(index === 0 || rows[index - 1].master_id !== row.master_id) && <tr><th colSpan={visibleDays.length + 5} className="text-left py-2">{lang === "ru" ? "Мастер" : "Master"}: {row.master_name || (lang === "ru" ? "Не назначен" : lang === "uz" ? "Tayinlanmagan" : "Unassigned")}</th></tr>}
+            <tr>
               <td>{index + 1}</td>
               <td>
                 <div>{row.employee_name}</div>
@@ -49,6 +52,7 @@ export default function SewingSalarySummaryTable({ rows, days, lang, t }: {
               <td className="text-right tabular-nums">{number(row.quantity)}</td>
               <td className="text-right font-semibold tabular-nums">{number(row.total_amount)} {row.currency}</td>
             </tr>
+            </Fragment>
           ))}
         </tbody>
         <tfoot>

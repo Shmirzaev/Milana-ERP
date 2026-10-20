@@ -36,11 +36,20 @@ try {
   await save.click();
   const singles=page.getByLabel('Singles to pack S');await singles.waitFor();
   assert.equal(await singles.getAttribute('max'),'2');
-  await singles.fill('2');await page.getByRole('button',{name:'Create singles and labels (2/200)'}).click();
+  await singles.fill('2');await page.getByLabel('Weight (kg) S').fill('0.5001');await page.getByRole('button',{name:'Create singles and labels (2/200)'}).click();
   await page.waitForFunction(()=>window.packages.length===1);
   const calls=await page.evaluate(()=>({reads:window.reads,writes:window.writes,packages:window.packages}));
   assert.equal(calls.writes.length,1);assert.match(calls.writes[0].path,/size-entry\/301\?production_batch_id=139$/);
   assert.equal(calls.packages[0].body.packages.length,2);
+  assert.equal(calls.packages[0].body.packages.reduce((sum,row)=>sum+Math.round(row.weight_kg*10000),0),5001);
+  await page.getByLabel('Grade',{exact:true}).selectOption('second_grade');
+  await page.getByLabel('Singles to pack M').fill('3');
+  await page.getByLabel('Weight (kg) M').fill('1.25');
+  await page.getByRole('button',{name:'Create packages and labels (3)'}).click();
+  await page.waitForFunction(()=>window.packages.length===2);
+  const second=await page.evaluate(()=>window.packages[1].body.packages);
+  assert.equal(second.length,1);assert.equal(second[0].stock_kind,'second_grade');
+  assert.equal(second[0].items[0].quantity,3);assert.equal(second[0].weight_kg,1.25);
   assert.ok(calls.reads.every(path=>path.startsWith('/api/packages/')),'No Sewing navigation/API needed');
   for (const lang of ['ru','uz']) {
     await load(lang);await page.getByRole('button').first().click();

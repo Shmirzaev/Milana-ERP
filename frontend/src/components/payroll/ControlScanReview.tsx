@@ -35,9 +35,8 @@ export const controlScanMessages = {
 };
 
 export function isControlWork(work: { operation_section?: string | null; operation_name?: string | null; operation_code?: string | null; requires_control_confirmation?: boolean }) {
-  return work.requires_control_confirmation ?? [work.operation_name, work.operation_code].some(
-    (value) => (value?.toLowerCase().match(/[\p{L}]+/gu) || []).some((word) => ["control", "kontrol", "контроль", "nazorat", "qc"].includes(word)),
-  );
+  const operation = (work.operation_name?.trim() || work.operation_code?.trim() || "").toLowerCase();
+  return work.requires_control_confirmation ?? ["control", "kontrol", "контроль", "nazorat", "qc"].includes(operation);
 }
 
 export default function ControlScanReview({ preview, employeeName, busy, error, onConfirm, onCancel }: {

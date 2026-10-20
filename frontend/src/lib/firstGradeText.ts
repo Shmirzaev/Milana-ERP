@@ -1,4 +1,5 @@
 const en = {
+  secondSaved: "Packages created. Receive their print run in the warehouse.", second: "2nd Grade", grade: "Grade", count: "Pieces to pack", createPacks: "Create packages and labels", secondHelp: "Enter pieces and total kg by size from accepted Sewing output. Receive the labelled packages in Warehouse Stock under 2nd Grade.",
   sizeEntryHelp: "Enter the accepted quantities by size here in Packaging, including pieces already packed. The total must match the accepted Sewing output. Then select the remaining singles.",
   saveSizes: "Save size quantities",
   title: "1st Grade — singles", standard: "Normal packs", description: "Good products without a complete size assortment. Allocate complete packs first, then select remaining pieces by size. Each single receives its own QR label and requires warehouse receipt before sale.",
@@ -8,6 +9,7 @@ const en = {
 };
 type Copy = Record<keyof typeof en, string>;
 const ru: Copy = {
+  secondSaved: "Упаковки созданы. Примите их группу печати на склад.", second: "2-й сорт", grade: "Сорт", count: "Изделий для упаковки", createPacks: "Создать упаковки и этикетки", secondHelp: "Введите количество и общий вес по размерам из принятого выхода пошива. Примите упаковки с этикетками в разделе склада «2-й сорт».",
   sizeEntryHelp: "Укажите принятые количества по размерам здесь, в упаковке, включая уже упакованные изделия. Сумма должна совпадать с принятым выходом пошива. Затем выберите остатки для поштучной упаковки.",
   saveSizes: "Сохранить количества по размерам",
   title: "1-й сорт — поштучно", standard: "Обычные упаковки", description: "Качественные изделия без полного размерного ряда. Сначала соберите полные упаковки, затем выберите остатки по размерам. Каждое изделие получает QR-этикетку и перед продажей принимается на склад.",
@@ -16,6 +18,7 @@ const ru: Copy = {
   deleteShipment: "Удалить ошибочную отгрузку", deleteConfirm: "Удалить эту ручную отгрузку? Отсканированные упаковки вернутся в доступный остаток. История действий сохранится.", deleteReason: "Ручная отгрузка создана ошибочно", deleted: "Отгрузка удалена",
 };
 const uz: Copy = {
+  secondSaved: "Qadoqlar yaratildi. Chop etish guruhini omborga qabul qiling.", second: "2-nav", grade: "Nav", count: "Qadoqlanadigan donalar", createPacks: "Qadoqlar va yorliqlar yaratish", secondHelp: "Tikuvdan qabul qilingan donalar va jami kg ni o‘lcham bo‘yicha kiriting. Yorliqli qadoqlarni omborning 2-nav bo‘limida qabul qiling.",
   sizeEntryHelp: "Qabul qilingan miqdorlarni o‘lcham bo‘yicha shu yerda, qadoqlashda kiriting, qadoqlangan donalarni ham qo‘shing. Jami tikuvdan qabul qilingan miqdorga teng bo‘lishi kerak. Keyin qolgan donalarni tanlang.",
   saveSizes: "O‘lcham miqdorlarini saqlash",
   title: "1-nav — donalab", standard: "Oddiy qadoqlar", description: "To‘liq o‘lchamlar qatoriga ega bo‘lmagan sifatli mahsulotlar. Avval to‘liq qadoqlarni yig‘ing, keyin o‘lcham bo‘yicha qolgan donalarni tanlang. Har bir dona QR yorlig‘ini oladi va sotishdan oldin omborga qabul qilinadi.",

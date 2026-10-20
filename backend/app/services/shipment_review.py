@@ -86,6 +86,8 @@ def correct_received_quantity(db: Session, shipment: Shipment, package_id: int,
     total = sum(proposed.values())
     if package.stock_kind == "first_grade" and total != 1:
         raise HTTPException(409, "FIRST_GRADE_ONE_PIECE_REQUIRED")
+    if package.stock_kind == "second_grade" and increases:
+        raise HTTPException(409, "SECOND_GRADE_OUTPUT_LIMIT")
     if total <= 0:
         raise HTTPException(409, "Remove the whole package from the shipment instead of setting its total to zero")
     if increases and total > 10000:

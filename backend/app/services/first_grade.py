@@ -114,7 +114,7 @@ def enforce_size_allocation(db, order, batch_id, items, allocations, *, first_gr
     has_singles = first_grade or (cache.get(singles_key) if cache is not None else None)
     if has_singles is None or (not has_singles and first_grade):
         has_singles = bool(db.query(Package.id).filter(
-            Package.production_order_id == order.id, Package.stock_kind == "first_grade",
+            Package.production_order_id == order.id, Package.stock_kind.in_(["first_grade", "second_grade"]),
         ).first())
     if cache is not None:
         cache[singles_key] = has_singles

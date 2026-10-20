@@ -252,6 +252,8 @@ def reserve(stock_id: int, quantity: int, sales_order_id: int, db: DbSession,
                .populate_existing().first()) if s.package_id else None
     if package and package.status == "returned_to_packaging":
         raise HTTPException(409, "Package is awaiting correction in Packaging")
+    if package and package.stock_kind == "second_grade":
+        raise HTTPException(409, "SECOND_GRADE_SEPARATE_STOCK")
     if package and package.stock_kind == "first_grade":
         raise HTTPException(409, "FIRST_GRADE_SEPARATE_ORDER")
     if package and package.manual_receipt_id:

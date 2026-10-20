@@ -116,3 +116,13 @@ handlers.selectEmployee(A);
 assert.equal(sessionIds.size, 0, "reselecting A must not rehydrate saved work");
 assert(state.records.some(record => record.backendId === 8), "saved work must remain in recovery/duplicate history");
 console.log("PASS: fresh A/B/A sessions, same employee reselection, and delayed saved responses preserve payroll without restoring old history.");
+
+const controlSource = fs.readFileSync(new URL("../src/components/payroll/ControlScanReview.tsx", import.meta.url), "utf8");
+const controlAst = ts.createSourceFile("control.tsx", controlSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+const predicate = controlAst.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "isControlWork");
+const predicateJs = ts.transpile(predicate.getText(controlAst).replace("export ", ""), { target: ts.ScriptTarget.ES2020 });
+const isControlWork = new Function(`${predicateJs}; return isControlWork;`)();
+for (const name of ["Tepa kontrol", "Pass kontrol", "Kontrol tepa"]) assert.equal(isControlWork({operation_name:name, operation_code:"QC"}), false);
+for (const name of [" Kontrol ", "CONTROL", "Контроль", "Nazorat"]) assert.equal(isControlWork({operation_name:name}), true);
+assert.equal(isControlWork({operation_name:"Kontrol", requires_control_confirmation:false}), false);
+console.log("Exact Control matching excludes qualified operations in legacy scanner fallback.");

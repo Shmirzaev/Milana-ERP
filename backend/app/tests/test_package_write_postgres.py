@@ -119,6 +119,74 @@ def _stub_package_side_effects(monkeypatch) -> None:
     monkeypatch.setattr(package_service, "sync_production_order_status", lambda *_args, **_kwargs: None)
 
 
+def test_second_grade_and_singles_race_for_same_accepted_piece(package_write_postgres_sessions, monkeypatch):
+    from threading import Barrier
+    from fastapi import HTTPException
+    from app.models import ProductionOrderItem, SewingRecord
+
+    sessions, _ = package_write_postgres_sessions
+    _stub_package_side_effects(monkeypatch)
+    order_id, model_id = _seed_packaged_order(sessions, 1)
+    with sessions.begin() as db:
+        db.get(ProductionOrder, order_id).source_type = "standard"
+        department = db.query(Department).filter_by(code="PKG").one()
+        sew = WorkOrder(production_order_id=order_id, department_id=department.id,
+                        operation="sewing", passed_qty=1, actual_output_qty=1)
+        db.add(sew); db.flush()
+        db.add(SewingRecord(work_order_id=sew.id, input_qty=1, sewn_qty=1, passed_qty=1,
+                            size_quantities=[{"size": "M", "quantity": 1}]))
+        db.add(ProductionOrderItem(production_order_id=order_id, model_id=model_id,
+                                  color="navy", size="M", planned_quantity=1))
+    barrier = Barrier(2)
+
+    def allocate(kind):
+        with sessions() as db:
+            barrier.wait(timeout=10)
+            try:
+                package_service.create_package(db, **_package_kwargs(order_id, model_id),
+                                               stock_kind=kind, weight_kg=0.2)
+                db.commit()
+                return "created"
+            except HTTPException:
+                db.rollback()
+                return "rejected"
+
+    with ThreadPoolExecutor(2) as pool:
+        assert sorted(pool.map(allocate, ["first_grade", "second_grade"])) == ["created", "rejected"]
+    with sessions() as db:
+        packages = db.query(Package).filter_by(production_order_id=order_id).all()
+        assert len(packages) == 1 and packages[0].total_quantity == 1
+
+
+def test_second_grade_migration_roundtrip_and_live_stock_guard(package_write_postgres_sessions):
+    import importlib.util
+    from pathlib import Path
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+
+    sessions, engine = package_write_postgres_sessions
+    path = Path(__file__).resolve().parents[2] / "alembic/versions/0148_second_grade_packages.py"
+    spec = importlib.util.spec_from_file_location("second_grade_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    # Use a dedicated schema so other module tests' second-grade stock cannot
+    # affect migration eligibility.
+    schema = "grade_migration_" + uuid4().hex
+    with engine.begin() as connection:
+        connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
+        connection.exec_driver_sql(f'SET LOCAL search_path TO "{schema}"')
+        connection.exec_driver_sql("CREATE TABLE packages (stock_kind text NOT NULL, CONSTRAINT ck_packages_stock_kind CHECK (stock_kind IN ('standard','first_grade')))")
+        connection.exec_driver_sql("INSERT INTO packages VALUES ('standard'), ('first_grade')")
+        migration.op = Operations(MigrationContext.configure(connection))
+        migration.upgrade(); migration.downgrade(); migration.upgrade()
+        assert connection.exec_driver_sql("SELECT stock_kind FROM packages ORDER BY stock_kind").scalars().all() == ["first_grade", "standard"]
+        connection.exec_driver_sql("INSERT INTO packages VALUES ('second_grade')")
+        with pytest.raises(RuntimeError, match="second-grade"):
+            migration.downgrade()
+        assert connection.exec_driver_sql("SELECT count(*) FROM packages").scalar() == 3
+        connection.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
+
+
 def test_packaging_size_save_waits_for_package_creation_and_rejects_stale_counts(
     package_write_postgres_sessions, monkeypatch,
 ):

@@ -380,6 +380,7 @@ class SewingProductionReportRow(BaseModel):
 
 
 class SewingProductionReportOptions(BaseModel):
+    salary_masters: list[SewingProductionReportOption] = Field(default_factory=list)
     employees: list[SewingProductionReportOption] = Field(default_factory=list)
     operations: list[SewingProductionReportOption] = Field(default_factory=list)
     sewing_lines: list[SewingProductionReportOption] = Field(default_factory=list)
@@ -390,6 +391,8 @@ class SewingProductionReportOptions(BaseModel):
 
 
 class SewingSalarySummaryRow(BaseModel):
+    master_id: int | None = None
+    master_name: str | None = None
     employee_id: int
     employee_no: str | None = None
     employee_name: str

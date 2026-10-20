@@ -821,7 +821,7 @@ def _package_label_card_html(
             label_sizes = receipt.evidence.get("configured_sizes") or None
     return f"""
 <article class='label' data-package='{_h(pkg.package_no)}'>
-  <header class='label-head'><span>{_h(details['factory'])}</span><span>{"1st Grade / 1-й сорт / 1-nav" if pkg.stock_kind == "first_grade" else "PACKAGE LABEL"}</span><!--label-ordinal--></header>
+  <header class='label-head'><span>{_h(details['factory'])}</span><span>{"1st Grade / 1-й сорт / 1-nav" if pkg.stock_kind == "first_grade" else "2nd Grade / 2-й сорт / 2-nav" if pkg.stock_kind == "second_grade" else "PACKAGE LABEL"}</span><!--label-ordinal--></header>
   <table class='details'>
     <tr><th>Client</th><td class='value-right'>{_h(details['client'])}</td></tr>
     <tr><th>Order number</th><td class='value-right'>{_h(details['order'])}</td></tr>
@@ -1123,7 +1123,7 @@ def storage_map(
     include_unplaced: bool = False,
     stock_kind: str = "standard",
 ):
-    if stock_kind not in {"standard", "first_grade"}:
+    if stock_kind not in {"standard", "first_grade", "second_grade"}:
         raise HTTPException(422, "Invalid stock classification")
     start, end = date_filter_bounds(created_from, created_to)
     ready_statuses = ["packed", "received_in_storage", "reserved"]

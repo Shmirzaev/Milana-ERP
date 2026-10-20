@@ -531,7 +531,7 @@ def create_package(
     if _write_context is not None:
         _write_context.bind(db)
     _cost_cache = _write_context.cost_by_model_id if _write_context is not None else None
-    if stock_kind not in {"standard", "first_grade"}:
+    if stock_kind not in {"standard", "first_grade", "second_grade"}:
         raise HTTPException(400, "Invalid stock classification")
     if not items:
         raise HTTPException(400, "Package must contain at least one size line")
@@ -661,15 +661,17 @@ def create_package(
         remaining_cache=_write_context.remaining_quantity_by_order_id if _write_context is not None else None,
     )
 
-    if stock_kind == "first_grade":
-        if total != 1 or capacity != 1 or len(items) != 1:
+    if stock_kind in {"first_grade", "second_grade"}:
+        if stock_kind == "second_grade" and (normalized_weight_kg is None or normalized_weight_kg <= 0):
+            raise HTTPException(422, "SECOND_GRADE_WEIGHT_REQUIRED")
+        if stock_kind == "first_grade" and (total != 1 or capacity != 1 or len(items) != 1):
             raise HTTPException(400, "FIRST_GRADE_ONE_PIECE_REQUIRED")
         if po.source_type != "standard" or po.sales_order_id or sales_order_id:
             raise HTTPException(409, "FIRST_GRADE_CUSTOMER_OWNED")
         if not (_write_context and po.id in _write_context.remaining_quantity_by_order_id) and not _packaging_record_totals_by_batch(db, po.id):
             raise HTTPException(409, "Save Packaging output before creating packages")
     from app.services.first_grade import enforce_size_allocation
-    enforce_size_allocation(db, po, batch_id, items, normalized_allocations, first_grade=stock_kind == "first_grade", cache=_write_context.size_allocation if _write_context is not None else None)
+    enforce_size_allocation(db, po, batch_id, items, normalized_allocations, first_grade=stock_kind in {"first_grade", "second_grade"}, cache=_write_context.size_allocation if _write_context is not None else None)
 
     resolved_sales_order_id = sales_order_id if sales_order_id is not None else po.sales_order_id
     resolved_brand_id, resolved_collection_id = infer_brand_and_collection(
@@ -1277,6 +1279,8 @@ def _apply_package_edit_request(db: Session, request: PackageChangeRequest, user
         from app.services.first_grade import enforce_size_allocation
         enforce_size_allocation(db, po, target.get("production_batch_id"), items, allocations, exclude_package_id=pkg.id)
 
+    if pkg.stock_kind == "second_grade" and (target.get("weight_kg") is None or target["weight_kg"] <= 0):
+        raise HTTPException(422, "SECOND_GRADE_WEIGHT_REQUIRED")
     previous_location = (pkg.storage_cell, pkg.storage_shelf)
     pkg.color = target["color"]
     pkg.package_type = target["package_type"]

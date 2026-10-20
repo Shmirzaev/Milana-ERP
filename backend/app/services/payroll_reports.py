@@ -320,7 +320,7 @@ def build_sewing_salary_summary_xlsx(
         cell.fill = PatternFill("solid", fgColor="1F1C17")
     totals = {}
     for index, row in enumerate(rows, 1):
-        values = [index, row["employee_name"], row.get("employee_no") or "",
+        values = [index, row["employee_name"] + ("\n" + ("Мастер" if lang == "ru" else "Master") + ": " + row["master_name"] if row.get("master_name") else ""), row.get("employee_no") or "",
                   *(row.get("daily_amounts", {}).get(day, 0) for day in days), row["record_count"],
                   row["quantity"], row["total_amount"], row["currency"]]
         for column, value in enumerate(values, 1):

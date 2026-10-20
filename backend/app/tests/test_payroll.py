@@ -534,7 +534,7 @@ def test_payroll_qr_control_tracks_issued_and_scanned_labels(client, auth_header
                 "model_code": "MODEL-QR",
                 "operation_section": "sewing",
                 "operation_code": "SEW-QR",
-                "operation_name": "QR control sewing",
+                "operation_name": "Kontrol",
                 "sewing_line_code": "SEW-07",
                 "sewing_line_name": "Jalilova",
                 "cutting_passport_no": "KR-QR-07",

@@ -99,7 +99,7 @@ class PackageBatchAllocationOut(ORMModel):
 
 
 class PackageIn(SchemaModel):
-    stock_kind: Literal["standard", "first_grade"] = "standard"
+    stock_kind: Literal["standard", "first_grade", "second_grade"] = "standard"
     production_order_id: int
     production_batch_id: Optional[int] = None
     sales_order_id: Optional[int] = None
@@ -109,7 +109,7 @@ class PackageIn(SchemaModel):
     color: str
     package_type: str = "bag"
     capacity: int = 60
-    weight_kg: Optional[float] = None
+    weight_kg: Optional[float] = Field(default=None, ge=0, le=9999999999.9999, allow_inf_nan=False)
     warehouse_id: Optional[int] = None
     items: list[PackageItemIn]
     batch_allocations: list[PackageBatchAllocationIn] = []

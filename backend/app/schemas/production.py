@@ -497,3 +497,7 @@ class PlanningEstimateSubmitIn(BaseModel):
     estimated_lead_time_minutes: int | None = None
     estimate_comment: str | None = None
     planned_deadline: datetime | None = None
+
+
+class CuttingSewingFactoryIn(BaseModel):
+    sewing_factory_code: Literal["MIL", "BST", "ECO"]

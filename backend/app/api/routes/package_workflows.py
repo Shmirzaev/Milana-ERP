@@ -155,7 +155,7 @@ def warehouse_model_packages(model_id: int, db: DbSession, stock_kind: str = "st
     from sqlalchemy.orm import selectinload
     from app.models import Model, FinishedGoodsStock
     from app.services.model_images import warehouse_stock_image_url
-    if stock_kind not in {"standard", "first_grade"}:
+    if stock_kind not in {"standard", "first_grade", "second_grade"}:
         raise HTTPException(422, "Invalid stock classification")
     model = db.get(Model, model_id)
     if not model:

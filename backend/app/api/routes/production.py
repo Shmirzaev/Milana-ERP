@@ -99,6 +99,7 @@ from app.services.model_identity import model_number_fields
 from app.services.model_images import material_preview_image_url, model_preview_image_url
 from app.services.cutting_sheet import render_cutting_sheet_html
 from app.services.passport_nastil import pending_work_order_passport_batches
+from app.schemas.production import CuttingSewingFactoryIn
 from app.services.cutting_batch_guard import require_cutting_batch_mutable, sewing_output_batch_query
 from app.services.factory_scope import require_factory_access, selected_factory_code, factory_for_department
 from app.services.factory_scope import require_work_order_factory_access
@@ -2263,6 +2264,23 @@ def add_extra_cutting_batch(
         "deadline": batch.deadline,
         "notes": batch.notes,
     }
+
+
+@router.patch("/work-orders/{wid}/sewing-factory")
+def update_cutting_sewing_factory(
+    wid: int,
+    payload: CuttingSewingFactoryIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("cutting.records", "*")),
+):
+    wo = db.query(WorkOrder).filter_by(id=wid).with_for_update(of=WorkOrder).first()
+    if not wo or wo.operation != "cutting":
+        raise HTTPException(404, "Cutting work order not found")
+    require_work_order_factory_access(current, db, wo)
+    from app.services.cutting_sewing_factory import change_sewing_factory
+    result = change_sewing_factory(db, wo, payload.sewing_factory_code, current)
+    db.commit()
+    return result
 
 
 @router.delete("/work-orders/{wid}/batches/{batch_id}")

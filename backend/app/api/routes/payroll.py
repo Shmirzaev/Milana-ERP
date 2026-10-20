@@ -4,7 +4,6 @@ from datetime import datetime, time
 from decimal import Decimal, InvalidOperation
 import hashlib
 import json
-import re
 from types import SimpleNamespace
 from typing import Annotated, Any, Callable, Literal
 from uuid import uuid4
@@ -1961,12 +1960,18 @@ def _sewing_report_options(db: DbSession, factory_code: str) -> dict[str, list[d
     configured_lines = configured_line_qry.order_by(SewingFlow.code.asc(), SewingFlow.name.asc()).all()
     # HR teams can be report filters without creating operational Sewing flows.
     report_managers = db.query(Employee).filter(
-        Employee.factory_code == factory_code, Employee.status == "active",
+        Employee.factory_code == factory_code,
     ).all()
+    manager_ids = {row.manager_employee_id for row in report_managers if row.manager_employee_id}
+    salary_masters = [
+        {"value": f"manager:{manager.id}", "label": manager.full_name}
+        for manager in report_managers
+        if manager.id in manager_ids or (manager.hr_profile_json or {}).get("payroll_report_group") is True
+    ]
     report_groups = [
         {"value": f"manager:{manager.id}", "label": f"{manager.full_name} | {factory_code}"}
         for manager in report_managers
-        if (manager.hr_profile_json or {}).get("payroll_report_group") is True
+        if manager.status == "active" and (manager.hr_profile_json or {}).get("payroll_report_group") is True
     ]
 
     model_qry = (
@@ -2110,6 +2115,7 @@ def _sewing_report_options(db: DbSession, factory_code: str) -> dict[str, list[d
             }
             for code, name, section in [*operations, *configured_operations]
         ]),
+        "salary_masters": salary_masters,
         "sewing_lines": unique_options([
             {
                 "value": str(label_code or flow_code or label_name or flow_name),
@@ -2168,6 +2174,7 @@ def _filtered_sewing_production_report_query(
     size: str | None = None,
     factory_code: str | None = None,
     status: str = "active",
+    report_view: str = "details",
 ):
     allowed_statuses = {"active", "all", *RECORD_STATUSES}
     if status not in allowed_statuses:
@@ -2195,6 +2202,8 @@ def _filtered_sewing_production_report_query(
         qry = qry.filter(or_(PayrollQrLabel.cutting_passport_no.ilike(pattern), PayrollRecord.batch_no.ilike(pattern)))
     if model_code and model_code.strip():
         qry = qry.filter(normalized_model_code_column(PayrollRecord.model_code).ilike(normalized_model_code_pattern(model_code)))
+    if report_view == "salary" and (sewing_flow_id or (sewing_line and not sewing_line.strip().startswith("manager:"))):
+        raise HTTPException(422, "Select an employee Master for the salary report")
     if sewing_flow_id:
         qry = qry.filter(PayrollQrLabel.sewing_flow_id == sewing_flow_id)
     if sewing_line and sewing_line.strip().startswith("manager:"):
@@ -2203,9 +2212,14 @@ def _filtered_sewing_production_report_query(
         except ValueError:
             raise HTTPException(400, "Invalid report group") from None
         manager = db.query(Employee).filter(Employee.id == manager_id, Employee.factory_code == factory_code).first()
-        if not manager or (manager.hr_profile_json or {}).get("payroll_report_group") is not True:
+        if not manager or (report_view != "salary" and (manager.hr_profile_json or {}).get("payroll_report_group") is not True):
             raise HTTPException(404, "Report group not found")
-        qry = qry.filter(Employee.factory_code == factory_code, or_(Employee.id == manager_id, Employee.manager_employee_id == manager_id))
+        leader = Employee.id == manager_id
+        if report_view == "salary":
+            leader = and_(leader, Employee.manager_employee_id.is_(None))
+        qry = qry.filter(Employee.factory_code == factory_code, or_(
+            Employee.manager_employee_id == manager_id, leader,
+        ))
     elif sewing_line and sewing_line.strip():
         pattern = f"%{sewing_line.strip()}%"
         qry = qry.filter(or_(
@@ -2292,7 +2306,26 @@ def _sewing_salary_summary(qry) -> list[dict]:
         item["quantity"] += quantity
         item["total_amount"] += amount
         item["daily_amounts"][str(work_day)] = amount
-    return list(employees.values())
+    people = {row.id: row for row in qry.session.query(
+        Employee.id, Employee.full_name, Employee.manager_employee_id, Employee.factory_code, Employee.hr_profile_json,
+    ).filter(
+        Employee.id.in_([key[0] for key in employees]),
+    )} if employees else {}
+    manager_ids = {row.manager_employee_id for row in people.values() if row.manager_employee_id}
+    managers = {row.id: row for row in qry.session.query(
+        Employee.id, Employee.full_name, Employee.factory_code,
+    ).filter(Employee.id.in_(manager_ids))} if manager_ids else {}
+    team_leaders = {row[0] for row in qry.session.query(Employee.manager_employee_id).filter(
+        Employee.manager_employee_id.in_(people),
+    ).distinct()} if people else set()
+    for item in employees.values():
+        person = people[item["employee_id"]]
+        manager = managers.get(person.manager_employee_id)
+        if manager and manager.factory_code == person.factory_code:
+            item["master_id"], item["master_name"] = manager.id, manager.full_name
+        elif not person.manager_employee_id and (person.id in team_leaders or (person.hr_profile_json or {}).get("payroll_report_group") is True):
+            item["master_id"], item["master_name"] = person.id, person.full_name
+    return sorted(employees.values(), key=lambda row: (row.get("master_name", "").casefold(), row.get("master_id", 0), row["employee_name"].casefold(), row["employee_id"], row["currency"]))
 
 
 def _sewing_report_product_quantity(qry, *, size: str | None = None) -> Decimal:
@@ -2381,6 +2414,7 @@ def sewing_production_report(
         size=size,
         factory_code=scoped_factory,
         status=status,
+        report_view=report_view,
     )
 
     aggregate = qry.with_entities(
@@ -2457,6 +2491,7 @@ def sewing_production_report_excel(
         size=size,
         factory_code=scoped_factory,
         status=status,
+        report_view=report_view,
     )
     if report_view == "salary":
         items = _sewing_salary_summary(qry)
@@ -2829,12 +2864,13 @@ def _qr_label_scan_payload(label: PayrollQrLabel) -> dict[str, Any]:
 
 def _is_control_operation(value: PayrollQrLabel | dict[str, Any]) -> bool:
     aliases = {"control", "kontrol", "контроль", "nazorat", "qc"}
-    # A section groups operations; it does not identify the payable operation.
-    for field in ("operation_name", "operation_code"):
-        text = value.get(field) if isinstance(value, dict) else getattr(value, field, None)
-        if aliases.intersection(re.findall(r"[^\W\d_]+", str(text or "").casefold())):
-            return True
-    return False
+    # A qualified operation (e.g. Tepa kontrol) is ordinary paid work.
+    # Prefer its name over a legacy code so a generic QC code cannot override it.
+    def field(name):
+        return value.get(name) if isinstance(value, dict) else getattr(value, name, None)
+    name = str(field("operation_name") or "").strip().casefold()
+    code = str(field("operation_code") or "").strip().casefold()
+    return (name or code) in aliases
 
 
 def _control_review_token(label: PayrollQrLabel, employee_id: int) -> str:
