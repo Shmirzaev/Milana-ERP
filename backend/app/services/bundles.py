@@ -138,7 +138,9 @@ def _factory_codes_for_scope(
     scope = (int(production_order_id), int(production_batch_id) if production_batch_id is not None else None)
     if receipt_context is not None and scope in receipt_context.factory_codes_by_scope:
         return receipt_context.factory_codes_by_scope[scope]
-    qry = db.query(Bundle.sewing_factory_code).filter(Bundle.production_order_id == production_order_id)
+    qry = db.query(Bundle.sewing_factory_code).filter(
+        Bundle.production_order_id == production_order_id, Bundle.status != "cancelled",
+    )
     if production_batch_id is not None:
         qry = qry.filter(Bundle.production_batch_id == production_batch_id)
     codes = {

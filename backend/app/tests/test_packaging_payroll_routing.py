@@ -186,3 +186,21 @@ def test_changed_factory_completes_sewing_to_packaging_handoff(client, auth_head
         assert db.get(WorkOrder, works["sewing"]).passed_qty == 225
         assert db.get(WorkOrder, works["packaging"]).passed_qty == 225
         assert db.get(Department, db.get(WorkOrder, works["packaging"]).department_id).code == "BPK"
+
+
+def test_cancelled_bundle_cannot_restore_previous_factory(client, auth_headers):
+    from app.services.bundles import sync_textile_departments_for_bundle_route
+    po, batch, works, bundle_id, _ = routed_order()
+    with TestSessionLocal() as db:
+        live = db.get(Bundle, bundle_id)
+        cancelled = Bundle(bundle_no=uuid4().hex, barcode=uuid4().hex, production_order_id=po,
+                           production_batch_id=batch, model_id=live.model_id, color=live.color,
+                           size=live.size, quantity=1, status="cancelled", sewing_factory_code="MIL")
+        db.add(cancelled); db.commit(); cancelled_id = cancelled.id
+    result = client.patch(f'/api/work-orders/{works["cutting"]}/sewing-factory', headers=auth_headers,
+                          json={"sewing_factory_code": "BST"})
+    assert result.status_code == 200, result.text
+    with TestSessionLocal() as db:
+        assert sync_textile_departments_for_bundle_route(db, po, batch) == ("BST", "BPK")
+        assert db.get(Bundle, cancelled_id).sewing_factory_code == "MIL"
+        assert db.get(Department, db.get(WorkOrder, works["sewing"]).department_id).code == "BST"
