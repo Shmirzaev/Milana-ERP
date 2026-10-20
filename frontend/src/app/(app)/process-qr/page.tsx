@@ -232,6 +232,7 @@ type IssuedLabelRow = {
   qr_token: string;
   payload: string | null;
   production_order_id: number | null;
+  production_batch_id: number | null;
   production_no: string | null;
   sales_order_no: string | null;
   batch_no: string | null;
@@ -596,6 +597,37 @@ function operationNumberForLabel(label: IssuedLabelRow, numbers: Map<number, num
   return numbers.get(label.id) ?? 1;
 }
 
+function issuedBatchKey(label: IssuedLabelRow): string {
+  return JSON.stringify([
+    label.factory_code,
+    label.production_order_id ?? label.production_no ?? label.sales_order_no,
+    label.production_batch_id ?? label.batch_no?.trim() ?? null,
+  ]);
+}
+
+function groupIssuedLabelsByBatch(labels: IssuedLabelRow[]) {
+  const batches = new Map<string, {
+    key: string;
+    batchNo: string;
+    labels: IssuedLabelRow[];
+    sizes: Map<string, IssuedLabelRow[]>;
+  }>();
+  for (const label of labels) {
+    const key = issuedBatchKey(label);
+    let batch = batches.get(key);
+    if (!batch) {
+      batch = { key, batchNo: label.batch_no?.trim() || "", labels: [], sizes: new Map() };
+      batches.set(key, batch);
+    }
+    batch.labels.push(label);
+    const size = label.size?.trim() || "-";
+    const sizeLabels = batch.sizes.get(size) || [];
+    sizeLabels.push(label);
+    batch.sizes.set(size, sizeLabels);
+  }
+  return Array.from(batches.values());
+}
+
 function compareIssuedLabelOrder(
   left: IssuedLabelRow,
   right: IssuedLabelRow,
@@ -612,7 +644,10 @@ function compareIssuedLabelOrder(
   );
 
   return (
-    configuredSizeDifference
+    (left.batch_no?.trim() || "").localeCompare(right.batch_no?.trim() || "", "en", { numeric: true })
+    || issuedBatchKey(left).localeCompare(issuedBatchKey(right), "en", { numeric: true })
+    || (issuedBatchKey(left) < issuedBatchKey(right) ? -1 : issuedBatchKey(left) > issuedBatchKey(right) ? 1 : 0)
+    || configuredSizeDifference
     || compareGarmentSizes(leftSize, rightSize)
     || operationNumberForLabel(left, operationNumbers) - operationNumberForLabel(right, operationNumbers)
     || left.copy_index - right.copy_index
@@ -1126,8 +1161,8 @@ export default function ProcessQrPage() {
     if (!selectedProcess || !selectedSewingLine || !selectedModel || loadedOperationsModelId !== selectedModelId || issuedLabelsLoading || issuedLabelsError || invalidSizeAllocation) return [];
     if (selectedProcess.is_manual && !selectedProcess.manual_kroy_no?.trim()) return [];
     const rows: LabelRow[] = [];
-    for (const sizeOption of sizeOptions) {
-      for (const batch of batchesToPrint) {
+    for (const batch of batchesToPrint) {
+      for (const sizeOption of sizeOptions) {
         for (const operation of factoryOperations) {
           if (!operation.code.trim() || !operation.name.trim()) continue;
           const totalSizeQuantity = sizeQuantityMode === "same"
@@ -1215,14 +1250,10 @@ export default function ProcessQrPage() {
     )),
     [activeIssuedLabels, issuedOperationNumbers, issuedSizeOrder],
   );
-  const issuedLabelsBySize = useMemo(() => {
-    const groups = new Map<string, IssuedLabelRow[]>();
-    for (const label of orderedIssuedLabels) {
-      const size = label.size?.trim() || "-";
-      groups.set(size, [...(groups.get(size) || []), label]);
-    }
-    return Array.from(groups.entries());
-  }, [orderedIssuedLabels]);
+  const issuedLabelsByBatch = useMemo(
+    () => groupIssuedLabelsByBatch(orderedIssuedLabels),
+    [orderedIssuedLabels],
+  );
   const editedIssuedLabels = useMemo(() => {
     const editedIds = new Set(editedLabelIds);
     return orderedIssuedLabels.filter((label) => editedIds.has(label.id));
@@ -1466,6 +1497,7 @@ export default function ProcessQrPage() {
       title: t("page.processQr.deleteSizeTitle", { size }),
       message: t("page.processQr.deleteSizeConfirm", {
         size,
+        batch: sizeLabels[0].batch_no?.trim() || t("page.processQr.noBatch"),
         count: sizeLabels.length.toLocaleString(),
       }),
       confirmText: t("page.processQr.deleteSize"),
@@ -1473,7 +1505,7 @@ export default function ProcessQrPage() {
     });
     if (!confirmed) return;
 
-    setDeletingSize(size);
+    setDeletingSize(JSON.stringify([issuedBatchKey(sizeLabels[0]), size]));
     setPrintError("");
     try {
       const response = await api.post<{ deleted_count: number; size: string }>(
@@ -2613,29 +2645,45 @@ export default function ProcessQrPage() {
 
         {issuedLabelsLoading ? (
           <div className="py-8 text-center text-sm text-[#8a8472]">{t("common.loading")}</div>
-        ) : issuedLabelsBySize.length > 0 ? (
+        ) : issuedLabelsByBatch.length > 0 ? (
           <div className="space-y-4">
-            {issuedLabelsBySize.map(([size, sizeLabels]) => (
-              <section key={size} className="overflow-hidden rounded-lg border border-[#ded9ca] bg-white">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#ecebe3] bg-[#f8f6ef] px-4 py-3">
+            {issuedLabelsByBatch.map((batch) => (
+              <section key={batch.key} className="overflow-hidden rounded-lg border border-[#ded9ca] bg-white" data-qr-batch={batch.batchNo}>
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#ded9ca] bg-[#f8f6ef] px-4 py-3">
                   <div>
-                    <div className="text-sm font-semibold text-[#14110b]">
-                      {t("field.size")}: {size}
-                    </div>
+                    <h3 className="text-base font-semibold text-[#14110b]">
+                      {t("field.batch")}: {batch.batchNo || t("page.processQr.noBatch")}
+                    </h3>
                     <div className="mt-0.5 text-xs text-[#8a8472]">
-                      {t("page.processQr.issuedLabelCount", { count: sizeLabels.length.toLocaleString() })}
+                      {t("page.processQr.issuedLabelCount", { count: batch.labels.length.toLocaleString() })}
                     </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      className="btn btn-danger"
-                      onClick={() => deleteIssuedSize(size, sizeLabels)}
-                      disabled={Boolean(deletingSize) || sizeLabels.some((label) => (
-                        label.status !== "available"
-                        || Boolean(label.payroll_record_id)
-                        || Boolean(label.last_scanned_at)
-                        || Number(label.return_count || 0) > 0
+                  <button type="button" className="btn btn-primary" onClick={() => printIssuedLabels(batch.labels)} disabled={preparingPrint}>
+                    {preparingPrint ? <RefreshCw className="animate-spin" /> : <Printer />}
+                    <span>{t("page.processQr.printThisBatch", { batch: batch.batchNo || t("page.processQr.noBatch") })}</span>
+                  </button>
+                </div>
+                {Array.from(batch.sizes.entries()).map(([size, sizeLabels]) => (
+                  <section key={size} data-qr-size={size}>
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#ecebe3] bg-[#f8f6ef] px-4 py-3">
+                    <div>
+                      <div className="text-sm font-semibold text-[#14110b]">
+                        {t("field.size")}: {size}
+                      </div>
+                      <div className="mt-0.5 text-xs text-[#8a8472]">
+                        {t("page.processQr.issuedLabelCount", { count: sizeLabels.length.toLocaleString() })}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        className="btn btn-danger"
+                        onClick={() => deleteIssuedSize(size, sizeLabels)}
+                        disabled={Boolean(deletingSize) || sizeLabels.some((label) => (
+                          label.status !== "available"
+                          || Boolean(label.payroll_record_id)
+                          || Boolean(label.last_scanned_at)
+                          || Number(label.return_count || 0) > 0
                       ))}
                       title={sizeLabels.some((label) => (
                         label.status !== "available"
@@ -2644,7 +2692,7 @@ export default function ProcessQrPage() {
                         || Number(label.return_count || 0) > 0
                       )) ? t("page.processQr.deleteSizeBlocked") : t("page.processQr.deleteSize")}
                     >
-                      {deletingSize === size ? <RefreshCw className="animate-spin" /> : <Trash2 />}
+                      {deletingSize === JSON.stringify([batch.key, size]) ? <RefreshCw className="animate-spin" /> : <Trash2 />}
                       <span>{t("page.processQr.deleteSize")}</span>
                     </button>
                     <button type="button" className="btn btn-primary" onClick={() => printIssuedLabels(sizeLabels)} disabled={preparingPrint}>
@@ -2665,6 +2713,8 @@ export default function ProcessQrPage() {
                     />
                   ))}
                 </div>
+                </section>
+                ))}
               </section>
             ))}
           </div>
@@ -3044,6 +3094,13 @@ export default function ProcessQrPage() {
             line-height: 1 !important;
           }
 
+          .process-label--work .process-label__batch-value {
+            font-size: 10pt !important;
+            font-weight: 700 !important;
+            text-decoration: underline;
+            text-underline-offset: 0.3mm;
+          }
+
           .process-label--employee .process-label__title {
             max-height: 7.5mm !important;
             font-size: 9.5pt !important;
@@ -3232,7 +3289,7 @@ function ProcessLabel({ label, qrToken }: { label: LabelRow; qrToken: string }) 
           <LabelLine label={t("common.model")} value={formatModelVariantCode(process.model_code) || "-"} />
           <LabelLine label={t("field.orderNo")} value={orderReference(process)} valueClassName="process-label__identity-value" />
           <LabelLine label={t("page.processQr.kroyNo")} value={batch.cuttingPassportNo || process.cutting_passport_no || "-"} strong />
-          <LabelLine label={t("field.batch")} value={batch.serial} />
+          <LabelLine label={t("field.batch")} value={batch.serial} strong valueClassName="process-label__batch-value text-[13px] underline underline-offset-2" />
           <LabelLine label={t("page.processQr.line")} value={isBesttex ? sewingLine.name || "-" : sewingLineDisplay(sewingLine)} strong wrap />
           <LabelLine label={t("field.size")} value={size} strong />
           <LabelLine label={t("field.qty")} value={`${quantity.toLocaleString()} ${t("field.unitPcs")}`} strong />
@@ -3312,7 +3369,7 @@ function IssuedProcessLabel({
             initial
           />
           <LabelLine label={t("field.orderNo")} value={orderReference(label)} valueClassName="process-label__identity-value" initial />
-          <LabelLine label={t("field.batch")} value={label.batch_no || "-"} initial />
+          <LabelLine label={t("field.batch")} value={label.batch_no || "-"} strong valueClassName="process-label__batch-value text-[13px] underline underline-offset-2" initial />
           <LabelLine
             label={t("page.processQr.line")}
             value={sewingLine}

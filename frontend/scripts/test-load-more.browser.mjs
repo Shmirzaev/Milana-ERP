@@ -28,7 +28,7 @@ const paidSectionLabel=()=>"Sewing", formatModelVariantCode=(x)=>x, orderReferen
 const Pencil=()=>null, ProcessQrImage=()=>null;
 ${printHelper}
 ${labelSource}
-const label={id:1,factory_code:"BST",operation_name:"bort overlo",operation_section:"sewing",model_code:"PB10012-V-6311",sales_order_no:"MAN-8288-9327-1ULI",batch_no:"9327",sewing_line_code:"BST-BAND-06",sewing_line_name:"Muqadamxon",size:"122",quantity:67,rate_per_piece:150,currency:"UZS",cutting_passport_no:"9327",qr_token:"200028408"};
+const label={id:1,factory_code:"BST",operation_name:"bort overlo",operation_section:"sewing",model_code:"PB10012-V-6311",sales_order_no:"MAN-8288-9327-1ULI",batch_no:"0420-01",sewing_line_code:"BST-BAND-06",sewing_line_name:"Muqadamxon",size:"122",quantity:67,rate_per_piece:150,currency:"UZS",cutting_passport_no:"9327",qr_token:"200028408"};
 function App(){
  const [page,setPage]=useState(1),[q,setQ]=useState(""),[scope,setScope]=useState("MIL");
  const pager=useLoadMore(["/rows?q="+q+"&page="+page+"&page_size=50",scope],async([url,factory])=>{const response=await fetch(url+"&factory="+factory);if(!response.ok)throw Error("fixture failure");return response.json();},{shouldRetryOnError:false,revalidateOnFocus:false,dedupingInterval:0});

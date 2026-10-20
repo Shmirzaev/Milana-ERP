@@ -2,6 +2,14 @@
 
 Last updated: 2026-10-20
 
+
+## Process QR batch grouping prepared (2026-10-20)
+
+- PREPARED, not yet deployed: Process QR preview, issued-label sections and all print actions now keep each batch together, then its sizes, model process sequence and split copies. Each batch has its own print button. Size printing/deletion operates on that exact batch's visible label IDs; deletion confirmation names the batch. Existing QR identities, quantities, rates, scan/payroll records and backend rules are unchanged. Batch identity uses factory/order and the persisted batch ID, with legacy/manual batch text fallback. Labels without a batch remain available.
+- The batch value is larger, bold and underlined on screen and the existing 60 x 40 mm print layout. English, Russian and Uzbek captions and confirmations are present. Actual handler regressions cover interleaved batches, numeric batch ordering, repeated sizes, split copies, colliding display names, legacy/manual labels, unchanged QR data, async print preparation and exact-batch deletion. Browser checks cover section/button scoping in all languages and printable labels for all factories.
+- User explicitly authorized `clone_main` as source/merge target and deployment without the 30-minute monitoring window. Both full manifests and slot states verified active blue `20261020_104302`, rollback green `20261020_063942`, source `635c4ba964e8126641cc29d0aaea41612dfacd5f`; `clone_main` differs only in durable deployment records before this change. Schema remains `0148_second_grade_packages`. Worktree `C:/ERP/.codex-work/process-qr-batch-groups-20261020`, branch `codex/process-qr-batch-groups-20261020`; legacy checkout and `main` preserved. Immediate health, backup, candidate QA, performance and closing gates still apply.
+
+
 ## Sewing nastil safeguard and migration 0148 deployed (2026-10-20)
 
 - **LIVE:** blue `20261020_104302` on both application VMs, exact source `635c4ba964e8126641cc29d0aaea41612dfacd5f`, pushed to `clone_main`. Previous green `20261020_063942` remains running for rollback. Both full manifests, image identities, slot states and current symlinks agree. Owner explicitly authorized the combined deployment including migration `0148` and waived only the 30-minute observation; all immediate and closing checks passed.

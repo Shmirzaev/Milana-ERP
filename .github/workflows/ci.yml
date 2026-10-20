@@ -126,6 +126,7 @@ jobs:
         run: |
           npx playwright install --with-deps chromium
           npm run test:load-more-browser
+          node scripts/test-process-qr-batch-groups.browser.mjs
           node scripts/test-warehouse-pack-lifecycle.browser.mjs
           node scripts/test-sewing-bands.browser.mjs
           node scripts/test-packaging-size-entry.browser.mjs
