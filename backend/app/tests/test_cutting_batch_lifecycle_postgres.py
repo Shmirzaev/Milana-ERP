@@ -59,6 +59,23 @@ def test_postgres_delete_and_edit_reject_concurrent_then_committed_sewing(passwo
         assert not db.query(CuttingRecord).filter_by(production_batch_id=batch_id).count()
 
 
+@pytest.mark.parametrize("legacy", [False, True])
+def test_postgres_progress_preserves_output_without_bundles(password_change_postgres_sessions, legacy):
+    sessions, _ = password_change_postgres_sessions
+    actor_id, cutting_id, sewing_id, batch_id = _fixture(sessions)
+    with sessions.begin() as db:
+        db.add(SewingRecord(
+            work_order_id=sewing_id, production_batch_id=None if legacy else batch_id,
+            input_qty=1, sewn_qty=1, passed_qty=1,
+        ))
+    with sessions() as db:
+        result = production.cutting_batch_progress(cutting_id, db, db.get(User, actor_id))
+        row = next(item for item in result["items"] if item["id"] == batch_id)
+        assert row["bundle_count"] == 0
+        assert row["sewing_output_recorded"] is True
+        assert row["deletable"] is False
+
+
 def test_postgres_delete_returns_consumption_once_with_audit(password_change_postgres_sessions):
     from app.models import AuditLog, CuttingMaterialUsage, Item, StockBatch, StockMovement, Warehouse
     sessions, _ = password_change_postgres_sessions

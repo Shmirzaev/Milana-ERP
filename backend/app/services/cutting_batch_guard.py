@@ -1,7 +1,7 @@
 """Authoritative batch freeze once Sewing has saved output."""
 
 from fastapi import HTTPException
-from sqlalchemy import or_
+from sqlalchemy import or_, select, union_all
 from sqlalchemy.exc import OperationalError
 
 from app.models import SewingAssignment, SewingDailyReport, SewingRecord, WorkOrder
@@ -10,13 +10,12 @@ from app.models import SewingAssignment, SewingDailyReport, SewingRecord, WorkOr
 LOCKED_MESSAGE = "This cutting batch cannot be edited or deleted after Sewing output has been recorded"
 
 
-def sewing_output_batch_ids(db, production_order_id):
-    """None denotes legacy output that cannot safely be attributed to one batch."""
-    from sqlalchemy import select, union_all
+def sewing_output_batch_query(production_order_id):
+    """Composable evidence query; NULL denotes unattributed legacy output."""
     work_ids = select(WorkOrder.id).where(
         WorkOrder.production_order_id == production_order_id, WorkOrder.operation == "sewing",
     )
-    rows = db.execute(union_all(
+    return union_all(
         select(SewingRecord.production_batch_id).where(SewingRecord.work_order_id.in_(work_ids)),
         select(SewingDailyReport.production_batch_id).where(
             SewingDailyReport.production_order_id == production_order_id, SewingDailyReport.sewn_qty > 0,
@@ -29,7 +28,12 @@ def sewing_output_batch_ids(db, production_order_id):
             or_(WorkOrder.actual_output_qty > 0, WorkOrder.passed_qty > 0, WorkOrder.failed_qty > 0),
             ~select(SewingRecord.id).where(SewingRecord.work_order_id == WorkOrder.id).exists(),
         ),
-    ))
+    )
+
+
+def sewing_output_batch_ids(db, production_order_id):
+    """None denotes legacy output that cannot safely be attributed to one batch."""
+    rows = db.execute(sewing_output_batch_query(production_order_id))
     return {row[0] for row in rows}
 
 

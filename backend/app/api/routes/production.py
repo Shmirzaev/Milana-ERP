@@ -99,7 +99,7 @@ from app.services.model_identity import model_number_fields
 from app.services.model_images import material_preview_image_url, model_preview_image_url
 from app.services.cutting_sheet import render_cutting_sheet_html
 from app.services.passport_nastil import pending_work_order_passport_batches
-from app.services.cutting_batch_guard import require_cutting_batch_mutable, sewing_output_batch_ids
+from app.services.cutting_batch_guard import require_cutting_batch_mutable, sewing_output_batch_query
 from app.services.factory_scope import require_factory_access, selected_factory_code, factory_for_department
 from app.services.factory_scope import require_work_order_factory_access
 
@@ -2551,21 +2551,22 @@ def cutting_batch_progress(wid: int, db: DbSession, _: User = Depends(require_pe
             "recorded_bundled_quantity": int(bundled_quantity_sum or 0),
         }
 
-    live_bundle_counts = {
-        int(batch_id): int(bundle_count or 0)
-        for batch_id, bundle_count in (
-            db.query(Bundle.production_batch_id, func.count(Bundle.id))
-            .filter(
-                Bundle.production_order_id == po.id,
-                Bundle.production_batch_id.is_not(None),
-            )
-            .group_by(Bundle.production_batch_id)
-            .all()
-        )
-        if batch_id is not None
-    }
-
-    locked_batches = sewing_output_batch_ids(db, po.id)
+    # Read both kinds of batch evidence in one round trip. Keep legacy NULL
+    # Sewing evidence: it freezes every batch even if it has no live bundles.
+    sewing_output = sewing_output_batch_query(po.id).subquery()
+    evidence = db.execute(union_all(
+        select(Bundle.production_batch_id, func.count(Bundle.id), literal(False))
+        .where(Bundle.production_order_id == po.id, Bundle.production_batch_id.is_not(None))
+        .group_by(Bundle.production_batch_id),
+        select(sewing_output.c.production_batch_id, literal(0), literal(True)),
+    ))
+    live_bundle_counts = {}
+    locked_batches = set()
+    for batch_id, bundle_count, has_sewing_output in evidence:
+        if has_sewing_output:
+            locked_batches.add(batch_id)
+        elif batch_id is not None:
+            live_bundle_counts[int(batch_id)] = int(bundle_count or 0)
     items = []
     for b in batches:
         locked = None in locked_batches or b.id in locked_batches
