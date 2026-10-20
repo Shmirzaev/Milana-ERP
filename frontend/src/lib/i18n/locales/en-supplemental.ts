@@ -194,7 +194,7 @@ export default {
     "passportMaterial.loadError": "Could not load fabric batches. Try again.",
     "passportMaterial.amountRequired": "Select a fabric batch and enter a positive quantity.",
     "passportMaterial.duplicate": "This fabric batch is already in the passport.",
-    "passportMaterial.openOrderOnly": "Materials can only be added to an open Cutting order.",
+    "passportMaterial.openOrderOnly": "Materials can be added before Sewing output is recorded, while the production order is active.",
     "cuttingUsage.title": "Cutting fabric usage",
     "cuttingUsage.description": "Actual warehouse fabric consumed by Cutting. Planned allocations and customer-supplied fabrics without stock movements are excluded.",
     "cuttingUsage.search": "Search",

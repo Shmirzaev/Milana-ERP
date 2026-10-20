@@ -194,7 +194,7 @@ export default {
     "passportMaterial.loadError": "Не удалось загрузить партии ткани. Повторите попытку.",
     "passportMaterial.amountRequired": "Выберите партию ткани и укажите количество больше нуля.",
     "passportMaterial.duplicate": "Эта партия ткани уже есть в паспорте.",
-    "passportMaterial.openOrderOnly": "Материал можно добавить только в открытый заказ раскроя.",
+    "passportMaterial.openOrderOnly": "Материалы можно добавить до внесения выпуска пошива, пока производственный заказ открыт.",
     "cuttingUsage.title": "Расход ткани на раскрой",
     "cuttingUsage.description": "Фактический расход складской ткани на раскрой. Плановые резервы и давальческие ткани без складских движений не включены.",
     "cuttingUsage.search": "Поиск",

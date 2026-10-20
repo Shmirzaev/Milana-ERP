@@ -277,8 +277,8 @@ def test_cutting_bundle_adjustment_reuses_one_scoped_evidence_read(scope_count):
     assert result["total_bundled_quantity"] == 11
     assert result["bundles"][0]["color"] == "navy"
     assert all(int(row.planned_input_qty) == int(row.planned_output_qty) for row in rows)
-    assert len(statements) == 30
-    assert sum(" union all " in statement for statement in statements) == 1
+    assert len(statements) == 32  # Fixed-cost Sewing lock and evidence query.
+    assert sum(" union all " in statement for statement in statements) == 2
 
 
 def test_cutting_bundle_adjustment_downstream_rejection_rolls_back():
@@ -314,7 +314,7 @@ def test_cutting_bundle_adjustment_downstream_rejection_rolls_back():
         db.commit()
 
         current = db.query(User).order_by(User.id.asc()).first()
-        with pytest.raises(HTTPException, match=r"downstream output \(20\)"):
+        with pytest.raises(HTTPException, match="Sewing output"):
             production_routes.update_cutting_bundle_quantities(
                 record_id,
                 production_routes.CuttingBundleQuantityUpdateIn(

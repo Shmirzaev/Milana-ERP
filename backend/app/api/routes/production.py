@@ -99,6 +99,7 @@ from app.services.model_identity import model_number_fields
 from app.services.model_images import material_preview_image_url, model_preview_image_url
 from app.services.cutting_sheet import render_cutting_sheet_html
 from app.services.passport_nastil import pending_work_order_passport_batches
+from app.services.cutting_batch_guard import require_cutting_batch_mutable, sewing_output_batch_ids
 from app.services.factory_scope import require_factory_access, selected_factory_code, factory_for_department
 from app.services.factory_scope import require_work_order_factory_access
 
@@ -2259,6 +2260,23 @@ def add_extra_cutting_batch(
     }
 
 
+@router.delete("/work-orders/{wid}/batches/{batch_id}")
+def remove_cutting_batch(
+    wid: int,
+    batch_id: int,
+    db: DbSession,
+    current: User = Depends(require_permissions("cutting.records", "*")),
+):
+    wo = db.query(WorkOrder).filter_by(id=wid).with_for_update(of=WorkOrder).first()
+    if not wo or wo.operation != "cutting":
+        raise HTTPException(404, "Cutting work order not found")
+    require_work_order_factory_access(current, db, wo)
+    from app.services.cutting_batch_delete import delete_cutting_batch
+    result = delete_cutting_batch(db, wo, batch_id, current)
+    db.commit()
+    return result
+
+
 @router.patch("/work-orders/{wid}/batches/{batch_id}")
 def update_cutting_batch(
     wid: int,
@@ -2278,6 +2296,7 @@ def update_cutting_batch(
 
     from app.services.factory_scope import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
+    require_cutting_batch_mutable(db, wo, batch_id)
     source_type = db.query(ProductionOrder.source_type).filter(ProductionOrder.id == wo.production_order_id).scalar()
     if source_type != "usluga":
         return _update_standard_cutting_batch(db, current, wo, batch_id, payload)
@@ -2546,8 +2565,10 @@ def cutting_batch_progress(wid: int, db: DbSession, _: User = Depends(require_pe
         if batch_id is not None
     }
 
+    locked_batches = sewing_output_batch_ids(db, po.id)
     items = []
     for b in batches:
+        locked = None in locked_batches or b.id in locked_batches
         totals = totals_by_batch.get(int(b.id), {})
         passed = int(totals.get("passed_pieces", 0))
         defective = int(totals.get("defective_pieces", 0))
@@ -2572,9 +2593,11 @@ def cutting_batch_progress(wid: int, db: DbSession, _: User = Depends(require_pe
             "remaining_quantity": max(0, planned - processed),
             "progress_pct": round((100.0 * processed / planned), 1) if planned > 0 else 0.0,
             "bundle_count": live_bundle_count,
-            "name_editable": True,
-            "quantity_editable": bool(po.source_type != "usluga" or not has_bundle_evidence),
-            "editable": bool(po.source_type != "usluga" or not has_bundle_evidence),
+            "name_editable": not locked,
+            "sewing_output_recorded": locked,
+            "deletable": not locked,
+            "quantity_editable": bool(not locked and (po.source_type != "usluga" or not has_bundle_evidence)),
+            "editable": bool(not locked and (po.source_type != "usluga" or not has_bundle_evidence)),
             "start_date": b.start_date,
             "deadline": b.deadline,
             "notes": b.notes,
@@ -3228,6 +3251,7 @@ def update_usluga_report_pieces(
         raise HTTPException(409, "Report-only pieces can be edited only for secondary Usluga fabric")
     from app.services.factory_scope import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
+    require_cutting_batch_mutable(db, wo, rec.production_batch_id)
 
     old_count = int(rec.report_piece_count or 0)
     rec.report_piece_count = int(payload.report_piece_count)
@@ -3261,6 +3285,7 @@ def update_usluga_bundle_size_counts(
         raise HTTPException(409, "Size counts can be edited only for a main Usluga cutting batch")
     from app.services.factory_scope import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
+    require_cutting_batch_mutable(db, wo, rec.production_batch_id)
 
     # Serialize with Sewing/Packaging submissions before reading their evidence.
     db.refresh(po, with_for_update=True)
@@ -3503,6 +3528,7 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
         payload.production_batch_id,
         operation_name="cutting",
     )
+    require_cutting_batch_mutable(db, wo, batch_id)
 
     bundle_specs = _parse_cutting_bundle_specs(payload.bundles or [])
     if po.source_type == "usluga":
@@ -3794,6 +3820,7 @@ def approve_usluga_cutting_batch(
         raise HTTPException(409, "This is not an Usluga material batch")
     from app.services.factory_scope import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
+    require_cutting_batch_mutable(db, wo, rec.production_batch_id)
     if rec.approval_status == "approved":
         return _usluga_cutting_record_payload(db, rec)
     if rec.approval_status == "rejected":
@@ -3878,6 +3905,7 @@ def reject_usluga_cutting_batch(
         raise HTTPException(409, "This is not an Usluga material batch")
     from app.services.factory_scope import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
+    require_cutting_batch_mutable(db, wo, rec.production_batch_id)
     if rec.approval_status == "approved":
         raise HTTPException(409, "Approved cutting batches cannot be rejected")
 
@@ -4016,6 +4044,7 @@ def update_cutting_record_details(
         raise HTTPException(400, "Cutting record is not attached to a cutting work order")
     from app.services.factory_scope import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
+    require_cutting_batch_mutable(db, wo, rec.production_batch_id)
 
     numeric_fields = ("layer_material_kg", "beika_kg", "material_rolls_used")
     for field in numeric_fields:
@@ -4820,6 +4849,7 @@ def update_cutting_bundle_quantities(
         raise HTTPException(400, "Cutting record is not attached to a cutting work order")
     from app.services.factory_scope import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
+    require_cutting_batch_mutable(db, wo, rec.production_batch_id)
     po = db.get(ProductionOrder, int(wo.production_order_id))
     is_usluga = bool(po and po.source_type == "usluga")
 

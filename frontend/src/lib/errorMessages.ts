@@ -21,6 +21,23 @@ export function systemLanguage(): Lang {
   return "en";
 }
 const messages: Record<string, [string, string]> = {
+  "This cutting batch cannot be edited or deleted after Sewing output has been recorded": ["После внесения выпуска пошива этот настил нельзя изменить или удалить.", "Tikuv natijasi kiritilgandan keyin bu nastilni o‘zgartirish yoki o‘chirish mumkin emas."],
+  "Sewing is being updated. Reload this batch and try again.": ["Сейчас сохраняется пошив. Обновите настил и повторите попытку.", "Tikuv ma’lumotlari saqlanmoqda. Nastilni yangilab, qayta urinib ko‘ring."],
+  "This production order is being updated. Reload the batch and try again.": ["Производственный заказ сейчас обновляется. Обновите настил и повторите попытку.", "Ishlab chiqarish buyurtmasi yangilanmoqda. Nastilni yangilab, qayta urinib ko‘ring."],
+  "Materials cannot be added to a closed or cancelled production order": ["Нельзя добавить материалы в закрытый или отменённый производственный заказ.", "Yopilgan yoki bekor qilingan ishlab chiqarish buyurtmasiga material qo‘shib bo‘lmaydi."],
+  "A batch cannot be deleted from a closed production order": ["Нельзя удалить настил из закрытого производственного заказа.", "Yopilgan ishlab chiqarish buyurtmasidan nastilni o‘chirib bo‘lmaydi."],
+  "This batch has linked production, payroll or packaging history and cannot be deleted": ["Настил связан с производством, зарплатой или упаковкой и не может быть удалён.", "Nastil ishlab chiqarish, ish haqi yoki qadoqlash tarixiga bog‘langan va uni o‘chirib bo‘lmaydi."],
+  "This batch has processing history that cannot be reversed by Cutting": ["Историю обработки этого настила нельзя отменить из раскроя.", "Bu nastilning ishlov berish tarixini bichish bo‘limidan bekor qilib bo‘lmaydi."],
+  "Sewing receipt totals need review before deleting this batch": ["Перед удалением проверьте количество, принятое пошивом.", "Nastilni o‘chirishdan oldin tikuvga qabul qilingan miqdorni tekshiring."],
+  "Unallocated downstream history must be reviewed before deleting this batch": ["Перед удалением проверьте записи следующих этапов без указания настила.", "O‘chirishdan oldin nastili ko‘rsatilmagan keyingi bosqich yozuvlarini tekshiring."],
+  "Fabric movement history needs review before deleting this batch": ["Перед удалением проверьте историю движения ткани.", "Nastilni o‘chirishdan oldin mato harakati tarixini tekshiring."],
+  "Fabric usage does not match stock movements; review this batch before deletion": ["Расход ткани не совпадает со складскими движениями. Проверьте настил перед удалением.", "Mato sarfi ombor harakatlariga mos emas. O‘chirishdan oldin nastilni tekshiring."],
+  "The consumed fabric identity or warehouse has changed": ["Данные израсходованной ткани или её склад изменились.", "Sarflangan mato ma’lumotlari yoki uning ombori o‘zgargan."],
+  "Fabric reservation allocation is ambiguous; review it before batch deletion": ["Распределение резерва ткани неоднозначно. Проверьте его перед удалением настила.", "Mato bandi taqsimoti noaniq. Nastilni o‘chirishdan oldin uni tekshiring."],
+  "Fabric reservation does not match the recorded consumption": ["Резерв ткани не совпадает с записанным расходом.", "Mato bandi qayd etilgan sarfga mos emas."],
+  "Waste history cannot be attributed uniquely to this cutting record": ["Нельзя однозначно связать отходы с этой записью раскроя.", "Chiqindi tarixini aynan shu bichish yozuviga bog‘lab bo‘lmaydi."],
+  "Waste history needs review before deleting this cutting batch": ["Перед удалением настила проверьте историю отходов.", "Nastilni o‘chirishdan oldin chiqindi tarixini tekshiring."],
+  "Sold waste cannot be reversed": ["Нельзя отменить проданные отходы.", "Sotilgan chiqindini bekor qilib bo‘lmaydi."],
   "Packaging still has unfinished quantities. Continue packaging the remaining nastils.": ["Осталось незавершённое количество. Продолжите упаковку остальных настилов.", "Qadoqlanmagan miqdor qolgan. Qolgan nastillarni qadoqlashni davom ettiring."],
   "Package batch evidence does not match its quantity": ["Данные партий не совпадают с количеством в упаковке.", "Partiya ma’lumotlari qadoq miqdoriga mos emas."],
   "Packaging output cannot be reset without affecting other packages": ["Нельзя отменить это количество: оно связано с другими упаковками. Проверьте записи упаковки.", "Bu miqdorni bekor qilish boshqa qadoqlarga ta’sir qiladi. Qadoqlash yozuvlarini tekshiring."],

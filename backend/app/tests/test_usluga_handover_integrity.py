@@ -179,6 +179,18 @@ def usluga_postgres_sessions():
         connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
     try:
         Base.metadata.create_all(engine)
+        # Model-family reads use migration-owned generated columns, not ORM DDL.
+        import importlib.util
+        from pathlib import Path
+        from alembic.migration import MigrationContext
+        from alembic.operations import Operations
+        path = Path(__file__).resolve().parents[2] / "alembic" / "versions" / "0084_model_group_key.py"
+        spec = importlib.util.spec_from_file_location("handover_model_family_migration", path)
+        migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(migration)
+        with engine.begin() as connection:
+            migration.op = Operations(MigrationContext.configure(connection))
+            migration.upgrade()
         yield sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)
     finally:
         with engine.begin() as connection:

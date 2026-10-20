@@ -16,6 +16,7 @@ from app.models.catalog import Model as CatalogModel, ModelImage
 from app.models.sales import SalesOrder
 from app.models import ProductionOrderMaterial, MaterialReservation
 from app.services.inventory import create_material_reservations
+from app.services.cutting_batch_guard import require_cutting_batch_mutable, sewing_output_batch_ids
 from app.services.factory_scope import require_work_order_factory_access
 from app.schemas.cutting_passport import CuttingOperatorOut, CuttingPassportIn, CuttingPassportOut
 from app.services.audit import log_action
@@ -311,6 +312,7 @@ def _passport_defaults_payload(
     batch: StockBatch | None,
     has_print: bool | None = None,
     sizes: list[str] | None = None,
+    can_add_material: bool | None = None,
 ) -> dict:
     model_no, variant_no = _model_code_parts(model)
     if has_print is None:
@@ -326,9 +328,11 @@ def _passport_defaults_payload(
         else None
     )
     sizes = _size_options(db, po, model) if sizes is None else list(sizes)
+    if can_add_material is None:
+        can_add_material = po.source_type != "usluga" and po.status not in {"completed", "cancelled", "rejected"} and not sewing_output_batch_ids(db, po.id)
     return {
         "source_type": po.source_type,
-        "can_add_material": po.source_type != "usluga" and po.status not in {"completed", "cancelled"},
+        "can_add_material": can_add_material,
         "production_order_id": int(po.id),
         "production_order_no": po.production_no,
         "order_no": po.order_no,
@@ -369,6 +373,10 @@ def material_defaults(
 ):
     po, work_order = _passport_order(db, production_order_id, current)
     model = db.get(CatalogModel, po.model_id, options=[joinedload(CatalogModel.sizes)])
+    can_add_material = (po.source_type != "usluga"
+                        and po.status not in {"completed", "cancelled", "rejected"}
+                        and work_order.status not in {"cancelled", "rejected"}
+                        and not sewing_output_batch_ids(db, po.id))
 
     if po.materials:
         materials = sorted(po.materials, key=lambda row: row.position)
@@ -389,7 +397,7 @@ def material_defaults(
             item = batch.item if batch else None
             row = _passport_defaults_payload(
                 db=db, po=po, model=model, item=item, batch=batch,
-                has_print=has_print, sizes=sizes,
+                has_print=has_print, sizes=sizes, can_add_material=can_add_material,
             )
             row["stock_batch_id"] = material.stock_batch_id
             row["planned_kg"] = float(material.estimated_quantity) if material.unit.lower() == "kg" else None
@@ -399,7 +407,7 @@ def material_defaults(
     if po.fabric_batch_id:
         batch = db.get(StockBatch, po.fabric_batch_id)
         item = db.get(Item, batch.item_id) if batch else None
-        row = _passport_defaults_payload(db=db, po=po, model=model, item=item, batch=batch)
+        row = _passport_defaults_payload(db=db, po=po, model=model, item=item, batch=batch, can_add_material=can_add_material)
         row["stock_batch_id"] = po.fabric_batch_id
         return {**row, "materials": [row]}
 
@@ -414,7 +422,7 @@ def material_defaults(
         .all()
     )
     if not bom_rows:
-        return _passport_defaults_payload(db=db, po=po, model=model, item=None, batch=None)
+        return _passport_defaults_payload(db=db, po=po, model=model, item=None, batch=None, can_add_material=can_add_material)
 
     item_priority = {int(bom.item_id): idx for idx, (bom, _) in enumerate(bom_rows)}
     item_ids = sorted(item_priority.keys())
@@ -431,7 +439,7 @@ def material_defaults(
     )
     if not candidates:
         bom, item = bom_rows[0]
-        return _passport_defaults_payload(db=db, po=po, model=model, item=item, batch=None)
+        return _passport_defaults_payload(db=db, po=po, model=model, item=item, batch=None, can_add_material=can_add_material)
 
     order_refs = _order_reference_set(po)
 
@@ -443,7 +451,7 @@ def material_defaults(
         return (order_match, item_priority.get(int(batch.item_id), 999), has_gramage, -int(batch.id))
 
     batch, item = min(candidates, key=score)
-    return _passport_defaults_payload(db=db, po=po, model=model, item=item, batch=batch)
+    return _passport_defaults_payload(db=db, po=po, model=model, item=item, batch=batch, can_add_material=can_add_material)
 
 
 @router.get("/operators", response_model=list[CuttingOperatorOut])
@@ -636,8 +644,9 @@ def _add_passport_materials(db, order, work_order, payload, current):
         return
     if order.source_type == "usluga":
         raise HTTPException(400, "Customer-supplied fabrics cannot reserve warehouse stock")
-    if order.status in {"completed", "cancelled"} or work_order.status in {"completed", "cancelled"}:
-        raise HTTPException(409, "Materials can only be added while Cutting is open")
+    if order.status in {"completed", "cancelled", "rejected"} or work_order.status in {"cancelled", "rejected"}:
+        raise HTTPException(409, "Materials cannot be added to a closed or cancelled production order")
+    require_cutting_batch_mutable(db, work_order, None)
     ids = [row.stock_batch_id for row in payload.additional_materials]
     passport_ids = [row.stock_batch_id for row in payload.materials]
     if len(ids) != len(set(ids)) or not set(ids).issubset(passport_ids):
@@ -801,6 +810,9 @@ def update_passport(
         # Joined optional order/operator relationships must not be locked by PostgreSQL.
         db.refresh(p, with_for_update={"of": CuttingPassport})
     linked_batch = db.query(ProductionBatch).filter_by(cutting_passport_id=p.id).first()
+    if p.production_order_id:
+        _, cutting_work = _passport_order(db, p.production_order_id, current)
+        require_cutting_batch_mutable(db, cutting_work, linked_batch.id if linked_batch else None)
     used = db.query(CuttingRecord.id).filter(CuttingRecord.cutting_passport_id == p.id).first()
     if payload.production_order_id != p.production_order_id and (used or linked_batch):
         raise HTTPException(409, "A passport used by Cutting cannot be moved to another order")
@@ -810,7 +822,7 @@ def update_passport(
     if used:
         old_modes = {row["stock_batch_id"]: bool(row.get("meter_mode")) for row in (p.materials or [])}
         new_modes = {row["stock_batch_id"]: bool(row.get("meter_mode")) for row in values.get("materials", [])}
-        if values["meter_mode"] != p.meter_mode or old_modes != new_modes:
+        if values["meter_mode"] != p.meter_mode or any(new_modes.get(key) != mode for key, mode in old_modes.items()):
             raise HTTPException(409, "The material unit is locked after cutting records have been created")
     for k, v in values.items():
         setattr(p, k, v)
@@ -836,6 +848,8 @@ def delete_passport(
         raise HTTPException(409, "This passport is used by a cutting batch and cannot be deleted")
     batch = db.query(ProductionBatch).filter_by(cutting_passport_id=p.id).first()
     if batch:
+        _, cutting_work = _passport_order(db, p.production_order_id, current)
+        require_cutting_batch_mutable(db, cutting_work, batch.id)
         if db.query(CuttingRecord.id).filter_by(production_batch_id=batch.id).first() or db.query(Bundle.id).filter_by(production_batch_id=batch.id).first():
             raise HTTPException(409, "This passport Nastil already has cutting records and cannot be deleted")
         batch.cutting_passport_id = None

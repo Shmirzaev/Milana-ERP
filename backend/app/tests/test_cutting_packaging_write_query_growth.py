@@ -360,7 +360,7 @@ def test_cutting_record_complete_bundle_query_growth(
     number_suffixes = [int(row["bundle_no"].rsplit("-", 1)[-1]) for row in bundles]
     assert number_suffixes == list(range(number_suffixes[0], number_suffixes[0] + bundle_count))
     counts = _table_select_counts(statements)
-    assert len(statements) == 39
+    assert len(statements) == 41  # Fixed-cost Sewing lock and output evidence.
     assert counts["departments"] == 6
     assert counts["business_order_aliases"] == 1
     print(
@@ -412,7 +412,7 @@ def test_cutting_record_complete_material_query_growth(
     assert response.status_code == 201, response.text
     assert [row["stock_batch_id"] for row in response.json()["materials"]] == batch_ids
     counts = _table_select_counts(statements)
-    assert len(statements) == 28
+    assert len(statements) == 30  # Fixed-cost Sewing lock and output evidence.
     assert counts["material_reservations"] == 1
     assert counts["stock_batches"] == 2
     assert counts["items"] == 2
@@ -678,7 +678,7 @@ def test_usluga_rejection_batches_complete_scan_log_reads(client, bundle_count):
 
     assert response.status_code == 200, response.text
     assert response.json()["deleted_bundle_count"] == bundle_count
-    assert len(statements) == 18
+    assert len(statements) == 20  # Fixed-cost Sewing lock and output evidence.
     scan_log_reads = [statement for statement in statements if "bundle_scan_logs" in statement]
     assert len(scan_log_reads) == 1
     with TestSessionLocal() as db:

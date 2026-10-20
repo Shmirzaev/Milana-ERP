@@ -131,7 +131,20 @@ def test_cutting_passport_adds_missing_material_atomically(client, auth_headers)
         db.get(WorkOrder, cutting["id"]).status = "completed"
         db.commit()
     extra = {**payload, "materials": payload["materials"] + [{"stock_batch_id": batches[2]["id"]}], "additional_materials": [{"stock_batch_id": batches[2]["id"], "estimated_quantity": 1, "unit": "kg"}]}
+    assert client.patch(f"/api/cutting-passports/{passport_id}", headers=cutting_headers, json=extra).status_code == 200
+    with SessionLocal() as db:
+        from app.models import SewingRecord
+        sewing = db.query(WorkOrder).filter_by(production_order_id=order["id"], operation="sewing").one()
+        output = SewingRecord(work_order_id=sewing.id, production_batch_id=saved.json()["production_batch_id"], input_qty=1, sewn_qty=1, passed_qty=1)
+        db.add(output)
+        db.commit()
+        output_id = output.id
     assert client.patch(f"/api/cutting-passports/{passport_id}", headers=cutting_headers, json=extra).status_code == 409
+    defaults = client.get(f"/api/cutting-passports/material-defaults?production_order_id={order['id']}", headers=cutting_headers)
+    assert not defaults.json()["can_add_material"]
+    with SessionLocal() as db:
+        db.delete(db.get(SewingRecord, output_id))
+        db.commit()
     with SessionLocal() as db:
         db.get(WorkOrder, cutting["id"]).status = "in_progress"
         db.get(ProductionOrder, order["id"]).source_type = "usluga"

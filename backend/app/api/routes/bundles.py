@@ -1106,6 +1106,12 @@ def accept_sewing_batch(
 
 @router.post("", response_model=BundleOut, status_code=201)
 def create_bundle_api(payload: BundleIn, db: DbSession, current: User = Depends(require_permissions("cutting.bundles", "*"))):
+    cutting = db.query(WorkOrder).filter_by(production_order_id=payload.production_order_id, operation="cutting").first()
+    if cutting:
+        from app.services.factory_scope import require_work_order_factory_access
+        from app.services.cutting_batch_guard import require_cutting_batch_mutable
+        require_work_order_factory_access(current, db, cutting)
+        require_cutting_batch_mutable(db, cutting, payload.production_batch_id)
     b = create_bundle(
         db,
         production_order_id=payload.production_order_id,
@@ -1157,6 +1163,13 @@ def delete_own_created_bundle(
     b = db.query(Bundle).filter(Bundle.id == bid).with_for_update().first()
     if not b:
         raise HTTPException(404, "Bundle not found")
+
+    cutting = db.query(WorkOrder).filter_by(production_order_id=b.production_order_id, operation="cutting").first()
+    if cutting:
+        from app.services.factory_scope import require_work_order_factory_access
+        from app.services.cutting_batch_guard import require_cutting_batch_mutable
+        require_work_order_factory_access(current, db, cutting)
+        require_cutting_batch_mutable(db, cutting, b.production_batch_id)
 
     permissions = set(user_permissions(current))
     if "*" not in permissions and int(b.created_by or 0) != int(current.id):

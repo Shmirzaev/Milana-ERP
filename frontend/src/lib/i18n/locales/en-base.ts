@@ -1,5 +1,9 @@
 // Generated mechanically from dict.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "batch.lockedAfterSewing": "Locked: Sewing output recorded",
+    "batch.deleteFailed": "Could not delete the batch.",
+    "batch.deleted": "Batch deleted and verified fabric consumption reversed.",
+    "batch.deleteConfirm": "Delete {name} and its cutting entries? Verified fabric consumption will be returned to inventory. Sewing output or linked payroll/packaging history blocks deletion.",
     "nav.physicalPrintRuns": "Physical print runs",
     "page.physicalPrintRuns.subtitle": "Review package print runs, reprint labels, and correct mistaken physical receipts.",
     "page.processQr.autoSizeSplit": "Unallocated Sewing output was split evenly across model sizes. Review and adjust before issuing. Recorded size quantities are preserved.",
@@ -1955,7 +1959,7 @@ export default {
     "batch.count": "{count} batch(es)",
     "batch.noDeadline": "No deadline",
     "batch.quantityGreaterThanZero": "Each batch quantity must be greater than zero.",
-    "batch.editBeforeBundles": "Batch names can be changed at any time. Quantity can be changed only before the first bundles are created.",
+    "batch.editBeforeBundles": "Batch edits are locked after Sewing output is recorded. Existing quantity and downstream-use checks also apply.",
     "batch.nameRequired": "Batch name is required.",
     "batch.planUpdated": "Batch updated.",
     "batch.lockedAfterBundles": "Quantity locked after bundles",

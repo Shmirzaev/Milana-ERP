@@ -5797,7 +5797,7 @@ def test_printing_work_starts_pending_until_collected(client, auth_headers):
     assert r.json()["start_time"] is not None
 
 
-def test_cutting_edits_after_sewing_start_reconcile_the_whole_workflow(client, auth_headers):
+def test_cutting_edits_reconcile_until_sewing_output_then_freeze(client, auth_headers):
     r = client.post(
         "/api/planning/create-branded-production",
         json={
@@ -5971,7 +5971,7 @@ def test_cutting_edits_after_sewing_start_reconcile_the_whole_workflow(client, a
         headers=auth_headers,
     )
     assert below_evidence.status_code == 409, below_evidence.text
-    assert "downstream output (610)" in below_evidence.text
+    assert "Sewing output" in below_evidence.text
 
     batch_below_evidence = client.patch(
         f"/api/work-orders/{cutting_wo['id']}/batches/{batch['id']}",
@@ -5979,7 +5979,7 @@ def test_cutting_edits_after_sewing_start_reconcile_the_whole_workflow(client, a
         headers=auth_headers,
     )
     assert batch_below_evidence.status_code == 409, batch_below_evidence.text
-    assert "workflow evidence (620)" in batch_below_evidence.text
+    assert "Sewing output" in batch_below_evidence.text
 
     identity_after_output = client.patch(
         f"/api/cutting/records/{record_id}/bundle-quantities",
@@ -5987,4 +5987,14 @@ def test_cutting_edits_after_sewing_start_reconcile_the_whole_workflow(client, a
         headers=auth_headers,
     )
     assert identity_after_output.status_code == 409, identity_after_output.text
-    assert "Color and size" in identity_after_output.text
+    assert "Sewing output" in identity_after_output.text
+
+    increase_after_output = client.patch(
+        f"/api/work-orders/{cutting_wo['id']}/batches/{batch['id']}",
+        json={"planned_quantity": 800, "name": "Cannot change"},
+        headers=auth_headers,
+    )
+    assert increase_after_output.status_code == 409, increase_after_output.text
+    unchanged = client.get(f"/api/production-orders/{po_id}", headers=auth_headers).json()
+    assert unchanged["batches"][0]["name"] == "Milana corrected batch"
+    assert unchanged["batches"][0]["planned_quantity"] == 700

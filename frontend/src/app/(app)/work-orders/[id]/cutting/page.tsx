@@ -1026,6 +1026,23 @@ export default function CuttingPage() {
     setBatchPlanEditErr("");
   }
 
+  async function deleteCuttingBatch(row: any) {
+    if (row.sewing_output_recorded || batchPlanEditBusy) return;
+    if (!window.confirm(t("batch.deleteConfirm", { name: row.name || row.batch_no }))) return;
+    setBatchPlanEditBusy(true);
+    setBatchPlanEditErr("");
+    try {
+      await api.del(`/api/work-orders/${id}/batches/${row.id}`);
+      setEditingBatchId(0);
+      await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles()]);
+      setDoneMsg(t("batch.deleted"));
+    } catch (error: any) {
+      setBatchPlanEditErr(error.message || t("batch.deleteFailed"));
+    } finally {
+      setBatchPlanEditBusy(false);
+    }
+  }
+
   async function saveBatchPlanEdit(row: any) {
     const batchId = Number(row?.id || 0);
     const quantityEditable = Boolean(row?.quantity_editable ?? row?.editable);
@@ -1588,7 +1605,16 @@ export default function CuttingPage() {
                               >
                                 {t("btn.edit")}
                               </button>
-                              {!quantityEditable && (
+                              {can(me, "cutting.records", "*") && (
+                                <button type="button" className="btn text-red-600"
+                                  disabled={batchPlanEditBusy || !row.deletable}
+                                  onClick={() => deleteCuttingBatch(row)}>
+                                  {t("btn.delete")}
+                                </button>
+                              )}
+                              {row.sewing_output_recorded ? (
+                                <span className="text-xs text-slate-500">{t("batch.lockedAfterSewing")}</span>
+                              ) : !quantityEditable && (
                                 <span className="text-xs text-slate-500">{t("batch.lockedAfterBundles")}</span>
                               )}
                             </div>
@@ -2468,8 +2494,9 @@ export default function CuttingPage() {
                   <tbody>
                     {visibleBundles.map((b) => {
                       const bundleId = Number(b?.id || 0);
-                      const canAdjust = canAdjustCuttingInventoryBundle(b);
-                      const canDelete = b?.status === "created" && Number(b?.created_by || 0) === Number(me?.id || 0);
+                      const outputLocked = batchItems.some((row: any) => Number(row.id) === Number(b.production_batch_id) && row.sewing_output_recorded);
+                      const canAdjust = !outputLocked && canAdjustCuttingInventoryBundle(b);
+                      const canDelete = !outputLocked && b?.status === "created" && Number(b?.created_by || 0) === Number(me?.id || 0);
                       const isAdjusting = adjustingBundle?.bundleId === bundleId;
                       return (
                         <tr key={b.id}>

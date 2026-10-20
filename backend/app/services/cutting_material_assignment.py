@@ -16,6 +16,8 @@ def replace_cutting_material_batch(db, current, work_order_id, old_batch_id, new
     if not wo:
         raise HTTPException(404, "Work order not found")
     require_work_order_factory_access(current, db, wo)
+    from app.services.cutting_batch_guard import require_cutting_batch_mutable
+    require_cutting_batch_mutable(db, wo, None)
     if wo.operation != "cutting":
         raise HTTPException(400, "Work order is not a cutting operation")
     # Serialize with Cutting submission and passport material additions.

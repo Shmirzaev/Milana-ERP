@@ -19,7 +19,7 @@ from app.db.base import Base
 from app.models import (
     AuditLog, CuttingMaterialUsage, CuttingRecord, Item, ManualAccessoryIssue, MaterialReservation, Model, ModelBOM,
     PackagingRecord, PrintingRecord, ProductionOrder, ProductionOrderItem, ProductionOrderMaterial,
-    SewingRecord, StockBatch, StockMovement, Warehouse, WasteRecord, WorkOrder,
+    SewingAssignment, SewingDailyReport, SewingRecord, StockBatch, StockMovement, Warehouse, WasteRecord, WorkOrder,
 )
 from app.models.eco_transfer import EcoFabricRoll
 from app.schemas.cutting_passport import CuttingPassportIn
@@ -77,7 +77,7 @@ def _add_passport_materials(db, ids, payload):
         ProductionOrder.id == ids["orders"][0],
     ).with_for_update(of=ProductionOrder).one()
     cutting_passports._add_passport_materials(
-        db, order, SimpleNamespace(status="in_progress"), payload, SimpleNamespace(id=None),
+        db, order, SimpleNamespace(status="in_progress", production_order_id=order.id), payload, SimpleNamespace(id=None),
     )
 
 
@@ -249,6 +249,7 @@ def reservation_postgres_engine():
             MaterialReservation.__table__, StockBatch.__table__, StockMovement.__table__, ProductionOrderMaterial.__table__,
             AuditLog.__table__, ModelBOM.__table__, ProductionOrderItem.__table__, ManualAccessoryIssue.__table__,
             WorkOrder.__table__, CuttingRecord.__table__, PrintingRecord.__table__, SewingRecord.__table__,
+            SewingDailyReport.__table__, SewingAssignment.__table__,
             PackagingRecord.__table__, EcoFabricRoll.__table__, CuttingMaterialUsage.__table__, WasteRecord.__table__,
         }
         pending = list(tables)
@@ -533,7 +534,7 @@ def test_postgres_cutting_addition_reads_and_write_transfers_are_batched(
     reservation_inserts = [sql for sql in statements if sql.startswith("insert into material_reservations")]
     material_inserts = [sql for sql in statements if sql.startswith("insert into production_order_materials")]
     audit_inserts = [sql for sql in statements if sql.startswith("insert into audit_logs")]
-    assert len(selects) == 15
+    assert len(selects) == 17  # Fixed-cost Sewing lock and output evidence.
     assert len(reservation_inserts) == 1
     assert len(material_inserts) == 1
     assert len(audit_inserts) == 1

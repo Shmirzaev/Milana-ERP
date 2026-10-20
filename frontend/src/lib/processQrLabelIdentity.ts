@@ -109,10 +109,16 @@ export function issuedOperationToken(label: IssuedOperationIdentity): string | n
 
 const normalized = (value: string | null | undefined) => String(value || "").trim().toLocaleLowerCase();
 function sameOperation(operation: OperationLabelIdentity, label: IssuedOperationIdentity, operations: OperationLabelIdentity[]): boolean {
+  const sameNameAndCode = operations.filter((candidate) => (
+    normalized(candidate.code) === normalized(operation.code)
+    && normalized(candidate.name) === normalized(operation.name)
+  ));
   return (
     normalized(operation.code) === normalized(label.operation_code)
     && normalized(operation.name) === normalized(label.operation_name)
-    && (!operation.section || normalized(operation.section) === normalized(label.operation_section))
+    // Moving a uniquely identified operation between sections does not create
+    // another payable operation. Keep the issued QR and its original section.
+    && (sameNameAndCode.length === 1 || !operation.section || normalized(operation.section) === normalized(label.operation_section))
     && (operations.filter((candidate) => normalized(candidate.code) === normalized(operation.code)
       && normalized(candidate.name) === normalized(operation.name)
       && normalized(candidate.section) === normalized(operation.section)).length < 2

@@ -194,7 +194,7 @@ export default {
     "passportMaterial.loadError": "Mato partiyalarini yuklab bo‘lmadi. Qayta urinib ko‘ring.",
     "passportMaterial.amountRequired": "Mato partiyasini tanlang va noldan katta miqdor kiriting.",
     "passportMaterial.duplicate": "Bu mato partiyasi pasportda mavjud.",
-    "passportMaterial.openOrderOnly": "Mato faqat ochiq bichish buyurtmasiga qo‘shiladi.",
+    "passportMaterial.openOrderOnly": "Ishlab chiqarish buyurtmasi ochiq bo'lsa, tikuv natijasi kiritilguncha material qo'shish mumkin.",
     "cuttingUsage.title": "Bichuvda ishlatilgan matolar",
     "cuttingUsage.description": "Bichuvda ombordan amalda sarflangan matolar. Rejadagi ajratmalar va ombor harakatisiz buyurtmachi matolari kiritilmagan.",
     "cuttingUsage.search": "Qidirish",

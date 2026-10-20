@@ -1,5 +1,9 @@
 // Generated mechanically from dict.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "batch.lockedAfterSewing": "Qulflangan: tikuv natijasi kiritilgan",
+    "batch.deleteFailed": "Partiyani o'chirib bo'lmadi.",
+    "batch.deleted": "Partiya o'chirildi va tasdiqlangan mato sarfi bekor qilindi.",
+    "batch.deleteConfirm": "{name} va bichish yozuvlari o'chirilsinmi? Tasdiqlangan mato sarfi omborga qaytariladi. Tikuv natijasi yoki bog'langan ish haqi/qadoqlash yozuvlari bo'lsa o'chirib bo'lmaydi.",
     "nav.physicalPrintRuns": "Qadoqlarni chop etish guruhlari",
     "page.physicalPrintRuns.subtitle": "Chop etish guruhlarini ko‘ring, yorliqlarni qayta chop eting va xato haqiqiy qabullarni tuzating.",
     "page.processQr.autoSizeSplit": "O‘lchamlarga ajratilmagan tikuv miqdori model o‘lchamlariga teng taqsimlandi. Yorliqlarni chiqarishdan oldin tekshiring va tuzating. Avval kiritilgan o‘lcham miqdorlari saqlanadi.",
@@ -1829,7 +1833,7 @@ export default {
     "batch.count": "{count} ta partiya",
     "batch.noDeadline": "Muddat yo'q",
     "batch.quantityGreaterThanZero": "Har bir partiya miqdori noldan katta bo'lishi kerak.",
-    "batch.editBeforeBundles": "Partiya nomini istalgan vaqtda o'zgartirish mumkin. Miqdorni faqat birinchi bog'lamalar yaratilishidan oldin o'zgartirish mumkin.",
+    "batch.editBeforeBundles": "Tikuv natijasi kiritilgach partiya tahrirlanmaydi. Miqdor va keyingi bosqichlarda foydalanish tekshiruvlari saqlanadi.",
     "batch.nameRequired": "Partiya nomini kiriting.",
     "batch.planUpdated": "Partiya yangilandi.",
     "batch.lockedAfterBundles": "Bog'lamalar yaratilgach miqdor qulflanadi",
