@@ -17,7 +17,7 @@ const namedSizes = ast.statements.find(node => ts.isVariableStatement(node)
 const section = source.slice(source.indexOf("<section ref={issuedLabelsSectionRef}"), source.indexOf("<Modal", source.indexOf("<section ref={issuedLabelsSectionRef}")));
 const entry = `
 import React from "react"; import {createRoot} from "react-dom/client";
-import {RefreshCw,Printer,Trash2} from "lucide-react";
+import {RefreshCw,Printer,Trash2,ChevronDown} from "lucide-react";
 import en from "./src/lib/i18n/locales/en-supplemental";
 import ru from "./src/lib/i18n/locales/ru-supplemental";
 import uz from "./src/lib/i18n/locales/uz-supplemental";
@@ -32,12 +32,13 @@ const activeIssuedLabels=[2,1].flatMap(batch=>["128","122"].flatMap(size=>[2,1].
  return {id,factory_code:"MIL",production_order_id:420,production_batch_id:batch,batch_no:"0420-0"+batch,size,status:"available",copy_index:1,operation_name:"Process "+op};
 })));
 const orderedIssuedLabels=[...activeIssuedLabels].sort((a,b)=>compareIssuedLabelOrder(a,b,issuedSizeOrder,issuedOperationNumbers));
-const issuedLabelsByBatch=groupIssuedLabelsByBatch(orderedIssuedLabels),editedIssuedLabels=[];
+const issuedLabelsByBatch=groupIssuedLabelsByBatch(orderedIssuedLabels,[1,2].map(id=>({batchId:id,name:"Nastil "+id}))),editedIssuedLabels=[];
 const printIssuedLabels=rows=>{window.printed=rows.map(row=>row.id)};
 const deleteIssuedSize=(size,rows)=>{window.deleted=rows.map(row=>row.id)};
 const openLabelCorrection=()=>{},canCorrectIssuedLabel=()=>true;
 const IssuedProcessLabel=({label,operationNumber})=><article data-id={label.id}>{label.batch_no} / {label.size} / {operationNumber}</article>;
-createRoot(document.getElementById("root")).render(${section});
+function App(){const [expandedIssuedBatches,setExpandedIssuedBatches]=React.useState(()=>new Set());return (${section});}
+createRoot(document.getElementById("root")).render(<App/>);
 `;
 const built = await build({ stdin: { contents: entry, resolveDir: root, loader: "tsx" },
   bundle: true, write: false, format: "iife" });
@@ -54,18 +55,34 @@ try {
     await batches.nth(1).waitFor();
     assert.deepEqual(await batches.evaluateAll(nodes => nodes.map(n => n.dataset.qrBatch)), ["0420-01", "0420-02"]);
     const first = batches.first();
+    const toggle=first.locator("button[aria-expanded]");
+    assert.equal(await toggle.getAttribute("aria-expanded"),"false");
+    assert.match(await toggle.innerText(),/Nastil 1/);
+    assert.ok(!(await toggle.innerText()).includes("0420-01"));
+    assert.equal(await first.locator("article").count(),0);
+    await first.getByRole("button").nth(1).click();
+    assert.equal((await page.evaluate(()=>window.printed)).length,4,"closed batch can print");
+    assert.equal(await toggle.getAttribute("aria-expanded"),"false","printing does not expand");
+    await toggle.focus(); await page.keyboard.press("Enter");
+    assert.equal(await toggle.getAttribute("aria-expanded"),"true");
+    assert.equal(await batches.nth(1).locator("button[aria-expanded]").getAttribute("aria-expanded"),"false");
     assert.deepEqual(await first.locator("[data-qr-size]").evaluateAll(nodes => nodes.map(n => n.dataset.qrSize)), ["122", "128"]);
     assert.deepEqual(await first.locator("article").allTextContents(),
       ["0420-01 / 122 / 1", "0420-01 / 122 / 2", "0420-01 / 128 / 1", "0420-01 / 128 / 2"]);
     const ids = await first.locator("article").evaluateAll(nodes => nodes.map(n => Number(n.dataset.id)));
-    await first.getByRole("button").first().click();
+    await first.getByRole("button").nth(1).click();
     assert.deepEqual(await page.evaluate(() => window.printed), ids);
     const size = first.locator("[data-qr-size]").first();
     await size.getByRole("button").nth(1).click();
     assert.deepEqual(await page.evaluate(() => window.printed), ids.slice(0, 2));
     await size.getByRole("button").first().click();
     assert.deepEqual(await page.evaluate(() => window.deleted), ids.slice(0, 2));
-    assert.ok(!(await first.getByRole("button").first().innerText()).includes("page.processQr"));
+    assert.ok(!(await first.getByRole("button").nth(1).innerText()).includes("page.processQr"));
+    await toggle.focus(); await page.keyboard.press("Space");
+    assert.equal(await toggle.getAttribute("aria-expanded"),"false");
+    assert.equal(await first.locator("article").count(),0);
+    await batches.nth(1).locator("button[aria-expanded]").click();
+    assert.equal(await first.locator("article").count(),0,"batches expand independently");
   }
   assert.deepEqual(errors, []);
   console.log("Actual batch/size sections, process sequence and scoped print/delete buttons pass in EN/RU/UZ.");

@@ -1,6 +1,13 @@
 # Milana ERP Project Context
 
-Last updated: 2026-10-20
+Last updated: 2026-10-21
+
+
+## Process QR named collapsible batches prepared (2026-10-21)
+
+- Issued QR batch sections start collapsed and expand independently using an accessible keyboard/touch button. Headings and batch print buttons use saved batch names, matched by persisted batch ID across all batches in the selected order. Legacy labels resolve only unambiguous batch references; missing names retain their original batch reference. Collapsed batches remain printable and do not render their label cards until expanded.
+- QR tokens, printed batch references, quantities, rates, ordering, exact-batch size actions and backend permissions are unchanged. No business data or schema change. Regression checks exercise real grouping/print/delete handlers and EN/RU/UZ batch controls, including keyboard toggling and printing collapsed groups.
+- Owner-requested source/merge target is `clone_main`; dedicated worktree `C:/ERP/.codex-work/process-qr-batch-collapse-20261021`, branch `codex/process-qr-batch-collapse-20261021`. Pre-edit verification found both complete manifests and slots matching active green `20261020_120009`, rollback blue `20261020_104302`, baseline application `1b4029b63b52db98ce90c61615d20650e408ea90`. Legacy checkout and `main` preserved. Deployment pending; timed monitoring waived by owner, other deployment gates remain required.
 
 
 ## Process QR batch grouping deployed (2026-10-20)

@@ -605,10 +605,11 @@ function issuedBatchKey(label: IssuedLabelRow): string {
   ]);
 }
 
-function groupIssuedLabelsByBatch(labels: IssuedLabelRow[]) {
+function groupIssuedLabelsByBatch(labels: IssuedLabelRow[], batchOptions: BatchOption[] = []) {
   const batches = new Map<string, {
     key: string;
     batchNo: string;
+    name: string;
     labels: IssuedLabelRow[];
     sizes: Map<string, IssuedLabelRow[]>;
   }>();
@@ -616,7 +617,12 @@ function groupIssuedLabelsByBatch(labels: IssuedLabelRow[]) {
     const key = issuedBatchKey(label);
     let batch = batches.get(key);
     if (!batch) {
-      batch = { key, batchNo: label.batch_no?.trim() || "", labels: [], sizes: new Map() };
+      const batchNo = label.batch_no?.trim() || "";
+      const matches = batchOptions.filter((option) => label.production_batch_id != null
+        ? option.batchId === label.production_batch_id
+        : Boolean(batchNo) && (option.batchNo?.trim() === batchNo || option.serial === batchNo));
+      const name = matches.length === 1 ? matches[0].name?.trim() || batchNo : batchNo;
+      batch = { key, batchNo, name, labels: [], sizes: new Map() };
       batches.set(key, batch);
     }
     batch.labels.push(label);
@@ -766,6 +772,7 @@ export default function ProcessQrPage() {
   const [manualKroyNo, setManualKroyNo] = useState("");
   const [batchMode, setBatchMode] = useState<"selected" | "all">("selected");
   const [selectedBatchKey, setSelectedBatchKey] = useState("");
+  const [expandedIssuedBatches, setExpandedIssuedBatches] = useState<Set<string>>(() => new Set());
   const [currency, setCurrency] = useState("UZS");
   const [selectedSewingFlowKey, setSelectedSewingFlowKey] = useState("");
   const [sewingLineCode, setSewingLineCode] = useState("");
@@ -1251,8 +1258,8 @@ export default function ProcessQrPage() {
     [activeIssuedLabels, issuedOperationNumbers, issuedSizeOrder],
   );
   const issuedLabelsByBatch = useMemo(
-    () => groupIssuedLabelsByBatch(orderedIssuedLabels),
-    [orderedIssuedLabels],
+    () => groupIssuedLabelsByBatch(orderedIssuedLabels, batchOptions),
+    [orderedIssuedLabels, batchOptions],
   );
   const editedIssuedLabels = useMemo(() => {
     const editedIds = new Set(editedLabelIds);
@@ -2650,20 +2657,37 @@ export default function ProcessQrPage() {
             {issuedLabelsByBatch.map((batch) => (
               <section key={batch.key} className="overflow-hidden rounded-lg border border-[#ded9ca] bg-white" data-qr-batch={batch.batchNo}>
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#ded9ca] bg-[#f8f6ef] px-4 py-3">
-                  <div>
-                    <h3 className="text-base font-semibold text-[#14110b]">
-                      {t("field.batch")}: {batch.batchNo || t("page.processQr.noBatch")}
-                    </h3>
-                    <div className="mt-0.5 text-xs text-[#8a8472]">
-                      {t("page.processQr.issuedLabelCount", { count: batch.labels.length.toLocaleString() })}
-                    </div>
-                  </div>
+                  <h3 className="min-w-0 flex-1">
+                    <button
+                      type="button"
+                      className="flex min-h-11 w-full items-center gap-2 rounded text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                      aria-expanded={expandedIssuedBatches.has(batch.key)}
+                      aria-controls={`issued-batch-${encodeURIComponent(batch.key)}`}
+                      onClick={() => setExpandedIssuedBatches((previous) => {
+                        const next = new Set(previous);
+                        if (next.has(batch.key)) next.delete(batch.key);
+                        else next.add(batch.key);
+                        return next;
+                      })}
+                    >
+                      <ChevronDown aria-hidden="true" className={`h-5 w-5 shrink-0 ${expandedIssuedBatches.has(batch.key) ? "" : "-rotate-90"}`} />
+                      <span className="min-w-0 break-words">
+                        <span className="block text-base font-semibold text-[#14110b]">
+                          {t("field.batch")}: {batch.name || t("page.processQr.noBatch")}
+                        </span>
+                        <span className="mt-0.5 block text-xs font-normal text-[#8a8472]">
+                          {t("page.processQr.issuedLabelCount", { count: batch.labels.length.toLocaleString() })}
+                        </span>
+                      </span>
+                    </button>
+                  </h3>
                   <button type="button" className="btn btn-primary" onClick={() => printIssuedLabels(batch.labels)} disabled={preparingPrint}>
                     {preparingPrint ? <RefreshCw className="animate-spin" /> : <Printer />}
-                    <span>{t("page.processQr.printThisBatch", { batch: batch.batchNo || t("page.processQr.noBatch") })}</span>
+                    <span>{t("page.processQr.printThisBatch", { batch: batch.name || t("page.processQr.noBatch") })}</span>
                   </button>
                 </div>
-                {Array.from(batch.sizes.entries()).map(([size, sizeLabels]) => (
+                <div id={`issued-batch-${encodeURIComponent(batch.key)}`} hidden={!expandedIssuedBatches.has(batch.key)}>
+                {expandedIssuedBatches.has(batch.key) && Array.from(batch.sizes.entries()).map(([size, sizeLabels]) => (
                   <section key={size} data-qr-size={size}>
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#ecebe3] bg-[#f8f6ef] px-4 py-3">
                     <div>
@@ -2715,6 +2739,7 @@ export default function ProcessQrPage() {
                 </div>
                 </section>
                 ))}
+                </div>
               </section>
             ))}
           </div>

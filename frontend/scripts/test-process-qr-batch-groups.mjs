@@ -52,7 +52,12 @@ vm.runInContext(ts.transpile(namedSizes.getText(ast) + "\n" + declarations.join(
 const sorted = [...labels].sort((a, b) => context.compareIssuedLabelOrder(a, b, issuedSizeOrder, issuedOperationNumbers));
 assert.deepEqual(sorted.map(row => row.id), [6, 4, 3, 2, 1, 8, 7, 5],
   "finish every process/copy/size in a batch before starting the next batch; batch 2 precedes 10");
-const groups = context.groupIssuedLabelsByBatch(sorted);
+const options=[{batchId:1,batchNo:"0420-01",name:" Nastil First "},{batchId:2,batchNo:"0420-02",name:"Nastil Second"}];
+const groups = context.groupIssuedLabelsByBatch(sorted, options);
+assert.deepEqual(Array.from(groups, group=>group.name),["Nastil First","Nastil Second","0420-10"]);
+assert.equal(context.groupIssuedLabelsByBatch([label(50,99,"122",1,1,{batch_no:"0420-01"})],options)[0].name,"0420-01","never use a sibling name when IDs disagree");
+assert.equal(context.groupIssuedLabelsByBatch([label(51,null,"122",1,1,{batch_no:"0420-01"})],options)[0].name,"Nastil First","legacy labels resolve unique batch references");
+assert.equal(context.groupIssuedLabelsByBatch([label(52,null,"122",1,1,{batch_no:"0420-01"})],[...options,{batchId:3,batchNo:"0420-01",name:"Duplicate"}])[0].name,"0420-01","ambiguous references keep their original value");
 assert.deepEqual(Array.from(groups, batch => batch.batchNo), ["0420-01", "0420-02", "0420-10"]);
 assert.deepEqual(Array.from(groups[0].sizes.keys()), ["122", "128"]);
 assert.deepEqual(Array.from(groups[0].sizes.get("122"), row => row.id), [6, 4, 3]);
