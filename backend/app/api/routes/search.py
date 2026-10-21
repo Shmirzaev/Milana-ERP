@@ -1,6 +1,7 @@
 from app.services.variant_display import format_model_variant_code
 from app.core.order_reference import order_reference_contains
 from fastapi import APIRouter
+from sqlalchemy import select
 
 from app.core.deps import DbSession, CurrentUser
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
@@ -57,16 +58,29 @@ def global_search(
             }
         )
 
-    bundle_rows = (
-        db.query(Bundle.id, Bundle.bundle_no, Bundle.barcode, Bundle.model_id, Model.code, Model.name)
-        .outerjoin(Model, Model.id == Bundle.model_id)
+    # Match model codes once per model, rather than normalizing the joined code
+    # for every bundle. Fetch display fields only after applying the bundle limit.
+    matching_model_ids = select(Model.id).where(
+        normalized_model_code_column(Model.code).ilike(model_code_pattern)
+    )
+    matching_bundles = (
+        db.query(Bundle.id, Bundle.bundle_no, Bundle.barcode, Bundle.model_id)
         .filter(
             (Bundle.barcode.ilike(pattern))
             | order_reference_contains(Bundle.bundle_no, pattern)
-            | (normalized_model_code_column(Model.code).ilike(model_code_pattern))
+            | Bundle.model_id.in_(matching_model_ids)
         )
         .order_by(Bundle.id.desc())
         .limit(limit)
+        .subquery()
+    )
+    bundle_rows = (
+        db.query(
+            matching_bundles.c.id, matching_bundles.c.bundle_no,
+            matching_bundles.c.barcode, matching_bundles.c.model_id, Model.code, Model.name,
+        )
+        .outerjoin(Model, Model.id == matching_bundles.c.model_id)
+        .order_by(matching_bundles.c.id.desc())
         .all()
     )
     for bundle_id, bundle_no, barcode, model_id, model_code, model_name in bundle_rows:

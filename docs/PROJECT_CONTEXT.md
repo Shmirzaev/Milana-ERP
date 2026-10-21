@@ -2,6 +2,12 @@
 
 Last updated: 2026-10-21
 
+## Search query optimization and named QR batches prepared (2026-10-21)
+
+- Owner requested the search performance fix and deployment of the pending collapsible named QR batches from `clone_main`, without timed monitoring. Worktree `C:/ERP/.codex-work/search-performance-qr-deploy-20261021`, branch `codex/search-performance-qr-deploy-20261021`, starts at verified `ac0f6ad2`. Both complete active manifests and slots match green `20261020_120009`, source `1b4029b6`, with blue `20261020_104302` retained. Legacy checkout and `main` are preserved.
+- Read-only PostgreSQL profiling found bundle search joining and normalizing model codes for 15,801 bundles before returning six matches. The revised query matches model IDs separately, limits matching bundles first, then joins display fields. The same production-data SELECT profile reduced bundle execution from 75.77 ms to 43.99 ms and shared block hits from 50,347 to 3,421. This identifies and reduces avoidable database work; it does not establish the cause of every earlier latency outlier.
+- Search output, aliases, Cyrillic/Latin normalization, wildcard semantics, per-type limits and descending ordering are preserved. No schema, business-data or permission change. Regression coverage checks exact bundle results and normalization work as 600 unrelated bundles are added in an isolated test database. Deployment and its unchanged performance/health gates remain pending; no timed observation will run at the owner's request.
+
 ## Collapsible named QR batches rolled back (2026-10-21)
 
 - CURRENT LIVE: green `20261020_120009`, application `1b4029b63b52db98ce90c61615d20650e408ea90`, on both VMs. Known blue rollback `20261020_104302` was restored and warmed. Both complete manifests and image identities, four internal/public health/login checks, routers, two workers, zero restarts/OOM, runtime logs, database headroom and valid indexes passed closing verification. Schema remains `0148_second_grade_packages`; `deploy/production-base.json` is unchanged and correct.
