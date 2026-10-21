@@ -99,7 +99,7 @@ assert.match(text(tree), /Mira Manager/, "table manager names come with each pag
 assert.match(text(tree), /51/);
   assert.ok(walk(tree, node => node.type === "button" && text(node) === "page.hrEmployees.loadMore"));
 
-const add = walk(tree, node => node.type === "button" && text(node).includes("Add employee"));
+const add = walk(tree, node => node.type === "button" && text(node) === "page.hrEmployees.add");
 add.props.onClick();
 tree = render();
 let managerLabel = walk(tree, node => node.type === "label" && text(node).includes("page.hrEmployees.manager—"));
@@ -118,7 +118,7 @@ assert.ok(apiCalls.some(call => call[0] === "mutate"), "a successful save on pag
 tree = render();
 assert.equal(walk(tree, node => node.type === "modal")?.props.open, false, "the editor closes after a successful save");
 
-const employeeSearch = walk(tree, node => node.type === "input" && node.props.placeholder === "Search by employee ID, name or position");
+const employeeSearch = walk(tree, node => node.type === "input" && node.props.placeholder === "page.hrEmployees.search");
 employeeSearch.props.onChange({ target: { value: "missing" } });
 staleData = pageData;
 tree = render();

@@ -73,7 +73,7 @@ try {
     await selectors.nth(0).selectOption('46');
     assert.equal(await selectors.nth(1).inputValue(), sizes.join(', ') + ' ×2');
     await page.goto(`${base}/employees?lang=${lang}`);
-    await page.getByPlaceholder('Search by employee ID, name or position').fill('Ada & 01');
+    await page.getByPlaceholder(dictionaries[lang]['page.hrEmployees.search']).fill('Ada & 01');
     const download = page.waitForEvent('download');
     await page.getByRole('button', { name: dictionaries[lang]['employeeExport.download'], exact: true }).click();
     assert.equal((await download).suggestedFilename(), 'employees.xlsx');

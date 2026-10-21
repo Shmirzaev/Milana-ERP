@@ -2,6 +2,13 @@
 
 Last updated: 2026-10-21
 
+## Employee translations completed locally (2026-10-21)
+
+- Owner requested the incomplete HR employee translations fixed from and published to `clone_main`. The shared HR/Admin/Payroll employee page now translates its directory, metrics, statuses, create/edit dialogs and all Personal, Employment and Financial profile fields in EN/RU/UZ. Shared HR navigation, loading, empty and error states are localized; translated tab/action buttons can wrap on phones. Employee values, API payload keys, permissions, factory scope, search/pagination and export behavior are preserved. Load failures take precedence over the loading placeholder so their localized message is visible.
+- Browser regression covers all three employee entry points in all three languages, each profile tab/status, switching languages with unsaved edits, unchanged save payloads and loading/empty/error states. Existing employee pagination and localized Excel-export browser checks, locale parity, strict TypeScript, frontend build contracts and optimized build passed. Full frontend lint has zero errors and the nine inherited warnings; scoped lint is clean. CI includes the new browser regression.
+- The separate reported package scan issue was diagnosed read-only: package `PKG-2026-000312` originally held 50 pieces; a receipt correction recorded 25 as a shortage, then all remaining 25 were delivered in `SH-2026-000149`. The owner explicitly deferred this issue. No package/shipment logic or business data was changed, and no stock correction was applied.
+- Before edits, both full production manifests and slot states matched blue `20261021_050215`, manifest `f4f35a9f89570c82f643fc1ec615bd1f0e9d59dfafa393c9a10f9d11a6a74127`; green `20261020_120009` remains rollback. No deployment, migration or production business write occurred. Dedicated worktree `C:/ERP/.codex-work/returned-package-hr-i18n-20261021`, branch `codex/returned-package-hr-i18n-20261021`, based on `origin/clone_main` `838cc6fd`. Legacy checkout and `main` are preserved. This entry records local completion; the live application still requires a separately authorized deployment.
+
 ## Search optimization and collapsible named QR batches deployed (2026-10-21)
 
 - LIVE: blue `20261021_050215`, exact application commit `8ae065733347a6795f49667731a4ca3d58985d4a`, on both VMs. Previous green `20261020_120009` remains running for rollback. Both source manifests, image identities, current symlinks and slot states agree. Published through PR #295 to owner-requested `clone_main`; `main` and the legacy checkout are preserved. The owner waived timed monitoring; immediate and closing checks passed, with no timed observation claimed.
