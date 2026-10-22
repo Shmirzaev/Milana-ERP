@@ -5165,6 +5165,11 @@ def get_printing(rid: int, db: DbSession, _: User = Depends(require_permissions(
 
 
 # ===== Sewing =====
+def _require_confirmed_cutting_output(cutting_passed: int, *quantities: int, status_code: int = 400) -> None:
+    if cutting_passed <= 0 and any(quantity > 0 for quantity in quantities):
+        raise HTTPException(status_code, "Record Cutting output before entering Sewing input or output")
+
+
 def _revised_sewing_input_limit(db: DbSession, wo: WorkOrder, batch_id: int, cutting_passed: int) -> int:
     """A confirmed standard Nastil uses Cutting's explicitly revised count.
 
@@ -5304,11 +5309,11 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
 
     # Rule: sewing cannot receive more than cutting/printing passed
     upstream_passed = 0
+    cutting_passed = 0
     cut_wo = _context_work_order(db, wo, "cutting")
     prt_wo = _context_work_order(db, wo, "printing")
     if batch_id is not None:
         printing_passed = 0
-        cutting_passed = 0
         if prt_wo:
             printing_passed = int(
                 db.query(func.coalesce(func.sum(PrintingRecord.passed_qty), 0))
@@ -5345,12 +5350,18 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
         if next_total > upstream_passed:
             raise HTTPException(400, f"Sewing input {next_total} exceeds upstream passed {upstream_passed} for this batch")
     else:
+        cutting_passed = int(cut_wo.passed_qty or 0) if cut_wo else 0
         if prt_wo and prt_wo.passed_qty > 0:
             upstream_passed = prt_wo.passed_qty
         elif cut_wo:
             upstream_passed = cut_wo.passed_qty
-        if upstream_passed and wo.actual_input_qty + payload.input_qty > upstream_passed:
+        if wo.actual_input_qty + payload.input_qty > upstream_passed:
             raise HTTPException(400, f"Sewing input {wo.actual_input_qty + payload.input_qty} exceeds upstream passed {upstream_passed}")
+
+    _require_confirmed_cutting_output(
+        cutting_passed, payload.input_qty, payload.sewn_qty, payload.passed_qty,
+        payload.failed_qty, payload.rejected_qty, payload.rework_qty,
+    )
 
     rec_data = payload.model_dump(exclude={"sewing_assignment_id", "size_quantities"})
     rec_data["production_batch_id"] = batch_id

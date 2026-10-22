@@ -13,6 +13,17 @@ _VALID_PNG = base64.b64decode(
 )
 
 
+def _record_cutting_output(production_order_id: int, quantity: int) -> None:
+    from app.models import CuttingRecord
+    with SessionLocal() as db:
+        wo = db.query(WorkOrder).filter_by(production_order_id=production_order_id, operation='cutting').one()
+        wo.actual_input_qty = wo.actual_output_qty = wo.passed_qty = quantity
+        wo.status = 'completed'
+        db.add(CuttingRecord(work_order_id=wo.id, input_quantity=0,
+            cut_pieces=quantity, passed_pieces=quantity, defective_pieces=0))
+        db.commit()
+
+
 def _record_packaging_output(
     production_order_id: int,
     quantity: int,
@@ -4930,6 +4941,8 @@ def test_sewing_record_updates_selected_line_assignment_progress(client, auth_he
     )
     assert r.status_code == 201, r.text
     po_id = r.json()["id"]
+    _record_cutting_output(po_id, 100)
+    _issue_required_accessories(client, auth_headers, po_id)
 
     r = client.get(f"/api/work-orders?production_order_id={po_id}", headers=auth_headers)
     assert r.status_code == 200, r.text
@@ -5176,6 +5189,8 @@ def test_sewing_line_plan_consumes_brak_qty(client, auth_headers):
     )
     assert r.status_code == 201, r.text
     po_id = r.json()["id"]
+    _record_cutting_output(po_id, 100)
+    _issue_required_accessories(client, auth_headers, po_id)
 
     r = client.get(f"/api/work-orders?production_order_id={po_id}", headers=auth_headers)
     assert r.status_code == 200, r.text

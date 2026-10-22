@@ -21,6 +21,7 @@ export function systemLanguage(): Lang {
   return "en";
 }
 const messages: Record<string, [string, string]> = {
+  "Record Cutting output before entering Sewing input or output": ["Сначала внесите выпуск раскроя, затем вводите приём или выпуск пошива.", "Tikuv kirimi yoki natijasini kiritishdan oldin bichish natijasini kiriting."],
   "This cutting batch cannot be edited or deleted after Sewing output has been recorded": ["После внесения выпуска пошива этот настил нельзя изменить или удалить.", "Tikuv natijasi kiritilgandan keyin bu nastilni o‘zgartirish yoki o‘chirish mumkin emas."],
   "Sewing is being updated. Reload this batch and try again.": ["Сейчас сохраняется пошив. Обновите настил и повторите попытку.", "Tikuv ma’lumotlari saqlanmoqda. Nastilni yangilab, qayta urinib ko‘ring."],
   "This production order is being updated. Reload the batch and try again.": ["Производственный заказ сейчас обновляется. Обновите настил и повторите попытку.", "Ishlab chiqarish buyurtmasi yangilanmoqda. Nastilni yangilab, qayta urinib ko‘ring."],
