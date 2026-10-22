@@ -3,7 +3,7 @@ from alembic import command
 from datetime import date
 from sqlalchemy.orm import sessionmaker
 
-from app.models import Bundle, Department, Model, ProductionOrder, Role, SewingAssignment, SewingFlow, User, WorkOrder
+from app.models import Bundle, CuttingRecord, Department, Model, ProductionOrder, Role, SewingAssignment, SewingFlow, User, WorkOrder
 from app.services.sewing_band_setup import configure_eco_bands
 from app.tests.test_fresh_migration_bootstrap import postgres_migrations  # noqa: F401
 
@@ -48,6 +48,13 @@ def test_band_provisioning_outer_join_lock_and_retry(postgres_migrations):
         db.add_all([packing, model]); db.flush()
         order = ProductionOrder(production_no="BAND-PG-01", model_id=model.id, production_type="branded_stock", planned_quantity=20, status="in_progress")
         db.add(order); db.flush()
+        cutting = WorkOrder(production_order_id=order.id,
+            department_id=db.query(Department.id).filter_by(code="ECT").scalar(),
+            operation="cutting", status="completed", planned_input_qty=20, planned_output_qty=20,
+            actual_input_qty=20, actual_output_qty=20, passed_qty=20)
+        db.add(cutting); db.flush()
+        db.add(CuttingRecord(work_order_id=cutting.id, input_quantity=0,
+            cut_pieces=20, passed_pieces=20, defective_pieces=0))
         work = WorkOrder(production_order_id=order.id, department_id=sewing.id, operation="sewing", status="in_progress", planned_input_qty=20, planned_output_qty=20)
         downstream = WorkOrder(production_order_id=order.id, department_id=packing.id, operation="packaging", status="waiting", planned_input_qty=20, planned_output_qty=20)
         bundle = Bundle(bundle_no="BAND-PG-01", barcode="BAND-PG-01", production_order_id=order.id, model_id=model.id, color="white", size="M", quantity=20, sewing_factory_code="ECO", next_department_id=sewing.id, status="created")
