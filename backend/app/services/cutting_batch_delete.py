@@ -4,7 +4,7 @@ from collections import defaultdict
 from decimal import Decimal
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import OperationalError
 
 from app.db.base import Base
@@ -99,7 +99,28 @@ def _delete_cutting_batch(db, work, batch_id, current):
                  "payroll_records", "payroll_qr_labels", "sewing_daily_reports", "sewing_replacement_requests"):
         table = Base.metadata.tables[name]
         scope = table.c.production_order_id == order.id if "production_order_id" in table.c else table.c.work_order_id.in_(stage_ids)
-        if db.execute(select(table.c.id).where(scope, table.c.production_batch_id.is_(None)).limit(1)).first():
+        history = select(table.c.id).where(scope, table.c.production_batch_id.is_(None))
+        if name == "payroll_qr_labels":
+            # Retain retired, never-used labels for audit without freezing every
+            # empty sibling Nastil. Any usage or derived-label history still blocks.
+            children = table.alias("derived_labels")
+            payroll = Base.metadata.tables["payroll_records"]
+            unused_retired = and_(
+                table.c.status == "superseded",
+                table.c.payroll_record_id.is_(None),
+                table.c.last_scanned_at.is_(None),
+                table.c.returned_at.is_(None),
+                table.c.returned_by.is_(None),
+                table.c.return_count == 0,
+                table.c.split_from_label_id.is_(None),
+                ~select(children.c.id).where(children.c.split_from_label_id == table.c.id).exists(),
+                ~select(payroll.c.id).where(
+                    payroll.c.factory_code == table.c.factory_code,
+                    or_(payroll.c.scan_uid == table.c.label_uid, payroll.c.original_scan_uid == table.c.label_uid),
+                ).exists(),
+            )
+            history = history.where(~unused_retired)
+        if db.execute(history.limit(1)).first():
             raise HTTPException(409, "Unallocated downstream history must be reviewed before deleting this batch")
     # Detect broken legacy links rather than deleting another batch's bundle.
     if db.query(Bundle.id).filter(Bundle.cutting_record_id.in_(record_ids), Bundle.id.notin_(bundle_ids)).first():

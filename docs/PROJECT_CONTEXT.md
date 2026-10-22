@@ -2,6 +2,12 @@
 
 Last updated: 2026-10-22
 
+## Empty Nastil deletion with retired QR labels prepared (2026-10-22)
+
+- Owner authorized fixing the check and deleting only empty Nastil 0558-02 from PO-0518, preserving Nastil 0558-01's 600 pieces and all audit history, and deploying without timed 30-minute monitoring. Live read-only diagnosis found no references to batch 671; the only order-level blocker is 216 unallocated superseded payroll/process labels retained from the earlier premature Sewing reversal.
+- The guard now excludes only superseded unallocated labels without scan/return/payroll/split evidence. Active/scanned/closed labels, retired labels with usage, both directions of split links, both payroll scan identifiers, labels linked directly to the selected batch, and every other production/payroll/packaging protection remain blocking. No label is deleted or reassigned. Initial API/lifecycle tests: 26 passed, 8 PostgreSQL checks await real PostgreSQL CI; Ruff/compilation passed.
+- Both complete live source manifests still match green 20261022_054028, exact application 48f58376293f1068f3dbb3c034def0a3dd856987, manifest 13a155cfba90b95eca8ac357dc816c34380e27b1b0e7a28b7e5b84eb3a3e5cce; blue 20261021_050215 remains rollback. Main is still stale. Source work starts from owner-approved verified clone_main 095784033f7dcc7f523f979ced36f369db067f51; deployment will descend directly from the exact live application and carry only the reviewed guard/tests/context/baseline update, excluding pending HR UI/translations. No deletion or deployment has occurred at this preparation point. Fresh backup, normal guarded deletion with preservation checks, CI, candidate/public QA, performance and closing health checks remain required.
+
 ## Sewing Cutting prerequisite deployed (2026-10-22)
 
 - LIVE: green `20261022_054028` on both application VMs, exact reviewed commit `48f58376293f1068f3dbb3c034def0a3dd856987`. Blue `20261021_050215` remains running and healthy for rollback. Source manifest `13a155cfba90b95eca8ac357dc816c34380e27b1b0e7a28b7e5b84eb3a3e5cce`, archive `ce402919b16fd04db73163505b5e4c4c3b55d06506b5c3884f187220867eccfa`; both complete manifests, symlinks, slot/image identities and database revision `0148_second_grade_packages` agree. No schema change or deployment business-data write occurred. Startup seeding remained disabled.
