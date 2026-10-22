@@ -5,6 +5,12 @@ const source = fs.readFileSync("src/lib/errorMessages.ts", "utf8");
 const exports = {};
 new Function("exports", ts.transpile(source, { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }))(exports);
 const { localizeError, ApiError } = exports;
+for (const lang of ["en", "ru", "uz"]) {
+  const detail = "Record Cutting output before entering Sewing input or output";
+  const rendered = localizeError(detail, 400, lang);
+  assert.notEqual(rendered, localizeError("Unknown backend detail", 400, lang));
+  if (lang !== "en") assert.notEqual(rendered, detail);
+}
 for (const lang of ["ru", "uz"]) {
   for (const operation of ["Sewing", "Packaging"]) {
     const detail = `${operation} still has unfinished quantities. Continue ${operation.toLowerCase()} the remaining nastils.`;

@@ -24,6 +24,10 @@ def bands():
             db.add(po); db.flush()
             wo = WorkOrder(production_order_id=po.id, department_id=dept.id, operation="sewing", status="in_progress", planned_input_qty=100, planned_output_qty=100, sewing_flow_id=flow.id)
             db.add(wo); db.flush()
+            cut = WorkOrder(production_order_id=po.id, operation='cutting',
+                department_id=db.query(Department.id).filter_by(code='ECT').scalar(),
+                status='completed', planned_output_qty=100, actual_output_qty=100, passed_qty=100)
+            db.add(cut)
             assignment = SewingAssignment(work_order_id=wo.id, sewing_flow_id=flow.id, quantity=100)
             db.add(assignment); db.flush(); jobs.append((wo.id, assignment.id, po.id))
             bundle = Bundle(bundle_no=f"BAND-BUNDLE-{n}", barcode=f"BAND-BAR-{n}", production_order_id=po.id, model_id=1, color="white", size="M", quantity=100, sewing_factory_code="ECO", next_department_id=dept.id, status="created")
