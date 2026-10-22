@@ -548,6 +548,8 @@ export default {
     "field.operator": "Operator",
     "field.materialUsed": "Material used",
     "field.fabricBatch": "Fabric batch",
+    "sewing.recordInput": "Input for this record",
+    "sewing.recordInputHelp": "Enter the pieces covered by this record, not the whole received order. Scanned bundle receipts are counted once. Enter 0 if input was recorded in an earlier Sewing record.",
     "field.inputQty": "Input qty",
     "field.inputUnit": "Input unit",
     "field.layerMaterialKg": "Material kg / layer",

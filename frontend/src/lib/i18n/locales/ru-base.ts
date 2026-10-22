@@ -472,6 +472,8 @@ export default {
     "field.operator": "Оператор",
     "field.materialUsed": "Использовано материала",
     "field.fabricBatch": "Партия ткани",
+    "sewing.recordInput": "Вход для этой записи",
+    "sewing.recordInputHelp": "Укажите количество для этой записи, а не весь принятый заказ. Приемка сканированием учитывается один раз. Укажите 0, если вход уже указан в предыдущей записи пошива.",
     "field.inputQty": "Кол-во на вход",
     "field.inputUnit": "Ед. на входе",
     "field.layerMaterialKg": "Материал кг / слой",
