@@ -122,6 +122,7 @@ def apply(db, wo, row, user, payload=None):
     from app.api.routes.production import (
         _context_work_order, _validated_sewing_size_quantities,
         _revised_sewing_input_limit, _lift_sewing_output_plans,
+        _require_confirmed_cutting_output,
     )
     from app.schemas.production import SewingRecordIn
     old = snapshot(row)
@@ -150,13 +151,17 @@ def apply(db, wo, row, user, payload=None):
                 model.work_order_id == upstream.id,
                 model.production_batch_id == row.production_batch_id).scalar())
         printed = passed(PrintingRecord, PrintingRecord.passed_qty, printing)
-        limit = printed if printed > 0 else passed(CuttingRecord, CuttingRecord.passed_pieces, cut)
+        cutting_passed = passed(CuttingRecord, CuttingRecord.passed_pieces, cut)
+        limit = printed if printed > 0 else cutting_passed
         if not printing or printing.status == "skipped":
             limit = _revised_sewing_input_limit(db, wo, row.production_batch_id, limit)
         proposed_input = after_input
     else:
+        cutting_passed = int(cut.passed_qty or 0) if cut else 0
         limit = int((printing.passed_qty if printing and printing.passed_qty else cut.passed_qty if cut else 0) or 0)
         proposed_input = wo.actual_input_qty - row.input_qty + new_input
+    if new_input > row.input_qty or new_sewn > row.sewn_qty or new_passed > row.passed_qty:
+        _require_confirmed_cutting_output(cutting_passed, new_input, new_sewn, new_passed, status_code=409)
     if new_input > row.input_qty and proposed_input > limit:
         raise HTTPException(409, "sewingEdit.upstreamLimit")
     if assignment:
