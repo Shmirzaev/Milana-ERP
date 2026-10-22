@@ -3794,6 +3794,7 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
         "CuttingRecord",
         rec.id,
         new_value={
+            "production_batch_id": rec.production_batch_id,
             "bundles": len(created_bundles),
             "pending_material_consumption": pending_materials,
             "material_usage_deferred": payload.defer_material_usage,
