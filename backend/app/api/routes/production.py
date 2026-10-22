@@ -85,6 +85,7 @@ from app.services.bundles import (
     sync_packaging_department_for_bundle_route,
 )
 from app.services.sewing_scope import sewing_line_factory_scope
+from app.services.sewing_input import sync_sewing_input
 from app.services.workflow import (
     WORKFLOW_SEQUENCE,
     advance_workflow,
@@ -5356,8 +5357,14 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
             upstream_passed = prt_wo.passed_qty
         elif cut_wo:
             upstream_passed = cut_wo.passed_qty
-        if wo.actual_input_qty + payload.input_qty > upstream_passed:
-            raise HTTPException(400, f"Sewing input {wo.actual_input_qty + payload.input_qty} exceeds upstream passed {upstream_passed}")
+        # Bundle receiving also populates actual_input_qty. Validate the record
+        # ledger, just as the batched path does, rather than adding it twice.
+        current_input = int(db.query(func.coalesce(func.sum(SewingRecord.input_qty), 0)).filter(
+            SewingRecord.work_order_id == wo.id,
+        ).scalar() or 0)
+        next_total = current_input + int(payload.input_qty or 0)
+        if next_total > upstream_passed:
+            raise HTTPException(400, f"Sewing input {next_total} exceeds upstream passed {upstream_passed}")
 
     _require_confirmed_cutting_output(
         cutting_passed, payload.input_qty, payload.sewn_qty, payload.passed_qty,
@@ -5373,7 +5380,7 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
     rec.operator_id = payload.operator_id or current.id
     db.add(rec)
     db.flush()
-    wo.actual_input_qty += payload.input_qty
+    sync_sewing_input(db, wo)
     wo.actual_output_qty += payload.passed_qty
     wo.passed_qty += payload.passed_qty
     defect_qty = int(payload.failed_qty or 0) + int(payload.rejected_qty or 0)
