@@ -156,3 +156,39 @@ def test_postgres_delete_does_not_wait_behind_order_writer(password_change_postg
             assert caught.value.status_code == 409
             db.rollback()
             assert db.get(ProductionBatch, batch_id)
+
+
+@pytest.mark.parametrize("used", [False, True])
+def test_postgres_retired_label_delete_preserves_sibling_and_history(password_change_postgres_sessions, used):
+    from datetime import datetime, timezone
+    from app.models import AuditLog, PayrollQrLabel
+    sessions, _ = password_change_postgres_sessions
+    actor_id, cutting_id, _, empty_id = _fixture(sessions)
+    with sessions.begin() as db:
+        cutting = db.get(WorkOrder, cutting_id)
+        keep = ProductionBatch(production_order_id=cutting.production_order_id, batch_no="KEEP-01",
+                               batch_index=2, planned_quantity=600, name="Nastil 1")
+        db.add(keep)
+        db.flush()
+        record = CuttingRecord(work_order_id=cutting_id, production_batch_id=keep.id,
+                               cut_pieces=600, passed_pieces=600, input_quantity=0)
+        label = PayrollQrLabel(production_order_id=cutting.production_order_id, label_uid=uuid4().hex,
+                               status="superseded", last_scanned_at=datetime.now(timezone.utc) if used else None)
+        db.add_all([record, label])
+        db.flush()
+        cutting.actual_input_qty = cutting.actual_output_qty = cutting.passed_qty = 600
+        cutting.planned_input_qty = cutting.planned_output_qty = 600
+        keep_id, record_id, label_id = keep.id, record.id, label.id
+    with sessions() as db:
+        if used:
+            with pytest.raises(HTTPException, match="Unallocated downstream history"):
+                production.remove_cutting_batch(cutting_id, empty_id, db, db.get(User, actor_id))
+            db.rollback()
+        else:
+            assert production.remove_cutting_batch(cutting_id, empty_id, db, db.get(User, actor_id))["deleted"]
+    with sessions() as db:
+        assert (db.get(ProductionBatch, empty_id) is not None) == used
+        assert db.get(ProductionBatch, keep_id).planned_quantity == 600
+        assert db.get(CuttingRecord, record_id).passed_pieces == 600
+        assert db.get(PayrollQrLabel, label_id).status == "superseded"
+        assert db.query(AuditLog).filter_by(action="delete_cutting_batch", entity_id=empty_id).count() == (0 if used else 1)
