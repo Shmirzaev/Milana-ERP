@@ -283,8 +283,9 @@ function FactorySewingPage() {
           </div>
         )}
         <div>
-          <label className="label">{t("field.inputQty")}</label>
-          <input className="input" type="number" value={f.input_qty} onChange={(e) => setF({ ...f, input_qty: parseNumberInput(e.target.value) })} />
+          <label className="label" htmlFor="sewing-record-input">{t("sewing.recordInput")}</label>
+          <input id="sewing-record-input" aria-describedby="sewing-record-input-help" className="input" type="number" value={f.input_qty} onChange={(e) => setF({ ...f, input_qty: parseNumberInput(e.target.value) })} />
+          <p id="sewing-record-input-help" className="text-sm text-slate-600">{t("sewing.recordInputHelp")}</p>
         </div>
         <div>
           <label className="label">{t("field.output")}</label>

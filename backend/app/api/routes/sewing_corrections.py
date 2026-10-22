@@ -9,6 +9,7 @@ from app.models import (User, WorkOrder, SewingRecord, SewingAssignment, SewingF
 from app.services.factory_scope import require_work_order_factory_access
 from app.services.audit import log_action
 from app.services.workflow import advance_workflow
+from app.services.sewing_input import sync_sewing_input
 
 router = APIRouter(tags=["sewing_corrections"])
 
@@ -159,7 +160,7 @@ def apply(db, wo, row, user, payload=None):
     else:
         cutting_passed = int(cut.passed_qty or 0) if cut else 0
         limit = int((printing.passed_qty if printing and printing.passed_qty else cut.passed_qty if cut else 0) or 0)
-        proposed_input = wo.actual_input_qty - row.input_qty + new_input
+        proposed_input = after_input
     if new_input > row.input_qty or new_sewn > row.sewn_qty or new_passed > row.passed_qty:
         _require_confirmed_cutting_output(cutting_passed, new_input, new_sewn, new_passed, status_code=409)
     if new_input > row.input_qty and proposed_input > limit:
@@ -172,7 +173,6 @@ def apply(db, wo, row, user, payload=None):
         assignment.completed_qty = next_completed
         assignment.status = "completed" if next_completed == assignment.quantity else "in_progress" if next_completed else "planned"
         assignment.actual_end = datetime.now(timezone.utc) if assignment.status == "completed" else None
-    wo.actual_input_qty += new_input - row.input_qty
     wo.actual_output_qty += new_passed - row.passed_qty
     wo.passed_qty += new_passed - row.passed_qty
     if min(wo.actual_input_qty, wo.actual_output_qty, wo.passed_qty) < 0:
@@ -198,6 +198,7 @@ def apply(db, wo, row, user, payload=None):
         wo.status = "in_progress"
         wo.end_time = None
     db.flush()
+    sync_sewing_input(db, wo)
     _lift_sewing_output_plans(db, wo)
     advance_workflow(db, wo)
     log_action(db, user, "update" if payload else "delete", "SewingRecord", old["id"],

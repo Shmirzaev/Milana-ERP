@@ -472,6 +472,8 @@ export default {
     "field.operator": "Operator",
     "field.materialUsed": "Ishlatilgan material",
     "field.fabricBatch": "Mato partiyasi",
+    "sewing.recordInput": "Ushbu yozuv uchun kirim",
+    "sewing.recordInputHelp": "Butun qabul qilingan buyurtmani emas, ushbu yozuvga tegishli miqdorni kiriting. Skanerlangan bog‘lamlar bir marta hisoblanadi. Kirim oldingi tikuv yozuvida qayd etilgan bo‘lsa, 0 kiriting.",
     "field.inputQty": "Kirish miqdori",
     "field.inputUnit": "Kirish birligi",
     "field.layerMaterialKg": "Qavat uchun material kg",
