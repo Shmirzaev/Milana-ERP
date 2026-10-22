@@ -1069,6 +1069,9 @@ export default function CuttingPage() {
           notes: batchPlanEdit.notes.trim() || null,
         } : {}),
       });
+      const passport = cuttingPassports.find((item) => item.production_batch_id === batchId && !item.used_for_cutting);
+      setPassportId(passport?.id || 0);
+      setForm((current) => ({ ...current, production_batch_id: batchId }));
       await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles()]);
       cancelBatchPlanEdit();
       setDoneMsg(t("batch.planUpdated"));
@@ -1087,8 +1090,13 @@ export default function CuttingPage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (submitting) return;
     setErr("");
     setDoneMsg("");
+    if (editingBatchId || batchPlanEditBusy || extraBatchBusy) {
+      setErr(t("batch.finishEditingBeforeOutput"));
+      return;
+    }
     if (isUsluga && !form.model_bom_id) {
       setErr(t("usluga.selectCuttingFabric"));
       return;
@@ -1104,6 +1112,17 @@ export default function CuttingPage() {
     setSubmitting(true);
     try {
       const outputPieces = isSecondaryUslugaFabric ? 0 : (bundlePlanTotal > 0 ? bundlePlanTotal : numberOrZero(form.cut_pieces));
+      if (isAlreadyBatched) {
+        const selected = (po?.batches || []).find((batch: any) => Number(batch.id) === Number(form.production_batch_id));
+        if (!selected) {
+          setErr(t("batch.selectBeforeSaving", { operation: operationLabel("cutting", t).toLowerCase() }));
+          return;
+        }
+        const confirmed = await dialogs.ask(t("batch.confirmCuttingOutput", {
+          batch: formatBatchLabel(selected, po?.id), quantity: outputPieces,
+        }));
+        if (!confirmed) return;
+      }
       const normalizedBundles = (isSecondaryUslugaFabric ? [] : bundles).map((bundle) => ({
         ...bundle,
         quantity: Math.max(1, numberOrFallback(bundle.quantity, 1)),
@@ -2400,7 +2419,10 @@ export default function CuttingPage() {
 
         {doneMsg && <div className="rounded border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">{doneMsg}</div>}
         {err && <div className="text-sm text-red-600">{err}</div>}
-        <button className="btn btn-primary" disabled={submitting}>
+        {isAlreadyBatched && createdBundlesBatch && (
+          <p className="text-sm" role="status">{t("batch.outputTarget", { batch: createdBundlesBatchLabel })}</p>
+        )}
+        <button className="btn btn-primary" disabled={submitting || Boolean(editingBatchId) || batchPlanEditBusy || extraBatchBusy}>
           {submitting
             ? t("common.saving")
             : isSecondaryUslugaFabric
