@@ -1,5 +1,11 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "page.hrEmployees.delete": "Delete employee",
+    "page.hrEmployees.archive": "Archive employee",
+    "page.hrEmployees.archived": "Archived",
+    "page.hrEmployees.showArchived": "Show archived employees",
+    "page.hrEmployees.archiveConfirm": "Archive {name}? Payroll, work and attendance history will be preserved. You can restore the employee from Show archived employees.",
+    "page.hrEmployees.archiveFailed": "Could not archive the employee. Please try again.",
     "page.hrEmployees.title": "Employees",
     "page.hrEmployees.subtitle": "Central employee database and complete digital personnel profiles.",
     "page.hrEmployees.add": "Add employee",

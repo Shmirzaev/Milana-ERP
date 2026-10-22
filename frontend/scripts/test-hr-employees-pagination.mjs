@@ -64,7 +64,8 @@ function text(tree) {
 const pageModule = { exports: {} };
 new Function("require", "exports", "module", output)(name => {
   if (name === "react") return { useState, useEffect, useMemo, createElement };
-  if (name === "swr") return { default: useSWR };
+  if (name === "@/lib/auth") return { useMe: () => ({ me: { permissions: ["*"] } }) };
+  if (name === "swr") return { default: useSWR, useSWRConfig: () => ({ mutate: async () => { apiCalls.push(["mutate"]); } }) };
   if (name === "@/lib/api") return { api: {
     post: async (...args) => { apiCalls.push(args); },
     patch: async (...args) => { apiCalls.push(args); },

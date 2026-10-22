@@ -4,6 +4,12 @@ import type { Lang } from "./types";
 // legacy dictionary easier to audit without rewriting that large file.
 export const supplemental: Record<Lang, Record<string, string>> = {
   en: {
+    "page.hrEmployees.delete": "Delete employee",
+    "page.hrEmployees.archive": "Archive employee",
+    "page.hrEmployees.archived": "Archived",
+    "page.hrEmployees.showArchived": "Show archived employees",
+    "page.hrEmployees.archiveConfirm": "Archive {name}? Payroll, work and attendance history will be preserved. You can restore the employee from Show archived employees.",
+    "page.hrEmployees.archiveFailed": "Could not archive the employee. Please try again.",
     "page.hrEmployees.title": "Employees",
     "page.hrEmployees.subtitle": "Central employee database and complete digital personnel profiles.",
     "page.hrEmployees.add": "Add employee",
@@ -1181,6 +1187,12 @@ export const supplemental: Record<Lang, Record<string, string>> = {
     "page.hrEmployees.loadMore": "Load more employees",
   },
   ru: {
+    "page.hrEmployees.delete": "Удалить сотрудника",
+    "page.hrEmployees.archive": "В архив",
+    "page.hrEmployees.archived": "В архиве",
+    "page.hrEmployees.showArchived": "Показать архивных сотрудников",
+    "page.hrEmployees.archiveConfirm": "Переместить {name} в архив? Зарплата, работа и история посещений сохранятся. Сотрудника можно восстановить через «Показать архивных сотрудников».",
+    "page.hrEmployees.archiveFailed": "Не удалось переместить сотрудника в архив. Попробуйте ещё раз.",
     "page.hrEmployees.title": "Сотрудники",
     "page.hrEmployees.subtitle": "Единая база сотрудников и полные электронные личные карточки.",
     "page.hrEmployees.add": "Добавить сотрудника",
@@ -2472,6 +2484,12 @@ export const supplemental: Record<Lang, Record<string, string>> = {
     "page.hrEmployees.loadMore": "\u0417\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0435\u0449\u0451 \u0441\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a\u043e\u0432",
   },
   uz: {
+    "page.hrEmployees.delete": "Xodimni o‘chirish",
+    "page.hrEmployees.archive": "Arxivga o‘tkazish",
+    "page.hrEmployees.archived": "Arxivda",
+    "page.hrEmployees.showArchived": "Arxivdagi xodimlarni ko‘rsatish",
+    "page.hrEmployees.archiveConfirm": "{name} arxivga o‘tkazilsinmi? Ish haqi, ish va davomat tarixi saqlanadi. Xodimni «Arxivdagi xodimlarni ko‘rsatish» orqali tiklash mumkin.",
+    "page.hrEmployees.archiveFailed": "Xodimni arxivga o‘tkazib bo‘lmadi. Qayta urinib ko‘ring.",
     "page.hrEmployees.title": "Xodimlar",
     "page.hrEmployees.subtitle": "Xodimlarning yagona bazasi va to‘liq elektron shaxsiy kartalari.",
     "page.hrEmployees.add": "Xodim qo‘shish",

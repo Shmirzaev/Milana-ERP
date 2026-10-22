@@ -9,11 +9,11 @@ from openpyxl.utils import get_column_letter
 
 LABELS = {
     "en": ("Employees", ["Employee ID", "Full name", "Factory", "Department", "Position", "Manager", "Status", "Hire date", "Phone"],
-           {"active": "Active", "inactive": "Inactive", "on_leave": "On leave", "terminated": "Terminated"}),
+           {"active": "Active", "inactive": "Inactive", "on_leave": "On leave", "terminated": "Terminated", "archived": "Archived"}),
     "ru": ("Сотрудники", ["Номер сотрудника", "ФИО", "Фабрика", "Отдел", "Должность", "Руководитель", "Статус", "Дата приёма", "Телефон"],
-           {"active": "Активен", "inactive": "Неактивен", "on_leave": "В отпуске", "terminated": "Уволен"}),
+           {"active": "Активен", "inactive": "Неактивен", "on_leave": "В отпуске", "terminated": "Уволен", "archived": "В архиве"}),
     "uz": ("Xodimlar", ["Xodim raqami", "F.I.Sh.", "Fabrika", "Bo‘lim", "Lavozim", "Rahbar", "Holat", "Ishga kirgan sana", "Telefon"],
-           {"active": "Faol", "inactive": "Nofaol", "on_leave": "Ta’tilda", "terminated": "Ishdan bo‘shatilgan"}),
+           {"active": "Faol", "inactive": "Nofaol", "on_leave": "Ta’tilda", "terminated": "Ishdan bo‘shatilgan", "archived": "Arxivda"}),
 }
 
 

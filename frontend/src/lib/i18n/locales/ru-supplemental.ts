@@ -1,5 +1,11 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "page.hrEmployees.delete": "Удалить сотрудника",
+    "page.hrEmployees.archive": "В архив",
+    "page.hrEmployees.archived": "В архиве",
+    "page.hrEmployees.showArchived": "Показать архивных сотрудников",
+    "page.hrEmployees.archiveConfirm": "Переместить {name} в архив? Зарплата, работа и история посещений сохранятся. Сотрудника можно восстановить через «Показать архивных сотрудников».",
+    "page.hrEmployees.archiveFailed": "Не удалось переместить сотрудника в архив. Попробуйте ещё раз.",
     "page.hrEmployees.title": "Сотрудники",
     "page.hrEmployees.subtitle": "Единая база сотрудников и полные электронные личные карточки.",
     "page.hrEmployees.add": "Добавить сотрудника",

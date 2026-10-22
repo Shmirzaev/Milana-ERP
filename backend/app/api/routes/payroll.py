@@ -762,6 +762,8 @@ def _validate_and_enrich_record(
         employee = merged_employee(db, factory_code, employee_id=employee_id)
     if not employee:
         raise HTTPException(404, "Employee not found")
+    if employee.status == "archived":
+        raise HTTPException(404, "Employee not found")
     data["employee_id"] = employee.id
     if not data.get("employee_user_id") and employee.user_id:
         data["employee_user_id"] = employee.user_id
@@ -2727,6 +2729,8 @@ def _employee_scan_payload(
     employee: Employee, *, badge_id: str, source: str, db: DbSession,
     departments: dict[int, Department] | None = None,
 ) -> dict[str, Any]:
+    if employee.status == "archived":
+        raise HTTPException(404, "Employee not found")
     department = (
         departments.get(employee.department_id) if departments is not None
         else db.get(Department, employee.department_id) if employee.department_id else None
@@ -2960,7 +2964,7 @@ def _load_control_scan(
         raise HTTPException(400, "This QR is not a control operation")
     _assert_control_not_voided(db, label)
     if not db.query(Employee.id).filter(
-        Employee.id == payload.employee_id, Employee.factory_code == factory_code,
+        Employee.id == payload.employee_id, Employee.factory_code == factory_code, Employee.status != "archived",
     ).first():
         raise HTTPException(404, "Employee not found")
     return label
@@ -3064,6 +3068,8 @@ def record_numeric_work_scan(
     if not employee:
         raise HTTPException(404, "Employee not found")
 
+    if employee.status == "archived":
+        raise HTTPException(404, "Employee not found")
     work_payload = jsonable_encoder(_qr_label_scan_payload(label))
     if _is_control_operation(label):
         _assert_control_not_voided(db, label)

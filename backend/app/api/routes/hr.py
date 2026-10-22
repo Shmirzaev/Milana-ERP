@@ -29,7 +29,7 @@ class EmployeeIn(BaseModel):
     position: Optional[str] = None
     phone: Optional[str] = None
     salary: Optional[Decimal] = Field(default=None, allow_inf_nan=True)
-    status: Literal["active", "inactive", "on_leave", "terminated"] = "active"
+    status: Literal["active", "inactive", "on_leave", "terminated", "archived"] = "active"
     joined_at: Optional[datetime] = None
     manager_employee_id: Optional[int] = None
     hr_position_id: Optional[int] = None
@@ -50,7 +50,7 @@ class EmployeeUpdate(BaseModel):
     position: Optional[str] = None
     phone: Optional[str] = None
     salary: Optional[Decimal] = Field(default=None, allow_inf_nan=True)
-    status: Literal["active", "inactive", "on_leave", "terminated"] | None = None
+    status: Literal["active", "inactive", "on_leave", "terminated", "archived"] | None = None
     joined_at: Optional[datetime] = None
     manager_employee_id: Optional[int] = None
     hr_position_id: Optional[int] = None
@@ -60,7 +60,7 @@ class EmployeeUpdate(BaseModel):
     @classmethod
     def reject_null_status(cls, value):
         if value is None:
-            raise ValueError("status must be active, inactive, on_leave, or terminated")
+            raise ValueError("status must be active, inactive, on_leave, terminated, or archived")
         return value
 
     @field_validator("employee_no", mode="before")
@@ -323,6 +323,7 @@ def list_employees(
     page: int | None = Query(None, ge=1),
     page_size: int | None = Query(None, ge=1, le=100),
     search: str | None = Query(None, max_length=120),
+    include_archived: bool = False,
 ):
     """Employee list for pickers.
 
@@ -335,9 +336,11 @@ def list_employees(
         _backfill_employees_from_users(db)
     if page is not None or page_size is not None:
         return _employee_directory_page(db, current, search=search if search is not None else q,
-                                        page=page or 1, page_size=page_size or 50)
+                                        page=page or 1, page_size=page_size or 50, include_archived=include_archived)
     factory_code = selected_factory_code(current)
     query = db.query(Employee).filter(Employee.factory_code == factory_code)
+    if not include_archived:
+        query = query.filter(Employee.status != "archived")
     term = str(q or "").strip()
     if term:
         pattern = f"%{term.lower()}%"
@@ -359,8 +362,10 @@ def list_employees(
 
 
 
-def _employee_directory_query(db, current, search):
+def _employee_directory_query(db, current, search, include_archived=False):
     query = db.query(Employee).filter(Employee.factory_code == selected_factory_code(current))
+    if not include_archived:
+        query = query.filter(Employee.status != "archived")
     normalized = (search or "").strip()
     if normalized:
         pattern = '%' + normalized.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
@@ -376,6 +381,7 @@ def export_employees(
     current: CurrentUser,
     search: str = Query("", max_length=120),
     lang: Literal["en", "ru", "uz"] = "en",
+    include_archived: bool = False,
 ):
     from fastapi.responses import Response
     from sqlalchemy.orm import aliased
@@ -385,7 +391,7 @@ def export_employees(
 
     factory = selected_factory_code(current)
     manager = aliased(Employee)
-    rows = _employee_directory_query(db, current, search).with_entities(
+    rows = _employee_directory_query(db, current, search, include_archived).with_entities(
         Employee, Department.name, HrPosition.name, manager.full_name,
     ).outerjoin(Department, Department.id == Employee.department_id).outerjoin(
         HrPosition, (HrPosition.id == Employee.hr_position_id) & (HrPosition.factory_code == factory),
@@ -395,7 +401,7 @@ def export_employees(
                     headers={"Content-Disposition": f'attachment; filename="employees-{factory}.xlsx"', "Cache-Control": "no-store"})
 
 
-def _employee_directory_page(db, current, *, search, page, page_size):
+def _employee_directory_page(db, current, *, search, page, page_size, include_archived=False):
     from sqlalchemy import case, select, cast
     from sqlalchemy.orm import aliased, load_only
     from app.models.hr import HrPosition
@@ -403,7 +409,7 @@ def _employee_directory_page(db, current, *, search, page, page_size):
     factory = selected_factory_code(current)
     private = _can_view_private_employee_fields(current)
     normalized = (search or "").strip()
-    query = _employee_directory_query(db, current, normalized)
+    query = _employee_directory_query(db, current, normalized, include_archived)
     total, active = query.with_entities(func.count(Employee.id), func.sum(case((Employee.status == 'active', 1), else_=0))).one()
     total, active = int(total or 0), int(active or 0)
     coverage = None
@@ -431,7 +437,7 @@ def _employee_directory_page(db, current, *, search, page, page_size):
     ).offset((page-1)*page_size).limit(page_size).all()
     return {'rows': [{**_serialize(row, include_private=private), 'manager_name': manager_name,
                       'position_name': position_name} for row, manager_name, position_name in rows],
-            'total': total, 'page': page, 'page_size': page_size, 'has_more': page*page_size < total,
+            'total': total, 'page': page, 'page_size': page_size, 'has_more': page*page_size < total, 'include_archived': include_archived,
             'active_total': active, 'inactive_total': total-active, 'profile_coverage_percent': coverage, 'search': normalized}
 
 
@@ -452,6 +458,8 @@ def _directory_options(db, current, model, search, selected_id):
     factory = selected_factory_code(current)
     name = model.full_name if model is Employee else model.name
     query = db.query(model.id, name).filter(model.factory_code == factory)
+    if model is Employee:
+        query = query.filter(Employee.status != "archived")
     if search.strip():
         pattern = '%' + search.strip().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
         condition = name.ilike(pattern, escape='\\')
@@ -543,13 +551,26 @@ def update_employee(eid: int, payload: EmployeeUpdate, db: DbSession, current: U
 
 @router.delete("/employees/{eid}", status_code=204)
 def delete_employee(eid: int, db: DbSession, current: User = Depends(require_permissions("hr.employees", "*"))):
+    _archive_employee(eid, db, current)
+
+
+@router.post("/employees/{eid}/archive", status_code=204)
+def archive_employee(eid: int, db: DbSession, current: User = Depends(require_permissions("hr.employees", "payroll.manage", "*"))):
+    _archive_employee(eid, db, current)
+
+
+def _archive_employee(eid: int, db: DbSession, current: User):
     e = db.query(Employee).filter(
         Employee.id == eid,
         Employee.factory_code == selected_factory_code(current),
-    ).first()
+    ).with_for_update().first()
     if not e: raise HTTPException(404, "Employee not found")
-    db.delete(e)
-    log_action(db, current, "delete", "Employee", eid)
+    if e.status == "archived":
+        return
+    old_status = e.status
+    e.status = "archived"
+    log_action(db, current, "archive", "Employee", eid,
+               old_value={"status": old_status}, new_value={"status": "archived"})
     db.commit()
 
 

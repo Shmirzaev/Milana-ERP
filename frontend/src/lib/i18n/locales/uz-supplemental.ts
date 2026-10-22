@@ -1,5 +1,11 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "page.hrEmployees.delete": "Xodimni o‘chirish",
+    "page.hrEmployees.archive": "Arxivga o‘tkazish",
+    "page.hrEmployees.archived": "Arxivda",
+    "page.hrEmployees.showArchived": "Arxivdagi xodimlarni ko‘rsatish",
+    "page.hrEmployees.archiveConfirm": "{name} arxivga o‘tkazilsinmi? Ish haqi, ish va davomat tarixi saqlanadi. Xodimni «Arxivdagi xodimlarni ko‘rsatish» orqali tiklash mumkin.",
+    "page.hrEmployees.archiveFailed": "Xodimni arxivga o‘tkazib bo‘lmadi. Qayta urinib ko‘ring.",
     "page.hrEmployees.title": "Xodimlar",
     "page.hrEmployees.subtitle": "Xodimlarning yagona bazasi va to‘liq elektron shaxsiy kartalari.",
     "page.hrEmployees.add": "Xodim qo‘shish",

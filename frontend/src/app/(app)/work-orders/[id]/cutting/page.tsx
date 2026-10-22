@@ -673,10 +673,20 @@ export default function CuttingPage() {
   const bundlePlanTotal = bundles.reduce((sum, row) => (
     sum + Math.max(0, numberOrZero(row.quantity)) * Math.max(0, numberOrZero(row.count))
   ), 0);
-  const visibleBundleIds = visibleBundles
-    .map((b) => Number(b?.id || 0))
-    .filter((bundleId) => bundleId > 0)
-    .join(",");
+  const printableBundleBatches = (() => {
+    const groups = new Map<number, { batchId: number; bundleIds: number[]; label: string }>();
+    for (const bundle of visibleBundles) {
+      const batchId = Number(bundle?.production_batch_id || 0);
+      const bundleId = Number(bundle?.id || 0);
+      if (!bundleId) continue;
+      const group = groups.get(batchId) || { batchId, bundleIds: [], label: "" };
+      const batch = (po?.batches || []).find((row: any) => Number(row.id) === batchId);
+      group.label = batch ? formatBatchLabel(batch, po?.id) : bundle.batch_label || orderReference(po);
+      group.bundleIds.push(bundleId);
+      groups.set(batchId, group);
+    }
+    return Array.from(groups.values());
+  })();
   const selectedBundleBatchId = Number(form.production_batch_id || wo?.production_batch_id || 0);
   const printableCuttingSheets = (() => {
     const productionBatches = Array.isArray(po?.batches) ? po.batches : [];
@@ -2498,14 +2508,16 @@ export default function CuttingPage() {
                     >
                       {t(isMilanaCutting && canEditBreakdown && wo?.status !== "completed" ? "page.cutting.printAndComplete" : "page.cutting.printProductionSheet")}
                     </button>
-                    <button
-                      type="button"
-                      className="btn"
-                      disabled={!visibleBundleIds}
-                      onClick={() => api.openLabel(`/api/bundles/label-sheet/by-ids?ids=${encodeURIComponent(visibleBundleIds)}`)}
-                    >
-                      {t("page.packaging.printAllLabels")}
-                    </button>
+                    {printableBundleBatches.map((batch) => (
+                      <button
+                        key={batch.batchId}
+                        type="button"
+                        className="btn"
+                        onClick={() => api.openLabel(`/api/bundles/label-sheet/by-ids?ids=${encodeURIComponent(batch.bundleIds.join(","))}`)}
+                      >
+                        {t("common.print")} — {batch.label} ({batch.bundleIds.length})
+                      </button>
+                    ))}
                   </div>
                 </div>
                 <table className="table">
