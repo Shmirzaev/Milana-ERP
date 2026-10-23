@@ -138,6 +138,8 @@ jobs:
           node scripts/test-hr-employees-locales.browser.mjs
           node scripts/test-employee-archive.browser.mjs
           node scripts/test-cutting-batch-print.browser.mjs
+          node scripts/test-receive-total-length.browser.mjs
+          node scripts/check-receiving-auto-roll-weights.mjs
       - name: Optimized production build and contracts
         working-directory: frontend
         env:
