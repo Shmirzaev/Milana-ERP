@@ -2,6 +2,16 @@
 
 Last updated: 2026-10-23
 
+## PO-0328 / PJ1225 sizes corrected in production (2026-10-23)
+
+- At the owner's request, corrected PO-0328 / production order 367, model PJ1225-V-6495 / 8510, from sizes 46/48/50/52/54/56 to 44/46/48/50/52/54. Six order items 2143-2148 and six bundles 11489-11494 retain their identities and 100 pieces each; cutting passport 352 / 9592 now reads 44-54. Model sizes already matched 44-54 and were preserved.
+- This is an audited business-data correction, not an application release. Active green release remains 20261022_130603 on both VMs, manifest 3bdc1454f873f51202738e2705d45ddb9855a492507340bb5a3f5f149484e33c; retained blue rollback is 20261022_112643. Database stays at 0148_second_grade_packages. No migration, restart, deployment or traffic switch occurred.
+- A locked preflight fingerprinted every order/work-order/bundle-linked row. The normal size-edit endpoint intentionally locks orders after Cutting; this explicit owner-authorized repair was rehearsed with rollback and permitted exactly 13 size-field changes. Order quantity 600, all progress/counters, production batches, material links, Sewing/Packaging records, six scan logs, timestamps, barcode values and QR payloads remain byte-for-byte unchanged. No packages, finished-goods stock, payroll labels/records, or size-specific Sewing results existed for this order. Existing model size rows were preserved. Audit 113454 records the correction and backup; its new entry hash verified. Historical unrelated audit-chain/security risks are outside scope.
+- Fresh backup: /opt/milana-erp/shared/backups/milana_erp_pre_po0328_sizes_20261023_035731.dump, 89,161,058 bytes, mode 0600, 1,246 restore objects; SHA-256 55c8d2f145b272558cf910a0be09edcf78b293dae499818aaaed71f411d80cbb; restore-list SHA-256 5486a9a3b014d811852bfa93c2dbd3412e21160109d31b90565b4a4070efd095.
+- Validation: rolled-back rehearsal restored the exact original fingerprint; committed readback matched the expected full-row snapshot with only the allowed size changes; all six original barcodes and QR payloads resolve unchanged; production detail serializer returns the six corrected sizes and 600 pieces; all four internal/public health/login checks returned HTTP 200. Private evidence remains in ignored worktree outputs.
+- Owner selected clone_main as both base and push destination. Its production-base.json matches both live VM manifests and database revision; stale main and the dirty legacy C:/ERP checkout were preserved. Worktree C:/ERP/.codex-work/po0328-sizes-20261023, branch codex/po0328-sizes-20261023, starts at clone_main 32a85357. Reviewed one-off operation is committed as 35463502 in ops/correct_po0328_sizes.py; its fingerprint prevents replay after success. Only the operation and this durable record are published; pending dashboard code already on clone_main is not deployed by this task.
+
+
 ## Department dashboards prepared locally; not deployed (2026-10-23)
 
 - Owner requested factory-separated Cutting inventory, bundle/piece/work totals,
