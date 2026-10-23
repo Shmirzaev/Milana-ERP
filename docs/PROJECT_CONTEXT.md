@@ -1,6 +1,82 @@
 # Milana ERP Project Context
 
-Last updated: 2026-10-22
+Last updated: 2026-10-23
+
+## Meter-only fabric receiving prepared (2026-10-23)
+
+- Owner requested a Total length only option in Receive Fabric, based on and pushed to clone_main, plus deployment without the 30-minute monitoring window. EN/RU/UZ controls select meter totals, automatically follow meter-based materials, and clear quantities when switching kg/m to avoid reinterpreting measurements. The payload stores the batch total as quantity in m and omits kg roll weights and invented per-roll lengths; Count retains the entered roll count. Existing kg receiving and accessory forms are preserved. No backend behavior or schema change is required.
+- Worktree C:/ERP/.codex-work/receive-total-length-20261023, branch codex/receive-total-length-20261023, starts at owner-selected clone_main d9e028b5. Both live manifests/slots match green 20261022_130603, manifest 3bdc1454f873f51202738e2705d45ddb9855a492507340bb5a3f5f149484e33c, rollback blue 20261022_112643 and schema 0148_second_grade_packages. Pending dashboard code on clone_main is preserved and excluded from this scoped release.
+- Local validation passed 39 focused receiving/inventory backend tests, actual receiving-page browser tests in EN/RU/UZ including phone layout and exact payloads, payload/measurement regressions, i18n, strict TypeScript, scoped lint, all inherited build contracts and the optimized webpack production build. The standard local Turbopack build cannot follow the external node_modules junction; exact standard immutable CI remains required. Full backend validation is running. Initial local disk exhaustion was resolved by the owner. Backend capacity must be below 80% before staging; any offloaded historical backups are preserved locally with verified hashes. No cutover or production business write has occurred at preparation.
+
+
+## PO-0328 / PJ1225 sizes corrected in production (2026-10-23)
+
+- At the owner's request, corrected PO-0328 / production order 367, model PJ1225-V-6495 / 8510, from sizes 46/48/50/52/54/56 to 44/46/48/50/52/54. Six order items 2143-2148 and six bundles 11489-11494 retain their identities and 100 pieces each; cutting passport 352 / 9592 now reads 44-54. Model sizes already matched 44-54 and were preserved.
+- This is an audited business-data correction, not an application release. Active green release remains 20261022_130603 on both VMs, manifest 3bdc1454f873f51202738e2705d45ddb9855a492507340bb5a3f5f149484e33c; retained blue rollback is 20261022_112643. Database stays at 0148_second_grade_packages. No migration, restart, deployment or traffic switch occurred.
+- A locked preflight fingerprinted every order/work-order/bundle-linked row. The normal size-edit endpoint intentionally locks orders after Cutting; this explicit owner-authorized repair was rehearsed with rollback and permitted exactly 13 size-field changes. Order quantity 600, all progress/counters, production batches, material links, Sewing/Packaging records, six scan logs, timestamps, barcode values and QR payloads remain byte-for-byte unchanged. No packages, finished-goods stock, payroll labels/records, or size-specific Sewing results existed for this order. Existing model size rows were preserved. Audit 113454 records the correction and backup; its new entry hash verified. Historical unrelated audit-chain/security risks are outside scope.
+- Fresh backup: /opt/milana-erp/shared/backups/milana_erp_pre_po0328_sizes_20261023_035731.dump, 89,161,058 bytes, mode 0600, 1,246 restore objects; SHA-256 55c8d2f145b272558cf910a0be09edcf78b293dae499818aaaed71f411d80cbb; restore-list SHA-256 5486a9a3b014d811852bfa93c2dbd3412e21160109d31b90565b4a4070efd095.
+- Validation: rolled-back rehearsal restored the exact original fingerprint; committed readback matched the expected full-row snapshot with only the allowed size changes; all six original barcodes and QR payloads resolve unchanged; production detail serializer returns the six corrected sizes and 600 pieces; all four internal/public health/login checks returned HTTP 200. Private evidence remains in ignored worktree outputs.
+- Owner selected clone_main as both base and push destination. Its production-base.json matches both live VM manifests and database revision; stale main and the dirty legacy C:/ERP checkout were preserved. Worktree C:/ERP/.codex-work/po0328-sizes-20261023, branch codex/po0328-sizes-20261023, starts at clone_main 32a85357. Reviewed one-off operation is committed as 35463502 in ops/correct_po0328_sizes.py; its fingerprint prevents replay after success. Only the operation and this durable record are published; pending dashboard code already on clone_main is not deployed by this task.
+
+
+## Department dashboards prepared locally; not deployed (2026-10-23)
+
+- Owner requested factory-separated Cutting inventory, bundle/piece/work totals,
+  Cutting fabric waste, and large-screen Printing and Warehouse dashboards.
+  Implementation is in `C:/ERP/.codex-work/erp-department-dashboards-20261023`,
+  branch `codex/erp-department-dashboards-20261023`, based on owner-selected
+  `clone_main` at `d754f42f`. Push to `clone_main` is authorized; deployment is not.
+- Both live application manifests and runtime slots were verified before work:
+  green `20261022_130603`, source manifest `3bdc1454f873f51202738e2705d45ddb9855a492507340bb5a3f5f149484e33c`,
+  rollback blue `20261022_112643`, database revision `0148_second_grade_packages`.
+  The source download verified all 1,383 manifest entries. Production was read
+  only; no application release, business row or schema was changed.
+- New authenticated `/api/dashboard/cutting`, `/printing`, `/warehouse` reports
+  back `/dashboards/cutting`, `/printing`, `/warehouse`. Cutting uses existing
+  CUT/ECT authorization, destination grouping and totals before pagination.
+  Current balances are independent of period-created/first-received movements.
+  Waste includes automatic and manual fabric records, separated by unit.
+  Printing shows ready bundle groups with model/artwork and named batches.
+  Warehouse counts received physical remainders across grades, and ranks models
+  by actual shipped pieces, excluding draft, cancelled and deleted shipments.
+  Existing pages link to the boards; navigation, guards and labels cover EN/RU/UZ.
+- A fresh logical production database snapshot was downloaded and restored into
+  a separate loopback-only PostgreSQL 17 instance on port 55432. Local API is on
+  18080, frontend on 3001. Production is PostgreSQL 16. Seeding, schema sync,
+  mail and integration credentials are disabled/absent locally. Independent SQL
+  reconciles the reports in a PostgreSQL read-only transaction. The uploaded-file
+  copy is incomplete; low local disk space and privileged non-ERP storage files
+  prevented completion. Required dashboard model images were copied separately.
+- Validation: 47 focused backend tests passed, then the final 10 dashboard tests
+  passed after named-batch/manual-waste refinements; frontend contract suite,
+  strict TypeScript, i18n and lint passed. The final production build passed
+  after the display refinements. Computer UI testing remains incomplete:
+  the Computer plugin explicitly denied Comet and Chrome access. Do not claim
+  manual/visual QA or a complete media clone. No production deployment occurred.
+
+## Besttex masters, employee archive and batch printing deployed (2026-10-22)
+
+- LIVE: green `20261022_130603` on both application VMs, exact reviewed application `68baac7675d1870c8649fd477803d34eefacafae`, pushed to owner-requested `clone_main`. Blue `20261022_112643` remains running and healthy for rollback. Both full source manifests, immutable image identities, symlinks and slot states agree. Source manifest `3bdc1454f873f51202738e2705d45ddb9855a492507340bb5a3f5f149484e33c`, archive SHA-256 `33b6eaa61ef0d5bd490f311096281bf577553898c18d9f143600f2b8774c9425`, 1,383 source files. Schema remains `0148_second_grade_packages`; upgrade-to-head was a verified no-op and startup seeding stayed disabled.
+- Immutable images: backend `ghcr.io/shmirzaev/milana-erp-backend@sha256:fcc15f2aa8dd2bcdfd4bf951229f7bce4d426223b7e0ef8767e58ab2e185c00d`; frontend `ghcr.io/shmirzaev/milana-erp-frontend@sha256:f02c50732b5583e9d602c263a78dcbf3f52a8e375fbefd206578390df2494b72`.
+- Besttex data is complete: new Isaqova Nigora (employee 1602) has exactly 24 Dazmol employees; existing Xaydarova Irodaxon (898) has 44 Chistka-kontrol employees, including the separately confirmed move of Xusanova Maftuna (791) from Xoliqova Kamola (888). Both are report-only master groups, with no new operational Sewing flow. The guarded rehearsal, committed-data preservation, backup, plan fingerprint and audit 112581–112650 evidence are recorded below. No payroll amount, rate, work label, attendance identity, production quantity, stock or order was rewritten. Closing Salary and Excel checks match current HR membership and all matching ledger work across job lines; MIL/ECO sessions cannot select either Besttex group. Employees without period work do not receive invented salary rows.
+- Employee Delete now archives the row and preserves identity, payroll/work/attendance history and manager links. HR and Payroll managers can archive only in their selected factory; viewers cannot. Show archived plus status edit restores the employee. Archived badges/new payroll work are rejected while salary history remains reportable. Legacy DELETE also preserves the row and keeps its original HR-only permission. Profile edits preserve hidden report-group metadata. Cutting provides a named label button/window per exact batch with existing bundle IDs; QR/barcode content and quantities are unchanged. The previously pending HR employee-profile translations from clone_main are included. New controls support EN/RU/UZ.
+- Validation: immutable CI [39785392343](https://github.com/Shmirzaev/Milana-ERP/actions/runs/39785392343) passed 3,840 backend tests plus real PostgreSQL locking/query/schema/reservation/migration/concurrency/model-numbering checks, frontend lint/strict types/browser regressions/contracts/optimized build and image publication. Local full backend passed 3,833 / 308 skipped before the last focused additions; final nine archive/team tests and the wider payroll checks passed. Nine inherited frontend lint warnings and inherited test warnings remain. Signed candidate/public browser QA verified archive confirmation/cancel, both master selections and a real batch-only label window with zero console errors, failed requests or business writes. Fixture browser tests additionally cover failures/retry, restore, hidden metadata, permissions and all three languages.
+- Paired, immediate public and closing public fixed-query performance gates passed all unchanged row-count, 10% median, 15% p95 and 15% payload budgets (120 samples per endpoint, five warmups). Paired largest median/p95 increases were 3.44% / 11.03%; public closing comparisons had no latency regressions and all payload sizes stayed identical. Raw samples and summaries are retained. These are release parity checks, not a new search-optimization claim.
+- The full 30-minute high-risk observer ran from `2026-10-22T13:56:34.798802+00:00` to `2026-10-22T14:26:34.988588+00:00`: 61 rounds, 244 successful internal/public probes, zero failures and no monitoring gaps. Closing runtime, both active/rollback manifests/images/health, routers, exactly two backend workers, zero restart/OOM/error-log markers, database headroom and zero invalid indexes passed. PostgreSQL used 28/100 connections. Closing disk use: backend 79.411%, frontend 74.709%. Observation is complete; rollback remains live.
+- Verified pre-data/pre-release backup: `/opt/milana-erp/shared/backups/milana_erp_pre_20261022_130603.dump`, 88,424,808 bytes, 0600, 1,246 restore objects, SHA-256 `309887359ff027cea029205024ae859d256a8b98a67b00983076f8458709a8b6`; restore-list SHA-256 `2939f8fda6f40e05855449656293eeffd66cffbadfa5a3fa445079aa4fa1c158`.
+- Capacity stopped both staging preparation and activation at the 80% limit before traffic changed. Supported retention archived only manifest-clean backend sources 20261020_120009 and 20261021_040254. Two corresponding unused old ERP images, outside all container references and protected recent releases, were streamed to `C:/Users/User/Documents/Milana ERP Archives/20261022-besttex-capacity/backend-images.tar.gz`, 307,183,680 bytes, SHA-256 `b588c849c51a5f635c9740690be0f02db2785ebeea1979345bfc090e6b90d58e`. Both configurations/revisions, all layers and 27 content-addressed blobs passed verification before exact non-forced removal, recovering about 1.6 GB. Active/rollback plus at least three other releases/images, database backups, volumes, factory storage, current logs and other applications were preserved. Existing capacity pressure and historical security/audit-chain findings remain outside this fix.
+- Source worktree `C:/ERP/.codex-work/besttex-masters-batch-print-20261022`, branch `codex/besttex-masters-batch-print-20261022`, implementation `5090685f`. The tested source tree was preserved exactly while joining the verified live ancestor in application commit `68baac76`; superseded CI 39783909681 was cancelled before image publication and replaced by the successful exact-commit run above. Deployment record worktree `C:/ERP/.codex-work/record-besttex-masters-batch-print-20261022`, branch `codex/record-besttex-masters-batch-print-20261022`. Private evidence is under source-worktree `outputs/deployment/`. Legacy C:/ERP and stale main remain untouched. Production baseline and Obsidian mirror are updated to the verified active state.
+
+
+## Besttex masters assigned; application release pending (2026-10-22)
+
+- DATA APPLIED: created only owner-authorized Isaqova Nigora (Besttex employee 1602), connected the exact current 24 Dazmol employees, and linked all 44 Chistka-kontrol employees to existing Xaydarova Irodaxon (898). Owner separately confirmed moving Xusanova Maftuna Abdullajon qizi (791) from Xoliqova Kamola (888). Both masters have report-only `payroll_report_group=true`; no operational Sewing flow, salary rate or payroll row was created or rewritten.
+- The exact reviewed roster plan SHA-256 `0b55fc74f348d8cdd41c911704c5468d659d694d30c9c96736d9f3ad77eb43f1` passed a rolled-back rehearsal before the committed application. The transaction permitted only 68 manager-link changes, the existing master's report flag, one new employee and normal timestamps/audit appends. Every pre-existing employee field outside those allowances, all employee-linked business tables, and all 111,581 existing audit rows through 112580 retained exact fingerprints. New normal audit entries 112581–112650 and their hashes passed verification. Historical unrelated audit-chain risks remain.
+- Signed read-only live Salary and Excel checks passed for both groups: Dazmol has 20 salary rows / 1,643 ledger records; Chistka-kontrol has 26 salary rows / 1,346 records at verification. Amounts, currencies and membership match current HR manager links independently of job-line labels. MIL/ECO sessions cannot select either Besttex group. Employees without period work do not have invented payroll records.
+- Verified backup `/opt/milana-erp/shared/backups/milana_erp_pre_20261022_130603.dump`, 88,424,808 bytes, mode 0600, 1,246 restore objects, SHA-256 `309887359ff027cea029205024ae859d256a8b98a67b00983076f8458709a8b6`, restore-list SHA-256 `2939f8fda6f40e05855449656293eeffd66cffbadfa5a3fa445079aa4fa1c158`.
+- Application is still blue `20261022_112643`, rollback green `20261022_091501`. Archive button and separate-batch label actions are not live at this entry. Source fix `5090685f` is pushed on `codex/besttex-masters-batch-print-20261022`; exact same source tree was reconciled with the verified live Git ancestor in commit `68baac7675d1870c8649fd477803d34eefacafae`. Immutable CI 39785392343 is pending. Earlier CI 39783909681 was superseded before image publication; passing local source checks remain applicable to the identical tree.
+- Capacity preflight stopped above 80%. Supported retention archived only manifest-clean backend sources 20261020_120009 and 20261021_040254, preserving active/rollback plus three additional releases. No image, backup, volume, factory storage or other application was removed. Capacity remains close to the staging threshold. Private operation evidence is in source worktree `outputs/deployment/`. This data script has already committed; do not replay it to create another master.
+
 
 ## Besttex master teams, employee archive and batch printing prepared (2026-10-22)
 
