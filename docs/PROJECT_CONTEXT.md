@@ -62,9 +62,29 @@ Last updated: 2026-10-23
 - Validation: 47 focused backend tests passed, then the final 10 dashboard tests
   passed after named-batch/manual-waste refinements; frontend contract suite,
   strict TypeScript, i18n and lint passed. The final production build passed
-  after the display refinements. Computer UI testing remains incomplete:
-  the Computer plugin explicitly denied Comet and Chrome access. Do not claim
-  manual/visual QA or a complete media clone. No production deployment occurred.
+  after the display refinements. The initial Computer permission blocker was
+  subsequently resolved. Codex personally tested the laptop's native Comet UI:
+  factory source/destination filters, daily/weekly/monthly movements, waste,
+  pagination, search empty/recovery, expanded bundle rows, EN/RU/UZ labels,
+  Printing artwork states and rotation, and Warehouse grade/period controls.
+  Eight owner-authorized marked local orders support rotation tests; twelve
+  recorded duplicate image files and one marked order's duplicate artwork
+  reference support rendering checks. These are local fixtures, not proof of
+  original-photo accuracy or a pristine production-data mirror.
+- Further native testing found two monitor defects in the initial dashboard
+  implementation: eight-card Printing pages left lower rows off-screen, and
+  Warehouse's tall totals pushed hot products below the viewport. Monitor mode
+  now fits one responsive Printing row per slide (1/2/4 cards), stops rotation
+  on exit, and fits compact Warehouse totals plus all eight ranked products.
+  Codex inspected all nine ready orders, clicked Previous/Next, watched the
+  last slide wrap automatically to the first, and checked Warehouse period,
+  empty/recovery and refresh controls at the laptop's 1280x752 native window.
+  Scoped lint, strict TypeScript and the optimized webpack build passed; the
+  optimized local artifact was personally retested on port 3001. Screenshot
+  evidence is in the task's outputs/codex-native-qa directory. Original media
+  copying and photo accuracy remain pending source connectivity; the guarded
+  copier must replace every recorded stand-in. Human acceptance remains pending.
+  No dashboard production deployment or production business write occurred.
 
 ## Besttex masters, employee archive and batch printing deployed (2026-10-22)
 
