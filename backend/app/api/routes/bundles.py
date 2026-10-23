@@ -18,7 +18,6 @@ from app.core.deps import DbSession, CurrentUser, PRODUCTION_READ_PERMISSIONS, r
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
 from app.models import (
     Bundle,
-    BundleScanLog,
     CuttingRecord,
     Department,
     Model,
@@ -53,6 +52,8 @@ from app.services.label_images import is_preview_model_image, material_label_ima
 from app.services.model_images import material_preview_image_url
 from app.services.audit import log_action
 from app.services.sewing_scope import require_sewing_flow_access, sewing_line_factory_scope
+from app.services.department_dashboards import cutting_inventory_condition, cutting_origin_condition, destination_column, inventory_totals
+from typing import Literal
 
 router = APIRouter(prefix="/bundles", tags=["bundles"])
 
@@ -78,15 +79,7 @@ class SewingBatchAcceptIn(BaseModel):
 def _scope_to_cutting_department(qry, db: DbSession, current, cutting_department_code: str | None):
     from app.services.factory_scope import cutting_department_scope
     scope = cutting_department_scope(current, cutting_department_code)
-    eco_order_ids = (
-        db.query(WorkOrder.production_order_id)
-        .join(Department, Department.id == WorkOrder.department_id)
-        .filter(WorkOrder.operation == "cutting", Department.code == "ECT")
-        .distinct()
-    )
-    if scope == "ECT":
-        return qry.filter(Bundle.production_order_id.in_(eco_order_ids))
-    return qry.filter(Bundle.production_order_id.notin_(eco_order_ids))
+    return qry.filter(cutting_origin_condition(db, scope))
 
 
 def _material_images_by_model_id(db: DbSession, model_ids) -> dict[int, str | None]:
@@ -608,15 +601,8 @@ def cutting_inventory(
     page: int = 1,
     page_size: int = 50,
     cutting_department_code: str | None = None,
+    destination_factory: Literal["ALL", "MIL", "BST", "ECO", "UNASSIGNED"] = "ALL",
 ):
-    received_printing_log = (
-        db.query(BundleScanLog.id)
-        .filter(
-            BundleScanLog.bundle_id == Bundle.id,
-            BundleScanLog.scan_type == "received_printing",
-        )
-        .exists()
-    )
     qry = db.query(Bundle, ProductionOrder.production_no, SalesOrder.order_no, Model.code).outerjoin(
         ProductionOrder, Bundle.production_order_id == ProductionOrder.id
     ).outerjoin(
@@ -624,12 +610,11 @@ def cutting_inventory(
     ).outerjoin(
         Model, Bundle.model_id == Model.id
     ).filter(
-        or_(
-            Bundle.status.in_(("created", "sent_to_printing")),
-            and_(Bundle.status == "sent_to_sewing", ~received_printing_log),
-        )
+        cutting_inventory_condition()
     )
     qry = _scope_to_cutting_department(qry, db, current, cutting_department_code)
+    if destination_factory != "ALL":
+        qry = qry.filter(destination_column() == destination_factory)
     search = str(q or "").strip()
     if search:
         like = f"%{search}%"
@@ -646,9 +631,10 @@ def cutting_inventory(
             )
         )
 
-    total = qry.count()
-    total_quantity = int(qry.with_entities(func.coalesce(func.sum(Bundle.quantity), 0)).order_by(None).scalar() or 0)
-    total_orders = int(qry.with_entities(func.count(func.distinct(Bundle.production_order_id))).order_by(None).scalar() or 0)
+    totals = inventory_totals(db, qry)
+    total = totals["bundles"]
+    total_quantity = totals["pieces"]
+    total_orders = totals["orders"]
     safe_page = max(1, page)
     safe_size = max(1, min(page_size, 2000))
     rows = (
@@ -679,6 +665,7 @@ def cutting_inventory(
         "total": total,
         "total_quantity": total_quantity,
         "total_orders": total_orders,
+        "total_work_orders": totals["work_orders"],
         "page": safe_page,
         "page_size": safe_size,
     }

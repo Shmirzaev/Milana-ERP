@@ -398,7 +398,7 @@ function FactoryDepartmentInboxPage() {
       <PageHeader
         title={t("page.deptInbox.title", { dept: deptLabel })}
         subtitle={t("page.deptInbox.subtitle")}
-        actions={code === "FGS" ? <StocktakeLink /> : undefined}
+        actions={code === "FGS" ? <StocktakeLink /> : isCuttingDepartment || code === "PRT" ? <Link className="btn" href={isCuttingDepartment ? `/dashboards/cutting?cutting_department=${code}` : "/dashboards/printing"}>{t(isCuttingDepartment ? "departmentDashboard.cutting" : "departmentDashboard.printing")}</Link> : undefined}
       />
       {!isCuttingDepartment && <div className="mb-4">
         <input type="search" className="input max-w-xl" aria-label={`${t("common.search")} ${deptLabel}`}

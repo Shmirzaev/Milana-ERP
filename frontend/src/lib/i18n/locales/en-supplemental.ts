@@ -1229,4 +1229,8 @@ export default {
     "page.hrEmployees.manager": "Manager",
     "page.hrEmployees.refineManagerSearch": "More than 50 matches. Refine the manager search.",
     "page.hrEmployees.loadMore": "Load more employees",
+    "departmentDashboard.cutting": "Cutting dashboard",
+    "departmentDashboard.printing": "Printing dashboard",
+    "departmentDashboard.warehouse": "Warehouse dashboard",
+    "departmentDashboard.unassigned": "Unassigned",
   } as Record<string, string>;

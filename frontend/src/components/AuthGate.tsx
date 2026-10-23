@@ -21,6 +21,9 @@ type RouteGuard = {
 };
 
 const ROUTE_GUARDS: RouteGuard[] = [
+  { prefix: "/dashboards/cutting", perms: ["cutting.records", "cutting.bundles", "planning.production", "*"] },
+  { prefix: "/dashboards/printing", perms: ["printing.records", "printing.bundles", "planning.production", "*"] },
+  { prefix: "/dashboards/warehouse", perms: ["storage.packages", "storage.shipment", "*"] },
   { prefix: "/eco-fabric-transfers", perms: ["inventory.eco_transfers"] },
   { prefix: "/fabric-scans", perms: ["cutting.records", "cutting.bundles", "storage.receive", "storage.items", "planning.production", "management.view"] },
   { prefix: "/admin/data", superOnly: true },
@@ -145,10 +148,10 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       const code = packagingDepartmentForSession(me, searchParams.get("packaging_department"));
       return code === "BPK" ? "BST" : code === "ECP" ? "ECO" : code === "PKG" ? "MIL" : "INVALID";
     }
-    if (pathname === "/bundles" || pathname.startsWith("/cutting-") || pathname.startsWith("/bundles/scan/cutting")) {
+    if (pathname === "/dashboards/cutting" || pathname === "/bundles" || pathname.startsWith("/cutting-") || pathname.startsWith("/bundles/scan/cutting")) {
       return (searchParams.get("cutting_department") || "CUT").toUpperCase() === "ECT" ? "ECO" : "MIL";
     }
-    if (pathname.startsWith("/bundles/scan/printing")) return "MIL";
+    if (pathname === "/dashboards/printing" || pathname.startsWith("/bundles/scan/printing")) return "MIL";
     return null;
   })();
   const canSwitchOperationalFactory = Boolean(

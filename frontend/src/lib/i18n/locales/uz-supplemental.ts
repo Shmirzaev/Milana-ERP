@@ -1360,4 +1360,8 @@ export default {
     "page.hrEmployees.manager": "Rahbar",
     "page.hrEmployees.refineManagerSearch": "50 dan ortiq natija topildi. Rahbar qidiruvini aniqlashtiring.",
     "page.hrEmployees.loadMore": "Yana xodimlarni yuklash",
+    "departmentDashboard.cutting": "Bichish paneli",
+    "departmentDashboard.printing": "Bosma paneli",
+    "departmentDashboard.warehouse": "Ombor paneli",
+    "departmentDashboard.unassigned": "Belgilanmagan",
   } as Record<string, string>;

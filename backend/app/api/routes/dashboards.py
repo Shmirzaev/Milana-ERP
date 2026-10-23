@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone, timedelta, time
 from zoneinfo import ZoneInfo
-from typing import Literal
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Annotated, Literal
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 
 from app.core.deps import (
@@ -22,6 +22,41 @@ from app.services.finance import dashboard_summary, branded_stock_value
 from app.services.inventory import stock_summary
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+
+
+@router.get("/cutting")
+def cutting_dashboard(
+    db: DbSession, start: date, end: date,
+    current: User = Depends(require_permissions("cutting.records", "cutting.bundles", "planning.production", "*")),
+    cutting_department_code: str | None = None,
+):
+    from app.services.department_dashboards import cutting_board
+    from app.services.factory_scope import cutting_department_scope
+    department = cutting_department_scope(current, cutting_department_code)
+    return cutting_board(db, department, start, end)
+
+
+@router.get("/printing")
+def printing_dashboard(
+    db: DbSession,
+    current: User = Depends(require_permissions("printing.records", "printing.bundles", "planning.production", "*")),
+    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=48)] = 24,
+):
+    from app.services.department_dashboards import printing_board
+    from app.services.factory_scope import require_operational_department_access
+    require_operational_department_access(current, "PRT")
+    return printing_board(db, offset=offset, limit=limit)
+
+
+@router.get("/warehouse")
+def warehouse_dashboard(
+    db: DbSession, start: date, end: date,
+    _: User = Depends(require_permissions("storage.packages", "storage.shipment", "*")),
+    stock_kind: Literal["ALL", "standard", "first_grade", "second_grade"] = "ALL",
+):
+    from app.services.department_dashboards import warehouse_board
+    return warehouse_board(db, start, end, stock_kind=stock_kind)
 
 
 @router.get("/overview")

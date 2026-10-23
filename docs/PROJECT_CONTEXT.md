@@ -1,6 +1,41 @@
 # Milana ERP Project Context
 
-Last updated: 2026-10-22
+Last updated: 2026-10-23
+
+## Department dashboards prepared locally; not deployed (2026-10-23)
+
+- Owner requested factory-separated Cutting inventory, bundle/piece/work totals,
+  Cutting fabric waste, and large-screen Printing and Warehouse dashboards.
+  Implementation is in `C:/ERP/.codex-work/erp-department-dashboards-20261023`,
+  branch `codex/erp-department-dashboards-20261023`, based on owner-selected
+  `clone_main` at `d754f42f`. Push to `clone_main` is authorized; deployment is not.
+- Both live application manifests and runtime slots were verified before work:
+  green `20261022_130603`, source manifest `3bdc1454f873f51202738e2705d45ddb9855a492507340bb5a3f5f149484e33c`,
+  rollback blue `20261022_112643`, database revision `0148_second_grade_packages`.
+  The source download verified all 1,383 manifest entries. Production was read
+  only; no application release, business row or schema was changed.
+- New authenticated `/api/dashboard/cutting`, `/printing`, `/warehouse` reports
+  back `/dashboards/cutting`, `/printing`, `/warehouse`. Cutting uses existing
+  CUT/ECT authorization, destination grouping and totals before pagination.
+  Current balances are independent of period-created/first-received movements.
+  Waste includes automatic and manual fabric records, separated by unit.
+  Printing shows ready bundle groups with model/artwork and named batches.
+  Warehouse counts received physical remainders across grades, and ranks models
+  by actual shipped pieces, excluding draft, cancelled and deleted shipments.
+  Existing pages link to the boards; navigation, guards and labels cover EN/RU/UZ.
+- A fresh logical production database snapshot was downloaded and restored into
+  a separate loopback-only PostgreSQL 17 instance on port 55432. Local API is on
+  18080, frontend on 3001. Production is PostgreSQL 16. Seeding, schema sync,
+  mail and integration credentials are disabled/absent locally. Independent SQL
+  reconciles the reports in a PostgreSQL read-only transaction. The uploaded-file
+  copy is incomplete; low local disk space and privileged non-ERP storage files
+  prevented completion. Required dashboard model images were copied separately.
+- Validation: 47 focused backend tests passed, then the final 10 dashboard tests
+  passed after named-batch/manual-waste refinements; frontend contract suite,
+  strict TypeScript, i18n and lint passed. The final production build passed
+  after the display refinements. Computer UI testing remains incomplete:
+  the Computer plugin explicitly denied Comet and Chrome access. Do not claim
+  manual/visual QA or a complete media clone. No production deployment occurred.
 
 ## Besttex masters, employee archive and batch printing deployed (2026-10-22)
 

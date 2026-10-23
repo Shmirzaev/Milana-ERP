@@ -272,7 +272,7 @@ export default function WarehouseStockPage() {
 
   return (
     <div>
-      <PageHeader title={t("page.warehouseStock.title")} subtitle={t("page.warehouseStock.subtitle")} actions={<><WarehouseReportDownload /><StocktakeLink /></>} />
+      <PageHeader title={t("page.warehouseStock.title")} subtitle={t("page.warehouseStock.subtitle")} actions={<><Link className="btn" href="/dashboards/warehouse">{t("departmentDashboard.warehouse")}</Link><WarehouseReportDownload /><StocktakeLink /></>} />
 
       <div className="mb-4 flex flex-wrap gap-2">
         <button className={`btn ${stockKind === "standard" ? "btn-primary" : ""}`} onClick={() => setStockKind("standard")}>{copy.standard}</button>

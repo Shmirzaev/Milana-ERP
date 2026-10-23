@@ -1343,4 +1343,8 @@ export default {
     "page.hrEmployees.manager": "Руководитель",
     "page.hrEmployees.refineManagerSearch": "Найдено более 50 совпадений. Уточните поиск руководителя.",
     "page.hrEmployees.loadMore": "Загрузить ещё сотрудников",
+    "departmentDashboard.cutting": "Панель раскроя",
+    "departmentDashboard.printing": "Панель печати",
+    "departmentDashboard.warehouse": "Панель склада",
+    "departmentDashboard.unassigned": "Не назначено",
   } as Record<string, string>;
