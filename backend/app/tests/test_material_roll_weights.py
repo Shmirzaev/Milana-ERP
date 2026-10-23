@@ -82,3 +82,41 @@ def test_existing_material_requires_matching_total_before_roll_weights_save(clie
     assert saved.status_code == 200, saved.text
     assert saved.json()["piece_count"] == 2
     assert saved.json()["roll_weights_kg"] == [12.25, 17.75]
+
+
+def test_receive_meter_material_preserves_total_without_kg_weights(client, auth_headers):
+    item, warehouse = _material_context(client, auth_headers)
+    response = client.post(
+        "/api/inventory/receive",
+        json={
+            "item_id": item["id"], "batch_no": "TOTAL-LENGTH-M-001",
+            "quantity": 123.45, "piece_count": 3, "unit": "m",
+            "roll_weights_kg": [], "roll_lengths_m": [],
+            "cost_per_unit": 2, "warehouse_id": warehouse["id"], "qc_status": "passed",
+        },
+        headers=auth_headers,
+    )
+    assert response.status_code == 201, response.text
+    batch = response.json()
+    assert batch["quantity"] == 123.45
+    assert batch["unit"] == "m"
+    assert batch["piece_count"] == 3
+    assert batch["roll_weights_kg"] == []
+    assert batch["roll_lengths_m"] == []
+    assert batch["length_m"] is None  # Length per roll, not the batch total.
+    listed = client.get("/api/inventory/batches?group=materials", headers=auth_headers)
+    saved = next(row for row in listed.json() if row["id"] == batch["id"])
+    assert saved["quantity"] == 123.45
+    assert saved["unit"] == "m"
+    assert saved["roll_weights_kg"] == []
+    invalid = client.post(
+        "/api/inventory/receive",
+        json={
+            "item_id": item["id"], "batch_no": "TOTAL-LENGTH-M-INVALID",
+            "quantity": 123.45, "piece_count": 1, "unit": "m",
+            "roll_weights_kg": [123.45], "cost_per_unit": 2,
+            "warehouse_id": warehouse["id"], "qc_status": "passed",
+        },
+        headers=auth_headers,
+    )
+    assert invalid.status_code == 400, invalid.text

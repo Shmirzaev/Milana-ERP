@@ -2,6 +2,13 @@
 
 Last updated: 2026-10-23
 
+## Meter-only fabric receiving prepared (2026-10-23)
+
+- Owner requested a Total length only option in Receive Fabric, based on and pushed to clone_main, plus deployment without the 30-minute monitoring window. EN/RU/UZ controls select meter totals, automatically follow meter-based materials, and clear quantities when switching kg/m to avoid reinterpreting measurements. The payload stores the batch total as quantity in m and omits kg roll weights and invented per-roll lengths; Count retains the entered roll count. Existing kg receiving and accessory forms are preserved. No backend behavior or schema change is required.
+- Worktree C:/ERP/.codex-work/receive-total-length-20261023, branch codex/receive-total-length-20261023, starts at owner-selected clone_main d9e028b5. Both live manifests/slots match green 20261022_130603, manifest 3bdc1454f873f51202738e2705d45ddb9855a492507340bb5a3f5f149484e33c, rollback blue 20261022_112643 and schema 0148_second_grade_packages. Pending dashboard code on clone_main is preserved and excluded from this scoped release.
+- Local validation passed 39 focused receiving/inventory backend tests, actual receiving-page browser tests in EN/RU/UZ including phone layout and exact payloads, payload/measurement regressions, i18n, strict TypeScript, scoped lint, all inherited build contracts and the optimized webpack production build. The standard local Turbopack build cannot follow the external node_modules junction; exact standard immutable CI remains required. Full backend validation is running. Initial local disk exhaustion was resolved by the owner. Backend capacity must be below 80% before staging; any offloaded historical backups are preserved locally with verified hashes. No cutover or production business write has occurred at preparation.
+
+
 ## PO-0328 / PJ1225 sizes corrected in production (2026-10-23)
 
 - At the owner's request, corrected PO-0328 / production order 367, model PJ1225-V-6495 / 8510, from sizes 46/48/50/52/54/56 to 44/46/48/50/52/54. Six order items 2143-2148 and six bundles 11489-11494 retain their identities and 100 pieces each; cutting passport 352 / 9592 now reads 44-54. Model sizes already matched 44-54 and were preserved.
