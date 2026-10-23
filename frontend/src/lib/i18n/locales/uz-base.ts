@@ -227,6 +227,7 @@ export default {
     "notif.testBody": "Bu kompyuterda bildirishnomalar yoqilgan.",
 
     "section.overview": "Umumiy",
+    "section.hr": "Kadrlar",
     "section.sales": "Savdo",
     "section.plm": "Modellashtirish / PLM",
     "section.planning": "Rejalashtirish",
@@ -248,6 +249,7 @@ export default {
     "nav.menu": "Menyu",
     "nav.closeMenu": "Menyuni yopish",
     "nav.dashboard": "Boshqaruv paneli",
+    "nav.hrDashboard": "Kadrlar paneli",
     "nav.processes": "Jarayonlarni kuzatish",
     "nav.traceability": "Kuzatuv",
     "nav.salesOrders": "Savdo buyurtmalari",

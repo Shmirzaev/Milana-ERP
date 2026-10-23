@@ -238,6 +238,7 @@ export default {
 
     // Sidebar sections
     "section.overview": "Overview",
+    "section.hr": "HR",
     "section.sales": "Sales",
     "section.plm": "Modeling / PLM",
     "section.planning": "Planning",
@@ -260,6 +261,7 @@ export default {
     "nav.menu": "Menu",
     "nav.closeMenu": "Close menu",
     "nav.dashboard": "Dashboard",
+    "nav.hrDashboard": "HR Dashboard",
     "nav.processes": "Process Tracking",
     "nav.traceability": "Traceability",
     "nav.salesOrders": "Sales Orders",

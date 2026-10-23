@@ -227,6 +227,7 @@ export default {
     "notif.testBody": "Уведомления включены на этом компьютере.",
 
     "section.overview": "Обзор",
+    "section.hr": "Кадры",
     "section.sales": "Продажи",
     "section.plm": "Моделирование / PLM",
     "section.planning": "Планирование",
@@ -248,6 +249,7 @@ export default {
     "nav.menu": "Меню",
     "nav.closeMenu": "Закрыть меню",
     "nav.dashboard": "Главная",
+    "nav.hrDashboard": "Кадры",
     "nav.processes": "Отслеживание процессов",
     "nav.traceability": "Прослеживаемость",
     "nav.salesOrders": "Заказы клиентов",
