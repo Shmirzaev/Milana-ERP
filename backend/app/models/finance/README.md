@@ -1,8 +1,8 @@
 # Finance
 
-Business-service group guide, relocated into models/ on 24 October 2026. This
-directory remains README-only; existing implementations are the *_service.py files
-linked below. The proposed files describe later approved operation extractions.
+Business-service group guide, relocated into models/ on 24 October 2026. The
+first approved extraction now lives here as `invoices_service.py`; the other
+proposed files below describe later approved operation extractions.
 
 **Purpose:** Own invoice issuance, payment allocation, balances and financial calculations.
 
@@ -14,7 +14,7 @@ See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordi
 ## Existing code to study first
 
 - Routes: [finance.py](../../api/routes/finance.py), [sales.py](../../api/routes/sales.py), [partners.py](../../api/routes/partners.py), [shipments.py](../../api/routes/shipments.py).
-- Services/helpers: [finance_service.py](../finance_service.py), [payments_service.py](../payments_service.py), [shipment_invoice_service.py](../shipment_invoice_service.py), [shipment_review_service.py](../shipment_review_service.py).
+- Services/helpers: [finance_service.py](../finance_service.py), [payments_service.py](../payments_service.py), [shipment_invoice_service.py](../shipment_invoice_service.py), [shipment_review_service.py](../shipment_review_service.py), [invoices_service.py](invoices_service.py).
 - Existing SQLAlchemy schema models: [Invoice](../../schemas/sales/sales.py#L132), [Payment](../../schemas/sales/sales.py#L148).
 - Existing Pydantic contracts: [sales.py](../../libs/dto/sales/sales.py), [price_calculation.py](../../libs/dto/planning/price_calculation.py).
 
@@ -58,6 +58,28 @@ Shavkat confirms business outcomes. The existing PostgreSQL race regression is
 `test_invoice_creation_integrity.py`; money bounds, delivery reconciliation and
 payment/idempotency cases need their own baseline comparisons. No RF-008 source
 implementation or policy change is approved by this trace.
+
+### RF-008 slice 1 — finance invoice issuance (extracted)
+
+`POST /finance/invoices` calls `invoices_service.create_order_invoice(db, payload, actor)`.
+The router keeps the `finance.invoice` permission, the `InvoiceOut` response model
+and the HTTP errors. The service owns the parent `sales_orders` NO KEY UPDATE
+lock, the existing-invoice check, the amount bound, the status derivation, the
+invoice number, the audit row and the commit.
+
+Preserved unchanged: the missing-order 404, an existing invoice returned as it is
+(including a void one), the money bounds and their 422 body, the
+`invoice_payment_status(amount, 0)` status, `INV-<year>-<n>` numbering, the
+`create` audit action, one write path per request and the same permission.
+
+Checks on this revision: 78 focused tests, no skip, including the PostgreSQL
+race regression and the money-bounds storage proof. The source-text lock
+assertion was replaced by an executed-statement check and a stale-order refetch
+check; the two-connection race stays in `test_invoice_creation_integrity.py`.
+No UI check, no business change, no migration.
+
+Still undecided, unchanged here: draft-order manual invoices, reversed-invoice
+reuse, the zero/small-balance status and the customer-payment lock gap.
 
 **DTOs and enums:** Invoice/payment status vocabulary; currencies and policy rules require explicit business decisions, not assumptions. Reuse Create/In, Update and Read/Out contracts
 where they exist. Add action-specific input only for a real action. Do not generate
