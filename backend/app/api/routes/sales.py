@@ -31,6 +31,7 @@ from app.schemas import (
 from app.libs.dto.sales.sales import (
     SalesOrderIn, SalesOrderUpdate, SalesOrderOut, SalesOrderDetail,
 )
+from app.libs.enums.finance import InvoiceStatus
 from app.models.audit_service import log_action
 from app.models.finished_goods_service import repair_missing_brand_metadata
 from app.models.ready_stock_sales_service import ready_pack_candidates, reserve_ready_packs
@@ -2161,7 +2162,7 @@ def generate_invoice_for_order(
         sales_order_id=sid,
         invoice_no=next_invoice_no(db),
         amount=float(so.total_amount or 0),
-        status="unpaid",
+        status=InvoiceStatus.UNPAID.value,
         issued_at=datetime.now(timezone.utc),
     )
     db.add(inv)

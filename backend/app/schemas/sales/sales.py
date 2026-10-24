@@ -4,6 +4,7 @@ from sqlalchemy import CheckConstraint, String, Integer, Boolean, ForeignKey, Da
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, PkMixin, TimestampMixin
+from app.libs.enums.finance import InvoiceStatus
 
 
 class SalesOrder(Base, PkMixin, TimestampMixin):
@@ -129,18 +130,22 @@ class ShipmentScanLog(Base, PkMixin):
     shipment: Mapped["Shipment"] = relationship("Shipment", back_populates="scan_logs")
 
 
+INVOICE_STATUS_VALUES = tuple(status.value for status in InvoiceStatus)
+INVOICE_STATUS_CHECK = "status IN (" + ", ".join(f"'{value}'" for value in INVOICE_STATUS_VALUES) + ")"
+
+
 class Invoice(Base, PkMixin, TimestampMixin):
     __tablename__ = "invoices"
     __table_args__ = (
         CheckConstraint("amount >= 0", name="ck_invoices_amount_nonnegative"),
-        CheckConstraint("status IN ('unpaid', 'partially_paid', 'paid', 'void', 'cancelled')", name="ck_invoices_status"),
+        CheckConstraint(INVOICE_STATUS_CHECK, name="ck_invoices_status"),
     )
     sales_order_id: Mapped[int] = mapped_column(ForeignKey("sales_orders.id"), nullable=False)
     invoice_no: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     external_source: Mapped[str | None] = mapped_column(String(32))
     external_id: Mapped[str | None] = mapped_column(String(128))
     amount: Mapped[float] = mapped_column(Numeric(14, 2), default=0, nullable=False)
-    status: Mapped[str] = mapped_column(String(32), default="unpaid", nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default=InvoiceStatus.UNPAID.value, nullable=False)
     issued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

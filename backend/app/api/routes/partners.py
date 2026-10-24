@@ -26,6 +26,7 @@ from app.schemas import (
     User,
 )
 from app.libs.dto.catalog.catalog import PartyIn, PartyOut
+from app.libs.enums.finance import InvoiceStatus
 from app.models.audit_service import log_action
 from app.models.numbering_service import next_invoice_no
 from app.models.payments_service import (
@@ -201,7 +202,7 @@ def create_customer_payment(
                 sales_order_id=sales_order.id,
                 invoice_no=next_invoice_no(db),
                 amount=money_decimal(sales_order.total_amount),
-                status="unpaid",
+                status=InvoiceStatus.UNPAID.value,
                 issued_at=datetime.now(timezone.utc),
             )
             db.add(invoice)
@@ -389,9 +390,10 @@ def _serialize_customer_order(
             return "unpaid" if has_shipped_goods and balance_due > 0 else "no_invoice"
         active_invoices = [inv for inv in invoices if inv.status not in REVERSED_INVOICE_STATUSES]
         if not active_invoices:
-            return "cancelled" if any(inv.status == "cancelled" for inv in invoices) else "void"
+            has_cancelled = any(inv.status == InvoiceStatus.CANCELLED.value for inv in invoices)
+            return InvoiceStatus.CANCELLED.value if has_cancelled else InvoiceStatus.VOID.value
         status = invoice_payment_status(invoice_total, paid_total)
-        return "partial" if status == "partially_paid" else status
+        return "partial" if status == InvoiceStatus.PARTIALLY_PAID.value else status
 
     return {
         "id": so.id,

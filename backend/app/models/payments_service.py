@@ -6,11 +6,12 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.dt import as_utc
+from app.libs.enums.finance import InvoiceStatus
 from app.schemas import Invoice, Payment, SalesOrder
 
 
 USD_SETTLEMENT_TOLERANCE = Decimal("1.00")
-REVERSED_INVOICE_STATUSES = frozenset({"void", "cancelled"})
+REVERSED_INVOICE_STATUSES = frozenset({InvoiceStatus.VOID.value, InvoiceStatus.CANCELLED.value})
 
 
 def money_decimal(value: Decimal | float | int | None) -> Decimal:
@@ -33,8 +34,8 @@ def invoice_payment_status(
     amount = money_decimal(amount)
     total_paid = money_decimal(total_paid)
     if amount - total_paid <= USD_SETTLEMENT_TOLERANCE:
-        return "paid"
-    return "partially_paid" if total_paid > 0 else "unpaid"
+        return InvoiceStatus.PAID.value
+    return InvoiceStatus.PARTIALLY_PAID.value if total_paid > 0 else InvoiceStatus.UNPAID.value
 
 
 def invoice_paid_total(db: Session, invoice_id: int) -> Decimal:

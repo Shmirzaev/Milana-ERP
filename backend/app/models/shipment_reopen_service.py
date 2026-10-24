@@ -11,6 +11,7 @@ from app.schemas import (FinishedGoodsStock, IdempotencyRecord, Invoice, Package
                         PackageScanLog, Payment, SalesOrder, Shipment, ShipmentPackage,
                         StockReservation, User)
 from app.libs.dto.fulfillment.shipment_review import ShipmentReopen
+from app.libs.enums.finance import InvoiceStatus
 from app.models.audit_service import log_action
 from app.models.packages_service import _sync_package_production
 from app.models.shipment_review_service import locked_shipment
@@ -95,7 +96,9 @@ def reopen_shipment(db: Session, sid: int, payload: ShipmentReopen, user: User) 
             _conflict("finance")
         invoices = db.query(Invoice).filter_by(sales_order_id=order.id).order_by(Invoice.id).with_for_update().all()
         for invoice in invoices:
-            if (invoice.status not in {"unpaid", "void", "cancelled"} or invoice.external_id
+            if (invoice.status not in {
+                    InvoiceStatus.UNPAID.value, InvoiceStatus.VOID.value, InvoiceStatus.CANCELLED.value
+                } or invoice.external_id
                     or invoice.external_source or db.query(Payment.id).filter_by(invoice_id=invoice.id).first()):
                 _conflict("finance")
     before = jsonable_encoder({
@@ -120,7 +123,7 @@ def reopen_shipment(db: Session, sid: int, payload: ShipmentReopen, user: User) 
         # The package stays attached, so its original verification remains valid.
         # Actual package removal still invalidates scans in detach_shipment_package.
     for invoice in invoices:
-        invoice.status = "void"
+        invoice.status = InvoiceStatus.VOID.value
         invoice.amount = 0
     if order:
         if manual:

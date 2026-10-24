@@ -3,8 +3,10 @@
 **Coordination owner:** Ismail. **Reviewer:** Mirshoir.
 Shavkat confirms business meanings; feature owners update callers. See [team ownership](../../../../docs/TEAM_OWNERSHIP.md).
 
-This folder is a documented part of the proposed refactor. No enum implementation
-or database change has been made yet.
+This folder is part of the refactor. `finance.py` contains an RF-011 candidate
+for the five persisted invoice status strings. It preserves the existing API
+strings and SQL `String` column; no database change has been made. Mirshoir and
+Shavkat still need to review its business meaning before it is landed.
 
 ## Purpose
 
@@ -42,12 +44,14 @@ This folder is not a requirement to convert every string in the application.
 | --- | --- | --- |
 | `SewingAssignment.status` | `planned`, `in_progress`, `completed`, `cancelled`, `transferred` in the ORM comment and assignment routes. | No SQL CHECK constraint exists on this column. Query distinct values in a read-only production snapshot first; Shavkat confirms each meaning. `sewing_flows.py` defines active as only planned/in-progress and managed as planned/in-progress/completed; output currently accepts completed too. Preserve each operation's subset rather than using enum membership as editability. Mirshoir reviews the callers. |
 | `WorkOrder.status` | `new`, `planning`, `waiting`, `pending`, `ready`, `collected`, `in_progress`, `paused`, `completed`, `rejected`, `cancelled` in `ck_work_orders_status`. | This is shared by Cutting, Printing, Sewing, Packaging and Storage. Mirshoir owns the vocabulary and transitions; do not create a Sewing-only copy. Preserve the current string column and database constraint. |
-| `Invoice.status` | `unpaid`, `partially_paid`, `paid`, `void`, `cancelled` in `ck_invoices_status`. | Ismail owns this candidate. `payments_service.py` derives settlement status; finance, sales, customer payment and shipment delivery have different issuance rules. Customer-facing `payment_status` values such as `no_invoice` and `partial` are a separate projection. Preserve USD tolerance and all API strings. |
+| `Invoice.status` | `unpaid`, `partially_paid`, `paid`, `void`, `cancelled` in `ck_invoices_status`. | Ismail owns this candidate. The five values now have one Python definition in `backend/app/libs/enums/finance.py` (`InvoiceStatus`); `ck_invoices_status` and the `invoices.status` default are derived from it. The persisted `String(32)` column, the rendered CHECK text and every API string are unchanged, and no database migration was made or is needed. `payments_service.py` derives settlement status; finance, sales, customer payment and shipment delivery have different issuance rules. Customer-facing `payment_status` values such as `no_invoice` and `partial` are a separate projection and are not enum members. Preserve USD tolerance and all API strings. |
 
-This is a source inventory, not approval to add enum classes or rewrite callers.
-Use explicit `str` enum values after the responsible engineers and Shavkat confirm
-meaning, then compare validation, serialization, storage and rollback behavior on
-the accepted operation. The enum must not replace authorization or transitions.
+This inventory does not approve business transitions or authorize a release. The
+`Invoice.status` row is already a candidate conversion; the other rows are still
+inventory. Use explicit `str` enum values after the responsible engineers and
+Shavkat confirm meaning, then compare validation, serialization, storage and
+rollback behavior on the accepted operation. The enum must not replace
+authorization or transitions.
 
 Ismail coordinates enum conventions and the vocabulary inventory. Each feature
 owner verifies its callers and serialization; Shavkat confirms business meanings.
