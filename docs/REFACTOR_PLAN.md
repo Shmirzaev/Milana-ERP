@@ -219,6 +219,8 @@ RF-013 must pass before RF-005 production cutover. RF-011/012 use the accepted
 pilot interface; each has its own review and release evidence. The later three
 feature streams start after pilot production acceptance. One active implementation
 per engineer; one writer per shared operation. IDs are plan IDs, not created issues.
+The [RF-001 source trace and proposed output interface](../backend/app/models/production/README.md#rf-001-sewing-output-seam-proposal-for-mirshoir)
+are prepared for Mirshoir's decision; this is not RF-005 implementation approval.
 
 ### RF-003: Sewing pilot bug evidence prepared for Ismail
 

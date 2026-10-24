@@ -46,6 +46,55 @@ operation is extracted and all callers are updated.
 
 **First operation to study:** Pilot record_sewing_output: trace production.post_sewing, the band caller, corrections, receipts, locks, audit and idempotency. Preserve existing production_service.py operations and schemas/production/production.py mappings during later extraction.
 
+### RF-001 Sewing output seam: proposal for Mirshoir
+
+Source trace at `5603b5d`; this is a review proposal, not an approved extraction.
+
+- `POST /api/sewing/records` enters `production.post_sewing` with
+  `SewingRecordIn`, `sewing.records` permission and an optional Idempotency-Key.
+  That route owns the WorkOrder lock, factory and batch checks, upstream/input and
+  size limits, SewingRecord/assignment counters, defect waste, Packaging plan and
+  notification, workflow advance, audit, idempotency save and final commit.
+- `POST /api/sewing-bands/{aid}/output` authenticates a band through its assignment,
+  requires final-only output and ECO received-bundle capacity, then imports and
+  calls `production.post_sewing` directly. It uses the same `sewing:output` retry
+  scope. Its WorkOrder-before-assignment refresh order must survive extraction.
+  The band path currently uses `CurrentUser`, not the general route's permission
+  dependency; the service must preserve its assignment-based access check.
+- Sewing corrections PATCH/DELETE import five private production-route helpers,
+  adjust records/assignment/work-order totals and commit independently. Bundle
+  receipts, planned Nastils and line assignments invoke
+  `sewing_progress_service.reconcile_sewing_order`; they do not call the output
+  endpoint. These are adjacent operations to test, not extra callers to merge
+  into one output function.
+
+Proposed first public operation, subject to Mirshoir's interface decision:
+
+```python
+record_sewing_output(
+    db: Session, *, actor: User, payload: SewingRecordIn,
+    idempotency_key: str | None, band_assignment_id: int | None = None,
+) -> dict[str, int]
+```
+
+`band_assignment_id` comes from the band URL and must match the payload and the
+actor's active band; it must never act as a permission bypass. The operation
+would select one write path, own the transaction and return today's `{"id": ...}`.
+Both routes would retain their current URL, status code, replay scope, validation
+errors and response shape while delegating the complete write to that operation.
+Reuse the existing DTO/SQLAlchemy mappings and helpers; decide the service's
+error-to-HTTP mapping before implementation. Move corrections and receipts only
+as separately reviewed operations. Avoid a second business implementation or
+production shadow writes.
+
+Before Mirshoir approves this seam, confirm the normal-versus-band authorization,
+one transaction owner, lock order and exact-batch rules with Shavkat's examples.
+Compare old/new runs on independent PostgreSQL fixtures, including retries,
+concurrent output, corrections, later Nastils, Printing loss and Packaging handoff;
+then inspect the real UI and persisted effects. Freshly verify both production
+manifests/slots before any release. The retained active release is the source
+rollback path; a source rollback does not undo records already written.
+
 **DTOs and enums:** Manufacturing/work-order/stage statuses. Enum membership does not authorize transitions or create replacement work. Reuse Create/In, Update and Read/Out contracts
 where they exist. Add action-specific input only for a real action. Do not generate
 three DTOs for every table or expose privileged fields through generic updates.
