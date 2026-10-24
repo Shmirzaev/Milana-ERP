@@ -11,18 +11,20 @@ not appended here. This summary does not replace live release verification.
   Use separate engineer work directories and one landing queue coordinated by Mirshoir.
 - [DEPLOYMENT.md](../DEPLOYMENT.md) is the only supported release procedure.
   Before release reconcile Git, production-base.json, both manifests and runtime slots.
-- Last recorded application release: green 20261024_032622; rollback blue
-  20261023_061627; application commit 5c45531db350ba79e2e0167b942530a5b0f9bef8;
-  database revision 0148_second_grade_packages. These are historical pointers,
-  NOT a fresh live check. See [the complete deployment record](archive/PROJECT_CONTEXT-2026-10-24.md#clone_main-department-dashboards-deployed-2026-10-24).
-- That deployment recorded an initial performance failure and rollback, followed
+- Verified 2026-10-24 at 16:16 Tashkent: both VMs serve blue `20261024_093619`;
+  retained healthy rollback is green `20261024_032622`. Deployed application commit
+  `1fce86b5b9156fac050ca5c98433198323b20929`, manifest
+  `e424f9a6f135b0ebf3851e0355c39d546bd3466eafcb4ddba6ef27c2b3bd4d31`;
+  database remains `0148_second_grade_packages`. See [the deployment record](archive/SEWING_LATER_NASTIL_2026-10-24.md#production-activation--2026-10-24).
+- The earlier `20261024_032622` deployment recorded an initial performance failure and rollback, followed
   by reactivation of the same images; public-path tail variation remains unresolved.
   The owner waived the timed observation period. The archive preserves all attempts.
 
-## Later-Nastil Sewing fix merged
+## Later-Nastil Sewing fix deployed
 
 - Permanent later-Nastil receipt/completion and assignment fix is implemented and tested for MIL/BST/ECO. Runtime candidate `1fce86b5`; immutable CI `40082616718` passed.
-- The owner authorized merging PR #304 after review; it merged into clone_main as `ec02b5f` on 24 October 2026 after backend/frontend CI passed. Production activation was not performed or freshly verified by this task; the release pointers above remain historical.
+- Ismail merged PR #304 as `ec02b5f`; the owner explicitly accepted his merge as approval and authorized deployment without the 30-minute monitoring window. The tested immutable runtime has identical application/frontend/migration/CI files to that merged fix. Later service relocation `1dfd1c5d` remains outside this release; repository architecture below describes that newer branch state.
+- Activated at 16:13 Tashkent. Fresh backup, no-op schema verification, renewed 18-check factory QA, real live browser checks, all four health checks, runtime/log/database/source/rollback checks and fixed-query paired/public performance budgets passed. No business records/history were repaired or replayed; all eight PO-0307 table fingerprints match across cutover. Timed monitoring was explicitly waived, not reported as performed. Operator business acceptance remains pending.
 - [Detailed verification and release record](archive/SEWING_LATER_NASTIL_2026-10-24.md) preserves root cause, tests and deployment preparation.
 
 ## Architecture and migration state

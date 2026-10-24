@@ -2,10 +2,10 @@
 
 ## SEW-LATER-NASTIL-20261024 — later Nastil disappears from Sewing
 
-- **P1 · Mirshoir · Review. Reviewer: Ismail.** Independent review is pending, confirmed by the owner on 2026-10-24. No production activation or human acceptance is claimed.
+- **P1 · Mirshoir · Awaiting production verification. Reviewer: Ismail.** PR #304 was merged by Ismail; the owner explicitly accepted the merge as approval and authorized deployment. Technical deployment checks pass; named operator/business acceptance remains pending.
 - Reproduction: finish the first 128-piece Nastil with an accepted Cutting shortfall on a 600-piece order; save/cut/receive a later 128-piece Nastil. Aggregate completion kept the shared Sewing work order completed and hidden; cancelled historical assignments could lock the form to the first batch.
 - Fix: reconcile required work by exact Nastil during receipt/planning/output/assignment, reopen completed shared Sewing with an audit entry when needed, and keep batch/assignment choice consistent while excluding cancelled/transferred choices. Preserve real shortfall and Printing losses, existing records, quantities, barcodes and scan history.
-- Runtime source `1fce86b5`; [immutable CI](https://github.com/Shmirzaev/Milana-ERP/actions/runs/40082616718) and isolated real UI/department-handoff/retry checks pass for MIL/BST/ECO. Blue candidate `20261024_093619` is staged only; green `20261024_032622` still serves production. [Detailed evidence and remaining release gates](../docs/archive/SEWING_LATER_NASTIL_2026-10-24.md).
+- Runtime source `1fce86b5`; [immutable CI](https://github.com/Shmirzaev/Milana-ERP/actions/runs/40082616718) and isolated real UI/department-handoff/retry checks pass for MIL/BST/ECO. Blue `20261024_093619` is live on both VMs from 16:13 Tashkent on 2026-10-24; healthy green `20261024_032622` is retained for rollback. Public workflow/browser/performance and closing checks pass; production history is preserved. The owner waived the timed monitoring window. [Detailed evidence and operator acceptance status](../docs/archive/SEWING_LATER_NASTIL_2026-10-24.md).
 
 > Current workflow, 2026-10-24: active work and items awaiting production verification live here. Human-approved production fixes move to [finished_bugs.md](finished_bugs.md). See [the refactor plan](../docs/REFACTOR_PLAN.md).
 >
