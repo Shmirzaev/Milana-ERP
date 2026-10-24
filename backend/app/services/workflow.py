@@ -146,6 +146,10 @@ def processed_work_order_qty(db: Session, wo: WorkOrder) -> int:
 
 
 def _complete_if_done(db: Session, wo: WorkOrder) -> None:
+    pending_sewing = False
+    if wo.operation == "sewing":
+        from app.services.sewing_progress import unfinished_sewing_batches
+        pending_sewing = bool(unfinished_sewing_batches(db, wo))
     if wo.operation == "cutting":
         po = db.get(ProductionOrder, wo.production_order_id)
         if po and po.source_type == "usluga":
@@ -193,10 +197,10 @@ def _complete_if_done(db: Session, wo: WorkOrder) -> None:
             return
     planned = int(wo.planned_output_qty or 0)
     processed = processed_work_order_qty(db, wo)
-    if planned > 0 and processed >= planned and wo.status != "completed":
+    if planned > 0 and processed >= planned and not pending_sewing and wo.status != "completed":
         wo.status = "completed"
         wo.end_time = datetime.now(timezone.utc)
-    elif wo.operation in ("sewing", "packaging") and processed < planned and wo.status == "completed":
+    elif wo.operation in ("sewing", "packaging") and (processed < planned or pending_sewing) and wo.status == "completed":
         wo.status = "in_progress"
         wo.end_time = None
 
@@ -373,14 +377,17 @@ def advance_workflow(
 ) -> None:
     _start_if_waiting(wo)
     _complete_if_done(db, wo)
-
-    if allow_next_stage_start and trigger_output_qty > 0:
+    if trigger_output_qty > 0:
         by_op = _work_orders_by_op(
             db,
             wo.production_order_id,
             production_batch_id=wo.production_batch_id,
         )
-        next_op = _next_existing_operation(wo.operation, by_op)
+        sewing = by_op.get("sewing")
+        if wo.operation in ("cutting", "printing") and sewing and sewing.status == "completed":
+            from app.services.sewing_progress import reconcile_sewing_order
+            reconcile_sewing_order(db, wo.production_order_id, reason=f"{wo.operation} output reconciled")
+        next_op = _next_existing_operation(wo.operation, by_op) if allow_next_stage_start else None
         if next_op:
             nxt = by_op.get(next_op)
             if nxt:

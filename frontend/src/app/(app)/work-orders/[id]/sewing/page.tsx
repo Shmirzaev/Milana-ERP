@@ -3,6 +3,7 @@ import BandOrder from "@/components/sewing/BandOrder";
 import { useMe } from "@/lib/auth";
 
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
@@ -29,6 +30,7 @@ type Assignment = {
   sewing_flow_id: number;
   quantity: number;
   completed_qty: number;
+  status: string;
 };
 
 type LineOption = {
@@ -65,7 +67,9 @@ function FactorySewingPage() {
   const batchById = useMemo(() => new Map((po?.batches || []).map((b: any) => [Number(b.id), b])), [po?.batches]);
   const lineOptions = useMemo<LineOption[]>(() => {
     if (assignments.length > 0) {
-      return assignments.map((a) => {
+      return assignments.filter((a) => ["planned", "in_progress", "completed"].includes(a.status))
+        .sort((a, b) => Number(a.status === "completed") - Number(b.status === "completed"))
+        .map((a) => {
         const flow = flows.find((f) => f.id === a.sewing_flow_id);
         const lineName = flow?.name || flow?.code || `#${a.sewing_flow_id}`;
         const remaining = Math.max(0, Number(a.quantity || 0) - Number(a.completed_qty || 0));
@@ -126,6 +130,7 @@ function FactorySewingPage() {
     notes: "",
   });
   const [msg, setMsg] = useState("");
+  const [batchPickedByUser, setBatchPickedByUser] = useState(false);
   const isAlreadyBatched = Array.isArray(po?.batches) && po.batches.length > 0;
   const batchItems = Array.isArray(batchProgress?.items) ? batchProgress.items : [];
   const selectedLine = useMemo(
@@ -134,17 +139,23 @@ function FactorySewingPage() {
   );
 
   useEffect(() => {
-    if (!lineOptions.length) return;
-    const current = lineOptions.find((opt) => opt.assignmentId === f.sewing_assignment_id && opt.lineName === f.line_name);
+    const eligible = batchPickedByUser && f.production_batch_id
+      ? lineOptions.filter((opt) => !opt.productionBatchId || opt.productionBatchId === f.production_batch_id)
+      : lineOptions;
+    const current = eligible.find((opt) => opt.assignmentId === f.sewing_assignment_id && opt.lineName === f.line_name);
     if (current) return;
-    const next = lineOptions.find((opt) => !opt.disabled) || lineOptions[0];
+    const next = eligible.find((opt) => !opt.disabled);
+    if (!next) {
+      if (f.line_name || f.sewing_assignment_id) setF((prev) => ({ ...prev, line_name: "", sewing_assignment_id: null }));
+      return;
+    }
     setF((prev) => ({
       ...prev,
       line_name: next.lineName,
       sewing_assignment_id: next.assignmentId,
       production_batch_id: next.productionBatchId || prev.production_batch_id,
     }));
-  }, [lineOptions, f.sewing_assignment_id, f.line_name]);
+  }, [lineOptions, f.sewing_assignment_id, f.line_name, f.production_batch_id, batchPickedByUser]);
 
   useEffect(() => {
     if (!selectedLine?.productionBatchId) return;
@@ -270,8 +281,13 @@ function FactorySewingPage() {
             <select
               className="input"
               value={f.production_batch_id}
-              disabled={!!selectedLine?.productionBatchId}
-              onChange={(e) => setF({ ...f, production_batch_id: Number(e.target.value) })}
+              onChange={(e) => {
+                const batchId = Number(e.target.value);
+                setBatchPickedByUser(true);
+                const picked = lineOptions.find((opt) => opt.productionBatchId === batchId || !opt.productionBatchId);
+                setF((prev) => ({ ...prev, production_batch_id: batchId,
+                  sewing_assignment_id: picked?.assignmentId ?? null, line_name: picked?.lineName || "" }));
+              }}
             >
               <option value={0}>{t("batch.selectBatch")}</option>
               {(po?.batches || []).map((b: any) => (
@@ -297,6 +313,9 @@ function FactorySewingPage() {
         </div>
         <div>
           <label className="label">{t("field.lineName")}</label>
+          {assignments.length > 0 && !selectedLine && (
+            <Link href="/sewing/flows" className="text-sm underline">{t("nav.sewingFlows")}</Link>
+          )}
           <select
             className="input"
             value={selectedLine?.key || ""}

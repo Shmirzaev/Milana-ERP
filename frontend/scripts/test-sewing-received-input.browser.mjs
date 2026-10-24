@@ -8,6 +8,7 @@ import { runtimeMessages } from "./runtime-locales.mjs";
 const root = process.cwd();
 const stubs = {
   "next/navigation": `export const useParams=()=>({id:'1069'});`,
+  "next/link": `import React from 'react';export default function Link(p){return <a {...p}/>}`,
   "@/lib/auth": `export const useMe=()=>({me:{id:1,permissions:['*']}});export const can=()=>true;`,
   "@/components/sewing/BandOrder": `export default function Band(){return null}`,
   "@/components/WorkOrderProductInfo": `export default function Product(){return null}`,

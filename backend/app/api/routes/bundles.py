@@ -1063,6 +1063,10 @@ def accept_sewing_batch(
         else []
     )
 
+    if wo.status == "completed":
+        from app.services.sewing_progress import reconcile_sewing_order
+        reconcile_sewing_order(db, batch.production_order_id, current=current, reason="Sewing batch accepted and assigned")
+
     log_action(
         db,
         current,
