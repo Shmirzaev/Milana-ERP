@@ -24,3 +24,11 @@ workflow and whether this is planning or approved implementation. Example:
 Use [team ownership](TEAM_OWNERSHIP.md) for exact allocations and
 [the backend guide](../backend/app/README.md) for current versus target folders.
 The schema/DTO migration is planned; reading these skills does not mean it happened.
+
+## Verification after each change
+
+Follow [the shared verification gates](VERIFICATION.md) for every completed runtime migration,
+bug fix and feature: validate AI-written tests, run relevant automated checks,
+visually exercise actual end-to-end behavior, then challenge it with bounded
+stress and verify data integrity/recovery. Record blocked checks honestly; they
+do not count as passes. Documentation-only changes record runtime gates as not applicable.

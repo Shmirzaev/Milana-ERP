@@ -97,3 +97,11 @@ behind one interface use [Branch by Abstraction](https://martinfowler.com/bliki/
 Compatible interface expansion, caller migration and old-interface removal use
 [Parallel Change (expand, migrate, contract)](https://martinfowler.com/bliki/ParallelChange.html).
 Neither pattern requires microservices or a long-lived Git branch.
+
+## Verification after each change
+
+Follow [the shared verification gates](../../../docs/VERIFICATION.md) for every completed runtime migration,
+bug fix and feature: validate AI-written tests, run relevant automated checks,
+visually exercise actual end-to-end behavior, then challenge it with bounded
+stress and verify data integrity/recovery. Record blocked checks honestly; they
+do not count as passes. Documentation-only changes record runtime gates as not applicable.

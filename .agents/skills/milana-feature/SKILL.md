@@ -60,6 +60,20 @@ authorization covers ordinary implementation choices within the agreed scope.
   needs explicit scope, reviewed constraints/defaults, compatibility and recovery
   verification. Multitenancy remains deferred. No production data fabrication.
 
+## Required verification for every completed change
+
+Follow [the verification gates](../../../docs/VERIFICATION.md) after every completed
+folder/operation migration, bug fix or feature, on the exact candidate revision.
+Prove test validity (bug red/green, refactor parity, targeted fault challenges for
+critical rules); run relevant real PostgreSQL checks and report required skips.
+Then exercise the real UI end to end and actually inspect rendered screenshots
+with vision, verify persisted effects and adjacent workflows, and run a bounded
+relevant stress scenario with recorded limits, integrity and recovery checks.
+Use isolated test data/infrastructure. Missing browser access or a required test
+environment is BLOCKED, never PASS. Repeat invalidated checks after further edits;
+no cleanup/readiness claim before required gates pass. Human production acceptance
+remains separate. Documentation-only work records runtime gates as NOT APPLICABLE.
+
 ## Prove and hand off
 
 - Add meaningful tests for new behavior and affected existing workflows: permission

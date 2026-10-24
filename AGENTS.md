@@ -89,6 +89,14 @@ Use [bugs/bugs.md](bugs/bugs.md) for active/unverified work. Move entries to
 verification. Preserve stable IDs and historical evidence. Markdown guidance is
 not a substitute for meaningful tests, required CI and independent review.
 
+## Verification gates
+
+For every completed runtime migration, bug fix or feature, follow
+[docs/VERIFICATION.md](docs/VERIFICATION.md): meaningful automated checks, actual
+browser/computer visual E2E, then bounded relevant stress and data-integrity checks.
+Record PASS/FAIL/BLOCKED evidence; missing tools or skipped required tests are not
+passes. Do not retire old paths before the required verification and human acceptance.
+
 ## Safety and scope
 
 - Make the smallest exact change requested.

@@ -246,3 +246,11 @@ No automatic closing from merge, an AI completion claim or an old Done label.
 
 Inspected source: 5c45531db350ba79e2e0167b942530a5b0f9bef8. Live production was
 not accessed or freshly certified. Historical release records are unchanged.
+
+## Verification after each change
+
+Follow [the shared verification gates](VERIFICATION.md) for every completed runtime migration,
+bug fix and feature: validate AI-written tests, run relevant automated checks,
+visually exercise actual end-to-end behavior, then challenge it with bounded
+stress and verify data integrity/recovery. Record blocked checks honestly; they
+do not count as passes. Documentation-only changes record runtime gates as not applicable.

@@ -80,6 +80,20 @@ checks, rollback mechanism and next step so another session can resume accuratel
 - Do not add repositories, service interfaces, tables, DTO duplicates or a framework
   migration without an actual requirement. Multitenancy is deferred.
 
+## Required verification for every completed change
+
+Follow [the verification gates](../../../docs/VERIFICATION.md) after every completed
+folder/operation migration, bug fix or feature, on the exact candidate revision.
+Prove test validity (bug red/green, refactor parity, targeted fault challenges for
+critical rules); run relevant real PostgreSQL checks and report required skips.
+Then exercise the real UI end to end and actually inspect rendered screenshots
+with vision, verify persisted effects and adjacent workflows, and run a bounded
+relevant stress scenario with recorded limits, integrity and recovery checks.
+Use isolated test data/infrastructure. Missing browser access or a required test
+environment is BLOCKED, never PASS. Repeat invalidated checks after further edits;
+no cleanup/readiness claim before required gates pass. Human production acceptance
+remains separate. Documentation-only work records runtime gates as NOT APPLICABLE.
+
 ## Study -> extract -> prove -> switch -> retire
 
 1. Trace one operation, including alternate callers, CRUD, permissions, transaction

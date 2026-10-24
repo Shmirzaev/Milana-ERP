@@ -2,6 +2,23 @@
 
 Last updated: 2026-10-24
 
+## AI test validity, visual E2E and bounded stress gates (2026-10-24)
+
+- User required checks after each runtime folder/operation migration or bug fix:
+  meaningful automated tests, browser/computer visual E2E, then relevant stress.
+- Added docs/VERIFICATION.md and linked both canonical skills, AGENTS.md, ownership,
+  plan and service guide. Includes defect red/green, refactor parity, targeted fault
+  challenges, real screenshot inspection, readback, bounded load and recovery.
+- Inspected test configuration: default pytest suite uses SQLite; separate real
+  PostgreSQL concurrency checks need explicit collection/configuration and may skip.
+  A required missing/skipped check is BLOCKED, not PASS. Human acceptance remains.
+- Researched primary Anthropic, Playwright, Hypothesis, mutmut and Grafana guidance.
+  BrowserOS tools unavailable this session; used web research. No ERP/browser/load
+  test was run, dependencies installed, CI changed or synthetic business data written.
+- Documentation continuation of the shared-skills task, based on f8719d19; publication
+  result belongs in the final handoff. No application/database/deployment changes;
+  active/rollback history below preserved and not freshly verified.
+
 ## Shared feature skill, named ownership and publication (2026-10-24)
 
 - User requested repository-shared skills, a separate skill for adding features,

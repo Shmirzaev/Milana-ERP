@@ -70,3 +70,11 @@ assigned engineering review, database migrations or deployment operations.
   No GitHub handles were guessed, review rules installed or teammates messaged.
 
 See [the execution plan](REFACTOR_PLAN.md) and [shared skills](AGENT_SKILLS.md).
+
+## Verification after each change
+
+Follow [the shared verification gates](VERIFICATION.md) for every completed runtime migration,
+bug fix and feature: validate AI-written tests, run relevant automated checks,
+visually exercise actual end-to-end behavior, then challenge it with bounded
+stress and verify data integrity/recovery. Record blocked checks honestly; they
+do not count as passes. Documentation-only changes record runtime gates as not applicable.
