@@ -6,7 +6,7 @@ from sqlalchemy import event
 
 from app.db.session import SessionLocal
 from app.models import Item, StockBatch, Warehouse
-from app.services.traceability import _batch_material_usage
+from app.models.traceability_service import _batch_material_usage
 
 
 def _select_trace(db, callback):

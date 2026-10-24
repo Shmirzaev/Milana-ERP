@@ -13,7 +13,7 @@ from app.models import (
     ProductionBatch,
     ProductionOrder,
 )
-from app.services.traceability import _batch_packages, _package_scans
+from app.models.traceability_service import _batch_packages, _package_scans
 
 
 def _select_trace(db, callback):

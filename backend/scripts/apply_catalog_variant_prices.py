@@ -16,7 +16,7 @@ from sqlalchemy import text
 
 from app.db.session import SessionLocal
 from app.models import Model, User
-from app.services.audit import log_action
+from app.models.audit_service import log_action
 
 
 CYRILLIC_CONFUSABLES = str.maketrans(

@@ -1,4 +1,4 @@
-from app.services.package_dispatch import remaining_quantity
+from app.models.package_dispatch_service import remaining_quantity
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
@@ -8,10 +8,10 @@ from sqlalchemy import func, or_
 from app.core.deps import DbSession, require_permissions
 from app.models import (Customer, FinishedGoodsStock, Model, Package, Shipment, ShipmentPackage,
                         StockReservation, User, WarehousePackReservation)
-from app.services.audit import log_action
-from app.services.idempotency import replay_idempotent_response, store_idempotent_response
-from app.services.numbering import next_shipment_no
-from app.services.packaging_scope import require_package_access
+from app.models.audit_service import log_action
+from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
+from app.models.numbering_service import next_shipment_no
+from app.models.packaging_scope_service import require_package_access
 
 router = APIRouter(prefix="/warehouse-reservations", tags=["warehouse"])
 ACCESS = ("storage.packages", "storage.shipment", "*")
@@ -131,8 +131,8 @@ def list_packs(db: DbSession, current: User = Depends(require_permissions(*ACCES
                reserved: bool = True, customer_id: int | None = None,
                q: str | None = Query(None, max_length=100),
                page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=50)):
-    from app.services.packaging_scope import packaging_department_scope
-    from app.services.factory_scope import factory_for_department, user_is_super_admin
+    from app.models.packaging_scope_service import packaging_department_scope
+    from app.models.factory_scope_service import factory_for_department, user_is_super_admin
     totals = (db.query(FinishedGoodsStock.package_id.label("pid"),
                       func.sum(FinishedGoodsStock.available_qty).label("available"),
                       func.sum(FinishedGoodsStock.reserved_qty).label("reserved"),

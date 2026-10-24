@@ -6,7 +6,7 @@ from pathlib import Path
 from sqlalchemy import text
 from app.db.session import SessionLocal
 from app.models import Department, Employee, User
-from app.services.audit import log_action
+from app.models.audit_service import log_action
 
 
 def import_roster(db, payload, actor, *, apply=False):

@@ -11,9 +11,9 @@ from app.models import (
     Department, Item, MaterialReservation, Model, ProductionOrder, ProductionOrderItem,
     Role, StockBatch, StockMovement, User, Warehouse, WorkOrder,
 )
-from app.services.cutting_fabric_usage import cutting_fabric_usage
-from app.services.inventory import consume_material_reservations_for_stock_batch
-from app.services.workflow import consume_stock_batch
+from app.models.cutting_fabric_usage_service import cutting_fabric_usage
+from app.models.inventory_service import consume_material_reservations_for_stock_batch
+from app.models.workflow_service import consume_stock_batch
 
 URL = "/api/inventory/cutting-fabric-usage"
 

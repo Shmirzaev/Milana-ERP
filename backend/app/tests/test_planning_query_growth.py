@@ -38,7 +38,7 @@ from app.models import (
     StockMovement,
     Warehouse,
 )
-from app.services.planning import (
+from app.models.planning_service import (
     material_requirements_for_quantity,
     material_requirements_for_sales_order,
     planning_estimate_for_sales_order,

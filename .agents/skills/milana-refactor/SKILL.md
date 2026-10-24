@@ -48,22 +48,28 @@ checks, rollback mechanism and next step so another session can resume accuratel
 
 ## Architecture contract
 
-`HTTP router -> feature service -> SQLAlchemy models + Session -> PostgreSQL`
+`HTTP router -> models/*_service.py -> SQLAlchemy schema + Session -> PostgreSQL`
 
 - Routers bind/validate HTTP inputs, obtain authenticated context/session, call the
   service and map results/errors to HTTP. No new business calculations or ORM writes.
-- Services own business rules, object/factory authorization and coordinated CRUD.
+- Business services live in models/*_service.py, following Pizza House's service
+  layer under models/. Do not recreate a parallel services/ folder.
+  Services own business rules, object/factory authorization and coordinated CRUD.
   They accept the session/context explicitly. No service imports a router or calls
   an endpoint; cross-feature work uses an agreed operation, not a private helper.
 - Target naming follows the owner's mentor: schemas/ holds SQLAlchemy database
   schema models; libs/dto/<feature>/ holds Pydantic input, update and output DTOs.
-  Today those implementations are in models/ and schemas/ respectively. These are
-  current locations, not the target layout. No runtime move is implied by the guides.
+  Existing plain ORM files remain temporarily in models/ beside *_service.py;
+  current Pydantic DTOs still live in schemas/. Service implementations and their
+  imports have moved to models/; business extraction and DTO/ORM migration remain
+  separate work. Guide directories stay README-only to avoid shadowing ORM modules.
 - Migration order: first move existing DTO definitions and all callers to libs/dto/;
   temporary compatibility imports must re-export the same class. Retire ALL old
   DTO imports/shims and validate contracts before reusing schemas/ for persistence.
-  Then move existing SQLAlchemy definitions from models/ to schemas/ with their
-  imports, model registration and Alembic metadata discovery. Preserve table names,
+  Then move only SQLAlchemy definitions from models/ to schemas/ with their
+  imports, model registration and Alembic metadata discovery. Services stay in
+  models/. Keep ORM exports in models/__init__.py until their coordinated migration;
+  do not add service re-exports there. Preserve table names,
   constraints/defaults and a single mapping per table; require no database-schema
   diff for this naming change. Test imports, mappings and affected workflows.
   Keep the shared technical/visual/human-acceptance gates and rollback conditions

@@ -23,8 +23,8 @@ from app.models import (
 )
 from app.schemas.package_workflows import PrintRunReceiveIn
 from app.schemas.tracking import PackageBatchReceiveStorageIn, PackageBatchStoragePlacementIn
-from app.services import package_workflows as package_workflow_service
-from app.services import packages as package_service
+from app.models import package_workflows_service as package_workflow_service
+from app.models import packages_service as package_service
 
 
 def _select_trace(bind, callback):

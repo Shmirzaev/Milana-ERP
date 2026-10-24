@@ -16,8 +16,8 @@ from sqlalchemy.orm import load_only
 from app.core.deps import DbSession, require_permissions
 from app.models import Package, User
 from app.models.stocktake import WarehouseStocktake, WarehouseStocktakeRow
-from app.services.audit import log_action
-from app.services.stocktake import package_snapshots, resolve_package, row_payload, scan_fields, scan_summary
+from app.models.audit_service import log_action
+from app.models.stocktake_service import package_snapshots, resolve_package, row_payload, scan_fields, scan_summary
 
 router = APIRouter(prefix="/warehouse-stocktakes", tags=["warehouse_stocktakes"])
 access = require_permissions("storage.packages", "storage.shipment")

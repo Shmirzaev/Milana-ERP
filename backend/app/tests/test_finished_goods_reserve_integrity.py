@@ -31,7 +31,7 @@ from app.models import (
     StockReservation,
     User,
 )
-from app.services.packages import mark_damaged, reserve_package, ship_package
+from app.models.packages_service import mark_damaged, reserve_package, ship_package
 
 
 def _legacy_stock():

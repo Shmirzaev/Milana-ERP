@@ -14,7 +14,7 @@ from app.models import (
     SewingRecord,
     WorkOrder,
 )
-from app.services.traceability import (
+from app.models.traceability_service import (
     _batch_work_order_context,
     _work_orders_for_po,
     build_traceability,

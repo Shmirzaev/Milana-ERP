@@ -23,7 +23,7 @@ from app.models import (
 )
 from app.models.eco_transfer import EcoFabricRoll
 from app.schemas.cutting_passport import CuttingPassportIn
-from app.services import inventory, numbering
+from app.models import inventory_service as inventory, numbering_service as numbering
 from app.tests.conftest import TestSessionLocal
 
 

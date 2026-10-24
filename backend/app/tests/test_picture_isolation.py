@@ -2,9 +2,9 @@ from types import SimpleNamespace
 
 from app.db.session import SessionLocal
 from app.models import Item, Model, ModelBOM, ModelImage
-from app.services.cutting_sheet import _fabric_composition, _composition_text
-from app.services.model_images import model_display_image_url, model_variant_picture_url
-from app.services.label_images import variant_label_image_src
+from app.models.cutting_sheet_service import _fabric_composition, _composition_text
+from app.models.model_images_service import model_display_image_url, model_variant_picture_url
+from app.models.label_images_service import variant_label_image_src
 
 
 def test_shared_material_never_fills_missing_model_or_variant_picture():

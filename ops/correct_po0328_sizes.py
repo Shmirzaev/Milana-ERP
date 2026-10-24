@@ -11,8 +11,8 @@ from sqlalchemy import text
 
 from app.db.session import SessionLocal
 from app.models import AuditLog, Bundle
-from app.services.audit import _audit_entry_hash, log_action
-from app.services.bundles import bundle_qr_payload, find_bundle_by_scanned_code
+from app.models.audit_service import _audit_entry_hash, log_action
+from app.models.bundles_service import bundle_qr_payload, find_bundle_by_scanned_code
 
 
 def digest(value):

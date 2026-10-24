@@ -12,8 +12,8 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db.base import Base
 from app.models import BusinessOrderAlias
-from app.services import numbering
-from app.services.numbering import next_bundle_no
+from app.models import numbering_service as numbering
+from app.models.numbering_service import next_bundle_no
 
 
 @pytest.fixture(scope="module")

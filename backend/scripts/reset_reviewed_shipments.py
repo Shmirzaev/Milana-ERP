@@ -14,7 +14,7 @@ from app.models import (Shipment, ShipmentPackage, ShipmentScanLog, Package,
                         FinishedGoodsStock, StockReservation, Invoice, Payment,
                         SalesOrder, IdempotencyRecord, PackageScanLog)
 from app.models.shipment_review import PackageQuantityAdjustment
-from app.services.audit import log_action
+from app.models.audit_service import log_action
 
 
 def rows_json(rows):

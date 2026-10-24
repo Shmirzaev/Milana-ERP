@@ -49,7 +49,7 @@ from app.models import (
     ModelImage,
     User,
 )
-from app.services import image_storage
+from app.models import image_storage_service as image_storage
 
 
 # --- helpers ---------------------------------------------------------------

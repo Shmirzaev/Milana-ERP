@@ -9,10 +9,10 @@ from app.schemas.sewing_flow import (
     SewingFlowIn, SewingFlowUpdate, SewingFlowOut, SewingFlowWithLoad, SewingFlowWorkOrderOut,
 )
 from app.schemas.production import WorkOrderOut
-from app.services.audit import log_action
-from app.services.model_identity import model_number_fields
-from app.services.model_images import material_preview_image_url
-from app.services.sewing_scope import require_sewing_flow_access, sewing_line_factory_scope
+from app.models.audit_service import log_action
+from app.models.model_identity_service import model_number_fields
+from app.models.model_images_service import material_preview_image_url
+from app.models.sewing_scope_service import require_sewing_flow_access, sewing_line_factory_scope
 
 router = APIRouter(prefix="/sewing-flows", tags=["sewing-flows"])
 

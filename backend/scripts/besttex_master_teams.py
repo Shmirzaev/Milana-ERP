@@ -6,7 +6,7 @@ import json
 from sqlalchemy import select
 
 from app.models import Department, Employee, User
-from app.services.audit import log_action
+from app.models.audit_service import log_action
 
 
 TEAMS = (("Dazmol", "Isaqova Nigora", 24),

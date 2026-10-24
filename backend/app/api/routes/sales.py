@@ -31,14 +31,14 @@ from app.models import (
 from app.schemas.sales import (
     SalesOrderIn, SalesOrderUpdate, SalesOrderOut, SalesOrderDetail,
 )
-from app.services.audit import log_action
-from app.services.finished_goods import repair_missing_brand_metadata
-from app.services.ready_stock_sales import ready_pack_candidates, reserve_ready_packs
-from app.services.numbering import next_sales_order_no
-from app.services.numbering import next_invoice_no
-from app.services.workflow import notify_department
-from app.services.idempotency import replay_idempotent_response, store_idempotent_response
-from app.services.model_images import model_variant_picture_url
+from app.models.audit_service import log_action
+from app.models.finished_goods_service import repair_missing_brand_metadata
+from app.models.ready_stock_sales_service import ready_pack_candidates, reserve_ready_packs
+from app.models.numbering_service import next_sales_order_no
+from app.models.numbering_service import next_invoice_no
+from app.models.workflow_service import notify_department
+from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
+from app.models.model_images_service import model_variant_picture_url
 
 router = APIRouter(prefix="/sales-orders", tags=["sales"])
 _SHIPMENT_READY_PACKAGE_STATUSES = ("received_in_storage", "reserved")
@@ -1644,7 +1644,7 @@ def _reserve_branded_stock(
 
 @router.get("/first-grade-options")
 def first_grade_options(db: DbSession, current: User = Depends(require_permissions("sales.orders", "storage.packages", "*"))):
-    from app.services.ready_stock_sales import ready_pack_candidates
+    from app.models.ready_stock_sales_service import ready_pack_candidates
     candidates = ready_pack_candidates(db, stock_kind="first_grade")
     models = {m.id: m for m in db.query(Model).filter(Model.id.in_({p.model_id for p, _ in candidates})).all()}
     grouped = {}
@@ -1678,7 +1678,7 @@ async def upload_printing_attachment(
     _ = current
     ext = extension_for_upload(file, SAFE_IMAGE_EXTENSIONS | SAFE_DOCUMENT_EXTENSIONS)
     if ext in SAFE_IMAGE_EXTENSIONS:
-        from app.services.image_storage import store_uploaded_image
+        from app.models.image_storage_service import store_uploaded_image
 
         stored = await store_uploaded_image(
             file,

@@ -7,9 +7,9 @@ from sqlalchemy.orm import joinedload, lazyload, selectinload
 from app.core.deps import DbSession, require_permissions
 from app.core.config import settings
 from app.models import Item, PurchaseOrder, PurchaseOrderLine, PurchaseRequest, PurchaseRequestLine, User
-from app.services import inventory_access
-from app.services.factory_scope import selected_factory_code
-from app.services.idempotency import replay_idempotent_response, store_idempotent_response
+from app.models import inventory_access_service as inventory_access
+from app.models.factory_scope_service import selected_factory_code
+from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 from app.schemas.purchasing import (
     PurchaseOrderIn,
     PurchaseOrderOut,
@@ -19,7 +19,7 @@ from app.schemas.purchasing import (
     PurchaseRequestOrderIn,
     PurchaseRequestOut,
 )
-from app.services.purchasing import (
+from app.models.purchasing_service import (
     approve_purchase_request,
     convert_purchase_request_to_order,
     create_purchase_order,
@@ -125,7 +125,7 @@ async def upload_request_photo(
     file: UploadFile = File(...),
     _: User = Depends(require_permissions("purchasing.request", "purchasing.approve", "*")),
 ):
-    from app.services.image_storage import store_uploaded_image
+    from app.models.image_storage_service import store_uploaded_image
 
     stored = await store_uploaded_image(
         file,

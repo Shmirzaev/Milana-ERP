@@ -21,8 +21,8 @@ from app.models import (
     User,
     WorkOrder,
 )
-from app.services import package_workflows, packages as package_service
-from app.services.packaging_scope import packaging_departments_for_order
+from app.models import package_workflows_service as package_workflows, packages_service as package_service
+from app.models.packaging_scope_service import packaging_departments_for_order
 
 
 def _packaged_order(quantity: int) -> tuple[int, int]:

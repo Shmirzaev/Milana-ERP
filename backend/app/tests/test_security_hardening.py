@@ -450,7 +450,7 @@ def test_public_deployment_login_cookie_is_secure(client, monkeypatch):
 
 
 def test_password_reset_failure_notification_suppresses_token_like_error_text(client):
-    from app.services.password_reset import notify_admins_about_password_email_failure
+    from app.models.password_reset_service import notify_admins_about_password_email_failure
     from app.db.session import SessionLocal
     from app.models import Notification, User
 

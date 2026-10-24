@@ -22,8 +22,8 @@ from app.models import (
 )
 from app.schemas.package_workflows import PrintRunReceiveIn
 from app.schemas.tracking import PackageBatchReceiveStorageIn
-from app.services import package_workflows as package_workflow_service
-from app.services.packages import prepare_locked_package_receive
+from app.models import package_workflows_service as package_workflow_service
+from app.models.packages_service import prepare_locked_package_receive
 from app.tests.test_password_change_races import (
     password_change_postgres_sessions as password_change_postgres_sessions,
 )

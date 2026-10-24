@@ -6,7 +6,7 @@ import json
 from app.core.deps import is_super_admin
 from app.db.session import SessionLocal
 from app.models import User
-from app.services.sewing_band_setup import configure_eco_bands
+from app.models.sewing_band_setup_service import configure_eco_bands
 
 
 def main():

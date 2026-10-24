@@ -6,10 +6,10 @@ from sqlalchemy import func, or_
 from app.core.deps import DbSession, require_permissions
 from app.models import (User, WorkOrder, SewingRecord, SewingAssignment, SewingFlow,
                         SewingReplacementRequest, PackagingReceipt, PackagingRecord, CuttingRecord, PrintingRecord)
-from app.services.factory_scope import require_work_order_factory_access
-from app.services.audit import log_action
-from app.services.workflow import advance_workflow
-from app.services.sewing_input import sync_sewing_input
+from app.models.factory_scope_service import require_work_order_factory_access
+from app.models.audit_service import log_action
+from app.models.workflow_service import advance_workflow
+from app.models.sewing_input_service import sync_sewing_input
 
 router = APIRouter(tags=["sewing_corrections"])
 

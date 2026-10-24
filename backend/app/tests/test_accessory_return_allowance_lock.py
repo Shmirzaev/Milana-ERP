@@ -28,7 +28,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.routes import inventory as inventory_routes
-from app.services.idempotency import bind_idempotency_identity
+from app.models.idempotency_service import bind_idempotency_identity
 from app.db.base import Base
 from app.models import (
     AuditLog,
@@ -45,7 +45,7 @@ from app.models import (
     Warehouse,
 )
 from app.schemas.inventory import AccessoryReturnIn
-from app.services.inventory import accessory_issue_summary
+from app.models.inventory_service import accessory_issue_summary
 
 # The allowance read happens through this route-module name, so wrapping it
 # parks a worker after its aggregate has been fetched and decided but before it

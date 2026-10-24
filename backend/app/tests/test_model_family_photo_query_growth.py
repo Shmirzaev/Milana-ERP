@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import event, inspect
 
 from app.models import Model, ModelImage
-from app.services.model_family_images import family_images_for_models, model_family_image
+from app.models.model_family_images_service import family_images_for_models, model_family_image
 from app.tests.conftest import TestSessionLocal
 
 

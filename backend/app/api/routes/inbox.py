@@ -31,7 +31,7 @@ from app.models import (
     FinishedGoodsStock,
     StockBatch,
 )
-from app.services.bundles import (
+from app.models.bundles_service import (
     DEFAULT_SEWING_FACTORY_CODE,
     DEPT_BESTTEX,
     DEPT_BESTTEX_PACKAGING,
@@ -42,10 +42,10 @@ from app.services.bundles import (
     DEPT_SEW,
     resolve_sewing_factory_code,
 )
-from app.services.model_images import model_display_image_url
-from app.services.factory_scope import require_operational_department_access
-from app.services.production import WORK_ORDER_OPERATION_PERMISSIONS
-from app.services.variant_display import format_variant_number
+from app.models.model_images_service import model_display_image_url
+from app.models.factory_scope_service import require_operational_department_access
+from app.models.production_service import WORK_ORDER_OPERATION_PERMISSIONS
+from app.models.variant_display_service import format_variant_number
 
 router = APIRouter(prefix="/inbox", tags=["inbox"])
 _PENDING_WO_STATUSES = ("new", "planning", "ready", "waiting", "pending", "collected", "paused")
@@ -379,7 +379,7 @@ def _orders_progressed_beyond_cutting(db: DbSession, production_order_ids: list[
         if value is not None
     )
     # A later Nastil can still need Cutting while earlier bundles are in Sewing.
-    from app.services.passport_nastil import pending_passport_batches
+    from app.models.passport_nastil_service import pending_passport_batches
     progressed.difference_update(
         int(value)
         for (value,) in pending_passport_batches(db).with_entities(

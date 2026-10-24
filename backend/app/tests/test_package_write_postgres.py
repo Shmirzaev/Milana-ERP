@@ -12,7 +12,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db.base import Base
 from app.models import Department, Model, Package, PackagingRecord, ProductionOrder, WorkOrder
-from app.services import packages as package_service
+from app.models import packages_service as package_service
 
 
 @pytest.fixture(scope="module")
@@ -193,7 +193,7 @@ def test_packaging_size_save_waits_for_package_creation_and_rejects_stale_counts
     from fastapi import HTTPException
     from app.models import SewingRecord, ProductionOrderItem
     from app.api.routes.package_workflows import _size_entry_order, PackagingSizeEntryIn
-    from app.services.first_grade import packaging_size_entry, save_packaging_size_entry
+    from app.models.first_grade_service import packaging_size_entry, save_packaging_size_entry
     sessions, engine = package_write_postgres_sessions
     order_id, model_id = _seed_packaged_order(sessions, 2)
     _stub_package_side_effects(monkeypatch)
@@ -379,8 +379,8 @@ def test_warehouse_delete_serializes_output_and_retires_print_evidence(
     from threading import Barrier
     from fastapi import HTTPException
     from app.models import User, PackagePrintRun, PackagePrintRunMember, FinishedGoodsStock
-    from app.services.package_workflows import contents
-    from app.services.warehouse_packages import delete_warehouse_package
+    from app.models.package_workflows_service import contents
+    from app.models.warehouse_packages_service import delete_warehouse_package
 
     sessions, engine = package_write_postgres_sessions
     order_id, model_id = _seed_packaged_order(sessions, 2)

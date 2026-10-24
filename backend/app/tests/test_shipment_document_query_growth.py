@@ -58,8 +58,8 @@ from app.models import (
     ShipmentPackage,
     User,
 )
-from app.services.shipment_invoice import build_invoice_rows
-from app.services.shipment_review import OrderPriceIndex, shipment_document
+from app.models.shipment_invoice_service import build_invoice_rows
+from app.models.shipment_review_service import OrderPriceIndex, shipment_document
 
 SMALL_PACKAGES = 3
 LARGE_PACKAGES = 30

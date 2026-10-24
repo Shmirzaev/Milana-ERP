@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from app.core.deps import factory_codes_with_permission
-from app.services.factory_scope import available_factory_codes
+from app.models.factory_scope_service import available_factory_codes
 
 
 def _user(

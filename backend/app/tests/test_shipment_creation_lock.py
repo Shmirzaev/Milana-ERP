@@ -11,7 +11,7 @@ from app.api.routes import shipments
 from app.db.session import SessionLocal
 from app.models import SalesOrder, Shipment, User
 from app.schemas.sales import ShipmentIn
-from app.services.idempotency import bind_idempotency_identity
+from app.models.idempotency_service import bind_idempotency_identity
 
 
 def ready_order():

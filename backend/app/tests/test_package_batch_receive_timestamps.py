@@ -7,8 +7,8 @@ from app.api.routes.packages import api_batch_receive_storage
 from app.db.session import SessionLocal
 from app.models import Department, FinishedGoodsStock, Package, PackageItem, PackageScanLog, ProductionOrder, User, WorkOrder
 from app.schemas.tracking import PackageBatchReceiveStorageIn
-from app.services.packages import receive_at_storage
-from app.services.workflow import sync_storage_transfer_work_order
+from app.models.packages_service import receive_at_storage
+from app.models.workflow_service import sync_storage_transfer_work_order
 
 
 @pytest.mark.parametrize("mode", ["scalar", "batch"])

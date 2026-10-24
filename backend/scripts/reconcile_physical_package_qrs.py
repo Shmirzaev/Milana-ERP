@@ -5,7 +5,7 @@ import json
 
 from app.db.session import SessionLocal
 from app.models import User
-from app.services.legacy_package_identity import apply_plan, build_plan
+from app.models.legacy_package_identity_service import apply_plan, build_plan
 
 
 def main():

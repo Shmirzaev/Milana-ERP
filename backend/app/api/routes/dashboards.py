@@ -18,8 +18,8 @@ from app.models import (
     CuttingRecord, SewingRecord, PrintingRecord, PackagingRecord, Customer, User,
     SalesOrderItem,
 )
-from app.services.finance import dashboard_summary, branded_stock_value
-from app.services.inventory import stock_summary
+from app.models.finance_service import dashboard_summary, branded_stock_value
+from app.models.inventory_service import stock_summary
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -30,8 +30,8 @@ def cutting_dashboard(
     current: User = Depends(require_permissions("cutting.records", "cutting.bundles", "planning.production", "*")),
     cutting_department_code: str | None = None,
 ):
-    from app.services.department_dashboards import cutting_board
-    from app.services.factory_scope import cutting_department_scope
+    from app.models.department_dashboards_service import cutting_board
+    from app.models.factory_scope_service import cutting_department_scope
     department = cutting_department_scope(current, cutting_department_code)
     return cutting_board(db, department, start, end)
 
@@ -43,8 +43,8 @@ def printing_dashboard(
     offset: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=48)] = 24,
 ):
-    from app.services.department_dashboards import printing_board
-    from app.services.factory_scope import require_operational_department_access
+    from app.models.department_dashboards_service import printing_board
+    from app.models.factory_scope_service import require_operational_department_access
     require_operational_department_access(current, "PRT")
     return printing_board(db, offset=offset, limit=limit)
 
@@ -55,7 +55,7 @@ def warehouse_dashboard(
     _: User = Depends(require_permissions("storage.packages", "storage.shipment", "*")),
     stock_kind: Literal["ALL", "standard", "first_grade", "second_grade"] = "ALL",
 ):
-    from app.services.department_dashboards import warehouse_board
+    from app.models.department_dashboards_service import warehouse_board
     return warehouse_board(db, start, end, stock_kind=stock_kind)
 
 
@@ -67,7 +67,7 @@ def management_overview(
     _: User = Depends(require_permissions("management.view", "*")),
     factory: Literal["ALL", "MIL", "BST", "ECO"] = "ALL",
 ):
-    from app.services.dashboard_overview import overview
+    from app.models.dashboard_overview_service import overview
 
     if end < start or (end - start).days > 365:
         raise HTTPException(status_code=422, detail="Choose an ordered date range of at most 366 days")

@@ -1,4 +1,4 @@
-from app.services.variant_display import format_model_variant_code
+from app.models.variant_display_service import format_model_variant_code
 from app.core.order_reference import order_reference_contains
 from fastapi import APIRouter
 from sqlalchemy import select

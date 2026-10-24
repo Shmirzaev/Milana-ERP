@@ -9,7 +9,7 @@ from sqlalchemy import text
 from app.core.config import settings as app_settings
 from app.core.deps import CurrentUser, DbSession, require_permissions
 from app.models import SystemSetting, User
-from app.services.audit import log_action
+from app.models.audit_service import log_action
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -111,7 +111,7 @@ async def upload_company_logo(
     file: UploadFile = File(...),
     current: User = Depends(require_permissions("*")),
 ):
-    from app.services.image_storage import discard_replaced_managed_image, store_uploaded_image
+    from app.models.image_storage_service import discard_replaced_managed_image, store_uploaded_image
 
     stored = await store_uploaded_image(
         file,

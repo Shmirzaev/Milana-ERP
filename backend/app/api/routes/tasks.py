@@ -6,9 +6,9 @@ from app.api.routes.notifications import _max_bulk_recipients
 from app.core.deps import DbSession, CurrentUser, is_admin, user_permissions
 from app.models import Notification, Task, User
 from app.schemas.tasks import TaskIn, TaskUpdate, TaskOut
-from app.services.audit import log_action
-from app.services.notifications import notify
-from app.services.user_access import access_configured, permission_denied
+from app.models.audit_service import log_action
+from app.models.notifications_service import notify
+from app.models.user_access_service import access_configured, permission_denied
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 

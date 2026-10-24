@@ -1,10 +1,10 @@
-from app.services.package_dispatch import remaining_quantity, remaining_item_quantity, selected_items, select_dispatch_quantity, dispatch_selected
+from app.models.package_dispatch_service import remaining_quantity, remaining_item_quantity, selected_items, select_dispatch_quantity, dispatch_selected
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from urllib.parse import quote
 from fastapi import APIRouter, HTTPException, Depends, Header
 from fastapi.responses import HTMLResponse, Response
-from app.services.print_response import warehouse_print_response
+from app.models.print_response_service import warehouse_print_response
 from pydantic import ValidationError
 from sqlalchemy import and_, func, exists
 from sqlalchemy.orm import selectinload, aliased
@@ -30,25 +30,25 @@ from app.models import (
 from app.schemas.sales import ShipmentIn, ShipmentOut, ShipmentScanIn, ShipmentScanOut, ShipmentPreviousScan
 from app.schemas.catalog import PartyIn
 from app.schemas.shipment_review import ShipmentAmountReview, ShipmentPackageRemoval, ShipmentQuantityReview, ShipmentTransportDetails, ShipmentReopen
-from app.services.shipment_reopen import reopen_shipment
-from app.services.shipment_review import (
+from app.models.shipment_reopen_service import reopen_shipment
+from app.models.shipment_review_service import (
     correct_received_quantity, detach_shipment_package, freeze_dispatch_document, locked_shipment,
     invoice_for_frozen_delivery, review_shipment_amount, shipment_document,
 )
-from app.services.shipment_invoice import render_shipment_invoice
-from app.services.package_identity import resolve_warehouse_package, scan_candidates
-from app.services.audit import log_action
-from app.services.idempotency import replay_idempotent_response, store_idempotent_response
-from app.services.numbering import next_shipment_no
-from app.services.model_images import model_preview_image_url, model_variant_picture_url
-from app.services.packages import (
+from app.models.shipment_invoice_service import render_shipment_invoice
+from app.models.package_identity_service import resolve_warehouse_package, scan_candidates
+from app.models.audit_service import log_action
+from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
+from app.models.numbering_service import next_shipment_no
+from app.models.model_images_service import model_preview_image_url, model_variant_picture_url
+from app.models.packages_service import (
     format_storage_location,
     mark_delivered,
     ship_package,
     sync_package_production_orders,
     package_shipment_context,
 )
-from app.services.workflow import notify_department
+from app.models.workflow_service import notify_department
 
 router = APIRouter(prefix="/shipments", tags=["shipments"])
 _READY_FOR_SHIPMENT_STATUSES = ("received_in_storage", "reserved")
@@ -939,7 +939,7 @@ def _ship_verified_packages(db: DbSession, shipment: Shipment, current: User) ->
             ship_package(db, package, current.id, sync_production=False, shipment_context=shipment_context)
     sync_package_production_orders(db, (package.production_order_id for package in packages))
     if (shipment.dispatch_snapshot or {}).get("manual"):
-        from app.services.shipment_review import post_manual_shipment_invoice
+        from app.models.shipment_review_service import post_manual_shipment_invoice
         post_manual_shipment_invoice(db, shipment, current)
     return required_count, scanned_count
 
@@ -1102,7 +1102,7 @@ def create_shipment(
     if payload.request_key is None:
         fingerprint_payload.pop("request_key", None)
     if payload.manual and payload.request_key:
-        from app.services.package_workflows import lock_request
+        from app.models.package_workflows_service import lock_request
         idempotency_key = str(payload.request_key)
         lock_request(db, current.id, "manual-shipment", idempotency_key)
 
@@ -1372,7 +1372,7 @@ def remove_reviewed_package(sid: int, pid: int, payload: ShipmentPackageRemoval,
 @router.post("/{sid}/delete")
 def delete_mistaken_manual_shipment(sid: int, payload: ShipmentPackageRemoval, db: DbSession,
                                     current: User = Depends(require_permissions("storage.shipment", "*"))):
-    from app.services.shipment_review import delete_manual_shipment
+    from app.models.shipment_review_service import delete_manual_shipment
     shipment = locked_shipment(db, sid)
     delete_manual_shipment(db, shipment, payload.reason, current)
     db.commit()
@@ -1381,8 +1381,8 @@ def delete_mistaken_manual_shipment(sid: int, payload: ShipmentPackageRemoval, d
 
 def _invoice_print_details(db, shipment, document):
     from app.models import AuditLog
-    from app.services.shipment_review import manual_invoice_sizes
-    from app.services.shipment_invoice import build_invoice_rows
+    from app.models.shipment_review_service import manual_invoice_sizes
+    from app.models.shipment_invoice_service import build_invoice_rows
     lines = [dict(line) for line in document.get("lines", [])]
     # Older dispatch snapshots lack completeness metadata. Enrich a copy for
     # presentation, retaining all frozen quantities, prices and recorded weights.
@@ -1472,7 +1472,7 @@ def print_shipment_invoice(sid: int, db: DbSession, lang: str = "en", show_price
 @router.get("/{sid}/invoice.xlsx")
 def export_shipment_invoice(sid: int, db: DbSession, lang: str = "en", show_prices: bool = True,
                             _: User = Depends(require_permissions("storage.shipment", "sales.orders", "finance.view", "*"))):
-    from app.services.shipment_invoice_excel import shipment_invoice_workbook
+    from app.models.shipment_invoice_excel_service import shipment_invoice_workbook
     shipment = db.get(Shipment, sid)
     if not shipment:
         raise HTTPException(404, "Shipment not found")

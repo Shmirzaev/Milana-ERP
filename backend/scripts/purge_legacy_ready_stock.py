@@ -38,7 +38,7 @@ from app.models import (
     ShipmentScanLog,
     StockReservation,
 )
-from app.services.audit import log_action
+from app.models.audit_service import log_action
 
 
 SOURCE_SYSTEM = "UZERP"

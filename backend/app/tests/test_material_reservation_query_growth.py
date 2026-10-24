@@ -1,7 +1,7 @@
 import pytest
 from sqlalchemy import event
 
-from app.services import inventory
+from app.models import inventory_service as inventory
 from app.tests.test_material_reservation_concurrency import _line, _stock
 from app.tests.conftest import TestSessionLocal
 

@@ -12,9 +12,9 @@ from app.core.config import settings
 from app.core.deps import user_permissions
 from app.models import AuditLog, User, StockBatch, MaterialReservation, Item
 from app.schemas.inventory import ItemIn, StockBatchIn, StockBatchUpdate, StockBatchRestoreIn
-from app.services.audit import log_action
-from app.services.image_storage import convert_image_to_webp, prebuild_webp_thumbnails
-from app.services.inventory import material_reservation_status_for_production_order
+from app.models.audit_service import log_action
+from app.models.image_storage_service import convert_image_to_webp, prebuild_webp_thumbnails
+from app.models.inventory_service import material_reservation_status_for_production_order
 from apply_fabric_reconciliation import AtomicSession, digest, assert_unchanged
 
 

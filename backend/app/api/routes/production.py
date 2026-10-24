@@ -1,5 +1,5 @@
 from fastapi import Header
-from app.services.idempotency import replay_idempotent_response, store_idempotent_response
+from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -51,20 +51,20 @@ from app.schemas.production import (
     ProductionOrderSizesIn,
 )
 from app.core.dt import as_utc
-from app.services.audit import log_action
-from app.services.packaging_scope import (
+from app.models.audit_service import log_action
+from app.models.packaging_scope_service import (
     normalize_packaging_department_code,
     packaging_department_scope,
     require_packaging_work_order_access,
 )
-from app.services.production import (
+from app.models.production_service import (
     WORK_ORDER_OPERATION_PERMISSIONS,
     create_production_order,
     create_production_batches,
     create_work_orders,
     printing_attachments_for_storage,
 )
-from app.services.inventory import (
+from app.models.inventory_service import (
     auto_reserve_materials_for_production_order,
     consume_cutting_materials,
     prepare_cutting_material_consumption,
@@ -74,7 +74,7 @@ from app.services.inventory import (
     require_material_reservation_before_cutting,
     sync_sewing_accessory_block,
 )
-from app.services.bundles import (
+from app.models.bundles_service import (
     find_bundle_by_scanned_code,
     create_bundle,
     is_sewing_department_code,
@@ -84,9 +84,9 @@ from app.services.bundles import (
     sync_textile_departments_for_bundle_route,
     sync_packaging_department_for_bundle_route,
 )
-from app.services.sewing_scope import sewing_line_factory_scope
-from app.services.sewing_input import sync_sewing_input
-from app.services.workflow import (
+from app.models.sewing_scope_service import sewing_line_factory_scope
+from app.models.sewing_input_service import sync_sewing_input
+from app.models.workflow_service import (
     WORKFLOW_SEQUENCE,
     advance_workflow,
     consume_packaging_materials_from_bom,
@@ -96,14 +96,14 @@ from app.services.workflow import (
     propagate_cutting_plan_from_output,
     sync_production_order_status,
 )
-from app.services.model_identity import model_number_fields
-from app.services.model_images import material_preview_image_url, model_preview_image_url
-from app.services.cutting_sheet import render_cutting_sheet_html
-from app.services.passport_nastil import pending_work_order_passport_batches
+from app.models.model_identity_service import model_number_fields
+from app.models.model_images_service import material_preview_image_url, model_preview_image_url
+from app.models.cutting_sheet_service import render_cutting_sheet_html
+from app.models.passport_nastil_service import pending_work_order_passport_batches
 from app.schemas.production import CuttingSewingFactoryIn
-from app.services.cutting_batch_guard import require_cutting_batch_mutable, sewing_output_batch_query
-from app.services.factory_scope import require_factory_access, selected_factory_code, factory_for_department
-from app.services.factory_scope import require_work_order_factory_access
+from app.models.cutting_batch_guard_service import require_cutting_batch_mutable, sewing_output_batch_query
+from app.models.factory_scope_service import require_factory_access, selected_factory_code, factory_for_department
+from app.models.factory_scope_service import require_work_order_factory_access
 
 router = APIRouter(tags=["production"])
 _MAX_SEWING_SIZE_QUANTITY_ROWS = 1000
@@ -1134,7 +1134,7 @@ async def upload_production_printing_attachment(
     _ = current
     ext = extension_for_upload(file, SAFE_IMAGE_EXTENSIONS | SAFE_DOCUMENT_EXTENSIONS)
     if ext in SAFE_IMAGE_EXTENSIONS:
-        from app.services.image_storage import store_uploaded_image
+        from app.models.image_storage_service import store_uploaded_image
 
         stored = await store_uploaded_image(
             file,
@@ -1255,7 +1255,7 @@ def update_po_sizes(
     db: DbSession,
     current: User = Depends(require_permissions("planning.production", "*")),
 ):
-    from app.services.production_sizes import update_production_sizes
+    from app.models.production_sizes_service import update_production_sizes
 
     update_production_sizes(db, pid, payload, current)
     db.commit()
@@ -1841,7 +1841,7 @@ def update_wo(wid: int, payload: WorkOrderUpdate, db: DbSession, current: User =
         target_flow = db.get(SewingFlow, int(changes["sewing_flow_id"]))
         if not target_flow:
             raise HTTPException(404, "Sewing flow not found")
-        from app.services.sewing_scope import require_sewing_flow_access
+        from app.models.sewing_scope_service import require_sewing_flow_access
         require_sewing_flow_access(current, target_flow)
         if not target_flow.is_active:
             raise HTTPException(400, "Sewing flow is inactive")
@@ -1867,7 +1867,7 @@ def update_wo(wid: int, payload: WorkOrderUpdate, db: DbSession, current: User =
         setattr(wo, k, v)
     # If assignment changed, notify the new assignee so they know they have a new job.
     if "assigned_to" in changes and wo.assigned_to and wo.assigned_to != previous_assignee:
-        from app.services.notifications import notify
+        from app.models.notifications_service import notify
         notify(
             db, user_id=wo.assigned_to,
             title=f"New job: {wo.operation} work order #{wo.id}",
@@ -1996,7 +1996,7 @@ def complete_wo(wid: int, db: DbSession, current: User = Depends(require_permiss
     _authorize_work_order_command(db, current, wo)
     if wo.operation in ("sewing", "packaging"):
         planned = int(wo.planned_output_qty or 0)
-        from app.services.sewing_progress import unfinished_sewing_batches
+        from app.models.sewing_progress_service import unfinished_sewing_batches
         pending_sewing = wo.operation == "sewing" and bool(unfinished_sewing_batches(db, wo))
         if planned <= 0 or processed_work_order_qty(db, wo) < planned or pending_sewing:
             raise HTTPException(
@@ -2257,7 +2257,7 @@ def add_extra_cutting_batch(
             "planned_quantity": qty,
         },
     )
-    from app.services.sewing_progress import reconcile_sewing_order
+    from app.models.sewing_progress_service import reconcile_sewing_order
     reconcile_sewing_order(db, po.id, current=current, reason="Additional Nastil planned")
     db.commit()
     db.refresh(batch)
@@ -2285,7 +2285,7 @@ def update_cutting_sewing_factory(
     if not wo or wo.operation != "cutting":
         raise HTTPException(404, "Cutting work order not found")
     require_work_order_factory_access(current, db, wo)
-    from app.services.cutting_sewing_factory import change_sewing_factory
+    from app.models.cutting_sewing_factory_service import change_sewing_factory
     result = change_sewing_factory(db, wo, payload.sewing_factory_code, current)
     db.commit()
     return result
@@ -2302,7 +2302,7 @@ def remove_cutting_batch(
     if not wo or wo.operation != "cutting":
         raise HTTPException(404, "Cutting work order not found")
     require_work_order_factory_access(current, db, wo)
-    from app.services.cutting_batch_delete import delete_cutting_batch
+    from app.models.cutting_batch_delete_service import delete_cutting_batch
     result = delete_cutting_batch(db, wo, batch_id, current)
     db.commit()
     return result
@@ -2325,7 +2325,7 @@ def update_cutting_batch(
     if not wo or wo.operation != "cutting":
         raise HTTPException(404, "Cutting work order not found")
 
-    from app.services.factory_scope import require_work_order_factory_access
+    from app.models.factory_scope_service import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
     require_cutting_batch_mutable(db, wo, batch_id)
     source_type = db.query(ProductionOrder.source_type).filter(ProductionOrder.id == wo.production_order_id).scalar()
@@ -3016,7 +3016,7 @@ def packaging_batch_progress(wid: int, db: DbSession, _: User = Depends(require_
     scope_budget = input_budgets.get(wo.production_batch_id, {})
     scope_labels = {}
     if not batches:
-        from app.services.packages import _existing_package_totals_by_batch
+        from app.models.packages_service import _existing_package_totals_by_batch
         packed = sum(int(packed_sum or 0) for batch_id, _, packed_sum, _ in rows if batch_id is None)
         packaged = _existing_package_totals_by_batch(db, wo.production_order_id).get(None, 0)
         scope_labels = {"packed_qty": packed, "packaged_qty": packaged,
@@ -3254,7 +3254,7 @@ def list_usluga_cutting_batches(
     po = db.get(ProductionOrder, wo.production_order_id)
     if not po or po.source_type != "usluga":
         raise HTTPException(409, "This is not an Usluga cutting work order")
-    from app.services.factory_scope import require_work_order_factory_access
+    from app.models.factory_scope_service import require_work_order_factory_access
     require_work_order_factory_access(_, db, wo)
     records = db.query(CuttingRecord).filter(CuttingRecord.work_order_id == wo.id).order_by(CuttingRecord.id).all()
     return {"work_order_id": wo.id, "items": _usluga_cutting_record_payloads(db, records)}
@@ -3282,7 +3282,7 @@ def update_usluga_report_pieces(
     po = db.get(ProductionOrder, wo.production_order_id) if wo else None
     if not wo or not po or po.source_type != "usluga" or rec.material_role != "secondary":
         raise HTTPException(409, "Report-only pieces can be edited only for secondary Usluga fabric")
-    from app.services.factory_scope import require_work_order_factory_access
+    from app.models.factory_scope_service import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
     require_cutting_batch_mutable(db, wo, rec.production_batch_id)
 
@@ -3316,7 +3316,7 @@ def update_usluga_bundle_size_counts(
     po = db.get(ProductionOrder, wo.production_order_id) if wo else None
     if not wo or wo.operation != "cutting" or not po or po.source_type != "usluga" or rec.material_role != "main":
         raise HTTPException(409, "Size counts can be edited only for a main Usluga cutting batch")
-    from app.services.factory_scope import require_work_order_factory_access
+    from app.models.factory_scope_service import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
     require_cutting_batch_mutable(db, wo, rec.production_batch_id)
 
@@ -3464,7 +3464,7 @@ class CuttingMaterialBatchReplacementIn(BaseModel):
 @router.patch("/work-orders/{wid}/cutting-materials/{batch_id}")
 def replace_cutting_material(wid: int, batch_id: int, payload: CuttingMaterialBatchReplacementIn,
                              db: DbSession, current: User = Depends(require_permissions("cutting.records", "*"))):
-    from app.services.cutting_material_assignment import replace_cutting_material_batch
+    from app.models.cutting_material_assignment_service import replace_cutting_material_batch
     result = replace_cutting_material_batch(db, current, wid, batch_id, payload.stock_batch_id)
     db.commit()
     return result
@@ -3474,7 +3474,7 @@ def replace_cutting_material(wid: int, batch_id: int, payload: CuttingMaterialBa
 def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depends(require_permissions("cutting.records", "*"))):
     wo = db.get(WorkOrder, payload.work_order_id)
     if not wo: raise HTTPException(404, "Work order not found")
-    from app.services.factory_scope import require_work_order_factory_access
+    from app.models.factory_scope_service import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
     if wo.operation != "cutting": raise HTTPException(400, "Work order is not a cutting operation")
     _gate_record_submission(wo)
@@ -3505,7 +3505,7 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
     if payload.use_passport_materials:
         if po.source_type == "usluga":
             raise HTTPException(400, "Usluga material usage is recorded without an inventory batch")
-        from app.services.cutting_passport_usage import passport_material_usage
+        from app.models.cutting_passport_usage_service import passport_material_usage
         raw_materials = passport_material_usage(db, po, payload.cutting_passport_id)
     if not raw_materials and payload.fabric_batch_id and float(payload.input_quantity or 0) > 0:
         raw_materials = [{
@@ -3852,7 +3852,7 @@ def approve_usluga_cutting_batch(
     po = db.get(ProductionOrder, wo.production_order_id) if wo else None
     if not wo or not po or po.source_type != "usluga" or rec.material_role not in {"main", "secondary"}:
         raise HTTPException(409, "This is not an Usluga material batch")
-    from app.services.factory_scope import require_work_order_factory_access
+    from app.models.factory_scope_service import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
     require_cutting_batch_mutable(db, wo, rec.production_batch_id)
     if rec.approval_status == "approved":
@@ -3937,7 +3937,7 @@ def reject_usluga_cutting_batch(
     po = db.get(ProductionOrder, wo.production_order_id) if wo else None
     if not wo or not po or po.source_type != "usluga" or rec.material_role not in {"main", "secondary"}:
         raise HTTPException(409, "This is not an Usluga material batch")
-    from app.services.factory_scope import require_work_order_factory_access
+    from app.models.factory_scope_service import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
     require_cutting_batch_mutable(db, wo, rec.production_batch_id)
     if rec.approval_status == "approved":
@@ -4014,7 +4014,7 @@ def reject_usluga_cutting_batch(
 
 
 def _cutting_record_payload(r: CuttingRecord, db: DbSession) -> dict:
-    from app.services.deferred_cutting_usage import pending_materials
+    from app.models.deferred_cutting_usage_service import pending_materials
     pending = pending_materials(db, r)
     return {
         "material_usage_pending": bool(pending),
@@ -4076,7 +4076,7 @@ def update_cutting_record_details(
     wo = db.get(WorkOrder, rec.work_order_id)
     if not wo or wo.operation != "cutting":
         raise HTTPException(400, "Cutting record is not attached to a cutting work order")
-    from app.services.factory_scope import require_work_order_factory_access
+    from app.models.factory_scope_service import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
     require_cutting_batch_mutable(db, wo, rec.production_batch_id)
 
@@ -4098,7 +4098,7 @@ def update_cutting_record_details(
     if payload.material_usage is not None:
         if payload.materials is not None:
             raise HTTPException(400, "Submit either new material usage or existing material details")
-        from app.services.deferred_cutting_usage import save_material_usage
+        from app.models.deferred_cutting_usage_service import save_material_usage
         save_material_usage(db, rec, wo, payload.material_usage, current.id)
         # Actual material details below are already copied from the new primary usage.
         for field in (*numeric_fields, "layup_operator_name"):
@@ -4192,7 +4192,7 @@ def finish_milana_cutting_and_print(
     db.refresh(wo, with_for_update=True)
     if wo.operation != "cutting":
         raise HTTPException(400, "Cutting work order not found")
-    from app.services.factory_scope import require_work_order_factory_access
+    from app.models.factory_scope_service import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
     department = db.get(Department, wo.department_id)
     if not department or department.code != "CUT" or not po or po.source_type == "usluga":
@@ -4881,7 +4881,7 @@ def update_cutting_bundle_quantities(
     wo = db.get(WorkOrder, rec.work_order_id)
     if not wo or wo.operation != "cutting":
         raise HTTPException(400, "Cutting record is not attached to a cutting work order")
-    from app.services.factory_scope import require_work_order_factory_access
+    from app.models.factory_scope_service import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
     require_cutting_batch_mutable(db, wo, rec.production_batch_id)
     po = db.get(ProductionOrder, int(wo.production_order_id))
@@ -5058,7 +5058,7 @@ def update_cutting_bundle_quantities(
 def post_printing(payload: PrintingRecordIn, db: DbSession, current: User = Depends(require_permissions("printing.records", "*"))):
     wo = db.get(WorkOrder, payload.work_order_id)
     if not wo: raise HTTPException(404, "Work order not found")
-    from app.services.factory_scope import require_work_order_factory_access
+    from app.models.factory_scope_service import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
     if wo.operation != "printing": raise HTTPException(400, "Work order is not a printing operation")
     if wo.status in ("new", "planning", "waiting", "ready", "pending", "paused"):
@@ -5267,7 +5267,7 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
         return replay
     wo = db.query(WorkOrder).filter(WorkOrder.id == payload.work_order_id).with_for_update().first()
     if not wo: raise HTTPException(404, "Work order not found")
-    from app.services.factory_scope import require_work_order_factory_access
+    from app.models.factory_scope_service import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
     if wo.operation != "sewing": raise HTTPException(400, "Work order is not a sewing operation")
     ensure_accessories_issued_for_sewing(db, int(wo.production_order_id))

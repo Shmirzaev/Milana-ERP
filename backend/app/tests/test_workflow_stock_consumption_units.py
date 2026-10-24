@@ -13,11 +13,11 @@ from app.models import (
     StockMovement,
     Warehouse,
 )
-from app.services.inventory import (
+from app.models.inventory_service import (
     consume_material_reservation,
     consume_material_reservations_for_stock_batch,
 )
-from app.services.workflow import consume_item_from_batches, consume_packaging_materials_from_bom, consume_stock_batch
+from app.models.workflow_service import consume_item_from_batches, consume_packaging_materials_from_bom, consume_stock_batch
 from app.tests.conftest import TestSessionLocal
 
 

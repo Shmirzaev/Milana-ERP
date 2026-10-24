@@ -19,26 +19,27 @@ not appended here. This summary does not replace live release verification.
   by reactivation of the same images; public-path tail variation remains unresolved.
   The owner waived the timed observation period. The archive preserves all attempts.
 
-## Later-Nastil Sewing fix awaiting review
+## Later-Nastil Sewing fix merged
 
 - Permanent later-Nastil receipt/completion and assignment fix is implemented and tested for MIL/BST/ECO. Runtime candidate `1fce86b5`; immutable CI `40082616718` passed.
-- Ismail independent review is pending, confirmed by the owner. Landing and production traffic switch remain blocked on that review. Active release stays green `20261024_032622`; no business history has been rewritten.
+- The owner authorized merging PR #304 after review; it merged into clone_main as `ec02b5f` on 24 October 2026 after backend/frontend CI passed. Production activation was not performed or freshly verified by this task; the release pointers above remain historical.
 - [Detailed verification and release record](archive/SEWING_LATER_NASTIL_2026-10-24.md) preserves root cause, tests and deployment preparation.
 
 ## Architecture and migration state
 
 - Keep the FastAPI/SQLAlchemy/PostgreSQL monolith. Router -> feature service ->
   SQLAlchemy schema models + Session -> database. No microservice/ORM replacement.
-- Target: api/routes/ for HTTP, services/ for business operations, schemas/ for
+- Target: api/routes/ for HTTP, models/ for business services, schemas/ for
   database schema models, libs/dto/<feature>/ for input/update/output contracts,
   libs/enums/ for fixed vocabulary, libs/types/ for distinct internal contracts.
-- CURRENT source still uses models/ for SQLAlchemy and schemas/ for Pydantic DTOs.
-  Migrate DTOs and all callers/shims first; only then reuse schemas/ for the ORM
-  definitions and their registration/Alembic discovery. No mixed namespace or
-  duplicate mappings. No application migration has been implemented by this task.
-- Twelve service-group directories and libs guides are documentation scaffolds.
-  Existing same-named service .py modules remain authoritative. Do not add package
-  initializers that shadow them before coordinated import migration.
+- The owner authorized relocating existing services into models/*_service.py and
+  removing services/. Existing plain SQLAlchemy mapping files and models/__init__.py
+  remain unchanged; schemas/ still contains Pydantic DTOs. First migrate DTOs and
+  all callers/shims, then move only ORM definitions/registration to schemas/.
+  This relocation does not extract route business logic or change database tables.
+- Twelve service-group guides now live under models/; they and libs guides remain
+  documentation scaffolds. Some groups share names with plain ORM mapping files.
+  Do not add package initializers that shadow those files before coordinated migration.
 - Humans decide business policy, interfaces and cutover; AI implements approved
   scope. Multitenancy is deferred. No deletion quota or table-per-service requirement.
 

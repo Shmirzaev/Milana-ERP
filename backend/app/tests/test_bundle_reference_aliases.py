@@ -4,7 +4,7 @@ from app.core.order_reference import canonical_order_reference, order_reference_
 from app.db.session import SessionLocal
 from app.models import Bundle, PackagingReceipt, SewingRecord, WorkOrder
 from app.models.order_reference import BusinessOrderAlias
-from app.services.bundles import bundle_qr_payload
+from app.models.bundles_service import bundle_qr_payload
 from app.tests.test_production_flow import _create_bundle_for_scan, _factory_headers
 
 

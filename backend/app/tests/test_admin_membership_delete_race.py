@@ -15,7 +15,7 @@ from app.api.routes import admin
 from app.core.security import verify_password
 from app.db.base import Base
 from app.models import PasswordResetToken, User
-from app.services.password_reset import create_password_reset_token
+from app.models.password_reset_service import create_password_reset_token
 
 
 @pytest.fixture(scope="module")

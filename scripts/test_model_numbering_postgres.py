@@ -7,7 +7,7 @@ from sqlalchemy import select, text
 
 from app.db.session import SessionLocal
 from app.models import Model
-from app.services import numbering
+from app.models import numbering_service as numbering
 
 
 def main():

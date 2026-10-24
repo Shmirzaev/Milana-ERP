@@ -26,10 +26,10 @@ from app.models import (
     SystemSetting,
     User,
 )
-from app.services.audit import log_action
-from app.services.attendance_reports import TASHKENT
-from app.services.factory_scope import factory_for_department, selected_factory_code
-from app.services.attendance_event_policy import accepted_attendance_result
+from app.models.audit_service import log_action
+from app.models.attendance_reports_service import TASHKENT
+from app.models.factory_scope_service import factory_for_department, selected_factory_code
+from app.models.attendance_event_policy_service import accepted_attendance_result
 
 
 router = APIRouter(prefix="/hr", tags=["hr-workspace"])
@@ -506,7 +506,7 @@ async def upload_document(
     expires_on: date | None = Form(default=None),
     file: UploadFile = File(...),
 ):
-    from app.services.image_storage import (
+    from app.models.image_storage_service import (
         UploadCommitState,
         UploadFileWriteState,
         run_blocking_to_completion,

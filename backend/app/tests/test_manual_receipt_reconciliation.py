@@ -25,8 +25,8 @@ from app.models import (
     User,
 )
 from app.schemas.package_workflows import ManualPackageReceiptIn
-from app.services import package_workflows as service
-from app.services.idempotency import bind_idempotency_identity
+from app.models import package_workflows_service as service
+from app.models.idempotency_service import bind_idempotency_identity
 from app.tests.test_package_workflows import manual_body, packaging_order, warehouse  # noqa: F401
 
 

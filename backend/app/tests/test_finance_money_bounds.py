@@ -5,7 +5,7 @@
 ``PaymentIn.amount`` were unbounded Python ``float`` fields, so a client could
 send ``Infinity``, ``NaN``, a sub-cent value, or a magnitude far past the
 column.  Downstream that value reaches ``Decimal(str(value))`` in
-``app.services.payments.money_decimal`` and the invoice/payment INSERT.
+``app.models.payments_service.money_decimal`` and the invoice/payment INSERT.
 
 What the raw numbers mean before the fix:
 

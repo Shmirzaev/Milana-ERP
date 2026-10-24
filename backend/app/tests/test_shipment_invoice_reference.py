@@ -5,7 +5,7 @@ import pytest
 
 from app.db.session import SessionLocal
 from app.models import LegacyStockReceipt, Model, Package, SalesOrderItem, Shipment
-from app.services.shipment_invoice import build_invoice_rows, invoice_model_identity, render_shipment_invoice
+from app.models.shipment_invoice_service import build_invoice_rows, invoice_model_identity, render_shipment_invoice
 from app.tests.test_shipment_review import dispatch as dispatch, ship
 
 

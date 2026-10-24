@@ -13,7 +13,7 @@ from app.db.base import Base
 from app.db.session import engine, SessionLocal
 from app.db.seed import seed
 from app.models import Department, FinishedGoodsStock, Model, Package, PackagingRecord, ProductionOrder, ProductionOrderItem, SewingRecord, WorkOrder
-from app.services.packages import create_package
+from app.models.packages_service import create_package
 
 assert os.environ.get("FIRST_GRADE_DISPOSABLE") == "1"
 assert engine.url.host in {"127.0.0.1", "localhost"} and engine.url.database.startswith("first_grade_qa_")

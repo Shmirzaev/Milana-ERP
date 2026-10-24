@@ -8,7 +8,7 @@ from app.models import (
     Brand, Collection, CollectionModel, FinishedGoodsStock, Item, Model, ModelBOM,
     ProductionOrder, StockBatch, Warehouse,
 )
-from app.services import packages as package_service
+from app.models import packages_service as package_service
 
 
 def _cost_model(bom_count: int) -> tuple[int, float]:

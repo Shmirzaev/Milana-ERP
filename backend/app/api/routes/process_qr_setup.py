@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field, StringConstraints, field_validator
 
 from app.core.deps import DbSession, require_permissions
 from app.models import Model, ModelSize, User
-from app.services.audit import log_action
+from app.models.audit_service import log_action
 
 
 router = APIRouter(tags=["catalog"])

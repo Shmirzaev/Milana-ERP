@@ -1,7 +1,7 @@
 from uuid import uuid4
 
 from app.models import Item, Model, ModelBOM
-from app.services.model_images import material_preview_image_url, model_preview_image_url, model_print_image_url
+from app.models.model_images_service import material_preview_image_url, model_preview_image_url, model_print_image_url
 from app.tests.conftest import TestSessionLocal
 
 

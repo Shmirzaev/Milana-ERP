@@ -1,7 +1,8 @@
 # Backend service and schema-model map
 
 Source inspected: `3eea897ec076ed42c7cbdeb8e097a72f48285838`. Folder scaffolding authorized on 24 October 2026.
-Inventory coverage: **47 route files, 87 service/helper files and 97 mapped classes**.
+Original inventory coverage: **47 route files, 87 service/helper files and 97 mapped classes**.
+The service relocation also includes PR #304's sewing_progress_service.py (88 services/helpers).
 These counts exclude __init__.py and README guides. This is a source-navigation and
 proposed ownership map; per-operation behavior, writers, callers and transaction
 boundaries still need tracing before extraction. It does not claim full isolation.
@@ -10,32 +11,33 @@ boundaries still need tracing before extraction. It does not claim full isolatio
 
 All twelve directories now have README.md guides. A source file appears more than
 once when it mixes responsibilities; move the relevant operation, not the whole file.
-The links below show current source locations. Database definitions target schemas/
+The links below show current source locations. Services/helpers now live in
+models/*_service.py; route files and existing ORM mapping files keep their names. Database definitions target schemas/
 after ALL existing schemas/ DTOs, callers and shims migrate to libs/dto/. Then move
-models/ mappings and registration without changing database tables. Do not relabel
-source links as migrated before the files actually move. No domain directory is
-needed simply to mirror services.
+only models/ ORM mappings and registration without changing database tables. Do not relabel
+source links as migrated before the files actually move. Business-group guides describe intended operation boundaries; their directories
+remain documentation-only until individual extractions are approved.
 
-| Destination | Existing routes to inspect | Existing services/helpers to inspect |
+| Destination | Existing routes to inspect | Existing models/helpers to inspect |
 | --- | --- | --- |
-| [Identity and access](../backend/app/services/identity/README.md) | `auth.py`, `admin.py`, `catalog.py` | `credentials.py`, `factory_scope.py`, `password_reset.py`, `user_access.py` |
-| [Catalog and partners](../backend/app/services/catalog/README.md) | `catalog.py`, `partners.py`, `usluga.py`, `paid_processes.py`, `process_qr_setup.py` | `model_family_images.py`, `model_identity.py`, `model_images.py`, `paid_process_catalog.py`, `paid_operations.py`, `variant_display.py` |
-| [Purchasing](../backend/app/services/purchasing/README.md) | `purchasing.py` | `purchasing.py` |
-| [Sales](../backend/app/services/sales/README.md) | `sales.py`, `usluga.py` | `ready_stock_sales.py` |
-| [Material inventory](../backend/app/services/inventory/README.md) | `inventory.py`, `eco_transfers.py`, `fabric_scans.py`, `stocktake.py`, `waste.py` | `inventory.py`, `inventory_access.py`, `inventory_reports.py`, `material_rolls.py`, `stocktake.py`, `eco_transfer_pdf.py` |
-| [Planning and costing](../backend/app/services/planning/README.md) | `planning.py`, `forecasting.py`, `price_calculation.py` | `planning.py`, `forecasting.py`, `price_calculation.py`, `branded_order_export.py` |
-| [Production execution](../backend/app/services/production/README.md) | `production.py`, `production_extra.py`, `bundles.py`, `cutting_passports.py`, `sewing_bands.py`, `sewing_corrections.py`, `sewing_daily_reports.py`, `sewing_flows.py`, `usluga.py` | `bundles.py`, `cutting_batch_delete.py`, `cutting_batch_guard.py`, `cutting_fabric_usage.py`, `cutting_material_assignment.py`, `cutting_passport_reports.py`, `cutting_passport_usage.py`, `cutting_sewing_factory.py`, `cutting_sheet.py`, `deferred_cutting_usage.py`, `first_grade.py`, `passport_nastil.py`, `passport_sizes.py`, `production.py`, `production_sizes.py`, `sewing_band_progress.py`, `sewing_band_setup.py`, `sewing_daily_report_exports.py`, `sewing_input.py`, `sewing_scope.py`, `process_qr_export.py` |
-| [Packaging](../backend/app/services/packaging/README.md) | `packages.py`, `package_workflows.py`, `packaging_reports.py`, `usluga_packaging.py`, `production.py` | `packages.py`, `package_workflows.py`, `package_identity.py`, `legacy_package_identity.py`, `package_label_pages.py`, `package_corrections.py`, `packaging_corrections.py`, `packaging_report_exports.py`, `packaging_reports.py`, `packaging_scope.py` |
-| [Warehouse and shipping](../backend/app/services/fulfillment/README.md) | `finished_goods.py`, `warehouse_reservations.py`, `shipments.py`, `packages.py`, `package_workflows.py` | `finished_goods.py`, `package_dispatch.py`, `package_returns.py`, `packages.py`, `package_workflows.py`, `warehouse_packages.py`, `warehouse_report.py`, `shipment_review.py`, `shipment_reopen.py`, `shipment_invoice.py`, `shipment_invoice_excel.py` |
-| [Finance](../backend/app/services/finance/README.md) | `finance.py`, `sales.py`, `partners.py`, `shipments.py` | `finance.py`, `payments.py`, `shipment_invoice.py`, `shipment_review.py` |
-| [People, attendance and payroll](../backend/app/services/people/README.md) | `hr.py`, `hr_workspace.py`, `attendance.py`, `payroll.py`, `admin.py` | `attendance_event_policy.py`, `attendance_reports.py`, `employee_aliases.py`, `employee_export.py`, `employee_names.py`, `employee_reconciliation.py`, `payroll_factory_scope.py`, `payroll_labels.py`, `payroll_reports.py` |
-| [Tasks and notifications](../backend/app/services/work_management/README.md) | `tasks.py`, `notifications.py` | `notifications.py` |
+| [Identity and access](../backend/app/models/identity/README.md) | `auth.py`, `admin.py`, `catalog.py` | `credentials_service.py`, `factory_scope_service.py`, `password_reset_service.py`, `user_access_service.py` |
+| [Catalog and partners](../backend/app/models/catalog/README.md) | `catalog.py`, `partners.py`, `usluga.py`, `paid_processes.py`, `process_qr_setup.py` | `model_family_images_service.py`, `model_identity_service.py`, `model_images_service.py`, `paid_process_catalog_service.py`, `paid_operations_service.py`, `variant_display_service.py` |
+| [Purchasing](../backend/app/models/purchasing/README.md) | `purchasing.py` | `purchasing_service.py` |
+| [Sales](../backend/app/models/sales/README.md) | `sales.py`, `usluga.py` | `ready_stock_sales_service.py` |
+| [Material inventory](../backend/app/models/inventory/README.md) | `inventory.py`, `eco_transfers.py`, `fabric_scans.py`, `stocktake.py`, `waste.py` | `inventory_service.py`, `inventory_access_service.py`, `inventory_reports_service.py`, `material_rolls_service.py`, `stocktake_service.py`, `eco_transfer_pdf_service.py` |
+| [Planning and costing](../backend/app/models/planning/README.md) | `planning.py`, `forecasting.py`, `price_calculation.py` | `planning_service.py`, `forecasting_service.py`, `price_calculation_service.py`, `branded_order_export_service.py` |
+| [Production execution](../backend/app/models/production/README.md) | `production.py`, `production_extra.py`, `bundles.py`, `cutting_passports.py`, `sewing_bands.py`, `sewing_corrections.py`, `sewing_daily_reports.py`, `sewing_flows.py`, `usluga.py` | `bundles_service.py`, `cutting_batch_delete_service.py`, `cutting_batch_guard_service.py`, `cutting_fabric_usage_service.py`, `cutting_material_assignment_service.py`, `cutting_passport_reports_service.py`, `cutting_passport_usage_service.py`, `cutting_sewing_factory_service.py`, `cutting_sheet_service.py`, `deferred_cutting_usage_service.py`, `first_grade_service.py`, `passport_nastil_service.py`, `passport_sizes_service.py`, `production_service.py`, `production_sizes_service.py`, `sewing_band_progress_service.py`, `sewing_band_setup_service.py`, `sewing_daily_report_exports_service.py`, `sewing_input_service.py`, `sewing_progress_service.py`, `sewing_scope_service.py`, `process_qr_export_service.py` |
+| [Packaging](../backend/app/models/packaging/README.md) | `packages.py`, `package_workflows.py`, `packaging_reports.py`, `usluga_packaging.py`, `production.py` | `packages_service.py`, `package_workflows_service.py`, `package_identity_service.py`, `legacy_package_identity_service.py`, `package_label_pages_service.py`, `package_corrections_service.py`, `packaging_corrections_service.py`, `packaging_report_exports_service.py`, `packaging_reports_service.py`, `packaging_scope_service.py` |
+| [Warehouse and shipping](../backend/app/models/fulfillment/README.md) | `finished_goods.py`, `warehouse_reservations.py`, `shipments.py`, `packages.py`, `package_workflows.py` | `finished_goods_service.py`, `package_dispatch_service.py`, `package_returns_service.py`, `packages_service.py`, `package_workflows_service.py`, `warehouse_packages_service.py`, `warehouse_report_service.py`, `shipment_review_service.py`, `shipment_reopen_service.py`, `shipment_invoice_service.py`, `shipment_invoice_excel_service.py` |
+| [Finance](../backend/app/models/finance/README.md) | `finance.py`, `sales.py`, `partners.py`, `shipments.py` | `finance_service.py`, `payments_service.py`, `shipment_invoice_service.py`, `shipment_review_service.py` |
+| [People, attendance and payroll](../backend/app/models/people/README.md) | `hr.py`, `hr_workspace.py`, `attendance.py`, `payroll.py`, `admin.py` | `attendance_event_policy_service.py`, `attendance_reports_service.py`, `employee_aliases_service.py`, `employee_export_service.py`, `employee_names_service.py`, `employee_reconciliation_service.py`, `payroll_factory_scope_service.py`, `payroll_labels_service.py`, `payroll_reports_service.py` |
+| [Tasks and notifications](../backend/app/models/work_management/README.md) | `tasks.py`, `notifications.py` | `notifications_service.py` |
 
 ## Shared infrastructure and projections
 
 Additional route files: `barcode.py`, `dashboards.py`, `inbox.py`, `process_tracking.py`, `search.py`, `settings.py`, `super_data.py`, `traceability.py`.
 
-Additional service/helper files: `audit.py`, `barcode.py`, `dashboard_overview.py`, `department_dashboards.py`, `department_repairs.py`, `email.py`, `idempotency.py`, `image_storage.py`, `label_images.py`, `numbering.py`, `print_response.py`, `traceability.py`, `workflow.py`.
+Additional service/helper files: `audit_service.py`, `barcode_service.py`, `dashboard_overview_service.py`, `department_dashboards_service.py`, `department_repairs_service.py`, `email_service.py`, `idempotency_service.py`, `image_storage_service.py`, `label_images_service.py`, `numbering_service.py`, `print_response_service.py`, `traceability_service.py`, `workflow_service.py`.
 
 Every existing route/service file is covered above or here. Dilmurod coordinates
 platform helpers; each feature owner remains responsible for its business queries.
@@ -44,7 +46,7 @@ dashboard, search and traceability projections should not own writes. Privileged
 super_data and repair operations require their explicit maintenance rules; never
 turn unrestricted table CRUD into the ordinary service API.
 
-workflow.py mixes orchestration, stock consumption and invoice issuance. Extract
+workflow_service.py mixes orchestration, stock consumption and invoice issuance. Extract
 those rules into Inventory/Finance and retain only the agreed coordinating entry
 point. Other mixed files include catalog/admin (accounts and reference data), usluga
 (models and orders), packages (contents, receiving and shipping), and sales (orders,
@@ -172,5 +174,5 @@ attendance and stocktake inputs go to the same target during their operation ref
 omitted/null handling, aliases and response filtering.
 
 Use the [layer guides](../backend/app/README.md) for file conventions and
-[the migration sequence](../backend/app/services/README.md#migration-sequence) for
+[the migration sequence](../backend/app/models/README.md#migration-sequence) for
 technical testing, visual testing, production acceptance and cleanup.

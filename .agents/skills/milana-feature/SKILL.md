@@ -30,7 +30,8 @@ authorization covers ordinary implementation choices within the agreed scope.
 
 - HTTP routes bind input, obtain actor/session, call services and map results/errors.
   Add no business calculations, direct ORM queries/writes or commits to a route.
-- Feature services own business decisions, object/factory authorization and CRUD.
+- Feature services live in models/*_service.py (the mentor's models/ service layer).
+  Do not recreate services/. They own business decisions, object/factory authorization and CRUD.
   Accept dependencies explicitly. No route imports/calls from services, private
   cross-group reach-through or cyclic service dependencies. Coordinate via the
   agreed public operation; do not create a generic repository/interface framework.
@@ -42,12 +43,16 @@ authorization covers ordinary implementation choices within the agreed scope.
   libs/types/. Reuse actual stored values. Configurable roles/factories/products
   remain data; enum membership does not authorize a transition or grant access.
 - Database schema-model target is schemas/, using SQLAlchemy and PostgreSQL.
-  TODAY models/ contains mappings and schemas/ contains legacy Pydantic DTOs.
+  TODAY models/ contains *_service.py business services and temporary plain ORM
+  mappings; schemas/ contains legacy Pydantic DTOs. Do not re-export services from
+  the ORM registration initializer models/__init__.py or initialize guide packages
+  that would shadow existing mapping modules.
   Never put a new ORM model in schemas/ while those DTO imports remain. During
   transition extend mappings in the currently authoritative models/ location;
   put new DTOs in libs/dto/, and migrate an existing DTO once with its callers.
   Temporary old imports re-export the same class. Retire every old DTO caller/shim
-  before moving ORM definitions, registration and Alembic discovery to schemas/.
+  before moving only ORM definitions, registration and Alembic discovery to schemas/.
+  Business services remain in models/.
   Do not undertake that global migration merely to add a feature.
 - One outer operation owns the transaction. Helpers participate without committing.
   Preserve session/autobegin behavior, lock order, precision, audit, idempotency

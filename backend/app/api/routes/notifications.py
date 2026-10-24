@@ -10,8 +10,8 @@ from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.core.pagination import clamp_pagination
 from app.models import Department, Notification, Role, User
 from app.schemas.tasks import NotificationOut
-from app.services.audit import log_action
-from app.services.notifications import notify_many
+from app.models.audit_service import log_action
+from app.models.notifications_service import notify_many
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 

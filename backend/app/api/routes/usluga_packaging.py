@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from app.core.deps import DbSession, require_permissions
 from app.models import ProductionOrder, ProductionOrderItem, SewingRecord, User, WorkOrder
-from app.services.audit import log_action
-from app.services.packaging_scope import require_packaging_work_order_access
-from app.services.workflow import sync_production_order_status
+from app.models.audit_service import log_action
+from app.models.packaging_scope_service import require_packaging_work_order_access
+from app.models.workflow_service import sync_production_order_status
 
 router = APIRouter(prefix="/work-orders", tags=["production"])
 

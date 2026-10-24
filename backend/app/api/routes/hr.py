@@ -7,8 +7,8 @@ from fastapi.exceptions import RequestValidationError
 from app.core.config import settings
 from app.core.deps import DbSession, CurrentUser, require_permissions, user_permissions
 from app.models import Employee, User
-from app.services.audit import log_action
-from app.services.factory_scope import factory_for_department, selected_factory_code
+from app.models.audit_service import log_action
+from app.models.factory_scope_service import factory_for_department, selected_factory_code
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
@@ -250,7 +250,7 @@ def _ensure_employee_no_available(
         qry = qry.filter(Employee.id != exclude_id)
     if qry.first():
         raise HTTPException(409, "Employee number already exists in this factory")
-    from app.services.employee_aliases import merged_employee
+    from app.models.employee_aliases_service import merged_employee
     alias = merged_employee(db, factory_code, employee_no=employee_no)
     if alias and alias.id != exclude_id:
         raise HTTPException(409, "Employee number is retained for a merged employee in this factory")
@@ -387,7 +387,7 @@ def export_employees(
     from sqlalchemy.orm import aliased
     from app.models import Department
     from app.models.hr import HrPosition
-    from app.services.employee_export import employee_workbook
+    from app.models.employee_export_service import employee_workbook
 
     factory = selected_factory_code(current)
     manager = aliased(Employee)

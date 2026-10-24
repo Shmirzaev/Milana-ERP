@@ -7,7 +7,7 @@ from sqlalchemy import event
 
 from app.db.session import SessionLocal
 from app.models import Model, Package, PackageBatchAllocation, ProductionBatch, ProductionOrder
-from app.services import packages as package_service
+from app.models import packages_service as package_service
 
 
 def _batched_order(batch_count: int) -> tuple[int, int, list[int]]:

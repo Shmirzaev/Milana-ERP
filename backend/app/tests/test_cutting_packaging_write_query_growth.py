@@ -23,7 +23,7 @@ from app.models import (
     WorkOrder,
 )
 from app.tests.conftest import TestSessionLocal, test_engine
-from app.services.inventory import consume_cutting_materials
+from app.models.inventory_service import consume_cutting_materials
 
 
 def _cutting_work_order(bundle_count: int) -> int:
@@ -317,7 +317,7 @@ def test_cutting_record_complete_bundle_query_growth(
     bundle_count,
 ):
     work_order_id = _cutting_work_order(bundle_count)
-    monkeypatch.setattr("app.services.bundles.save_barcode_image", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("app.models.bundles_service.save_barcode_image", lambda *_args, **_kwargs: None)
     statements: list[str] = []
 
     def capture(_connection, _cursor, statement, _parameters, _context, _executemany):

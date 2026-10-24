@@ -10,7 +10,7 @@ from app.core.deps import is_super_admin, user_permissions
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
 from app.models import AuditLog, Employee, Notification, PasswordResetToken, Role, User
-from app.services.audit import log_action
+from app.models.audit_service import log_action
 
 
 PRIVILEGED_KINDS = ["role_name", "role_permission", "extra_permission", "access_policy", "wildcard"]

@@ -5,11 +5,11 @@ from fastapi import APIRouter, HTTPException, Depends, Header, Query
 from app.core.deps import DbSession, require_permissions
 from app.models import Invoice, SalesOrder, User
 from app.schemas.sales import InvoiceIn, InvoiceOut, PaymentIn, PaymentOut
-from app.services.audit import log_action
-from app.services.numbering import next_invoice_no
-from app.services.payments import create_invoice_payment, invoice_payment_status
-from app.services.idempotency import replay_idempotent_response, store_idempotent_response
-from app.services.finance import (
+from app.models.audit_service import log_action
+from app.models.numbering_service import next_invoice_no
+from app.models.payments_service import create_invoice_payment, invoice_payment_status
+from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
+from app.models.finance_service import (
     dashboard_summary, order_profit, branded_stock_value, waste_cost, waste_income,
     list_recent_invoices, count_invoices, INVOICE_LIST_MAX_LIMIT, revenue_by_period,
     cost_breakdown,

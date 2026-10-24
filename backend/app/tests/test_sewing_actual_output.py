@@ -3,7 +3,7 @@ from uuid import uuid4
 import pytest
 
 from app.models import CuttingRecord, Department, Model, ProductionBatch, ProductionOrder, SewingRecord, WorkOrder
-from app.services.audit import log_action
+from app.models.audit_service import log_action
 from app.tests.conftest import TestSessionLocal
 
 

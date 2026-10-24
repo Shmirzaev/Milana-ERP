@@ -45,8 +45,8 @@ from app.models import (
     User,
     Warehouse,
 )
-from app.services.audit import verify_audit_hash_chain
-from app.services.purchasing import (
+from app.models.audit_service import verify_audit_hash_chain
+from app.models.purchasing_service import (
     approve_purchase_request,
     create_purchase_order,
     create_purchase_request,
@@ -648,7 +648,7 @@ def test_receive_route_still_authorizes_every_line_after_dropping_the_repeat(
     must stay: every line is authorized before any stock is written, not just
     the first one.
     """
-    from app.services import inventory_access
+    from app.models import inventory_access_service as inventory_access
 
     marker = uuid4().hex[:8]
     _make_admin_materials_only()

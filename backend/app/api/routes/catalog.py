@@ -38,14 +38,14 @@ from app.schemas.catalog import (
     ModelVariantCreateIn, ModelVariantUpdateIn,
 )
 from app.schemas.inventory import ItemOut
-from app.services.audit import log_action
-from app.services.factory_scope import selected_factory_code
-from app.services.model_images import model_print_image_url, model_variant_picture_url
-from app.services.model_family_images import (
+from app.models.audit_service import log_action
+from app.models.factory_scope_service import selected_factory_code
+from app.models.model_images_service import model_print_image_url, model_variant_picture_url
+from app.models.model_family_images_service import (
     family_image_from_members, family_images_for_models, model_family_image, own_model_image,
 )
-from app.services.numbering import next_model_variant_no, next_model_no, CATALOG_NUMBERING_BASE
-from app.services.paid_operations import (
+from app.models.numbering_service import next_model_variant_no, next_model_no, CATALOG_NUMBERING_BASE
+from app.models.paid_operations_service import (
     filter_paid_operations_for_factory,
     merge_scoped_paid_operations,
     normalize_paid_operation_factory,
@@ -827,7 +827,7 @@ def _model_summary_query(db: DbSession, catalog_scope: str = "standard"):
 
 
 def _summary_family_photos(db: DbSession, rows) -> dict[int, str | None]:
-    from app.services.model_family_images import _family_key
+    from app.models.model_family_images_service import _family_key
     images = family_images_for_models(db, rows)
     photos = {row.id: (image.file_url if (image := images.get(_family_key(row))) else None)
               for row in rows if not isinstance(row.details_json, dict) or row.details_json.get("legacy_import") is not True}
@@ -2565,7 +2565,7 @@ def _write_new_model_document(target: Path, content: bytes) -> None:
 
 
 async def _discard_model_document(target: Path) -> None:
-    from app.services.image_storage import run_blocking_to_completion
+    from app.models.image_storage_service import run_blocking_to_completion
 
     await run_blocking_to_completion(partial(target.unlink, True))
 
@@ -2655,7 +2655,7 @@ async def upload_image(
     current: User = Depends(require_permissions("modeling.models", "*")),
     catalog_scope: str = Depends(_standard_catalog_scope),
 ):
-    from app.services.image_storage import (
+    from app.models.image_storage_service import (
         UploadCommitState,
         UploadFileWriteState,
         discard_stored_image,
@@ -2680,7 +2680,7 @@ async def upload_image(
     commit_state = UploadCommitState()
     try:
         if ext in SAFE_IMAGE_EXTENSIONS:
-            from app.services.image_storage import store_uploaded_image
+            from app.models.image_storage_service import store_uploaded_image
 
             stored_image = await store_uploaded_image(
                 file,
@@ -2833,7 +2833,7 @@ async def upload_bom_photo(
     current: User = Depends(require_permissions("modeling.bom", "modeling.models", "*")),
     catalog_scope: str = Depends(_standard_catalog_scope),
 ):
-    from app.services.image_storage import (
+    from app.models.image_storage_service import (
         UploadCommitState,
         discard_stored_image,
         run_upload_db_work,

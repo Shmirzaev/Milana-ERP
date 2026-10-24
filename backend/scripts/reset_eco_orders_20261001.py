@@ -14,7 +14,7 @@ from sqlalchemy import Table, inspect, select, text
 from app.db.base import Base
 from app.db.session import SessionLocal
 import app.models  # noqa: F401
-from app.services.audit import log_action
+from app.models.audit_service import log_action
 
 
 ORDER_NUMBERS = [f"USL-{n:04}" for n in range(1, 7)]

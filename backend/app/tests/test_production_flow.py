@@ -871,7 +871,7 @@ def test_zero_quantity_storage_transfer_does_not_override_cutting(client, auth_h
 
     from app.db.session import SessionLocal
     from app.models import ProductionOrder, WorkOrder
-    from app.services.workflow import sync_production_order_status
+    from app.models.workflow_service import sync_production_order_status
 
     db = SessionLocal()
     try:

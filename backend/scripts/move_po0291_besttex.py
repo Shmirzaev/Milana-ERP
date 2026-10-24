@@ -6,8 +6,8 @@ from sqlalchemy import text
 
 from app.db.session import SessionLocal
 from app.models import Bundle, Department, Package, PayrollQrLabel, ProductionOrder, SewingAssignment, SewingRecord, User, WorkOrder
-from app.services.audit import log_action
-from app.services.bundles import sync_textile_departments_for_bundle_route
+from app.models.audit_service import log_action
+from app.models.bundles_service import sync_textile_departments_for_bundle_route
 
 
 def main():

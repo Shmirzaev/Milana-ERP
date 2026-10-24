@@ -581,7 +581,7 @@ def test_item_only_claim_blocks_outgoing_movements(client, auth_headers, warehou
 @pytest.mark.parametrize("warehouse_scoped", [False, True])
 @pytest.mark.parametrize("batched", [False, True])
 def test_movement_preserves_exact_item_only_claim_floor(client, auth_headers, warehouse_scoped, batched):
-    from app.services.inventory import current_stock_for_item
+    from app.models.inventory_service import current_stock_for_item
 
     item_id, batch_id, warehouse_id = _seeded_batch(client, auth_headers, quantity=10)
     _reserve(item_id=item_id, quantity=4, stock_batch_id=None,
@@ -606,7 +606,7 @@ def test_other_warehouse_claim_does_not_block_free_stock(client, auth_headers):
 @pytest.mark.parametrize("warehouse_scoped", [False, True])
 @pytest.mark.parametrize("batched", [False, True])
 def test_fractional_movement_preserves_exact_claim_floor(client, auth_headers, warehouse_scoped, batched):
-    from app.services.inventory import current_stock_for_item
+    from app.models.inventory_service import current_stock_for_item
 
     item_id, batch_id, warehouse_id = _seeded_batch(client, auth_headers, quantity=0.3)
     _reserve(item_id=item_id, quantity=0.1, stock_batch_id=None,
@@ -743,7 +743,7 @@ def select_for_update_batch(db, batch_id: int):
 
 def _reservation_style_lock(db, batch_id: int):
     """Take the exact lock the reservation path takes in services.inventory."""
-    from app.services.inventory import _lock_batch_query
+    from app.models.inventory_service import _lock_batch_query
 
     return _lock_batch_query(db, batch_id).filter(StockBatch.id == batch_id).one()
 
@@ -789,7 +789,7 @@ def test_postgres_claim_committed_while_movement_waits_still_blocks_it(
         order_id = order.id
 
     with session_factory() as first:
-        from app.services.inventory import _lock_item_query
+        from app.models.inventory_service import _lock_item_query
 
         if claim_scope == "batch":
             _reservation_style_lock(first, batch_id)

@@ -8,7 +8,7 @@ from sqlalchemy import or_, select, text
 from app.db.base import Base
 from app.db.session import SessionLocal
 from app.models import CuttingRecord, Package, PackagingRecord, ProductionOrder, WorkOrder
-from app.services.audit import log_action
+from app.models.audit_service import log_action
 
 
 def digest(value):

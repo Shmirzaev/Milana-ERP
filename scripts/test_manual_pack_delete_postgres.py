@@ -14,7 +14,7 @@ from app.db.session import engine, SessionLocal
 from app.db.seed import seed
 from app.models import Model, User, Package, PackagePrintRun, PackagePrintRunMember, FinishedGoodsStock
 from app.schemas.package_workflows import ManualPackageReceiptIn
-from app.services.package_workflows import manual_receipt, delete_manual_run
+from app.models.package_workflows_service import manual_receipt, delete_manual_run
 
 assert os.environ.get("MANUAL_DELETE_DISPOSABLE") == "1"
 assert engine.url.database.startswith("manual_delete_qa_") and engine.url.host.startswith("manual-delete-qa-")

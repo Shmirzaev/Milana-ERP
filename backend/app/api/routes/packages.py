@@ -1,11 +1,11 @@
-from app.services.package_dispatch import remaining_quantity, remaining_item_quantity
+from app.models.package_dispatch_service import remaining_quantity, remaining_item_quantity
 from fastapi import APIRouter, HTTPException, Depends, Header, Query
-from app.services.variant_display import format_variant_number
+from app.models.variant_display_service import format_variant_number
 
 from fastapi.responses import HTMLResponse, Response
 from typing import Literal
-from app.services.print_response import warehouse_print_response
-from app.services.package_label_pages import label_document
+from app.models.print_response_service import warehouse_print_response
+from app.models.package_label_pages_service import label_document
 from sqlalchemy import func, or_
 from sqlalchemy.orm import joinedload, load_only, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
@@ -61,7 +61,7 @@ from app.schemas.tracking import (
     PackageChangeDecisionIn,
     PackageChangeRequestOut,
 )
-from app.services.packages import (
+from app.models.packages_service import (
     WAREHOUSE_MAP_LAYOUT,
     create_package,
     create_packages_bulk,
@@ -78,17 +78,17 @@ from app.services.packages import (
     approve_package_change_request,
     reject_package_change_request,
 )
-from app.services.barcode import save_qr_image
-from app.services.label_images import (
+from app.models.barcode_service import save_qr_image
+from app.models.label_images_service import (
     is_preview_model_image,
     material_label_image_src,
     variant_label_image_src,
 )
-from app.services.model_images import model_display_image_url, warehouse_stock_image_urls
-from app.services.model_family_images import model_family_image
-from app.services.audit import log_action
-from app.services.idempotency import replay_idempotent_response, store_idempotent_response
-from app.services.packaging_scope import (
+from app.models.model_images_service import model_display_image_url, warehouse_stock_image_urls
+from app.models.model_family_images_service import model_family_image
+from app.models.audit_service import log_action
+from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
+from app.models.packaging_scope_service import (
     packaging_department_for_order,
     packaging_department_scope,
     require_package_access,
@@ -158,7 +158,7 @@ def _package_out_payload(db: DbSession, pkg: Package, *, context: dict | None = 
 
 
 def _package_detail_payload(db: DbSession, pkg: Package, *, context: dict | None = None) -> dict:
-    from app.services.package_workflows import active_members
+    from app.models.package_workflows_service import active_members
     data = PackageDetail.model_validate(pkg).model_dump(mode="json")
     if pkg.dispatched_quantities and pkg.status in {"received_in_storage", "reserved"}:
         data["total_quantity"] = remaining_quantity(pkg)
@@ -315,7 +315,7 @@ def _package_detail_reference_context(
         ManualPackageReceipt,
         (pkg.manual_receipt_id for pkg in packages),
     )
-    from app.services.package_workflows import active_members
+    from app.models.package_workflows_service import active_members
     if print_run_ids is None:
         package_ids = sorted({int(pkg.id) for pkg in packages})
         resolved_print_run_ids = {}
@@ -485,7 +485,7 @@ def _package_for_receiving_scan(db: DbSession, raw_code: str) -> Package | None:
             .first()
         )
         if pkg:
-            from app.services.package_workflows import require_current_code
+            from app.models.package_workflows_service import require_current_code
             require_current_code(db, pkg, raw_code)
             return pkg
 
@@ -792,7 +792,7 @@ def _package_label_card_html(
     context: dict | None = None,
     active_label_checked: bool = False,
 ) -> str:
-    from app.services.package_workflows import require_active_label
+    from app.models.package_workflows_service import require_active_label
     if not active_label_checked:
         require_active_label(db, pkg.id)
     model = (
@@ -1104,7 +1104,7 @@ def warehouse_report(
     lang: Literal["en", "ru", "uz"] = "uz",
     _=Depends(require_permissions("storage.packages", "storage.shipment")),
 ):
-    from app.services.warehouse_report import export_warehouse_report
+    from app.models.warehouse_report_service import export_warehouse_report
 
     return Response(
         export_warehouse_report(db, lang),
@@ -1424,7 +1424,7 @@ def request_package_change(
     db: DbSession,
     current: User = Depends(require_permissions("packaging.packages", "storage.packages", "*")),
 ):
-    from app.services.package_corrections import correct_package
+    from app.models.package_corrections_service import correct_package
     req = correct_package(db, current, pid, payload)
     db.commit()
     db.refresh(req)
@@ -1998,7 +1998,7 @@ def label_sheet(ids: str, db: DbSession, current: User = Depends(require_permiss
     for package in rows:
         require_package_access(current, package)
 
-    from app.services.package_workflows import require_active_labels
+    from app.models.package_workflows_service import require_active_labels
     require_active_labels(db, [int(package.id) for package in rows])
     context = _package_label_reference_context(db, rows)
     cards = [_package_label_card_html(db, p, context=context, active_label_checked=True) for p in rows]

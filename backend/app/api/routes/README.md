@@ -29,5 +29,5 @@ change is agreed. The handler binds input, obtains actor/session, calls the feat
 operation and maps its result/error. Permission dependencies may stay at the HTTP
 edge; the service still checks object/factory policy. It must not call another route.
 Before extracting, list all ORM queries/writes, commits, calculations and side
-effects in the existing handler. Follow the [eight-step migration sequence](../../services/README.md#migration-sequence),
+effects in the existing handler. Follow the [eight-step migration sequence](../../models/README.md#migration-sequence),
 including technical AND visual checks before removing its legacy body.

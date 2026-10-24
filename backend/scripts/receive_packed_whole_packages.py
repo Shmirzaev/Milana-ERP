@@ -17,8 +17,8 @@ from app.models import (
     StockReservation,
     User,
 )
-from app.services.audit import log_action
-from app.services.packages import receive_at_storage
+from app.models.audit_service import log_action
+from app.models.packages_service import receive_at_storage
 
 
 def _parser() -> argparse.ArgumentParser:

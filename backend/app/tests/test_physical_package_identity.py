@@ -10,8 +10,8 @@ from app.models import (
     PackageBarcodeAlias, PackageItem, Shipment, ShipmentPackage, User, Warehouse,
 )
 from app.models.stocktake import WarehouseStocktake, WarehouseStocktakeRow
-from app.services.legacy_package_identity import apply_plan, build_plan, record
-from app.services.package_identity import resolve_warehouse_package
+from app.models.legacy_package_identity_service import apply_plan, build_plan, record
+from app.models.package_identity_service import resolve_warehouse_package
 
 CODES = [f"uzerp_ii_20818_{n}" for n in (1, 6, 10)]
 

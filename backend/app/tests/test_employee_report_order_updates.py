@@ -4,8 +4,8 @@ import pytest
 from openpyxl import load_workbook
 from app.db.session import SessionLocal
 from app.models import Employee, Model, BrandedPlanningOrder, ProductionOrder, ProductionOrderItem, PayrollRecord, SewingFlow, WorkOrder, Department
-from app.services.employee_names import latin_employee_name
-from app.services.employee_reconciliation import reconcile_employees
+from app.models.employee_names_service import latin_employee_name
+from app.models.employee_reconciliation_service import reconcile_employees
 from app.tests.test_payroll import _create_user_with_permissions
 
 
@@ -107,7 +107,7 @@ def test_excel_embeds_webp_as_png_without_remote_fetch():
     from zipfile import ZipFile
     from PIL import Image
     from openpyxl import Workbook
-    from app.services.branded_order_export import picture
+    from app.models.branded_order_export_service import picture
     image=BytesIO()
     Image.new('RGB',(20,30),(50,100,150)).save(image,format='WEBP')
     book=Workbook()

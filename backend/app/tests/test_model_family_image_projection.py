@@ -7,8 +7,8 @@ from sqlalchemy.orm import selectinload
 
 from app.db.session import SessionLocal
 from app.models import Model, ModelImage
-from app.services import model_family_images as photos
-from app.services.model_images import warehouse_stock_image_urls
+from app.models import model_family_images_service as photos
+from app.models.model_images_service import warehouse_stock_image_urls
 
 
 def _model(db, code, general, *, factory=None, scope="standard", legacy=False):

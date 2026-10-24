@@ -16,7 +16,7 @@ from app.models import (
     StockBatch,
     Warehouse,
 )
-from app.services import packages as package_service
+from app.models import packages_service as package_service
 
 
 def _bulk_order() -> tuple[int, int, float]:

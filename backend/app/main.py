@@ -445,7 +445,7 @@ def serve_model_thumbnail(name: str, request: Request, size: int = 320):
     source_mtime = os.path.getmtime(source_path) if source_path else 0
     if not os.path.isfile(thumb_path) or os.path.getmtime(thumb_path) < source_mtime:
         try:
-            from app.services.image_storage import ensure_webp_thumbnail
+            from app.models.image_storage_service import ensure_webp_thumbnail
 
             ensure_webp_thumbnail(
                 destination_path=thumb_path,

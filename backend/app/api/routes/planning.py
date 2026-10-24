@@ -9,16 +9,16 @@ from app.schemas.production import (
     ProductionOrderIn,
     ProductionOrderOut,
 )
-from app.services.planning import material_requirements_for_sales_order
-from app.services.production import (
+from app.models.planning_service import material_requirements_for_sales_order
+from app.models.production_service import (
     create_production_order,
     create_production_batches,
     create_work_orders,
     printing_attachments_for_storage,
 )
-from app.services.audit import log_action
-from app.services.model_images import material_preview_image_url, model_display_image_url
-from app.services.numbering import next_branded_planning_order_no
+from app.models.audit_service import log_action
+from app.models.model_images_service import material_preview_image_url, model_display_image_url
+from app.models.numbering_service import next_branded_planning_order_no
 
 router = APIRouter(prefix="/planning", tags=["planning"])
 
@@ -27,7 +27,7 @@ router = APIRouter(prefix="/planning", tags=["planning"])
 def export_branded_order(order_id: int, db: DbSession,
                          _: User = Depends(require_permissions("planning.production", "*"))):
     from fastapi.responses import Response
-    from app.services.branded_order_export import build_branded_order_workbook
+    from app.models.branded_order_export_service import build_branded_order_workbook
     order = db.get(BrandedPlanningOrder, order_id)
     if not order:
         raise HTTPException(404, "Branded order not found")

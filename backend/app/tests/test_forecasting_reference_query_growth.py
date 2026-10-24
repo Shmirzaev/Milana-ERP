@@ -16,7 +16,7 @@ from app.models import (
     StockBatch,
     Warehouse,
 )
-from app.services import forecasting
+from app.models import forecasting_service as forecasting
 from app.tests.conftest import TestSessionLocal
 
 

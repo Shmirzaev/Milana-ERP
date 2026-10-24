@@ -1,7 +1,7 @@
 import pytest
 
 from app.models import Model, SystemSetting
-from app.services.numbering import next_model_no, next_model_variant_no
+from app.models.numbering_service import next_model_no, next_model_variant_no
 from app.tests.conftest import TestSessionLocal
 
 

@@ -20,7 +20,7 @@ from app.tests.conftest import TestSessionLocal
 
 
 def test_discard_replaced_managed_image_removes_file_and_thumbnails(tmp_path):
-    from app.services.image_storage import (
+    from app.models.image_storage_service import (
         PREBUILT_THUMBNAIL_SIZES,
         discard_replaced_managed_image,
     )
@@ -45,7 +45,7 @@ def test_discard_replaced_managed_image_removes_file_and_thumbnails(tmp_path):
 
 
 def test_discard_refuses_a_path_outside_the_storage_root(tmp_path):
-    from app.services.image_storage import discard_replaced_managed_image
+    from app.models.image_storage_service import discard_replaced_managed_image
 
     root = tmp_path / "model-files"
     root.mkdir()
@@ -59,7 +59,7 @@ def test_discard_refuses_a_path_outside_the_storage_root(tmp_path):
 
 
 def test_discard_refuses_an_unmanaged_url(tmp_path):
-    from app.services.image_storage import discard_replaced_managed_image
+    from app.models.image_storage_service import discard_replaced_managed_image
 
     root = tmp_path / "model-files"
     root.mkdir()

@@ -9,7 +9,7 @@ from PIL import Image
 
 from app.api.routes import attendance
 from app.models import AttendanceDevice, AttendancePerson
-from app.services.image_storage import convert_image_to_webp
+from app.models.image_storage_service import convert_image_to_webp
 from app.tests.conftest import TestSessionLocal
 
 

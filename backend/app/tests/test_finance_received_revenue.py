@@ -8,7 +8,7 @@ import pytest
 from app.core.dt import as_utc
 from app.db.session import SessionLocal
 from app.models import Customer, Invoice, Payment, SalesOrder, Shipment
-from app.services.finance import list_recent_invoices, order_profit, revenue_by_period, revenue_total
+from app.models.finance_service import list_recent_invoices, order_profit, revenue_by_period, revenue_total
 
 
 def _order(db, *, amount="100", status="ready_to_ship"):

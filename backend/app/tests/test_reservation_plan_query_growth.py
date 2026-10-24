@@ -58,7 +58,7 @@ from app.models import (
     StockMovement,
     Warehouse,
 )
-from app.services.inventory import (
+from app.models.inventory_service import (
     ACTIVE_RESERVATION_STATUSES,
     EPSILON,
     RESERVABLE_CATEGORIES,

@@ -10,7 +10,7 @@ import os
 from datetime import datetime, timezone
 from sqlalchemy import text
 from app.db.session import SessionLocal
-from app.services.audit import log_action, _finalize_postgres_audits
+from app.models.audit_service import log_action, _finalize_postgres_audits
 
 MODE = os.environ.get('CORRECTION_MODE', 'inspect')
 assert MODE in ('inspect', 'rehearse', 'apply', 'verify')

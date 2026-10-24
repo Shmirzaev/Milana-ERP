@@ -67,11 +67,12 @@ Preserve existing class names unless renaming is separately justified.
    workflow behavior; then test the actual screens using isolated data.
 5. Follow the shared release/acceptance process, then remove obsolete imports/shims.
    Retire ALL old schemas/ DTO imports and shims before reusing that namespace.
-   The next phase moves existing models/ mappings into schemas/, preserving imports,
+   The next phase moves only existing models/ ORM mappings into schemas/, preserving imports,
    registration and database metadata. Do not mix legacy DTOs and ORM models there.
 
-Database schema models currently live in [models/](../../models/README.md) and target
-[schemas/](../../schemas/README.md) after the DTO migration; business operations
-remain in [services/](../../services/README.md). No persistence migration is implied.
+Database schema mappings temporarily share [models/](../../models/README.md) with
+business services, which use *_service.py. Only the mappings target
+[schemas/](../../schemas/README.md) after DTO migration; business operations stay
+in models/. No persistence migration is implied.
 Ismail coordinates DTO conventions; each feature owner migrates its callers/tests.
-See [the full migration sequence](../../services/README.md#migration-sequence).
+See [the full migration sequence](../../models/README.md#migration-sequence).

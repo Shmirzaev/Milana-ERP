@@ -24,9 +24,9 @@ from app.models import (
     StockMovement,
     Warehouse,
 )
-from app.services.bundles import reserve_bundle_numbers
-from app.services.inventory import ACTIVE_RESERVATION_STATUSES, consume_cutting_materials
-from app.services.workflow import consume_packaging_materials_from_bom
+from app.models.bundles_service import reserve_bundle_numbers
+from app.models.inventory_service import ACTIVE_RESERVATION_STATUSES, consume_cutting_materials
+from app.models.workflow_service import consume_packaging_materials_from_bom
 
 
 @pytest.fixture(scope="module")

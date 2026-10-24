@@ -8,7 +8,7 @@ from alembic.operations import Operations
 from sqlalchemy.orm import Session
 
 from app.models import BusinessOrderAlias
-from app.services.numbering import next_bundle_no
+from app.models.numbering_service import next_bundle_no
 
 
 path = Path(__file__).resolve().parents[2] / "alembic" / "versions" / "0120_canonical_bundle_references.py"

@@ -15,8 +15,8 @@ from sqlalchemy.orm import Session
 from app.core.deps import DbSession, require_super_admin
 from app.db.base import Base
 from app.models import User
-from app.services.audit import log_action
-from app.services.department_repairs import repair_department_name
+from app.models.audit_service import log_action
+from app.models.department_repairs_service import repair_department_name
 
 router = APIRouter(prefix="/admin/super-data", tags=["super-admin-data"])
 

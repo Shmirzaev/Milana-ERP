@@ -7,7 +7,7 @@ from app.api.routes.cutting_passports import _compute, _report_passports, materi
 from app.db.session import SessionLocal
 from app.models import CuttingPassport, ProductionOrder, ProductionOrderItem, User
 from app.models.catalog import ModelSize
-from app.services.passport_sizes import size_count_from_range
+from app.models.passport_sizes_service import size_count_from_range
 from app.tests.test_cutting_passport_defaults_query_growth import _material_order, _factory_user
 
 SIZES = ["122", "128", "134", "140", "146", "152"]

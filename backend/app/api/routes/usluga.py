@@ -27,9 +27,9 @@ from app.models import (
     User,
     WorkOrder,
 )
-from app.services.audit import log_action
-from app.services.factory_scope import require_factory_access
-from app.services.production import create_production_order, create_work_orders
+from app.models.audit_service import log_action
+from app.models.factory_scope_service import require_factory_access
+from app.models.production_service import create_production_order, create_work_orders
 from app.schemas.catalog import (
     ModelBOMIn,
     ModelBOMUpdate,
@@ -132,7 +132,7 @@ class UslugaHandoverIn(BaseModel):
 
 
 def _model_payload(model: Model) -> dict:
-    from app.services.model_images import model_preview_image_url
+    from app.models.model_images_service import model_preview_image_url
     return {
         "id": model.id,
         "code": model.code,

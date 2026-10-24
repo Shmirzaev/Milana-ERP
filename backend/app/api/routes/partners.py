@@ -26,9 +26,9 @@ from app.models import (
     User,
 )
 from app.schemas.catalog import PartyIn, PartyOut
-from app.services.audit import log_action
-from app.services.numbering import next_invoice_no
-from app.services.payments import (
+from app.models.audit_service import log_action
+from app.models.numbering_service import next_invoice_no
+from app.models.payments_service import (
     REVERSED_INVOICE_STATUSES,
     create_customer_advance_payment,
     create_invoice_payment,
@@ -36,7 +36,7 @@ from app.services.payments import (
     invoice_payment_status,
     money_decimal,
 )
-from app.services.idempotency import replay_idempotent_response, store_idempotent_response
+from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 
 router = APIRouter(tags=["partners"])
 

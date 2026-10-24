@@ -1,4 +1,4 @@
-from app.services.package_dispatch import remaining_quantity
+from app.models.package_dispatch_service import remaining_quantity
 from collections import defaultdict
 from typing import Annotated
 
@@ -12,7 +12,7 @@ from app.models import (
     SalesOrder, Shipment, ShipmentPackage, StockReservation, User,
 )
 from app.schemas.tracking import FinishedGoodsStockOut, FinishedGoodsStockPageOut
-from app.services.audit import log_action
+from app.models.audit_service import log_action
 router = APIRouter(prefix="/finished-goods", tags=["finished_goods"])
 PackageBrand = aliased(Brand)
 _DB_INTEGER_MAX = 2_147_483_647

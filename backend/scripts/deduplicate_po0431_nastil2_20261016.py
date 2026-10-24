@@ -17,7 +17,7 @@ from app.api.routes.production import (
 from app.core.deps import is_super_admin
 from app.db.session import SessionLocal
 from app.models import CuttingRecord, ProductionBatch, ProductionOrder, User, WorkOrder
-from app.services.audit import _finalize_postgres_audits, log_action
+from app.models.audit_service import _finalize_postgres_audits, log_action
 
 
 def digest(value):

@@ -2,7 +2,7 @@ import pytest
 from sqlalchemy import Column, Integer, String, create_engine
 from sqlalchemy.orm import Session, declarative_base
 
-from app.services.numbering import _next_order, _next
+from app.models.numbering_service import _next_order, _next
 
 
 Base = declarative_base()
@@ -108,7 +108,7 @@ def test_order_search_uses_exact_collision_mapping_for_historical_years(referenc
 
 def test_branded_planning_sequence_expands_after_four_digit_minimum():
     from app.models import BrandedPlanningOrder
-    from app.services.numbering import next_branded_planning_order_no
+    from app.models.numbering_service import next_branded_planning_order_no
     from app.tests.conftest import TestSessionLocal
 
     with TestSessionLocal() as db:

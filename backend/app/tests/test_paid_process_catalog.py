@@ -10,7 +10,7 @@ from alembic.operations import Operations
 from app.db.session import SessionLocal
 from app.models import AuditLog
 from app.models.paid_process import PaidProcess
-from app.services.paid_process_catalog import normalized_key, normalized_name, process_section
+from app.models.paid_process_catalog_service import normalized_key, normalized_name, process_section
 from app.tests.test_payroll import _create_user_with_permissions
 
 

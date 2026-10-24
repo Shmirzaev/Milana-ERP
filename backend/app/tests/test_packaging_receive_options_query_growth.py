@@ -23,7 +23,7 @@ from app.models import (
     User,
     WorkOrder,
 )
-from app.services.packaging_scope import packaging_work_order_department_code
+from app.models.packaging_scope_service import packaging_work_order_department_code
 from app.tests.conftest import TestSessionLocal
 
 

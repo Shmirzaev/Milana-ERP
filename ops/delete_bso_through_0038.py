@@ -11,7 +11,7 @@ from collections import defaultdict
 from sqlalchemy import text
 
 from app.db.session import SessionLocal
-from app.services.audit import log_action
+from app.models.audit_service import log_action
 
 ALLOWED = set('''branded_planning_orders production_orders production_batches
 production_order_items production_order_materials work_orders cutting_passports

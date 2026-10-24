@@ -22,8 +22,8 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models import Model, ModelImage, User
-from app.services.audit import log_action
-from app.services.image_storage import prebuild_webp_thumbnails
+from app.models.audit_service import log_action
+from app.models.image_storage_service import prebuild_webp_thumbnails
 
 
 EXPECTED_ALEMBIC_HEAD = "0113_variant_selling_price"

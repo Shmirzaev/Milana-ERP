@@ -189,7 +189,7 @@ def test_changed_factory_completes_sewing_to_packaging_handoff(client, auth_head
 
 
 def test_cancelled_bundle_cannot_restore_previous_factory(client, auth_headers):
-    from app.services.bundles import sync_textile_departments_for_bundle_route
+    from app.models.bundles_service import sync_textile_departments_for_bundle_route
     po, batch, works, bundle_id, _ = routed_order()
     with TestSessionLocal() as db:
         live = db.get(Bundle, bundle_id)

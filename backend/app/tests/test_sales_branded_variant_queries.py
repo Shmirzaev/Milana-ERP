@@ -625,7 +625,7 @@ def test_metadata_repair_reference_rows_do_not_grow_with_the_row_count(warehouse
     _seed_legacy_stock(session_factory, prefix="F", with_sales_order=True, count=3)
     with session_factory.begin() as db:
         with probe.measure() as measured:
-            from app.services.finished_goods import repair_missing_brand_metadata
+            from app.models.finished_goods_service import repair_missing_brand_metadata
             updated = repair_missing_brand_metadata(db)
         small_items = measured.total("sales_order_items")
         small_model_meta = measured.total("collection_models")
@@ -634,7 +634,7 @@ def test_metadata_repair_reference_rows_do_not_grow_with_the_row_count(warehouse
     _seed_legacy_stock(session_factory, prefix="G", with_sales_order=True, count=12)
     with session_factory.begin() as db:
         with probe.measure() as measured:
-            from app.services.finished_goods import repair_missing_brand_metadata
+            from app.models.finished_goods_service import repair_missing_brand_metadata
             updated = repair_missing_brand_metadata(db)
         large_items = measured.total("sales_order_items")
         large_model_meta = measured.total("collection_models")
@@ -665,14 +665,14 @@ def test_metadata_repair_model_fallback_rows_do_not_grow_with_the_row_count(ware
     _seed_legacy_stock(session_factory, prefix="H", with_sales_order=False, count=3)
     with session_factory.begin() as db:
         with probe.measure() as measured:
-            from app.services.finished_goods import repair_missing_brand_metadata
+            from app.models.finished_goods_service import repair_missing_brand_metadata
             repair_missing_brand_metadata(db)
         small_model_meta = measured.total("collection_models")
 
     _seed_legacy_stock(session_factory, prefix="I", with_sales_order=False, count=12)
     with session_factory.begin() as db:
         with probe.measure() as measured:
-            from app.services.finished_goods import repair_missing_brand_metadata
+            from app.models.finished_goods_service import repair_missing_brand_metadata
             repair_missing_brand_metadata(db)
         large_model_meta = measured.total("collection_models")
 
@@ -698,7 +698,7 @@ def test_metadata_repair_still_repairs_exactly_the_legacy_rows(warehouse):
     case = _seed_legacy_stock(session_factory, prefix="J", with_sales_order=True, count=5)
 
     with session_factory.begin() as db:
-        from app.services.finished_goods import repair_missing_brand_metadata
+        from app.models.finished_goods_service import repair_missing_brand_metadata
         before = db.query(FinishedGoodsStock).filter(
             FinishedGoodsStock.brand_id.is_(None)
             | FinishedGoodsStock.collection_id.is_(None)

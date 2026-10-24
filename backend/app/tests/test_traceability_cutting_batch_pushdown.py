@@ -4,7 +4,7 @@ from sqlalchemy import event
 
 from app.db.session import SessionLocal
 from app.models import CuttingRecord, Department, Model, ProductionBatch, ProductionOrder, WorkOrder
-from app.services.traceability import build_traceability
+from app.models.traceability_service import build_traceability
 
 
 def test_batch_traceability_filters_cutting_rows_in_sql_and_preserves_payload():

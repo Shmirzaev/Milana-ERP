@@ -19,7 +19,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import purchasing
-from app.services.idempotency import bind_idempotency_identity
+from app.models.idempotency_service import bind_idempotency_identity
 from app.core.security import create_access_token
 from app.db import session as session_module
 from app.db.base import Base

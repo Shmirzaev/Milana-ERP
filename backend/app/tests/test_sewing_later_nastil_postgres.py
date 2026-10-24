@@ -7,7 +7,7 @@ from fastapi import HTTPException
 
 from app.api.routes.bundles import SewingManualReceiveIn, manual_receive_sewing
 from app.models import AuditLog, Bundle, BundleScanLog, CuttingRecord, Department, Model, ProductionBatch, ProductionOrder, SewingRecord, User, WorkOrder
-from app.services.sewing_progress import reconcile_sewing_order
+from app.models.sewing_progress_service import reconcile_sewing_order
 from app.tests.test_password_change_races import password_change_postgres_sessions  # noqa: F401
 
 

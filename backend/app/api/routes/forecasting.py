@@ -11,8 +11,8 @@ from app.schemas.forecasting import (
     ForecastRecommendationOut,
     ForecastRecommendationPatch,
 )
-from app.services.audit import log_action
-from app.services.forecasting import (
+from app.models.audit_service import log_action
+from app.models.forecasting_service import (
     branded_stock_suggestions,
     forecasting_dashboard,
     item_reorder_suggestions,

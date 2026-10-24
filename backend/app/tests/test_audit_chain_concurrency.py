@@ -13,8 +13,8 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db.base import Base
 from app.models import AuditLog, User
-from app.services import audit
-from app.services.audit import log_action, verify_audit_hash_chain
+from app.models import audit_service as audit
+from app.models.audit_service import log_action, verify_audit_hash_chain
 
 
 @pytest.fixture(scope="module")

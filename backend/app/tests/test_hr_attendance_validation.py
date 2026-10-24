@@ -6,7 +6,7 @@ from sqlalchemy import event
 from app.api.routes import hr_workspace
 from app.db.session import SessionLocal
 from app.models import AttendanceDevice, AttendanceEvent, Employee, SystemSetting
-from app.services.attendance_reports import TASHKENT
+from app.models.attendance_reports_service import TASHKENT
 from app.tests.conftest import test_engine
 
 

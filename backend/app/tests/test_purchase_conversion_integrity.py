@@ -15,7 +15,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db.base import Base
 from app.models import Item, PurchaseOrder, PurchaseRequest, PurchaseRequestLine, User
-from app.services.purchasing import approve_purchase_request, convert_purchase_request_to_order, reject_purchase_request
+from app.models.purchasing_service import approve_purchase_request, convert_purchase_request_to_order, reject_purchase_request
 from app.tests.conftest import TestSessionLocal
 
 

@@ -24,10 +24,10 @@ from app.models import (
     User, Notification, PasswordResetToken,
 )
 from app.schemas.auth import ForgotPasswordIn, LoginIn, LoginOk, ResetPasswordIn, TokenOut, UserMe
-from app.services.audit import log_action
-from app.services.credentials import apply_password_credential_change, lock_user_for_credential_change
-from app.services.factory_scope import assigned_factory_code, authorize_login_factory, available_factory_codes, selected_factory_code
-from app.services.password_reset import (
+from app.models.audit_service import log_action
+from app.models.credentials_service import apply_password_credential_change, lock_user_for_credential_change
+from app.models.factory_scope_service import assigned_factory_code, authorize_login_factory, available_factory_codes, selected_factory_code
+from app.models.password_reset_service import (
     create_password_reset_token,
     password_reset_hash,
     password_reset_url,

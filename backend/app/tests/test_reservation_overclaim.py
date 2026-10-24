@@ -37,7 +37,7 @@ from app.models import (
     StockMovement,
     Warehouse,
 )
-from app.services.inventory import (
+from app.models.inventory_service import (
     ACTIVE_RESERVATION_STATUSES,
     create_material_reservations,
     current_stock_for_item,

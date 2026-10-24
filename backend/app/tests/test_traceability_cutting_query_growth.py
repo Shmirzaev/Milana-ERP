@@ -18,7 +18,7 @@ from app.models import (
     Warehouse,
     WorkOrder,
 )
-from app.services.traceability import _cutting_payload, build_traceability
+from app.models.traceability_service import _cutting_payload, build_traceability
 
 
 def _select_trace(db, callback):

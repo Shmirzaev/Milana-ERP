@@ -55,7 +55,7 @@ def test_material_scope_filters_omitted_group_and_preserves_other_users(client, 
     assert client.get("/api/inventory/stock?group=materials", headers=scoped_headers).status_code == 200
     assert client.get("/api/inventory/stock?group=accessories", headers=auth_headers).status_code == 200
     with session_module.SessionLocal() as db:
-        from app.services.price_calculation import is_accessory_pricing_user
+        from app.models.price_calculation_service import is_accessory_pricing_user
         scoped = db.query(User).filter_by(email="material-keeper@example.com").one()
         assert not is_accessory_pricing_user(scoped)
         scoped.extra_permissions = []

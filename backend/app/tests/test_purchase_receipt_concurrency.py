@@ -13,7 +13,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db.base import Base
 from app.models import AuditLog, Item, PurchaseOrder, PurchaseOrderLine, StockBatch, StockMovement, Warehouse
-from app.services.purchasing import receive_purchase_order
+from app.models.purchasing_service import receive_purchase_order
 
 
 @pytest.fixture

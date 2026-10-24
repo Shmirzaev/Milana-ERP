@@ -6,7 +6,7 @@ from sqlalchemy import event
 
 from app.api.routes import bundles as bundle_routes
 from app.models import Bundle, BundleScanLog, ProductionBatch, SewingAssignment, SewingFlow, User, WorkOrder
-from app.services import bundles as bundle_services, inventory
+from app.models import bundles_service as bundle_services, inventory_service as inventory
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_bundle_receiving_factory_scope import _ready_bundle
 

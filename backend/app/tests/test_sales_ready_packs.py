@@ -9,7 +9,7 @@ from app.models import (
     Brand, FinishedGoodsStock, LegacyStockReceipt, Model, Package, PackageItem,
     SalesOrder, Shipment, ShipmentPackage, StockReservation,
 )
-from app.services.ready_stock_sales import ready_pack_candidates
+from app.models.ready_stock_sales_service import ready_pack_candidates
 
 
 def _packs(quantities=(60, 78, 12)):

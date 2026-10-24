@@ -4,7 +4,7 @@ from sqlalchemy import event, select
 
 from app.db.base import Base
 from app.models import Bundle, CuttingRecord, Department, Model, PackagingRecord, ProductionOrder, SewingRecord, WorkOrder
-from app.services.dashboard_overview import overview
+from app.models.dashboard_overview_service import overview
 from app.tests.conftest import TestSessionLocal
 
 

@@ -2,24 +2,24 @@
 from fastapi import Query, APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import selectinload, load_only
-from app.services.print_response import warehouse_print_response
-from app.services.package_dispatch import remaining_quantity, remaining_item_quantity
+from app.models.print_response_service import warehouse_print_response
+from app.models.package_dispatch_service import remaining_quantity, remaining_item_quantity
 
 from app.core.deps import CurrentUser, DbSession, require_permissions, user_permissions
 from app.models import Package, PackagePrintRun, PackagePrintRunMember, ProductionOrder, User
 from app.schemas.package_workflows import ManualPackageReceiptIn, PrintRunIn, PrintRunCreatePackagesIn, PrintRunReceiveIn, PackageReturnIn
 from app.schemas.tracking import PackageChangeRequestIn
 from pydantic import BaseModel, ConfigDict, Field
-from app.services import package_workflows as service
-from app.services.audit import log_action
-from app.services.package_label_pages import label_document
-from app.services.idempotency import replay_idempotent_response, store_idempotent_response
-from app.services.packaging_scope import packaging_department_for_order, packaging_department_scope, require_package_access
-from app.services.packages import (create_package, _packaging_record_totals_by_batch,
+from app.models import package_workflows_service as service
+from app.models.audit_service import log_action
+from app.models.package_label_pages_service import label_document
+from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
+from app.models.packaging_scope_service import packaging_department_for_order, packaging_department_scope, require_package_access
+from app.models.packages_service import (create_package, _packaging_record_totals_by_batch,
     PackageWriteContext, prime_package_batch_memberships, prime_packaged_quantity_availability)
-from app.services.packaging_scope import packaging_departments_for_order
-from app.services.numbering import next_package_nos
-from app.services.workflow import sync_production_order_status
+from app.models.packaging_scope_service import packaging_departments_for_order
+from app.models.numbering_service import next_package_nos
+from app.models.workflow_service import sync_production_order_status
 
 router = APIRouter()
 _PRINT_RUN_LABEL_LIMIT = 200
@@ -35,12 +35,12 @@ def receiving_orders(db: DbSession, q: str = "", page: int = Query(1, ge=1),
                      current: User = Depends(require_permissions("storage.packages", "*"))):
     from sqlalchemy import func, or_
     from app.models import SalesOrder, Model
-    from app.services.model_identity import model_number_fields
+    from app.models.model_identity_service import model_number_fields
     query = db.query(ProductionOrder.id, ProductionOrder.production_no, SalesOrder.order_no, ProductionOrder.model_id).join(
         Package, Package.production_order_id == ProductionOrder.id).outerjoin(
         SalesOrder, SalesOrder.id == ProductionOrder.sales_order_id).filter(
         Package.status == "packed", ProductionOrder.source_type != "usluga")
-    from app.services.factory_scope import factory_for_department, user_is_super_admin
+    from app.models.factory_scope_service import factory_for_department, user_is_super_admin
     if factory_for_department(getattr(getattr(current, "department", None), "code", None)) or user_is_super_admin(current):
         query = query.filter(Package.packaging_department_code == packaging_department_scope(current, None))
     if q.strip():
@@ -71,7 +71,7 @@ def receiving_orders(db: DbSession, q: str = "", page: int = Query(1, ge=1),
 @router.post("/receive-order/{order_id}")
 def receive_order(order_id: int, payload: ReceiveOrderPackagesIn, db: DbSession,
                   current: User = Depends(require_permissions("storage.packages", "*"))):
-    from app.services.warehouse_packages import receive_order_packages
+    from app.models.warehouse_packages_service import receive_order_packages
     result = receive_order_packages(db, current, order_id, payload.package_ids)
     db.commit()
     return result
@@ -80,7 +80,7 @@ def receive_order(order_id: int, payload: ReceiveOrderPackagesIn, db: DbSession,
 @router.delete("/warehouse/{pid}")
 def delete_inventory_package(pid: int, db: DbSession,
                              current: User = Depends(require_permissions("storage.packages", "*"))):
-    from app.services.warehouse_packages import delete_warehouse_package
+    from app.models.warehouse_packages_service import delete_warehouse_package
     result = delete_warehouse_package(db, current, pid)
     db.commit()
     return result
@@ -89,7 +89,7 @@ def delete_inventory_package(pid: int, db: DbSession,
 @router.get("/first-grade/balance/{production_order_id}")
 def first_grade_balance(production_order_id: int, db: DbSession, production_batch_id: int | None = None,
                         current: User = Depends(require_permissions("packaging.packages", "*"))):
-    from app.services.first_grade import size_balance
+    from app.models.first_grade_service import size_balance
     order = db.get(ProductionOrder, production_order_id)
     if not order:
         raise HTTPException(404, "Production order not found")
@@ -132,7 +132,7 @@ def _size_entry_order(db, current, production_order_id, batch_id, *, lock=False)
 @router.get("/first-grade/size-entry/{production_order_id}")
 def get_packaging_size_entry(production_order_id: int, db: DbSession, production_batch_id: int | None = None,
                              current: User = Depends(require_permissions("packaging.packages", "*"))):
-    from app.services.first_grade import packaging_size_entry
+    from app.models.first_grade_service import packaging_size_entry
     order = _size_entry_order(db, current, production_order_id, production_batch_id)
     return packaging_size_entry(db, order.id, production_batch_id)
 
@@ -141,7 +141,7 @@ def get_packaging_size_entry(production_order_id: int, db: DbSession, production
 def put_packaging_size_entry(production_order_id: int, payload: PackagingSizeEntryIn, db: DbSession,
                              production_batch_id: int | None = None,
                              current: User = Depends(require_permissions("packaging.packages", "*"))):
-    from app.services.first_grade import save_packaging_size_entry
+    from app.models.first_grade_service import save_packaging_size_entry
     order = _size_entry_order(db, current, production_order_id, production_batch_id, lock=True)
     result = save_packaging_size_entry(db, order, production_batch_id, payload, current)
     db.commit()
@@ -154,7 +154,7 @@ def warehouse_model_packages(model_id: int, db: DbSession, stock_kind: str = "st
                               current: User = Depends(require_permissions("storage.packages", "storage.shipment", "sales.orders", "*"))):
     from sqlalchemy.orm import selectinload
     from app.models import Model, FinishedGoodsStock
-    from app.services.model_images import warehouse_stock_image_url
+    from app.models.model_images_service import warehouse_stock_image_url
     if stock_kind not in {"standard", "first_grade", "second_grade"}:
         raise HTTPException(422, "Invalid stock classification")
     model = db.get(Model, model_id)
@@ -328,7 +328,7 @@ def receiving_options(db: DbSession, q: str = "", page: int = Query(1, ge=1),
 @router.post("/return-to-packaging")
 def return_to_packaging(payload: PackageReturnIn, db: DbSession,
                         current: User = Depends(require_permissions("storage.packages", "*"))):
-    from app.services.package_returns import return_packages
+    from app.models.package_returns_service import return_packages
     result = return_packages(db, current, payload)
     db.commit()
     return result
@@ -337,7 +337,7 @@ def return_to_packaging(payload: PackageReturnIn, db: DbSession,
 @router.post("/{pid}/correct-return")
 def correct_return(pid: int, payload: PackageChangeRequestIn, db: DbSession,
                    current: User = Depends(require_permissions("packaging.packages", "*"))):
-    from app.services.package_returns import correct_returned_package
+    from app.models.package_returns_service import correct_returned_package
     result = correct_returned_package(db, current, pid, payload)
     db.commit()
     return result
@@ -346,7 +346,7 @@ def correct_return(pid: int, payload: PackageChangeRequestIn, db: DbSession,
 @router.post("/resend-corrected")
 def resend_corrected(payload: PrintRunIn, db: DbSession,
                      current: User = Depends(require_permissions("packaging.packages", "*"))):
-    from app.services.package_returns import resend_packages
+    from app.models.package_returns_service import resend_packages
     return _write(db, current, "resend-corrected", payload, lambda: resend_packages(db, current, payload))
 
 

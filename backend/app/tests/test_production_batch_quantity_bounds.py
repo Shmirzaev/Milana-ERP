@@ -9,7 +9,7 @@ from app.db.session import SessionLocal
 from app.models import AuditLog, Model, ProductionBatch, ProductionOrder
 from app.api.routes.production import CuttingBatchUpdateIn, SplitBatchLineIn
 from app.schemas.production import ProductionBatchIn
-from app.services.production import create_production_batches
+from app.models.production_service import create_production_batches
 
 
 MAX_INTEGER_QUANTITY = 2_147_483_647

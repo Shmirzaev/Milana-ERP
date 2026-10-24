@@ -68,8 +68,8 @@ def run(manifest_path: Path, apply: bool = False) -> dict:
     from sqlalchemy import text
     from app.db.session import SessionLocal
     from app.models import Model
-    from app.services.audit import log_action
-    from app.services.paid_operations import filter_paid_operations_for_factory
+    from app.models.audit_service import log_action
+    from app.models.paid_operations_service import filter_paid_operations_for_factory
 
     manifest, operations = load_operations(manifest_path)
     with SessionLocal() as db:

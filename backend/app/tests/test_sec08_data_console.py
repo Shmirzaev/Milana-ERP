@@ -4,7 +4,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
 from app.models import AuditLog, Department, User
-from app.services.audit import log_action
+from app.models.audit_service import log_action
 
 
 def test_super_data_mutations_are_allowlisted_audited_and_delete_fails_closed(client, auth_headers):

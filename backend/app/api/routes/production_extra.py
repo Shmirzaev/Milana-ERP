@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, or_
 from sqlalchemy.orm import selectinload
 
-from app.services.variant_display import format_model_variant_code
+from app.models.variant_display_service import format_model_variant_code
 from app.core.deps import DbSession, CurrentUser, require_permissions, is_admin
 from app.models import (
     WorkOrder, SewingFlow, SewingAssignment, ProductionOrder, Model, User,
@@ -21,14 +21,14 @@ from app.schemas.sewing_assignment import (
     SewingAssignmentIn, SewingAssignmentUpdate, SewingAssignmentOut,
 )
 from app.core.dt import as_utc
-from app.services.audit import log_action
+from app.models.audit_service import log_action
 from app.api.routes.production import _authorize_work_order_command
-from app.services.model_images import model_display_image_url
-from app.services.notifications import notify
-from app.services.bundles import resolve_sewing_factory_code
-from app.services.factory_scope import require_factory_access, require_work_order_factory_access
-from app.services.payroll_factory_scope import production_order_factory_condition
-from app.services.sewing_scope import require_sewing_flow_access
+from app.models.model_images_service import model_display_image_url
+from app.models.notifications_service import notify
+from app.models.bundles_service import resolve_sewing_factory_code
+from app.models.factory_scope_service import require_factory_access, require_work_order_factory_access
+from app.models.payroll_factory_scope_service import production_order_factory_condition
+from app.models.sewing_scope_service import require_sewing_flow_access
 
 router = APIRouter(tags=["production_extra"])
 _ACTIVE_WO_STATUSES = ("waiting", "pending", "collected", "ready", "in_progress", "paused", "new", "planning")
@@ -225,7 +225,7 @@ def create_assignment(
     # If WO has no primary sewing_flow yet, set it to the first assignment for convenience.
     if not wo.sewing_flow_id:
         wo.sewing_flow_id = payload.sewing_flow_id
-    from app.services.sewing_progress import reconcile_sewing_order
+    from app.models.sewing_progress_service import reconcile_sewing_order
     reconcile_sewing_order(db, wo.production_order_id, current=current, reason="Sewing line assigned")
 
     log_action(db, current, "create", "SewingAssignment", a.id, new_value={
@@ -375,7 +375,7 @@ def return_assignment(
     if not flow:
         raise HTTPException(404, "Sewing flow not found")
     require_sewing_flow_access(current, flow)
-    from app.services.factory_scope import require_work_order_factory_access
+    from app.models.factory_scope_service import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
     if a.sewing_flow_id != payload.sewing_flow_id:
         raise HTTPException(409, "SEWING_RETURN_MOVED")

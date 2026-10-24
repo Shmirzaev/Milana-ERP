@@ -1,4 +1,4 @@
-from app.services.variant_display import format_model_variant_code
+from app.models.variant_display_service import format_model_variant_code
 from app.core.order_reference import order_reference_contains
 from datetime import datetime, timezone
 
@@ -33,7 +33,7 @@ from app.models import (
     public_production_order_no,
 )
 from app.schemas.tracking import BundleIn, BundleOut, BundleDetail
-from app.services.bundles import (
+from app.models.bundles_service import (
     find_bundle_by_scanned_code,
     create_bundle,
     send_to_printing,
@@ -47,12 +47,12 @@ from app.services.bundles import (
     format_batch_passport,
     resolve_sewing_factory_code,
 )
-from app.services.barcode import qr_png_data_uri
-from app.services.label_images import is_preview_model_image, material_label_image_src
-from app.services.model_images import material_preview_image_url
-from app.services.audit import log_action
-from app.services.sewing_scope import require_sewing_flow_access, sewing_line_factory_scope
-from app.services.department_dashboards import cutting_inventory_condition, cutting_origin_condition, destination_column, inventory_totals
+from app.models.barcode_service import qr_png_data_uri
+from app.models.label_images_service import is_preview_model_image, material_label_image_src
+from app.models.model_images_service import material_preview_image_url
+from app.models.audit_service import log_action
+from app.models.sewing_scope_service import require_sewing_flow_access, sewing_line_factory_scope
+from app.models.department_dashboards_service import cutting_inventory_condition, cutting_origin_condition, destination_column, inventory_totals
 from typing import Literal
 
 router = APIRouter(prefix="/bundles", tags=["bundles"])
@@ -77,7 +77,7 @@ class SewingBatchAcceptIn(BaseModel):
 
 
 def _scope_to_cutting_department(qry, db: DbSession, current, cutting_department_code: str | None):
-    from app.services.factory_scope import cutting_department_scope
+    from app.models.factory_scope_service import cutting_department_scope
     scope = cutting_department_scope(current, cutting_department_code)
     return qry.filter(cutting_origin_condition(db, scope))
 
@@ -1064,7 +1064,7 @@ def accept_sewing_batch(
     )
 
     if wo.status == "completed":
-        from app.services.sewing_progress import reconcile_sewing_order
+        from app.models.sewing_progress_service import reconcile_sewing_order
         reconcile_sewing_order(db, batch.production_order_id, current=current, reason="Sewing batch accepted and assigned")
 
     log_action(
@@ -1099,8 +1099,8 @@ def accept_sewing_batch(
 def create_bundle_api(payload: BundleIn, db: DbSession, current: User = Depends(require_permissions("cutting.bundles", "*"))):
     cutting = db.query(WorkOrder).filter_by(production_order_id=payload.production_order_id, operation="cutting").first()
     if cutting:
-        from app.services.factory_scope import require_work_order_factory_access
-        from app.services.cutting_batch_guard import require_cutting_batch_mutable
+        from app.models.factory_scope_service import require_work_order_factory_access
+        from app.models.cutting_batch_guard_service import require_cutting_batch_mutable
         require_work_order_factory_access(current, db, cutting)
         require_cutting_batch_mutable(db, cutting, payload.production_batch_id)
     b = create_bundle(
@@ -1157,8 +1157,8 @@ def delete_own_created_bundle(
 
     cutting = db.query(WorkOrder).filter_by(production_order_id=b.production_order_id, operation="cutting").first()
     if cutting:
-        from app.services.factory_scope import require_work_order_factory_access
-        from app.services.cutting_batch_guard import require_cutting_batch_mutable
+        from app.models.factory_scope_service import require_work_order_factory_access
+        from app.models.cutting_batch_guard_service import require_cutting_batch_mutable
         require_work_order_factory_access(current, db, cutting)
         require_cutting_batch_mutable(db, cutting, b.production_batch_id)
 

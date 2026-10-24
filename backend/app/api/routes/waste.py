@@ -8,8 +8,8 @@ from app.models import WasteRecord, WasteSale, WasteDisposalRequest, User, Stock
 from app.schemas.waste import (
     WasteIn, WasteOut, WasteSaleIn, WasteSaleOut, WasteDisposalIn, WasteDisposalOut,
 )
-from app.services.audit import log_action
-from app.services.idempotency import replay_idempotent_response, store_idempotent_response
+from app.models.audit_service import log_action
+from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 
 router = APIRouter(prefix="/waste", tags=["waste"])
 

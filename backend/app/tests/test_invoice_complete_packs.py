@@ -9,9 +9,9 @@ from openpyxl import load_workbook
 from app.api.routes.shipments import _invoice_print_details
 from app.db.session import SessionLocal
 from app.models import LegacyStockReceipt, Package, PackageItem, Shipment, ShipmentPackage
-from app.services.shipment_invoice import build_invoice_rows, render_shipment_invoice
-from app.services.shipment_invoice_excel import shipment_invoice_workbook
-from app.services.shipment_review import shipment_document
+from app.models.shipment_invoice_service import build_invoice_rows, render_shipment_invoice
+from app.models.shipment_invoice_excel_service import shipment_invoice_workbook
+from app.models.shipment_review_service import shipment_document
 from app.tests.test_shipment_review import dispatch as dispatch
 from app.tests.test_manual_pack_dispatch import receive, shipment as manual_shipment
 from app.tests.test_package_workflows import warehouse as warehouse, package_qr

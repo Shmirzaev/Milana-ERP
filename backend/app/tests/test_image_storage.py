@@ -5,8 +5,8 @@ from io import BytesIO
 import pytest
 from PIL import Image, ImageChops, ImageStat
 
-from app.services import image_storage
-from app.services.image_storage import convert_image_to_webp, prebuild_webp_thumbnails
+from app.models import image_storage_service as image_storage
+from app.models.image_storage_service import convert_image_to_webp, prebuild_webp_thumbnails
 
 
 def _image_bytes(fmt: str, mode: str = "RGB") -> bytes:

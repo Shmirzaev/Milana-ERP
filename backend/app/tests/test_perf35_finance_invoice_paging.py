@@ -14,7 +14,7 @@ import pytest
 
 from app.models import Customer, Invoice, SalesOrder
 from app.tests.conftest import TestSessionLocal
-from app.services.finance import list_recent_invoices
+from app.models.finance_service import list_recent_invoices
 
 
 @pytest.fixture
@@ -150,7 +150,7 @@ def test_service_still_returns_a_plain_list_for_existing_callers():
 def test_count_invoices_matches_the_page_filter():
     # Imported lazily so this module still collects (and the other tests still
     # fail meaningfully) against the unfixed service, which has no count.
-    from app.services.finance import count_invoices
+    from app.models.finance_service import count_invoices
 
     with TestSessionLocal() as db:
         unfiltered = count_invoices(db)

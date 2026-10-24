@@ -1480,7 +1480,7 @@ def test_admin_archives_unused_fabric_receipt_batch(client, auth_headers):
 def test_fully_consumed_fabric_batch_moves_to_archive(client, auth_headers):
     from app.db import session as session_module
     from app.models import StockBatch, User
-    from app.services.workflow import consume_stock_batch
+    from app.models.workflow_service import consume_stock_batch
 
     suffix = uuid4().hex[:8].upper()
     item_response = client.post(

@@ -8,16 +8,16 @@ from openpyxl import load_workbook
 from app.api.routes.shipments import _invoice_print_details
 from app.db.session import SessionLocal
 from app.models import LegacyStockReceipt, Package, Shipment, ShipmentScanLog
-from app.services.shipment_invoice import build_invoice_rows, render_shipment_invoice
-from app.services.shipment_invoice_excel import shipment_invoice_workbook
-from app.services.variant_display import format_variant_number
+from app.models.shipment_invoice_service import build_invoice_rows, render_shipment_invoice
+from app.models.shipment_invoice_excel_service import shipment_invoice_workbook
+from app.models.variant_display_service import format_variant_number
 from app.tests.test_shipment_review import dispatch as dispatch, ship
 
 
 @pytest.mark.parametrize("lang", ["en", "ru", "uz"])
 @pytest.mark.parametrize("show_prices", [True, False])
 def test_equal_invoice_rows_horizontal_sizes_and_surrounding_excel_grid(lang, show_prices):
-    from app.services.shipment_invoice import invoice_column_widths, invoice_size_labels
+    from app.models.shipment_invoice_service import invoice_column_widths, invoice_size_labels
     from openpyxl.utils import get_column_letter
 
     packages = [{"package_no": "LAYOUT", "quantity": 60, "weight_kg": "27.22"}]
@@ -134,7 +134,7 @@ def test_variant_presentation_is_idempotent(raw, expected):
 @pytest.mark.parametrize("lang", ["en", "ru", "uz"])
 @pytest.mark.parametrize("historical", [False, True])
 def test_invoice_pdf_excel_share_identity_metadata_and_end_at_contact_footer(lang, historical):
-    from app.services.shipment_invoice import LABELS, invoice_notes
+    from app.models.shipment_invoice_service import LABELS, invoice_notes
     document = {
         "supplier": "Milana Tex", "shipment_no": "SH-2026-000011", "customer": "Customer",
         "sales_order_no": None, "shipped_at": "2026-09-29T06:25:04Z", "warehouse_person": "Storage",
@@ -179,7 +179,7 @@ def test_invoice_pdf_excel_share_identity_metadata_and_end_at_contact_footer(lan
 @pytest.mark.parametrize("lang", ["en", "ru", "uz"])
 @pytest.mark.parametrize("price,amount", [("12345.67", "37037.01"), ("0.00", "0.00"), (None, None)])
 def test_price_columns_and_hidden_exports_preserve_saved_amounts(lang, price, amount):
-    from app.services.shipment_invoice import LABELS
+    from app.models.shipment_invoice_service import LABELS
     document = {
         "shipment_no": "PRICE-CHECK", "invoice_layout_version": 2, "packages_count": 1, "quantity": 3,
         "package_details": [{"package_no": "P", "quantity": 3, "weight_kg": "1.25"}],

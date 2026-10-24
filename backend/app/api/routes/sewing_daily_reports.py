@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Header
-from app.services.idempotency import replay_idempotent_response, store_idempotent_response
+from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 from fastapi.responses import Response
 from sqlalchemy import func, case, or_
 from sqlalchemy.orm import joinedload, noload, selectinload
@@ -38,14 +38,14 @@ from app.schemas.sewing_daily_report import (
     SewingDailyReportSummaryLine,
     SewingDailyReportUpdate,
 )
-from app.services.audit import log_action
-from app.services.model_images import material_preview_image_url, model_preview_image_url
-from app.services.sewing_daily_report_exports import (
+from app.models.audit_service import log_action
+from app.models.model_images_service import material_preview_image_url, model_preview_image_url
+from app.models.sewing_daily_report_exports_service import (
     ReportLanguage,
     build_sewing_daily_report_pdf,
     build_sewing_daily_report_xlsx,
 )
-from app.services.sewing_scope import band_report_scope, require_sewing_flow_access, sewing_line_factory_scope
+from app.models.sewing_scope_service import band_report_scope, require_sewing_flow_access, sewing_line_factory_scope
 
 router = APIRouter(prefix="/sewing-daily-reports", tags=["sewing-daily-reports"])
 
@@ -557,7 +557,7 @@ def line_context(
         raise HTTPException(400, "Sewing line is inactive")
     result = _line_context(db, flow)
     if current.sewing_band_id:
-        from app.services.sewing_band_progress import band_board
+        from app.models.sewing_band_progress_service import band_board
         active_ids = {j["id"] for j in band_board(db, [flow.id])[0]["jobs"] if not j["line_finished"]}
         result.active_work_orders = [w for w in result.active_work_orders if w.sewing_assignment_id in active_ids]
     return result

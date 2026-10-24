@@ -26,7 +26,8 @@ types discipline without duplicating the existing Pydantic schemas.
 - SQLAlchemy database mappings target `app/schemas/`; they currently live in
   `app/models/` until the existing schemas/ DTO namespace is fully retired.
 - `app/libs/enums/` contains repeated fixed vocabulary.
-- `app/services/` implements business operations and their runtime rules.
+- `app/models/*_service.py` implements business operations and their runtime rules.
+  The plain ORM mapping files temporarily share that directory; they have a separate role.
 
 ## Rules
 

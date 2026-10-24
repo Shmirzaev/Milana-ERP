@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from app.db.session import SessionLocal
 from app.tests.conftest import TestSessionLocal
-from app.services.forecasting import item_reorder_suggestions
+from app.models.forecasting_service import item_reorder_suggestions
 from app.models import (
     FinishedGoodsStock,
     Item,
@@ -779,7 +779,7 @@ def test_forecasting_permission_denied_for_manage(client):
 
 def test_forecast_week_buckets_match_labels(monkeypatch):
     from datetime import datetime, timedelta, timezone
-    from app.services import forecasting
+    from app.models import forecasting_service as forecasting
     now = datetime.now(timezone.utc)
     monday = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
     oldest = monday - timedelta(weeks=7)

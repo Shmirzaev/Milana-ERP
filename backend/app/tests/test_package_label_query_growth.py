@@ -27,7 +27,7 @@ from app.models import (
     User,
     Warehouse,
 )
-from app.services import package_workflows as package_workflow_service
+from app.models import package_workflows_service as package_workflow_service
 
 
 def _select_trace(bind, callback):

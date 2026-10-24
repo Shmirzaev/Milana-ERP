@@ -2,7 +2,7 @@ from uuid import uuid4
 
 from app.db.session import SessionLocal
 from app.models import Customer, Invoice, Payment, SalesOrder, SalesOrderItem
-from app.services.finance import order_profit
+from app.models.finance_service import order_profit
 
 
 def test_order_profit_uses_decimal_for_fractional_revenue():

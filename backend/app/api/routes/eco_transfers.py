@@ -10,10 +10,10 @@ from sqlalchemy.orm import defer, lazyload
 from app.core.deps import DbSession, require_permissions
 from app.models import EcoFabricDispatch, EcoFabricRoll, Item, StockBatch, StockMovement, User
 from app.api.routes.fabric_scans import parse_roll, TASHKENT
-from app.services.audit import log_action
-from app.services.factory_scope import selected_factory_code
-from app.services.inventory import reserved_stock_for_batch, available_stock_for_item
-from app.services.inventory_access import MATERIAL_CATEGORIES
+from app.models.audit_service import log_action
+from app.models.factory_scope_service import selected_factory_code
+from app.models.inventory_service import reserved_stock_for_batch, available_stock_for_item
+from app.models.inventory_access_service import MATERIAL_CATEGORIES
 
 router = APIRouter(prefix="/eco-fabric-transfers", tags=["eco_fabric_transfers"])
 
@@ -216,7 +216,7 @@ def report(db: DbSession, user: User = Depends(access), report_date: date | None
 
 @router.get("/{dispatch_id}/pdf")
 def pdf(dispatch_id: int, db: DbSession, lang: str = "en", user: User = Depends(access)):
-    from app.services.eco_transfer_pdf import build_pdf
+    from app.models.eco_transfer_pdf_service import build_pdf
     dispatch = db.get(EcoFabricDispatch, dispatch_id)
     if not dispatch:
         raise HTTPException(404, "Not found")

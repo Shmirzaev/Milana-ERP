@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 from app.models import (Bundle, BundleScanLog, CuttingRecord, Department, Model, Package,
                         ProductionBatch, ProductionOrder, Shipment, ShipmentPackage, WasteRecord, WorkOrder)
-from app.services.department_dashboards import cutting_board, printing_board, warehouse_board
+from app.models.department_dashboards_service import cutting_board, printing_board, warehouse_board
 from app.tests.conftest import TestSessionLocal
 
 STAMP = datetime(2026, 1, 1, 20, tzinfo=timezone.utc)  # January 2 in Tashkent

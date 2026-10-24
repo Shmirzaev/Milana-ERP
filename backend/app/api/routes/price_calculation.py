@@ -12,8 +12,8 @@ from app.schemas.price_calculation import (
     PriceCalculationPurchasingIn,
     PriceCalculationRequestOut,
 )
-from app.services.audit import log_action
-from app.services.price_calculation import (
+from app.models.audit_service import log_action
+from app.models.price_calculation_service import (
     attach_completed_selling_price,
     can_view_price_requests,
     create_price_request,

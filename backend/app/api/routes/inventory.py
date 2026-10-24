@@ -43,11 +43,11 @@ from app.schemas.inventory import (
     MaterialReservationAutoIn, MaterialReservationConsumeIn, MaterialReservationIn,
     MaterialReservationOut, MaterialReservationPlanOut, StockQuantityAdjustmentIn, StockQuantityAdjustmentOut,
 )
-from app.services import inventory_access
-from app.services.audit import log_action
-from app.services.idempotency import replay_idempotent_response, store_idempotent_response
-from app.services.material_rolls import normalize_material_roll_lengths, normalize_material_roll_weights
-from app.services.inventory import (
+from app.models import inventory_access_service as inventory_access
+from app.models.audit_service import log_action
+from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
+from app.models.material_rolls_service import normalize_material_roll_lengths, normalize_material_roll_weights
+from app.models.inventory_service import (
     accessory_issue_plan,
     accessory_issue_requests,
     accessory_issue_summary,
@@ -66,14 +66,14 @@ from app.services.inventory import (
     reserved_stock_for_batch,
     stock_summary,
 )
-from app.services.inventory_reports import (
+from app.models.inventory_reports_service import (
     ReportLanguage,
     build_material_inventory_pdf,
     build_material_inventory_xlsx,
     material_inventory_report_rows,
 )
-from app.services.workflow import archive_depleted_material_batch
-from app.services.cutting_fabric_usage import cutting_fabric_usage
+from app.models.workflow_service import archive_depleted_material_batch
+from app.models.cutting_fabric_usage_service import cutting_fabric_usage
 from app.core.pagination import clamp_pagination
 from app.core.config import settings
 
@@ -359,7 +359,7 @@ async def upload_item_image(
     file: UploadFile = File(...),
     _: User = Depends(require_permissions("storage.items", "storage.receive", "*")),
 ):
-    from app.services.image_storage import store_uploaded_image
+    from app.models.image_storage_service import store_uploaded_image
 
     stored = await store_uploaded_image(
         file,

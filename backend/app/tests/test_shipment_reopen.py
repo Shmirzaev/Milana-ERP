@@ -5,7 +5,7 @@ from fastapi import HTTPException
 
 from app.db.session import SessionLocal
 from app.models import AuditLog, FinishedGoodsStock, IdempotencyRecord, Invoice, Package, Payment, SalesOrder, Shipment, ShipmentScanLog
-from app.services.payments import create_invoice_payment
+from app.models.payments_service import create_invoice_payment
 from app.tests.test_manual_pack_dispatch import receive, shipment
 from app.tests.test_package_workflows import warehouse, package_qr  # noqa: F401
 from app.tests.test_shipment_review import correct, dispatch, review_amount  # noqa: F401

@@ -16,7 +16,7 @@ from app.models import (
     ProductionBatch,
     ProductionOrder,
 )
-from app.services.traceability import build_traceability
+from app.models.traceability_service import build_traceability
 
 
 def _select_trace(db, callback):

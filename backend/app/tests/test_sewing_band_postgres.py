@@ -4,7 +4,7 @@ from datetime import date
 from sqlalchemy.orm import sessionmaker
 
 from app.models import Bundle, CuttingRecord, Department, Model, ProductionOrder, Role, SewingAssignment, SewingFlow, User, WorkOrder
-from app.services.sewing_band_setup import configure_eco_bands
+from app.models.sewing_band_setup_service import configure_eco_bands
 from app.tests.test_fresh_migration_bootstrap import postgres_migrations  # noqa: F401
 
 
@@ -38,8 +38,8 @@ def test_band_provisioning_outer_join_lock_and_retry(postgres_migrations):
     from app.api.routes.sewing_daily_reports import create_report
     from app.schemas.production import SewingRecordIn
     from app.schemas.sewing_daily_report import SewingDailyReportCreate
-    from app.services.idempotency import bind_idempotency_identity
-    from app.services.sewing_band_progress import band_board
+    from app.models.idempotency_service import bind_idempotency_identity
+    from app.models.sewing_band_progress_service import band_board
     with sessions() as db:
         band = db.query(User).filter_by(email="band1@milanapremium.uz").one()
         sewing = db.query(Department).filter_by(code="ECO").one()

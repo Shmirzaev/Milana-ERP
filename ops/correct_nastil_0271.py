@@ -17,8 +17,8 @@ from app.models import (
     Bundle, BundleScanLog, CuttingRecord, ProductionBatch, ProductionOrder,
     SewingAssignment, User, WorkOrder,
 )
-from app.services.audit import _finalize_postgres_audits, log_action
-from app.services.factory_scope import bind_session_factory
+from app.models.audit_service import _finalize_postgres_audits, log_action
+from app.models.factory_scope_service import bind_session_factory
 
 
 def snapshot(db):

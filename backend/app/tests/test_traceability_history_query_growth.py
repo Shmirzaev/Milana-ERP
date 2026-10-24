@@ -22,7 +22,7 @@ from app.models import (
     Warehouse,
     WorkOrder,
 )
-from app.services.traceability import package_traceability
+from app.models.traceability_service import package_traceability
 
 
 _HISTORY_MODELS = (CuttingRecord, PrintingRecord, SewingRecord, PackagingRecord)

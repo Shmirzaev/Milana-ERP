@@ -19,10 +19,10 @@ from app.models import (
     PackagingRecord, Package, PackageBatchAllocation, StockBatch, Department, Bundle,
 )
 from app.core.dt import as_utc, date_filter_bounds
-from app.services.bundles import SEWING_FACTORY_CODES, resolve_sewing_factory_code
-from app.services.factory_scope import require_factory_access, selected_factory_code
-from app.services.model_images import material_preview_image_url, model_display_image_url
-from app.services.payroll_factory_scope import production_order_factory_condition
+from app.models.bundles_service import SEWING_FACTORY_CODES, resolve_sewing_factory_code
+from app.models.factory_scope_service import require_factory_access, selected_factory_code
+from app.models.model_images_service import material_preview_image_url, model_display_image_url
+from app.models.payroll_factory_scope_service import production_order_factory_condition
 
 router = APIRouter(prefix="/process-tracking", tags=["process-tracking"])
 _OP_ORDER = ["cutting", "printing", "sewing", "packaging", "storage_transfer"]

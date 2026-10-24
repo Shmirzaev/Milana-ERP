@@ -6,7 +6,7 @@ from sqlalchemy import event
 
 from app.db.session import SessionLocal
 from app.models import Customer, Model, Package, ProductionOrder, SalesOrder, Shipment, ShipmentPackage, Warehouse
-from app.services import traceability
+from app.models import traceability_service as traceability
 
 
 def _select_trace(db, callback):

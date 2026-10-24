@@ -7,8 +7,8 @@ import pytest
 
 from app.core.deps import is_admin, is_super_admin, user_permissions
 from app.core.permission_catalog import PERMISSION_KEYS
-from app.services.factory_scope import available_factory_codes, authorize_login_factory
-from app.services.price_calculation import is_accessory_pricing_user, is_price_purchaser
+from app.models.factory_scope_service import available_factory_codes, authorize_login_factory
+from app.models.price_calculation_service import is_accessory_pricing_user, is_price_purchaser
 
 
 def subject(permissions=None, policy=None, role="Planning", factory="MIL", extra=None):
@@ -72,7 +72,7 @@ def test_catalog_covers_authorization_keys():
     root = Path(__file__).parents[1]
     roots = {key.split(".")[0] for key in PERMISSION_KEYS if "." in key}
     found = set()
-    for folder in ["api", "services", "core", "db"]:
+    for folder in ["api", "models", "core", "db"]:
         for path in (root / folder).rglob("*.py"):
             if path.name == "permission_catalog.py":
                 continue

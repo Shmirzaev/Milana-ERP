@@ -25,7 +25,7 @@ from app.models import (
     User,
 )
 from app.core.security import hash_password
-from app.services.production import expand_production_size_range_items
+from app.models.production_service import expand_production_size_range_items
 from app.tests.conftest import TestSessionLocal
 
 

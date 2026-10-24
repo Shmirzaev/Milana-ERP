@@ -19,7 +19,7 @@ from app.models import (
     SalesOrderItem,
     User,
 )
-from app.services.forecasting import (
+from app.models.forecasting_service import (
     _branded_demand_groups,
     _branded_stock_analysis,
     branded_stock_suggestions,

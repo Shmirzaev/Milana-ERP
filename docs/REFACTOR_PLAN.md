@@ -1,9 +1,59 @@
 # Milana refactor: team agreement and execution plan
 
-24 October 2026. Documentation only; no implementation or deployment started.
+24 October 2026. The owner authorized moving existing services into models/ and
+publishing that naming change. Business-logic extraction and production deployment
+have not started through this task.
 clone_main is the shared production branch. Multitenancy remains deferred.
 This replaces the earlier plan's branch-level definition of Done with human
 production verification before a bug becomes Finished.
+
+## Service-folder move: verification record
+
+24 October 2026, based on clone_main ec02b5f: 88 service modules relocated to
+models/*_service.py; twelve business guides moved; services/ removed. Imports,
+test patch targets and the permission scanner were updated. This is the owner's
+requested namespace move, not business-logic extraction or a database migration.
+
+- PASS: 884 Python files match the expected namespace/scanner transformation;
+  all 27 original ORM Python files remain byte-identical.
+- PASS: all 88 service modules import; 475 OpenAPI paths and 97 table definitions
+  produce identical API/database contract snapshots before and after the move.
+- PASS: Ruff; full backend collection of 4,178 tests; 177 focused regression tests;
+  seven real PostgreSQL Sewing/numbering tests on a disposable database.
+- NOT RUN: full backend execution and independent browser/visual E2E. Browser
+  tools were unavailable in this session. Production activation/acceptance remains
+  a separate release step; the source push does not claim those gates passed.
+
+## Factory work this plan protects
+
+Read this section for the business plan; [the source map](REFACTOR_MAP.md) links
+each business area to its current files and proposed ownership.
+
+| Work package | Operator outcome to preserve | Where the logic belongs | Engineer / reviewer |
+| --- | --- | --- | --- |
+| Sewing pilot (RF-005) | Normal and band operators record partial output and corrections consistently; later Nastils remain reachable; one Nastil's excess cannot complete another. | models/production: one output operation shared by routes/band callers; completion policy with one owner. | Mirshoir / Ismail |
+| Cutting (RF-006) | Saving a passport, cutting a Nastil and receiving bundles preserve quantities, material usage and downstream readiness. | models/production cutting/passport operations; Inventory owns material balances. | Mirshoir / Ismail |
+| Packaging (RF-007) | Packages consume the correct batch's available Sewing output; repeated scans do not create duplicate receipts or stock. | models/packaging operations; models/fulfillment owns warehouse receipt/dispatch. | Mirshoir / Ismail |
+| Invoicing (RF-008) | Approved order/shipment flows issue the correct invoice without duplicate or premature financial effects. | models/finance issuance operation called through an agreed public contract. | Ismail / Mirshoir |
+| User access (RF-009) | Allowed operators retain access; denied users cannot read/change another factory's records through an alternate endpoint. | models/identity access operation, enforced at the affected business service. | Dilmurod / Mirshoir |
+| Enums and contracts (RF-011/012) | Existing forms, defaults, partial updates and responses continue working; fixed statuses have one definition. | libs/enums and libs/dto/<feature>; database mappings later move to schemas/<business-area>. | Ismail coordinates; feature engineer migrates callers; Mirshoir reviews shared conventions. |
+
+Start with Sewing, prove its full handoff, then use the accepted approach for the
+later work packages. The twelve folder groups are ownership destinations, not
+twelve simultaneous migrations. Shavkat owns business meaning and acceptance.
+
+For each package: study route/rules/DB talks -> record examples and contracts ->
+extract one operation -> compare old/new on separate test data -> visually check
+the real workflow and adjacent department -> bounded stress/integrity checks ->
+reviewed switch -> human production acceptance -> remove the old implementation.
+Only one implementation writes per request; never run both paths on factory data.
+
+PR #304 merged into clone_main as ec02b5f on 24 October 2026. Before implementation,
+refresh the baseline and retain its later-Nastil fixes and regression tests. This
+service-folder relocation starts from clean clone_main baseline ec02b5f, preserving
+those fixes. Its sewing_progress_service/workflow_service circular dependency is
+a separate refactor item, not a
+reason to undo Shavkat's accepted workflow or reopen a business decision.
 
 ## Read this first
 
@@ -23,26 +73,31 @@ agent instructions; bugs/bugs.md and bugs/finished_bugs.md; human production sig
 
 Before each operation, the team records its service name/responsibility, public
 operation, transaction owner, permissions, compatibility promise and rollback choice.
-The user authorized scaffolding all twelve service groups with README guides.
-See the [full source/model map](REFACTOR_MAP.md) and [service directory guide](../backend/app/services/README.md).
-This approves the documentation folders, not every suggested file, interface or
-ownership transfer. Agree each operation before implementation; do not split by
-endpoint/table/line count merely to match a diagram.
+The user authorized all twelve business-service and database-schema groups as
+README-only guides; the schema guides are now included in this publication.
+See the [full source/model map](REFACTOR_MAP.md) and [service directory guide](../backend/app/models/README.md).
+Their move into models/ and the existing services' relocation as *_service.py are
+authorized. Agree suggested new operations and ownership transfers before their
+implementation; do not split by endpoint/table/line count merely to match a diagram.
 
 ## Mentor discipline translated to this stack
 
 | Responsibility | Milana location | Rule |
 | --- | --- | --- |
 | Controller/router | backend/app/api/routes/ | HTTP input/context, service call, response/error mapping. |
-| Service model | backend/app/services/ | Business decisions, authorized CRUD, one transaction owner. |
+| Service model | backend/app/models/ | Business decisions, authorized CRUD, one transaction owner. |
 | Mongoose schema model equivalent | backend/app/schemas/ (target) | Migrate existing models/ mappings only after old schemas/ DTO imports retire. |
 | Create / update / read contracts | backend/app/libs/dto/<feature>/ | Target for existing Pydantic DTOs; migrate from schemas/ with callers. |
 | Fixed vocabulary | backend/app/libs/enums/ | Explicit serialized values; domain-owned definitions. |
 | Internal shared contracts | backend/app/libs/types/ | Only when a real internal contract needs a type different from a DTO/model. |
 
-The target is Router -> Service -> SQLAlchemy model + Session -> PostgreSQL.
+The target is Router -> models/*_service.py -> SQLAlchemy schema + Session -> PostgreSQL.
+Pizza House calls its business-service folder models/; we use that name too.
+There is one business-service layer. No separate services/ directory is needed.
+Existing ORM mapping files stay temporarily alongside services without changing
+their role. The *_service.py suffix distinguishes operations from plain ORM files.
 Pydantic schemas validate data; they do not perform database writes. Services can
-use the ORM directly. Reuse existing models/ definitions and migrate existing
+use the ORM directly. Reuse existing ORM definitions and migrate existing
 schemas/ contracts into libs/dto/<feature>/; do not rewrite or duplicate them. This is not
 a switch to database-first development; the mentor's Mongoose Schema is also
 defined in code. No ORM replacement or generic repository layer is required.
@@ -50,7 +105,7 @@ defined in code. No ORM replacement or generic repository layer is required.
 The owner chose libs/dto/<feature>/, libs/enums/ and libs/types/, following
 Meditech's explicit separation. Target schemas/ holds database schema models.
 First move current schemas/ DTOs and all callers to libs/dto/, retire old DTO
-compatibility imports and validate behavior. Then move existing models/ mappings
+compatibility imports and validate behavior. Then move only existing models/ ORM mappings
 to schemas/ with imports, registration and Alembic metadata discovery. Preserve
 one mapping per table and require no database-schema diff for this naming change.
 Apply the technical/visual/human-acceptance gates to both phases; do not mix the
@@ -110,15 +165,16 @@ and cutting_batch_delete.py import private production-router helpers;
 package_workflows.py imports packages._package_lookup_candidates.
 These are concrete extraction candidates, not proof that every related bug remains.
 
-Propose one shared record_sewing_output operation first. Consider production/sewing.py,
-production/cutting.py and packaging/ operations only as their responsibilities are
-agreed. Review existing package_identity.py and legacy_package_identity.py before
+Propose one shared record_sewing_output operation first. Consider models/production/sewing_service.py,
+models/production/cutting_service.py and models/packaging/ operations only as their responsibilities are
+agreed. Review existing package_identity_service.py and legacy_package_identity_service.py before
 adding another parser. Keep invoice/access work with its actual feature owner.
 These are logical groups within the monolith, not separately deployed services.
 
-services/production.py already exists beside the guide directory production/.
-Do not add __init__.py there until a coordinated conversion preserves every supported
-import and existing operation. A directory rename is not a business-logic refactor.
+models/production.py is an existing ORM mapping beside the production/ guide.
+The relocated operations live in models/production_service.py. Keep guide directories
+README-only until coordinated conversion preserves mapping and service imports.
+The directory relocation does not extract the remaining business logic from routes.
 
 ## How each extraction works
 
@@ -244,8 +300,9 @@ No automatic closing from merge, an AI completion claim or an old Done label.
 - [Anthropic: context engineering](https://www.anthropic.com/research/effective-context-engineering-for-ai-agents): selective, relevant context rather than loading everything.
 - [GitLab: engineering workflow](https://handbook.gitlab.com/handbook/engineering/workflow/#updating-workflow-labels-throughout-development): distinguish implementation, review, verification and completion.
 
-Inspected source: 5c45531db350ba79e2e0167b942530a5b0f9bef8. Live production was
-not accessed or freshly certified. Historical release records are unchanged.
+Historical source for the initial findings: 5c45531db350ba79e2e0167b942530a5b0f9bef8.
+The service-folder relocation uses ec02b5f, including merged PR #304. Live production
+was not accessed or freshly certified by this change.
 
 ## Verification after each change
 

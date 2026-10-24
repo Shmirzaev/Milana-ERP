@@ -5,7 +5,7 @@ from sqlalchemy import event
 
 from app.db.session import SessionLocal
 from app.models import Package, FinishedGoodsStock
-from app.services import packages as service
+from app.models import packages_service as service
 from app.tests.test_first_grade_singles import output as output
 
 

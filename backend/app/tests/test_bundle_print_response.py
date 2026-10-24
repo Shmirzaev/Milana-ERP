@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 from app.db.session import SessionLocal
 from app.models import Bundle, Model, ModelImage, ProductionBatch, ProductionOrder
 from app.api.routes import bundles as bundle_routes
-from app.services.label_images import material_label_image_src
+from app.models.label_images_service import material_label_image_src
 from app.tests.test_production_flow import _create_bundle_for_scan
 
 

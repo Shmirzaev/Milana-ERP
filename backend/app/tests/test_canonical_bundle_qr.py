@@ -9,9 +9,9 @@ from app.core.config import settings
 from app.db.session import SessionLocal
 from app.main import app
 from app.models import BusinessOrderAlias, Bundle, CuttingRecord, ProductionOrder, WorkOrder
-from app.services import barcode
-from app.services.bundles import bundle_qr_payload
-from app.services.cutting_sheet import render_cutting_sheet_html
+from app.models import barcode_service as barcode
+from app.models.bundles_service import bundle_qr_payload
+from app.models.cutting_sheet_service import render_cutting_sheet_html
 from app.tests.test_production_flow import _create_bundle_for_scan
 
 

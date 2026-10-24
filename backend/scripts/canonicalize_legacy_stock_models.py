@@ -26,7 +26,7 @@ from app.models import (
     ShipmentPackage,
     StockReservation,
 )
-from app.services.audit import log_action
+from app.models.audit_service import log_action
 
 
 EXPECTED_MAPPING_SHA256 = "b03d7b4263a0db142d67f23438fcf39a71b159377647a5a876faaa6b0d1e43dc"

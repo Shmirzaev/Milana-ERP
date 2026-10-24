@@ -74,13 +74,13 @@ from app.schemas.payroll import (
     SewingProductionReportOptions,
 )
 from app.models.order_reference import BusinessOrderAlias
-from app.services.process_qr_export import ProcessQrExportIn, build_process_qr_xlsx
-from app.services.audit import log_action
-from app.services.factory_scope import require_factory_access, selected_factory_code
-from app.services.paid_operations import filter_operation_rows, paid_operations_from_details
-from app.services.payroll_factory_scope import production_order_factory_condition, require_production_order_factory, require_work_order_factory
-from app.services.payroll_reports import ReportLanguage, build_sewing_production_report_xlsx, build_sewing_salary_summary_xlsx, salary_report_days
-from app.services.employee_aliases import merged_employee
+from app.models.process_qr_export_service import ProcessQrExportIn, build_process_qr_xlsx
+from app.models.audit_service import log_action
+from app.models.factory_scope_service import require_factory_access, selected_factory_code
+from app.models.paid_operations_service import filter_operation_rows, paid_operations_from_details
+from app.models.payroll_factory_scope_service import production_order_factory_condition, require_production_order_factory, require_work_order_factory
+from app.models.payroll_reports_service import ReportLanguage, build_sewing_production_report_xlsx, build_sewing_salary_summary_xlsx, salary_report_days
+from app.models.employee_aliases_service import merged_employee
 
 router = APIRouter(prefix="/payroll", tags=["payroll"])
 
@@ -3963,7 +3963,7 @@ def split_scanned_record(
 def print_split_record_labels(record_id: int, db: DbSession,
                               current: User = Depends(require_permissions("payroll.scan", "payroll.manage", "*"))):
     from fastapi.responses import HTMLResponse
-    from app.services.payroll_labels import split_label_card, split_labels_html
+    from app.models.payroll_labels_service import split_label_card, split_labels_html
 
     factory = selected_factory_code(current)
     original = db.query(PayrollQrLabel).filter_by(payroll_record_id=record_id, factory_code=factory).first()

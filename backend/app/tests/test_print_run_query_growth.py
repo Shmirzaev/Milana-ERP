@@ -7,7 +7,7 @@ from sqlalchemy import event
 
 from app.core.security import create_access_token
 from app.models import Department, PackagePrintRun, PackagePrintRunMember, Role, User
-from app.services.package_workflows import run_payload
+from app.models.package_workflows_service import run_payload
 from app.tests.conftest import TestSessionLocal, test_engine
 
 

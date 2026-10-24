@@ -189,7 +189,7 @@ def test_postgres_partial_updates_merge_after_waiting(settings_postgres, monkeyp
         db.commit()
         uid = user.id
     if case == "logo":
-        from app.services import image_storage
+        from app.models import image_storage_service as image_storage
 
         async def fake_store(*args, **kwargs):
             return SimpleNamespace(file_url="/synthetic-upload.webp")

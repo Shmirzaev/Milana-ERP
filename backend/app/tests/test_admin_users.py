@@ -58,8 +58,8 @@ def test_create_user_without_password_emails_setup_link(client, auth_headers, mo
         sent["setup_url"] = setup_url
         return True
 
-    monkeypatch.setattr("app.services.password_reset.secrets.token_urlsafe", lambda _: "new-user-setup-token")
-    monkeypatch.setattr("app.services.password_reset.send_password_setup_email", fake_send)
+    monkeypatch.setattr("app.models.password_reset_service.secrets.token_urlsafe", lambda _: "new-user-setup-token")
+    monkeypatch.setattr("app.models.password_reset_service.send_password_setup_email", fake_send)
 
     r = client.post(
         "/api/users",

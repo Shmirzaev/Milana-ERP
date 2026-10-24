@@ -14,8 +14,8 @@ from app.models import (
 )
 from app.schemas.inventory import AccessoryReturnIn, ItemIn, StockBatchIn, StockBatchUpdate
 from app.schemas.purchasing import PurchaseOrderLineIn, PurchaseOrderReceiveLineIn
-from app.services.idempotency import request_fingerprint
-from app.services.purchasing import create_purchase_order, receive_purchase_order
+from app.models.idempotency_service import request_fingerprint
+from app.models.purchasing_service import create_purchase_order, receive_purchase_order
 
 
 INVALID_COSTS = [-0.00001, "NaN", "Infinity", "-Infinity", True, False,

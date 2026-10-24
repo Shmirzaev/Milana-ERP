@@ -2,7 +2,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Literal
 from types import SimpleNamespace
 from fastapi.responses import Response
-from app.services.cutting_passport_reports import build_dashboard, export_workbook
+from app.models.cutting_passport_reports_service import build_dashboard, export_workbook
 from app.core.order_reference import canonical_business_order_reference, order_reference_contains
 from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy import or_, select
@@ -15,16 +15,16 @@ from app.models import Bundle, CuttingRecord, Department, Item, ModelBOM, Produc
 from app.models.catalog import Model as CatalogModel, ModelImage
 from app.models.sales import SalesOrder
 from app.models import ProductionOrderMaterial, MaterialReservation
-from app.services.inventory import create_material_reservations
-from app.services.cutting_batch_guard import require_cutting_batch_mutable, sewing_output_batch_ids, sewing_output_batch_query
-from app.services.factory_scope import require_work_order_factory_access
+from app.models.inventory_service import create_material_reservations
+from app.models.cutting_batch_guard_service import require_cutting_batch_mutable, sewing_output_batch_ids, sewing_output_batch_query
+from app.models.factory_scope_service import require_work_order_factory_access
 from app.schemas.cutting_passport import CuttingOperatorOut, CuttingPassportIn, CuttingPassportOut
-from app.services.audit import log_action
-from app.services.passport_sizes import passport_order_sizes, size_count_from_range as _size_count_from_range
-from app.services.cutting_passport_usage import validate_passport_stock
-from app.services.passport_nastil import passport_batch_map, sync_passport_nastil
-from app.services.factory_scope import available_factory_codes, selected_factory_code
-from app.services.model_images import model_display_image_url
+from app.models.audit_service import log_action
+from app.models.passport_sizes_service import passport_order_sizes, size_count_from_range as _size_count_from_range
+from app.models.cutting_passport_usage_service import validate_passport_stock
+from app.models.passport_nastil_service import passport_batch_map, sync_passport_nastil
+from app.models.factory_scope_service import available_factory_codes, selected_factory_code
+from app.models.model_images_service import model_display_image_url
 
 router = APIRouter(prefix="/cutting-passports", tags=["cutting_passports"])
 _MATERIAL_CATEGORIES = ("fabric", "semi_finished")
@@ -481,7 +481,7 @@ def _filtered_passports(db, current, q=None, production_order_id=None,
         db.query(CuttingPassport)
         .order_by(CuttingPassport.date.desc(), CuttingPassport.id.desc())
     )
-    from app.services.factory_scope import cutting_department_scope
+    from app.models.factory_scope_service import cutting_department_scope
     scope = cutting_department_scope(current, cutting_department_code)
     if scope:
         eco_order_ids = (
@@ -780,7 +780,7 @@ def create_passport(
     current: User = Depends(require_permissions("cutting.records", "*")),
 ):
     if payload.production_order_id:
-        from app.services.factory_scope import require_work_order_factory_access
+        from app.models.factory_scope_service import require_work_order_factory_access
         work_order = db.query(WorkOrder).filter(
             WorkOrder.production_order_id == payload.production_order_id,
             WorkOrder.operation == "cutting",

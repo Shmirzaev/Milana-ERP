@@ -19,7 +19,7 @@ from app.db.base import Base
 from app.db.session import SessionLocal
 from app.models import AuditLog, IdempotencyRecord, Invoice, Payment, SalesOrder, User
 from app.schemas.sales import PaymentIn
-from app.services.idempotency import bind_idempotency_identity, replay_idempotent_response, request_fingerprint, store_idempotent_response
+from app.models.idempotency_service import bind_idempotency_identity, replay_idempotent_response, request_fingerprint, store_idempotent_response
 
 
 def actors_and_invoice(sessions):

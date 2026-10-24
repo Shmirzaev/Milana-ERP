@@ -23,16 +23,16 @@ from fastapi import Depends
 from app.core.security import hash_password, normalize_email, validate_password_strength
 from app.db.base import Base
 from app.models import User, Role, Department, AuditLog, Employee, WorkOrder
-from app.services.factory_scope import normalize_factory_code, selected_factory_code
+from app.models.factory_scope_service import normalize_factory_code, selected_factory_code
 from app.schemas.catalog import (
     UserIn, UserUpdate, UserOut, RoleIn, RoleOut, DepartmentIn, DepartmentOut,
 )
-from app.services.credentials import apply_password_credential_change, lock_user_for_credential_change
-from app.services.audit import export_audit_hash_chain, log_action, verify_audit_hash_chain
-from app.services.password_reset import create_password_reset_token, password_reset_url, send_password_email_safely
+from app.models.credentials_service import apply_password_credential_change, lock_user_for_credential_change
+from app.models.audit_service import export_audit_hash_chain, log_action, verify_audit_hash_chain
+from app.models.password_reset_service import create_password_reset_token, password_reset_url, send_password_email_safely
 from app.db.reset_demo import reset_to_seed
 from app.core.permission_catalog import PERMISSION_CATALOG, PERMISSION_KEYS
-from app.services.factory_scope import FACTORY_CODES, available_factory_codes
+from app.models.factory_scope_service import FACTORY_CODES, available_factory_codes
 
 router = APIRouter(tags=["admin"])
 

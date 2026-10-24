@@ -88,7 +88,7 @@ def test_receive_by_order_and_delete_one_pack(client, auth_headers, warehouse, p
     row = options.json()["rows"][0]
     assert row["package_ids"] == ids
     from app.models import Model, ProductionOrder
-    from app.services.model_identity import model_number_fields
+    from app.models.model_identity_service import model_number_fields
     with SessionLocal() as db:
         model = db.get(Model, db.get(ProductionOrder, row["id"]).model_id)
         assert row["model_no"] == model_number_fields(model)["model_no"]

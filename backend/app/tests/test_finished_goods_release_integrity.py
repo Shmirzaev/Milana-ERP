@@ -31,7 +31,7 @@ from app.models import (
     StockReservation,
     User,
 )
-from app.services.packages import ship_package
+from app.models.packages_service import ship_package
 
 
 def _legacy_reservation(client, headers, *, reserved_quantity=4):

@@ -14,7 +14,7 @@ from app.models import (
     Bundle, BundleScanLog, Package, ProductionBatch, ProductionOrder,
     SewingAssignment, SewingDailyReport, SewingRecord, WorkOrder,
 )
-from app.services.audit import _json_safe, log_action
+from app.models.audit_service import _json_safe, log_action
 
 
 FIRST_IDS = list(range(2789, 2795))

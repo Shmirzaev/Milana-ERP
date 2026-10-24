@@ -41,7 +41,7 @@ from app.models import (
     User,
     Warehouse,
 )
-from app.services.audit import log_action
+from app.models.audit_service import log_action
 
 
 EXPECTED_ALEMBIC_HEAD = "0113_variant_selling_price"

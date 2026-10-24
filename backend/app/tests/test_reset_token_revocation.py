@@ -18,7 +18,7 @@ from app.core.security import create_access_token, hash_password, verify_passwor
 from app.db.base import Base
 from app.models import AuditLog, Department, PasswordResetToken, Role, User
 from app.schemas.auth import ResetPasswordIn
-from app.services.password_reset import create_password_reset_token, password_reset_hash
+from app.models.password_reset_service import create_password_reset_token, password_reset_hash
 from app.tests.conftest import TestSessionLocal
 
 

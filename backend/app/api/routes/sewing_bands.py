@@ -4,7 +4,7 @@ import re
 from typing import Annotated
 from urllib.parse import parse_qs, urlparse
 from fastapi import Header
-from app.services.idempotency import replay_idempotent_response
+from app.models.idempotency_service import replay_idempotent_response
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -13,9 +13,9 @@ from sqlalchemy import func
 from app.core.deps import CurrentUser, DbSession, require_permissions
 from app.models import Bundle, SewingAssignment, SewingFlow, SewingRecord, User, WorkOrder
 from app.schemas.production import SewingRecordIn
-from app.services.audit import log_action
-from app.services.sewing_band_progress import band_board
-from app.services.sewing_scope import require_sewing_flow_access, sewing_line_factory_scope
+from app.models.audit_service import log_action
+from app.models.sewing_band_progress_service import band_board
+from app.models.sewing_scope_service import require_sewing_flow_access, sewing_line_factory_scope
 
 router = APIRouter(prefix="/sewing-bands", tags=["sewing-bands"])
 
@@ -91,7 +91,7 @@ def check_claim(db, wo, batch_id, flow):
         # A primary line on an assignment-managed order is only a display hint.
         if not db.query(SewingAssignment.id).filter(SewingAssignment.work_order_id == wo.id).first():
             raise HTTPException(409, "This order belongs to another band")
-    from app.services.sewing_progress import unfinished_sewing_batches
+    from app.models.sewing_progress_service import unfinished_sewing_batches
     unfinished = unfinished_sewing_batches(db, wo) if wo.status == "completed" else set()
     if (wo.status in ("cancelled", "rejected")
         or (wo.status == "completed" and batch_id not in unfinished)
@@ -127,8 +127,8 @@ class ReceiveIn(BaseModel):
 @router.post("/receive")
 def receive(payload: ReceiveIn, db: DbSession, current: CurrentUser):
     from app.api.routes.bundles import _sewing_receive_eligible_filter
-    from app.services.bundles import receive_many_at_sewing, verify_sewing_accessory_gate
-    from app.services.bundles import find_bundle_by_scanned_code
+    from app.models.bundles_service import receive_many_at_sewing, verify_sewing_accessory_gate
+    from app.models.bundles_service import find_bundle_by_scanned_code
     flow = own_band(db, current)
     if payload.code:
         batch_match = re.fullmatch(r"SEWING_BATCH:(\d+)", payload.code.strip(), re.IGNORECASE)

@@ -16,7 +16,7 @@ BASE = "/api/packages"
 
 def test_packaging_bom_item_preload_preserves_order_and_skips_missing_items(monkeypatch):
     from app.models import Item, ModelBOM
-    from app.services import workflow
+    from app.models import workflow_service as workflow
 
     marker = uuid4().hex[:8]
     with SessionLocal() as db:
@@ -304,7 +304,7 @@ def test_receipt_requires_storage_permission(client, auth_headers):
 
 
 def test_shortage_does_not_release_consumed_packaging_capacity(client, auth_headers, packaging_order):
-    from app.services.packages import _existing_package_totals_by_batch
+    from app.models.packages_service import _existing_package_totals_by_batch
     run = create_run(client, auth_headers, packaging_order, 10)
     with SessionLocal() as db:
         pkg = db.get(Package, run["package_ids"][0])
@@ -332,7 +332,7 @@ def test_stale_resolved_run_refreshes_receipt_after_lock(client, auth_headers, p
     from datetime import datetime, timezone
     from app.models import User
     from app.schemas.package_workflows import PrintRunReceiveIn
-    from app.services import package_workflows as service
+    from app.models import package_workflows_service as service
     run = create_run(client, auth_headers, packaging_order, 6)
     with SessionLocal() as db:
         stale = db.get(PackagePrintRun, run["id"])
@@ -399,7 +399,7 @@ def test_historical_pending_delete_cannot_invalidate_new_print_run(client, auth_
     pid = created.json()["id"]
     # Model an existing pending approval. The public endpoint now applies an
     # authorized operator's correction immediately instead of queuing it.
-    from app.services.packages import create_package_change_request
+    from app.models.packages_service import create_package_change_request
     with SessionLocal() as db:
         request = create_package_change_request(db, pkg=db.get(Package, pid), request_type="delete",
                                                 payload=None, reason="Historical pending correction", user_id=1)
