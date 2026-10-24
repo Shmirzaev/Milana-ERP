@@ -29,12 +29,33 @@ targets and Alembic discovery were updated. No storage migration was added.
 - PASS: 177 focused workflow regressions covering authentication, access scope,
   numbering, invoicing, package writes, later-Nastil Sewing and packaging output.
   The earlier full-suite execution was interrupted; it is not a full-suite pass.
-- PENDING: owner-requested MiniMax M3.1-Flash source/guide review was dispatched.
-  It had not delivered a report within the review timebox; do not count delegation,
-  model confirmation or an in-progress check as independent review approval.
-- NOT RUN: browser visual E2E, production activation and human acceptance.
-  Publication is a source handoff, not release approval. Follow VERIFICATION.md
-  and DEPLOYMENT.md before promoting an exact commit to production.
+- PASS: MiniMax M3.1-Flash read-only reviews A1-A3 found no runtime break from
+  the namespace move: 97 distinct mapped tables, 22 DTO modules with unchanged
+  definitions, and no stale in-repository imports. B1 found that historical
+  bugs.md paths could lead agents to the wrong layer; its path legend is corrected.
+  Reports are retained in the Codex task workspace, outside this repository.
+- PASS (local visual): disposable PostgreSQL was migrated to head and seeded;
+  the real Next.js app and API were exercised in a browser. Admin created and
+  updated a synthetic Sales user, then persisted readback confirmed the update.
+  Sales could open Sales Orders; both UI and API denied Users and Sewing.
+  Synthetic PO-0001 moved through Cutting, Sewing, partial Packaging, a later
+  Nastil, receipt/assignment, resumed Sewing and Packaging. Browser screenshots
+  show Sewing 256/256 complete and Packaging 248/256 with eight still ready.
+  Premature Packaging and premature Sewing completion were rejected; repeated
+  receipt created no second assignment. PostgreSQL readback confirmed two
+  batches, two Sewing records, one later assignment, and 256/248 piece totals.
+- PASS (bounded local stress): 2 concurrent stock-adjustment PostgreSQL tests;
+  100 authenticated order reads at up to 8 concurrent requests, 100 successful,
+  p95 221 ms, no integrity change. Screenshots, test XML and stress logs are
+  retained in the Codex task workspace, outside this repository.
+- TRIAGE: the same synthetic extra-Nastil run showed negative polybag availability
+  while the accessory plan said ready; see INV-LATER-NASTIL-20261024 in bugs.md.
+  Business policy and cause need separate review. No namespace refactor code
+  path was found to cause this existing workflow behavior.
+- PENDING: remaining MiniMax guide reviews, named human technical/business
+  review, full backend suite, required CI, and production activation. Local visual
+  evidence does not establish production acceptance. Follow VERIFICATION.md and
+  DEPLOYMENT.md before promoting an exact commit to production.
 
 For a new feature, pull the latest clone_main before editing and use the current
 layer guides. Existing unmerged work with old imports must be reconciled against

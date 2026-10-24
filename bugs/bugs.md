@@ -1,5 +1,11 @@
 # Team bug tracker — clone_main
 
+## INV-LATER-NASTIL-20261024 — extra Nastil can leave packaging supply negative
+
+- **Triage · owner to assign · local reproduction only.** Shavkat must confirm whether Packaging may proceed without enough packaging material; a technical reviewer must confirm the stock and issue accounting before a fix is scoped. No production occurrence has been established.
+- On a disposable PostgreSQL database at source `eb85845`, create a 128-piece branded production order, cut/sew/pack 120, then add a second 128-piece Nastil, cut/receive/sew/pack all 128. The order finishes Sewing at 256 and Packaging at 248, as expected, but the accessory issue plan still says 128 polybags required, 257 issued, and `available_quantity=-128`, while its status says `ready`. The order page also shows the negative availability.
+- Expected rule needs business confirmation: the extra batch should update the packaging material requirement, or the workflow should explicitly prevent/flag material over-issue. This was observed during namespace-refactor acceptance; the moved definition bodies and business operations were unchanged, so do not attribute it to the source move without separate evidence.
+
 ## SEW-LATER-NASTIL-20261024 — later Nastil disappears from Sewing
 
 - **P1 · Mirshoir · Awaiting production verification. Reviewer: Ismail.** PR #304 was merged by Ismail; the owner explicitly accepted the merge as approval and authorized deployment. Technical deployment checks pass; named operator/business acceptance remains pending.
@@ -70,7 +76,7 @@ Verified against remote `clone_main` at [`418d5215`](https://github.com/Shmirzae
 
 
 
-**Source paths:** `B:` = `backend/app/`, `F:` = `frontend/src/`. Earlier locations refer to `942801b0`; newly reviewed locations refer to `38a56bbc`. Follow the current function when lines move. Develop hashes/tests are recovery references, not clone_main test results. **Present** in audit coverage means core source survived; it does not mean fully verified Done.
+**Source paths:** `B:` = `backend/app/`, `F:` = `frontend/src/`. Earlier locations refer to `942801b0`; newly reviewed locations refer to `38a56bbc`. Follow the current function when lines move. Before 24 October 2026, `B:services/X.py` meant a business service now under `B:models/` (usually `X_service.py`); flat `B:schemas/X.py` meant a Pydantic contract now under `B:libs/dto/<group>/X.py`. Current `B:schemas/<group>/X.py` is a SQLAlchemy database definition, so do not substitute it for an old DTO path. Develop hashes/tests are recovery references, not clone_main test results. **Present** in audit coverage means core source survived; it does not mean fully verified Done.
 
 
 
