@@ -19,7 +19,7 @@ def test_postgres_later_receipt_reopens_and_preserves_history(password_change_po
         actor = User(name='Later Nastil QA', email=f'qa-{marker}@example.invalid', password_hash='test-only',
                      factory_code=factory, extra_permissions=['*'])
         model = Model(code=f'LATER-{marker}', name='Later Nastil PostgreSQL')
-        cut_dept = Department(code='C-' + marker, name='Test Cutting')
+        cut_dept = Department(code='C-' + marker, name='Test Cutting ' + marker)
         sew_dept = db.query(Department).filter_by(code=factory).first()
         if sew_dept is None:
             sew_dept = Department(code=factory, name=factory)
