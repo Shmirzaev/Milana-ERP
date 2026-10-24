@@ -1,3 +1,6 @@
+> Historical report; dates and release states below are not current runtime verification.
+> See [the archive index](README.md) and [current context](../PROJECT_CONTEXT.md).
+
 # Old ERP catalog reconciliation — 30 September 2026
 
 The production catalog was updated additively from a fresh authenticated old-ERP capture. This is not a claim that every historical source inconsistency has been resolved: configured processes, existing identities and production links remain authoritative, and ambiguous source links are preserved for review.

@@ -1,7 +1,7 @@
 """Generate a per-department training guide PDF for the Milana ERP.
 
 Run:
-    python docs/generate_training_guide.py
+    python scripts/training/generate_training_guide.py
 
 Outputs: docs/Milana_ERP_Training_Guide.pdf
 """
@@ -995,7 +995,7 @@ def section_troubleshooting():
 # ---------------------------------------------------------------------------
 
 def build():
-    out = Path(__file__).parent / "Milana_ERP_Training_Guide.pdf"
+    out = Path(__file__).resolve().parents[2] / "docs" / "Milana_ERP_Training_Guide.pdf"
     doc = SimpleDocTemplate(
         str(out), pagesize=A4,
         leftMargin=20 * mm, rightMargin=20 * mm,

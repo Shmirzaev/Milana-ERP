@@ -1,3 +1,6 @@
+> Historical report; dates and release states below are not current runtime verification.
+> See [the archive index](README.md) and [current context](../PROJECT_CONTEXT.md).
+
 # Payroll and department changes — pre-deployment review
 
 Date: 2026-09-09. Worktree: `C:/ERP/.codex-work/payroll-departments-20260909`. Branch: `codex/payroll-departments-20260909`.

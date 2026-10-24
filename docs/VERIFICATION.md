@@ -133,6 +133,22 @@ Feature engineers own all these checks. Dilmurod owns shared verification toolin
 the assigned reviewer checks evidence; Mirshoir owns release decisions. See
 [team ownership](TEAM_OWNERSHIP.md). This guide creates no tools, CI jobs or schedules.
 
+## Independent review before landing
+
+The named reviewer checks the relevant diff and evidence for backend object/role
+authorization, integrity under retries/concurrency, sensitive-data exposure, file
+path/type/size validation, audit effects, recovery and API compatibility. Review
+frontend loading/error/accessibility/translation states when affected. Run required
+lint/type/build/security/dependency checks for the changed scope and investigate
+findings. Coverage is supplementary; no substitute for the gates above.
+
+Database changes require a reviewed Alembic migration when storage changes; a
+source-only move must not alter metadata. Do not add production startup schema
+patches: main.py rejects STARTUP_SCHEMA_SYNC for production/public deployment.
+Preserve safe idempotent seeding and disabled-by-default production seed behavior.
+
+This replaces the retired CODE_REVIEW.md without weakening required checks.
+
 ## Research informing these rules
 
 - [Anthropic: explicit verification and independent review](https://code.claude.com/docs/en/best-practices).

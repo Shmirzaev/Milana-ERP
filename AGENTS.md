@@ -141,7 +141,9 @@ Audit evidence is under `.codex-work/deep-security-quality-audit/final/`.
 After architecture, production, business-rule, permission, deployment, or risk
 changes:
 
-1. update `docs/PROJECT_CONTEXT.md` and its date;
+1. update the short `docs/PROJECT_CONTEXT.md` summary and its date; put detailed
+   dated records in `docs/archive/` and link them from the summary instead of appending
+   an unbounded history. Start documentation navigation at `docs/README.md`;
 2. record active/rollback releases and slots;
 3. keep secrets out;
 4. mirror durable context to

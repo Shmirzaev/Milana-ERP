@@ -1,3 +1,6 @@
+> Historical report; dates and release states below are not current runtime verification.
+> See [the archive index](README.md) and [current context](../PROJECT_CONTEXT.md).
+
 # Sewing, QR Control and Eco fabric transfer review
 
 Approved and deployed on 2026-09-17 as release **20260917_081317**, commit `c0c11d473e42e26037cfe686304109139ae24b93`. Original review and evidence follow.

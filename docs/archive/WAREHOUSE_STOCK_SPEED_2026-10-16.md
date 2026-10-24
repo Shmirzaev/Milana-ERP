@@ -1,3 +1,6 @@
+> Historical report; dates and release states below are not current runtime verification.
+> See [the archive index](README.md) and [current context](../PROJECT_CONTEXT.md).
+
 # Warehouse Stock speed verification — 2026-10-16
 
 The candidate reduces measured server-side stock loading from a median of

@@ -1,3 +1,6 @@
+> Historical report; dates and release states below are not current runtime verification.
+> See [the archive index](README.md) and [current context](../PROJECT_CONTEXT.md).
+
 # Variant paid-operation reconciliation — 2026-09-29
 
 Production data repair applied using reviewed script commit `0bef50e8`; application deployment remains paused.

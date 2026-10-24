@@ -40,3 +40,9 @@ Start with the full process overview, then open the manual for the employee's de
 
 These manuals are based on the current ERP code and documentation: the main README, the existing employee guide, seeded departments and roles, frontend sidebar/page flows, backend routes, and current permissions.
 
+
+## Maintaining these manuals
+
+Generation/translation tools live in [scripts/training/](../../scripts/training/README.md).
+Training sources remain here. Manuals are dated operator guidance; verify changed
+screens/rules with Shavkat before publishing updated training material.
