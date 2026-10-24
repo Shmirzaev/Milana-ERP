@@ -26,6 +26,16 @@ not appended here. This summary does not replace live release verification.
 - Ismail merged PR #304 as `ec02b5f`; the owner explicitly accepted his merge as approval and authorized deployment without the 30-minute monitoring window. The tested immutable runtime has identical application/frontend/migration/CI files to that merged fix. Later service relocation `1dfd1c5d` remains outside this release; repository architecture below describes that newer branch state.
 - Activated at 16:13 Tashkent. Fresh backup, no-op schema verification, renewed 18-check factory QA, real live browser checks, all four health checks, runtime/log/database/source/rollback checks and fixed-query paired/public performance budgets passed. No business records/history were repaired or replayed; all eight PO-0307 table fingerprints match across cutover. Timed monitoring was explicitly waived, not reported as performed. Operator business acceptance remains pending.
 - [Detailed verification and release record](archive/SEWING_LATER_NASTIL_2026-10-24.md) preserves root cause, tests and deployment preparation.
+- Owner-authorized historical reconciliation at 16:29 Tashkent: reviewed 44 pending
+  Nastils and reopened 38 incorrectly completed Sewing work orders (MIL 33, BST 4,
+  ECO 1) through the deployed service. All 38 now appear in their factory's active
+  Sewing floor, restoring 19 missing Milana orders. Only status/end_time/update
+  timestamps changed; 38 append-only audits record the prior completion times.
+  Fresh backup, 41-table conservation/persisted checks, all 131,366 backup audit
+  rows, factory API/browser checks and four health endpoints passed. Pending cuts
+  and receipts were not approved or fabricated; ECO USL-0008 still has 335 pieces
+  awaiting Cutting approval. PO-0307 remains correctly completed at 256 pieces.
+  Runtime/rollback/schema are unchanged; see the archive's historical reconciliation.
 
 ## Architecture and migration state
 

@@ -1,5 +1,63 @@
 # Later-Nastil Sewing fix — verification and release record
 
+## Historical status reconciliation — 2026-10-24
+
+The owner subsequently requested: “Review the pending Nastils on all 38 orders and safely correct the incorrect Sewing statuses so they appear where needed, preserving all production quantities and history.” This is a separately authorized data correction after deployment, not a replay of factory receipts or a new application release.
+
+- **Review:** all 345 production/Sewing orders were checked across MIL/BST/ECO. The 38 historical completed work orders have 44 positive pending Nastils (15,963 planned pieces); none of those pending batches had approved Cutting output or received Sewing bundles. ECO USL-0008 has three actual Cutting records awaiting approval, 156 + 50 + 129 = 335 pieces. Saved passports/plans alone were not treated as received garments. The deployed completion guard explicitly keeps positive unconfirmed Nastil plans pending, so these shared Sewing statuses were incorrect even though the earlier confirmed Nastils were finished. Plans, passport quantities and pending approvals were retained.
+- **Correction:** at 16:29 Tashkent, the existing reviewed `reconcile_sewing_order` operation atomically changed precisely 38 allowlisted Sewing work orders from `completed` to `in_progress`, clearing `end_time` and updating the ordinary `updated_at` timestamp. MIL 33, BST 4, ECO 1. No ProductionOrder stage, Cutting/Printing/Packaging/Storage work-order status or quantity, approval, assignment, barcode, stock, payroll, shipment or earlier business evidence was changed. Existing completed assignments remain completed. The execution guard refused every mutation except the allowlisted status/timestamp updates and standard audit inserts.
+- **Audit:** 38 normal append-only `reopen_later_nastil` entries, IDs 132467–132504, operation `SEW-HISTORICAL-38-20261024`. Each preserves the old status/completion time and records the reason and new status; system actor, owner authorization recorded in the reason. The appended segment and its link to the preceding entry validate. Existing audit-chain risk at historical record #744 is not declared repaired.
+- **Backup:** `/opt/milana-erp/shared/backups/milana_erp_pre_20261024_112755.dump`, 91,014,349 bytes, mode 0600, 1,246 restore-list objects. Dump SHA-256 `d889ca6f767bdc79a3de81b3fc99b20a45784c93ee5c6a58e1548093a5ff3897`; restore-list SHA-256 `0e1cb9bef3675500d144c2d23a519728d69090505b536b2296df0ed4d225aa6c`, 89,432 bytes, mode 0600. Verified before correction; no database restore was performed.
+- **Conservation PASS:** exact before/after row/field comparison across 41 related tables, including every work order in the database and PO-0307 as an unaffected control. Only the three allowed fields on the 38 target rows differ; no other captured row or quantity changed. Independent persisted readback matches all post-transaction table fingerprints. All 131,366 historical audit rows in the fresh backup (through ID 132464) were streamed and compared field-for-field with live PostgreSQL without restoring the dump; all match, canonical comparison SHA-256 `3d2171211daf91e90d38a951920d9831f3b9a6e79671228d2c82fdf6c8f0d3b4`. The transaction also prohibited updating/deleting any audit row.
+- **Visibility PASS:** complete paginated public factory APIs show all 38 with `in_progress` queue/status, including all 19 previously absent Milana orders. Floor totals: MIL 146 -> 165, BST 138 -> 138, ECO 21 -> 21. A fresh all-order scan finds zero completed Sewing work orders with unfinished Nastils, and no missing Sewing work orders with sent/received bundle evidence. PO-0307 stays completed at 256 passed pieces, 128 per Nastil.
+- **Visual PASS:** actual public frontend/backend via the temporary GET/HEAD-only loopback gateway and connected browser; searched and visually inspected PO-0305 (restored Milana row), PO-0371 (Besttex) and USL-0008 (Eco Cotton). All show the active floor's yellow `Pending` display, with original passed/received quantities; backend status is `in_progress`. Screenshots `historical-sewing-MIL-after.png`, `historical-sewing-BST-after.png`, `historical-sewing-ECO-after.png`; browser errors/warnings empty. Gateway and temporary tab were closed after verification. No operator Sewing/receipt/approval action was submitted.
+- **Health/source PASS:** both VMs' complete active manifests, labels and slot states were verified against `deploy/production-base.json` before correction. All four required internal/public health checks return 200 afterward. Active remains blue `20261024_093619`, source `1fce86b5`, manifest `e424f9a6f135b0ebf3851e0355c39d546bd3466eafcb4ddba6ef27c2b3bd4d31`; healthy rollback remains green `20261024_032622`; schema remains `0148_second_grade_packages`. No runtime deployment, migration, synthetic production stress, timed monitoring or new code change was performed. The already reviewed/deployed service was used; prior release CI/E2E/stress evidence is not claimed rerun for this status-only correction. Human business acceptance remains pending.
+- **Recovery:** the correction is atomic; pre-commit assertions roll back on unexpected fields/evidence/locks. Prior per-order completion timestamps remain in the appended audit entries and the fresh backup. Any later compensating change must first verify fresh batch evidence and intervening operator work; never restore a whole production backup over newer factory activity merely to undo these statuses.
+- **Evidence:** `C:/ERP/.codex-work/sewing-later-nastil-20261024/outputs/deployment/`, including `historical-sewing-review.json`, `historical-sewing-apply.json`, `historical-sewing-verify.json`, `historical-sewing-closing.json`, `historical-sewing-audit-history-preserved.json` and `historical-sewing-correction-final-20261024.json`. Payload hashes are in the review/apply/verify evidence; actual source is preserved there. No tokens/credentials are included in this record.
+
+All rows below now have Sewing status `in_progress` and are visible in the correct factory. Quantities are the retained pending plans, not approved/received pieces.
+
+| Factory | Order | Pending Nastils and planned pieces | Previously absent from floor |
+| --- | --- | --- | --- |
+| MIL | PO-0305 | Nastil 2: 152 | Yes |
+| MIL | PO-0306 | Nastil 2: 300 | Yes |
+| MIL | PO-0308 | Nastil 3: 60 | Yes |
+| MIL | PO-0309 | Nastil 3: 152 | Yes |
+| MIL | PO-0310 | Nastil 2: 125 | Yes |
+| MIL | PO-0328 | Nastil 2: 600 | No |
+| MIL | PO-0329 | Nastil 2: 600 | No |
+| MIL | PO-0330 | Nastil 2: 630 | No |
+| MIL | PO-0332 | Nastil 2: 225 | Yes |
+| MIL | PO-0333 | Nastil 3: 225 | Yes |
+| MIL | PO-0334 | Nastil 2: 200 | Yes |
+| MIL | PO-0335 | Nastil 2: 315 | Yes |
+| MIL | PO-0336 | Nastil 2: 200 | Yes |
+| MIL | PO-0353 | Nastil 2: 600 | Yes |
+| MIL | PO-0361 | Nastil 2: 300 | No |
+| MIL | PO-0367 | Nastil 2: 630 | No |
+| MIL | PO-0376 | Nastil 2: 426 | Yes |
+| MIL | PO-0380 | Nastil 3: 450; Nastil 4: 450 | No |
+| MIL | PO-0381 | Nastil 3: 450 | Yes |
+| MIL | PO-0382 | Nastil 2: 450; Nastil 3: 450 | No |
+| MIL | PO-0383 | Nastil 3: 450 | Yes |
+| MIL | PO-0389 | Nastil 2: 600 | No |
+| MIL | PO-0400 | Nastil 2: 246 | No |
+| MIL | PO-0401 | Nastil 2: 170 | Yes |
+| MIL | PO-0402 | Nastil 2: 180 | Yes |
+| MIL | PO-0449 | Nastil 3: 276; Nastil 4: 300 | Yes |
+| MIL | PO-0453 | Nastil 2: 612 | Yes |
+| MIL | PO-0460 | Nastil 3: 300 | No |
+| MIL | PO-0466 | Nastil 2: 600 | No |
+| MIL | PO-0470 | Nastil 2: 252 | Yes |
+| MIL | PO-0482 | Nastil 2: 630 | No |
+| MIL | PO-0499 | Nastil 2: 600 | No |
+| MIL | PO-0550 | Nastil 2: 300; Nastil 3: 312 | No |
+| BST | PO-0369 | Nastil 3: 310 | No |
+| BST | PO-0370 | Nastil 3: 300 | No |
+| BST | PO-0371 | Nastil 2: 600 | No |
+| BST | PO-0372 | Nastil 2: 600 | No |
+| ECO | USL-0008 | Nastel 13: 156; Nastel 14: 50; Nastel 81: 129 | No |
+
 ## Production activation — 2026-10-24
 
 This section supersedes the earlier staged/pending-review status below. The earlier evidence is retained as recorded.
