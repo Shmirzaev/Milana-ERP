@@ -19,6 +19,12 @@ not appended here. This summary does not replace live release verification.
   by reactivation of the same images; public-path tail variation remains unresolved.
   The owner waived the timed observation period. The archive preserves all attempts.
 
+## Later-Nastil Sewing fix awaiting review
+
+- Permanent later-Nastil receipt/completion and assignment fix is implemented and tested for MIL/BST/ECO. Runtime candidate `1fce86b5`; immutable CI `40082616718` passed.
+- Ismail independent review is pending, confirmed by the owner. Landing and production traffic switch remain blocked on that review. Active release stays green `20261024_032622`; no business history has been rewritten.
+- [Detailed verification and release record](archive/SEWING_LATER_NASTIL_2026-10-24.md) preserves root cause, tests and deployment preparation.
+
 ## Architecture and migration state
 
 - Keep the FastAPI/SQLAlchemy/PostgreSQL monolith. Router -> feature service ->

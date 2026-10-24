@@ -1996,7 +1996,9 @@ def complete_wo(wid: int, db: DbSession, current: User = Depends(require_permiss
     _authorize_work_order_command(db, current, wo)
     if wo.operation in ("sewing", "packaging"):
         planned = int(wo.planned_output_qty or 0)
-        if planned <= 0 or processed_work_order_qty(db, wo) < planned:
+        from app.services.sewing_progress import unfinished_sewing_batches
+        pending_sewing = wo.operation == "sewing" and bool(unfinished_sewing_batches(db, wo))
+        if planned <= 0 or processed_work_order_qty(db, wo) < planned or pending_sewing:
             raise HTTPException(
                 409,
                 f"{wo.operation.capitalize()} still has unfinished quantities. Continue {wo.operation} the remaining nastils.",
@@ -2255,6 +2257,8 @@ def add_extra_cutting_batch(
             "planned_quantity": qty,
         },
     )
+    from app.services.sewing_progress import reconcile_sewing_order
+    reconcile_sewing_order(db, po.id, current=current, reason="Additional Nastil planned")
     db.commit()
     db.refresh(batch)
     return {

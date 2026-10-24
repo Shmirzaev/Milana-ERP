@@ -1,5 +1,12 @@
 # Team bug tracker — clone_main
 
+## SEW-LATER-NASTIL-20261024 — later Nastil disappears from Sewing
+
+- **P1 · Mirshoir · Review. Reviewer: Ismail.** Independent review is pending, confirmed by the owner on 2026-10-24. No production activation or human acceptance is claimed.
+- Reproduction: finish the first 128-piece Nastil with an accepted Cutting shortfall on a 600-piece order; save/cut/receive a later 128-piece Nastil. Aggregate completion kept the shared Sewing work order completed and hidden; cancelled historical assignments could lock the form to the first batch.
+- Fix: reconcile required work by exact Nastil during receipt/planning/output/assignment, reopen completed shared Sewing with an audit entry when needed, and keep batch/assignment choice consistent while excluding cancelled/transferred choices. Preserve real shortfall and Printing losses, existing records, quantities, barcodes and scan history.
+- Runtime source `1fce86b5`; [immutable CI](https://github.com/Shmirzaev/Milana-ERP/actions/runs/40082616718) and isolated real UI/department-handoff/retry checks pass for MIL/BST/ECO. Blue candidate `20261024_093619` is staged only; green `20261024_032622` still serves production. [Detailed evidence and remaining release gates](../docs/archive/SEWING_LATER_NASTIL_2026-10-24.md).
+
 > Current workflow, 2026-10-24: active work and items awaiting production verification live here. Human-approved production fixes move to [finished_bugs.md](finished_bugs.md). See [the refactor plan](../docs/REFACTOR_PLAN.md).
 >
 > The October 6 counts and rows below are historical evidence awaiting reconciliation, not a fresh list of missing fixes. Old Done labels mean what their evidence says; do not reopen them as regressions or recertify them automatically. Historical migration heads and source locations are not instructions to use them today.

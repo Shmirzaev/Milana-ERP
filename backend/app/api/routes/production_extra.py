@@ -225,6 +225,8 @@ def create_assignment(
     # If WO has no primary sewing_flow yet, set it to the first assignment for convenience.
     if not wo.sewing_flow_id:
         wo.sewing_flow_id = payload.sewing_flow_id
+    from app.services.sewing_progress import reconcile_sewing_order
+    reconcile_sewing_order(db, wo.production_order_id, current=current, reason="Sewing line assigned")
 
     log_action(db, current, "create", "SewingAssignment", a.id, new_value={
         "work_order_id": wid, "production_batch_id": batch_id, "sewing_flow_id": payload.sewing_flow_id, "quantity": payload.quantity,

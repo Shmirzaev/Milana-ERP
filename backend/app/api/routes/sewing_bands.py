@@ -91,7 +91,11 @@ def check_claim(db, wo, batch_id, flow):
         # A primary line on an assignment-managed order is only a display hint.
         if not db.query(SewingAssignment.id).filter(SewingAssignment.work_order_id == wo.id).first():
             raise HTTPException(409, "This order belongs to another band")
-    if wo.status in ("completed", "cancelled") or any(a.status == "completed" or a.line_finished_at for a in assignments):
+    from app.services.sewing_progress import unfinished_sewing_batches
+    unfinished = unfinished_sewing_batches(db, wo) if wo.status == "completed" else set()
+    if (wo.status in ("cancelled", "rejected")
+        or (wo.status == "completed" and batch_id not in unfinished)
+        or any(a.status == "completed" or a.line_finished_at for a in assignments)):
         raise HTTPException(409, "This sewing work is closed")
     return assignments[0] if assignments else None
 
