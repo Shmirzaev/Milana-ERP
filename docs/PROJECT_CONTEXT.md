@@ -11,6 +11,87 @@ Last updated: 2026-10-24
 - Focused later-Nastil tests cover manual, individual-bundle and batch-QR receipt across all three factories, old completion dates, required pending passports, repeat acceptance, line assignment, actual Sewing/Packaging output, preserved bundle/barcode/scans/history, cross-band claim protection and the dedicated ECO band workspace. Real PostgreSQL CI adds nowait contention, receipt/assignment/Sewing/Packaging and audit/idempotency preservation for every factory. Existing genuine-loss, receipt reconciliation, corrections and bounded-query suites pass. Frontend lint (10 inherited warnings), strict types, contracts, real-page browser tests and optimized webpack build pass. Full local backend and exact immutable CI remain required at this preparation point.
 - Production remains unchanged at this entry. Deployment requires a verified backup, exact immutable images, no-op Alembic check, signed read-only candidate/public QA, fixed-query performance budgets, health/runtime checks and the full 30-minute high-risk observation. Existing production data/history must not be reset or replayed; the earlier PO-0307 one-off repair remains historical and must not be rerun.
 
+## Shared team discipline and reversible refactor plan (2026-10-24)
+
+- User confirmed clone_main as production/integration branch, human ownership of
+  service design and release decisions, reversible extraction before cleanup,
+  Ismail's enum/contract coordination, and human production approval for bug closure.
+- Added the canonical repository skill .agents/skills/milana-refactor/SKILL.md,
+  a Claude Code skill entry pointing to it, and guides in existing routes/services/
+  models/schemas folders. Updated AGENTS.md to remove the stale origin/main target
+  and document serialized landing into clone_main with isolated working directories.
+  Aligned the source/landing instructions in DEPLOYMENT.md; runtime release gates
+  and the rollback procedure remain unchanged.
+- Replaced the earlier [team plan](REFACTOR_PLAN.md) with the study/test/extract/
+  switch/verify/retire sequence and explicit pending human decisions. Existing RF
+  identifiers remain; RF-011/012 cover enums/contracts and RF-013 recovery rehearsal.
+- Moved the full historical tracker into [bugs/bugs.md](../bugs/bugs.md), preserving
+  its table rows/IDs/evidence and adjusting relative links. Root bugs.md is a pointer.
+  [finished_bugs.md](../bugs/finished_bugs.md) requires named human production approval;
+  no historical entry was newly closed or recertified. Old counts remain historical.
+- Source inspection at 5c45531d: observe_release.py reports failures but does not
+  rollback; slotctl.py has one active HAProxy target and no compensating restore on
+  post-switch failure; CI push triggers omit clone_main. These are planned tooling
+  work/rehearsal items, not fixes already implemented or live infrastructure findings.
+- User authorized committing and pushing these instructions/documents to clone_main.
+  Skill validation, document links, preservation of all 295 historical bug table
+  rows and unchanged production.py import resolution passed. Runtime tests were
+  not rerun for this documentation-only change.
+- Changes were prepared in the existing documentation worktree
+  C:/ERP/.codex-work/erp-refactor-folders-20261024 on codex/erp-refactor-folders-20261024.
+  No application/CI/deploy script, database, runtime or teammate settings changed.
+  This publication does not deploy anything. Live state was not freshly checked; the
+  historical active/rollback records below remain intact. Obsidian mirror unavailable.
+- The two older planning sections below record earlier iterations; this section
+  and REFACTOR_PLAN.md supersede their tracker location and branch-level Done policy.
+
+## Refactor execution plan drafted (2026-10-24)
+
+- Added [the step-by-step refactor plan](REFACTOR_PLAN.md) with proposed RF task
+  IDs, owners, dependencies, acceptance criteria and a shared-tracker approach.
+  Added a navigation note to `bugs.md`; its existing rows, IDs, status history
+  and October 6 delivery counts are preserved and were not reverified here.
+- The user clarified the team has three engineers: Mirshoir, Ismail and
+  Dilmurod. Shavkat is the business owner, has built much of the system using
+  Claude Code/Codex, and supplies business rules and acceptance decisions. He is
+  not assigned technical implementation, automated tests, migrations or operations.
+- Preserve existing area ownership: Mirshoir leads production/fulfillment and
+  technical design; Ismail owns stock/commercial work; Dilmurod owns people and
+  platform. Each engineer owns complete feature changes, with independent review.
+  The reference Sewing refactor precedes the next parallel feature batch.
+- This remains documentation-only work in `codex/erp-refactor-folders-20261024`
+  based on source snapshot `5c45531d`. No application code, bug completion state,
+  business data, GitHub issues or runtime state were changed. No commit, push,
+  merge or deployment occurred. Live production was not freshly verified; the
+  existing active/rollback records below are unchanged.
+
+## Refactor folder guides prepared (2026-10-24)
+
+- The user authorized folders and `.readme.md` guides only. Four new folders
+  document the proposed monolith structure: `backend/app/enums/`,
+  `backend/app/types/`, `backend/app/services/production/`, and
+  `backend/app/services/packaging/`. Existing router, schema, model, and core
+  folders are reused. No Python files, imports, API behavior, database schema, or
+  business data were changed. Implementation and multitenancy remain deferred.
+- The guides adapt the mentor's feature-service, enum, and typed-contract
+  discipline. Pydantic schemas remain the DTOs. Services own business rules and
+  may not import routers. Types are added only for an actual internal contract.
+  Recent Sewing quantity fixes are explicitly preserved in the proposed scope.
+- `app/services/production.py` already exists. The adjacent documentation folder
+  has no package initializer; an eventual file-to-package migration must be
+  coordinated with its callers to avoid shadowing the existing implementation.
+- Proposed responsibilities: Mirshoir leads technical design and sensitive
+  decisions; Shavkat owns business clarification and acceptance examples;
+  Ismail handles caller integration; Dilmurod handles regression verification.
+- Documentation worktree: `C:/ERP/.codex-work/erp-refactor-folders-20261024`, branch
+  `codex/erp-refactor-folders-20261024`, source snapshot `clone_main` at
+  `5c45531db350ba79e2e0167b942530a5b0f9bef8`. This is local planning scaffolding,
+  not a release candidate. No commit, push, merge, or deployment was performed.
+- Production was not accessed or freshly verified for this documentation-only
+  task. The existing records below identify blue `20261023_061627` as active and
+  green `20261022_130603` as rollback; those historical records are preserved.
+  Reconcile the live baseline before future implementation/release work.
+
 ## clone_main department dashboards deployed (2026-10-24)
 
 - LIVE: green `20261024_032622` on both VMs, exact owner-selected `clone_main` application `5c45531db350ba79e2e0167b942530a5b0f9bef8`. Blue `20261023_061627` remains running and healthy for rollback. Both complete manifests, image identities, current symlinks and slot states agree. Source manifest `cd370ae7e17b89e0ff55d861b3944925ebe2b49bebe2a103ab012ca78774bba5`, archive SHA-256 `933f120059f4bf2cfe04581c45b7369cf288e898539131d6646c2eae839bfd73`, 1,392 source files. Database remains `0148_second_grade_packages`; upgrade-to-head was a verified no-op and startup seeding stayed disabled. The owner explicitly waived the 30-minute monitoring period; no timed observer was started. Immediate and closing health/runtime/performance gates passed.

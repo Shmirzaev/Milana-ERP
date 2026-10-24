@@ -38,50 +38,52 @@ TypeScript, TailwindCSS, Docker, and HAProxy blue-green runtime slots.
 - `DEPLOYMENT.md` is the only supported deployment procedure.
 - Vercel, Render, and Hugging Face deployment notes are historical.
 
-Always verify both production manifests and slot states. Never assume the task
-title, local checkout, GitHub `main`, or a historical release is current.
+Before release work, verify both production manifests and slot states. Never assume
+the task title, a local checkout, a branch head or a historical release is current.
 
-## Working-tree rule
+## Shared branch and working-directory rule
 
-The legacy `C:\ERP` checkout contains extensive preserved work and must not
-be used as a release source. Never reset, discard, overwrite, or broadly
-reformat it.
+The owner confirmed clone_main is the shared production/integration branch.
+Do not use stale origin/main as the base or merge destination. A branch head does
+not establish the exact active production release.
 
-For every task that will change repository files, Codex must work in a clean,
-dedicated Git worktree before the first code, configuration, migration, test,
-or documentation edit. Read-only questions and diagnostics do not require a
-new worktree.
+Keep each engineer/agent's working directory isolated. The legacy C:\ERP checkout
+contains preserved work: never reset, discard, overwrite, broadly format or release
+from it. Continue a task's existing dedicated worktree when suitable.
 
-1. Do not make deployable changes directly in the legacy `C:\ERP` checkout.
-2. Fetch and inspect current Git state, active production state, and
-   `deploy/production-base.json`. If they disagree, stop before editing and
-   report the mismatch.
-3. If the task is not already running in a clean Codex-managed worktree, create
-   `C:\ERP\.codex-work\<task-slug>` from verified `origin/main` on a dedicated
-   `codex/<task-slug>` branch. Create it before the first edit.
-4. Make, test, and review every task change only inside that worktree.
-5. Stage only explicitly intended paths. Never use `git add .`, `git add -A`,
-   broad formatting, reset, clean, or stash against the legacy checkout.
-6. If requested work already exists only in `C:\ERP`, preserve it in place,
-   identify the exact relevant files/hunks, and port only that reviewed patch
-   into the clean worktree. Never copy unrelated root-checkout changes.
-7. Commit and push the dedicated branch only after proportional tests pass.
-   Merge to `main` and deploy only when authorized by the user.
-8. Production releases must come from the exact reviewed Git commit through
-   the immutable-image and blue/green procedure in `DEPLOYMENT.md`; never from
-   an uncommitted checkout.
+The owner's current choice is one shared integration line. Do not create a long-
+lived refactor branch. When directly working on clone_main, use separate clean
+clones/checkouts and serialize landing through one responsible integrator. Temporary
+task branches are an alternative only if accepted by the team. Branch choice never
+authorizes concurrent writers to one checkout or force-pushing over another person.
 
-At handoff, report the worktree path, branch, commit, tests, push/merge state,
-and whether deployment occurred.
+Before implementation, inspect current Git state and recent production fixes. For
+release work, reconcile the exact active sources/manifests/slot states, production-
+base.json, candidate and GitHub. A mismatch blocks release, not read-only analysis
+or explicitly requested planning documentation. The existing documentation worktree
+may be used without claiming it is a verified production baseline.
 
-Before deployment reconcile:
+Before landing, re-fetch, reconcile overlapping changes and test the exact combined
+revision. Stage only intended paths. Do not broadly add, reset, clean or stash the
+legacy checkout. An urgent factory fix invalidates stale candidate evidence.
+Push/merge and deployment still require the user's authorization. Releases use an
+exact reviewed clean commit and DEPLOYMENT.md, never uncommitted files.
 
-1. exact active production source and manifest;
-2. `deploy/production-base.json`;
-3. the clean change branch;
-4. GitHub state.
+At handoff report worktree, branch, commit, actual checks, push/merge and deployment
+state. Keep the human summary short.
 
-A mismatch is a hard stop.
+## Shared refactor discipline
+
+For monolith refactoring, read [.agents/skills/milana-refactor/SKILL.md](.agents/skills/milana-refactor/SKILL.md)
+and the relevant sections of [docs/REFACTOR_PLAN.md](docs/REFACTOR_PLAN.md). Read the .readme.md only in the
+affected architecture folders. Claude Code uses the same rules via /milana-refactor.
+Service responsibilities/interfaces and business policy are human decisions; AI
+implements the approved scope. Planning requests do not authorize source refactoring.
+
+Use [bugs/bugs.md](bugs/bugs.md) for active/unverified work. Move entries to
+[bugs/finished_bugs.md](bugs/finished_bugs.md) only after recorded human production
+verification. Preserve stable IDs and historical evidence. Markdown guidance is
+not a substitute for meaningful tests, required CI and independent review.
 
 ## Safety and scope
 
