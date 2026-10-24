@@ -214,6 +214,20 @@ pilot interface; each has its own review and release evidence. The later three
 feature streams start after pilot production acceptance. One active implementation
 per engineer; one writer per shared operation. IDs are plan IDs, not created issues.
 
+### RF-003: Sewing pilot bug evidence reconciled by Ismail
+
+At source `e7e2ee5`, keep these separate when capturing the RF-005 baseline:
+
+| Stable ID | Current evidence | Pilot implication |
+| --- | --- | --- |
+| [SEW-LATER-NASTIL-20261024](../bugs/bugs.md#sew-later-nastil-20261024--later-nastil-disappears-from-sewing) | The later-Nastil fix is deployed from `1fce86b5` in blue `20261024_093619`. Isolated MIL/BST/ECO, UI and PostgreSQL checks passed; the 38 historical statuses were separately reconciled. Named operator acceptance remains pending, so the bug stays active. | Retain exact-batch completion, reopening, assignment and audit behavior. Run `test_sewing_later_nastil_workflow.py` and `test_sewing_later_nastil_postgres.py` on the extraction candidate. Do not revert the deployed fix. |
+| [INV-LATER-NASTIL-20261024](../bugs/bugs.md#inv-later-nastil-20261024--extra-nastil-can-leave-packaging-supply-negative) | A local extra-Nastil run exposed negative polybag availability while the plan said ready. No production occurrence or causal link to the namespace move is established. | Keep this inventory/packaging defect out of a behavior-preserving Sewing move. Shavkat must confirm the intended material rule; Inventory and Packaging owners review the accounting before a separate fix. |
+| [WF12](../bugs/bugs.md) | The October 6 audit flags inconsistent parent/child lock order between daily reports and Sewing writes. Its historical `Present` label has not been freshly reverified at this source. | Trace both lock sequences before changing transaction boundaries; run `test_sewing_daily_report_lock_order.py`. Do not claim this risk fixed by relocating code. |
+
+The historical October 6 tracker rows are leads, not current production verdicts.
+RF-003 reconciles the evidence above; it does not close the bug, approve a new
+business rule, or complete Mirshoir's RF-001 trace and RF-005 pilot.
+
 ## What to inspect first, and proposed service homes
 
 At source 5c45531d: sewing_bands.py calls production.post_sewing; sewing_corrections.py
@@ -263,8 +277,9 @@ then rerun affected checks on the combined source. Never deploy an old candidate
 that silently removes a newer factory fix.
 
 Preserve the known Sewing case: 600 received allows 495 then 105 without double
-counting. Preserve independent Nastils and reachable unfinished quantities. A recent
-second-Nastil fix claim still needs exact-path verification; do not presume failure.
+counting. Preserve independent Nastils and reachable unfinished quantities. The
+deployed later-Nastil fix has exact-path checks; rerun them on the extraction
+candidate, including the real UI and its persisted effects.
 
 ## Rollback and frequent deployment
 
