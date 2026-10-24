@@ -28,7 +28,13 @@ targets and Alembic discovery were updated. No storage migration was added.
   was removed. This is collection evidence, not full-suite execution.
 - PASS: 177 focused workflow regressions covering authentication, access scope,
   numbering, invoicing, package writes, later-Nastil Sewing and packaging output.
-  The earlier full-suite execution was interrupted; it is not a full-suite pass.
+  The earlier full-suite execution was interrupted; the completed run below
+  supersedes that gap.
+- PASS: the complete default backend suite on the same application source:
+  `backend: python -m pytest -q app/tests` returned 3,868 passed, 308 skipped,
+  11 warnings in 31m34s on 24 October 2026. Its conftest uses SQLite; skips are
+  not PostgreSQL passes. The separate 46 real PostgreSQL checks above and two
+  concurrent stock-adjustment tests cover their stated scopes only.
 - PASS: MiniMax M3.1-Flash read-only reviews A1-A3 found no runtime break from
   the namespace move: 97 distinct mapped tables, 22 DTO modules with unchanged
   definitions, and no stale in-repository imports. B1 found that historical
@@ -55,7 +61,7 @@ targets and Alembic discovery were updated. No storage migration was added.
   Business policy and cause need separate review. No namespace refactor code
   path was found to cause this existing workflow behavior.
 - PENDING: remaining MiniMax guide reviews, named human technical/business
-  review, full backend suite, required CI, and production activation. Local visual
+  review, required CI, and production activation. Local visual
   evidence does not establish production acceptance. Follow VERIFICATION.md and
   DEPLOYMENT.md before promoting an exact commit to production.
 
@@ -214,7 +220,7 @@ pilot interface; each has its own review and release evidence. The later three
 feature streams start after pilot production acceptance. One active implementation
 per engineer; one writer per shared operation. IDs are plan IDs, not created issues.
 
-### RF-003: Sewing pilot bug evidence reconciled by Ismail
+### RF-003: Sewing pilot bug evidence prepared for Ismail
 
 At source `e7e2ee5`, keep these separate when capturing the RF-005 baseline:
 
@@ -225,8 +231,8 @@ At source `e7e2ee5`, keep these separate when capturing the RF-005 baseline:
 | [WF12](../bugs/bugs.md) | The October 6 audit flags inconsistent parent/child lock order between daily reports and Sewing writes. Its historical `Present` label has not been freshly reverified at this source. | Trace both lock sequences before changing transaction boundaries; run `test_sewing_daily_report_lock_order.py`. Do not claim this risk fixed by relocating code. |
 
 The historical October 6 tracker rows are leads, not current production verdicts.
-RF-003 reconciles the evidence above; it does not close the bug, approve a new
-business rule, or complete Mirshoir's RF-001 trace and RF-005 pilot.
+This prepares RF-003 for Ismail's review; it does not close the bug, approve a
+new business rule, or complete Mirshoir's RF-001 trace and RF-005 pilot.
 
 ## What to inspect first, and proposed service homes
 
