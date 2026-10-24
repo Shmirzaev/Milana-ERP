@@ -6,7 +6,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.dt import as_utc
-from app.models import Invoice, Payment, SalesOrder
+from app.schemas import Invoice, Payment, SalesOrder
 
 
 USD_SETTLEMENT_TOLERANCE = Decimal("1.00")

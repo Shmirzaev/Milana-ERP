@@ -4,7 +4,7 @@ import pytest
 
 from app.api.routes.cutting_passports import _compute
 from app.db.session import SessionLocal
-from app.models import Bundle, Item, CuttingPassport, CuttingRecord, MaterialReservation, ProductionOrderMaterial, StockBatch
+from app.schemas import Bundle, Item, CuttingPassport, CuttingRecord, MaterialReservation, ProductionOrderMaterial, StockBatch
 from app.tests.test_passport_cutting_submission import passport_cutting  # noqa: F401
 
 

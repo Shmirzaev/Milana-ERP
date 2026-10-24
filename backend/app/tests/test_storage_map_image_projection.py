@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import event
 
 from app.api.routes.packages import storage_map
-from app.models import LegacyStockReceipt, Model, ModelImage, Package
+from app.schemas import LegacyStockReceipt, Model, ModelImage, Package
 from app.tests.conftest import TestSessionLocal
 
 

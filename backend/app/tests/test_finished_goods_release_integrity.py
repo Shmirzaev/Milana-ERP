@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.api.routes.finished_goods import release
 from app.db.base import Base
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     AuditLog,
     FinishedGoodsStock,
     LegacyStockReceipt,

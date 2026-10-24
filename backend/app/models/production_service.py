@@ -5,7 +5,7 @@ import re
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.models import (
+from app.schemas import (
     Brand, Department, Item, Model, ProductionBatch, ProductionOrder,
     ProductionOrderItem, ProductionOrderMaterial, SalesOrder, StockBatch, WorkOrder,
 )

@@ -4,7 +4,7 @@ import re
 
 from sqlalchemy import or_
 
-from app.models import Package, PackageBarcodeAlias
+from app.schemas import Package, PackageBarcodeAlias
 
 
 def scan_candidates(code):

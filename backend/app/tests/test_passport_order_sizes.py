@@ -5,8 +5,8 @@ import pytest
 
 from app.api.routes.cutting_passports import _compute, _report_passports, material_defaults
 from app.db.session import SessionLocal
-from app.models import CuttingPassport, ProductionOrder, ProductionOrderItem, User
-from app.models.catalog import ModelSize
+from app.schemas import CuttingPassport, ProductionOrder, ProductionOrderItem, User
+from app.schemas.catalog.catalog import ModelSize
 from app.models.passport_sizes_service import size_count_from_range
 from app.tests.test_cutting_passport_defaults_query_growth import _material_order, _factory_user
 

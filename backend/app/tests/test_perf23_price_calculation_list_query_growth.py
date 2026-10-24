@@ -26,7 +26,7 @@ psycopg2, so it is the metric used.
 from sqlalchemy import event, func
 
 from app.db.session import SessionLocal
-from app.models import Model, ModelBOM, ModelImage, ModelSize, PriceCalculationRequest, User
+from app.schemas import Model, ModelBOM, ModelImage, ModelSize, PriceCalculationRequest, User
 from app.tests.conftest import test_engine
 
 

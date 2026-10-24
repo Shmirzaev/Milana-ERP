@@ -2,7 +2,7 @@
 from copy import deepcopy
 from sqlalchemy import update, select
 from app.db.base import Base
-from app.models import Employee, SystemSetting
+from app.schemas import Employee, SystemSetting
 from app.models.audit_service import log_action
 from app.models.employee_names_service import latin_employee_name
 

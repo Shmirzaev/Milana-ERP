@@ -4,11 +4,11 @@ from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import joinedload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
-from app.models import Model, ModelBOM, SewingFlow, StockBatch, WorkOrder, User, SewingAssignment, ProductionOrder, ProductionBatch
-from app.schemas.sewing_flow import (
+from app.schemas import Model, ModelBOM, SewingFlow, StockBatch, WorkOrder, User, SewingAssignment, ProductionOrder, ProductionBatch
+from app.libs.dto.production.sewing_flow import (
     SewingFlowIn, SewingFlowUpdate, SewingFlowOut, SewingFlowWithLoad, SewingFlowWorkOrderOut,
 )
-from app.schemas.production import WorkOrderOut
+from app.libs.dto.production.production import WorkOrderOut
 from app.models.audit_service import log_action
 from app.models.model_identity_service import model_number_fields
 from app.models.model_images_service import material_preview_image_url

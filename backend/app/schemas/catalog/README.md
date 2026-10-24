@@ -4,34 +4,35 @@
 
 Garment models, colors, sizes, BOM, customers, suppliers and paid-process definitions.
 
-Documentation scaffold only. Existing SQLAlchemy classes still live in `app/models/`;
-existing Pydantic DTOs still live in the parent `app/schemas/` files. No ORM or DTO
-code moves in this scaffold. Business services live in `models/*_service.py`.
+SQLAlchemy definitions now live under app/schemas/; Pydantic DTOs live in
+app/libs/dto/. The links below show the authoritative definitions for this group's
+records. Business services live in models/*_service.py.
 
-## Existing definitions to migrate
+## Authoritative definitions
 
-- [Brand](../../models/catalog.py)
-- [Collection](../../models/catalog.py)
-- [Model](../../models/catalog.py)
-- [CollectionModel](../../models/catalog.py)
-- [ModelImage](../../models/catalog.py)
-- [ModelSize](../../models/catalog.py)
-- [ModelColor](../../models/catalog.py)
-- [ModelBOM](../../models/catalog.py)
-- [PaidProcess](../../models/paid_process.py)
-- [UslugaPaidProcess](../../models/paid_process.py)
-- [Customer](../../models/partners.py)
-- [Supplier](../../models/partners.py)
+- [Brand](catalog.py)
+- [Collection](catalog.py)
+- [Model](catalog.py)
+- [CollectionModel](catalog.py)
+- [ModelImage](catalog.py)
+- [ModelSize](catalog.py)
+- [ModelColor](catalog.py)
+- [ModelBOM](catalog.py)
+- [PaidProcess](paid_process.py)
+- [UslugaPaidProcess](paid_process.py)
+- [Customer](partners.py)
+- [Supplier](partners.py)
 
-These are the ownership map's proposed destinations, not permission to move a whole
-mixed source file. Keep one authoritative mapping for each existing table.
+These links follow business ownership; some point to mixed files in another group
+or shared core.py. Keep one authoritative mapping per table. Moving individual
+classes out of mixed files is a separate approved change.
 
 ## How to make a file here
 
 1. Trace the approved business operation in [the service guide](../../models/catalog/README.md),
    its route, current model, DTO, database writes and other callers.
-2. First migrate current Pydantic DTOs and callers to `libs/dto/<feature>/`.
-   Retire all old DTO imports/shims before activating ORM code under `schemas/`.
+2. Reuse Pydantic contracts from `libs/dto/<feature>/`; never define DTOs here.
+   Find existing mapped classes before adding a new persistence definition.
 3. Use a descriptive `snake_case.py` file for related existing model definitions.
    Reuse the existing SQLAlchemy Base and classes; preserve table/column names,
    keys, indexes, relationships, constraints, defaults and serialized enum values.
@@ -44,9 +45,9 @@ mixed source file. Keep one authoritative mapping for each existing table.
    workflow, then verify bounded stress/retries and adjacent department handoffs.
    Remove old paths only after the agreed acceptance and rollback conditions pass.
 
-Do not add `__init__.py` or Python implementation files during this scaffold step.
-Some group names collide with current DTO `.py` modules; package conversion must
-be coordinated, not silently shadow those modules.
+Only groups with actual definitions are Python packages. A guide without Python
+files points to its existing definitions elsewhere; it is not a request to create
+duplicate classes or empty implementation files.
 
 See [schema migration rules](../README.md), [DTO conventions](../../libs/dto/README.md),
 [the business plan](../../../../docs/REFACTOR_PLAN.md) and

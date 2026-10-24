@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from sqlalchemy import event
 
 from app.api.routes import inbox
-from app.models import Item, Model, ModelBOM, ModelImage, Package, ProductionOrder, StockBatch, Warehouse
+from app.schemas import Item, Model, ModelBOM, ModelImage, Package, ProductionOrder, StockBatch, Warehouse
 from app.tests.conftest import TestSessionLocal
 
 

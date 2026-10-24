@@ -20,7 +20,7 @@ from sqlalchemy import func
 from app.core.deps import user_permissions
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
-from app.models import Model, StockBatch, User
+from app.schemas import Model, StockBatch, User
 
 
 def request(base_url: str, path: str, headers: dict[str, str]) -> tuple[float, int, int, int]:

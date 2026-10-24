@@ -12,7 +12,7 @@ from sqlalchemy.orm import lazyload, selectinload
 from PIL import Image
 
 from app.core.dt import as_utc
-from app.models import (
+from app.schemas import (
     Brand,
     CuttingPassport,
     Department,

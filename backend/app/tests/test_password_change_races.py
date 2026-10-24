@@ -14,7 +14,7 @@ from sqlalchemy.orm import sessionmaker
 from app.api.routes import auth
 from app.core.security import hash_password, verify_password
 from app.db.base import Base
-from app.models import AuditLog, User
+from app.schemas import AuditLog, User
 from app.tests.conftest import TestSessionLocal
 
 

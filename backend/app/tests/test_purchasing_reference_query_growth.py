@@ -31,7 +31,7 @@ from sqlalchemy.orm import sessionmaker
 from app.core.costs import round_unit_cost
 from app.db import session as session_module
 from app.db.base import Base
-from app.models import (
+from app.schemas import (
     AuditLog,
     IdempotencyRecord,
     Item,

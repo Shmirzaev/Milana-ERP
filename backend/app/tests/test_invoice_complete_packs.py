@@ -8,7 +8,7 @@ from openpyxl import load_workbook
 
 from app.api.routes.shipments import _invoice_print_details
 from app.db.session import SessionLocal
-from app.models import LegacyStockReceipt, Package, PackageItem, Shipment, ShipmentPackage
+from app.schemas import LegacyStockReceipt, Package, PackageItem, Shipment, ShipmentPackage
 from app.models.shipment_invoice_service import build_invoice_rows, render_shipment_invoice
 from app.models.shipment_invoice_excel_service import shipment_invoice_workbook
 from app.models.shipment_review_service import shipment_document
@@ -163,7 +163,7 @@ def test_receipt_scan_partial_selection_dispatch_and_reprint(client, warehouse):
         assert Decimal(document["amount"]) == Decimal("390.00")
         sheet = load_workbook(BytesIO(client.get(base + "/invoice.xlsx", headers=warehouse).content)).active
         assert sheet["F10"].value == 2 and sheet["G10"].value == 180 and sheet["G11"].value == 15
-    from app.models import FinishedGoodsStock
+    from app.schemas import FinishedGoodsStock
     with SessionLocal() as db:
         assert db.get(Package, pid).total_quantity == 90
         assert db.query(FinishedGoodsStock).filter_by(package_id=pid).one().available_qty == 75

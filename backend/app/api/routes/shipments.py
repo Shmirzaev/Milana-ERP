@@ -10,7 +10,7 @@ from sqlalchemy import and_, func, exists
 from sqlalchemy.orm import selectinload, aliased
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
-from app.models import (
+from app.schemas import (
     FinishedGoodsStock,
     Shipment,
     ShipmentPackage,
@@ -27,9 +27,9 @@ from app.models import (
     Customer,
     Invoice,
 )
-from app.schemas.sales import ShipmentIn, ShipmentOut, ShipmentScanIn, ShipmentScanOut, ShipmentPreviousScan
-from app.schemas.catalog import PartyIn
-from app.schemas.shipment_review import ShipmentAmountReview, ShipmentPackageRemoval, ShipmentQuantityReview, ShipmentTransportDetails, ShipmentReopen
+from app.libs.dto.sales.sales import ShipmentIn, ShipmentOut, ShipmentScanIn, ShipmentScanOut, ShipmentPreviousScan
+from app.libs.dto.catalog.catalog import PartyIn
+from app.libs.dto.fulfillment.shipment_review import ShipmentAmountReview, ShipmentPackageRemoval, ShipmentQuantityReview, ShipmentTransportDetails, ShipmentReopen
 from app.models.shipment_reopen_service import reopen_shipment
 from app.models.shipment_review_service import (
     correct_received_quantity, detach_shipment_package, freeze_dispatch_document, locked_shipment,
@@ -1380,7 +1380,7 @@ def delete_mistaken_manual_shipment(sid: int, payload: ShipmentPackageRemoval, d
 
 
 def _invoice_print_details(db, shipment, document):
-    from app.models import AuditLog
+    from app.schemas import AuditLog
     from app.models.shipment_review_service import manual_invoice_sizes
     from app.models.shipment_invoice_service import build_invoice_rows
     lines = [dict(line) for line in document.get("lines", [])]

@@ -4,7 +4,7 @@ import pytest
 
 from app.core.security import create_access_token, hash_password, verify_password
 from app.db.session import SessionLocal
-from app.models import Bundle, Department, ProductionBatch, ProductionOrder, Role, SewingAssignment, SewingDailyReport, SewingFlow, User, WorkOrder
+from app.schemas import Bundle, Department, ProductionBatch, ProductionOrder, Role, SewingAssignment, SewingDailyReport, SewingFlow, User, WorkOrder
 from app.models.sewing_band_setup_service import BAND_PERMISSIONS, configure_eco_bands
 
 

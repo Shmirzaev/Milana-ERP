@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import event, select
 
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     AuditLog, Department, FinishedGoodsStock, ManualPackageReceipt, Model, Package,
     PackageBarcodeAlias, PackagePrintRun, PackagePrintRunMember,
     PackageScanLog, PackagingRecord, ProductionOrder, WorkOrder,
@@ -15,7 +15,7 @@ BASE = "/api/packages"
 
 
 def test_packaging_bom_item_preload_preserves_order_and_skips_missing_items(monkeypatch):
-    from app.models import Item, ModelBOM
+    from app.schemas import Item, ModelBOM
     from app.models import workflow_service as workflow
 
     marker = uuid4().hex[:8]
@@ -210,7 +210,7 @@ def test_ambiguous_alias_and_changed_member_roll_back_whole_receipt(client, auth
 
 
 def test_received_run_reprints_current_quantities_after_audited_correction(client, auth_headers, warehouse):
-    from app.models import Customer, PackageItem, PackageQuantityAdjustment
+    from app.schemas import Customer, PackageItem, PackageQuantityAdjustment
     body = manual_body()
     created = client.post(BASE + "/manual-receipt", headers=warehouse, json=body)
     assert created.status_code == 201, created.text
@@ -330,8 +330,8 @@ def test_print_manifest_cannot_silently_gain_a_member(client, auth_headers, ware
 
 def test_stale_resolved_run_refreshes_receipt_after_lock(client, auth_headers, packaging_order, monkeypatch):
     from datetime import datetime, timezone
-    from app.models import User
-    from app.schemas.package_workflows import PrintRunReceiveIn
+    from app.schemas import User
+    from app.libs.dto.fulfillment.package_workflows import PrintRunReceiveIn
     from app.models import package_workflows_service as service
     run = create_run(client, auth_headers, packaging_order, 6)
     with SessionLocal() as db:

@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session, lazyload
 
-from app.models import (
+from app.schemas import (
     Department,
     FinishedGoodsStock,
     Invoice,

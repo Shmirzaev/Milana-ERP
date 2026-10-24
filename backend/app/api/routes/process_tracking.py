@@ -13,7 +13,7 @@ from sqlalchemy.orm import selectinload
 from app.core.deps import DbSession, CurrentUser
 from app.core.pagination import clamp_pagination
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
-from app.models import (
+from app.schemas import (
     SalesOrder, ProductionOrder, ProductionBatch, WorkOrder, Customer, Item, Model, ModelImage, ModelBOM, SewingFlow, SewingAssignment,
     CuttingPassport, CuttingRecord, PrintingRecord, SewingRecord,
     PackagingRecord, Package, PackageBatchAllocation, StockBatch, Department, Bundle,

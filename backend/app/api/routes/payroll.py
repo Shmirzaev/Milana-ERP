@@ -21,7 +21,7 @@ from app.core.model_search import normalized_model_code_column, normalized_model
 from app.core.order_reference import (
     canonical_order_reference, order_reference_contains, order_reference_variants, resolve_order_id,
 )
-from app.models import (
+from app.schemas import (
     Bundle,
     Department,
     Employee,
@@ -38,7 +38,7 @@ from app.models import (
     WorkOrder,
     SewingRecord,
 )
-from app.schemas.payroll import (
+from app.libs.dto.people.payroll import (
     PayrollAdjustmentIn,
     PayrollAdjustmentOut,
     PayrollAdjustmentPageOut,
@@ -73,7 +73,7 @@ from app.schemas.payroll import (
     SewingProductionReportOut,
     SewingProductionReportOptions,
 )
-from app.models.order_reference import BusinessOrderAlias
+from app.schemas.order_reference import BusinessOrderAlias
 from app.models.process_qr_export_service import ProcessQrExportIn, build_process_qr_xlsx
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import require_factory_access, selected_factory_code

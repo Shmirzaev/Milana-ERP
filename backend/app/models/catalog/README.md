@@ -15,8 +15,8 @@ See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordi
 
 - Routes: [catalog.py](../../api/routes/catalog.py), [partners.py](../../api/routes/partners.py), [usluga.py](../../api/routes/usluga.py), [paid_processes.py](../../api/routes/paid_processes.py), [process_qr_setup.py](../../api/routes/process_qr_setup.py).
 - Services/helpers: [model_family_images_service.py](../model_family_images_service.py), [model_identity_service.py](../model_identity_service.py), [model_images_service.py](../model_images_service.py), [paid_process_catalog_service.py](../paid_process_catalog_service.py), [paid_operations_service.py](../paid_operations_service.py), [variant_display_service.py](../variant_display_service.py).
-- Existing SQLAlchemy schema models: [Brand](../catalog.py#L13), [Collection](../catalog.py#L21), [Model](../catalog.py#L33), [CollectionModel](../catalog.py#L111), [ModelImage](../catalog.py#L117), [ModelSize](../catalog.py#L129), [ModelColor](../catalog.py#L137), [ModelBOM](../catalog.py#L145), [PaidProcess](../paid_process.py#L7), [UslugaPaidProcess](../paid_process.py#L18), [Customer](../partners.py#L7), [Supplier](../partners.py#L16).
-- Existing Pydantic contracts: [catalog.py](../../schemas/catalog.py).
+- Existing SQLAlchemy schema models: [Brand](../../schemas/catalog/catalog.py#L13), [Collection](../../schemas/catalog/catalog.py#L21), [Model](../../schemas/catalog/catalog.py#L33), [CollectionModel](../../schemas/catalog/catalog.py#L111), [ModelImage](../../schemas/catalog/catalog.py#L117), [ModelSize](../../schemas/catalog/catalog.py#L129), [ModelColor](../../schemas/catalog/catalog.py#L137), [ModelBOM](../../schemas/catalog/catalog.py#L145), [PaidProcess](../../schemas/catalog/paid_process.py#L7), [UslugaPaidProcess](../../schemas/catalog/paid_process.py#L18), [Customer](../../schemas/catalog/partners.py#L7), [Supplier](../../schemas/catalog/partners.py#L16).
+- Existing Pydantic contracts: [catalog.py](../../libs/dto/catalog/catalog.py).
 
 These are source pointers, not permission to move entire mixed files. Trace the
 particular operation and every caller/write before choosing what belongs here.
@@ -33,17 +33,16 @@ Use snake_case_service.py filenames and operation names such as `create_*`, `rec
 `receive_*` or `approve_*`. A typed function is sufficient; a class is optional
 when it owns real dependencies. Accept the Session, validated input and actor
 explicitly. State the transaction owner, refusal rules and result contract.
-Use the existing ORM models. Migrate existing schemas/ DTOs to libs/dto/<feature>/
-with their callers; keep fixed values in libs/enums/. See [DTO conventions](../../libs/dto/README.md).
+Use the existing ORM definitions in schemas/ and DTOs in libs/dto/<feature>/;
+keep fixed values in libs/enums/. See [DTO conventions](../../libs/dto/README.md).
 Do not import routers, call an endpoint, or commit inside a helper owned by another
 transaction. Do not create an interface/repository or generic CRUD class by default.
 
-**Import collision:** `app/models/catalog.py` still defines ORM mappings.
-Keep this guide directory README-only: adding `__init__.py` could shadow that
-mapping module. Preserve its exports and callers through the ordered ORM migration.
-Business operations use distinct `*_service.py` filenames.
+Database definitions have moved to schemas/; business operations use
+*_service.py. Convert this guide into a service package only as an approved
+operation is extracted and all callers are updated.
 
-**First operation to study:** Separate catalog product/BOM responsibilities from the user DTOs currently in schemas/catalog.py. Trace usluga model versus order operations individually.
+**First operation to study:** Separate catalog product/BOM responsibilities from the user DTOs still sharing libs/dto/catalog/catalog.py. Trace usluga model versus order operations individually.
 
 **DTOs and enums:** Stable product/model and approval categories, preserving current values; editable products, partners and paid-operation records are not enums. Reuse Create/In, Update and Read/Out contracts
 where they exist. Add action-specific input only for a real action. Do not generate

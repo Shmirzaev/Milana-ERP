@@ -7,7 +7,7 @@ from sqlalchemy import or_, select, text
 
 from app.db.base import Base
 from app.db.session import SessionLocal
-from app.models import CuttingRecord, Package, PackagingRecord, ProductionOrder, WorkOrder
+from app.schemas import CuttingRecord, Package, PackagingRecord, ProductionOrder, WorkOrder
 from app.models.audit_service import log_action
 
 

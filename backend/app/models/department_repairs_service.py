@@ -1,7 +1,7 @@
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.models import Department
+from app.schemas import Department
 
 
 def repair_department_name(db: Session, department_id: int, raw_name: object) -> tuple[Department, str]:

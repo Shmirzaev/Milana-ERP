@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 from app.api.routes import inbox
-from app.models import Bundle, Department, Model, ProductionOrder, WorkOrder
+from app.schemas import Bundle, Department, Model, ProductionOrder, WorkOrder
 from app.tests.conftest import TestSessionLocal
 
 

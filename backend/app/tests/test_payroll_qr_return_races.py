@@ -14,10 +14,10 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from app.db.base import Base
-from app.schemas.payroll import PayrollRecordIn
+from app.libs.dto.people.payroll import PayrollRecordIn
 
 from app.api.routes import payroll
-from app.models import Employee, PayrollPeriod, PayrollQrLabel, PayrollRecord, User
+from app.schemas import Employee, PayrollPeriod, PayrollQrLabel, PayrollRecord, User
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_payroll import _create_employee, _create_user_with_permissions, _record_payload
 @pytest.fixture(scope="module")

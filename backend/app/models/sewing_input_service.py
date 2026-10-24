@@ -2,7 +2,7 @@
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models import Bundle, SewingRecord, WorkOrder
+from app.schemas import Bundle, SewingRecord, WorkOrder
 
 
 def sync_sewing_input(db: Session, wo: WorkOrder) -> None:

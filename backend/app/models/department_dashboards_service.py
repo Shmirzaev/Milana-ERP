@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import selectinload
 
-from app.models import (
+from app.schemas import (
     Bundle, BundleScanLog, CuttingRecord, Department, Model, Package,
     ProductionBatch, ProductionOrder, SalesOrder, Shipment, ShipmentPackage, WasteRecord, WorkOrder,
 )

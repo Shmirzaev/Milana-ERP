@@ -43,7 +43,7 @@ def enforce_band_request(user, request, db):
     """
     if getattr(user, "sewing_band_id", None) is None:
         return
-    from app.models import SewingFlow
+    from app.schemas import SewingFlow
     flow = db.get(SewingFlow, user.sewing_band_id)
     if not flow or not flow.is_active or flow.factory_code != "ECO":
         raise HTTPException(403, "Sewing band access is inactive")

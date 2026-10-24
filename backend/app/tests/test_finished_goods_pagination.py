@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import event
 
 from app.api.routes.finished_goods import list_branded, list_stock
-from app.models import Brand, FinishedGoodsStock, Model
+from app.schemas import Brand, FinishedGoodsStock, Model
 from app.tests.conftest import TestSessionLocal, test_engine
 
 

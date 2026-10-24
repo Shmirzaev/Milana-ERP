@@ -7,7 +7,7 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy.orm import Session
 
-from app.models import BusinessOrderAlias
+from app.schemas import BusinessOrderAlias
 from app.models.numbering_service import next_bundle_no
 
 

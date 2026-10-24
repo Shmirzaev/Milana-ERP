@@ -8,7 +8,7 @@ from app.api.routes.process_tracking import list_processes
 from app.api.routes.super_data import list_super_data_tables
 from app.db.base import Base
 from app.db.session import SessionLocal
-from app.models import Model, ModelBOM, ModelImage, ProductionOrder, User
+from app.schemas import Model, ModelBOM, ModelImage, ProductionOrder, User
 
 
 @pytest.mark.parametrize("count", [1, 50, 401])

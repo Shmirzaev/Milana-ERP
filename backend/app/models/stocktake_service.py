@@ -4,7 +4,7 @@ from datetime import timezone
 
 from sqlalchemy import func
 
-from app.models import FinishedGoodsStock, Model, Package, PackageItem
+from app.schemas import FinishedGoodsStock, Model, Package, PackageItem
 from app.models.package_identity_service import resolve_warehouse_package
 
 STORAGE_STATUSES = ("received_in_storage", "reserved", "damaged")

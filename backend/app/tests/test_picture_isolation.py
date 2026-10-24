@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from app.db.session import SessionLocal
-from app.models import Item, Model, ModelBOM, ModelImage
+from app.schemas import Item, Model, ModelBOM, ModelImage
 from app.models.cutting_sheet_service import _fabric_composition, _composition_text
 from app.models.model_images_service import model_display_image_url, model_variant_picture_url
 from app.models.label_images_service import variant_label_image_src

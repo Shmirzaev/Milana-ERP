@@ -3,10 +3,11 @@
 **Coordination owner:** Ismail. **Reviewer:** Mirshoir.
 Each feature owner migrates its callers and contract tests. See [team ownership](../../../../docs/TEAM_OWNERSHIP.md).
 
-The owner chose libs/dto/<feature>/, following Meditech. This is the target home
-for Pydantic data-transfer objects. The current app/schemas/ files remain active
-until each contract and its callers are migrated. This directory contains only
-documentation today; no DTO implementation or import was changed.
+This is the active home for Pydantic data-transfer objects, following Meditech.
+The 22 existing DTO files were moved here with their callers, preserving class
+names, validators, fields and defaults. Files are grouped by business area;
+common.py holds shared bases and validators. Inline route DTOs remain for later
+operation-level extraction. The folder move does not certify every contract's design.
 
 ## The mentor's actual structure
 
@@ -20,8 +21,8 @@ Inspected local Meditech snapshot b4c646ce471efbf6fe984f3315bba366b197281a:
 
 The resolver also imports DTOs. They describe data at the boundary; they are not
 an extra execution layer between service and database. Meditech's schemas/ means
-database schemas; Milana's current schemas/ means Pydantic contracts. This naming
-difference does not make DTOs and persistence models the same thing.
+database schemas; Milana now uses the same distinction. SQLAlchemy definitions
+are in schemas/ and Pydantic contracts are here. They have different jobs.
 
 ## Proposed Python file shape
 
@@ -29,10 +30,14 @@ For an approved user-contract migration, for example:
 
 ```text
 libs/dto/user/
-    input.py    # UserIn and relevant creation/action inputs
-    update.py   # UserUpdate: allowed update fields
-    output.py   # UserOut and relevant response envelopes
+    user_input.py    # UserIn and relevant creation/action inputs
+    user_update.py   # UserUpdate: allowed update fields
+    user_output.py   # UserOut and relevant response envelopes
 ```
+
+Use entity-prefixed filenames and explicit imports, for example:
+`from app.libs.dto.user.user_input import UserIn`. Python distinguishes modules
+by the full package path; the prefix also makes the file clear in searches and editor tabs.
 
 These are examples, not created files. Group by business feature, not automatically
 by every database table or all twelve service groups. Use Python filenames and
@@ -55,24 +60,19 @@ Preserve existing class names unless renaming is separately justified.
   updates explicit, with service authorization. Borrow structure, not every field
   exposed by the mentor's MemberUpdate.
 
-## Migration discipline
+## Extending or extracting a contract
 
-1. Locate the existing DTO in app/schemas/ or inline in a router and trace all callers,
-   inherited bases, validators, aliases, defaults, enums and response serialization.
-2. Agree the feature destination. Capture contract/authorization regression cases.
-3. Move the existing definition once and update imports in the approved operation.
-   If compatibility imports are needed, re-export the same class; never maintain
-   two independent definitions of the same DTO. Track the shim's cleanup condition.
-4. Test validation, missing/null updates, OpenAPI/response compatibility and relevant
-   workflow behavior; then test the actual screens using isolated data.
-5. Follow the shared release/acceptance process, then remove obsolete imports/shims.
-   Retire ALL old schemas/ DTO imports and shims before reusing that namespace.
-   The next phase moves only existing models/ ORM mappings into schemas/, preserving imports,
-   registration and database metadata. Do not mix legacy DTOs and ORM models there.
+1. Find the existing definition here or inline in a router. Trace callers, bases,
+   validators, aliases, defaults and response serialization before changing it.
+2. Agree the feature destination and preserve one definition per contract.
+3. Keep existing class names. Split <entity>_input.py/<entity>_update.py/<entity>_output.py only where that
+   helps a real feature; the current files already contain distinct contract classes.
+4. Update callers and test validation, omitted/null updates, allowed fields,
+   OpenAPI/response compatibility and authorization through the consuming service.
+5. Exercise the real screens on isolated data and follow shared release acceptance.
 
-Database schema mappings temporarily share [models/](../../models/README.md) with
-business services, which use *_service.py. Only the mappings target
-[schemas/](../../schemas/README.md) after DTO migration; business operations stay
-in models/. No persistence migration is implied.
+Database mappings are in [schemas/](../../schemas/README.md); business operations
+are in [models/](../../models/README.md). DTOs do not execute queries or commits.
+
 Ismail coordinates DTO conventions; each feature owner migrates its callers/tests.
 See [the full migration sequence](../../models/README.md#migration-sequence).

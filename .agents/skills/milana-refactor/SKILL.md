@@ -57,23 +57,17 @@ checks, rollback mechanism and next step so another session can resume accuratel
   Services own business rules, object/factory authorization and coordinated CRUD.
   They accept the session/context explicitly. No service imports a router or calls
   an endpoint; cross-feature work uses an agreed operation, not a private helper.
-- Target naming follows the owner's mentor: schemas/ holds SQLAlchemy database
-  schema models; libs/dto/<feature>/ holds Pydantic input, update and output DTOs.
-  Existing plain ORM files remain temporarily in models/ beside *_service.py;
-  current Pydantic DTOs still live in schemas/. Service implementations and their
-  imports have moved to models/; business extraction and DTO/ORM migration remain
-  separate work. Guide directories stay README-only to avoid shadowing ORM modules.
-- Migration order: first move existing DTO definitions and all callers to libs/dto/;
-  temporary compatibility imports must re-export the same class. Retire ALL old
-  DTO imports/shims and validate contracts before reusing schemas/ for persistence.
-  Then move only SQLAlchemy definitions from models/ to schemas/ with their
-  imports, model registration and Alembic metadata discovery. Services stay in
-  models/. Keep ORM exports in models/__init__.py until their coordinated migration;
-  do not add service re-exports there. Preserve table names,
-  constraints/defaults and a single mapping per table; require no database-schema
-  diff for this naming change. Test imports, mappings and affected workflows.
-  Keep the shared technical/visual/human-acceptance gates and rollback conditions
-  for each phase. Do not mix old DTO and new database meanings at the same path.
+- schemas/<business-group>/ holds SQLAlchemy database definitions; libs/dto/<group>/
+  holds Pydantic input, update and output contracts. Their namespace separation is
+  implemented. models/ contains services only; do not recreate the former locations.
+  schemas/__init__.py registers ORM classes for application startup and Alembic.
+  Keep the existing Base, one mapping per table, field/default/constraint semantics
+  and public DTO contracts. Pure source moves require no database-schema diff.
+  Some mapped files still span business groups; consult the map before splitting.
+  Service-group directories remain guides for approved operation extraction.
+- DTO filenames include their entity: user_input.py, user_update.py, user_output.py.
+  Use explicit class imports, e.g. from app.libs.dto.user.user_input import UserIn.
+  Retain existing mixed DTO files until an approved extraction updates every caller.
 - Shared definitions live in libs/enums/ and libs/types/, as chosen by the owner.
   Keep API DTOs in libs/dto/; libs contains no services or persistence operations.
 - Enums preserve existing string values. Configurable roles/permissions/factories

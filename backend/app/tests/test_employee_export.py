@@ -3,7 +3,7 @@ from io import BytesIO
 import pytest
 from openpyxl import load_workbook
 
-from app.models import Employee
+from app.schemas import Employee
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_payroll import _create_user_with_permissions
 

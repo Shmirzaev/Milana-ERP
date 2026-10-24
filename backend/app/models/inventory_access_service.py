@@ -3,7 +3,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.deps import user_permissions
-from app.models import Item, MaterialReservation, StockBatch, User
+from app.schemas import Item, MaterialReservation, StockBatch, User
 
 MATERIALS_ONLY = "inventory.materials_only"
 MATERIAL_CATEGORIES = ("fabric", "semi_finished")

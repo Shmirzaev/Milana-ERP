@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import HTTPException
 from sqlalchemy import and_, exists, or_, select
 
-from app.models import Bundle, Department, ProductionOrder, SewingFlow, WorkOrder
+from app.schemas import Bundle, Department, ProductionOrder, SewingFlow, WorkOrder
 from app.models.factory_scope_service import normalize_factory_code
 
 

@@ -4,8 +4,8 @@ import pytest
 from pydantic import ValidationError
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, Model, Notification, PriceCalculationRequest
-from app.schemas.price_calculation import PriceCalculationPurchasingIn
+from app.schemas import AuditLog, Model, Notification, PriceCalculationRequest
+from app.libs.dto.planning.price_calculation import PriceCalculationPurchasingIn
 
 
 MAX_PRICE = Decimal("9999999999.9999")

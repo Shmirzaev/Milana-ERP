@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.db.base import Base
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     Brand,
     CollectionModel,
     FinishedGoodsStock,

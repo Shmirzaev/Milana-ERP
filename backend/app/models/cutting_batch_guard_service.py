@@ -4,7 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy import or_, select, union_all
 from sqlalchemy.exc import OperationalError
 
-from app.models import SewingAssignment, SewingDailyReport, SewingRecord, WorkOrder
+from app.schemas import SewingAssignment, SewingDailyReport, SewingRecord, WorkOrder
 
 
 LOCKED_MESSAGE = "This cutting batch cannot be edited or deleted after Sewing output has been recorded"

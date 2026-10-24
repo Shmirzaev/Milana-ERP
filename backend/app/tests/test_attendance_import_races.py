@@ -11,7 +11,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import attendance
 from app.db.base import Base
-from app.models import AttendanceDevice, AttendanceEvent, AttendancePerson, SystemSetting
+from app.schemas import AttendanceDevice, AttendanceEvent, AttendancePerson, SystemSetting
 
 
 @pytest.fixture(scope="module")

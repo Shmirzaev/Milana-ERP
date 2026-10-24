@@ -10,7 +10,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.orm import sessionmaker
 
 from app.api.routes.warehouse_reservations import ReservePacks, SelectedPacks, reserve_packs, release_packs
-from app.models import Customer, FinishedGoodsStock, Package, Role, User, WarehousePackReservation
+from app.schemas import Customer, FinishedGoodsStock, Package, Role, User, WarehousePackReservation
 from app.tests.test_fresh_migration_bootstrap import postgres_migrations  # noqa: F401
 from app.tests.test_warehouse_pack_reservations import fixture_pack
 

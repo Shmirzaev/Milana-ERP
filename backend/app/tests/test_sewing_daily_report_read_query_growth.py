@@ -12,7 +12,7 @@ from app.api.routes.sewing_daily_reports import (
     _report_list,
 )
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     CuttingPassport,
     Department,
     Item,

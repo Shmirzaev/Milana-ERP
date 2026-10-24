@@ -14,7 +14,7 @@ from sqlalchemy import func
 
 from app.core.config import settings
 from app.core.deps import DbSession, require_permissions
-from app.models import (
+from app.schemas import (
     AttendanceEvent,
     Department,
     Employee,

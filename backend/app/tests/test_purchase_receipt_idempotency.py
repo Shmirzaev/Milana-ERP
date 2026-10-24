@@ -23,7 +23,7 @@ from app.models.idempotency_service import bind_idempotency_identity
 from app.core.security import create_access_token
 from app.db import session as session_module
 from app.db.base import Base
-from app.models import (
+from app.schemas import (
     AuditLog,
     IdempotencyRecord,
     Item,
@@ -35,7 +35,7 @@ from app.models import (
     User,
     Warehouse,
 )
-from app.schemas.purchasing import PurchaseOrderOut, PurchaseOrderReceiveIn
+from app.libs.dto.purchasing.purchasing import PurchaseOrderOut, PurchaseOrderReceiveIn
 
 
 def create_receipt_order(session_factory, *, unit_cost=None, ordered_quantity=100):

@@ -1,8 +1,8 @@
 import pytest
 from pydantic import ValidationError
 
-from app.models import AuditLog, Notification, SewingRecord, SewingReplacementRequest, WasteRecord
-from app.schemas.production import SewingRecordIn
+from app.schemas import AuditLog, Notification, SewingRecord, SewingReplacementRequest, WasteRecord
+from app.libs.dto.production.production import SewingRecordIn
 from app.tests.conftest import TestSessionLocal
 
 

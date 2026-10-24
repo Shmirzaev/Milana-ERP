@@ -15,8 +15,8 @@ See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordi
 
 - Routes: [planning.py](../../api/routes/planning.py), [forecasting.py](../../api/routes/forecasting.py), [price_calculation.py](../../api/routes/price_calculation.py).
 - Services/helpers: [planning_service.py](../planning_service.py), [forecasting_service.py](../forecasting_service.py), [price_calculation_service.py](../price_calculation_service.py), [branded_order_export_service.py](../branded_order_export_service.py).
-- Existing SQLAlchemy schema models: [ForecastRecommendation](../forecasting.py#L10), [PriceCalculationRequest](../price_calculation.py#L9), [BrandedPlanningOrder](../production.py#L22).
-- Existing Pydantic contracts: [production.py](../../schemas/production.py), [forecasting.py](../../schemas/forecasting.py), [price_calculation.py](../../schemas/price_calculation.py).
+- Existing SQLAlchemy schema models: [ForecastRecommendation](../../schemas/planning/forecasting.py#L10), [PriceCalculationRequest](../../schemas/planning/price_calculation.py#L9), [BrandedPlanningOrder](../../schemas/production/production.py#L22).
+- Existing Pydantic contracts: [production.py](../../libs/dto/production/production.py), [forecasting.py](../../libs/dto/planning/forecasting.py), [price_calculation.py](../../libs/dto/planning/price_calculation.py).
 
 These are source pointers, not permission to move entire mixed files. Trace the
 particular operation and every caller/write before choosing what belongs here.
@@ -34,8 +34,8 @@ Use snake_case_service.py filenames and operation names such as `create_*`, `rec
 `receive_*` or `approve_*`. A typed function is sufficient; a class is optional
 when it owns real dependencies. Accept the Session, validated input and actor
 explicitly. State the transaction owner, refusal rules and result contract.
-Use the existing ORM models. Migrate existing schemas/ DTOs to libs/dto/<feature>/
-with their callers; keep fixed values in libs/enums/. See [DTO conventions](../../libs/dto/README.md).
+Use the existing ORM definitions in schemas/ and DTOs in libs/dto/<feature>/;
+keep fixed values in libs/enums/. See [DTO conventions](../../libs/dto/README.md).
 Do not import routers, call an endpoint, or commit inside a helper owned by another
 transaction. Do not create an interface/repository or generic CRUD class by default.
 

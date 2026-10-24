@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import event
 
 from app.api.routes.payroll import payroll_summary
-from app.models import (
+from app.schemas import (
     Department,
     Employee,
     PayrollAdjustment,

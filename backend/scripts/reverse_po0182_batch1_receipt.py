@@ -10,7 +10,7 @@ import json
 from sqlalchemy import text
 
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     Bundle, BundleScanLog, Package, ProductionBatch, ProductionOrder,
     SewingAssignment, SewingDailyReport, SewingRecord, WorkOrder,
 )

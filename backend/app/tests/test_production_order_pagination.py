@@ -6,7 +6,7 @@ from sqlalchemy import event
 
 from app.api.routes.production import list_pos
 from app.db.session import SessionLocal
-from app.models import AuditLog, Model, ProductionOrder, SalesOrder
+from app.schemas import AuditLog, Model, ProductionOrder, SalesOrder
 
 
 def _seed_orders(count: int) -> tuple[str, int]:

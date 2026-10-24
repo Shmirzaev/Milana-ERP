@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from sqlalchemy import event, func, inspect, literal_column, select
 from sqlalchemy.orm import Session, defer, object_session
 
-from app.models import Model, ModelImage
+from app.schemas import Model, ModelImage
 from app.models.model_identity_service import model_number_fields
 
 

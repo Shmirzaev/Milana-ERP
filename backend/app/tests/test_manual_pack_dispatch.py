@@ -2,7 +2,7 @@
 from decimal import Decimal
 import pytest
 from app.db.session import SessionLocal
-from app.models import Customer, FinishedGoodsStock, Invoice, ManualPackageReceipt, Model, Package, PackagePrintRun, PackagePrintRunMember, Shipment
+from app.schemas import Customer, FinishedGoodsStock, Invoice, ManualPackageReceipt, Model, Package, PackagePrintRun, PackagePrintRunMember, Shipment
 from app.tests.test_package_workflows import warehouse, manual_body, package_qr  # noqa: F401
 
 

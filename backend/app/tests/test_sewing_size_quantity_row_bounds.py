@@ -2,8 +2,8 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 from app.api.routes import production
-from app.models import AuditLog, Department, Model, ProductionOrder, SewingRecord, WorkOrder
-from app.schemas.production import SewingRecordIn
+from app.schemas import AuditLog, Department, Model, ProductionOrder, SewingRecord, WorkOrder
+from app.libs.dto.production.production import SewingRecordIn
 from app.tests.conftest import TestSessionLocal
 
 

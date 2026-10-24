@@ -1,8 +1,8 @@
 # Team ownership and review
 
 24 October 2026. The owner requested explicit allocation for all refactor folders
-and new features. The service-folder relocation is authorized; planned business
-extractions remain subject to their operation agreements.
+and new features. Service/DTO/database namespace separation is authorized;
+planned business extractions remain subject to their operation agreements.
 
 ## Business folders
 
@@ -35,11 +35,10 @@ these layers still belong to the relevant engineer above.
 | --- | --- | --- | --- |
 | backend/app/api/routes/ | Dilmurod | Mirshoir | Router composition and HTTP/error conventions; feature owner handles each endpoint. |
 | backend/app/models/ | Mirshoir | Ismail | Group boundaries, public interfaces, dependency direction and cross-feature transactions. |
-| backend/app/libs/dto/ | Ismail | Mirshoir | Input/update/output conventions and shared bases; coordinate current DTO namespace migration. |
+| backend/app/libs/dto/ | Ismail | Mirshoir | Input/update/output conventions and shared bases; review contract changes and caller compatibility. |
 | backend/app/libs/enums/ | Ismail | Mirshoir | Fixed vocabulary conventions; Shavkat confirms business meaning. |
 | backend/app/libs/types/ and libs/ | Ismail | Dilmurod | Shared internal contracts and library organization. |
-| Current models/ ORM mappings, target schemas/; backend/app/db/; migration metadata | Mirshoir | Ismail | SQLAlchemy registration, transactions, database integrity and ordered model relocation. |
-| Current schemas/ DTO migration | Ismail | Mirshoir | Move DTOs/callers and retire shims before Mirshoir reuses the namespace for database models. |
+| backend/app/schemas/; backend/app/db/; migration metadata | Mirshoir | Ismail | SQLAlchemy registration, transactions, database integrity and storage compatibility. |
 | backend/app/core/ and shared service helpers | Dilmurod | Mirshoir | Shared auth, configuration and platform dependencies; business rules remain with feature owners. |
 | backend/alembic/, backend/app/migrations/ and persistence-changing scripts | Mirshoir | Ismail | Review actual migration authority, compatibility, rollback and data effects. |
 | tests/ and backend tests; .github/workflows/ | Dilmurod | Mirshoir | Shared fixtures, CI and architecture checks; each feature owner writes its regression tests. |

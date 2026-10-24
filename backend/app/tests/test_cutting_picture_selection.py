@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import CuttingRecord, Department, Model, ModelImage, ProductionOrder, WorkOrder
+from app.schemas import CuttingRecord, Department, Model, ModelImage, ProductionOrder, WorkOrder
 from app.models.cutting_sheet_service import _sheet_model_image_src
 from app.models.label_images_service import model_preview_label_image_src
 

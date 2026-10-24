@@ -4,7 +4,7 @@ from math import ceil
 import pytest
 from sqlalchemy import event
 
-from app.models import AttendancePerson
+from app.schemas import AttendancePerson
 from app.tests.conftest import TestSessionLocal, test_engine
 from app.tests.test_attendance import INTEGRATION_HEADERS, person, snapshot
 

@@ -2,7 +2,7 @@
 from decimal import Decimal
 from fastapi import HTTPException
 from sqlalchemy import func
-from app.models import CuttingPassport, CuttingRecord, ProductionOrderMaterial, StockBatch, StockMovement, WorkOrder
+from app.schemas import CuttingPassport, CuttingRecord, ProductionOrderMaterial, StockBatch, StockMovement, WorkOrder
 
 
 def material_quantity(source):

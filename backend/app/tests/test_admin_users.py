@@ -140,7 +140,7 @@ def test_limited_user_manager_cannot_grant_extra_permissions_they_lack(client, a
 
 def test_delete_user_with_audit_history_preserves_existing_references(client, auth_headers):
     from app.db.session import SessionLocal
-    from app.models import AuditLog, Employee, Notification, PasswordResetToken, User
+    from app.schemas import AuditLog, Employee, Notification, PasswordResetToken, User
 
     r = client.post(
         "/api/users",

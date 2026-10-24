@@ -4,8 +4,8 @@ import math
 
 from fastapi import HTTPException
 
-from app.models import CuttingMaterialUsage, ProductionOrder, ProductionOrderMaterial, WorkOrder
-from app.schemas.cutting_material import CuttingMaterialDetails
+from app.schemas import CuttingMaterialUsage, ProductionOrder, ProductionOrderMaterial, WorkOrder
+from app.libs.dto.production.cutting_material import CuttingMaterialDetails
 from app.models.inventory_service import (
     consume_material_reservations_for_stock_batch,
     require_material_reservation_before_cutting,

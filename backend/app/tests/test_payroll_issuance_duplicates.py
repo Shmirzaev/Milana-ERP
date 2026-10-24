@@ -1,4 +1,4 @@
-from app.models import AuditLog, PayrollQrLabel
+from app.schemas import AuditLog, PayrollQrLabel
 from app.tests.conftest import TestSessionLocal
 
 

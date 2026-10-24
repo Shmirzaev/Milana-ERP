@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from app.models import (
+from app.schemas import (
     FinishedGoodsStock, Model, Package, PackageItem, SalesOrder, SalesOrderItem,
     Shipment, ShipmentPackage, StockReservation,
 )

@@ -7,7 +7,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from app.db.base import Base
-from app.models import Department, Model, ProductionBatch, ProductionOrder, WorkOrder
+from app.schemas import Department, Model, ProductionBatch, ProductionOrder, WorkOrder
 from app.models.traceability_service import _batch_work_order_context
 
 

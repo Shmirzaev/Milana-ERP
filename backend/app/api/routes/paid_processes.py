@@ -7,8 +7,8 @@ from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 
 from app.core.deps import DbSession, require_permissions
-from app.models import User
-from app.models.paid_process import PaidProcess, UslugaPaidProcess
+from app.schemas import User
+from app.schemas.catalog.paid_process import PaidProcess, UslugaPaidProcess
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import selected_factory_code
 from app.models.paid_process_catalog_service import SECTIONS, normalized_key, normalized_name

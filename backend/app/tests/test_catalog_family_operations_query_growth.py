@@ -29,7 +29,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import catalog as catalog_routes
 from app.db.base import Base
-from app.models import Model, ModelBOM, User
+from app.schemas import Model, ModelBOM, User
 
 MIGRATION_0084 = (
     Path(__file__).resolve().parents[2] / "alembic" / "versions" / "0084_model_group_key.py"

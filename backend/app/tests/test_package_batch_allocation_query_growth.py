@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import event
 
 from app.db.session import SessionLocal
-from app.models import Model, Package, PackageBatchAllocation, ProductionBatch, ProductionOrder
+from app.schemas import Model, Package, PackageBatchAllocation, ProductionBatch, ProductionOrder
 from app.models import packages_service as package_service
 
 

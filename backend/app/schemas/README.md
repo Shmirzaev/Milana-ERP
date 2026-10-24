@@ -1,12 +1,14 @@
-# Schemas: target database schema-model folder
+# Schemas: SQLAlchemy database definitions
 
-**Coordination owner:** Ismail for current DTO migration; Mirshoir for target database schema models. **Reviewer:** Mirshoir for DTO work; Ismail for Mirshoir's database work.
-Retire DTO callers/shims before reusing the namespace. See [team ownership](../../../docs/TEAM_OWNERSHIP.md).
+**Coordination owner:** Mirshoir. **Reviewer:** Ismail.
 
-The twelve agreed business areas now have README-only schema folders, as requested.
-They reserve destinations and explain ownership; they do not activate Python packages
-or move database mappings. After the DTO namespace is vacated, migrate one approved
-operation's definitions with one authoritative mapping per table and the existing Base.
+These are persistence models: columns, relationships, indexes, constraints and
+defaults. Business services in models/ use them with a Session to read/write.
+Pydantic input/update/output DTOs live in libs/dto/, not here.
+
+The 26 existing definition files were moved with callers and registration, without
+changing mapped fields or tables. schemas/__init__.py registers all mapped classes
+for application startup, scripts and Alembic. Keep the existing app.db.base.Base.
 
 | Business area | Schema guide | Engineer / reviewer |
 | --- | --- | --- |
@@ -23,38 +25,24 @@ operation's definitions with one authoritative mapping per table and the existin
 | People, attendance and payroll | [people/](people/README.md) | Dilmurod / Mirshoir |
 | Tasks and notifications | [work_management/](work_management/README.md) | Dilmurod / Mirshoir |
 
-Shared AuditLog, SystemSetting, IdempotencyRecord and BusinessOrderAlias mappings
-remain in their current files under Mirshoir's coordination. Do not duplicate them
-across domains or invent a new business area for them.
+Shared definitions remain in core.py and order_reference.py. Some legacy files
+span groups: sales/sales.py also contains invoices and shipments;
+production/production.py and production/tracking.py include downstream records.
+The linked group guides describe business ownership and point to the actual file.
+Do not duplicate or split these classes just to populate every folder. identity/
+and finance/ remain guides because their definitions still share those files.
 
-Target responsibility: SQLAlchemy table definitions, columns, relationships,
-constraints and defaults, equivalent to Meditech's schemas/Member.model.ts.
-Today this directory still contains Pydantic DTOs; no DTO/ORM migration has begun.
+## How to make or change a definition
 
+1. Trace the existing table and every writer; agree the feature owner and fields.
+2. Reuse its mapped class and existing Base. Use a descriptive snake_case.py file.
+3. Keep workflow rules, queries, permissions and transaction commits in services.
+   Create/update/read validation belongs in DTOs; database defaults are distinct.
+4. Register a new mapping in schemas/__init__.py and update all direct imports.
+5. A source-only move must preserve metadata exactly. A real storage change needs
+   an explicitly reviewed Alembic migration, compatibility and rollback plan.
+6. Test real PostgreSQL constraints/migrations and the affected workflow, followed
+   by the shared visual, stress and human-acceptance gates before release completion.
 
-This directory currently contains the application's DTO implementations. The owner
-chose [libs/dto/<feature>/](../libs/dto/README.md) as their target location, matching
-the mentor's explicit DTO organization. These DTO files have not moved yet.
-
-For each approved operation, reuse and migrate the existing definition with its
-callers. Preserve validation, aliases, defaults, optional/null semantics, response
-filtering and inherited bases. A temporary compatibility import must re-export the
-same class, not duplicate its definition. Remove it after callers migrate and the
-operation passes technical, visual and human production acceptance.
-
-Existing UserIn/UserUpdate/UserOut in catalog.py and payroll contracts are sources
-to migrate, not a reason to write replacements from scratch. Move inline router
-DTOs directly to their agreed libs/dto feature. Shared ORMModel, Page and validators
-in common.py need their callers traced before relocation.
-
-After ALL DTOs, callers and compatibility imports leave this namespace, migrate
-only the existing SQLAlchemy definitions from [models/](../models/README.md) here.
-Business services now use models/*_service.py and remain there; do not relocate
-that whole folder or treat its service functions as database definitions.
-Update imports, model registration and Alembic metadata discovery together. Reuse
-the existing Base and table mappings; preserve names, constraints and defaults.
-Do not add queries, workflow rules or transaction commits to schema definitions.
-Verify imports, mapped tables and no database-schema diff, then test affected
-workflows and follow the same visual/human-acceptance gates before cleanup.
-Do not introduce ORM definitions here while legacy DTO imports still depend on it.
-See [the DTO guide](../libs/dto/README.md) for input/update/output file conventions.
+See [DTO conventions](../libs/dto/README.md), [service discipline](../models/README.md),
+[source map](../../../docs/REFACTOR_MAP.md) and [team ownership](../../../docs/TEAM_OWNERSHIP.md).

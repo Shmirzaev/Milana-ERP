@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from sqlalchemy import func, tuple_
 from sqlalchemy.orm import Session, load_only
 
-from app.models import Collection, CollectionModel, FinishedGoodsStock, Package, ProductionOrder, SalesOrderItem
+from app.schemas import Collection, CollectionModel, FinishedGoodsStock, Package, ProductionOrder, SalesOrderItem
 
 
 @dataclass

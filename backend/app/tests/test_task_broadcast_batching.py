@@ -9,8 +9,8 @@ from sqlalchemy.orm import sessionmaker
 from app.api.routes import tasks
 from app.db.base import Base
 from app.db.session import SessionLocal
-from app.models import AuditLog, Notification, Task, User
-from app.schemas.tasks import TaskIn
+from app.schemas import AuditLog, Notification, Task, User
+from app.libs.dto.work_management.tasks import TaskIn
 
 
 @pytest.fixture(params=["sqlite", "postgres"])

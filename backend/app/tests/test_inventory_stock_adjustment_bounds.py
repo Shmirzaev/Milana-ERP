@@ -9,7 +9,7 @@ those claims without physical stock behind them.
 from uuid import uuid4
 
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     AuditLog,
     MaterialReservation,
     Model,

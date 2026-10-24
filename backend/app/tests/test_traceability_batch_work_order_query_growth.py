@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import event
 
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     Department,
     Model,
     PackagingRecord,

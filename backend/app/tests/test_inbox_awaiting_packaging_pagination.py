@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import event
 
 from app.api.routes import inbox
-from app.models import Department, Model, ProductionBatch, ProductionOrder, WorkOrder
+from app.schemas import Department, Model, ProductionBatch, ProductionOrder, WorkOrder
 from app.tests.conftest import TestSessionLocal, test_engine
 
 

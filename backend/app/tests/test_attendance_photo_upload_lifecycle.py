@@ -8,7 +8,7 @@ from anyio import CancelScope
 from PIL import Image
 
 from app.api.routes import attendance
-from app.models import AttendanceDevice, AttendancePerson
+from app.schemas import AttendanceDevice, AttendancePerson
 from app.models.image_storage_service import convert_image_to_webp
 from app.tests.conftest import TestSessionLocal
 

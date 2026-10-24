@@ -1,7 +1,7 @@
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     Bundle, CuttingRecord, MaterialReservation, ProductionBatch, SewingRecord,
     StockBatch, StockMovement, WorkOrder,
 )
@@ -97,7 +97,7 @@ def test_delete_rejects_wrong_work_order_and_anonymous(client, auth_headers, pas
 def test_real_sewing_handoff_freezes_cutting(client, auth_headers, passport_cutting):
     _, order, work, payload = passport_cutting
     # This fixture's planned fabrics are explicit; no accessory BOM is required.
-    from app.models import ModelBOM
+    from app.schemas import ModelBOM
     with SessionLocal() as db:
         db.query(ModelBOM).filter_by(model_id=order["model_id"]).delete()
         db.commit()
@@ -120,7 +120,7 @@ def test_real_sewing_handoff_freezes_cutting(client, auth_headers, passport_cutt
 
 
 def test_delete_before_sewing_output_reverses_receipt(client, auth_headers, passport_cutting):
-    from app.models import ModelBOM
+    from app.schemas import ModelBOM
     stocks, order, work, payload = passport_cutting
     with SessionLocal() as db:
         db.query(ModelBOM).filter_by(model_id=order["model_id"]).delete()
@@ -175,7 +175,7 @@ def test_sibling_output_does_not_lock_unsewn_batch(client, auth_headers, passpor
 
 
 def test_delete_rejects_linked_printing_history(client, auth_headers, passport_cutting):
-    from app.models import PrintingRecord
+    from app.schemas import PrintingRecord
     stocks, order, work, payload = passport_cutting
     _cut(client, auth_headers, payload)
     with SessionLocal() as db:
@@ -195,7 +195,7 @@ def test_delete_rejects_linked_printing_history(client, auth_headers, passport_c
 @pytest.mark.parametrize("factory,permissions", [("ECO", ["cutting.records"]), ("MIL", ["cutting.workspace"])])
 def test_delete_requires_cutting_permission_and_matching_factory(client, auth_headers, passport_cutting, factory, permissions):
     from app.core.security import create_access_token
-    from app.models import User
+    from app.schemas import User
     _, _, work, payload = passport_cutting
     with SessionLocal() as db:
         user = User(name="Scoped delete", email="scoped-delete@example.invalid", password_hash="unused",

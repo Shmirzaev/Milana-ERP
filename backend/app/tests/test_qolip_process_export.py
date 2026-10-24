@@ -5,7 +5,7 @@ from openpyxl import load_workbook
 
 def test_qolip_filter_keeps_family_and_matches_legacy_fields(client, auth_headers):
     from app.db import session as session_module
-    from app.models import Model
+    from app.schemas import Model
 
     with session_module.SessionLocal() as db:
         for number, variant, fields in [

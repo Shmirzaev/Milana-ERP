@@ -13,7 +13,7 @@ from sqlalchemy import Table, inspect, select, text
 
 from app.db.base import Base
 from app.db.session import SessionLocal
-import app.models  # noqa: F401
+import app.schemas  # noqa: F401
 from app.models.audit_service import log_action
 
 

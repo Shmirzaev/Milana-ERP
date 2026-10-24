@@ -3,7 +3,7 @@ from io import BytesIO
 import pytest
 from openpyxl import load_workbook
 from app.db.session import SessionLocal
-from app.models import Employee, Model, BrandedPlanningOrder, ProductionOrder, ProductionOrderItem, PayrollRecord, SewingFlow, WorkOrder, Department
+from app.schemas import Employee, Model, BrandedPlanningOrder, ProductionOrder, ProductionOrderItem, PayrollRecord, SewingFlow, WorkOrder, Department
 from app.models.employee_names_service import latin_employee_name
 from app.models.employee_reconciliation_service import reconcile_employees
 from app.tests.test_payroll import _create_user_with_permissions

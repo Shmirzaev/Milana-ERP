@@ -15,8 +15,8 @@ See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordi
 
 - Routes: [finished_goods.py](../../api/routes/finished_goods.py), [warehouse_reservations.py](../../api/routes/warehouse_reservations.py), [shipments.py](../../api/routes/shipments.py), [packages.py](../../api/routes/packages.py), [package_workflows.py](../../api/routes/package_workflows.py).
 - Services/helpers: [finished_goods_service.py](../finished_goods_service.py), [package_dispatch_service.py](../package_dispatch_service.py), [package_returns_service.py](../package_returns_service.py), [packages_service.py](../packages_service.py), [package_workflows_service.py](../package_workflows_service.py), [warehouse_packages_service.py](../warehouse_packages_service.py), [warehouse_report_service.py](../warehouse_report_service.py), [shipment_review_service.py](../shipment_review_service.py), [shipment_reopen_service.py](../shipment_reopen_service.py), [shipment_invoice_service.py](../shipment_invoice_service.py), [shipment_invoice_excel_service.py](../shipment_invoice_excel_service.py).
-- Existing SQLAlchemy schema models: [ManualPackageReceipt](../package_workflows.py#L10), [PackagingReceipt](../production.py#L479), [Shipment](../sales.py#L81), [ShipmentPackage](../sales.py#L106), [ShipmentScanLog](../sales.py#L119), [PackageQuantityAdjustment](../shipment_review.py#L9), [LegacyStockReceipt](../tracking.py#L128), [FinishedGoodsStock](../tracking.py#L233), [StockReservation](../tracking.py#L262), [WarehousePackReservation](../tracking.py#L276).
-- Existing Pydantic contracts: [tracking.py](../../schemas/tracking.py), [sales.py](../../schemas/sales.py), [shipment_review.py](../../schemas/shipment_review.py), [package_workflows.py](../../schemas/package_workflows.py).
+- Existing SQLAlchemy schema models: [ManualPackageReceipt](../../schemas/packaging/package_workflows.py#L10), [PackagingReceipt](../../schemas/production/production.py#L479), [Shipment](../../schemas/sales/sales.py#L81), [ShipmentPackage](../../schemas/sales/sales.py#L106), [ShipmentScanLog](../../schemas/sales/sales.py#L119), [PackageQuantityAdjustment](../../schemas/fulfillment/shipment_review.py#L9), [LegacyStockReceipt](../../schemas/production/tracking.py#L128), [FinishedGoodsStock](../../schemas/production/tracking.py#L233), [StockReservation](../../schemas/production/tracking.py#L262), [WarehousePackReservation](../../schemas/production/tracking.py#L276).
+- Existing Pydantic contracts: [tracking.py](../../libs/dto/packaging/tracking.py), [sales.py](../../libs/dto/sales/sales.py), [shipment_review.py](../../libs/dto/fulfillment/shipment_review.py), [package_workflows.py](../../libs/dto/fulfillment/package_workflows.py).
 
 These are source pointers, not permission to move entire mixed files. Trace the
 particular operation and every caller/write before choosing what belongs here.
@@ -34,8 +34,8 @@ Use snake_case_service.py filenames and operation names such as `create_*`, `rec
 `receive_*` or `approve_*`. A typed function is sufficient; a class is optional
 when it owns real dependencies. Accept the Session, validated input and actor
 explicitly. State the transaction owner, refusal rules and result contract.
-Use the existing ORM models. Migrate existing schemas/ DTOs to libs/dto/<feature>/
-with their callers; keep fixed values in libs/enums/. See [DTO conventions](../../libs/dto/README.md).
+Use the existing ORM definitions in schemas/ and DTOs in libs/dto/<feature>/;
+keep fixed values in libs/enums/. See [DTO conventions](../../libs/dto/README.md).
 Do not import routers, call an endpoint, or commit inside a helper owned by another
 transaction. Do not create an interface/repository or generic CRUD class by default.
 

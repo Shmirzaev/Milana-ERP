@@ -6,7 +6,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import selectinload
 
 from app.db.session import SessionLocal
-from app.models import Model, ModelImage
+from app.schemas import Model, ModelImage
 from app.models import model_family_images_service as photos
 from app.models.model_images_service import warehouse_stock_image_urls
 
@@ -145,7 +145,7 @@ def test_bulk_warehouse_images_preserve_evidence_fallback_and_missing_pictures()
 
 def test_storage_map_preserves_legacy_aggregation_partial_quantities_and_filters(client, auth_headers):
     from datetime import datetime, timezone
-    from app.models import LegacyStockReceipt, Package
+    from app.schemas import LegacyStockReceipt, Package
 
     with SessionLocal() as db:
         model = _model(db, "STOCK-001", {"model_no": "STOCK", "variant_no": "001"}, legacy=True)

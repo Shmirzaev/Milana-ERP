@@ -32,7 +32,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import stocktake as stocktake_routes
 from app.db.base import Base
-from app.models import (
+from app.schemas import (
     FinishedGoodsStock,
     LegacyStockReceipt,
     Model,
@@ -41,7 +41,7 @@ from app.models import (
     User,
     Warehouse,
 )
-from app.models.stocktake import WarehouseStocktake, WarehouseStocktakeRow
+from app.schemas.inventory.stocktake import WarehouseStocktake, WarehouseStocktakeRow
 
 # The detail endpoint returns at most this many rows regardless of count size.
 DETAIL_LIMIT = 100

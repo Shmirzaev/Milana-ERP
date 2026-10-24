@@ -3,8 +3,8 @@ from decimal import Decimal, InvalidOperation
 from fastapi import APIRouter, HTTPException, Depends, Header, Query
 
 from app.core.deps import DbSession, require_permissions
-from app.models import Invoice, SalesOrder, User
-from app.schemas.sales import InvoiceIn, InvoiceOut, PaymentIn, PaymentOut
+from app.schemas import Invoice, SalesOrder, User
+from app.libs.dto.sales.sales import InvoiceIn, InvoiceOut, PaymentIn, PaymentOut
 from app.models.audit_service import log_action
 from app.models.numbering_service import next_invoice_no
 from app.models.payments_service import create_invoice_payment, invoice_payment_status

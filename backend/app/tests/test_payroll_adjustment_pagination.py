@@ -7,8 +7,8 @@ import pytest
 from sqlalchemy import event
 
 from app.api.routes.payroll import list_adjustments
-from app.models import AuditLog, Employee, PayrollAdjustment
-from app.schemas.payroll import PayrollAdjustmentOut
+from app.schemas import AuditLog, Employee, PayrollAdjustment
+from app.libs.dto.people.payroll import PayrollAdjustmentOut
 from app.tests.conftest import TestSessionLocal, test_engine
 
 

@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.routes import catalog as catalog_routes
 from app.core.deps import DbSession, require_permissions
-from app.models import (
+from app.schemas import (
     Bundle,
     CuttingRecord,
     FinishedGoodsStock,
@@ -30,7 +30,7 @@ from app.models import (
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import require_factory_access
 from app.models.production_service import create_production_order, create_work_orders
-from app.schemas.catalog import (
+from app.libs.dto.catalog.catalog import (
     ModelBOMIn,
     ModelBOMUpdate,
     ModelDetail,

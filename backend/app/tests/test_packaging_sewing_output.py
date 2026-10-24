@@ -1,7 +1,7 @@
 """Packaging consumes passed Sewing evidence, never the Cutting/order plan."""
 import pytest
 
-from app.models import Department, PackagingReceipt, PackagingRecord, SewingRecord, WorkOrder
+from app.schemas import Department, PackagingReceipt, PackagingRecord, SewingRecord, WorkOrder
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_production_flow import _issue_required_accessories
 
@@ -91,7 +91,7 @@ def test_actual_tracks_cutting_sewing_packaging_and_limits_partial_input(client,
 @pytest.mark.parametrize("scoped", [False, True])
 def test_sewing_budget_is_exact_batch_and_receipt_limited(client, auth_headers, factory, department, scoped):
     from app.core.security import create_access_token
-    from app.models import ProductionBatch
+    from app.schemas import ProductionBatch
 
     po, work, bid = _create(client, auth_headers)
     with TestSessionLocal() as db:

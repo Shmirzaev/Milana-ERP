@@ -3,7 +3,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
-from app.models import AuditLog, Department, User
+from app.schemas import AuditLog, Department, User
 from app.models.audit_service import log_action
 
 

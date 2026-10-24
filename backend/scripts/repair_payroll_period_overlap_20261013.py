@@ -52,7 +52,7 @@ def plan(rows: list[dict], new_period_dependencies: int) -> list[dict]:
 def run(apply=False, expected=None, backup=None):
     from sqlalchemy import text
     from app.db.session import SessionLocal
-    from app.models import PayrollPeriod
+    from app.schemas import PayrollPeriod
     from app.models.audit_service import log_action
 
     with SessionLocal() as db:

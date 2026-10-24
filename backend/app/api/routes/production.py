@@ -31,7 +31,7 @@ from app.core.uploads import (
     read_validated_upload_content,
     safe_content_type,
 )
-from app.models import (
+from app.schemas import (
     CuttingPassport,
     ProductionOrder, ProductionOrderMaterial, WorkOrder, public_production_order_no,
     CuttingRecord, CuttingMaterialUsage,
@@ -42,8 +42,8 @@ from app.models import (
     ProductionBatch, WasteRecord,
     ProductionOrderItem, Bundle, Item, Model, ModelImage, ModelBOM, StockBatch,
 )
-from app.schemas.inventory import MaterialReservationOut, MaterialReservationStatusOut
-from app.schemas.production import (
+from app.libs.dto.inventory.inventory import MaterialReservationOut, MaterialReservationStatusOut
+from app.libs.dto.production.production import (
     ProductionOrderIn, ProductionOrderUpdateIn, ProductionOrderOut, ProductionOrderDetail, ProductionOrderPageOut,
     WorkOrderOut, WorkOrderUpdate,
     CuttingMaterialUsageIn, CuttingRecordIn, PrintingRecordIn, SewingRecordIn, PackagingRecordIn,
@@ -100,7 +100,7 @@ from app.models.model_identity_service import model_number_fields
 from app.models.model_images_service import material_preview_image_url, model_preview_image_url
 from app.models.cutting_sheet_service import render_cutting_sheet_html
 from app.models.passport_nastil_service import pending_work_order_passport_batches
-from app.schemas.production import CuttingSewingFactoryIn
+from app.libs.dto.production.production import CuttingSewingFactoryIn
 from app.models.cutting_batch_guard_service import require_cutting_batch_mutable, sewing_output_batch_query
 from app.models.factory_scope_service import require_factory_access, selected_factory_code, factory_for_department
 from app.models.factory_scope_service import require_work_order_factory_access
@@ -1462,7 +1462,7 @@ def cascade_deadlines(pid: int, db: DbSession, current: User = Depends(require_p
     SAM * quantity. Other stages fill the remaining horizon proportionally.
     Otherwise the static 20/10/45/15/10 share is used.
     """
-    from app.models import Model as ModelEntity  # local import to avoid cycles
+    from app.schemas import Model as ModelEntity  # local import to avoid cycles
 
     po = _require_standard_production_order(db, pid)
     if not po.deadline:
@@ -5184,7 +5184,7 @@ def _revised_sewing_input_limit(db: DbSession, wo: WorkOrder, batch_id: int, cut
     """
     if cutting_passed <= 0:
         return 0
-    from app.models import AuditLog
+    from app.schemas import AuditLog
     revised_count = db.query(AuditLog.id).filter(
         AuditLog.entity_type == "ProductionBatch", AuditLog.entity_id == batch_id,
         AuditLog.action == "update_cutting_batch",

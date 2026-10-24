@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 
-from app.models import Package, PackageChangeRequest, PackagePrintRun, PackagePrintRunMember, ProductionOrder
+from app.schemas import Package, PackageChangeRequest, PackagePrintRun, PackagePrintRunMember, ProductionOrder
 from app.models.audit_service import log_action
 from app.models.barcode_service import generate_barcode_value
 from app.models.numbering_service import _next, retire_label_numbers

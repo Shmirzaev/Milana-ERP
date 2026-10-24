@@ -3,7 +3,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.package_workflows import ManualPackageReceiptIn
+from app.libs.dto.fulfillment.package_workflows import ManualPackageReceiptIn
 
 
 def _payload(**overrides) -> dict:

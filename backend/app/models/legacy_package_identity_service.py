@@ -12,12 +12,12 @@ import json
 
 from sqlalchemy import text
 
-from app.models import (
+from app.schemas import (
     FinishedGoodsStock, LegacyStockReceipt, Package, PackageBarcodeAlias,
     PackageBatchAllocation, PackageChangeRequest, PackageItem, PackageScanLog,
     ShipmentPackage, ShipmentScanLog, StockReservation,
 )
-from app.models.stocktake import WarehouseStocktake, WarehouseStocktakeRow
+from app.schemas.inventory.stocktake import WarehouseStocktake, WarehouseStocktakeRow
 from app.models.audit_service import log_action
 from app.models.package_identity_service import physical_legacy_qr
 from app.models.stocktake_service import package_snapshots

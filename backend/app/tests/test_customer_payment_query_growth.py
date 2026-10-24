@@ -30,7 +30,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.api.routes.partners import _candidate_paid_totals, _find_payable_invoice
 from app.db.base import Base
-from app.models import Customer, Invoice, Payment, SalesOrder
+from app.schemas import Customer, Invoice, Payment, SalesOrder
 from app.models.payments_service import (
     REVERSED_INVOICE_STATUSES,
     invoice_paid_total,

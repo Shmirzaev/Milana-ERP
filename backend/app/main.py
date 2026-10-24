@@ -25,7 +25,7 @@ from app.core.security import decode_token
 from app.core.shared_store import get_shared_counter_store
 from app.api.router import api_router
 from app.db.session import SessionLocal, engine
-import app.models  # noqa: F401 — register models with metadata
+import app.schemas  # noqa: F401 — register models with metadata
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("milana")
@@ -363,7 +363,7 @@ def _safe_model_file_path(name: str):
 
 
 def _model_image_record(name: str, db: DbSession):
-    from app.models import ModelImage
+    from app.schemas import ModelImage
 
     file_url = f"/storage/model-files/{name}"
     return (

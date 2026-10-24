@@ -5,8 +5,8 @@ from uuid import uuid4
 
 from sqlalchemy import event
 
-from app.models import AuditLog, PayrollRecord
-from app.schemas.payroll import PayrollRecordBulkIn
+from app.schemas import AuditLog, PayrollRecord
+from app.libs.dto.people.payroll import PayrollRecordBulkIn
 from app.tests.conftest import TestSessionLocal, test_engine
 from app.tests.test_payroll import (
     _create_employee,

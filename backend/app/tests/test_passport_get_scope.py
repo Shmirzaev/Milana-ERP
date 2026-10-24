@@ -9,7 +9,7 @@ from sqlalchemy import event
 from app.api.routes import cutting_passports
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
-from app.models import AuditLog, CuttingPassport, Department, ProductionOrder, User, WorkOrder
+from app.schemas import AuditLog, CuttingPassport, Department, ProductionOrder, User, WorkOrder
 
 
 def _actor(factory="MIL", permissions=("cutting.records",)):

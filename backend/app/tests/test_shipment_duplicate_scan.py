@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import Customer, Package, Shipment, ShipmentPackage, ShipmentScanLog, User
+from app.schemas import Customer, Package, Shipment, ShipmentPackage, ShipmentScanLog, User
 from app.tests.test_manual_pack_dispatch import receive, shipment
 from app.tests.test_package_workflows import warehouse, package_qr  # noqa: F401
 from app.tests.test_shipment_review import dispatch  # noqa: F401

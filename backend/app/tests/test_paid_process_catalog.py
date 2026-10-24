@@ -8,8 +8,8 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 
 from app.db.session import SessionLocal
-from app.models import AuditLog
-from app.models.paid_process import PaidProcess
+from app.schemas import AuditLog
+from app.schemas.catalog.paid_process import PaidProcess
 from app.models.paid_process_catalog_service import normalized_key, normalized_name, process_section
 from app.tests.test_payroll import _create_user_with_permissions
 

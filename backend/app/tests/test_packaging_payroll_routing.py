@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 from openpyxl import load_workbook
 
-from app.models import (
+from app.schemas import (
     Bundle, Department, Employee, FinishedGoodsStock, PayrollRecord, ProductionOrder,
     SewingAssignment, SewingFlow, SewingRecord, WorkOrder,
 )

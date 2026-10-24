@@ -4,8 +4,8 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.routes.payroll import _normalize_record_payload
-from app.models import AuditLog, PayrollQrLabel, PayrollRecord
-from app.schemas.payroll import PayrollRecordIn
+from app.schemas import AuditLog, PayrollQrLabel, PayrollRecord
+from app.libs.dto.people.payroll import PayrollRecordIn
 from app.tests.conftest import TestSessionLocal
 
 

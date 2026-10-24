@@ -6,7 +6,7 @@ from urllib.parse import quote
 from uuid import uuid4
 
 from app.db.session import SessionLocal
-from app.models import PackagingRecord, WorkOrder
+from app.schemas import PackagingRecord, WorkOrder
 
 _VALID_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
@@ -14,7 +14,7 @@ _VALID_PNG = base64.b64decode(
 
 
 def _record_cutting_output(production_order_id: int, quantity: int) -> None:
-    from app.models import CuttingRecord
+    from app.schemas import CuttingRecord
     with SessionLocal() as db:
         wo = db.query(WorkOrder).filter_by(production_order_id=production_order_id, operation='cutting').one()
         wo.actual_input_qty = wo.actual_output_qty = wo.passed_qty = quantity
@@ -680,7 +680,7 @@ def test_process_tracking_new_waiting_order_starts_at_cutting(client, auth_heade
     po = r.json()
 
     from app.db.session import SessionLocal
-    from app.models import ProductionOrder, WorkOrder
+    from app.schemas import ProductionOrder, WorkOrder
 
     db = SessionLocal()
     try:
@@ -724,7 +724,7 @@ def test_packaging_receives_sewing_work_by_scan_and_manual_entry(client, auth_he
     production_order = response.json()
 
     from app.db.session import SessionLocal
-    from app.models import Bundle, SewingRecord, WorkOrder
+    from app.schemas import Bundle, SewingRecord, WorkOrder
 
     suffix = uuid4().hex[:8]
     db = SessionLocal()
@@ -870,7 +870,7 @@ def test_zero_quantity_storage_transfer_does_not_override_cutting(client, auth_h
     assert start_storage.status_code == 400, start_storage.text
 
     from app.db.session import SessionLocal
-    from app.models import ProductionOrder, WorkOrder
+    from app.schemas import ProductionOrder, WorkOrder
     from app.models.workflow_service import sync_production_order_status
 
     db = SessionLocal()
@@ -984,7 +984,7 @@ def test_process_tracking_pagination_search_status_contract(client, auth_headers
     po = r.json()
 
     from app.db.session import SessionLocal
-    from app.models import ProductionOrder
+    from app.schemas import ProductionOrder
 
     db = SessionLocal()
     try:
@@ -1266,7 +1266,7 @@ def test_cutting_inbox_hides_orders_that_progressed_to_other_departments(client,
     packaged_id = create_order()
 
     from app.db.session import SessionLocal
-    from app.models import Package, ProductionOrder, WorkOrder
+    from app.schemas import Package, ProductionOrder, WorkOrder
 
     db = SessionLocal()
     try:
@@ -1460,7 +1460,7 @@ def test_process_tracking_keeps_overlapping_production_and_sales_refs_distinct(c
     so_id = _create_client_sales_order(client, auth_headers)
 
     from app.db.session import SessionLocal
-    from app.models import ProductionOrder, SalesOrder
+    from app.schemas import ProductionOrder, SalesOrder
 
     db = SessionLocal()
     try:
@@ -2712,7 +2712,7 @@ def test_package_edit_request_applies_directly_with_audit_request(client, auth_h
     assert sorted((row["size"], int(row["quantity"])) for row in detail["items"]) == [("L", 18), ("M", 12)]
 
     from app.db.session import SessionLocal
-    from app.models import FinishedGoodsStock
+    from app.schemas import FinishedGoodsStock
 
     db = SessionLocal()
     try:
@@ -2738,7 +2738,7 @@ def test_package_delete_request_removes_package_directly_with_audit_request(clie
     assert r.status_code == 404, r.text
 
     from app.db.session import SessionLocal
-    from app.models import FinishedGoodsStock
+    from app.schemas import FinishedGoodsStock
 
     db = SessionLocal()
     try:
@@ -3167,7 +3167,7 @@ def test_sewing_inbox_hides_cancelled_production_order_bundles(client, auth_head
     assert any(row["production_order_id"] == po_id for row in body["incoming_bundle_groups"])
 
     from app.db.session import SessionLocal
-    from app.models import ProductionOrder
+    from app.schemas import ProductionOrder
 
     db = SessionLocal()
     try:
@@ -4302,7 +4302,7 @@ def test_sewing_failure_is_recorded_without_replacement_work(client, auth_header
         assert response.status_code == 200, response.text
         assert response.json()["status"] == "completed"
     from app.db.session import SessionLocal
-    from app.models import SewingReplacementRequest
+    from app.schemas import SewingReplacementRequest
     with SessionLocal() as db:
         assert db.query(SewingReplacementRequest).filter_by(production_order_id=po_id).count() == 0
 
@@ -5464,7 +5464,7 @@ def test_package_list_backfills_saved_qr_codes(client, auth_headers):
     ids = {int(pid) for pid in r.json()["package_ids"]}
 
     from app.db.session import SessionLocal
-    from app.models import Package
+    from app.schemas import Package
 
     db = SessionLocal()
     try:

@@ -8,7 +8,7 @@ from sqlalchemy import text
 
 from app.api.routes import cutting_passports as passport_routes
 from app.api.routes import production as production_routes
-from app.models import (
+from app.schemas import (
     AuditLog,
     Bundle,
     CuttingRecord,

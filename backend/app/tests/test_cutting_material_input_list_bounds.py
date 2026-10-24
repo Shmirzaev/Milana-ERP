@@ -2,8 +2,8 @@ import pytest
 from pydantic import ValidationError
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, Bundle, CuttingMaterialUsage, CuttingRecord, StockMovement
-from app.schemas.production import CuttingRecordIn
+from app.schemas import AuditLog, Bundle, CuttingMaterialUsage, CuttingRecord, StockMovement
+from app.libs.dto.production.production import CuttingRecordIn
 
 
 _MAX_ROWS = 1000

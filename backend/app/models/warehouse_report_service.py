@@ -10,7 +10,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import load_only, raiseload, selectinload
 
 from app.models.variant_display_service import format_variant_number
-from app.models import Model, ModelColor, Package
+from app.schemas import Model, ModelColor, Package
 from app.models.model_identity_service import model_number_fields
 
 

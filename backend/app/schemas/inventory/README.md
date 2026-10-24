@@ -4,36 +4,37 @@
 
 Fabric/accessory stock, batches, movements, reservations, transfers, stocktake and waste.
 
-Documentation scaffold only. Existing SQLAlchemy classes still live in `app/models/`;
-existing Pydantic DTOs still live in the parent `app/schemas/` files. No ORM or DTO
-code moves in this scaffold. Business services live in `models/*_service.py`.
+SQLAlchemy definitions now live under app/schemas/; Pydantic DTOs live in
+app/libs/dto/. The links below show the authoritative definitions for this group's
+records. Business services live in models/*_service.py.
 
-## Existing definitions to migrate
+## Authoritative definitions
 
-- [EcoFabricDispatch](../../models/eco_transfer.py)
-- [EcoFabricRoll](../../models/eco_transfer.py)
-- [FabricScan](../../models/fabric_scan.py)
-- [Item](../../models/inventory.py)
-- [Warehouse](../../models/inventory.py)
-- [StockBatch](../../models/inventory.py)
-- [StockMovement](../../models/inventory.py)
-- [MaterialReservation](../../models/inventory.py)
-- [ManualAccessoryIssue](../../models/inventory.py)
-- [WarehouseStocktake](../../models/stocktake.py)
-- [WarehouseStocktakeRow](../../models/stocktake.py)
-- [WasteRecord](../../models/waste.py)
-- [WasteSale](../../models/waste.py)
-- [WasteDisposalRequest](../../models/waste.py)
+- [EcoFabricDispatch](eco_transfer.py)
+- [EcoFabricRoll](eco_transfer.py)
+- [FabricScan](fabric_scan.py)
+- [Item](inventory.py)
+- [Warehouse](inventory.py)
+- [StockBatch](inventory.py)
+- [StockMovement](inventory.py)
+- [MaterialReservation](inventory.py)
+- [ManualAccessoryIssue](inventory.py)
+- [WarehouseStocktake](stocktake.py)
+- [WarehouseStocktakeRow](stocktake.py)
+- [WasteRecord](waste.py)
+- [WasteSale](waste.py)
+- [WasteDisposalRequest](waste.py)
 
-These are the ownership map's proposed destinations, not permission to move a whole
-mixed source file. Keep one authoritative mapping for each existing table.
+These links follow business ownership; some point to mixed files in another group
+or shared core.py. Keep one authoritative mapping per table. Moving individual
+classes out of mixed files is a separate approved change.
 
 ## How to make a file here
 
 1. Trace the approved business operation in [the service guide](../../models/inventory/README.md),
    its route, current model, DTO, database writes and other callers.
-2. First migrate current Pydantic DTOs and callers to `libs/dto/<feature>/`.
-   Retire all old DTO imports/shims before activating ORM code under `schemas/`.
+2. Reuse Pydantic contracts from `libs/dto/<feature>/`; never define DTOs here.
+   Find existing mapped classes before adding a new persistence definition.
 3. Use a descriptive `snake_case.py` file for related existing model definitions.
    Reuse the existing SQLAlchemy Base and classes; preserve table/column names,
    keys, indexes, relationships, constraints, defaults and serialized enum values.
@@ -46,9 +47,9 @@ mixed source file. Keep one authoritative mapping for each existing table.
    workflow, then verify bounded stress/retries and adjacent department handoffs.
    Remove old paths only after the agreed acceptance and rollback conditions pass.
 
-Do not add `__init__.py` or Python implementation files during this scaffold step.
-Some group names collide with current DTO `.py` modules; package conversion must
-be coordinated, not silently shadow those modules.
+Only groups with actual definitions are Python packages. A guide without Python
+files points to its existing definitions elsewhere; it is not a request to create
+duplicate classes or empty implementation files.
 
 See [schema migration rules](../README.md), [DTO conventions](../../libs/dto/README.md),
 [the business plan](../../../../docs/REFACTOR_PLAN.md) and

@@ -15,8 +15,8 @@ See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordi
 
 - Routes: [purchasing.py](../../api/routes/purchasing.py).
 - Services/helpers: [purchasing_service.py](../purchasing_service.py).
-- Existing SQLAlchemy schema models: [PurchaseRequest](../purchasing.py#L9), [PurchaseRequestLine](../purchasing.py#L39), [PurchaseOrder](../purchasing.py#L71), [PurchaseOrderLine](../purchasing.py#L100).
-- Existing Pydantic contracts: [purchasing.py](../../schemas/purchasing.py).
+- Existing SQLAlchemy schema models: [PurchaseRequest](../../schemas/purchasing/purchasing.py#L9), [PurchaseRequestLine](../../schemas/purchasing/purchasing.py#L39), [PurchaseOrder](../../schemas/purchasing/purchasing.py#L71), [PurchaseOrderLine](../../schemas/purchasing/purchasing.py#L100).
+- Existing Pydantic contracts: [purchasing.py](../../libs/dto/purchasing/purchasing.py).
 
 These are source pointers, not permission to move entire mixed files. Trace the
 particular operation and every caller/write before choosing what belongs here.
@@ -33,15 +33,14 @@ Use snake_case_service.py filenames and operation names such as `create_*`, `rec
 `receive_*` or `approve_*`. A typed function is sufficient; a class is optional
 when it owns real dependencies. Accept the Session, validated input and actor
 explicitly. State the transaction owner, refusal rules and result contract.
-Use the existing ORM models. Migrate existing schemas/ DTOs to libs/dto/<feature>/
-with their callers; keep fixed values in libs/enums/. See [DTO conventions](../../libs/dto/README.md).
+Use the existing ORM definitions in schemas/ and DTOs in libs/dto/<feature>/;
+keep fixed values in libs/enums/. See [DTO conventions](../../libs/dto/README.md).
 Do not import routers, call an endpoint, or commit inside a helper owned by another
 transaction. Do not create an interface/repository or generic CRUD class by default.
 
-**Import collision:** `app/models/purchasing.py` still defines ORM mappings.
-Keep this guide directory README-only: adding `__init__.py` could shadow that
-mapping module. Preserve its exports and callers through the ordered ORM migration.
-Business operations use distinct `*_service.py` filenames.
+Database definitions have moved to schemas/; business operations use
+*_service.py. Convert this guide into a service package only as an approved
+operation is extracted and all callers are updated.
 
 **First operation to study:** Reuse models/purchasing_service.py operations. Trace route authorization and commit ownership around create_purchase_order and receive_purchase_order before extracting the remaining route work.
 

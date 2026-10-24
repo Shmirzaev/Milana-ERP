@@ -6,7 +6,7 @@ import pytest
 
 from app.core.config import Settings
 from app.main import app
-from app.models import AuditLog, Invoice, Payment, SalesOrder
+from app.schemas import AuditLog, Invoice, Payment, SalesOrder
 from app.tests.conftest import TestSessionLocal
 
 

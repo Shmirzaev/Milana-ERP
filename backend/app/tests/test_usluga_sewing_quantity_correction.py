@@ -2,7 +2,7 @@
 import pytest
 
 from app.core.security import hash_password
-from app.models import (
+from app.schemas import (
     AuditLog, Bundle, BundleScanLog, CuttingRecord, Department, PackagingReceipt, ProductionBatch,
     Role, SewingAssignment, SewingFlow, SewingRecord, User, WorkOrder,
 )

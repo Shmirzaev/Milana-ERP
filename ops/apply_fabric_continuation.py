@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session
 from app.api.routes.inventory import create_item, update_item, receive_stock, update_batch, release_reservation, restore_material_batch
 from app.core.config import settings
 from app.core.deps import user_permissions
-from app.models import AuditLog, User, StockBatch, MaterialReservation, Item
-from app.schemas.inventory import ItemIn, StockBatchIn, StockBatchUpdate, StockBatchRestoreIn
+from app.schemas import AuditLog, User, StockBatch, MaterialReservation, Item
+from app.libs.dto.inventory.inventory import ItemIn, StockBatchIn, StockBatchUpdate, StockBatchRestoreIn
 from app.models.audit_service import log_action
 from app.models.image_storage_service import convert_image_to_webp, prebuild_webp_thumbnails
 from app.models.inventory_service import material_reservation_status_for_production_order

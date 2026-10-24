@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from sqlalchemy import event
 
 from app.api.routes import production
-from app.models import Item, StockBatch, Warehouse
+from app.schemas import Item, StockBatch, Warehouse
 from app.tests.conftest import TestSessionLocal
 
 

@@ -15,8 +15,8 @@ See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordi
 
 - Routes: [inventory.py](../../api/routes/inventory.py), [eco_transfers.py](../../api/routes/eco_transfers.py), [fabric_scans.py](../../api/routes/fabric_scans.py), [stocktake.py](../../api/routes/stocktake.py), [waste.py](../../api/routes/waste.py).
 - Services/helpers: [inventory_service.py](../inventory_service.py), [inventory_access_service.py](../inventory_access_service.py), [inventory_reports_service.py](../inventory_reports_service.py), [material_rolls_service.py](../material_rolls_service.py), [stocktake_service.py](../stocktake_service.py), [eco_transfer_pdf_service.py](../eco_transfer_pdf_service.py).
-- Existing SQLAlchemy schema models: [EcoFabricDispatch](../eco_transfer.py#L8), [EcoFabricRoll](../eco_transfer.py#L17), [FabricScan](../fabric_scan.py#L10), [Item](../inventory.py#L9), [Warehouse](../inventory.py#L31), [StockBatch](../inventory.py#L38), [StockMovement](../inventory.py#L75), [MaterialReservation](../inventory.py#L97), [ManualAccessoryIssue](../inventory.py#L144), [WarehouseStocktake](../stocktake.py#L9), [WarehouseStocktakeRow](../stocktake.py#L18), [WasteRecord](../waste.py#L9), [WasteSale](../waste.py#L26), [WasteDisposalRequest](../waste.py#L37).
-- Existing Pydantic contracts: [inventory.py](../../schemas/inventory.py), [waste.py](../../schemas/waste.py).
+- Existing SQLAlchemy schema models: [EcoFabricDispatch](../../schemas/inventory/eco_transfer.py#L8), [EcoFabricRoll](../../schemas/inventory/eco_transfer.py#L17), [FabricScan](../../schemas/inventory/fabric_scan.py#L10), [Item](../../schemas/inventory/inventory.py#L9), [Warehouse](../../schemas/inventory/inventory.py#L31), [StockBatch](../../schemas/inventory/inventory.py#L38), [StockMovement](../../schemas/inventory/inventory.py#L75), [MaterialReservation](../../schemas/inventory/inventory.py#L97), [ManualAccessoryIssue](../../schemas/inventory/inventory.py#L144), [WarehouseStocktake](../../schemas/inventory/stocktake.py#L9), [WarehouseStocktakeRow](../../schemas/inventory/stocktake.py#L18), [WasteRecord](../../schemas/inventory/waste.py#L9), [WasteSale](../../schemas/inventory/waste.py#L26), [WasteDisposalRequest](../../schemas/inventory/waste.py#L37).
+- Existing Pydantic contracts: [inventory.py](../../libs/dto/inventory/inventory.py), [waste.py](../../libs/dto/inventory/waste.py).
 
 These are source pointers, not permission to move entire mixed files. Trace the
 particular operation and every caller/write before choosing what belongs here.
@@ -35,15 +35,14 @@ Use snake_case_service.py filenames and operation names such as `create_*`, `rec
 `receive_*` or `approve_*`. A typed function is sufficient; a class is optional
 when it owns real dependencies. Accept the Session, validated input and actor
 explicitly. State the transaction owner, refusal rules and result contract.
-Use the existing ORM models. Migrate existing schemas/ DTOs to libs/dto/<feature>/
-with their callers; keep fixed values in libs/enums/. See [DTO conventions](../../libs/dto/README.md).
+Use the existing ORM definitions in schemas/ and DTOs in libs/dto/<feature>/;
+keep fixed values in libs/enums/. See [DTO conventions](../../libs/dto/README.md).
 Do not import routers, call an endpoint, or commit inside a helper owned by another
 transaction. Do not create an interface/repository or generic CRUD class by default.
 
-**Import collision:** `app/models/inventory.py` still defines ORM mappings.
-Keep this guide directory README-only: adding `__init__.py` could shadow that
-mapping module. Preserve its exports and callers through the ordered ORM migration.
-Business operations use distinct `*_service.py` filenames.
+Database definitions have moved to schemas/; business operations use
+*_service.py. Convert this guide into a service package only as an approved
+operation is extracted and all callers are updated.
 
 **First operation to study:** Trace an existing material issue or reservation operation and its concurrency locks. Reuse models/inventory_service.py and inventory_access_service.py rather than duplicating availability calculations.
 

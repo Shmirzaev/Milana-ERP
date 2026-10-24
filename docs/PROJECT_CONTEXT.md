@@ -44,14 +44,14 @@ not appended here. This summary does not replace live release verification.
 - Target: api/routes/ for HTTP, models/ for business services, schemas/ for
   database schema models, libs/dto/<feature>/ for input/update/output contracts,
   libs/enums/ for fixed vocabulary, libs/types/ for distinct internal contracts.
-- The owner authorized relocating existing services into models/*_service.py and
-  removing services/. Existing plain SQLAlchemy mapping files and models/__init__.py
-  remain unchanged; schemas/ still contains Pydantic DTOs. First migrate DTOs and
-  all callers/shims, then move only ORM definitions/registration to schemas/.
-  This relocation does not extract route business logic or change database tables.
-- Twelve service-group guides now live under models/; they and libs guides remain
-  documentation scaffolds. Some groups share names with plain ORM mapping files.
-  Do not add package initializers that shadow those files before coordinated migration.
+- Existing services now live in models/*_service.py; services/ was removed.
+  The owner then authorized completing namespace separation urgently: the 22 DTO
+  files are now in libs/dto/ and 26 SQLAlchemy definition files in schemas/, with
+  all callers and ORM registration updated. Table definitions and business rules
+  are unchanged. See the plan's verification record for actual checks/limitations.
+- Twelve service-group directories remain guides for later approved extraction.
+  Schema/DTO groups with implementations are active packages; mixed source files
+  remain intact. Route business logic extraction has not started through this task.
 - Humans decide business policy, interfaces and cutover; AI implements approved
   scope. Multitenancy is deferred. No deletion quota or table-per-service requirement.
 

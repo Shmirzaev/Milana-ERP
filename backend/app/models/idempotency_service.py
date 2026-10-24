@@ -10,7 +10,7 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.models import IdempotencyRecord, User
+from app.schemas import IdempotencyRecord, User
 from app.models.factory_scope_service import FACTORY_CODES, selected_factory_code
 
 _KEY_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")

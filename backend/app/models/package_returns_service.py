@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 
-from app.models import Package, PackagePrintRun, PackagePrintRunMember, PackageChangeRequest, PackageScanLog, ProductionOrder
+from app.schemas import Package, PackagePrintRun, PackagePrintRunMember, PackageChangeRequest, PackageScanLog, ProductionOrder
 from app.models.audit_service import log_action
 from app.models.barcode_service import generate_barcode_value
 from app.models.packaging_scope_service import packaging_department_scope
@@ -33,7 +33,7 @@ def return_packages(db, current, payload):
             raise HTTPException(409, "Only production packages awaiting warehouse receipt can be returned")
         # Temporarily ignore only the active print membership, whose manifest is
         # retired below. Every reservation, shipment and stock guard still applies.
-        from app.models import FinishedGoodsStock, ShipmentPackage, StockReservation
+        from app.schemas import FinishedGoodsStock, ShipmentPackage, StockReservation
         if (db.query(StockReservation.id).filter_by(package_id=pkg.id).first()
                 or db.query(ShipmentPackage.id).filter_by(package_id=pkg.id).first()
                 or db.query(PackageChangeRequest.id).filter_by(package_id=pkg.id, status="pending").first()):

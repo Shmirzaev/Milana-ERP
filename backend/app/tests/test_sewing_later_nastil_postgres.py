@@ -6,7 +6,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.routes.bundles import SewingManualReceiveIn, manual_receive_sewing
-from app.models import AuditLog, Bundle, BundleScanLog, CuttingRecord, Department, Model, ProductionBatch, ProductionOrder, SewingRecord, User, WorkOrder
+from app.schemas import AuditLog, Bundle, BundleScanLog, CuttingRecord, Department, Model, ProductionBatch, ProductionOrder, SewingRecord, User, WorkOrder
 from app.models.sewing_progress_service import reconcile_sewing_order
 from app.tests.test_password_change_races import password_change_postgres_sessions  # noqa: F401
 
@@ -14,7 +14,7 @@ from app.tests.test_password_change_races import password_change_postgres_sessio
 @pytest.mark.parametrize('factory', ['MIL', 'BST', 'ECO'])
 @pytest.mark.parametrize('printing_loss', [0, 28])
 def test_postgres_later_receipt_reopens_and_preserves_history(password_change_postgres_sessions, factory, printing_loss):
-    from app.models import PrintingRecord
+    from app.schemas import PrintingRecord
     sessions, _ = password_change_postgres_sessions
     marker = uuid4().hex[:10]
     with sessions() as db:
@@ -103,9 +103,9 @@ def test_postgres_later_receipt_reopens_and_preserves_history(password_change_po
         assert db.query(AuditLog).filter_by(action='reopen_later_nastil', entity_id=sewing_id).count() == 1
         from app.api.routes.production import post_packaging, post_sewing
         from app.api.routes.production_extra import create_assignment
-        from app.models import SewingFlow
-        from app.schemas.production import PackagingRecordIn, SewingRecordIn
-        from app.schemas.sewing_assignment import SewingAssignmentIn
+        from app.schemas import SewingFlow
+        from app.libs.dto.production.production import PackagingRecordIn, SewingRecordIn
+        from app.libs.dto.production.sewing_assignment import SewingAssignmentIn
         flow = SewingFlow(factory_code=factory, code='PG-' + marker, name='PostgreSQL later line ' + marker)
         db.add(flow)
         db.commit()

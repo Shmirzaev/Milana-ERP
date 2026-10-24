@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.deps import user_permissions
 from app.db.session import SessionLocal
-from app.models import Notification, PasswordResetToken, User
+from app.schemas import Notification, PasswordResetToken, User
 from app.models.email_service import send_password_reset_email, send_password_setup_email
 
 log = logging.getLogger(__name__)

@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload
 from app.api.routes import package_workflows as package_workflow_routes
 from app.api.routes import packages as package_routes
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     Customer,
     Item,
     ManualPackageReceipt,

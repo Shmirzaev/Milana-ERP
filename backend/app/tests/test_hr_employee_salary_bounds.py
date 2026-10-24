@@ -5,7 +5,7 @@ import pytest
 
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
-from app.models import AuditLog, Employee, Role, User
+from app.schemas import AuditLog, Employee, Role, User
 
 
 MAX_EMPLOYEE_SALARY = Decimal("9999999999.99")

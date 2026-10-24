@@ -43,7 +43,7 @@ from app.core.dt import date_filter_bounds
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
 from app.core.order_reference import order_reference_contains
 from app.db.base import Base
-from app.models import (
+from app.schemas import (
     BrandedPlanningOrder,
     Customer,
     Model,
@@ -51,7 +51,7 @@ from app.models import (
     SalesOrder,
     SalesOrderItem,
 )
-import app.models  # noqa: F401  (register every table in Base.metadata)
+import app.schemas  # noqa: F401  (register every table in Base.metadata)
 
 # One fixed instant so the whole fixture is reproducible.
 BASE_TS = datetime(2024, 5, 1, 10, 0, tzinfo=timezone.utc)

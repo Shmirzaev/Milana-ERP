@@ -19,7 +19,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from app.models.variant_display_service import format_variant_number
-from app.schemas.sewing_daily_report import SewingDailyReportListOut, SewingDailyReportOut
+from app.libs.dto.production.sewing_daily_report import SewingDailyReportListOut, SewingDailyReportOut
 
 
 ReportLanguage = Literal["en", "ru", "uz"]

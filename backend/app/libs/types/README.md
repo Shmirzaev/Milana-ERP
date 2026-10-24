@@ -21,13 +21,10 @@ types discipline without duplicating the existing Pydantic schemas.
 
 ## Keep the existing responsibilities
 
-- `app/libs/dto/<feature>/` is the target for HTTP input, update and output DTOs.
-  Current `app/schemas/` contracts migrate there with their callers; no duplicates.
-- SQLAlchemy database mappings target `app/schemas/`; they currently live in
-  `app/models/` until the existing schemas/ DTO namespace is fully retired.
-- `app/libs/enums/` contains repeated fixed vocabulary.
+- `app/libs/dto/<feature>/` contains Pydantic input, update and output DTOs.
+- `app/schemas/` contains SQLAlchemy database definitions and registration.
+- `app/libs/enums/` is the home for fixed vocabulary as approved operations adopt it.
 - `app/models/*_service.py` implements business operations and their runtime rules.
-  The plain ORM mapping files temporarily share that directory; they have a separate role.
 
 ## Rules
 

@@ -8,7 +8,7 @@ from sqlalchemy.orm import load_only, selectinload
 
 from app.core.deps import CurrentUser, DbSession, user_permissions
 from app.core.dt import as_utc
-from app.models import (
+from app.schemas import (
     BrandedPlanningOrder,
     Bundle,
     Customer,

@@ -16,7 +16,7 @@ from pathlib import Path
 
 from app.core.deps import DbSession, CurrentUser, PRODUCTION_READ_PERMISSIONS, require_permissions, user_permissions
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
-from app.models import (
+from app.schemas import (
     Bundle,
     CuttingRecord,
     Department,
@@ -32,7 +32,7 @@ from app.models import (
     WorkOrder,
     public_production_order_no,
 )
-from app.schemas.tracking import BundleIn, BundleOut, BundleDetail
+from app.libs.dto.packaging.tracking import BundleIn, BundleOut, BundleDetail
 from app.models.bundles_service import (
     find_bundle_by_scanned_code,
     create_bundle,

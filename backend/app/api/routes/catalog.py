@@ -26,18 +26,18 @@ from app.core.uploads import (
     safe_content_type,
     read_validated_upload_content,
 )
-from app.models import (
+from app.schemas import (
     Brand, Collection, CollectionModel, Model, ModelImage, ModelSize, ModelColor, ModelBOM, User,
     Item, SalesOrderItem, ProductionOrder, ProductionOrderItem, Bundle, Package, PackageItem, FinishedGoodsStock,
     StockBatch, CuttingRecord,
 )
-from app.schemas.catalog import (
+from app.libs.dto.catalog.catalog import (
     BrandIn, BrandOut, CollectionIn, CollectionOut,
     ModelIn, ModelOut, ModelDetail, ModelImageIn, ModelImageOut, ModelSizeIn, ModelColorIn, ModelBOMIn,
     ModelBOMUpdate, ModelOptionPage, ModelPaidOperationsIn, ModelSellingPriceOut, ModelSummaryOut,
     ModelVariantCreateIn, ModelVariantUpdateIn,
 )
-from app.schemas.inventory import ItemOut
+from app.libs.dto.inventory.inventory import ItemOut
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import selected_factory_code
 from app.models.model_images_service import model_print_image_url, model_variant_picture_url

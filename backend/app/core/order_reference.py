@@ -4,11 +4,11 @@ import re
 from fastapi import HTTPException
 from sqlalchemy import or_, select
 
-from app.models.order_reference import BusinessOrderAlias
+from app.schemas.order_reference import BusinessOrderAlias
 
 
 def _entity(namespace):
-    from app.models import Bundle, SalesOrder, ProductionOrder, PurchaseRequest, PurchaseOrder
+    from app.schemas import Bundle, SalesOrder, ProductionOrder, PurchaseRequest, PurchaseOrder
     entities = {"SO": (SalesOrder, "order_no"), "PO": (ProductionOrder, "production_no"),
                 "USL": (ProductionOrder, "production_no"), "PR": (PurchaseRequest, "request_no"),
                 "PUR": (PurchaseOrder, "po_no"), "PUBLIC_PO": (ProductionOrder, "production_no"),
@@ -57,7 +57,7 @@ def resolve_order_id(db, namespace: str, reference: str | None, *, lookup=None) 
 
 
 def _public_order(db, reference, production_order_id=None, *, lookup=None):
-    from app.models import ProductionOrder
+    from app.schemas import ProductionOrder
     if production_order_id is not None:
         return lookup.by_id("PO", production_order_id) if lookup is not None else db.get(ProductionOrder, production_order_id)
     alias = (next(iter(lookup.aliases(["PUBLIC_PO"], reference)), None) if lookup is not None else
@@ -84,7 +84,7 @@ def canonical_order_reference(db, namespace: str, reference: str | None, *,
     An optional request-scoped lookup supplies complete by_id, by_reference and
     aliases reads; it does not replace the identity/ambiguity rules below.
     """
-    from app.models import public_production_order_no
+    from app.schemas import public_production_order_no
     row = _find_order(db, namespace, reference, entity_id, lookup=lookup)
     if namespace == "SO" and entity_id is None:
         public = _public_order(db, reference, production_order_id, lookup=lookup)

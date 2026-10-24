@@ -13,11 +13,11 @@ from sqlalchemy.orm import selectinload
 
 from app.models.variant_display_service import format_model_variant_code
 from app.core.deps import DbSession, CurrentUser, require_permissions, is_admin
-from app.models import (
+from app.schemas import (
     WorkOrder, SewingFlow, SewingAssignment, ProductionOrder, Model, User,
     Customer, SalesOrder, Bundle, ProductionBatch, SewingDailyReport, SewingRecord,
 )
-from app.schemas.sewing_assignment import (
+from app.libs.dto.production.sewing_assignment import (
     SewingAssignmentIn, SewingAssignmentUpdate, SewingAssignmentOut,
 )
 from app.core.dt import as_utc

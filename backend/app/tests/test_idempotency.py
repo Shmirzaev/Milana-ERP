@@ -1,7 +1,7 @@
 from uuid import uuid4
 
 from app.db.session import SessionLocal
-from app.models import PackagingRecord, PackageScanLog, Payment, ShipmentScanLog, WorkOrder
+from app.schemas import PackagingRecord, PackageScanLog, Payment, ShipmentScanLog, WorkOrder
 
 
 def _model_id(client, headers) -> int:

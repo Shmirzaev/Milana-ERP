@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.models import AuditLog, PayrollQrLabel, PayrollRecord
+from app.schemas import AuditLog, PayrollQrLabel, PayrollRecord
 from app.tests.conftest import TestSessionLocal
 
 

@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.models import AuditLog, Bundle, BundleScanLog, CuttingRecord, ProductionBatch, ProductionOrder, SewingRecord, WorkOrder
+from app.schemas import AuditLog, Bundle, BundleScanLog, CuttingRecord, ProductionBatch, ProductionOrder, SewingRecord, WorkOrder
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_production_flow import _factory_headers
 from app.tests.test_sewing_actual_output import sew

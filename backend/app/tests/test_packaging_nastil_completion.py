@@ -1,7 +1,7 @@
 """Closing one nastil must not consume a sibling's packaging quantity."""
 import pytest
 
-from app.models import ProductionBatch, SewingRecord, WorkOrder
+from app.schemas import ProductionBatch, SewingRecord, WorkOrder
 from app.models.workflow_service import processed_work_order_qty
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_packaging_sewing_output import _create, _pack

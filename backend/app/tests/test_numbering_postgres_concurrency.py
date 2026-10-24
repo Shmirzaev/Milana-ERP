@@ -11,7 +11,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from app.db.base import Base
-from app.models import BusinessOrderAlias
+from app.schemas import BusinessOrderAlias
 from app.models import numbering_service as numbering
 from app.models.numbering_service import next_bundle_no
 

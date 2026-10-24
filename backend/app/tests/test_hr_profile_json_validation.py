@@ -5,7 +5,7 @@ import pytest
 
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
-from app.models import AuditLog, Employee, Role, User
+from app.schemas import AuditLog, Employee, Role, User
 
 
 PROFILE_FIELDS = {

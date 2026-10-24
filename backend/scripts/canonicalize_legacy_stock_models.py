@@ -17,7 +17,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     FinishedGoodsStock,
     LegacyStockReceipt,
     Model,

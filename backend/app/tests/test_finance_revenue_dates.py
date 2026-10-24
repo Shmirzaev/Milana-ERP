@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import Customer, Invoice, Payment, SalesOrder
+from app.schemas import Customer, Invoice, Payment, SalesOrder
 
 
 def _create_invoice(session_factory, amount=100):

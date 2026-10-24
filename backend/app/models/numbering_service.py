@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy import Integer, Numeric, case, func, literal_column, text, or_
 from sqlalchemy.orm import Session
 
-from app.models import (
+from app.schemas import (
     SalesOrder, BrandedPlanningOrder, ProductionOrder, Bundle, Package, Shipment, Invoice, Model,
     PurchaseRequest, PurchaseOrder, MaterialReservation, SystemSetting,
 )
@@ -107,7 +107,7 @@ def _next_order(db: Session, model, attr: str, prefix: str) -> str:
              if value and re.fullmatch(pattern, value)),
             default=0,
         )
-    from app.models import BusinessOrderAlias
+    from app.schemas import BusinessOrderAlias
     aliases = db.query(
         BusinessOrderAlias.reference,
         BusinessOrderAlias.canonical_reference,
@@ -240,7 +240,7 @@ def next_model_no(db: Session, prefix: str, *, reserve: bool = False) -> str:
 
 
 def next_bundle_no(db: Session) -> str:
-    from app.models import BusinessOrderAlias
+    from app.schemas import BusinessOrderAlias
 
     reference = _next_order(db, Bundle, "bundle_no", "BND")
     # Reserve in the caller's transaction, including after a future bundle deletion.
@@ -285,7 +285,7 @@ def next_material_reservation_nos(db: Session, count: int) -> list[str]:
 
 
 def retire_label_numbers(db: Session, package_numbers: list[str], run_number: str | None = None) -> None:
-    from app.models import PackagePrintRun
+    from app.schemas import PackagePrintRun
     for model, attr, prefix, numbers in ((Package, "package_no", "PKG", package_numbers),
                                          (PackagePrintRun, "run_no", "PRN", [run_number] if run_number else [])):
         by_year: dict[str, int] = {}

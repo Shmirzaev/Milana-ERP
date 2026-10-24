@@ -50,7 +50,7 @@ from sqlalchemy.orm import sessionmaker
 from app.api.routes import sales as sales_routes
 from app.api.routes import shipments as shipment_routes
 from app.db.base import Base
-from app.models import (
+from app.schemas import (
     Customer,
     Model,
     ProductionOrder,
@@ -61,7 +61,7 @@ from app.models import (
     ShipmentScanLog,
     Package,
 )
-import app.models  # noqa: F401  (register every table in Base.metadata)
+import app.schemas  # noqa: F401  (register every table in Base.metadata)
 
 BASE_TS = datetime(2024, 6, 1, 9, 0, tzinfo=timezone.utc)
 

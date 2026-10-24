@@ -6,7 +6,7 @@ from uuid import uuid4
 from sqlalchemy import event
 
 from app.api.routes import inbox
-from app.models import Department, Model, ProductionBatch, ProductionOrder, WorkOrder
+from app.schemas import Department, Model, ProductionBatch, ProductionOrder, WorkOrder
 from app.tests.conftest import TestSessionLocal, test_engine
 
 
@@ -99,7 +99,7 @@ def test_cutting_order_page_preserves_auth_and_legacy_inbox(client, auth_headers
 
 def test_cutting_search_matches_displayed_fields_before_paging_and_keeps_latest_passport(client, auth_headers):
     from datetime import datetime, timezone
-    from app.models import BrandedPlanningOrder, CuttingPassport, Item, ModelBOM
+    from app.schemas import BrandedPlanningOrder, CuttingPassport, Item, ModelBOM
     marker = uuid4().hex[:8]
     with TestSessionLocal() as db:
         department = db.query(Department).filter_by(code="CUT").one()
@@ -151,7 +151,7 @@ def test_cutting_search_matches_displayed_fields_before_paging_and_keeps_latest_
 
 def test_cutting_pages_enforce_stage_and_selected_factory(client):
     from app.core.security import create_access_token
-    from app.models import Role, User
+    from app.schemas import Role, User
     with TestSessionLocal() as db:
         role = Role(name="Cutting paging reader", permissions=["cutting.records"])
         denied_role = Role(name="No cutting paging", permissions=["storage.packages"])

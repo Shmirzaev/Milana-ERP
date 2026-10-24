@@ -5,7 +5,7 @@ from uuid import uuid4
 from fastapi import HTTPException
 from sqlalchemy import text, or_
 
-from app.models import (
+from app.schemas import (
     FinishedGoodsStock, Model, Package, PackageBatchAllocation, PackageItem, PackageScanLog,
     Warehouse, ManualPackageReceipt, PackagePrintRun, PackagePrintRunMember, PackageBarcodeAlias,
 )
@@ -383,9 +383,9 @@ def receive_run(db, current, payload):
 
 def delete_manual_run(db, current, run, package_ids=None):
     """Delete selected unused packs, or retire shipped labels with history intact."""
-    from app.models import Shipment, ShipmentPackage, ShipmentScanLog, StockReservation
-    from app.models.shipment_review import PackageQuantityAdjustment
-    from app.models.stocktake import WarehouseStocktakeRow
+    from app.schemas import Shipment, ShipmentPackage, ShipmentScanLog, StockReservation
+    from app.schemas.fulfillment.shipment_review import PackageQuantityAdjustment
+    from app.schemas.inventory.stocktake import WarehouseStocktakeRow
     requested = set(run.package_ids if package_ids is None else package_ids)
     if not requested or not requested.issubset(set(run.package_ids)):
         raise HTTPException(422, "Select packages from this print run")

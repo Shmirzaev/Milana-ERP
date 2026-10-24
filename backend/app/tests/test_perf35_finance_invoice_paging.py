@@ -12,7 +12,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.models import Customer, Invoice, SalesOrder
+from app.schemas import Customer, Invoice, SalesOrder
 from app.tests.conftest import TestSessionLocal
 from app.models.finance_service import list_recent_invoices
 

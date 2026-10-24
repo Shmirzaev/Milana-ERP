@@ -46,7 +46,7 @@ from sqlalchemy.orm import Query as SAQuery
 
 from app.db import session as session_module
 from app.db.base import Base
-from app.models import (
+from app.schemas import (
     LegacyStockReceipt,
     ManualPackageReceipt,
     Model,
@@ -551,7 +551,7 @@ def test_migration_creates_exactly_the_two_orm_indexes():
     missing from the ORM; this is the mirror check, so the ORM cannot grow an
     index the migration never creates either.
     """
-    import app.models  # noqa: F401 - register ORM metadata
+    import app.schemas  # noqa: F401 - register ORM metadata
     from alembic import op as alembic_op
 
     created: list = []

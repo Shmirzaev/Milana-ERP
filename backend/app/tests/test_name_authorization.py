@@ -5,7 +5,7 @@ import pytest
 
 from app.core.deps import user_permissions
 from app.core.security import create_access_token
-from app.models import Model, PriceCalculationRequest, Role, User
+from app.schemas import Model, PriceCalculationRequest, Role, User
 from app.models.price_calculation_service import is_price_purchaser
 from app.tests.conftest import TestSessionLocal
 

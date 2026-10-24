@@ -35,25 +35,23 @@ authorization covers ordinary implementation choices within the agreed scope.
   Accept dependencies explicitly. No route imports/calls from services, private
   cross-group reach-through or cyclic service dependencies. Coordinate via the
   agreed public operation; do not create a generic repository/interface framework.
-- DTO target is libs/dto/<feature>/: separate creation, allowed updates and output
+- DTOs live in libs/dto/<feature>/: separate creation, allowed updates and output
   contracts, plus action/query inputs when needed. Reuse Pydantic and existing
   names, validators and serialization. Distinguish missing from explicit null;
   never patch with creation defaults. Response DTOs must filter confidential data.
+- DTO filenames include their entity: user_input.py, user_update.py, user_output.py.
+  Use explicit class imports, e.g. from app.libs.dto.user.user_input import UserIn.
+  Retain existing mixed DTO files until an approved extraction updates every caller.
 - Fixed shared vocabulary belongs in libs/enums/; distinct internal contracts in
   libs/types/. Reuse actual stored values. Configurable roles/factories/products
   remain data; enum membership does not authorize a transition or grant access.
-- Database schema-model target is schemas/, using SQLAlchemy and PostgreSQL.
-  TODAY models/ contains *_service.py business services and temporary plain ORM
-  mappings; schemas/ contains legacy Pydantic DTOs. Do not re-export services from
-  the ORM registration initializer models/__init__.py or initialize guide packages
-  that would shadow existing mapping modules.
-  Never put a new ORM model in schemas/ while those DTO imports remain. During
-  transition extend mappings in the currently authoritative models/ location;
-  put new DTOs in libs/dto/, and migrate an existing DTO once with its callers.
-  Temporary old imports re-export the same class. Retire every old DTO caller/shim
-  before moving only ORM definitions, registration and Alembic discovery to schemas/.
-  Business services remain in models/.
-  Do not undertake that global migration merely to add a feature.
+- Database definitions live in schemas/<business-group>/, using SQLAlchemy and
+  the existing Base. Shared definitions remain in schemas/core.py and
+  schemas/order_reference.py. Register new mappings in schemas/__init__.py.
+  models/ is exclusively the business-service layer; libs/dto/ contains Pydantic
+  contracts. Do not put DTOs in schemas/ or database definitions in models/.
+  Reuse authoritative definitions, including mixed legacy files; do not duplicate
+  classes merely to make folder ownership look complete.
 - One outer operation owns the transaction. Helpers participate without committing.
   Preserve session/autobegin behavior, lock order, precision, audit, idempotency
   and external-effect timing. Exactly one write implementation runs per request;

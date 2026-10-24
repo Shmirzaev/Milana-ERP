@@ -4,11 +4,11 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, case, func
 
-from app.models import CuttingRecord, Department, PackagingRecord, PrintingRecord, ProductionOrder, SewingRecord, WorkOrder
+from app.schemas import CuttingRecord, Department, PackagingRecord, PrintingRecord, ProductionOrder, SewingRecord, WorkOrder
 from app.models.factory_scope_service import DEPARTMENT_FACTORIES, FACTORY_CODES, FACTORY_LABELS
 from app.models.payroll_factory_scope_service import production_order_factory_condition
-from app.models.sewing_daily_report import SewingDailyReport
-from app.models import SewingFlow
+from app.schemas.production.sewing_daily_report import SewingDailyReport
+from app.schemas import SewingFlow
 
 ACTIVE_STATUSES = ("new", "planning", "waiting_material", "cutting", "printing", "sewing", "packaging", "storage_transfer")
 STAGES = (

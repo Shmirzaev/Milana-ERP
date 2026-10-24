@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, lazyload
 from app.core.order_reference import canonical_business_order_reference
 from app.core.costs import round_unit_cost
 
-from app.models import (
+from app.schemas import (
     Item,
     PurchaseOrder,
     PurchaseOrderLine,
@@ -23,7 +23,7 @@ from app.models import (
     Warehouse,
     ProductionOrder,
 )
-from app.schemas.purchasing import MAX_PURCHASE_QUANTITY
+from app.libs.dto.purchasing.purchasing import MAX_PURCHASE_QUANTITY
 from app.models.audit_service import log_action
 from app.models.material_rolls_service import normalize_material_roll_weights
 from app.models.numbering_service import next_purchase_order_no, next_purchase_request_no

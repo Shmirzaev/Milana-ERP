@@ -7,7 +7,7 @@ from sqlalchemy import event
 
 from app.api.routes import cutting_passports
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     Department,
     Item,
     Model,
@@ -202,7 +202,7 @@ def test_material_defaults_requires_authentication(client):
 
 @pytest.mark.parametrize("has_print", [False, True])
 def test_defaults_combined_flags_freeze_after_output_on_completed_cutting(has_print):
-    from app.models import SewingRecord
+    from app.schemas import SewingRecord
     with SessionLocal() as db:
         order_id, _ = _material_order(db, 1)
         cutting = db.query(WorkOrder).filter_by(production_order_id=order_id, operation="cutting").one()

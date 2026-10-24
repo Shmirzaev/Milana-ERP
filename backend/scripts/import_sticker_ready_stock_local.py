@@ -19,7 +19,7 @@ from urllib.parse import urlparse
 
 from app.core.config import settings
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     FinishedGoodsStock,
     LegacyStockReceipt,
     Model,

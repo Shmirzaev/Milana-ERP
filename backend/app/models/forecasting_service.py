@@ -8,7 +8,7 @@ from typing import Any, Sequence
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, load_only
 
-from app.models import (
+from app.schemas import (
     Brand,
     Collection,
     FinishedGoodsStock,

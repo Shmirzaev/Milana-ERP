@@ -5,8 +5,8 @@ import pytest
 
 from app.api.routes.packages import api_batch_receive_storage
 from app.db.session import SessionLocal
-from app.models import Department, FinishedGoodsStock, Package, PackageItem, PackageScanLog, ProductionOrder, User, WorkOrder
-from app.schemas.tracking import PackageBatchReceiveStorageIn
+from app.schemas import Department, FinishedGoodsStock, Package, PackageItem, PackageScanLog, ProductionOrder, User, WorkOrder
+from app.libs.dto.packaging.tracking import PackageBatchReceiveStorageIn
 from app.models.packages_service import receive_at_storage
 from app.models.workflow_service import sync_storage_transfer_work_order
 

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.security import decode_token
 from app.db.session import get_db
-from app.models import User
+from app.schemas import User
 from app.models.user_access_service import access_configured, apply_policy
 from app.models.idempotency_service import bind_idempotency_identity
 from app.models.factory_scope_service import (

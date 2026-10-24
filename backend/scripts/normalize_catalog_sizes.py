@@ -72,7 +72,7 @@ def run(apply: bool = False, expected: str | None = None, backup: str | None = N
     from sqlalchemy import text
     from app.core.deps import is_super_admin
     from app.db.session import SessionLocal
-    from app.models import User
+    from app.schemas import User
     from app.models.audit_service import log_action
 
     with SessionLocal() as db:

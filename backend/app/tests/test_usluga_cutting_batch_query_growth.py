@@ -6,7 +6,7 @@ from sqlalchemy import event
 
 from app.api.routes import production
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     Bundle,
     CuttingRecord,
     Department,

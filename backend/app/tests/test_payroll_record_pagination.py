@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import event
 
 from app.api.routes.payroll import list_records
-from app.models import Department, Employee, PayrollRecord
+from app.schemas import Department, Employee, PayrollRecord
 from app.tests.conftest import TestSessionLocal, test_engine
 
 

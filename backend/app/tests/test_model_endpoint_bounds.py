@@ -26,7 +26,7 @@ def _capture_selects(client, request):
 
 def _seed_models(*, approved: int, draft: int = 0) -> str:
     from app.db import session as session_module
-    from app.models import Model
+    from app.schemas import Model
 
     prefix = f"BOUND-{uuid4().hex[:10].upper()}"
     db = session_module.SessionLocal()
@@ -62,7 +62,7 @@ def seed_models(request):
 
     def cleanup() -> None:
         from app.db import session as session_module
-        from app.models import Model
+        from app.schemas import Model
 
         db = session_module.SessionLocal()
         try:

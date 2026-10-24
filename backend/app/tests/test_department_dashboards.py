@@ -3,7 +3,7 @@ from datetime import date, datetime, timezone
 import pytest
 from sqlalchemy import select
 
-from app.models import (Bundle, BundleScanLog, CuttingRecord, Department, Model, Package,
+from app.schemas import (Bundle, BundleScanLog, CuttingRecord, Department, Model, Package,
                         ProductionBatch, ProductionOrder, Shipment, ShipmentPackage, WasteRecord, WorkOrder)
 from app.models.department_dashboards_service import cutting_board, printing_board, warehouse_board
 from app.tests.conftest import TestSessionLocal
@@ -150,7 +150,7 @@ def test_board_validation_and_permission_boundaries(client, auth_headers):
     assert client.get("/api/dashboard/cutting?start=2026-01-02&end=2026-01-02&cutting_department_code=ECT", headers=auth_headers).status_code == 403
     from app.core.deps import get_current_user
     from app.main import app
-    from app.models import Role, User
+    from app.schemas import Role, User
     viewer = User(id=9999, name="Viewer", email="board-viewer@example.com", is_active=True,
                   role=Role(name="Viewer", permissions=["sales.orders"]), factory_code="MIL")
     app.dependency_overrides[get_current_user] = lambda: viewer

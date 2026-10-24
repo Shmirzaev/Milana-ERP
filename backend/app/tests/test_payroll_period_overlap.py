@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.models import PayrollPeriod, PayrollQrLabel, PayrollRecord
+from app.schemas import PayrollPeriod, PayrollQrLabel, PayrollRecord
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_payroll import _create_employee
 from app.tests.test_payroll_scan_allocations import issue, scan

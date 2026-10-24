@@ -15,8 +15,8 @@ See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordi
 
 - Routes: [hr.py](../../api/routes/hr.py), [hr_workspace.py](../../api/routes/hr_workspace.py), [attendance.py](../../api/routes/attendance.py), [payroll.py](../../api/routes/payroll.py), [admin.py](../../api/routes/admin.py).
 - Services/helpers: [attendance_event_policy_service.py](../attendance_event_policy_service.py), [attendance_reports_service.py](../attendance_reports_service.py), [employee_aliases_service.py](../employee_aliases_service.py), [employee_export_service.py](../employee_export_service.py), [employee_names_service.py](../employee_names_service.py), [employee_reconciliation_service.py](../employee_reconciliation_service.py), [payroll_factory_scope_service.py](../payroll_factory_scope_service.py), [payroll_labels_service.py](../payroll_labels_service.py), [payroll_reports_service.py](../payroll_reports_service.py).
-- Existing SQLAlchemy schema models: [AttendanceDevice](../attendance.py#L11), [AttendancePerson](../attendance.py#L39), [AttendanceEvent](../attendance.py#L66), [Department](../core.py#L15), [Employee](../core.py#L43), [HrOrgUnit](../hr.py#L11), [HrPosition](../hr.py#L27), [HrEmployeeDocument](../hr.py#L44), [HrRecruitmentCandidate](../hr.py#L60), [HrCalendarEvent](../hr.py#L91), [PayrollPeriod](../payroll.py#L11), [PayrollRecord](../payroll.py#L36), [PayrollQrLabel](../payroll.py#L89), [PayrollAdjustment](../payroll.py#L142).
-- Existing Pydantic contracts: [payroll.py](../../schemas/payroll.py).
+- Existing SQLAlchemy schema models: [AttendanceDevice](../../schemas/people/attendance.py#L11), [AttendancePerson](../../schemas/people/attendance.py#L39), [AttendanceEvent](../../schemas/people/attendance.py#L66), [Department](../../schemas/core.py#L15), [Employee](../../schemas/core.py#L43), [HrOrgUnit](../../schemas/people/hr.py#L11), [HrPosition](../../schemas/people/hr.py#L27), [HrEmployeeDocument](../../schemas/people/hr.py#L44), [HrRecruitmentCandidate](../../schemas/people/hr.py#L60), [HrCalendarEvent](../../schemas/people/hr.py#L91), [PayrollPeriod](../../schemas/people/payroll.py#L11), [PayrollRecord](../../schemas/people/payroll.py#L36), [PayrollQrLabel](../../schemas/people/payroll.py#L89), [PayrollAdjustment](../../schemas/people/payroll.py#L142).
+- Existing Pydantic contracts: [payroll.py](../../libs/dto/people/payroll.py).
 
 These are source pointers, not permission to move entire mixed files. Trace the
 particular operation and every caller/write before choosing what belongs here.
@@ -33,8 +33,8 @@ Use snake_case_service.py filenames and operation names such as `create_*`, `rec
 `receive_*` or `approve_*`. A typed function is sufficient; a class is optional
 when it owns real dependencies. Accept the Session, validated input and actor
 explicitly. State the transaction owner, refusal rules and result contract.
-Use the existing ORM models. Migrate existing schemas/ DTOs to libs/dto/<feature>/
-with their callers; keep fixed values in libs/enums/. See [DTO conventions](../../libs/dto/README.md).
+Use the existing ORM definitions in schemas/ and DTOs in libs/dto/<feature>/;
+keep fixed values in libs/enums/. See [DTO conventions](../../libs/dto/README.md).
 Do not import routers, call an endpoint, or commit inside a helper owned by another
 transaction. Do not create an interface/repository or generic CRUD class by default.
 

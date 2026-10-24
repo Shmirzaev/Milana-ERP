@@ -1,4 +1,4 @@
-from app.models import Model
+from app.schemas import Model
 
 
 def model_number_fields(model: Model | None) -> dict[str, str | None]:

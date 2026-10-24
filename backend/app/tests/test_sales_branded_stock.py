@@ -1,7 +1,7 @@
 from uuid import uuid4
 
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     FinishedGoodsStock,
     LegacyStockReceipt,
     Model,

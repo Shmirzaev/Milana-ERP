@@ -48,7 +48,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import sales as sales_routes
 from app.db.base import Base
-from app.models import (
+from app.schemas import (
     Brand,
     Collection,
     CollectionModel,
@@ -61,7 +61,7 @@ from app.models import (
     SalesOrderItem,
     User,
 )
-import app.models  # noqa: F401  (register every table in Base.metadata)
+import app.schemas  # noqa: F401  (register every table in Base.metadata)
 
 # The reservation path locks with key_share=True, i.e. FOR NO KEY UPDATE.
 PACKAGE_LOCK = "FOR NO KEY UPDATE OF packages"

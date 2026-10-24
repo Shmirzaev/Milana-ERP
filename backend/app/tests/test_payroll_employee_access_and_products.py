@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.models import Employee, PayrollRecord, SewingRecord
+from app.schemas import Employee, PayrollRecord, SewingRecord
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_payroll import _create_user_with_permissions
 from app.tests.test_sewing_actual_output import make_batch

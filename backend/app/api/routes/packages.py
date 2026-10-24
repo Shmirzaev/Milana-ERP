@@ -23,7 +23,7 @@ from app.core.model_search import (
     normalized_model_code_column,
     normalized_model_code_pattern,
 )
-from app.models import (
+from app.schemas import (
     Customer,
     ModelImage,
     LegacyStockReceipt,
@@ -43,7 +43,7 @@ from app.models import (
     User,
     ManualPackageReceipt,
 )
-from app.schemas.tracking import (
+from app.libs.dto.packaging.tracking import (
     PackageIn,
     PackageBulkIn,
     PackageOut,
@@ -953,7 +953,7 @@ def list_packages(db: DbSession, current: CurrentUser,
         for customer in db.query(Customer).filter(Customer.id.in_(customer_ids)).all()
     } if customer_ids else {}
 
-    from app.models import PackagePrintRun, PackagePrintRunMember
+    from app.schemas import PackagePrintRun, PackagePrintRunMember
     returned_ids = [p.id for p in rows if p.status == "returned_to_packaging"]
     return_reasons = {}
     if returned_ids:

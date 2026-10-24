@@ -11,8 +11,8 @@ from sqlalchemy import case, func
 from sqlalchemy.exc import IntegrityError
 
 from app.core.deps import DbSession, require_permissions
-from app.models import StockBatch, User
-from app.models.fabric_scan import FabricScan
+from app.schemas import StockBatch, User
+from app.schemas.inventory.fabric_scan import FabricScan
 from app.models.factory_scope_service import cutting_department_scope
 from app.models.inventory_access_service import MATERIAL_CATEGORIES
 

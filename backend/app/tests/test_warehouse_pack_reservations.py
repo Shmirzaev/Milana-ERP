@@ -1,6 +1,6 @@
 from uuid import uuid4
 
-from app.models import (Customer, FinishedGoodsStock, Model, Package, PackageItem,
+from app.schemas import (Customer, FinishedGoodsStock, Model, Package, PackageItem,
                         ProductionOrder, WarehousePackReservation, Shipment, ShipmentPackage, Role, User)
 from app.tests.conftest import TestSessionLocal
 

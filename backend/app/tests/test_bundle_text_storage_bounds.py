@@ -1,4 +1,4 @@
-from app.models import AuditLog, Bundle, BundleScanLog
+from app.schemas import AuditLog, Bundle, BundleScanLog
 from app.tests.conftest import TestSessionLocal
 
 

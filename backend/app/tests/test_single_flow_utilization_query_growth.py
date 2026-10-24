@@ -5,7 +5,7 @@ from sqlalchemy import event
 
 from app.api.routes.production_extra import flow_utilization
 from app.db.session import SessionLocal
-from app.models import SewingAssignment, WorkOrder
+from app.schemas import SewingAssignment, WorkOrder
 from app.tests.test_sewing_flow_utilization_query_growth import _factory_user, _flow_set, _select_count
 
 

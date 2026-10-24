@@ -161,7 +161,7 @@ def verify_changes(before, after, changes):
 def execute(db, expected, backup):
     """Caller commits only after verification; no implicit application or commit."""
     from app.models.audit_service import log_action
-    from app.models import Item
+    from app.schemas import Item
 
     assert backup["bytes"] > 0 and backup["restore_objects"] > 100
     assert backup["mode"] == "0o600" and len(backup["sha256"]) == 64

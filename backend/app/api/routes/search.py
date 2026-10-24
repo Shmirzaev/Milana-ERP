@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 from app.core.deps import DbSession, CurrentUser
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
-from app.models import SalesOrder, SalesOrderItem, Bundle, Model, Customer
+from app.schemas import SalesOrder, SalesOrderItem, Bundle, Model, Customer
 
 router = APIRouter(tags=["search"])
 

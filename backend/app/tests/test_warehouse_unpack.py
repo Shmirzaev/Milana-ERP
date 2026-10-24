@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, FinishedGoodsStock, Package, PackagePrintRun, PackagingRecord, ProductionOrder, WorkOrder
+from app.schemas import AuditLog, FinishedGoodsStock, Package, PackagePrintRun, PackagingRecord, ProductionOrder, WorkOrder
 from app.tests.test_package_delete_reentry import setup_output, upstream_snapshot
 from app.tests.test_package_workflows import create_run
 
@@ -63,7 +63,7 @@ def test_warehouse_delete_repack_receive(client, auth_headers, factory, batched,
 
 @pytest.mark.parametrize("blocker", ["materials", "reserved", "wrong_factory"])
 def test_warehouse_failed_delete_preserves_output(client, auth_headers, blocker):
-    from app.models import StockMovement
+    from app.schemas import StockMovement
     headers, ids, template, _ = setup_output(client, factory="BST")
     run = create_run(client, headers, template, 2)
     assert client.post("/api/packages/print-runs/receive", headers=headers, json={"code": run["code"]}).status_code == 200

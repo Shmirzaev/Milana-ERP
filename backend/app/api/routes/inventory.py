@@ -1,4 +1,4 @@
-from app.models.eco_transfer import EcoFabricRoll
+from app.schemas.inventory.eco_transfer import EcoFabricRoll
 from app.core.order_reference import canonical_business_order_reference, canonical_order_reference, order_reference_contains
 from datetime import date, datetime
 from decimal import Decimal
@@ -19,7 +19,7 @@ from app.core.deps import (
     require_permissions,
     user_permissions,
 )
-from app.models import (
+from app.schemas import (
     Item,
     CuttingRecord,
     CuttingMaterialUsage,
@@ -36,7 +36,7 @@ from app.models import (
     Warehouse,
     WasteRecord,
 )
-from app.schemas.inventory import (
+from app.libs.dto.inventory.inventory import (
     ItemImageIn, ItemIn, ItemOut, WarehouseIn, WarehouseOut,
     AccessoryReturnIn, StockBatchIn, StockBatchOut, StockBatchRestoreIn, StockBatchRollWeightsIn, StockBatchUpdate, StockMovementIn, StockMovementOut, StockLine,
     AccessoryIssueIn, AccessoryIssueOut, AccessoryIssuePlanOut, AccessoryIssueRequestRow, AccessoryIssueSummaryRow,

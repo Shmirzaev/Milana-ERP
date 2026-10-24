@@ -5,7 +5,7 @@ import json
 
 from sqlalchemy import select
 
-from app.models import Department, Employee, User
+from app.schemas import Department, Employee, User
 from app.models.audit_service import log_action
 
 

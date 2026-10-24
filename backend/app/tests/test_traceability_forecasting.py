@@ -6,7 +6,7 @@ from uuid import uuid4
 from app.db.session import SessionLocal
 from app.tests.conftest import TestSessionLocal
 from app.models.forecasting_service import item_reorder_suggestions
-from app.models import (
+from app.schemas import (
     FinishedGoodsStock,
     Item,
     ManualAccessoryIssue,

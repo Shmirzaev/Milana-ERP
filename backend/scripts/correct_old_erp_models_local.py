@@ -41,7 +41,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.session import SessionLocal
-from app.models import Model
+from app.schemas import Model
 from scripts import import_old_erp_models_local as original
 
 

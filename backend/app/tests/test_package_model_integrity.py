@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     Department,
     FinishedGoodsStock,
     Model,

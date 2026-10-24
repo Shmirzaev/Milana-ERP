@@ -16,13 +16,13 @@ from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import cutting_passports
 from app.db.base import Base
-from app.models import (
+from app.schemas import (
     AuditLog, CuttingMaterialUsage, CuttingRecord, Item, ManualAccessoryIssue, MaterialReservation, Model, ModelBOM,
     PackagingRecord, PrintingRecord, ProductionOrder, ProductionOrderItem, ProductionOrderMaterial,
     SewingAssignment, SewingDailyReport, SewingRecord, StockBatch, StockMovement, Warehouse, WasteRecord, WorkOrder,
 )
-from app.models.eco_transfer import EcoFabricRoll
-from app.schemas.cutting_passport import CuttingPassportIn
+from app.schemas.inventory.eco_transfer import EcoFabricRoll
+from app.libs.dto.production.cutting_passport import CuttingPassportIn
 from app.models import inventory_service as inventory, numbering_service as numbering
 from app.tests.conftest import TestSessionLocal
 

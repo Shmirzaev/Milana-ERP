@@ -15,8 +15,8 @@ See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordi
 
 - Routes: [tasks.py](../../api/routes/tasks.py), [notifications.py](../../api/routes/notifications.py).
 - Services/helpers: [notifications_service.py](../notifications_service.py).
-- Existing SQLAlchemy schema models: [Notification](../core.py#L88), [Task](../tasks.py#L9).
-- Existing Pydantic contracts: [tasks.py](../../schemas/tasks.py).
+- Existing SQLAlchemy schema models: [Notification](../../schemas/core.py#L88), [Task](../../schemas/work_management/tasks.py#L9).
+- Existing Pydantic contracts: [tasks.py](../../libs/dto/work_management/tasks.py).
 
 These are source pointers, not permission to move entire mixed files. Trace the
 particular operation and every caller/write before choosing what belongs here.
@@ -32,8 +32,8 @@ Use snake_case_service.py filenames and operation names such as `create_*`, `rec
 `receive_*` or `approve_*`. A typed function is sufficient; a class is optional
 when it owns real dependencies. Accept the Session, validated input and actor
 explicitly. State the transaction owner, refusal rules and result contract.
-Use the existing ORM models. Migrate existing schemas/ DTOs to libs/dto/<feature>/
-with their callers; keep fixed values in libs/enums/. See [DTO conventions](../../libs/dto/README.md).
+Use the existing ORM definitions in schemas/ and DTOs in libs/dto/<feature>/;
+keep fixed values in libs/enums/. See [DTO conventions](../../libs/dto/README.md).
 Do not import routers, call an endpoint, or commit inside a helper owned by another
 transaction. Do not create an interface/repository or generic CRUD class by default.
 

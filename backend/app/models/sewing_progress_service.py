@@ -7,7 +7,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.exc import OperationalError
 from fastapi import HTTPException
 
-from app.models import Bundle, CuttingRecord, PrintingRecord, ProductionBatch, SewingRecord, WorkOrder
+from app.schemas import Bundle, CuttingRecord, PrintingRecord, ProductionBatch, SewingRecord, WorkOrder
 from app.models.audit_service import log_action
 
 

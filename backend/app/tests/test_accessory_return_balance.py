@@ -2,7 +2,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.models import (
+from app.schemas import (
     AuditLog, IdempotencyRecord, Item, ManualAccessoryIssue, Model, ModelBOM,
     ProductionOrder, StockBatch, StockMovement, Warehouse,
 )

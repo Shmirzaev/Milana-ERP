@@ -9,8 +9,8 @@ from sqlalchemy.dialects import postgresql
 
 from app.api.routes import shipments
 from app.db.session import SessionLocal
-from app.models import SalesOrder, Shipment, User
-from app.schemas.sales import ShipmentIn
+from app.schemas import SalesOrder, Shipment, User
+from app.libs.dto.sales.sales import ShipmentIn
 from app.models.idempotency_service import bind_idempotency_identity
 
 

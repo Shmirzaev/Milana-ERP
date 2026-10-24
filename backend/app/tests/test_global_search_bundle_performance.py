@@ -2,8 +2,8 @@ import pytest
 
 from app.api.routes.search import global_search
 from app.core.model_search import normalized_model_code_key
-from app.models import Bundle, Model, ProductionOrder
-from app.models.order_reference import BusinessOrderAlias
+from app.schemas import Bundle, Model, ProductionOrder
+from app.schemas.order_reference import BusinessOrderAlias
 
 
 @pytest.fixture

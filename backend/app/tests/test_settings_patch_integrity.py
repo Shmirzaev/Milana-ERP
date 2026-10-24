@@ -19,7 +19,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import settings as settings_routes
 from app.db.base import Base
-from app.models import AuditLog, SystemSetting, User
+from app.schemas import AuditLog, SystemSetting, User
 from app.tests.conftest import TestSessionLocal
 
 

@@ -4,7 +4,7 @@ from uuid import uuid4
 from sqlalchemy import event
 
 from app.api.routes.packages import _package_context
-from app.models import Model, ModelImage
+from app.schemas import Model, ModelImage
 from app.tests.conftest import TestSessionLocal
 
 

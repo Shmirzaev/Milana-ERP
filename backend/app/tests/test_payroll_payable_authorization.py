@@ -1,7 +1,7 @@
 from uuid import uuid4
 
 from app.db.session import SessionLocal
-from app.models import PayrollQrLabel, PayrollRecord
+from app.schemas import PayrollQrLabel, PayrollRecord
 from app.tests.test_payroll import (
     _create_employee,
     _create_user_with_permissions,

@@ -13,7 +13,7 @@ from app.core.deps import (
     require_permissions,
 )
 from app.core.dt import as_utc
-from app.models import (
+from app.schemas import (
     SalesOrder, ProductionOrder, WorkOrder, WasteRecord, FinishedGoodsStock,
     CuttingRecord, SewingRecord, PrintingRecord, PackagingRecord, Customer, User,
     SalesOrderItem,

@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 
 from app.core.security import create_access_token
-from app.models import AuditLog, Department, ProductionOrder, User, WorkOrder
+from app.schemas import AuditLog, Department, ProductionOrder, User, WorkOrder
 from app.tests.conftest import TestSessionLocal
 
 
@@ -300,7 +300,7 @@ def test_wrong_stage_cannot_block_or_unblock(client, action):
 
 
 def test_work_order_update_rejects_another_factorys_target_flow(client):
-    from app.models import SewingFlow
+    from app.schemas import SewingFlow
     work_order_id = _work_order("sewing", "SEW")
     with TestSessionLocal() as db:
         flow = SewingFlow(code=f"P1-BST-{uuid4().hex[:8]}", name="Other factory", factory_code="BST", is_active=True)

@@ -24,7 +24,7 @@ def test_prefix_sort_uses_number_next_to_letters_and_normalizes_legacy_codes():
 
 def test_prefix_family_sort_is_applied_before_pagination(client, auth_headers):
     from app.db import session as session_module
-    from app.models import Model
+    from app.schemas import Model
 
     # Insert the smallest family last so sorting by newest id would be wrong.
     with session_module.SessionLocal() as db:
@@ -61,7 +61,7 @@ def test_postgres_prefix_sort_casts_numeric_family_part():
 
 def test_displayed_variant_search_finds_plain_and_prefixed_catalog_codes(client, auth_headers):
     from app.db import session as session_module
-    from app.models import Model
+    from app.schemas import Model
 
     codes = ["PJ99101-009913", "PJ99102-V-009913"]
     with session_module.SessionLocal() as db:

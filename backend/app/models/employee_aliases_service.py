@@ -1,5 +1,5 @@
 """Factory-scoped badge aliases left by reviewed employee consolidations."""
-from app.models import Employee, SystemSetting
+from app.schemas import Employee, SystemSetting
 
 
 def merged_employee(db, factory_code, *, employee_id=None, employee_no=None):

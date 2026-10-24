@@ -5,7 +5,7 @@ from sqlalchemy import text
 
 from app.db.session import SessionLocal
 from app.api.routes.planning import _branded_order_payload
-from app.models import BrandedPlanningOrder
+from app.schemas import BrandedPlanningOrder
 from app.models.audit_service import verify_audit_hash_chain
 from bso_cleanup_operation import fingerprint, ids, rows
 

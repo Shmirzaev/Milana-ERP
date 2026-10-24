@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 
 from app.api.routes import inbox
-from app.models import (
+from app.schemas import (
     Customer,
     FinishedGoodsStock,
     Model,

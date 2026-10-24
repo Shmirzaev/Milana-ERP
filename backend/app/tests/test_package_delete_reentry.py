@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     AuditLog, Department, FinishedGoodsStock, Model, Package, PackagePrintRun,
     PackagePrintRunMember, PackagingReceipt, PackagingRecord, ProductionBatch,
     ProductionOrder, SewingRecord, StockMovement, WorkOrder,

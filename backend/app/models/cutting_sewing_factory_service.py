@@ -2,7 +2,7 @@
 from fastapi import HTTPException
 from sqlalchemy.exc import OperationalError
 
-from app.models import (
+from app.schemas import (
     Bundle, Department, Package, PackagingReceipt, PackagingRecord, PayrollQrLabel,
     PayrollRecord, ProductionOrder, SewingAssignment, WorkOrder,
 )

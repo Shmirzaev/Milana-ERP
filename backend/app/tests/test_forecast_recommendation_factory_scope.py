@@ -2,7 +2,7 @@ from uuid import uuid4
 
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
-from app.models import AuditLog, ForecastRecommendation, Model, Role, User
+from app.schemas import AuditLog, ForecastRecommendation, Model, Role, User
 
 
 def _factory_user_headers(*, extra_permissions=(), super_admin: bool = False) -> dict[str, str]:

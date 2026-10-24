@@ -37,10 +37,10 @@ from uuid import uuid4
 from app.api.routes import finance as finance_routes
 from app.db.base import Base
 from app.db.session import SessionLocal
-from app.models import AuditLog, Invoice, Payment, SalesOrder, User
-from app.schemas.sales import InvoiceIn, PaymentIn
+from app.schemas import AuditLog, Invoice, Payment, SalesOrder, User
+from app.libs.dto.sales.sales import InvoiceIn, PaymentIn
 
-import app.models  # noqa: F401  — registers every table on Base.metadata
+import app.schemas  # noqa: F401  — registers every table on Base.metadata
 
 
 # `Numeric(14, 2)` stores at most 14 significant digits with 2 decimal places.

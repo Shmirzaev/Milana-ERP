@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     AuditLog,
     IdempotencyRecord,
     Item,
@@ -17,7 +17,7 @@ from app.models import (
     StockBatch,
     StockMovement,
 )
-from app.schemas.purchasing import (
+from app.libs.dto.purchasing.purchasing import (
     PurchaseOrderIn,
     PurchaseOrderReceiveIn,
     PurchaseRequestApprovalIn,

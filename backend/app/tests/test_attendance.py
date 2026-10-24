@@ -6,7 +6,7 @@ from io import BytesIO
 from openpyxl import load_workbook
 from PIL import Image
 
-from app.models import AttendanceDevice, AttendancePerson, Employee
+from app.schemas import AttendanceDevice, AttendancePerson, Employee
 from app.tests.conftest import TestSessionLocal
 
 

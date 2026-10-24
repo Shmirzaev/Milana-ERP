@@ -12,7 +12,7 @@ from sqlalchemy import func, select, text
 from app.core.deps import user_permissions
 from app.db.base import Base
 from app.db.session import SessionLocal
-from app.models import AuditLog, Bundle, CuttingRecord, ProductionBatch, ProductionOrder, User, WorkOrder
+from app.schemas import AuditLog, Bundle, CuttingRecord, ProductionBatch, ProductionOrder, User, WorkOrder
 from app.models.audit_service import _finalize_postgres_audits, log_action, verify_audit_hash_chain
 from app.models.factory_scope_service import require_work_order_factory_access
 

@@ -20,7 +20,7 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models import StockBatch, EcoFabricRoll
+from app.schemas import StockBatch, EcoFabricRoll
 from app.models.inventory_service import stock_summary
 
 

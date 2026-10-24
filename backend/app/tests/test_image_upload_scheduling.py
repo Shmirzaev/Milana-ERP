@@ -41,7 +41,7 @@ from app.api.routes import catalog as catalog_routes
 from app.api.routes import hr_workspace as hr_routes
 from app.core.config import settings
 from app.db.base import Base
-from app.models import (
+from app.schemas import (
     AuditLog,
     Employee,
     HrEmployeeDocument,

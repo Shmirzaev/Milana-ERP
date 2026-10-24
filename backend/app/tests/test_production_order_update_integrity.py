@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 
 from app.core.security import create_access_token
-from app.models import AuditLog, Model, ProductionOrder, SalesOrder, User
+from app.schemas import AuditLog, Model, ProductionOrder, SalesOrder, User
 from app.tests.conftest import TestSessionLocal
 
 

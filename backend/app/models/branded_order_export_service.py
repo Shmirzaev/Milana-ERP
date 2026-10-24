@@ -10,7 +10,7 @@ from openpyxl.utils import get_column_letter
 from PIL import Image as PillowImage
 from sqlalchemy.orm import selectinload
 
-from app.models import BrandedPlanningOrder, Department, Model, ProductionOrder, ProductionOrderMaterial, StockBatch
+from app.schemas import BrandedPlanningOrder, Department, Model, ProductionOrder, ProductionOrderMaterial, StockBatch
 from app.models.model_identity_service import model_number_fields
 from app.models.label_images_service import model_label_image_src, material_label_image_src
 

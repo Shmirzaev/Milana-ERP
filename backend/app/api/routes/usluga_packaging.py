@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from app.core.deps import DbSession, require_permissions
-from app.models import ProductionOrder, ProductionOrderItem, SewingRecord, User, WorkOrder
+from app.schemas import ProductionOrder, ProductionOrderItem, SewingRecord, User, WorkOrder
 from app.models.audit_service import log_action
 from app.models.packaging_scope_service import require_packaging_work_order_access
 from app.models.workflow_service import sync_production_order_status

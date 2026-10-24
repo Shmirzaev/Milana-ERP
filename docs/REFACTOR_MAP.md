@@ -11,12 +11,12 @@ boundaries still need tracing before extraction. It does not claim full isolatio
 
 All twelve directories now have README.md guides. A source file appears more than
 once when it mixes responsibilities; move the relevant operation, not the whole file.
-The links below show current source locations. Services/helpers now live in
-models/*_service.py; route files and existing ORM mapping files keep their names. Database definitions target schemas/
-after ALL existing schemas/ DTOs, callers and shims migrate to libs/dto/. Then move
-only models/ ORM mappings and registration without changing database tables. Do not relabel
-source links as migrated before the files actually move. Business-group guides describe intended operation boundaries; their directories
-remain documentation-only until individual extractions are approved.
+The links below show current source locations. Services/helpers live in
+models/*_service.py, SQLAlchemy definitions in schemas/<group>/ and Pydantic DTOs
+in libs/dto/<group>/. The namespace move preserves existing class bodies and tables.
+Business-service group directories remain guides until extractions are approved.
+Mapped files spanning several owners were moved intact; links show their physical
+home while the proposed group column records business ownership.
 
 | Destination | Existing routes to inspect | Existing models/helpers to inspect |
 | --- | --- | --- |
@@ -54,8 +54,9 @@ shipments and invoices). A folder alone does not fix those dependencies.
 
 ## Existing database models
 
-Each class below has one proposed primary home. This does NOT move its file, change
-its table or prove that current writes already follow that ownership. Operations
+Each class below has one proposed business owner. Its link shows the current
+physical file after namespace relocation; some files still span several owners.
+This map does not prove that current writes already follow that ownership. Operations
 spanning several groups need one agreed transaction owner and public handoff.
 support denotes existing audit, idempotency, settings or shared order-reference
 infrastructure; it is not a new required folder or catch-all business service.
@@ -65,111 +66,111 @@ infrastructure; it is not a new required folder or catch-all business service.
 
 | Existing SQLAlchemy class | Current model file | Proposed group |
 | --- | --- | --- |
-| [AttendanceDevice](../backend/app/models/attendance.py#L11) | `attendance.py` | `people` |
-| [AttendancePerson](../backend/app/models/attendance.py#L39) | `attendance.py` | `people` |
-| [AttendanceEvent](../backend/app/models/attendance.py#L66) | `attendance.py` | `people` |
-| [Brand](../backend/app/models/catalog.py#L13) | `catalog.py` | `catalog` |
-| [Collection](../backend/app/models/catalog.py#L21) | `catalog.py` | `catalog` |
-| [Model](../backend/app/models/catalog.py#L33) | `catalog.py` | `catalog` |
-| [CollectionModel](../backend/app/models/catalog.py#L111) | `catalog.py` | `catalog` |
-| [ModelImage](../backend/app/models/catalog.py#L117) | `catalog.py` | `catalog` |
-| [ModelSize](../backend/app/models/catalog.py#L129) | `catalog.py` | `catalog` |
-| [ModelColor](../backend/app/models/catalog.py#L137) | `catalog.py` | `catalog` |
-| [ModelBOM](../backend/app/models/catalog.py#L145) | `catalog.py` | `catalog` |
-| [Role](../backend/app/models/core.py#L9) | `core.py` | `identity` |
-| [Department](../backend/app/models/core.py#L15) | `core.py` | `people` |
-| [User](../backend/app/models/core.py#L21) | `core.py` | `identity` |
-| [Employee](../backend/app/models/core.py#L43) | `core.py` | `people` |
-| [AuditLog](../backend/app/models/core.py#L75) | `core.py` | `support` |
-| [Notification](../backend/app/models/core.py#L88) | `core.py` | `work_management` |
-| [PasswordResetToken](../backend/app/models/core.py#L99) | `core.py` | `identity` |
-| [SystemSetting](../backend/app/models/core.py#L110) | `core.py` | `support` |
-| [IdempotencyRecord](../backend/app/models/core.py#L116) | `core.py` | `support` |
-| [CuttingPassport](../backend/app/models/cutting_passport.py#L14) | `cutting_passport.py` | `production` |
-| [EcoFabricDispatch](../backend/app/models/eco_transfer.py#L8) | `eco_transfer.py` | `inventory` |
-| [EcoFabricRoll](../backend/app/models/eco_transfer.py#L17) | `eco_transfer.py` | `inventory` |
-| [FabricScan](../backend/app/models/fabric_scan.py#L10) | `fabric_scan.py` | `inventory` |
-| [ForecastRecommendation](../backend/app/models/forecasting.py#L10) | `forecasting.py` | `planning` |
-| [HrOrgUnit](../backend/app/models/hr.py#L11) | `hr.py` | `people` |
-| [HrPosition](../backend/app/models/hr.py#L27) | `hr.py` | `people` |
-| [HrEmployeeDocument](../backend/app/models/hr.py#L44) | `hr.py` | `people` |
-| [HrRecruitmentCandidate](../backend/app/models/hr.py#L60) | `hr.py` | `people` |
-| [HrCalendarEvent](../backend/app/models/hr.py#L91) | `hr.py` | `people` |
-| [Item](../backend/app/models/inventory.py#L9) | `inventory.py` | `inventory` |
-| [Warehouse](../backend/app/models/inventory.py#L31) | `inventory.py` | `inventory` |
-| [StockBatch](../backend/app/models/inventory.py#L38) | `inventory.py` | `inventory` |
-| [StockMovement](../backend/app/models/inventory.py#L75) | `inventory.py` | `inventory` |
-| [MaterialReservation](../backend/app/models/inventory.py#L97) | `inventory.py` | `inventory` |
-| [ManualAccessoryIssue](../backend/app/models/inventory.py#L144) | `inventory.py` | `inventory` |
-| [BusinessOrderAlias](../backend/app/models/order_reference.py#L7) | `order_reference.py` | `support` |
-| [ManualPackageReceipt](../backend/app/models/package_workflows.py#L10) | `package_workflows.py` | `fulfillment` |
-| [PackagePrintRun](../backend/app/models/package_workflows.py#L19) | `package_workflows.py` | `packaging` |
-| [PackagePrintRunMember](../backend/app/models/package_workflows.py#L38) | `package_workflows.py` | `packaging` |
-| [PaidProcess](../backend/app/models/paid_process.py#L7) | `paid_process.py` | `catalog` |
-| [UslugaPaidProcess](../backend/app/models/paid_process.py#L18) | `paid_process.py` | `catalog` |
-| [Customer](../backend/app/models/partners.py#L7) | `partners.py` | `catalog` |
-| [Supplier](../backend/app/models/partners.py#L16) | `partners.py` | `catalog` |
-| [PayrollPeriod](../backend/app/models/payroll.py#L11) | `payroll.py` | `people` |
-| [PayrollRecord](../backend/app/models/payroll.py#L36) | `payroll.py` | `people` |
-| [PayrollQrLabel](../backend/app/models/payroll.py#L89) | `payroll.py` | `people` |
-| [PayrollAdjustment](../backend/app/models/payroll.py#L142) | `payroll.py` | `people` |
-| [PriceCalculationRequest](../backend/app/models/price_calculation.py#L9) | `price_calculation.py` | `planning` |
-| [BrandedPlanningOrder](../backend/app/models/production.py#L22) | `production.py` | `planning` |
-| [ProductionOrder](../backend/app/models/production.py#L49) | `production.py` | `production` |
-| [ProductionOrderMaterial](../backend/app/models/production.py#L114) | `production.py` | `production` |
-| [ProductionBatch](../backend/app/models/production.py#L142) | `production.py` | `production` |
-| [ProductionOrderItem](../backend/app/models/production.py#L164) | `production.py` | `production` |
-| [WorkOrder](../backend/app/models/production.py#L181) | `production.py` | `production` |
-| [CuttingRecord](../backend/app/models/production.py#L240) | `production.py` | `production` |
-| [CuttingMaterialUsage](../backend/app/models/production.py#L310) | `production.py` | `production` |
-| [CuttingBeikaMaterialUsage](../backend/app/models/production.py#L340) | `production.py` | `production` |
-| [PrintingRecord](../backend/app/models/production.py#L375) | `production.py` | `production` |
-| [SewingRecord](../backend/app/models/production.py#L395) | `production.py` | `production` |
-| [SewingReplacementRequest](../backend/app/models/production.py#L423) | `production.py` | `production` |
-| [PackagingRecord](../backend/app/models/production.py#L458) | `production.py` | `packaging` |
-| [PackagingReceipt](../backend/app/models/production.py#L479) | `production.py` | `fulfillment` |
-| [QualityCheck](../backend/app/models/production.py#L502) | `production.py` | `production` |
-| [PurchaseRequest](../backend/app/models/purchasing.py#L9) | `purchasing.py` | `purchasing` |
-| [PurchaseRequestLine](../backend/app/models/purchasing.py#L39) | `purchasing.py` | `purchasing` |
-| [PurchaseOrder](../backend/app/models/purchasing.py#L71) | `purchasing.py` | `purchasing` |
-| [PurchaseOrderLine](../backend/app/models/purchasing.py#L100) | `purchasing.py` | `purchasing` |
-| [SalesOrder](../backend/app/models/sales.py#L9) | `sales.py` | `sales` |
-| [SalesOrderItem](../backend/app/models/sales.py#L45) | `sales.py` | `sales` |
-| [Shipment](../backend/app/models/sales.py#L81) | `sales.py` | `fulfillment` |
-| [ShipmentPackage](../backend/app/models/sales.py#L106) | `sales.py` | `fulfillment` |
-| [ShipmentScanLog](../backend/app/models/sales.py#L119) | `sales.py` | `fulfillment` |
-| [Invoice](../backend/app/models/sales.py#L132) | `sales.py` | `finance` |
-| [Payment](../backend/app/models/sales.py#L148) | `sales.py` | `finance` |
-| [SewingAssignment](../backend/app/models/sewing_assignment.py#L13) | `sewing_assignment.py` | `production` |
-| [SewingDailyReport](../backend/app/models/sewing_daily_report.py#L11) | `sewing_daily_report.py` | `production` |
-| [SewingFlow](../backend/app/models/sewing_flow.py#L8) | `sewing_flow.py` | `production` |
-| [PackageQuantityAdjustment](../backend/app/models/shipment_review.py#L9) | `shipment_review.py` | `fulfillment` |
-| [WarehouseStocktake](../backend/app/models/stocktake.py#L9) | `stocktake.py` | `inventory` |
-| [WarehouseStocktakeRow](../backend/app/models/stocktake.py#L18) | `stocktake.py` | `inventory` |
-| [Task](../backend/app/models/tasks.py#L9) | `tasks.py` | `work_management` |
-| [Bundle](../backend/app/models/tracking.py#L9) | `tracking.py` | `production` |
-| [BundleScanLog](../backend/app/models/tracking.py#L41) | `tracking.py` | `production` |
-| [Package](../backend/app/models/tracking.py#L54) | `tracking.py` | `packaging` |
-| [LegacyStockReceipt](../backend/app/models/tracking.py#L128) | `tracking.py` | `fulfillment` |
-| [PackageBarcodeAlias](../backend/app/models/tracking.py#L157) | `tracking.py` | `packaging` |
-| [PackageItem](../backend/app/models/tracking.py#L176) | `tracking.py` | `packaging` |
-| [PackageBatchAllocation](../backend/app/models/tracking.py#L190) | `tracking.py` | `packaging` |
-| [PackageScanLog](../backend/app/models/tracking.py#L203) | `tracking.py` | `packaging` |
-| [PackageChangeRequest](../backend/app/models/tracking.py#L214) | `tracking.py` | `packaging` |
-| [FinishedGoodsStock](../backend/app/models/tracking.py#L233) | `tracking.py` | `fulfillment` |
-| [StockReservation](../backend/app/models/tracking.py#L262) | `tracking.py` | `fulfillment` |
-| [WarehousePackReservation](../backend/app/models/tracking.py#L276) | `tracking.py` | `fulfillment` |
-| [WasteRecord](../backend/app/models/waste.py#L9) | `waste.py` | `inventory` |
-| [WasteSale](../backend/app/models/waste.py#L26) | `waste.py` | `inventory` |
-| [WasteDisposalRequest](../backend/app/models/waste.py#L37) | `waste.py` | `inventory` |
+| [AttendanceDevice](../backend/app/schemas/people/attendance.py#L11) | `attendance.py` | `people` |
+| [AttendancePerson](../backend/app/schemas/people/attendance.py#L39) | `attendance.py` | `people` |
+| [AttendanceEvent](../backend/app/schemas/people/attendance.py#L66) | `attendance.py` | `people` |
+| [Brand](../backend/app/schemas/catalog/catalog.py#L13) | `catalog.py` | `catalog` |
+| [Collection](../backend/app/schemas/catalog/catalog.py#L21) | `catalog.py` | `catalog` |
+| [Model](../backend/app/schemas/catalog/catalog.py#L33) | `catalog.py` | `catalog` |
+| [CollectionModel](../backend/app/schemas/catalog/catalog.py#L111) | `catalog.py` | `catalog` |
+| [ModelImage](../backend/app/schemas/catalog/catalog.py#L117) | `catalog.py` | `catalog` |
+| [ModelSize](../backend/app/schemas/catalog/catalog.py#L129) | `catalog.py` | `catalog` |
+| [ModelColor](../backend/app/schemas/catalog/catalog.py#L137) | `catalog.py` | `catalog` |
+| [ModelBOM](../backend/app/schemas/catalog/catalog.py#L145) | `catalog.py` | `catalog` |
+| [Role](../backend/app/schemas/core.py#L9) | `core.py` | `identity` |
+| [Department](../backend/app/schemas/core.py#L15) | `core.py` | `people` |
+| [User](../backend/app/schemas/core.py#L21) | `core.py` | `identity` |
+| [Employee](../backend/app/schemas/core.py#L43) | `core.py` | `people` |
+| [AuditLog](../backend/app/schemas/core.py#L75) | `core.py` | `support` |
+| [Notification](../backend/app/schemas/core.py#L88) | `core.py` | `work_management` |
+| [PasswordResetToken](../backend/app/schemas/core.py#L99) | `core.py` | `identity` |
+| [SystemSetting](../backend/app/schemas/core.py#L110) | `core.py` | `support` |
+| [IdempotencyRecord](../backend/app/schemas/core.py#L116) | `core.py` | `support` |
+| [CuttingPassport](../backend/app/schemas/production/cutting_passport.py#L14) | `cutting_passport.py` | `production` |
+| [EcoFabricDispatch](../backend/app/schemas/inventory/eco_transfer.py#L8) | `eco_transfer.py` | `inventory` |
+| [EcoFabricRoll](../backend/app/schemas/inventory/eco_transfer.py#L17) | `eco_transfer.py` | `inventory` |
+| [FabricScan](../backend/app/schemas/inventory/fabric_scan.py#L10) | `fabric_scan.py` | `inventory` |
+| [ForecastRecommendation](../backend/app/schemas/planning/forecasting.py#L10) | `forecasting.py` | `planning` |
+| [HrOrgUnit](../backend/app/schemas/people/hr.py#L11) | `hr.py` | `people` |
+| [HrPosition](../backend/app/schemas/people/hr.py#L27) | `hr.py` | `people` |
+| [HrEmployeeDocument](../backend/app/schemas/people/hr.py#L44) | `hr.py` | `people` |
+| [HrRecruitmentCandidate](../backend/app/schemas/people/hr.py#L60) | `hr.py` | `people` |
+| [HrCalendarEvent](../backend/app/schemas/people/hr.py#L91) | `hr.py` | `people` |
+| [Item](../backend/app/schemas/inventory/inventory.py#L9) | `inventory.py` | `inventory` |
+| [Warehouse](../backend/app/schemas/inventory/inventory.py#L31) | `inventory.py` | `inventory` |
+| [StockBatch](../backend/app/schemas/inventory/inventory.py#L38) | `inventory.py` | `inventory` |
+| [StockMovement](../backend/app/schemas/inventory/inventory.py#L75) | `inventory.py` | `inventory` |
+| [MaterialReservation](../backend/app/schemas/inventory/inventory.py#L97) | `inventory.py` | `inventory` |
+| [ManualAccessoryIssue](../backend/app/schemas/inventory/inventory.py#L144) | `inventory.py` | `inventory` |
+| [BusinessOrderAlias](../backend/app/schemas/order_reference.py#L7) | `order_reference.py` | `support` |
+| [ManualPackageReceipt](../backend/app/schemas/packaging/package_workflows.py#L10) | `package_workflows.py` | `fulfillment` |
+| [PackagePrintRun](../backend/app/schemas/packaging/package_workflows.py#L19) | `package_workflows.py` | `packaging` |
+| [PackagePrintRunMember](../backend/app/schemas/packaging/package_workflows.py#L38) | `package_workflows.py` | `packaging` |
+| [PaidProcess](../backend/app/schemas/catalog/paid_process.py#L7) | `paid_process.py` | `catalog` |
+| [UslugaPaidProcess](../backend/app/schemas/catalog/paid_process.py#L18) | `paid_process.py` | `catalog` |
+| [Customer](../backend/app/schemas/catalog/partners.py#L7) | `partners.py` | `catalog` |
+| [Supplier](../backend/app/schemas/catalog/partners.py#L16) | `partners.py` | `catalog` |
+| [PayrollPeriod](../backend/app/schemas/people/payroll.py#L11) | `payroll.py` | `people` |
+| [PayrollRecord](../backend/app/schemas/people/payroll.py#L36) | `payroll.py` | `people` |
+| [PayrollQrLabel](../backend/app/schemas/people/payroll.py#L89) | `payroll.py` | `people` |
+| [PayrollAdjustment](../backend/app/schemas/people/payroll.py#L142) | `payroll.py` | `people` |
+| [PriceCalculationRequest](../backend/app/schemas/planning/price_calculation.py#L9) | `price_calculation.py` | `planning` |
+| [BrandedPlanningOrder](../backend/app/schemas/production/production.py#L22) | `production.py` | `planning` |
+| [ProductionOrder](../backend/app/schemas/production/production.py#L49) | `production.py` | `production` |
+| [ProductionOrderMaterial](../backend/app/schemas/production/production.py#L114) | `production.py` | `production` |
+| [ProductionBatch](../backend/app/schemas/production/production.py#L142) | `production.py` | `production` |
+| [ProductionOrderItem](../backend/app/schemas/production/production.py#L164) | `production.py` | `production` |
+| [WorkOrder](../backend/app/schemas/production/production.py#L181) | `production.py` | `production` |
+| [CuttingRecord](../backend/app/schemas/production/production.py#L240) | `production.py` | `production` |
+| [CuttingMaterialUsage](../backend/app/schemas/production/production.py#L310) | `production.py` | `production` |
+| [CuttingBeikaMaterialUsage](../backend/app/schemas/production/production.py#L340) | `production.py` | `production` |
+| [PrintingRecord](../backend/app/schemas/production/production.py#L375) | `production.py` | `production` |
+| [SewingRecord](../backend/app/schemas/production/production.py#L395) | `production.py` | `production` |
+| [SewingReplacementRequest](../backend/app/schemas/production/production.py#L423) | `production.py` | `production` |
+| [PackagingRecord](../backend/app/schemas/production/production.py#L458) | `production.py` | `packaging` |
+| [PackagingReceipt](../backend/app/schemas/production/production.py#L479) | `production.py` | `fulfillment` |
+| [QualityCheck](../backend/app/schemas/production/production.py#L502) | `production.py` | `production` |
+| [PurchaseRequest](../backend/app/schemas/purchasing/purchasing.py#L9) | `purchasing.py` | `purchasing` |
+| [PurchaseRequestLine](../backend/app/schemas/purchasing/purchasing.py#L39) | `purchasing.py` | `purchasing` |
+| [PurchaseOrder](../backend/app/schemas/purchasing/purchasing.py#L71) | `purchasing.py` | `purchasing` |
+| [PurchaseOrderLine](../backend/app/schemas/purchasing/purchasing.py#L100) | `purchasing.py` | `purchasing` |
+| [SalesOrder](../backend/app/schemas/sales/sales.py#L9) | `sales.py` | `sales` |
+| [SalesOrderItem](../backend/app/schemas/sales/sales.py#L45) | `sales.py` | `sales` |
+| [Shipment](../backend/app/schemas/sales/sales.py#L81) | `sales.py` | `fulfillment` |
+| [ShipmentPackage](../backend/app/schemas/sales/sales.py#L106) | `sales.py` | `fulfillment` |
+| [ShipmentScanLog](../backend/app/schemas/sales/sales.py#L119) | `sales.py` | `fulfillment` |
+| [Invoice](../backend/app/schemas/sales/sales.py#L132) | `sales.py` | `finance` |
+| [Payment](../backend/app/schemas/sales/sales.py#L148) | `sales.py` | `finance` |
+| [SewingAssignment](../backend/app/schemas/production/sewing_assignment.py#L13) | `sewing_assignment.py` | `production` |
+| [SewingDailyReport](../backend/app/schemas/production/sewing_daily_report.py#L11) | `sewing_daily_report.py` | `production` |
+| [SewingFlow](../backend/app/schemas/production/sewing_flow.py#L8) | `sewing_flow.py` | `production` |
+| [PackageQuantityAdjustment](../backend/app/schemas/fulfillment/shipment_review.py#L9) | `shipment_review.py` | `fulfillment` |
+| [WarehouseStocktake](../backend/app/schemas/inventory/stocktake.py#L9) | `stocktake.py` | `inventory` |
+| [WarehouseStocktakeRow](../backend/app/schemas/inventory/stocktake.py#L18) | `stocktake.py` | `inventory` |
+| [Task](../backend/app/schemas/work_management/tasks.py#L9) | `tasks.py` | `work_management` |
+| [Bundle](../backend/app/schemas/production/tracking.py#L9) | `tracking.py` | `production` |
+| [BundleScanLog](../backend/app/schemas/production/tracking.py#L41) | `tracking.py` | `production` |
+| [Package](../backend/app/schemas/production/tracking.py#L54) | `tracking.py` | `packaging` |
+| [LegacyStockReceipt](../backend/app/schemas/production/tracking.py#L128) | `tracking.py` | `fulfillment` |
+| [PackageBarcodeAlias](../backend/app/schemas/production/tracking.py#L157) | `tracking.py` | `packaging` |
+| [PackageItem](../backend/app/schemas/production/tracking.py#L176) | `tracking.py` | `packaging` |
+| [PackageBatchAllocation](../backend/app/schemas/production/tracking.py#L190) | `tracking.py` | `packaging` |
+| [PackageScanLog](../backend/app/schemas/production/tracking.py#L203) | `tracking.py` | `packaging` |
+| [PackageChangeRequest](../backend/app/schemas/production/tracking.py#L214) | `tracking.py` | `packaging` |
+| [FinishedGoodsStock](../backend/app/schemas/production/tracking.py#L233) | `tracking.py` | `fulfillment` |
+| [StockReservation](../backend/app/schemas/production/tracking.py#L262) | `tracking.py` | `fulfillment` |
+| [WarehousePackReservation](../backend/app/schemas/production/tracking.py#L276) | `tracking.py` | `fulfillment` |
+| [WasteRecord](../backend/app/schemas/inventory/waste.py#L9) | `waste.py` | `inventory` |
+| [WasteSale](../backend/app/schemas/inventory/waste.py#L26) | `waste.py` | `inventory` |
+| [WasteDisposalRequest](../backend/app/schemas/inventory/waste.py#L37) | `waste.py` | `inventory` |
 
 </details>
 
 ## DTOs and file creation
 
-The group READMEs point to current schema files, which are migration sources.
-Move existing Create/In, Update and Read/Out contracts and action inputs into
-libs/dto/<feature>/ with their callers; keep one definition per DTO. Inline HR,
+The group READMEs point to current DTO files in libs/dto/<feature>/.
+Reuse existing Create/In, Update, Read/Out and action contracts; keep one definition
+per DTO. Inline HR,
 attendance and stocktake inputs go to the same target during their operation refactor. Preserve validators,
 omitted/null handling, aliases and response filtering.
 

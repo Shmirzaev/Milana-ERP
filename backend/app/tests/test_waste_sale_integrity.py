@@ -7,7 +7,7 @@ import pytest
 
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
-from app.models import Role, User, WasteRecord, WasteSale
+from app.schemas import Role, User, WasteRecord, WasteSale
 
 
 def _waste(*, quantity=10, sellable=True, status="received_by_waste_department"):

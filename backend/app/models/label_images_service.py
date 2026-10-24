@@ -7,7 +7,7 @@ import os
 from sqlalchemy import inspect as sa_inspect
 
 from app.core.config import settings
-from app.models import Model, ModelBOM, ModelImage
+from app.schemas import Model, ModelBOM, ModelImage
 from app.models.model_images_service import model_variant_picture_url
 from app.models.model_family_images_service import model_family_image
 

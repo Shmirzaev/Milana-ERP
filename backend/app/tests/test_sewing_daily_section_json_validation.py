@@ -1,7 +1,7 @@
 """Daily-report section JSON must contain actual integer quantities."""
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, SewingDailyReport
+from app.schemas import AuditLog, SewingDailyReport
 
 
 def _report_payload(flow_id, section_quantities):

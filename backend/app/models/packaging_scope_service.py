@@ -1,6 +1,6 @@
 from fastapi import HTTPException
 
-from app.models import Department, WorkOrder
+from app.schemas import Department, WorkOrder
 
 
 PACKAGING_DEPARTMENT_CODES = {"PKG", "BPK", "ECP"}

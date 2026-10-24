@@ -4,26 +4,27 @@
 
 Purchase requests, orders and their lines; receiving coordinates with Inventory rather than inventing a second stock balance.
 
-Documentation scaffold only. Existing SQLAlchemy classes still live in `app/models/`;
-existing Pydantic DTOs still live in the parent `app/schemas/` files. No ORM or DTO
-code moves in this scaffold. Business services live in `models/*_service.py`.
+SQLAlchemy definitions now live under app/schemas/; Pydantic DTOs live in
+app/libs/dto/. The links below show the authoritative definitions for this group's
+records. Business services live in models/*_service.py.
 
-## Existing definitions to migrate
+## Authoritative definitions
 
-- [PurchaseRequest](../../models/purchasing.py)
-- [PurchaseRequestLine](../../models/purchasing.py)
-- [PurchaseOrder](../../models/purchasing.py)
-- [PurchaseOrderLine](../../models/purchasing.py)
+- [PurchaseRequest](purchasing.py)
+- [PurchaseRequestLine](purchasing.py)
+- [PurchaseOrder](purchasing.py)
+- [PurchaseOrderLine](purchasing.py)
 
-These are the ownership map's proposed destinations, not permission to move a whole
-mixed source file. Keep one authoritative mapping for each existing table.
+These links follow business ownership; some point to mixed files in another group
+or shared core.py. Keep one authoritative mapping per table. Moving individual
+classes out of mixed files is a separate approved change.
 
 ## How to make a file here
 
 1. Trace the approved business operation in [the service guide](../../models/purchasing/README.md),
    its route, current model, DTO, database writes and other callers.
-2. First migrate current Pydantic DTOs and callers to `libs/dto/<feature>/`.
-   Retire all old DTO imports/shims before activating ORM code under `schemas/`.
+2. Reuse Pydantic contracts from `libs/dto/<feature>/`; never define DTOs here.
+   Find existing mapped classes before adding a new persistence definition.
 3. Use a descriptive `snake_case.py` file for related existing model definitions.
    Reuse the existing SQLAlchemy Base and classes; preserve table/column names,
    keys, indexes, relationships, constraints, defaults and serialized enum values.
@@ -36,9 +37,9 @@ mixed source file. Keep one authoritative mapping for each existing table.
    workflow, then verify bounded stress/retries and adjacent department handoffs.
    Remove old paths only after the agreed acceptance and rollback conditions pass.
 
-Do not add `__init__.py` or Python implementation files during this scaffold step.
-Some group names collide with current DTO `.py` modules; package conversion must
-be coordinated, not silently shadow those modules.
+Only groups with actual definitions are Python packages. A guide without Python
+files points to its existing definitions elsewhere; it is not a request to create
+duplicate classes or empty implementation files.
 
 See [schema migration rules](../README.md), [DTO conventions](../../libs/dto/README.md),
 [the business plan](../../../../docs/REFACTOR_PLAN.md) and

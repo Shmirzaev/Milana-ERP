@@ -21,14 +21,14 @@ from app.core.uploads import (
     safe_content_type,
     read_validated_upload_content,
 )
-from app.models import (
+from app.schemas import (
     SalesOrder, SalesOrderItem, FinishedGoodsStock, StockReservation,
     BrandedPlanningOrder, Customer, Model, User, ProductionOrder,
     CuttingRecord, PrintingRecord, SewingRecord, PackagingRecord, QualityCheck, Shipment, ShipmentPackage,
     Task, Department, Invoice, Payment, StockMovement, Item, StockBatch, MaterialReservation,
     Package, Bundle, FinishedGoodsStock, AuditLog,
 )
-from app.schemas.sales import (
+from app.libs.dto.sales.sales import (
     SalesOrderIn, SalesOrderUpdate, SalesOrderOut, SalesOrderDetail,
 )
 from app.models.audit_service import log_action

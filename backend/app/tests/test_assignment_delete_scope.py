@@ -8,7 +8,7 @@ from sqlalchemy import event
 
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
-from app.models import AuditLog, Department, ProductionOrder, SewingAssignment, SewingFlow, User, WorkOrder
+from app.schemas import AuditLog, Department, ProductionOrder, SewingAssignment, SewingFlow, User, WorkOrder
 
 
 FACTORIES = ("MIL", "BST", "ECO")

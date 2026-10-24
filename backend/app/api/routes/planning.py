@@ -2,8 +2,8 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.deps import DbSession, require_permissions
-from app.models import BrandedPlanningOrder, Customer, Department, Model, User, SalesOrder, WorkOrder
-from app.schemas.production import (
+from app.schemas import BrandedPlanningOrder, Customer, Department, Model, User, SalesOrder, WorkOrder
+from app.libs.dto.production.production import (
     BrandedPlanningOrderIn,
     MaterialRequirement,
     ProductionOrderIn,

@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.models import Employee
+from app.schemas import Employee
 from app.tests.conftest import TestSessionLocal
 
 
@@ -477,7 +477,7 @@ def test_paid_record_reversal_posts_one_audited_deduction_to_open_period(client,
     assert target_summary.status_code == 200, target_summary.text
     assert float(target_summary.json()["total_amount"]) == -2500
 
-    from app.models import AuditLog
+    from app.schemas import AuditLog
 
     with TestSessionLocal() as db:
         audit = db.query(AuditLog).filter(
@@ -1238,7 +1238,7 @@ def test_sewing_production_report_filters_and_excludes_returned_work(client, aut
 
 
 def test_sewing_production_report_options_include_reference_data_before_scans(client, auth_headers):
-    from app.models import Bundle, Model, ProductionOrder
+    from app.schemas import Bundle, Model, ProductionOrder
     from app.tests.conftest import TestSessionLocal
 
     suffix = uuid4().hex[:8].upper()
@@ -1298,7 +1298,7 @@ def test_sewing_production_report_options_include_reference_data_before_scans(cl
 
 
 def test_sewing_production_report_options_are_scoped_by_factory(client, auth_headers):
-    from app.models import Bundle, Department, Employee, Model, ProductionOrder, SewingFlow, WorkOrder
+    from app.schemas import Bundle, Department, Employee, Model, ProductionOrder, SewingFlow, WorkOrder
     from app.tests.conftest import TestSessionLocal
 
     suffix = uuid4().hex[:8].upper()
@@ -1763,7 +1763,7 @@ def test_rate_corrected_shared_code_still_rejects_another_operation(client, auth
 
 @pytest.mark.parametrize("status", [None, "open", "draft", "locked", "approved", "paid", "cancelled"])
 def test_delete_adjustment_checks_period_and_recalculates(client, auth_headers, status):
-    from app.models import AuditLog, PayrollAdjustment, PayrollPeriod
+    from app.schemas import AuditLog, PayrollAdjustment, PayrollPeriod
     employee = _create_employee(client, auth_headers)
     period = _create_period(client, auth_headers) if status else None
     response = client.post("/api/payroll/adjustments", headers=auth_headers, json={

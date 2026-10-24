@@ -15,8 +15,8 @@ See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordi
 
 - Routes: [finance.py](../../api/routes/finance.py), [sales.py](../../api/routes/sales.py), [partners.py](../../api/routes/partners.py), [shipments.py](../../api/routes/shipments.py).
 - Services/helpers: [finance_service.py](../finance_service.py), [payments_service.py](../payments_service.py), [shipment_invoice_service.py](../shipment_invoice_service.py), [shipment_review_service.py](../shipment_review_service.py).
-- Existing SQLAlchemy schema models: [Invoice](../sales.py#L132), [Payment](../sales.py#L148).
-- Existing Pydantic contracts: [sales.py](../../schemas/sales.py), [price_calculation.py](../../schemas/price_calculation.py).
+- Existing SQLAlchemy schema models: [Invoice](../../schemas/sales/sales.py#L132), [Payment](../../schemas/sales/sales.py#L148).
+- Existing Pydantic contracts: [sales.py](../../libs/dto/sales/sales.py), [price_calculation.py](../../libs/dto/planning/price_calculation.py).
 
 These are source pointers, not permission to move entire mixed files. Trace the
 particular operation and every caller/write before choosing what belongs here.
@@ -33,8 +33,8 @@ Use snake_case_service.py filenames and operation names such as `create_*`, `rec
 `receive_*` or `approve_*`. A typed function is sufficient; a class is optional
 when it owns real dependencies. Accept the Session, validated input and actor
 explicitly. State the transaction owner, refusal rules and result contract.
-Use the existing ORM models. Migrate existing schemas/ DTOs to libs/dto/<feature>/
-with their callers; keep fixed values in libs/enums/. See [DTO conventions](../../libs/dto/README.md).
+Use the existing ORM definitions in schemas/ and DTOs in libs/dto/<feature>/;
+keep fixed values in libs/enums/. See [DTO conventions](../../libs/dto/README.md).
 Do not import routers, call an endpoint, or commit inside a helper owned by another
 transaction. Do not create an interface/repository or generic CRUD class by default.
 

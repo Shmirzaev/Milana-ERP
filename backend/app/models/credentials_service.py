@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
-from app.models import PasswordResetToken, User
+from app.schemas import PasswordResetToken, User
 
 
 def lock_user_for_credential_change(

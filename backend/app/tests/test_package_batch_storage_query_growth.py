@@ -9,7 +9,7 @@ from app.api.routes import package_workflows as package_workflow_routes
 from app.api.routes import packages as package_routes
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     AuditLog,
     FinishedGoodsStock,
     Model,
@@ -21,8 +21,8 @@ from app.models import (
     ProductionOrder,
     User,
 )
-from app.schemas.package_workflows import PrintRunReceiveIn
-from app.schemas.tracking import PackageBatchReceiveStorageIn, PackageBatchStoragePlacementIn
+from app.libs.dto.fulfillment.package_workflows import PrintRunReceiveIn
+from app.libs.dto.packaging.tracking import PackageBatchReceiveStorageIn, PackageBatchStoragePlacementIn
 from app.models import package_workflows_service as package_workflow_service
 from app.models import packages_service as package_service
 

@@ -33,7 +33,7 @@ def test_browser_session_alias_supports_cookie_auth(client):
 
 def test_login_records_user_activity(client):
     from app.db.session import SessionLocal
-    from app.models import User
+    from app.schemas import User
 
     db = SessionLocal()
     try:
@@ -63,7 +63,7 @@ def test_seed_synchronizes_configured_admin_password(client):
     from app.core.security import hash_password
     from app.db.seed import seed
     from app.db.session import SessionLocal
-    from app.models import User
+    from app.schemas import User
 
     db = SessionLocal()
     try:

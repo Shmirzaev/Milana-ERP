@@ -1,4 +1,4 @@
-from app.models import PayrollQrLabel, PayrollRecord
+from app.schemas import PayrollQrLabel, PayrollRecord
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_payroll import _create_employee
 from app.tests.test_payroll_control_confirmation import _issue, _preview, _confirmation

@@ -3,7 +3,7 @@ from uuid import uuid4
 from sqlalchemy import event
 
 from app.db.session import SessionLocal
-from app.models import CuttingRecord, Department, Model, ProductionBatch, ProductionOrder, WorkOrder
+from app.schemas import CuttingRecord, Department, Model, ProductionBatch, ProductionOrder, WorkOrder
 from app.models.traceability_service import build_traceability
 
 

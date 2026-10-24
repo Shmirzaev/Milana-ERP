@@ -1,7 +1,7 @@
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import Bundle, CuttingRecord, ProductionBatch, StockBatch, WorkOrder
+from app.schemas import Bundle, CuttingRecord, ProductionBatch, StockBatch, WorkOrder
 from app.tests.test_passport_cutting_submission import passport_cutting  # noqa: F401
 
 

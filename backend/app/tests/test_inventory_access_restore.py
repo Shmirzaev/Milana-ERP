@@ -4,7 +4,7 @@ import pytest
 
 from app.core.security import create_access_token
 from app.db import session as session_module
-from app.models import AuditLog, Department, Item, Role, StockBatch, StockMovement, User, Warehouse
+from app.schemas import AuditLog, Department, Item, Role, StockBatch, StockMovement, User, Warehouse
 
 
 @pytest.fixture

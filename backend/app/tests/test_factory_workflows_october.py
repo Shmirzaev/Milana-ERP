@@ -3,7 +3,7 @@ import pytest
 from decimal import Decimal
 from uuid import uuid4
 
-from app.models import Model, Package, PayrollRecord, ProductionOrder, WorkOrder
+from app.schemas import Model, Package, PayrollRecord, ProductionOrder, WorkOrder
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_payroll import _create_employee, _create_user_with_permissions
 from app.tests.test_payroll_scan_allocations import issue, scan
@@ -128,7 +128,7 @@ def test_planning_customer_lookup_and_create(client, auth_headers):
 
 
 def test_roster_import_dry_run_idempotence_and_conflict(client):
-    from app.models import Employee, User
+    from app.schemas import Employee, User
     from scripts.import_employee_roster import import_roster
     payload = {'factory_code': 'ECO', 'source': 'test.xlsx', 'source_sha256': 'test-sha', 'records': [
         {'employee_no': '81001', 'full_name': 'Synthetic employee', 'source_sheet': 'Kroy', 'source_row': 5},
@@ -167,7 +167,7 @@ def test_nastil_migration_preserves_custom_names():
 
 
 def test_passport_offers_exact_order_sizes_without_rewriting_order_plan(client):
-    from app.models.catalog import ModelSize
+    from app.schemas.catalog.catalog import ModelSize
     from app.api.routes.cutting_passports import material_defaults
     from app.tests.test_cutting_passport_defaults_query_growth import _material_order, _factory_user
     with TestSessionLocal() as db:
@@ -182,7 +182,7 @@ def test_passport_offers_exact_order_sizes_without_rewriting_order_plan(client):
 
 
 def test_numeric_fallback_employee_number_resolves_and_never_credits_ambiguous_id(client, auth_headers):
-    from app.models import Employee
+    from app.schemas import Employee
     created = client.post('/api/employees', headers=auth_headers, json={'full_name': 'Numberless worker'})
     assert created.status_code == 201, created.text
     eid = created.json()['id']

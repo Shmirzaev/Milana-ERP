@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
-from app.models import (
+from app.schemas import (
     Item,
     MaterialReservation,
     Model,

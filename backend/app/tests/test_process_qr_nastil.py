@@ -1,7 +1,7 @@
 """Only finished nastils contribute to Process QR choices and label quantities."""
 import pytest
 
-from app.models import Bundle, Department, PayrollQrLabel, ProductionBatch, ProductionOrder, SewingRecord, WorkOrder
+from app.schemas import Bundle, Department, PayrollQrLabel, ProductionBatch, ProductionOrder, SewingRecord, WorkOrder
 from app.tests.conftest import TestSessionLocal
 
 

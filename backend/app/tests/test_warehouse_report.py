@@ -3,7 +3,7 @@ from io import BytesIO
 from openpyxl import load_workbook
 
 from app.db.session import SessionLocal
-from app.models import LegacyStockReceipt, Model, ModelColor, Package
+from app.schemas import LegacyStockReceipt, Model, ModelColor, Package
 from app.models.warehouse_report_service import export_warehouse_report
 
 

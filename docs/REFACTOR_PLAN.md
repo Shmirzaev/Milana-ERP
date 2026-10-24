@@ -1,13 +1,49 @@
 # Milana refactor: team agreement and execution plan
 
-24 October 2026. The owner authorized moving existing services into models/ and
-publishing that naming change. Business-logic extraction and production deployment
+24 October 2026. The owner authorized moving services into models/, then completing
+DTO separation into libs/dto/ and database definitions into schemas/ urgently. Business-logic extraction and production deployment
 have not started through this task.
 clone_main is the shared production branch. Multitenancy remains deferred.
 This replaces the earlier plan's branch-level definition of Done with human
 production verification before a bug becomes Finished.
 
-## Service-folder move: verification record
+## DTO/database separation: verification record
+
+24 October 2026, source baseline 1dfd1c5: the owner requested urgent completion
+before further feature work. Moved 22 Pydantic files to libs/dto/ first, validated
+contracts, then moved 26 SQLAlchemy definition files and registration to schemas/.
+Business services remain in models/. All direct callers, scripts, test patch
+targets and Alembic discovery were updated. No storage migration was added.
+
+- PASS: each phase's Python AST matches the intended namespace transformation;
+  existing Base, frozen bootstrap and 149 migration revision files are unchanged.
+- PASS: independent comparison of all 48 moved definition files finds identical
+  non-import code, including fields, defaults, validators and helper bodies.
+- PASS: both phases preserve the same 475-path OpenAPI and 97-table PostgreSQL
+  DDL snapshot; all 88 business-service modules import successfully.
+- PASS: Ruff and 46 real PostgreSQL tests covering fresh/existing migrations,
+  ORM parity, later-Nastil Sewing and concurrent numbering on a disposable cluster.
+- PASS: all 4,176 tests under backend/app/tests collect successfully. The two
+  separate stock-adjustment PostgreSQL tests live under backend/tests; neither
+  was removed. This is collection evidence, not full-suite execution.
+- PASS: 177 focused workflow regressions covering authentication, access scope,
+  numbering, invoicing, package writes, later-Nastil Sewing and packaging output.
+  The earlier full-suite execution was interrupted; it is not a full-suite pass.
+- PENDING: owner-requested MiniMax M3.1-Flash source/guide review was dispatched.
+  It had not delivered a report within the review timebox; do not count delegation,
+  model confirmation or an in-progress check as independent review approval.
+- NOT RUN: browser visual E2E, production activation and human acceptance.
+  Publication is a source handoff, not release approval. Follow VERIFICATION.md
+  and DEPLOYMENT.md before promoting an exact commit to production.
+
+For a new feature, pull the latest clone_main before editing and use the current
+layer guides. Existing unmerged work with old imports must be reconciled against
+this move and tested; a shared branch does not automatically update another checkout.
+The previous commit is the source rollback point. No database rollback is required
+for this move because mapped storage is unchanged; application release rollback
+still follows DEPLOYMENT.md and does not undo business data written afterward.
+
+## Earlier service-folder move: verification record
 
 24 October 2026, based on clone_main ec02b5f: 88 service modules relocated to
 models/*_service.py; twelve business guides moved; services/ removed. Imports,
@@ -36,7 +72,7 @@ each business area to its current files and proposed ownership.
 | Packaging (RF-007) | Packages consume the correct batch's available Sewing output; repeated scans do not create duplicate receipts or stock. | models/packaging operations; models/fulfillment owns warehouse receipt/dispatch. | Mirshoir / Ismail |
 | Invoicing (RF-008) | Approved order/shipment flows issue the correct invoice without duplicate or premature financial effects. | models/finance issuance operation called through an agreed public contract. | Ismail / Mirshoir |
 | User access (RF-009) | Allowed operators retain access; denied users cannot read/change another factory's records through an alternate endpoint. | models/identity access operation, enforced at the affected business service. | Dilmurod / Mirshoir |
-| Enums and contracts (RF-011/012) | Existing forms, defaults, partial updates and responses continue working; fixed statuses have one definition. | libs/enums and libs/dto/<feature>; database mappings later move to schemas/<business-area>. | Ismail coordinates; feature engineer migrates callers; Mirshoir reviews shared conventions. |
+| Enums and contracts (RF-011/012) | Existing forms, defaults, partial updates and responses continue working; fixed statuses have one definition. | libs/enums and libs/dto/<feature>; database mappings now live in schemas/<business-area>. | Ismail coordinates; feature engineer migrates callers; Mirshoir reviews shared conventions. |
 
 Start with Sewing, prove its full handoff, then use the accepted approach for the
 later work packages. The twelve folder groups are ownership destinations, not
@@ -74,7 +110,8 @@ agent instructions; bugs/bugs.md and bugs/finished_bugs.md; human production sig
 Before each operation, the team records its service name/responsibility, public
 operation, transaction owner, permissions, compatibility promise and rollback choice.
 The user authorized all twelve business-service and database-schema groups as
-README-only guides; the schema guides are now included in this publication.
+guides. Schema groups now contain the relocated definitions where files belong;
+service groups remain guides for later extraction.
 See the [full source/model map](REFACTOR_MAP.md) and [service directory guide](../backend/app/models/README.md).
 Their move into models/ and the existing services' relocation as *_service.py are
 authorized. Agree suggested new operations and ownership transfers before their
@@ -86,33 +123,29 @@ implementation; do not split by endpoint/table/line count merely to match a diag
 | --- | --- | --- |
 | Controller/router | backend/app/api/routes/ | HTTP input/context, service call, response/error mapping. |
 | Service model | backend/app/models/ | Business decisions, authorized CRUD, one transaction owner. |
-| Mongoose schema model equivalent | backend/app/schemas/ (target) | Migrate existing models/ mappings only after old schemas/ DTO imports retire. |
-| Create / update / read contracts | backend/app/libs/dto/<feature>/ | Target for existing Pydantic DTOs; migrate from schemas/ with callers. |
+| Mongoose schema model equivalent | backend/app/schemas/ | SQLAlchemy definitions and registration; services perform CRUD with a Session. |
+| Create / update / read contracts | backend/app/libs/dto/<feature>/ | Existing Pydantic inputs, allowed updates, outputs and action contracts. |
 | Fixed vocabulary | backend/app/libs/enums/ | Explicit serialized values; domain-owned definitions. |
 | Internal shared contracts | backend/app/libs/types/ | Only when a real internal contract needs a type different from a DTO/model. |
 
 The target is Router -> models/*_service.py -> SQLAlchemy schema + Session -> PostgreSQL.
 Pizza House calls its business-service folder models/; we use that name too.
 There is one business-service layer. No separate services/ directory is needed.
-Existing ORM mapping files stay temporarily alongside services without changing
-their role. The *_service.py suffix distinguishes operations from plain ORM files.
-Pydantic schemas validate data; they do not perform database writes. Services can
-use the ORM directly. Reuse existing ORM definitions and migrate existing
-schemas/ contracts into libs/dto/<feature>/; do not rewrite or duplicate them. This is not
-a switch to database-first development; the mentor's Mongoose Schema is also
-defined in code. No ORM replacement or generic repository layer is required.
+SQLAlchemy mappings now live in schemas/ and Pydantic contracts in libs/dto/.
+Services use the ORM directly; DTOs validate data and describe responses. The
+mentor's Mongoose Schema is also defined in code: this is layer separation, not
+a switch to database-first development or a new ORM/repository framework.
 
-The owner chose libs/dto/<feature>/, libs/enums/ and libs/types/, following
-Meditech's explicit separation. Target schemas/ holds database schema models.
-First move current schemas/ DTOs and all callers to libs/dto/, retire old DTO
-compatibility imports and validate behavior. Then move only existing models/ ORM mappings
-to schemas/ with imports, registration and Alembic metadata discovery. Preserve
-one mapping per table and require no database-schema diff for this naming change.
-Apply the technical/visual/human-acceptance gates to both phases; do not mix the
-two meanings in the same namespace. Keep one authoritative DTO definition;
-compatibility imports may re-export it temporarily. Do not turn configurable roles
-into enums or move all assets into libs. Read the README.md in
-each affected layer before editing it.
+Namespace migration was ordered: move all existing DTO files/callers, compare
+API/database contracts, then move ORM files/registration/Alembic imports. Business
+services remain in models/. Existing definitions, table names and defaults are
+preserved. Some legacy mapping files remain mixed; operation-level splitting is
+separate work. No new enum values or RBAC policy were introduced by this move.
+Do not turn configurable roles into enums. Read the affected layer's README.
+
+DTO file convention: <entity>_input.py, <entity>_update.py and <entity>_output.py
+(for example user_input.py). Import named classes from their full module path.
+Existing combined files retain their names until a separately tested extraction.
 
 ## People and responsibilities
 
@@ -171,9 +204,9 @@ agreed. Review existing package_identity_service.py and legacy_package_identity_
 adding another parser. Keep invoice/access work with its actual feature owner.
 These are logical groups within the monolith, not separately deployed services.
 
-models/production.py is an existing ORM mapping beside the production/ guide.
-The relocated operations live in models/production_service.py. Keep guide directories
-README-only until coordinated conversion preserves mapping and service imports.
+Production mappings are in schemas/production/production.py. Existing operations
+live in models/production_service.py. models/production/ remains a guide until
+approved extraction moves an operation there with all its callers.
 The directory relocation does not extract the remaining business logic from routes.
 
 ## How each extraction works

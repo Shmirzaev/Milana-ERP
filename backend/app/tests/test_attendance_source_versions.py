@@ -4,7 +4,7 @@ import pytest
 
 from app.api.routes import attendance
 from app.core.dt import as_utc
-from app.models import AttendanceDevice, AttendanceEvent, AttendancePerson, SystemSetting
+from app.schemas import AttendanceDevice, AttendanceEvent, AttendancePerson, SystemSetting
 from app.tests.conftest import TestSessionLocal
 
 

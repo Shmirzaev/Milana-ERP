@@ -13,7 +13,7 @@ from sqlalchemy import text
 from app.api.routes import production as routes
 from app.core.deps import user_permissions
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     Bundle, BundleScanLog, CuttingRecord, ProductionBatch, ProductionOrder,
     SewingAssignment, User, WorkOrder,
 )

@@ -11,8 +11,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func
 
 from app.core.deps import CurrentUser, DbSession, require_permissions
-from app.models import Bundle, SewingAssignment, SewingFlow, SewingRecord, User, WorkOrder
-from app.schemas.production import SewingRecordIn
+from app.schemas import Bundle, SewingAssignment, SewingFlow, SewingRecord, User, WorkOrder
+from app.libs.dto.production.production import SewingRecordIn
 from app.models.audit_service import log_action
 from app.models.sewing_band_progress_service import band_board
 from app.models.sewing_scope_service import require_sewing_flow_access, sewing_line_factory_scope
@@ -139,7 +139,7 @@ def receive(payload: ReceiveIn, db: DbSession, current: CurrentUser):
             if value.isdecimal() and int(value) > 0:
                 batch_id = int(value)
         if batch_id:
-            from app.models import ProductionBatch
+            from app.schemas import ProductionBatch
             batch = db.get(ProductionBatch, batch_id)
             if not batch:
                 raise HTTPException(404, "Batch not found")

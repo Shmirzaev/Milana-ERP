@@ -2,7 +2,7 @@ from uuid import uuid4
 
 import pytest
 from app.db.session import SessionLocal
-from app.models import (Customer, Department, FinishedGoodsStock, Model, PackagingRecord,
+from app.schemas import (Customer, Department, FinishedGoodsStock, Model, PackagingRecord,
                         ProductionOrder, ProductionOrderItem, SewingRecord, WorkOrder, Shipment, ShipmentPackage)
 from app.tests.test_package_workflows import package_qr, stock_fingerprint
 
@@ -73,7 +73,7 @@ def test_singles_share_size_budget_and_survive_receipt_sale(client, auth_headers
     shipped = client.post(f"/api/shipments/{sid}/ship", headers=auth_headers)
     assert shipped.status_code == 200, shipped.text
     with SessionLocal() as db:
-        from app.models import Package
+        from app.schemas import Package
         assert db.get(Package, reserved_id).stock_kind == "first_grade"
         assert db.get(Package, reserved_id).status == "shipped"
         assert sum(s.sold_qty for s in db.query(FinishedGoodsStock).filter_by(package_id=reserved_id)) == 1
@@ -101,7 +101,7 @@ def test_invalid_grade_does_not_create_stock(client, auth_headers, output, chang
             record = db.query(SewingRecord).join(WorkOrder).filter(WorkOrder.production_order_id == output["production_order_id"]).one()
             record.size_quantities = []
         if change == "customer_owned":
-            from app.models import SalesOrder
+            from app.schemas import SalesOrder
             order = SalesOrder(order_no="SO-GRADE", order_type="client_order")
             db.add(order); db.flush(); db.get(ProductionOrder, output["production_order_id"]).sales_order_id = order.id
         db.commit()
@@ -174,7 +174,7 @@ def test_empty_manual_delete_and_permission_guards(client, auth_headers, output)
 
 
 def test_first_grade_cannot_be_increased_during_dispatch(client, auth_headers, output):
-    from app.models import PackageItem
+    from app.schemas import PackageItem
     run = create(client, auth_headers, [output])[0].json()
     client.post("/api/packages/print-runs/receive", headers=auth_headers, json={"code": package_qr(run["package_ids"][0])})
     with SessionLocal() as db:
@@ -227,7 +227,7 @@ def test_packaging_enters_missing_sizes_without_mutating_sewing_then_receives_an
     with SessionLocal() as db:
         assert db.get(SewingRecord, rid).size_quantities == []
         assert db.get(SewingRecord, rid).passed_qty == 8
-        from app.models import AuditLog
+        from app.schemas import AuditLog
         assert db.query(AuditLog).filter_by(entity_type="ProductionOrder", entity_id=output["production_order_id"], action="update").count() == 1
     # Exercise the complete normal pack -> singles -> receipt -> sale -> shipment handoff.
     test_singles_share_size_budget_and_survive_receipt_sale(client, auth_headers, output)
@@ -289,7 +289,7 @@ def test_packaging_entry_cannot_override_complete_sewing_size_evidence(client, a
 
 
 def test_packaging_size_entry_batch_scope_and_legacy_sewing_batch(client, auth_headers, output):
-    from app.models import ProductionBatch
+    from app.schemas import ProductionBatch
     rid = missing_size_evidence(output)
     with SessionLocal() as db:
         batch = ProductionBatch(production_order_id=output["production_order_id"], batch_no="SINGLE-01", planned_quantity=8)
@@ -309,7 +309,7 @@ def test_packaging_size_entry_batch_scope_and_legacy_sewing_batch(client, auth_h
 
 
 def test_packaging_size_entry_requires_packaging_permission_and_matching_factory(client, auth_headers, output):
-    from app.models import User, Role
+    from app.schemas import User, Role
     missing_size_evidence(output)
     state = client.get(size_entry_path(output), headers=auth_headers).json()
     body = {"version": state["version"], "sizes": [{"size": "S", "quantity": 8}]}

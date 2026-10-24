@@ -6,7 +6,7 @@ from fastapi.exceptions import RequestValidationError
 
 from app.core.config import settings
 from app.core.deps import DbSession, CurrentUser, require_permissions, user_permissions
-from app.models import Employee, User
+from app.schemas import Employee, User
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import factory_for_department, selected_factory_code
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -385,8 +385,8 @@ def export_employees(
 ):
     from fastapi.responses import Response
     from sqlalchemy.orm import aliased
-    from app.models import Department
-    from app.models.hr import HrPosition
+    from app.schemas import Department
+    from app.schemas.people.hr import HrPosition
     from app.models.employee_export_service import employee_workbook
 
     factory = selected_factory_code(current)
@@ -404,7 +404,7 @@ def export_employees(
 def _employee_directory_page(db, current, *, search, page, page_size, include_archived=False):
     from sqlalchemy import case, select, cast
     from sqlalchemy.orm import aliased, load_only
-    from app.models.hr import HrPosition
+    from app.schemas.people.hr import HrPosition
 
     factory = selected_factory_code(current)
     private = _can_view_private_employee_fields(current)
@@ -450,7 +450,7 @@ def employee_manager_options(db: DbSession, current: CurrentUser, search: str = 
 @router.get('/employees/position-options')
 def employee_position_options(db: DbSession, current: CurrentUser, search: str = Query('', max_length=120),
                               selected_id: int | None = Query(None, ge=1)):
-    from app.models.hr import HrPosition
+    from app.schemas.people.hr import HrPosition
     return _directory_options(db, current, HrPosition, search, selected_id)
 
 
@@ -591,7 +591,7 @@ def _validate_employee_references(
         if user.factory_code != factory_code:
             raise HTTPException(409, "Employee user belongs to another factory")
     if department_id is not None:
-        from app.models import Department
+        from app.schemas import Department
 
         department = db.get(Department, department_id)
         if not department:
@@ -609,7 +609,7 @@ def _validate_employee_references(
         if not manager:
             raise HTTPException(404, "Employee manager not found in this factory")
     if hr_position_id is not None:
-        from app.models import HrPosition
+        from app.schemas import HrPosition
 
         position = db.query(HrPosition).filter(
             HrPosition.id == hr_position_id,

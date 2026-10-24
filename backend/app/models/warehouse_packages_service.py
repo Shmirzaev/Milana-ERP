@@ -4,11 +4,11 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 
-from app.models import (FinishedGoodsStock, Package, PackageChangeRequest, PackagePrintRun,
+from app.schemas import (FinishedGoodsStock, Package, PackageChangeRequest, PackagePrintRun,
                         PackagePrintRunMember, ShipmentPackage, ShipmentScanLog, StockReservation,
                         WarehousePackReservation, ProductionOrder)
-from app.models.shipment_review import PackageQuantityAdjustment
-from app.schemas.package_workflows import PrintRunReceiveIn
+from app.schemas.fulfillment.shipment_review import PackageQuantityAdjustment
+from app.libs.dto.fulfillment.package_workflows import PrintRunReceiveIn
 from app.models import package_workflows_service as workflows
 from app.models.audit_service import log_action
 from app.models.packaging_scope_service import require_package_access

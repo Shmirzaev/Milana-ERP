@@ -7,7 +7,7 @@ from openpyxl import load_workbook
 from sqlalchemy import event, func
 
 from app.core.security import create_access_token
-from app.models import (
+from app.schemas import (
     AuditLog,
     Brand,
     CuttingPassport,

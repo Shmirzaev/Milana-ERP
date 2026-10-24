@@ -1,5 +1,5 @@
 from app.db.session import SessionLocal
-from app.models import AuditLog, ProductionOrder
+from app.schemas import AuditLog, ProductionOrder
 
 
 MAX_ESTIMATED_MATERIAL_AMOUNT = 9_999_999_999.9999

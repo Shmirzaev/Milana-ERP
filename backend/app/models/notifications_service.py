@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 
-from app.models import Notification
+from app.schemas import Notification
 
 
 def notify(

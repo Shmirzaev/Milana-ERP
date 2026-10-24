@@ -15,7 +15,7 @@ from typing import Any
 from sqlalchemy import text
 
 from app.db.session import SessionLocal
-from app.models import Model, User
+from app.schemas import Model, User
 from app.models.audit_service import log_action
 
 

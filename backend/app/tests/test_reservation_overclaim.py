@@ -26,7 +26,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.base import Base
-from app.models import (
+from app.schemas import (
     Item,
     MaterialReservation,
     Model,

@@ -9,7 +9,7 @@ from sqlalchemy import event
 from app.core.deps import is_super_admin, user_permissions
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
-from app.models import AuditLog, Employee, Notification, PasswordResetToken, Role, User
+from app.schemas import AuditLog, Employee, Notification, PasswordResetToken, Role, User
 from app.models.audit_service import log_action
 
 

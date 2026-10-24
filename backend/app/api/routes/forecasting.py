@@ -5,8 +5,8 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.deps import DbSession, factory_codes_with_permission, require_permissions
-from app.models import Brand, Collection, ForecastRecommendation, Item, Model, User
-from app.schemas.forecasting import (
+from app.schemas import Brand, Collection, ForecastRecommendation, Item, Model, User
+from app.libs.dto.planning.forecasting import (
     ForecastRecommendationIn,
     ForecastRecommendationOut,
     ForecastRecommendationPatch,

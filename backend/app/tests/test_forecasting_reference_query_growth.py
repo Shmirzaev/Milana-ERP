@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import event
 
-from app.models import (
+from app.schemas import (
     Brand,
     Collection,
     Item,

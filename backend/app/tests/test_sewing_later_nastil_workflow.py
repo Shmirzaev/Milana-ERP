@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 
 from app.core.security import create_access_token
-from app.models import AuditLog, Bundle, BundleScanLog, SewingAssignment, SewingFlow, SewingRecord, WorkOrder
+from app.schemas import AuditLog, Bundle, BundleScanLog, SewingAssignment, SewingFlow, SewingRecord, WorkOrder
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_packaging_sewing_output import _create, _pack
 from app.tests.test_production_flow import _issue_required_accessories
@@ -148,7 +148,7 @@ def test_completed_sibling_excess_cannot_complete_unsewn_nastil(client, auth_hea
 
 @pytest.mark.parametrize('factory', ['MIL', 'BST', 'ECO'])
 def test_printing_rejects_do_not_keep_finished_nastil_open(client, auth_headers, factory):
-    from app.models import Department
+    from app.schemas import Department
     po, work, first = _create(client, auth_headers)
     assert client.patch(f"/api/work-orders/{work['cutting']}/sewing-factory", headers=auth_headers,
                         json={'sewing_factory_code': factory}).status_code == 200
@@ -174,7 +174,7 @@ def test_printing_rejects_do_not_keep_finished_nastil_open(client, auth_headers,
 
 
 def test_eco_band_can_receive_later_nastil_of_completed_shared_order(client, bands):
-    from app.models import CuttingRecord, ProductionBatch
+    from app.schemas import CuttingRecord, ProductionBatch
     wid, old_assignment, poid = bands['jobs'][0]
     with TestSessionLocal() as db:
         batches = [ProductionBatch(production_order_id=poid, batch_no=f'LATER-BAND-{i}',

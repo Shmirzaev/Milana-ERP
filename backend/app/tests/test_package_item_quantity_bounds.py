@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.tracking import PackageItemIn
+from app.libs.dto.packaging.tracking import PackageItemIn
 
 
 def _payload(quantity: int) -> dict:

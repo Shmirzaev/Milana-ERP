@@ -3,7 +3,7 @@ from alembic import command
 from datetime import date
 from sqlalchemy.orm import sessionmaker
 
-from app.models import Bundle, CuttingRecord, Department, Model, ProductionOrder, Role, SewingAssignment, SewingFlow, User, WorkOrder
+from app.schemas import Bundle, CuttingRecord, Department, Model, ProductionOrder, Role, SewingAssignment, SewingFlow, User, WorkOrder
 from app.models.sewing_band_setup_service import configure_eco_bands
 from app.tests.test_fresh_migration_bootstrap import postgres_migrations  # noqa: F401
 
@@ -36,8 +36,8 @@ def test_band_provisioning_outer_join_lock_and_retry(postgres_migrations):
     # PostgreSQL row/advisory locks, not SQLite's no-op FOR UPDATE behavior.
     from app.api.routes.sewing_bands import ReceiveIn, receive, record_output
     from app.api.routes.sewing_daily_reports import create_report
-    from app.schemas.production import SewingRecordIn
-    from app.schemas.sewing_daily_report import SewingDailyReportCreate
+    from app.libs.dto.production.production import SewingRecordIn
+    from app.libs.dto.production.sewing_daily_report import SewingDailyReportCreate
     from app.models.idempotency_service import bind_idempotency_identity
     from app.models.sewing_band_progress_service import band_board
     with sessions() as db:

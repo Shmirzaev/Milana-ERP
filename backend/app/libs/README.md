@@ -11,12 +11,10 @@ The owner chose libs/ as the shared home for DTOs, enums and internal types.
 | [enums](enums/README.md) | Fixed business values shared by schemas and services. |
 | [types](types/README.md) | Internal contracts when they differ from API DTOs and ORM models. |
 
-[dto/](dto/README.md) is the target home for Pydantic Create/In, Update and Read/Out
-DTOs. Migrate existing [schemas/](../schemas/README.md) definitions with their callers.
-[models/](../models/README.md) is the business-service home (*_service.py). Its
-preexisting plain ORM mapping files remain temporarily and move to schemas/ only
-after every old DTO caller/shim is retired. Business services stay in models/.
-Database definitions and business operations retain separate responsibilities.
+[dto/](dto/README.md) contains the existing Pydantic Create/In, Update and Read/Out
+contracts. [schemas/](../schemas/README.md) contains SQLAlchemy database definitions.
+[models/](../models/README.md) contains business services (*_service.py).
+Keep these responsibilities separate when extending a feature.
 
 ## Making a file
 
@@ -30,6 +28,6 @@ Database definitions and business operations retain separate responsibilities.
 5. Update callers and relevant tests in the agreed incremental refactor. Follow
    [the migration sequence](../models/README.md#migration-sequence).
 
-These folders contain documentation only for now. Add Python package files and
-definitions with their approved callers, then verify imports. Keep assets in their
-existing home and avoid turning libs into a general-purpose miscellaneous folder.
+DTO packages are active. enums/ and types/ remain guides until an approved
+operation needs those definitions. Keep assets in their existing home and avoid
+turning libs into a general-purpose miscellaneous folder.

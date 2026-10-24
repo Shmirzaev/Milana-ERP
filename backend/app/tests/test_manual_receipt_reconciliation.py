@@ -15,7 +15,7 @@ from app.api.routes import package_workflows as routes
 from app.core.security import create_access_token
 from app.db.base import Base
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     FinishedGoodsStock,
     IdempotencyRecord,
     ManualPackageReceipt,
@@ -24,7 +24,7 @@ from app.models import (
     Role,
     User,
 )
-from app.schemas.package_workflows import ManualPackageReceiptIn
+from app.libs.dto.fulfillment.package_workflows import ManualPackageReceiptIn
 from app.models import package_workflows_service as service
 from app.models.idempotency_service import bind_idempotency_identity
 from app.tests.test_package_workflows import manual_body, packaging_order, warehouse  # noqa: F401

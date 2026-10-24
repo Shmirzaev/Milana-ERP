@@ -30,7 +30,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import inventory as inventory_routes
 from app.db.base import Base
-from app.models import (
+from app.schemas import (
     AuditLog,
     CuttingRecord,
     Department,

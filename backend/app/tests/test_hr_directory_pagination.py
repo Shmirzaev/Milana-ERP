@@ -1,4 +1,4 @@
-from app.models import Employee
+from app.schemas import Employee
 from app.tests.conftest import TestSessionLocal
 
 

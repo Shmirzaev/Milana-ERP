@@ -5,7 +5,7 @@ import json
 from sqlalchemy import func
 
 from app.db.session import SessionLocal
-from app.models import FinishedGoodsStock, Package
+from app.schemas import FinishedGoodsStock, Package
 
 
 with SessionLocal() as db:

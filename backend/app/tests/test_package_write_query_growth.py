@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import event
 
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     Department,
     FinishedGoodsStock,
     ManualPackageReceipt,

@@ -4,8 +4,8 @@ import pytest
 from pydantic import ValidationError
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, MaterialReservation, ProductionOrder, ProductionOrderMaterial
-from app.schemas.production import ProductionOrderIn, ProductionOrderMaterialIn
+from app.schemas import AuditLog, MaterialReservation, ProductionOrder, ProductionOrderMaterial
+from app.libs.dto.production.production import ProductionOrderIn, ProductionOrderMaterialIn
 
 
 MAX_MATERIAL_QUANTITY = Decimal("9999999999.9999")

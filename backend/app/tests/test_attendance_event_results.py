@@ -3,7 +3,7 @@ from io import BytesIO
 
 from openpyxl import load_workbook
 
-from app.models import AttendanceEvent, Employee
+from app.schemas import AttendanceEvent, Employee
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_attendance import INTEGRATION_HEADERS, person, snapshot
 

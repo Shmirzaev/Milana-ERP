@@ -1,7 +1,7 @@
 from uuid import uuid4
 
 from app.db.session import SessionLocal
-from app.models import Department, ProductionOrder, SewingAssignment, SewingFlow, WorkOrder
+from app.schemas import Department, ProductionOrder, SewingAssignment, SewingFlow, WorkOrder
 
 
 def test_active_sewing_assignment_moves_between_lines_in_same_factory(client, auth_headers):

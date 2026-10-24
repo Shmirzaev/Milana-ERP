@@ -1,7 +1,7 @@
 from uuid import uuid4
 import pytest
 from app.db.session import SessionLocal
-from app.models import Bundle, CuttingRecord, CuttingMaterialUsage, MaterialReservation, StockBatch, StockMovement, WorkOrder
+from app.schemas import Bundle, CuttingRecord, CuttingMaterialUsage, MaterialReservation, StockBatch, StockMovement, WorkOrder
 from app.tests.test_material_reservations import _warehouse, _fabric_item, _receive_batch, _cutting_work_order
 
 

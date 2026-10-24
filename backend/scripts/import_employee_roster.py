@@ -5,7 +5,7 @@ from pathlib import Path
 
 from sqlalchemy import text
 from app.db.session import SessionLocal
-from app.models import Department, Employee, User
+from app.schemas import Department, Employee, User
 from app.models.audit_service import log_action
 
 

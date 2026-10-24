@@ -2,9 +2,9 @@
 from fastapi import HTTPException
 from sqlalchemy.orm import Session, lazyload
 
-from app.models import Bundle, CuttingRecord, ProductionOrder, ProductionOrderItem, User, WorkOrder
-from app.models.payroll import PayrollQrLabel
-from app.schemas.production import ProductionOrderSizesIn
+from app.schemas import Bundle, CuttingRecord, ProductionOrder, ProductionOrderItem, User, WorkOrder
+from app.schemas.people.payroll import PayrollQrLabel
+from app.libs.dto.production.production import ProductionOrderSizesIn
 from app.models.audit_service import log_action
 
 PRE_CUTTING_STATUSES = {"new", "planning", "pending", "waiting", "ready"}

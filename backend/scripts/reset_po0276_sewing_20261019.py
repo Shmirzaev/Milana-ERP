@@ -14,7 +14,7 @@ from sqlalchemy import text
 
 from app.core.deps import is_super_admin
 from app.db.session import SessionLocal
-from app.models import ProductionOrder, ProductionOrderItem, User, WorkOrder
+from app.schemas import ProductionOrder, ProductionOrderItem, User, WorkOrder
 from app.models.audit_service import _finalize_postgres_audits, log_action
 
 

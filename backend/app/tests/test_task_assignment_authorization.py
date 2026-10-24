@@ -6,7 +6,7 @@ import pytest
 from app.api.routes import tasks
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
-from app.models import AuditLog, Notification, Role, Task, User
+from app.schemas import AuditLog, Notification, Role, Task, User
 
 
 def _actor(permissions=(), *, role_name=None, policy=None, factory="MIL", extra=(), selected=None, active=True):

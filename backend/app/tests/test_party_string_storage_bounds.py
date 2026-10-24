@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.catalog import PartyIn
+from app.libs.dto.catalog.catalog import PartyIn
 
 
 @pytest.mark.parametrize(("field", "maximum"), [

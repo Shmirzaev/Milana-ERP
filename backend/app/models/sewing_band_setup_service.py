@@ -1,7 +1,7 @@
 """Explicit, transactional provisioning; never called by startup or migration."""
 from sqlalchemy import func
 from app.core.security import hash_password
-from app.models import Department, Role, SewingAssignment, SewingFlow, User, WorkOrder
+from app.schemas import Department, Role, SewingAssignment, SewingFlow, User, WorkOrder
 from app.models.audit_service import log_action
 
 BAND_PERMISSIONS = ["sewing.workspace", "sewing.bundles", "sewing.records"]

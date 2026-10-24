@@ -29,7 +29,7 @@ def test_process_tracking_factory_filter_returns_only_selected_factory(client):
     from uuid import uuid4
 
     from app.core.security import create_access_token
-    from app.models import Bundle, Department, Model, ProductionOrder, WorkOrder
+    from app.schemas import Bundle, Department, Model, ProductionOrder, WorkOrder
     from app.tests.conftest import TestSessionLocal
 
     suffix = uuid4().hex[:8].upper()

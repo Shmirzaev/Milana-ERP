@@ -84,7 +84,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.api.routes import catalog
 from app.core.config import settings
 from app.db.session import SessionLocal
-from app.models import Model, ModelBOM, ModelColor, ModelImage, ModelSize, User
+from app.schemas import Model, ModelBOM, ModelColor, ModelImage, ModelSize, User
 from scripts import correct_old_erp_models_local as correction
 from scripts import import_old_erp_models_local as local_import
 

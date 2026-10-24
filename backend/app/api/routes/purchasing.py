@@ -6,11 +6,11 @@ from sqlalchemy.orm import joinedload, lazyload, selectinload
 
 from app.core.deps import DbSession, require_permissions
 from app.core.config import settings
-from app.models import Item, PurchaseOrder, PurchaseOrderLine, PurchaseRequest, PurchaseRequestLine, User
+from app.schemas import Item, PurchaseOrder, PurchaseOrderLine, PurchaseRequest, PurchaseRequestLine, User
 from app.models import inventory_access_service as inventory_access
 from app.models.factory_scope_service import selected_factory_code
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
-from app.schemas.purchasing import (
+from app.libs.dto.purchasing.purchasing import (
     PurchaseOrderIn,
     PurchaseOrderOut,
     PurchaseOrderReceiveIn,

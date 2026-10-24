@@ -2,7 +2,7 @@ from io import BytesIO
 
 from openpyxl import load_workbook
 
-from app.models import AttendancePerson
+from app.schemas import AttendancePerson
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_attendance import INTEGRATION_HEADERS, person, snapshot
 
@@ -36,7 +36,7 @@ def test_removed_profile_remains_in_historical_overview_and_export(client, auth_
 
 def test_historical_rows_prefer_active_profile_and_keep_factory_scope(client, auth_headers):
     from datetime import datetime, timezone
-    from app.models import AttendanceDevice, AttendanceEvent
+    from app.schemas import AttendanceDevice, AttendanceEvent
 
     timestamp = datetime(2026, 8, 17, 3, tzinfo=timezone.utc)
     with TestSessionLocal.begin() as db:

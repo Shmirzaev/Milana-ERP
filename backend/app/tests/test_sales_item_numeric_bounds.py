@@ -4,8 +4,8 @@ import pytest
 from pydantic import ValidationError
 
 from app.db.session import SessionLocal
-from app.models import SalesOrder, SalesOrderItem
-from app.schemas.sales import SalesOrderItemIn
+from app.schemas import SalesOrder, SalesOrderItem
+from app.libs.dto.sales.sales import SalesOrderItemIn
 
 
 def _item(**overrides):

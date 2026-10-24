@@ -5,7 +5,7 @@ from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
 from app.core.dt import as_utc
-from app.models import (
+from app.schemas import (
     SalesOrder, ProductionOrder, FinishedGoodsStock,
     WasteRecord, Invoice, Payment, ModelBOM, StockBatch, Customer, Item,
 )

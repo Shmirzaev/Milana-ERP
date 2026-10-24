@@ -7,10 +7,10 @@ from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 
-from app.models import (FinishedGoodsStock, IdempotencyRecord, Invoice, Package, PackageItem,
+from app.schemas import (FinishedGoodsStock, IdempotencyRecord, Invoice, Package, PackageItem,
                         PackageScanLog, Payment, SalesOrder, Shipment, ShipmentPackage,
                         StockReservation, User)
-from app.schemas.shipment_review import ShipmentReopen
+from app.libs.dto.fulfillment.shipment_review import ShipmentReopen
 from app.models.audit_service import log_action
 from app.models.packages_service import _sync_package_production
 from app.models.shipment_review_service import locked_shipment

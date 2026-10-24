@@ -8,7 +8,7 @@ from sqlalchemy import text
 
 from app.api.routes import package_workflows as package_workflow_routes
 from app.api.routes import packages as package_routes
-from app.models import (
+from app.schemas import (
     AuditLog,
     FinishedGoodsStock,
     Model,
@@ -20,8 +20,8 @@ from app.models import (
     ProductionOrder,
     User,
 )
-from app.schemas.package_workflows import PrintRunReceiveIn
-from app.schemas.tracking import PackageBatchReceiveStorageIn
+from app.libs.dto.fulfillment.package_workflows import PrintRunReceiveIn
+from app.libs.dto.packaging.tracking import PackageBatchReceiveStorageIn
 from app.models import package_workflows_service as package_workflow_service
 from app.models.packages_service import prepare_locked_package_receive
 from app.tests.test_password_change_races import (

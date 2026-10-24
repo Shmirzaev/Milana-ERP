@@ -13,7 +13,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import settings
 from app.db.session import SessionLocal
-from app.models import Model, ModelImage, ModelSize, User
+from app.schemas import Model, ModelImage, ModelSize, User
 
 
 def parse_args() -> argparse.Namespace:

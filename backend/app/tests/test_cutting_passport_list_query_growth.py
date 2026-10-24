@@ -6,7 +6,7 @@ from sqlalchemy import event
 
 from app.api.routes import cutting_passports
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     CuttingPassport,
     Department,
     Item,

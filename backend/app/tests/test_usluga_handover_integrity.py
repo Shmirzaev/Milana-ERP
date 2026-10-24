@@ -19,7 +19,7 @@ from app.api.routes.usluga import (
     update_usluga_material,
 )
 from app.db.base import Base
-from app.models import (
+from app.schemas import (
     AuditLog,
     Department,
     Model,

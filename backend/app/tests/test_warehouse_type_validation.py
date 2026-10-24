@@ -6,8 +6,8 @@ import pytest
 from pydantic import ValidationError
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, Warehouse
-from app.schemas.inventory import WarehouseIn
+from app.schemas import AuditLog, Warehouse
+from app.libs.dto.inventory.inventory import WarehouseIn
 
 
 WAREHOUSE_TYPES = (

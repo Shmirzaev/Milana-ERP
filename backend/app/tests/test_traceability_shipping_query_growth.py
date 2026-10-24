@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import event
 
 from app.db.session import SessionLocal
-from app.models import Customer, Model, Package, ProductionOrder, SalesOrder, Shipment, ShipmentPackage, Warehouse
+from app.schemas import Customer, Model, Package, ProductionOrder, SalesOrder, Shipment, ShipmentPackage, Warehouse
 from app.models import traceability_service as traceability
 
 

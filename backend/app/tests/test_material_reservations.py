@@ -3,7 +3,7 @@ from uuid import uuid4
 
 def test_cutting_can_correct_batch_before_consumption(client, auth_headers):
     from app.db.session import SessionLocal
-    from app.models import MaterialReservation, ProductionOrder, ProductionOrderMaterial, StockBatch, WorkOrder
+    from app.schemas import MaterialReservation, ProductionOrder, ProductionOrderMaterial, StockBatch, WorkOrder
     from app.tests.test_sewing_workspace_permissions import _create_user_headers
 
     cutting_headers = _create_user_headers(client, auth_headers, role="Cutting", department="CUT")
@@ -73,7 +73,7 @@ def test_cutting_can_correct_batch_before_consumption(client, auth_headers):
 
 def test_cutting_passport_adds_missing_material_atomically(client, auth_headers):
     from app.db.session import SessionLocal
-    from app.models import MaterialReservation, ProductionOrder, ProductionOrderMaterial, StockBatch, WorkOrder
+    from app.schemas import MaterialReservation, ProductionOrder, ProductionOrderMaterial, StockBatch, WorkOrder
     from app.tests.test_sewing_workspace_permissions import _create_user_headers
 
     cutting_headers = _create_user_headers(client, auth_headers, role="Cutting", department="CUT")
@@ -133,7 +133,7 @@ def test_cutting_passport_adds_missing_material_atomically(client, auth_headers)
     extra = {**payload, "materials": payload["materials"] + [{"stock_batch_id": batches[2]["id"]}], "additional_materials": [{"stock_batch_id": batches[2]["id"], "estimated_quantity": 1, "unit": "kg"}]}
     assert client.patch(f"/api/cutting-passports/{passport_id}", headers=cutting_headers, json=extra).status_code == 200
     with SessionLocal() as db:
-        from app.models import SewingRecord
+        from app.schemas import SewingRecord
         sewing = db.query(WorkOrder).filter_by(production_order_id=order["id"], operation="sewing").one()
         output = SewingRecord(work_order_id=sewing.id, production_batch_id=saved.json()["production_batch_id"], input_qty=1, sewn_qty=1, passed_qty=1)
         db.add(output)
@@ -235,7 +235,7 @@ def _cutting_work_order(client, headers, production_order_id: int) -> dict:
 
 def _set_strict_material_reservation(value: bool) -> None:
     from app.db.session import SessionLocal
-    from app.models import SystemSetting
+    from app.schemas import SystemSetting
 
     db = SessionLocal()
     try:
@@ -402,7 +402,7 @@ def test_planning_accepts_available_fabric_batch_outside_model_bom(client, auth_
 
 def test_multi_fabric_planning_flows_to_atomic_cutting_and_bundles(client, auth_headers):
     from app.db.session import SessionLocal
-    from app.models import Bundle, CuttingMaterialUsage, CuttingRecord, StockMovement
+    from app.schemas import Bundle, CuttingMaterialUsage, CuttingRecord, StockMovement
 
     warehouse = _warehouse(client, auth_headers, "fabric_storage")
     first_item = _fabric_item(client, auth_headers)
@@ -616,7 +616,7 @@ def test_multi_fabric_planning_flows_to_atomic_cutting_and_bundles(client, auth_
 
 def test_reservation_plan_reports_no_bom_instead_of_ready(client, auth_headers):
     from app.db.session import SessionLocal
-    from app.models import Model
+    from app.schemas import Model
 
     suffix = uuid4().hex[:8].upper()
     db = SessionLocal()
@@ -654,7 +654,7 @@ def test_auto_reservation_uses_fifo_batches(client, auth_headers):
     item = _create_accessory_item(client, auth_headers, unit="roll")
     suffix = uuid4().hex[:8].upper()
     from app.db.session import SessionLocal
-    from app.models import Model, ModelBOM
+    from app.schemas import Model, ModelBOM
 
     db = SessionLocal()
     try:
@@ -729,7 +729,7 @@ def test_reservation_plan_respects_exact_bom_stock_batch(client, auth_headers):
     )
 
     from app.db.session import SessionLocal
-    from app.models import Model, ModelBOM
+    from app.schemas import Model, ModelBOM
 
     db = SessionLocal()
     try:
@@ -847,7 +847,7 @@ def test_consume_reservation_creates_stock_movement(client, auth_headers):
     assert round(float(consumed.json()["consumed_quantity"]), 2) == 0.75
 
     from app.db.session import SessionLocal
-    from app.models import StockMovement
+    from app.schemas import StockMovement
 
     db = SessionLocal()
     try:
@@ -910,7 +910,7 @@ def test_cutting_consumes_matching_reservations_fifo_without_double_deducting_st
     cutting_record_id = created.json()["id"]
 
     from app.db.session import SessionLocal
-    from app.models import MaterialReservation, StockBatch, StockMovement
+    from app.schemas import MaterialReservation, StockBatch, StockMovement
 
     db = SessionLocal()
     try:
@@ -984,7 +984,7 @@ def test_cutting_nonstrict_consumes_reserved_part_then_direct_remainder(client, 
     cutting_record_id = created.json()["id"]
 
     from app.db.session import SessionLocal
-    from app.models import MaterialReservation, StockBatch, StockMovement
+    from app.schemas import MaterialReservation, StockBatch, StockMovement
 
     db = SessionLocal()
     try:
@@ -1065,7 +1065,7 @@ def test_cutting_strict_blocks_missing_or_insufficient_matching_reservation(clie
         assert "Insufficient material reservation for cutting" in insufficient.text
 
         from app.db.session import SessionLocal
-        from app.models import MaterialReservation, StockBatch
+        from app.schemas import MaterialReservation, StockBatch
 
         db = SessionLocal()
         try:
@@ -1106,7 +1106,7 @@ def test_cutting_nonstrict_allows_direct_batch_consumption_without_reservation(c
     cutting_record_id = created.json()["id"]
 
     from app.db.session import SessionLocal
-    from app.models import StockBatch, StockMovement
+    from app.schemas import StockBatch, StockMovement
 
     db = SessionLocal()
     try:
@@ -1136,7 +1136,7 @@ def test_cutting_start_guard_respects_setting(client, auth_headers):
     assert allowed.status_code == 200, allowed.text
 
     from app.db.session import SessionLocal
-    from app.models import SystemSetting
+    from app.schemas import SystemSetting
 
     db = SessionLocal()
     try:

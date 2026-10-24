@@ -6,7 +6,7 @@ invoking apply. Dry-run rolls back; no other department or quantity is changed.
 import argparse
 import json
 
-from app.models import Bundle, CuttingPassport, CuttingRecord, Department, ProductionOrder, WorkOrder
+from app.schemas import Bundle, CuttingPassport, CuttingRecord, Department, ProductionOrder, WorkOrder
 from app.models.audit_service import log_action
 
 ORDER_NUMBERS = tuple(f"PO-{number:04d}" for number in range(339, 345))

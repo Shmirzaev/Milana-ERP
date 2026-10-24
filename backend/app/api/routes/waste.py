@@ -4,8 +4,8 @@ from math import isfinite
 from fastapi import APIRouter, HTTPException, Depends, Header
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
-from app.models import WasteRecord, WasteSale, WasteDisposalRequest, User, StockBatch, Item
-from app.schemas.waste import (
+from app.schemas import WasteRecord, WasteSale, WasteDisposalRequest, User, StockBatch, Item
+from app.libs.dto.inventory.waste import (
     WasteIn, WasteOut, WasteSaleIn, WasteSaleOut, WasteDisposalIn, WasteDisposalOut,
 )
 from app.models.audit_service import log_action

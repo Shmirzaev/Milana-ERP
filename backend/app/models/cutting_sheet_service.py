@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.dt import as_utc
 from app.core.config import settings
-from app.models import (
+from app.schemas import (
     Brand,
     Bundle,
     CuttingPassport,

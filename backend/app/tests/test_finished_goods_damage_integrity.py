@@ -3,7 +3,7 @@
 from uuid import uuid4
 
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     FinishedGoodsStock,
     LegacyStockReceipt,
     Model,
@@ -108,7 +108,7 @@ def test_reserved_package_cannot_be_marked_damaged(client, auth_headers):
 
 
 def test_shipment_link_blocks_damage_without_writes(client, auth_headers):
-    from app.models import AuditLog, Shipment, ShipmentPackage
+    from app.schemas import AuditLog, Shipment, ShipmentPackage
     package_id, stock_id, order_id = _damaged_stock_fixture()
     with SessionLocal() as db:
         shipment = Shipment(shipment_no=f"DMG-SHIP-{uuid4().hex}", sales_order_id=order_id)

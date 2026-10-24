@@ -3,7 +3,7 @@
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, SewingAssignment, SewingRecord
+from app.schemas import AuditLog, SewingAssignment, SewingRecord
 from app.tests.test_sewing_assignment_return import make_assignment
 
 

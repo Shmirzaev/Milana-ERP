@@ -102,7 +102,7 @@ def test_postgres_roster_lock_survives_concurrent_rate_store_workers(
     attendance_postgres_sessions, tmp_path, monkeypatch,
 ):
     from app.api.routes import attendance
-    from app.models import AttendancePerson
+    from app.schemas import AttendancePerson
     from starlette.concurrency import run_in_threadpool
 
     sessions, engine = attendance_postgres_sessions

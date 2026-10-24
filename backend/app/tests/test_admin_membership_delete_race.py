@@ -14,7 +14,7 @@ from sqlalchemy.orm import sessionmaker
 from app.api.routes import admin
 from app.core.security import verify_password
 from app.db.base import Base
-from app.models import PasswordResetToken, User
+from app.schemas import PasswordResetToken, User
 from app.models.password_reset_service import create_password_reset_token
 
 
@@ -156,7 +156,7 @@ def test_concurrent_deletes_preserve_one_active_wildcard_administrator(
 
 @pytest.mark.parametrize("actions", [("patch", "patch"), ("patch", "delete")])
 def test_concurrent_membership_removals_keep_one_admin(membership_postgres_sessions, actions):
-    from app.schemas.catalog import UserUpdate
+    from app.libs.dto.catalog.catalog import UserUpdate
     actor_id, target_ids = _create_membership_case(membership_postgres_sessions, 2)
     start = Barrier(3)
 
@@ -186,7 +186,7 @@ def test_concurrent_membership_removals_keep_one_admin(membership_postgres_sessi
 
 def test_membership_patch_does_not_block_audit_actor_key_share(membership_postgres_sessions):
     from sqlalchemy import text
-    from app.schemas.catalog import UserUpdate
+    from app.libs.dto.catalog.catalog import UserUpdate
     actor_id, target_ids = _create_membership_case(membership_postgres_sessions, 2)
     done = Event()
 
@@ -207,7 +207,7 @@ def test_membership_patch_does_not_block_audit_actor_key_share(membership_postgr
 
 
 def test_concurrent_membership_and_password_changes_preserve_admin_and_credentials(membership_postgres_sessions):
-    from app.schemas.catalog import UserUpdate
+    from app.libs.dto.catalog.catalog import UserUpdate
 
     actor_id, target_ids = _create_membership_case(membership_postgres_sessions, 2)
     replacement = "MembershipReplacement!2026"

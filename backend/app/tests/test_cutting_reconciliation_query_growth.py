@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import event
 
 from app.api.routes import production as production_routes
-from app.models import (
+from app.schemas import (
     Bundle,
     CuttingRecord,
     Department,

@@ -1,7 +1,7 @@
 from pathlib import Path
 import runpy
 
-from app.models import Department, ProductionOrder, WorkOrder
+from app.schemas import Department, ProductionOrder, WorkOrder
 from app.tests.conftest import TestSessionLocal
 
 

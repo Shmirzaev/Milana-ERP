@@ -10,15 +10,15 @@ from sqlalchemy.orm import joinedload, load_only, noload, selectinload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
-from app.models.cutting_passport import CuttingPassport
-from app.models import Bundle, CuttingRecord, Department, Item, ModelBOM, ProductionBatch, ProductionOrder, ProductionOrderItem, StockBatch, User, WorkOrder
-from app.models.catalog import Model as CatalogModel, ModelImage
-from app.models.sales import SalesOrder
-from app.models import ProductionOrderMaterial, MaterialReservation
+from app.schemas.production.cutting_passport import CuttingPassport
+from app.schemas import Bundle, CuttingRecord, Department, Item, ModelBOM, ProductionBatch, ProductionOrder, ProductionOrderItem, StockBatch, User, WorkOrder
+from app.schemas.catalog.catalog import Model as CatalogModel, ModelImage
+from app.schemas.sales.sales import SalesOrder
+from app.schemas import ProductionOrderMaterial, MaterialReservation
 from app.models.inventory_service import create_material_reservations
 from app.models.cutting_batch_guard_service import require_cutting_batch_mutable, sewing_output_batch_ids, sewing_output_batch_query
 from app.models.factory_scope_service import require_work_order_factory_access
-from app.schemas.cutting_passport import CuttingOperatorOut, CuttingPassportIn, CuttingPassportOut
+from app.libs.dto.production.cutting_passport import CuttingOperatorOut, CuttingPassportIn, CuttingPassportOut
 from app.models.audit_service import log_action
 from app.models.passport_sizes_service import passport_order_sizes, size_count_from_range as _size_count_from_range
 from app.models.cutting_passport_usage_service import validate_passport_stock

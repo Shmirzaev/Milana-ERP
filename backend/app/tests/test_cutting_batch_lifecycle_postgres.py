@@ -4,7 +4,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.routes import cutting_passports, production
-from app.models import CuttingRecord, Department, Model, ProductionBatch, ProductionOrder, SewingRecord, User, WorkOrder
+from app.schemas import CuttingRecord, Department, Model, ProductionBatch, ProductionOrder, SewingRecord, User, WorkOrder
 from app.tests.test_password_change_races import password_change_postgres_sessions as password_change_postgres_sessions
 
 
@@ -103,7 +103,7 @@ def test_postgres_progress_preserves_output_without_bundles(password_change_post
 
 
 def test_postgres_delete_returns_consumption_once_with_audit(password_change_postgres_sessions):
-    from app.models import AuditLog, CuttingMaterialUsage, Item, StockBatch, StockMovement, Warehouse
+    from app.schemas import AuditLog, CuttingMaterialUsage, Item, StockBatch, StockMovement, Warehouse
     sessions, _ = password_change_postgres_sessions
     actor_id, cutting_id, _, batch_id = _fixture(sessions)
     with sessions.begin() as db:
@@ -161,7 +161,7 @@ def test_postgres_delete_does_not_wait_behind_order_writer(password_change_postg
 @pytest.mark.parametrize("used", [False, True])
 def test_postgres_retired_label_delete_preserves_sibling_and_history(password_change_postgres_sessions, used):
     from datetime import datetime, timezone
-    from app.models import AuditLog, PayrollQrLabel
+    from app.schemas import AuditLog, PayrollQrLabel
     sessions, _ = password_change_postgres_sessions
     actor_id, cutting_id, _, empty_id = _fixture(sessions)
     with sessions.begin() as db:

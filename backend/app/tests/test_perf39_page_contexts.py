@@ -4,7 +4,7 @@ from sqlalchemy import event
 
 from app.db.session import engine
 from app.db.session import SessionLocal
-from app.models import Model
+from app.schemas import Model
 
 
 @contextmanager
@@ -102,7 +102,7 @@ def test_production_page_context_replaces_model_waterfall_with_minimal_projectio
 def test_production_context_respects_factory_grants_and_routed_orders(client, auth_headers):
     from uuid import uuid4
     from app.core.security import create_access_token
-    from app.models import Department, ProductionOrder, Role, User, WorkOrder
+    from app.schemas import Department, ProductionOrder, Role, User, WorkOrder
 
     marker = uuid4().hex
     with SessionLocal() as db:

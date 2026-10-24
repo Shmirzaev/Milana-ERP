@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, lazyload
 
 from app.core.pagination import clamp_pagination
 from app.core.model_search import model_code_contains
-from app.models import (
+from app.schemas import (
     CuttingRecord,
     Item,
     ManualAccessoryIssue,

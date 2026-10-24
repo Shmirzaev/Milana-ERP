@@ -5,7 +5,7 @@ from itertools import permutations
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import SewingFlow
+from app.schemas import SewingFlow
 from app.tests.test_assignment_delete_scope import FACTORIES, _actor, _assignment, _headers, _snapshot
 
 

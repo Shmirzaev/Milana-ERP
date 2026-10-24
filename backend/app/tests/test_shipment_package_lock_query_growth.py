@@ -7,7 +7,7 @@ from sqlalchemy import event, text
 
 from app.api.routes import shipments as shipment_routes
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     FinishedGoodsStock,
     Model,
     Package,

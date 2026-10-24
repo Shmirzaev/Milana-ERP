@@ -12,7 +12,7 @@ from sqlalchemy import func, case, or_
 from sqlalchemy.orm import joinedload, noload, selectinload
 
 from app.core.deps import DbSession, require_permissions
-from app.models import (
+from app.schemas import (
     Bundle,
     CuttingPassport,
     Item,
@@ -28,7 +28,7 @@ from app.models import (
     User,
     WorkOrder,
 )
-from app.schemas.sewing_daily_report import (
+from app.libs.dto.production.sewing_daily_report import (
     SewingDailyLineContext,
     SewingDailyLineWorkOrder,
     SewingDailyModelInfo,

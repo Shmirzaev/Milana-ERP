@@ -1,7 +1,7 @@
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, WorkOrder
+from app.schemas import AuditLog, WorkOrder
 from app.tests.test_sewing_assignment_return import make_assignment
 
 

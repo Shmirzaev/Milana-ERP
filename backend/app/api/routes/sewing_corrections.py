@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, or_
 from app.core.deps import DbSession, require_permissions
-from app.models import (User, WorkOrder, SewingRecord, SewingAssignment, SewingFlow,
+from app.schemas import (User, WorkOrder, SewingRecord, SewingAssignment, SewingFlow,
                         SewingReplacementRequest, PackagingReceipt, PackagingRecord, CuttingRecord, PrintingRecord)
 from app.models.factory_scope_service import require_work_order_factory_access
 from app.models.audit_service import log_action
@@ -125,7 +125,7 @@ def apply(db, wo, row, user, payload=None):
         _revised_sewing_input_limit, _lift_sewing_output_plans,
         _require_confirmed_cutting_output,
     )
-    from app.schemas.production import SewingRecordIn
+    from app.libs.dto.production.production import SewingRecordIn
     old = snapshot(row)
     assignment, applied = assignment_for(db, wo, row)
     new_input = payload.input_qty if payload else 0

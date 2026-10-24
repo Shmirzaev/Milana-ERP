@@ -9,9 +9,9 @@ from sqlalchemy import event
 
 from app.api.routes import payroll
 from app.core.order_reference import canonical_order_reference, order_reference_variants
-from app.models import PayrollQrLabel, ProductionOrder, SalesOrder
-from app.models.order_reference import BusinessOrderAlias
-from app.schemas.payroll import PayrollQrLabelOut
+from app.schemas import PayrollQrLabel, ProductionOrder, SalesOrder
+from app.schemas.order_reference import BusinessOrderAlias
+from app.libs.dto.people.payroll import PayrollQrLabelOut
 from app.tests.conftest import TestSessionLocal, test_engine
 def _captured_get(client, headers, url):
     statements = []

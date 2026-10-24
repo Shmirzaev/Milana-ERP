@@ -26,7 +26,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db.base import Base
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     AuditLog,
     EcoFabricDispatch,
     EcoFabricRoll,
@@ -666,7 +666,7 @@ def test_postgres_movement_waits_for_the_batch_lock(movement_postgres_engine):
     locked and that the reservation floor is re-read after the lock is granted.
     """
     from app.api.routes.inventory import transfer_stock
-    from app.schemas.inventory import StockMovementIn
+    from app.libs.dto.inventory.inventory import StockMovementIn
 
     session_factory = sessionmaker(movement_postgres_engine, expire_on_commit=False)
     marker = uuid4().hex[:8]
@@ -763,7 +763,7 @@ def test_postgres_claim_committed_while_movement_waits_still_blocks_it(
     batch is untouched.
     """
     from app.api.routes.inventory import transfer_stock
-    from app.schemas.inventory import StockMovementIn
+    from app.libs.dto.inventory.inventory import StockMovementIn
 
     session_factory = sessionmaker(movement_postgres_engine, expire_on_commit=False)
     marker = uuid4().hex[:8]

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import pytest
 
 from app.core.security import create_access_token
-from app.models import Bundle, Department, ProductionBatch, SewingAssignment, SewingFlow, WorkOrder
+from app.schemas import Bundle, Department, ProductionBatch, SewingAssignment, SewingFlow, WorkOrder
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_packaging_sewing_output import _create, _pack
 from app.tests.test_production_flow import _issue_required_accessories

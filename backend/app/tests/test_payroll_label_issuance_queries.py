@@ -5,12 +5,12 @@ from uuid import uuid4
 
 from sqlalchemy import event
 
-from app.models import Department, PayrollQrLabel, WorkOrder
+from app.schemas import Department, PayrollQrLabel, WorkOrder
 from app.tests.conftest import test_engine
 from app.tests.conftest import TestSessionLocal
 import pytest
-from app.models import ProductionOrder, SalesOrder
-from app.models.order_reference import BusinessOrderAlias
+from app.schemas import ProductionOrder, SalesOrder
+from app.schemas.order_reference import BusinessOrderAlias
 
 @pytest.fixture
 def order_references():

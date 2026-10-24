@@ -11,8 +11,8 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 
 from app.db.session import SessionLocal
-from app.models import Bundle, CuttingPassport, ProductionBatch, StockBatch, WorkOrder
-from app.schemas.cutting_material import PassportMaterial
+from app.schemas import Bundle, CuttingPassport, ProductionBatch, StockBatch, WorkOrder
+from app.libs.dto.production.cutting_material import PassportMaterial
 from app.tests.test_passport_cutting_submission import passport_cutting  # noqa: F401
 from app.tests.test_passport_get_scope import _actor, _headers, _passport, _snapshot
 

@@ -5,7 +5,7 @@ from sqlalchemy import event
 from sqlalchemy.dialects import postgresql
 
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     Brand, FinishedGoodsStock, LegacyStockReceipt, Model, Package, PackageItem,
     SalesOrder, Shipment, ShipmentPackage, StockReservation,
 )

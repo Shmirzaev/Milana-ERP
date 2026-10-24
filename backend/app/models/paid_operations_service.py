@@ -5,7 +5,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from app.models import User
+from app.schemas import User
 
 
 FACTORY_BY_DEPARTMENT_CODE = {

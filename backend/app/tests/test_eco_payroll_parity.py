@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import select
 
 from app.db.base import Base
-from app.models import Department, Model, ModelSize, ProductionOrder, WorkOrder
+from app.schemas import Department, Model, ModelSize, ProductionOrder, WorkOrder
 from app.tests import test_payroll as payroll
 from app.tests.conftest import TestSessionLocal
 

@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, or_
 
 from app.core.deps import DbSession, require_permissions
-from app.models import (Customer, FinishedGoodsStock, Model, Package, Shipment, ShipmentPackage,
+from app.schemas import (Customer, FinishedGoodsStock, Model, Package, Shipment, ShipmentPackage,
                         StockReservation, User, WarehousePackReservation)
 from app.models.audit_service import log_action
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response

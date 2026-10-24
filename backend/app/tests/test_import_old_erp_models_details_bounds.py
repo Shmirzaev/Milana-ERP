@@ -12,7 +12,7 @@ import json
 
 import pytest
 
-from app.models import Model
+from app.schemas import Model
 from scripts import import_old_erp_models_local as migration
 
 # Read from the shared validator rather than restating the numbers, so this

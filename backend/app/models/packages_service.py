@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session, object_session
 
-from app.models import (
+from app.schemas import (
     Package, PackageItem, PackageBatchAllocation, PackageScanLog, PackageChangeRequest,
     ProductionOrder, FinishedGoodsStock, Warehouse, ModelBOM, StockBatch,
     ProductionBatch, StockReservation, ShipmentPackage, User, Notification,
@@ -1084,7 +1084,7 @@ def normalize_package_edit_payload(db: Session, pkg: Package, payload: dict | No
 
 
 def _ensure_package_can_change(db: Session, pkg: Package, *, allow_printed: bool = False) -> list[FinishedGoodsStock]:
-    from app.models.package_workflows import PackagePrintRunMember
+    from app.schemas.packaging.package_workflows import PackagePrintRunMember
     from app.models.package_workflows_service import active_members
     if pkg.manual_receipt_id:
         raise HTTPException(409, "Manual receipt evidence cannot be edited or deleted through package correction")
@@ -1094,8 +1094,8 @@ def _ensure_package_can_change(db: Session, pkg: Package, *, allow_printed: bool
         raise HTTPException(400, f"Package in status '{pkg.status}' cannot be edited or deleted")
     if pkg.dispatched_quantity or pkg.dispatched_quantities or pkg.quantity_shortfall:
         raise HTTPException(409, "Package has dispatched pieces or quantity corrections")
-    from app.models import ShipmentScanLog
-    from app.models.shipment_review import PackageQuantityAdjustment
+    from app.schemas import ShipmentScanLog
+    from app.schemas.fulfillment.shipment_review import PackageQuantityAdjustment
     for model in (WarehousePackReservation, ShipmentScanLog, PackageQuantityAdjustment):
         if db.query(model).filter(model.package_id == pkg.id).first():
             raise HTTPException(409, "Package has a reservation, shipment or quantity correction")

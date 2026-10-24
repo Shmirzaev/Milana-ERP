@@ -5,7 +5,7 @@ import pytest
 
 from app.db.session import SessionLocal
 from app.core.config import settings
-from app.models import Department, HrOrgUnit, HrPosition
+from app.schemas import Department, HrOrgUnit, HrPosition
 
 
 def _department_id(code: str) -> int:

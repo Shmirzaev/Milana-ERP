@@ -23,8 +23,8 @@ from sqlalchemy import create_engine, inspect
 from sqlalchemy.engine import make_url
 
 from app.db.base import Base
-from app.models import CuttingBeikaMaterialUsage, CuttingRecord
-import app.models  # noqa: F401  - registers every mapped table
+from app.schemas import CuttingBeikaMaterialUsage, CuttingRecord
+import app.schemas  # noqa: F401  - registers every mapped table
 
 BACKEND = Path(__file__).resolve().parents[2]
 MIGRATION = BACKEND / "alembic" / "versions" / "0076_cutting_beika_usage.py"

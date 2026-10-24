@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     AuditLog, Bundle, CuttingRecord, Employee, PayrollQrLabel, PayrollRecord,
     ProductionBatch, StockBatch, WorkOrder,
 )
@@ -85,7 +85,7 @@ def test_unallocated_used_or_active_label_still_blocks(client, auth_headers, pas
         elif evidence in {'last_scanned_at', 'returned_at'}:
             setattr(label, evidence, datetime.now(timezone.utc))
         elif evidence == 'returned_by':
-            from app.models import User
+            from app.schemas import User
             label.returned_by = db.query(User.id).first()[0]
         elif evidence == 'return_count':
             label.return_count = 1

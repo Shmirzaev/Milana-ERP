@@ -7,7 +7,7 @@ from collections import defaultdict
 from sqlalchemy import func
 
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     FinishedGoodsStock,
     Package,
     PackageItem,

@@ -7,7 +7,7 @@ from openpyxl import load_workbook
 
 from app.api.routes.shipments import _invoice_print_details
 from app.db.session import SessionLocal
-from app.models import LegacyStockReceipt, Package, Shipment, ShipmentScanLog
+from app.schemas import LegacyStockReceipt, Package, Shipment, ShipmentScanLog
 from app.models.shipment_invoice_service import build_invoice_rows, render_shipment_invoice
 from app.models.shipment_invoice_excel_service import shipment_invoice_workbook
 from app.models.variant_display_service import format_variant_number

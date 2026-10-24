@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import Integer, func, literal, or_, select, union
 from sqlalchemy.orm import Session, load_only, selectinload
 
-from app.models import (
+from app.schemas import (
     AuditLog,
     Brand,
     Bundle,

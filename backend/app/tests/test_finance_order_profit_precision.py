@@ -1,7 +1,7 @@
 from uuid import uuid4
 
 from app.db.session import SessionLocal
-from app.models import Customer, Invoice, Payment, SalesOrder, SalesOrderItem
+from app.schemas import Customer, Invoice, Payment, SalesOrder, SalesOrderItem
 from app.models.finance_service import order_profit
 
 

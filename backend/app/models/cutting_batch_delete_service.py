@@ -8,7 +8,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import OperationalError
 
 from app.db.base import Base
-from app.models import (
+from app.schemas import (
     Bundle, CuttingRecord, MaterialReservation, ProductionBatch, ProductionOrder,
     SewingAssignment, StockBatch, StockMovement, WasteRecord, WasteSale, WorkOrder,
 )

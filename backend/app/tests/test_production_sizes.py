@@ -3,7 +3,7 @@ from uuid import uuid4
 import pytest
 
 from app.core.security import create_access_token
-from app.models import AuditLog, Department, ProductionOrder, ProductionOrderItem, User, WorkOrder
+from app.schemas import AuditLog, Department, ProductionOrder, ProductionOrderItem, User, WorkOrder
 from app.tests.conftest import TestSessionLocal
 
 
@@ -53,7 +53,7 @@ def test_size_edit_preserves_plan_and_reaches_cutting_bundles(client, auth_heade
                     for row in after["items"]],
     })
     assert result.status_code == 201, result.text
-    from app.models import Bundle
+    from app.schemas import Bundle
     with TestSessionLocal() as db:
         bundles = db.query(Bundle).filter_by(production_order_id=pid).all()
         assert sorted((b.size, b.quantity) for b in bundles) == [("104", 60), ("Free Size", 40)]
@@ -108,7 +108,7 @@ def test_used_or_closed_size_plans_are_locked(client, auth_headers, locked):
         elif locked == "completed_row":
             db.get(ProductionOrderItem, payload["items"][0]["id"]).completed_quantity = 1
         else:
-            from app.models.payroll import PayrollQrLabel
+            from app.schemas.people.payroll import PayrollQrLabel
             db.add(PayrollQrLabel(label_uid=uuid4().hex, production_order_id=pid, size="46"))
         db.commit()
     payload["items"][0]["size"] = "50"

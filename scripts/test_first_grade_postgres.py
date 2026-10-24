@@ -12,7 +12,7 @@ from sqlalchemy import text
 from app.db.base import Base
 from app.db.session import engine, SessionLocal
 from app.db.seed import seed
-from app.models import Department, FinishedGoodsStock, Model, Package, PackagingRecord, ProductionOrder, ProductionOrderItem, SewingRecord, WorkOrder
+from app.schemas import Department, FinishedGoodsStock, Model, Package, PackagingRecord, ProductionOrder, ProductionOrderItem, SewingRecord, WorkOrder
 from app.models.packages_service import create_package
 
 assert os.environ.get("FIRST_GRADE_DISPOSABLE") == "1"

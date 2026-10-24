@@ -9,7 +9,7 @@ import os
 import time
 
 from app.db.session import SessionLocal
-from app.models import PackagingRecord, WorkOrder
+from app.schemas import PackagingRecord, WorkOrder
 
 STRONG_PW = "Str0ngManager!2026"
 ESC_PW = "Esc4lation!Test2026"
@@ -452,7 +452,7 @@ def test_public_deployment_login_cookie_is_secure(client, monkeypatch):
 def test_password_reset_failure_notification_suppresses_token_like_error_text(client):
     from app.models.password_reset_service import notify_admins_about_password_email_failure
     from app.db.session import SessionLocal
-    from app.models import Notification, User
+    from app.schemas import Notification, User
 
     raw_url = "https://frontend.example/reset-password?token=raw-reset-token-should-not-persist"
     provider_error = f"provider echoed body containing {raw_url} and token=raw-reset-token-should-not-persist"
@@ -671,7 +671,7 @@ def test_model_file_survives_missing_filesystem_copy(client, auth_headers):
     # Simulate a legacy/imported image that retained its database backup. New
     # browser uploads intentionally avoid storing a duplicate bytea copy.
     from app.db.session import SessionLocal
-    from app.models import ModelImage
+    from app.schemas import ModelImage
 
     with SessionLocal() as db:
         image_row = db.query(ModelImage).filter(ModelImage.file_url == file_url).one()

@@ -8,7 +8,7 @@ from sqlalchemy import text
 
 from app.core.config import settings as app_settings
 from app.core.deps import CurrentUser, DbSession, require_permissions
-from app.models import SystemSetting, User
+from app.schemas import SystemSetting, User
 from app.models.audit_service import log_action
 
 router = APIRouter(prefix="/settings", tags=["settings"])

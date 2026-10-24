@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from app.api.routes import notifications as notification_routes
 from app.db.base import Base
 from app.db.session import SessionLocal
-from app.models import AuditLog, Department, Notification, User
+from app.schemas import AuditLog, Department, Notification, User
 
 
 @pytest.fixture(params=["sqlite", "postgres"])

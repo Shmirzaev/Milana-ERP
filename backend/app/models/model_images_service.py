@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 from sqlalchemy import func, select
 from sqlalchemy.orm import defer
 
-from app.models import Model, ModelBOM, ModelImage
+from app.schemas import Model, ModelBOM, ModelImage
 from app.models.model_identity_service import model_number_fields
 from app.models.model_family_images_service import (
     _family_key, _legacy, family_images_for_models, model_family_image, own_model_image,

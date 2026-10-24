@@ -1,5 +1,5 @@
 from app.db.session import SessionLocal
-from app.models import AuditLog, Model, ModelColor
+from app.schemas import AuditLog, Model, ModelColor
 
 
 def _model_id() -> int:

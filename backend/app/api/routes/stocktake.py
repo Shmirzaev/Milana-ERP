@@ -14,8 +14,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import load_only
 
 from app.core.deps import DbSession, require_permissions
-from app.models import Package, User
-from app.models.stocktake import WarehouseStocktake, WarehouseStocktakeRow
+from app.schemas import Package, User
+from app.schemas.inventory.stocktake import WarehouseStocktake, WarehouseStocktakeRow
 from app.models.audit_service import log_action
 from app.models.stocktake_service import package_snapshots, resolve_package, row_payload, scan_fields, scan_summary
 

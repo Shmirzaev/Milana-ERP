@@ -4,8 +4,8 @@ from sqlalchemy import func
 
 from app.api.routes.notifications import _max_bulk_recipients
 from app.core.deps import DbSession, CurrentUser, is_admin, user_permissions
-from app.models import Notification, Task, User
-from app.schemas.tasks import TaskIn, TaskUpdate, TaskOut
+from app.schemas import Notification, Task, User
+from app.libs.dto.work_management.tasks import TaskIn, TaskUpdate, TaskOut
 from app.models.audit_service import log_action
 from app.models.notifications_service import notify
 from app.models.user_access_service import access_configured, permission_denied

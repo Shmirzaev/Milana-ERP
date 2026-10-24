@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.models import AuditLog, Department, Employee, PayrollRecord, User
+from app.schemas import AuditLog, Department, Employee, PayrollRecord, User
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_payroll import _create_user_with_permissions
 from app.tests.test_payroll_control_confirmation import _issue

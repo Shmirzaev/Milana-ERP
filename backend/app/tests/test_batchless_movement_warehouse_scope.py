@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import Item, StockBatch, StockMovement, Warehouse
+from app.schemas import Item, StockBatch, StockMovement, Warehouse
 from app.models.inventory_service import current_stock_for_item
 
 

@@ -9,8 +9,8 @@ from sqlalchemy import text
 
 from app.api.routes import payroll
 from app.db import session as session_module
-from app.models import PayrollPeriod, PayrollRecord, User
-from app.schemas.payroll import PayrollPeriodIn, PayrollPeriodUpdate
+from app.schemas import PayrollPeriod, PayrollRecord, User
+from app.libs.dto.people.payroll import PayrollPeriodIn, PayrollPeriodUpdate
 from app.tests.test_payroll_period_races import _seed, payroll_postgres_sessions  # noqa: F401
 from scripts import repair_payroll_period_overlap_20261013 as repair
 

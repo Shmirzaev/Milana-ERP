@@ -3,13 +3,13 @@ import pytest
 from sqlalchemy import select
 
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     AuditLog, Customer, FinishedGoodsStock, LegacyStockReceipt, Package, PackageBarcodeAlias,
     PackageChangeRequest, SalesOrder, Shipment, ShipmentPackage, ShipmentScanLog,
     StockReservation, User, WarehousePackReservation,
 )
-from app.models.shipment_review import PackageQuantityAdjustment
-from app.models.stocktake import WarehouseStocktakeRow
+from app.schemas.fulfillment.shipment_review import PackageQuantityAdjustment
+from app.schemas.inventory.stocktake import WarehouseStocktakeRow
 from app.tests.test_package_workflows import warehouse  # noqa: F401
 from app.tests.test_warehouse_stocktake import BASE, detail, packs, scan, start  # noqa: F401
 

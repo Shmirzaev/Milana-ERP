@@ -5,7 +5,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import event
 
-from app.models import (
+from app.schemas import (
     Bundle,
     BundleScanLog,
     CuttingRecord,

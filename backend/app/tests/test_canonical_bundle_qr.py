@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.main import app
-from app.models import BusinessOrderAlias, Bundle, CuttingRecord, ProductionOrder, WorkOrder
+from app.schemas import BusinessOrderAlias, Bundle, CuttingRecord, ProductionOrder, WorkOrder
 from app.models import barcode_service as barcode
 from app.models.bundles_service import bundle_qr_payload
 from app.models.cutting_sheet_service import render_cutting_sheet_html

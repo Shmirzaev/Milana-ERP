@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func
 from sqlalchemy.orm import defer, lazyload
 from app.core.deps import DbSession, require_permissions
-from app.models import EcoFabricDispatch, EcoFabricRoll, Item, StockBatch, StockMovement, User
+from app.schemas import EcoFabricDispatch, EcoFabricRoll, Item, StockBatch, StockMovement, User
 from app.api.routes.fabric_scans import parse_roll, TASHKENT
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import selected_factory_code

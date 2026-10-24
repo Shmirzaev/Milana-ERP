@@ -11,13 +11,13 @@ import json
 from fastapi import HTTPException
 from sqlalchemy.orm import Session, selectinload
 
-from app.models import (
+from app.schemas import (
     Customer, FinishedGoodsStock, Invoice, Model, Package, PackageBatchAllocation, Payment,
     PackageItem, SalesOrder, SalesOrderItem, Shipment, ShipmentPackage,
     StockReservation, User,
 )
-from app.schemas.shipment_review import ShipmentAmountReview, ShipmentQuantityReview
-from app.models.shipment_review import PackageQuantityAdjustment
+from app.libs.dto.fulfillment.shipment_review import ShipmentAmountReview, ShipmentQuantityReview
+from app.schemas.fulfillment.shipment_review import PackageQuantityAdjustment
 from app.core.deps import user_permissions
 from app.models.package_dispatch_service import selected_items
 from app.models.audit_service import log_action
@@ -186,7 +186,7 @@ def manual_invoice_sizes(db, package, size, *, receipts=None):
     """
     if str(size).lower() != "mixed" or not package.manual_receipt_id:
         return None
-    from app.models import ManualPackageReceipt
+    from app.schemas import ManualPackageReceipt
     receipt_id = package.manual_receipt_id
     if receipts is None:
         receipt = db.get(ManualPackageReceipt, receipt_id)
@@ -420,7 +420,7 @@ def detach_shipment_package(db: Session, shipment: Shipment, package_id: int, re
     selections.pop(str(package_id), None)
     shipment.dispatch_snapshot = {**(shipment.dispatch_snapshot or {}), "package_quantities": selections}
     db.delete(link)
-    from app.models import ShipmentScanLog
+    from app.schemas import ShipmentScanLog
     db.add(ShipmentScanLog(shipment_id=shipment.id, package_id=package_id, scanned_code=package.barcode,
                           scan_result="detached", message=reason.strip(), scanned_by=user.id))
     log_action(db, user, "detach_shipment_package", "Shipment", shipment.id,

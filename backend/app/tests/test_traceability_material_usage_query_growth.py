@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import event
 
 from app.db.session import SessionLocal
-from app.models import Item, StockBatch, Warehouse
+from app.schemas import Item, StockBatch, Warehouse
 from app.models.traceability_service import _batch_material_usage
 
 

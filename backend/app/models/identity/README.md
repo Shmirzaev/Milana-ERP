@@ -15,8 +15,8 @@ See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordi
 
 - Routes: [auth.py](../../api/routes/auth.py), [admin.py](../../api/routes/admin.py), [catalog.py](../../api/routes/catalog.py).
 - Services/helpers: [credentials_service.py](../credentials_service.py), [factory_scope_service.py](../factory_scope_service.py), [password_reset_service.py](../password_reset_service.py), [user_access_service.py](../user_access_service.py).
-- Existing SQLAlchemy schema models: [Role](../core.py#L9), [User](../core.py#L21), [PasswordResetToken](../core.py#L99).
-- Existing Pydantic contracts: [auth.py](../../schemas/auth.py), [catalog.py](../../schemas/catalog.py), [user_access.py](../../schemas/user_access.py).
+- Existing SQLAlchemy schema models: [Role](../../schemas/core.py#L9), [User](../../schemas/core.py#L21), [PasswordResetToken](../../schemas/core.py#L99).
+- Existing Pydantic contracts: [auth.py](../../libs/dto/identity/auth.py), [catalog.py](../../libs/dto/catalog/catalog.py), [user_access.py](../../libs/dto/identity/user_access.py).
 
 These are source pointers, not permission to move entire mixed files. Trace the
 particular operation and every caller/write before choosing what belongs here.
@@ -33,8 +33,8 @@ Use snake_case_service.py filenames and operation names such as `create_*`, `rec
 `receive_*` or `approve_*`. A typed function is sufficient; a class is optional
 when it owns real dependencies. Accept the Session, validated input and actor
 explicitly. State the transaction owner, refusal rules and result contract.
-Use the existing ORM models. Migrate existing schemas/ DTOs to libs/dto/<feature>/
-with their callers; keep fixed values in libs/enums/. See [DTO conventions](../../libs/dto/README.md).
+Use the existing ORM definitions in schemas/ and DTOs in libs/dto/<feature>/;
+keep fixed values in libs/enums/. See [DTO conventions](../../libs/dto/README.md).
 Do not import routers, call an endpoint, or commit inside a helper owned by another
 transaction. Do not create an interface/repository or generic CRUD class by default.
 

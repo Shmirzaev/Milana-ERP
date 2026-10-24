@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.models import AuditLog, Item, Model, ModelBOM
+from app.schemas import AuditLog, Item, Model, ModelBOM
 from app.tests.conftest import TestSessionLocal
 
 _MAX_DETAILS_BYTES = 1024 * 1024

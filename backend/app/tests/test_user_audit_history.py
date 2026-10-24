@@ -17,7 +17,7 @@ from app.api.routes import admin
 from app.core.security import create_access_token
 from app.db.base import Base
 from app.db.session import SessionLocal
-from app.models import AuditLog, Employee, Notification, PasswordResetToken, User
+from app.schemas import AuditLog, Employee, Notification, PasswordResetToken, User
 from app.models.audit_service import export_audit_hash_chain, log_action, verify_audit_hash_chain
 
 

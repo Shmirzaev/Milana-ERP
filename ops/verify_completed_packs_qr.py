@@ -8,7 +8,7 @@ import httpx
 
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
-from app.models import Package, PackageBarcodeAlias
+from app.schemas import Package, PackageBarcodeAlias
 
 
 ROOT = Path("/tmp/completed-packs-production")

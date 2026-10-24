@@ -5,7 +5,7 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy import event
 
 from app.api.routes import production as production_routes
-from app.models import (
+from app.schemas import (
     Bundle,
     Department,
     Model,

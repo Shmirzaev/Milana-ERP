@@ -15,8 +15,8 @@ See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordi
 
 - Routes: [packages.py](../../api/routes/packages.py), [package_workflows.py](../../api/routes/package_workflows.py), [packaging_reports.py](../../api/routes/packaging_reports.py), [usluga_packaging.py](../../api/routes/usluga_packaging.py), [production.py](../../api/routes/production.py).
 - Services/helpers: [packages_service.py](../packages_service.py), [package_workflows_service.py](../package_workflows_service.py), [package_identity_service.py](../package_identity_service.py), [legacy_package_identity_service.py](../legacy_package_identity_service.py), [package_label_pages_service.py](../package_label_pages_service.py), [package_corrections_service.py](../package_corrections_service.py), [packaging_corrections_service.py](../packaging_corrections_service.py), [packaging_report_exports_service.py](../packaging_report_exports_service.py), [packaging_reports_service.py](../packaging_reports_service.py), [packaging_scope_service.py](../packaging_scope_service.py).
-- Existing SQLAlchemy schema models: [PackagePrintRun](../package_workflows.py#L19), [PackagePrintRunMember](../package_workflows.py#L38), [PackagingRecord](../production.py#L458), [Package](../tracking.py#L54), [PackageBarcodeAlias](../tracking.py#L157), [PackageItem](../tracking.py#L176), [PackageBatchAllocation](../tracking.py#L190), [PackageScanLog](../tracking.py#L203), [PackageChangeRequest](../tracking.py#L214).
-- Existing Pydantic contracts: [tracking.py](../../schemas/tracking.py), [package_workflows.py](../../schemas/package_workflows.py), [production.py](../../schemas/production.py).
+- Existing SQLAlchemy schema models: [PackagePrintRun](../../schemas/packaging/package_workflows.py#L19), [PackagePrintRunMember](../../schemas/packaging/package_workflows.py#L38), [PackagingRecord](../../schemas/production/production.py#L458), [Package](../../schemas/production/tracking.py#L54), [PackageBarcodeAlias](../../schemas/production/tracking.py#L157), [PackageItem](../../schemas/production/tracking.py#L176), [PackageBatchAllocation](../../schemas/production/tracking.py#L190), [PackageScanLog](../../schemas/production/tracking.py#L203), [PackageChangeRequest](../../schemas/production/tracking.py#L214).
+- Existing Pydantic contracts: [tracking.py](../../libs/dto/packaging/tracking.py), [package_workflows.py](../../libs/dto/fulfillment/package_workflows.py), [production.py](../../libs/dto/production/production.py).
 
 These are source pointers, not permission to move entire mixed files. Trace the
 particular operation and every caller/write before choosing what belongs here.
@@ -34,8 +34,8 @@ Use snake_case_service.py filenames and operation names such as `create_*`, `rec
 `receive_*` or `approve_*`. A typed function is sufficient; a class is optional
 when it owns real dependencies. Accept the Session, validated input and actor
 explicitly. State the transaction owner, refusal rules and result contract.
-Use the existing ORM models. Migrate existing schemas/ DTOs to libs/dto/<feature>/
-with their callers; keep fixed values in libs/enums/. See [DTO conventions](../../libs/dto/README.md).
+Use the existing ORM definitions in schemas/ and DTOs in libs/dto/<feature>/;
+keep fixed values in libs/enums/. See [DTO conventions](../../libs/dto/README.md).
 Do not import routers, call an endpoint, or commit inside a helper owned by another
 transaction. Do not create an interface/repository or generic CRUD class by default.
 

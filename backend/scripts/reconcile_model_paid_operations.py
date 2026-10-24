@@ -112,7 +112,7 @@ def summary(plan):
 
 def apply_plan(db, plan, confirmed_hash):
     from app.api.routes.catalog import _approval_family
-    from app.models import Model
+    from app.schemas import Model
     from app.models.audit_service import log_action
     from app.models.paid_operations_service import paid_operations_from_details
 

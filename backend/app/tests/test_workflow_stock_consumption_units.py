@@ -3,7 +3,7 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 
-from app.models import (
+from app.schemas import (
     Item,
     MaterialReservation,
     Model,

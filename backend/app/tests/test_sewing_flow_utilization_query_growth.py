@@ -7,7 +7,7 @@ from sqlalchemy import event
 
 from app.api.routes import sewing_flows
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     Department,
     Model,
     ProductionOrder,

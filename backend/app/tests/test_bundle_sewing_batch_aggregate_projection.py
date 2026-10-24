@@ -4,7 +4,7 @@ from uuid import uuid4
 from sqlalchemy import event
 
 from app.api.routes.bundles import _sewing_batch_payload
-from app.models import Bundle, Model, ProductionBatch, ProductionOrder
+from app.schemas import Bundle, Model, ProductionBatch, ProductionOrder
 from app.tests.conftest import TestSessionLocal
 
 

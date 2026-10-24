@@ -20,10 +20,10 @@ from app.core.security import (
     validate_password_strength,
     verify_password,
 )
-from app.models import (
+from app.schemas import (
     User, Notification, PasswordResetToken,
 )
-from app.schemas.auth import ForgotPasswordIn, LoginIn, LoginOk, ResetPasswordIn, TokenOut, UserMe
+from app.libs.dto.identity.auth import ForgotPasswordIn, LoginIn, LoginOk, ResetPasswordIn, TokenOut, UserMe
 from app.models.audit_service import log_action
 from app.models.credentials_service import apply_password_credential_change, lock_user_for_credential_change
 from app.models.factory_scope_service import assigned_factory_code, authorize_login_factory, available_factory_codes, selected_factory_code

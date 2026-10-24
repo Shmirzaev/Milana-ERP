@@ -3,7 +3,7 @@ from uuid import uuid4
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, Employee
+from app.schemas import AuditLog, Employee
 
 
 SUPPORTED_STATUSES = ["active", "inactive", "on_leave", "terminated"]

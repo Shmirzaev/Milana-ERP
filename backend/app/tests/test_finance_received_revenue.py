@@ -7,7 +7,7 @@ import pytest
 
 from app.core.dt import as_utc
 from app.db.session import SessionLocal
-from app.models import Customer, Invoice, Payment, SalesOrder, Shipment
+from app.schemas import Customer, Invoice, Payment, SalesOrder, Shipment
 from app.models.finance_service import list_recent_invoices, order_profit, revenue_by_period, revenue_total
 
 

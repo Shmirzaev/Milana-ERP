@@ -1,6 +1,6 @@
 import pytest
 
-from app.models import AuditLog, Department, Notification, PrintingRecord, ProductionBatch, SewingRecord, WasteRecord, WorkOrder
+from app.schemas import AuditLog, Department, Notification, PrintingRecord, ProductionBatch, SewingRecord, WasteRecord, WorkOrder
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_production_flow import _factory_headers
 from app.tests.test_sewing_actual_output import make_batch, sew
@@ -14,7 +14,7 @@ def setup_order(factory, batched, *, cut=0):
         wo.status = 'waiting'
         if not batched:
             if cut:
-                from app.models import CuttingRecord
+                from app.schemas import CuttingRecord
                 db.query(CuttingRecord).filter_by(production_batch_id=batch).update({'production_batch_id': None})
             db.delete(db.get(ProductionBatch, batch))
             batch = None

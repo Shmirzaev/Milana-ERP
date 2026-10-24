@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 
-from app.models import Package, PackageItem, PackageScanLog, ShipmentPackage, StockReservation
+from app.schemas import Package, PackageItem, PackageScanLog, ShipmentPackage, StockReservation
 from app.models.audit_service import log_action
 
 

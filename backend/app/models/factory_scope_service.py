@@ -108,7 +108,7 @@ def require_operational_department_access(user, department_code: str | None) -> 
 
 
 def require_work_order_factory_access(user, db, work_order) -> None:
-    from app.models import Department
+    from app.schemas import Department
     code = db.query(Department.code).filter(Department.id == work_order.department_id).scalar()
     require_operational_department_access(user, code)
 

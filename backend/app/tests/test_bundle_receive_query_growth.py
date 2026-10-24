@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from sqlalchemy import event
 
 from app.api.routes import bundles as bundle_routes
-from app.models import Bundle, BundleScanLog, ProductionBatch, ProductionOrder, User, WorkOrder
+from app.schemas import Bundle, BundleScanLog, ProductionBatch, ProductionOrder, User, WorkOrder
 from app.models import bundles_service as bundle_services
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_bundle_accessory_gate_batching import _bundle_batch, _run_bulk

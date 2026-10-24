@@ -34,7 +34,7 @@ from app.api.routes import eco_transfers
 from app.api.routes.eco_transfers import dispatch_data
 from app.api.routes.fabric_scans import TASHKENT
 from app.db.base import Base
-from app.models import (
+from app.schemas import (
     EcoFabricDispatch,
     EcoFabricRoll,
     Item,

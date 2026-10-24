@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 from app.core.security import hash_password
 from app.db.session import SessionLocal
-from app.models import CuttingPassport, Department, Model, ModelImage, ModelSize, Role, User
+from app.schemas import CuttingPassport, Department, Model, ModelImage, ModelSize, Role, User
 
 
 PASSWORD = "PriceWorkflow123!"

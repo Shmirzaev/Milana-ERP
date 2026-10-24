@@ -7,14 +7,14 @@ from fastapi import HTTPException
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, load_only
 
-from app.models import (
+from app.schemas import (
     Bundle, BundleScanLog, CuttingRecord, ProductionOrder, ProductionBatch, Department, SalesOrder, User, WorkOrder,
 )
 from app.models.barcode_service import bundle_qr_image_url, generate_barcode_value, save_barcode_image
 from app.models.numbering_service import next_bundle_no
 from app.models.sewing_scope_service import sewing_line_factory_scope
 from app.models.workflow_service import notify_department, sync_production_order_status
-from app.models.order_reference import BusinessOrderAlias
+from app.schemas.order_reference import BusinessOrderAlias
 
 
 @dataclass(frozen=True)

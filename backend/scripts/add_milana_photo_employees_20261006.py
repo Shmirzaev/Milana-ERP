@@ -9,7 +9,7 @@ import json
 from app.api.routes.hr import EmployeeIn, create_employee
 from app.core.deps import user_permissions
 from app.db.session import SessionLocal
-from app.models import Department, Employee, Role, User
+from app.schemas import Department, Employee, Role, User
 
 EXPECTED_EXISTING_NAME = "Алматова Мадинабону Абдумўмин қизи"
 MISSING = [("2910", "Abdurahimova Muxarram"), ("2905", "Qodirova Umida")]

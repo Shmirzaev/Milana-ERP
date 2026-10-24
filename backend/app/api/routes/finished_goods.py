@@ -7,11 +7,11 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import aliased
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
-from app.models import (
+from app.schemas import (
     Brand, FinishedGoodsStock, Model, Package, PackageItem, ProductionOrder,
     SalesOrder, Shipment, ShipmentPackage, StockReservation, User,
 )
-from app.schemas.tracking import FinishedGoodsStockOut, FinishedGoodsStockPageOut
+from app.libs.dto.packaging.tracking import FinishedGoodsStockOut, FinishedGoodsStockPageOut
 from app.models.audit_service import log_action
 router = APIRouter(prefix="/finished-goods", tags=["finished_goods"])
 PackageBrand = aliased(Brand)

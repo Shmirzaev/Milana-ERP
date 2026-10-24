@@ -2,7 +2,7 @@
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import (FinishedGoodsStock, Package, PackageItem, PackagePrintRun, PackagePrintRunMember,
+from app.schemas import (FinishedGoodsStock, Package, PackageItem, PackagePrintRun, PackagePrintRunMember,
                         SalesOrderItem, ShipmentPackage, StockReservation)
 from app.tests.test_shipment_review import dispatch, preparation  # noqa: F401
 from app.tests.test_package_workflows import packaging_order, warehouse, create_run, stock_fingerprint  # noqa: F401
@@ -87,7 +87,7 @@ def test_receive_by_order_and_delete_one_pack(client, auth_headers, warehouse, p
     assert options.status_code == 200, options.text
     row = options.json()["rows"][0]
     assert row["package_ids"] == ids
-    from app.models import Model, ProductionOrder
+    from app.schemas import Model, ProductionOrder
     from app.models.model_identity_service import model_number_fields
     with SessionLocal() as db:
         model = db.get(Model, db.get(ProductionOrder, row["id"]).model_id)
@@ -123,7 +123,7 @@ def test_warehouse_actions_require_warehouse_permission(client, auth_headers, pa
 def test_manual_partial_invoice_reopen_and_reserve_remainder(client, warehouse, auth_headers):
     from app.tests.test_manual_pack_dispatch import receive, shipment
     from app.tests.test_package_workflows import package_qr
-    from app.models import Shipment, Customer
+    from app.schemas import Shipment, Customer
     from app.tests.test_shipment_reopen import payload
     run = receive(client, warehouse, (60,))
     pid = run["package_ids"][0]
@@ -157,7 +157,7 @@ def test_manual_partial_invoice_reopen_and_reserve_remainder(client, warehouse, 
     with SessionLocal() as db:
         stock = db.query(FinishedGoodsStock).filter_by(package_id=pid).one()
         assert stock.available_qty == stock.sold_qty == 30 and stock.reserved_qty == 0
-        from app.models import SalesOrder
+        from app.schemas import SalesOrder
         order = SalesOrder(order_no="SO-PARTIAL-RESERVE", customer_id=customer_id, status="draft", total_amount=60)
         db.add(order); db.commit()
         oid, stock_id = order.id, stock.id
@@ -176,7 +176,7 @@ def test_manual_partial_invoice_reopen_and_reserve_remainder(client, warehouse, 
 @pytest.mark.parametrize("condition", ["reserved", "shipment", "stock"])
 def test_delete_rejects_linked_or_changed_packs(client, warehouse, condition):
     from app.tests.test_manual_pack_dispatch import receive
-    from app.models import Shipment
+    from app.schemas import Shipment
     pid = receive(client, warehouse, (60,))["package_ids"][0]
     with SessionLocal() as db:
         stock = db.query(FinishedGoodsStock).filter_by(package_id=pid).one()

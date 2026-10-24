@@ -6,11 +6,11 @@ from sqlalchemy import event
 
 from app.api.routes.packages import _package_out_payload
 from app.core.security import create_access_token
-from app.models import (
+from app.schemas import (
     Customer, Department, Item, Model, ModelBOM, ModelImage, Package,
     ProductionOrder, Role, SalesOrder, StockBatch, User, Warehouse,
 )
-from app.models.tracking import LegacyStockReceipt
+from app.schemas.production.tracking import LegacyStockReceipt
 from app.tests.conftest import TestSessionLocal, test_engine
 
 

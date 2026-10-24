@@ -8,7 +8,7 @@ from uuid import UUID
 from sqlalchemy import event, text
 from sqlalchemy.orm import Session
 
-from app.models import AuditLog, User
+from app.schemas import AuditLog, User
 
 
 _AUDIT_LOCK_NAMESPACE = 1_096_107_092  # ASCII "AUDT", stable across processes.

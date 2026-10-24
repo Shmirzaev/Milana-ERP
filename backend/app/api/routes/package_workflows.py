@@ -6,9 +6,9 @@ from app.models.print_response_service import warehouse_print_response
 from app.models.package_dispatch_service import remaining_quantity, remaining_item_quantity
 
 from app.core.deps import CurrentUser, DbSession, require_permissions, user_permissions
-from app.models import Package, PackagePrintRun, PackagePrintRunMember, ProductionOrder, User
-from app.schemas.package_workflows import ManualPackageReceiptIn, PrintRunIn, PrintRunCreatePackagesIn, PrintRunReceiveIn, PackageReturnIn
-from app.schemas.tracking import PackageChangeRequestIn
+from app.schemas import Package, PackagePrintRun, PackagePrintRunMember, ProductionOrder, User
+from app.libs.dto.fulfillment.package_workflows import ManualPackageReceiptIn, PrintRunIn, PrintRunCreatePackagesIn, PrintRunReceiveIn, PackageReturnIn
+from app.libs.dto.packaging.tracking import PackageChangeRequestIn
 from pydantic import BaseModel, ConfigDict, Field
 from app.models import package_workflows_service as service
 from app.models.audit_service import log_action
@@ -34,7 +34,7 @@ class ReceiveOrderPackagesIn(BaseModel):
 def receiving_orders(db: DbSession, q: str = "", page: int = Query(1, ge=1),
                      current: User = Depends(require_permissions("storage.packages", "*"))):
     from sqlalchemy import func, or_
-    from app.models import SalesOrder, Model
+    from app.schemas import SalesOrder, Model
     from app.models.model_identity_service import model_number_fields
     query = db.query(ProductionOrder.id, ProductionOrder.production_no, SalesOrder.order_no, ProductionOrder.model_id).join(
         Package, Package.production_order_id == ProductionOrder.id).outerjoin(
@@ -113,7 +113,7 @@ class PackagingSizeEntryIn(BaseModel):
 
 
 def _size_entry_order(db, current, production_order_id, batch_id, *, lock=False):
-    from app.models import WorkOrder
+    from app.schemas import WorkOrder
     if lock:
         # Same upstream-before-downstream order as Packaging output; serialize
         # Sewing changes and package creation while validating the size budget.
@@ -153,7 +153,7 @@ def warehouse_model_packages(model_id: int, db: DbSession, stock_kind: str = "st
                               page: int = Query(1, ge=1),
                               current: User = Depends(require_permissions("storage.packages", "storage.shipment", "sales.orders", "*"))):
     from sqlalchemy.orm import selectinload
-    from app.models import Model, FinishedGoodsStock
+    from app.schemas import Model, FinishedGoodsStock
     from app.models.model_images_service import warehouse_stock_image_url
     if stock_kind not in {"standard", "first_grade", "second_grade"}:
         raise HTTPException(422, "Invalid stock classification")
@@ -299,7 +299,7 @@ def _run(db, current, rid):
 def receiving_options(db: DbSession, q: str = "", page: int = Query(1, ge=1),
                       current: User = Depends(require_permissions("storage.packages", "*"))):
     from sqlalchemy import or_
-    from app.models import Model, SalesOrder
+    from app.schemas import Model, SalesOrder
     from app.api.routes.packages import _package_context
     candidates = db.query(Package.id).join(ProductionOrder, ProductionOrder.id == Package.production_order_id).join(
         Model, Model.id == Package.model_id).outerjoin(SalesOrder, SalesOrder.id == Package.sales_order_id).filter(

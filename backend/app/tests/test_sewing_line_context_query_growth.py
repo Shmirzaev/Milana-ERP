@@ -7,7 +7,7 @@ from app.api.routes.sewing_daily_reports import (
     _line_context, _line_context_capacity_maps, _report_capacity,
 )
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     Bundle, Department, Model, ProductionBatch, ProductionOrder, SewingAssignment,
     SewingDailyReport, SewingFlow, WorkOrder,
 )

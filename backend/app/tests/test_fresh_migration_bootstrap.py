@@ -245,7 +245,7 @@ def _assert_schema_contract_with_known_drift(engine):
     `resolved_by_db08_beyka` blocks in the baseline for exactly what was removed.
     """
     from app.db.base import Base
-    import app.models  # noqa: F401 - register model metadata for comparison
+    import app.schemas  # noqa: F401 - register model metadata for comparison
 
     with engine.connect() as connection:
         inspector = sa.inspect(connection)

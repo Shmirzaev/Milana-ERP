@@ -22,9 +22,9 @@ from app.core.deps import (
 from fastapi import Depends
 from app.core.security import hash_password, normalize_email, validate_password_strength
 from app.db.base import Base
-from app.models import User, Role, Department, AuditLog, Employee, WorkOrder
+from app.schemas import User, Role, Department, AuditLog, Employee, WorkOrder
 from app.models.factory_scope_service import normalize_factory_code, selected_factory_code
-from app.schemas.catalog import (
+from app.libs.dto.catalog.catalog import (
     UserIn, UserUpdate, UserOut, RoleIn, RoleOut, DepartmentIn, DepartmentOut,
 )
 from app.models.credentials_service import apply_password_credential_change, lock_user_for_credential_change

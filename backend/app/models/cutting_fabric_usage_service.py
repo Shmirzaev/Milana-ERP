@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.core.dt import as_utc
 from app.core.order_reference import order_reference_contains
 from app.core.pagination import clamp_pagination
-from app.models import CuttingRecord, Department, Item, Model, ProductionOrder, SalesOrder, StockBatch, StockMovement, User, WorkOrder
+from app.schemas import CuttingRecord, Department, Item, Model, ProductionOrder, SalesOrder, StockBatch, StockMovement, User, WorkOrder
 from app.models.factory_scope_service import cutting_department_scope
 from app.models.inventory_access_service import MATERIAL_CATEGORIES
 

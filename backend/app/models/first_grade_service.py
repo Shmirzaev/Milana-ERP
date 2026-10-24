@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import selectinload
 from sqlalchemy import func
 
-from app.models import Package, SewingRecord, WorkOrder, ProductionOrderItem, ProductionOrder, ProductionBatch
+from app.schemas import Package, SewingRecord, WorkOrder, ProductionOrderItem, ProductionOrder, ProductionBatch
 
 
 def _size_evidence(db, production_order_id, batch_id, *, exclude_package_id=None):

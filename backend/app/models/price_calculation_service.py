@@ -11,9 +11,9 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.deps import user_permissions
 from app.models.user_access_service import access_configured, permission_denied
-from app.models import CuttingPassport, Notification, User
-from app.models.catalog import Model
-from app.models.price_calculation import PriceCalculationRequest
+from app.schemas import CuttingPassport, Notification, User
+from app.schemas.catalog.catalog import Model
+from app.schemas.planning.price_calculation import PriceCalculationRequest
 from app.models.audit_service import log_action
 from app.models.model_images_service import model_preview_image_url, model_variant_picture_url
 

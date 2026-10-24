@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import event
 
 from app.api.routes.bundles import _bundle_label_reference_context, _label_context
-from app.models import Bundle, Model, ModelImage, ProductionOrder
+from app.schemas import Bundle, Model, ModelImage, ProductionOrder
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_production_flow import _create_bundle_for_scan
 

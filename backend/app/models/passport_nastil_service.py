@@ -2,7 +2,7 @@
 from fastapi import HTTPException
 from sqlalchemy import func
 
-from app.models import Bundle, CuttingRecord, ProductionBatch, WorkOrder
+from app.schemas import Bundle, CuttingRecord, ProductionBatch, WorkOrder
 from app.models.audit_service import log_action
 
 

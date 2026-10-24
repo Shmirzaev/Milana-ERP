@@ -8,8 +8,8 @@ from pydantic import ValidationError
 
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
-from app.models import Item, PurchaseOrder, PurchaseOrderLine, Role, StockBatch, User, Warehouse
-from app.schemas.purchasing import (
+from app.schemas import Item, PurchaseOrder, PurchaseOrderLine, Role, StockBatch, User, Warehouse
+from app.libs.dto.purchasing.purchasing import (
     PurchaseOrderLineIn,
     PurchaseOrderReceiveLineIn,
     PurchaseRequestOrderLineIn,

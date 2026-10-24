@@ -14,8 +14,8 @@ from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import payroll
 from app.db.base import Base
-from app.models import Employee, PayrollAdjustment, PayrollPeriod, PayrollQrLabel, PayrollRecord, User
-from app.schemas.payroll import (
+from app.schemas import Employee, PayrollAdjustment, PayrollPeriod, PayrollQrLabel, PayrollRecord, User
+from app.libs.dto.people.payroll import (
     PayrollAdjustmentIn,
     PayrollControlConfirmIn,
     PayrollControlScanIn,
@@ -116,7 +116,7 @@ def _record(employee_id, period_id: int | None, label_uid):
 
 
 def test_postgres_scan_split_waits_for_period_before_locking_label(payroll_postgres_sessions):
-    from app.schemas.payroll import PayrollScanSplitIn
+    from app.libs.dto.people.payroll import PayrollScanSplitIn
 
     sessions, _engine = payroll_postgres_sessions
     user_id, employee_id, period_ids, label_uids = _seed(sessions)

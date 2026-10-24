@@ -16,8 +16,8 @@ from sqlalchemy.orm import sessionmaker
 from app.api.routes import auth
 from app.core.security import create_access_token, hash_password, verify_password
 from app.db.base import Base
-from app.models import AuditLog, Department, PasswordResetToken, Role, User
-from app.schemas.auth import ResetPasswordIn
+from app.schemas import AuditLog, Department, PasswordResetToken, Role, User
+from app.libs.dto.identity.auth import ResetPasswordIn
 from app.models.password_reset_service import create_password_reset_token, password_reset_hash
 from app.tests.conftest import TestSessionLocal
 

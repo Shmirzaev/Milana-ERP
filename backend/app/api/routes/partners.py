@@ -13,7 +13,7 @@ from app.core.deps import (
     SUPPLIER_READ_PERMISSIONS,
     require_permissions,
 )
-from app.models import (
+from app.schemas import (
     Customer,
     Invoice,
     Payment,
@@ -25,7 +25,7 @@ from app.models import (
     Supplier,
     User,
 )
-from app.schemas.catalog import PartyIn, PartyOut
+from app.libs.dto.catalog.catalog import PartyIn, PartyOut
 from app.models.audit_service import log_action
 from app.models.numbering_service import next_invoice_no
 from app.models.payments_service import (

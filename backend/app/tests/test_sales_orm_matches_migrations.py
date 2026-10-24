@@ -38,7 +38,7 @@ SOURCE_MODEL_COLUMNS = (
 
 def _sales_tables():
     from app.db.base import Base
-    import app.models  # noqa: F401 - register ORM metadata
+    import app.schemas  # noqa: F401 - register ORM metadata
 
     return {
         name: Base.metadata.tables[name]

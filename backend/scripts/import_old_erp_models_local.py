@@ -56,7 +56,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.api.routes.catalog import _validate_model_details_json_bounds
 from app.core.config import settings
 from app.db.session import SessionLocal
-from app.models import Model, ModelBOM, ModelColor, ModelImage, ModelSize, User
+from app.schemas import Model, ModelBOM, ModelColor, ModelImage, ModelSize, User
 
 
 SCHEMA_VERSION = 1

@@ -3,7 +3,7 @@ from io import BytesIO
 from openpyxl import load_workbook
 
 from app.db.session import SessionLocal
-from app.models import Bundle, CuttingPassport, StockBatch
+from app.schemas import Bundle, CuttingPassport, StockBatch
 from app.tests.test_passport_cutting_submission import passport_cutting  # noqa: F401
 
 

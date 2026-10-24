@@ -3,7 +3,7 @@ from datetime import date, datetime, timezone
 from sqlalchemy import event, select
 
 from app.db.base import Base
-from app.models import Bundle, CuttingRecord, Department, Model, PackagingRecord, ProductionOrder, SewingRecord, WorkOrder
+from app.schemas import Bundle, CuttingRecord, Department, Model, PackagingRecord, ProductionOrder, SewingRecord, WorkOrder
 from app.models.dashboard_overview_service import overview
 from app.tests.conftest import TestSessionLocal
 
@@ -89,7 +89,7 @@ def test_overview_requires_auth_and_validates_date_range(client, auth_headers):
 def test_overview_rejects_non_management_user(client):
     from app.core.deps import get_current_user
     from app.main import app
-    from app.models import Role, User
+    from app.schemas import Role, User
     user = User(id=9999, name="Production viewer", email="dashboard-test@example.com", is_active=True,
                 role=Role(name="Dashboard test", permissions=["planning.production"]))
     app.dependency_overrides[get_current_user] = lambda: user
@@ -176,8 +176,8 @@ def test_three_factories_split_routing_and_physical_output():
 
 
 def test_sewing_reports_use_report_date_and_factory_without_minting_stage_output():
-    from app.models import SewingFlow
-    from app.models.sewing_daily_report import SewingDailyReport
+    from app.schemas import SewingFlow
+    from app.schemas.production.sewing_daily_report import SewingDailyReport
 
     with TestSessionLocal() as db:
         for code, quantity in [("MIL", 120), ("BST", 60), ("ECO", 30)]:

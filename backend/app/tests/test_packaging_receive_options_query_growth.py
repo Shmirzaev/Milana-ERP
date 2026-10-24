@@ -11,7 +11,7 @@ from sqlalchemy.orm import sessionmaker
 from app.api.routes import production as production_routes
 from app.core.model_search import model_code_contains
 from app.db.base import Base
-from app.models import (
+from app.schemas import (
     AuditLog,
     Department,
     Model,

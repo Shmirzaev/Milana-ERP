@@ -4,7 +4,7 @@ from collections import Counter
 from sqlalchemy import case, func, or_
 from sqlalchemy.orm import joinedload
 
-from app.models import Model, ProductionOrder, SewingAssignment, SewingDailyReport, SewingFlow, SewingRecord, WorkOrder
+from app.schemas import Model, ProductionOrder, SewingAssignment, SewingDailyReport, SewingFlow, SewingRecord, WorkOrder
 
 
 def band_board(db, flow_ids):

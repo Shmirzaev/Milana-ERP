@@ -2,7 +2,7 @@ from uuid import uuid4
 
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
-from app.models import AuditLog, Role, User
+from app.schemas import AuditLog, Role, User
 
 
 def _counts() -> tuple[int, int]:

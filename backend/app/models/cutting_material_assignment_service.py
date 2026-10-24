@@ -1,11 +1,11 @@
 from fastapi import HTTPException
 from sqlalchemy import or_
 
-from app.models import (
+from app.schemas import (
     CuttingMaterialUsage, CuttingRecord, Item, MaterialReservation,
     ProductionOrder, ProductionOrderMaterial, StockBatch, WorkOrder,
 )
-from app.models.cutting_passport import CuttingPassport
+from app.schemas.production.cutting_passport import CuttingPassport
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import require_work_order_factory_access
 from app.models.inventory_service import create_material_reservations, release_material_reservation

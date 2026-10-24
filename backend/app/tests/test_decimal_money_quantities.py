@@ -2,7 +2,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 from app.db.session import SessionLocal
-from app.models import Brand, FinishedGoodsStock, Item, Model, StockBatch, StockMovement, Warehouse
+from app.schemas import Brand, FinishedGoodsStock, Item, Model, StockBatch, StockMovement, Warehouse
 from app.models.finance_service import branded_stock_value
 from app.models.inventory_service import stock_summary
 

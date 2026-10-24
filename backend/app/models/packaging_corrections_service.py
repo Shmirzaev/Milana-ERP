@@ -4,7 +4,7 @@ from collections import defaultdict
 from fastapi import HTTPException
 from sqlalchemy import func
 
-from app.models import Department, PackagingReceipt, PackagingRecord, StockMovement, WorkOrder
+from app.schemas import Department, PackagingReceipt, PackagingRecord, StockMovement, WorkOrder
 from app.models.audit_service import log_action
 
 
@@ -116,7 +116,7 @@ def finish_package_output_reset(db, production_order_id, request, correction, *,
         return
     # Persist recalculated storage counters before refreshing locked work orders.
     db.flush()
-    from app.models import Package, User
+    from app.schemas import Package, User
     from app.models.workflow_service import sync_production_order_status
 
     received = db.query(func.count(Package.id)).filter(

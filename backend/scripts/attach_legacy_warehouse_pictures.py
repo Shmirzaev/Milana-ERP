@@ -22,7 +22,7 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.db.session import SessionLocal
-from app.models import Model, ModelImage, Package, User
+from app.schemas import Model, ModelImage, Package, User
 from app.models.audit_service import log_action
 
 

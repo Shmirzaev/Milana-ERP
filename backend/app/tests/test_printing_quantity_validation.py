@@ -2,7 +2,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.models import (
+from app.schemas import (
     AuditLog,
     CuttingRecord,
     Department,
@@ -18,7 +18,7 @@ from app.models import (
     WasteRecord,
     WorkOrder,
 )
-from app.schemas.production import PrintingRecordIn
+from app.libs.dto.production.production import PrintingRecordIn
 from app.tests.conftest import TestSessionLocal
 
 

@@ -17,7 +17,7 @@ import re
 
 from sqlalchemy import text
 
-from app.models import Model, ModelColor, ModelImage, ModelSize, SystemSetting, User
+from app.schemas import Model, ModelColor, ModelImage, ModelSize, SystemSetting, User
 from app.models.audit_service import log_action
 
 SOURCE_KEY = "old-erp-catalog-parity-20260930"

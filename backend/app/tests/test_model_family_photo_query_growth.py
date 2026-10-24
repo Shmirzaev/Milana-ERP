@@ -4,7 +4,7 @@ from math import ceil
 import pytest
 from sqlalchemy import event, inspect
 
-from app.models import Model, ModelImage
+from app.schemas import Model, ModelImage
 from app.models.model_family_images_service import family_images_for_models, model_family_image
 from app.tests.conftest import TestSessionLocal
 

@@ -3,8 +3,8 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query
 
 from app.core.deps import CurrentUser, DbSession
-from app.models.price_calculation import PriceCalculationRequest
-from app.schemas.price_calculation import (
+from app.schemas.planning.price_calculation import PriceCalculationRequest
+from app.libs.dto.planning.price_calculation import (
     PriceCalculationAccessoriesIn,
     PriceCalculationCreateIn,
     PriceCalculationCuttingIn,

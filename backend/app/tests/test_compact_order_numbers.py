@@ -18,7 +18,7 @@ class Reference(Base):
 def reference_db():
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
-    from app.models import BusinessOrderAlias
+    from app.schemas import BusinessOrderAlias
     BusinessOrderAlias.__table__.create(engine)
     with Session(engine) as db:
         yield db
@@ -42,7 +42,7 @@ def test_compact_sequence_continues_across_legacy_years_and_preserves_references
 
 
 def test_sequence_expands_after_9999_without_recycling_or_alias_collisions(reference_db):
-    from app.models import BusinessOrderAlias
+    from app.schemas import BusinessOrderAlias
 
     reference_db.add_all([Reference(number="PO-9998"), Reference(number="PO-900")])
     reference_db.flush()
@@ -69,7 +69,7 @@ def test_high_volume_qr_references_keep_existing_format(reference_db):
 
 def test_five_digit_standalone_production_reference_resolves_as_public_order():
     from app.core.order_reference import canonical_order_reference
-    from app.models import Model, ProductionOrder
+    from app.schemas import Model, ProductionOrder
     from app.tests.conftest import TestSessionLocal
 
     with TestSessionLocal() as db:
@@ -89,7 +89,7 @@ def test_five_digit_standalone_production_reference_resolves_as_public_order():
 
 def test_order_search_uses_exact_collision_mapping_for_historical_years(reference_db):
     from app.core.order_reference import order_reference_contains
-    from app.models import BusinessOrderAlias
+    from app.schemas import BusinessOrderAlias
 
     values = ["PO-0202", "PO-0001", "PO-1202", "SO-0202"]
     reference_db.add_all([Reference(number=number) for number in values])
@@ -107,7 +107,7 @@ def test_order_search_uses_exact_collision_mapping_for_historical_years(referenc
 
 
 def test_branded_planning_sequence_expands_after_four_digit_minimum():
-    from app.models import BrandedPlanningOrder
+    from app.schemas import BrandedPlanningOrder
     from app.models.numbering_service import next_branded_planning_order_no
     from app.tests.conftest import TestSessionLocal
 

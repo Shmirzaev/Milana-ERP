@@ -27,10 +27,10 @@ from app.api.routes import finance as finance_routes
 from app.api.routes import sales as sales_routes
 from app.db.base import Base
 from app.db.session import SessionLocal
-from app.models import Invoice, SalesOrder, User
-from app.schemas.sales import InvoiceIn
+from app.schemas import Invoice, SalesOrder, User
+from app.libs.dto.sales.sales import InvoiceIn
 
-import app.models  # noqa: F401  — registers every table on Base.metadata
+import app.schemas  # noqa: F401  — registers every table on Base.metadata
 
 
 # --------------------------------------------------------------------------
