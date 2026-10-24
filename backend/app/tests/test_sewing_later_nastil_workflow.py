@@ -146,6 +146,33 @@ def test_completed_sibling_excess_cannot_complete_unsewn_nastil(client, auth_hea
     assert _sew(client, headers, work['sewing'], second, 300).status_code == 201
 
 
+@pytest.mark.parametrize('factory', ['MIL', 'BST', 'ECO'])
+def test_printing_rejects_do_not_keep_finished_nastil_open(client, auth_headers, factory):
+    from app.models import Department
+    po, work, first = _create(client, auth_headers)
+    assert client.patch(f"/api/work-orders/{work['cutting']}/sewing-factory", headers=auth_headers,
+                        json={'sewing_factory_code': factory}).status_code == 200
+    cut(client, auth_headers, work, first, factory)
+    assert client.post(f"/api/work-orders/{work['cutting']}/complete-cutting-shortage", headers=auth_headers).status_code == 200
+    with TestSessionLocal() as db:
+        printing = WorkOrder(production_order_id=po['id'], operation='printing', status='collected',
+                             department_id=db.query(Department.id).filter_by(code='PRT').scalar(),
+                             planned_input_qty=128, planned_output_qty=128)
+        db.add(printing)
+        db.commit()
+        print_id = printing.id
+    _issue_required_accessories(client, auth_headers, po['id'])
+    printed = client.post('/api/printing/records', headers=auth_headers, json={
+        'work_order_id': print_id, 'production_batch_id': first, 'input_qty': 128,
+        'printed_qty': 128, 'passed_qty': 100, 'rejected_qty': 28, 'defect_reason': 'Printing rejects'})
+    assert printed.status_code == 201, printed.text
+    headers = {'Authorization': 'Bearer ' + create_access_token(1, extra={'factory_code': factory})}
+    assert _sew(client, headers, work['sewing'], first, 100).status_code == 201
+    state = client.get(f"/api/work-orders/{work['sewing']}", headers=headers).json()
+    assert state['status'] == 'completed'
+    assert _pack(client, headers, work['packaging'], first, 100).status_code == 201
+
+
 def test_eco_band_can_receive_later_nastil_of_completed_shared_order(client, bands):
     from app.models import CuttingRecord, ProductionBatch
     wid, old_assignment, poid = bands['jobs'][0]

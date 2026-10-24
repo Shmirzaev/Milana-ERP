@@ -12,7 +12,9 @@ from app.tests.test_password_change_races import password_change_postgres_sessio
 
 
 @pytest.mark.parametrize('factory', ['MIL', 'BST', 'ECO'])
-def test_postgres_later_receipt_reopens_and_preserves_history(password_change_postgres_sessions, factory):
+@pytest.mark.parametrize('printing_loss', [0, 28])
+def test_postgres_later_receipt_reopens_and_preserves_history(password_change_postgres_sessions, factory, printing_loss):
+    from app.models import PrintingRecord
     sessions, _ = password_change_postgres_sessions
     marker = uuid4().hex[:10]
     with sessions() as db:
@@ -50,6 +52,14 @@ def test_postgres_later_receipt_reopens_and_preserves_history(password_change_po
         db.flush()
         for batch in batches:
             db.add(CuttingRecord(work_order_id=cut.id, production_batch_id=batch.id, cut_pieces=128, passed_pieces=128))
+        if printing_loss:
+            printing = WorkOrder(production_order_id=order.id, operation='printing', department_id=cut_dept.id,
+                                 status='completed', planned_output_qty=128, passed_qty=128-printing_loss,
+                                 failed_qty=printing_loss)
+            db.add(printing)
+            db.flush()
+            db.add(PrintingRecord(work_order_id=printing.id, production_batch_id=batches[1].id,
+                                 input_qty=128, printed_qty=128, passed_qty=128-printing_loss, rejected_qty=printing_loss))
         first = SewingRecord(work_order_id=sewing.id, production_batch_id=batches[0].id,
                              input_qty=128, sewn_qty=128, passed_qty=128)
         db.add(first)
@@ -96,20 +106,22 @@ def test_postgres_later_receipt_reopens_and_preserves_history(password_change_po
         from app.models import SewingFlow
         from app.schemas.production import PackagingRecordIn, SewingRecordIn
         from app.schemas.sewing_assignment import SewingAssignmentIn
-        flow = SewingFlow(factory_code=factory, code='PG-' + marker, name='PostgreSQL later line')
+        flow = SewingFlow(factory_code=factory, code='PG-' + marker, name='PostgreSQL later line ' + marker)
         db.add(flow)
         db.commit()
         actor = db.get(User, actor_id)
         actor.session_factory_code = factory
         assignment = create_assignment(sewing_id, SewingAssignmentIn(work_order_id=sewing_id,
-            production_batch_id=batch_id, sewing_flow_id=flow.id, quantity=128), db, actor)
+            production_batch_id=batch_id, sewing_flow_id=flow.id, quantity=128-printing_loss), db, actor)
         post_sewing(SewingRecordIn(work_order_id=sewing_id, production_batch_id=batch_id,
-            sewing_assignment_id=assignment.id, input_qty=128, sewn_qty=128, passed_qty=128), db, actor,
+            sewing_assignment_id=assignment.id, input_qty=128-printing_loss, sewn_qty=128-printing_loss,
+            passed_qty=128-printing_loss), db, actor,
             idempotency_key=None)
         post_packaging(PackagingRecordIn(work_order_id=packing_id, production_batch_id=batch_id,
-            input_qty=128, packed_qty=128), db, actor)
-        assert db.get(WorkOrder, sewing_id).passed_qty == 256
-        assert db.get(WorkOrder, packing_id).passed_qty == 128
+            input_qty=128-printing_loss, packed_qty=128-printing_loss), db, actor)
+        assert db.get(WorkOrder, sewing_id).passed_qty == 256-printing_loss
+        assert db.get(WorkOrder, sewing_id).status == 'completed'
+        assert db.get(WorkOrder, packing_id).passed_qty == 128-printing_loss
         assert db.get(SewingRecord, first_id).passed_qty == 128
         sewing.status = 'cancelled'
         db.commit()

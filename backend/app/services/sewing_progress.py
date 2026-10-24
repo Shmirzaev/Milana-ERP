@@ -7,7 +7,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.exc import OperationalError
 from fastapi import HTTPException
 
-from app.models import Bundle, CuttingRecord, ProductionBatch, SewingRecord, WorkOrder
+from app.models import Bundle, CuttingRecord, PrintingRecord, ProductionBatch, SewingRecord, WorkOrder
 from app.services.audit import log_action
 
 
@@ -28,6 +28,11 @@ def unfinished_sewing_batches(db, wo):
         or_(CuttingRecord.material_role.is_(None), CuttingRecord.material_role == "main"))
     received = db.query(Bundle.production_batch_id, func.sum(Bundle.quantity)).filter(
         Bundle.production_order_id == wo.production_order_id, Bundle.status == "received_sewing")
+    print_batch = func.coalesce(PrintingRecord.production_batch_id, WorkOrder.production_batch_id)
+    printing = db.query(print_batch, func.sum(PrintingRecord.passed_qty), func.sum(PrintingRecord.rejected_qty)).join(
+        WorkOrder, WorkOrder.id == PrintingRecord.work_order_id).filter(
+        WorkOrder.production_order_id == wo.production_order_id,
+        WorkOrder.operation == "printing", WorkOrder.status.notin_(("cancelled", "rejected", "skipped")))
     record_batch = func.coalesce(SewingRecord.production_batch_id, wo.production_batch_id)
     sewn = db.query(record_batch, func.sum(
         SewingRecord.passed_qty + SewingRecord.failed_qty + SewingRecord.rejected_qty)).filter(
@@ -36,14 +41,22 @@ def unfinished_sewing_batches(db, wo):
         batches = batches.filter(ProductionBatch.id == wo.production_batch_id)
         cutting = cutting.filter(CuttingRecord.production_batch_id == wo.production_batch_id)
         received = received.filter(Bundle.production_batch_id == wo.production_batch_id)
+        printing = printing.filter(print_batch == wo.production_batch_id)
     plans = dict(batches.all())
     cut = dict(cutting.group_by(CuttingRecord.production_batch_id).all())
     receipts = dict(received.group_by(Bundle.production_batch_id).all())
+    printed = {bid: (int(passed or 0), int(rejected or 0))
+               for bid, passed, rejected in printing.group_by(print_batch).all()}
     output = dict(sewn.group_by(record_batch).all())
     pending = {bid for bid, quantity in plans.items()
                if int(quantity or 0) > 0 and bid not in cut and bid not in receipts}
-    for bid in cut.keys() | receipts.keys():
-        target = max(int(cut.get(bid) or 0), int(receipts.get(bid) or 0))
+    for bid in cut.keys() | receipts.keys() | printed.keys():
+        printed_passed, printed_loss = printed.get(bid, (0, 0))
+        # Printing rejects are real losses in this exact Nastil. Bundle labels
+        # may retain their original Cutting count; do not demand those rejects
+        # again at Sewing or subtract them from another Nastil's allowance.
+        target = max(0, int(cut.get(bid) or 0) - printed_loss,
+                     int(receipts.get(bid) or 0) - printed_loss, printed_passed)
         # Historical unbatched entries have only aggregate counters. Preserve
         # that supported path; normal aggregate completion validates it.
         actual = int(output.get(bid) or 0)
