@@ -1,24 +1,19 @@
-import math
-from decimal import Decimal
 from uuid import UUID
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 from app.libs.dto.common import ORMModel, SchemaModel
 from app.libs.dto.fulfillment.shipment_review import ShipmentTransportDetails
 
-
-def _swap_nonfinite_amount(value: object) -> object:
-    """Replace a nonfinite number with a serializable stand-in before validation.
-
-    FastAPI echoes the offending input into the 422 body, and `inf`/`nan` cannot be
-    JSON-encoded, so rejecting such a value directly makes the error response itself
-    fail to serialize and the caller sees a 500 instead of a validation error.
-    """
-    if isinstance(value, (int, float)) and not isinstance(value, bool) and not math.isfinite(value):
-        return "non-finite number"
-    return value
+# RF-012: the invoice and payment contracts now live in entity-prefixed modules.
+# These aliases keep existing `from app.libs.dto.sales.sales import InvoiceIn`
+# callers working; they are the same class objects, not second definitions.
+# Remove them once every remaining caller imports the explicit module.
+from app.libs.dto.sales.invoice_input import InvoiceIn  # noqa: F401
+from app.libs.dto.sales.invoice_output import InvoiceOut  # noqa: F401
+from app.libs.dto.sales.payment_input import PaymentIn  # noqa: F401
+from app.libs.dto.sales.payment_output import PaymentOut  # noqa: F401
 
 
 class SalesOrderItemIn(SchemaModel):
@@ -180,50 +175,3 @@ class ShipmentScanOut(BaseModel):
     scanned_count: int = 0
     remaining_count: int = 0
     is_complete: bool = False
-
-
-class InvoiceIn(BaseModel):
-    sales_order_id: int
-    # `invoices.amount` is NUMERIC(14, 2) with `amount >= 0`; max_digits/decimal_places
-    # mirror that column so nonfinite, sub-cent and out-of-range values never reach a write.
-    amount: Optional[Decimal] = Field(
-        default=None, ge=0, max_digits=14, decimal_places=2, allow_inf_nan=False
-    )
-
-    @field_validator("amount", mode="before")
-    @classmethod
-    def _swap_nonfinite_invoice_amount(cls, value: object) -> object:
-        return _swap_nonfinite_amount(value)
-
-
-class InvoiceOut(ORMModel):
-    id: int
-    sales_order_id: int
-    invoice_no: str
-    amount: float
-    status: str
-    issued_at: Optional[datetime] = None
-    due_date: Optional[datetime] = None
-
-
-class PaymentIn(BaseModel):
-    invoice_id: int
-    # `payments.amount` is NUMERIC(14, 2) with `amount > 0`, so the smallest
-    # representable payment is one cent and nothing wider than the column is accepted.
-    amount: Decimal = Field(ge=0.01, max_digits=14, decimal_places=2, allow_inf_nan=False)
-
-    @field_validator("amount", mode="before")
-    @classmethod
-    def _swap_nonfinite_payment_amount(cls, value: object) -> object:
-        return _swap_nonfinite_amount(value)
-    paid_at: Optional[datetime] = None
-    payment_method: Optional[str] = None
-    notes: Optional[str] = None
-
-
-class PaymentOut(ORMModel):
-    id: int
-    invoice_id: int
-    amount: float
-    payment_method: Optional[str] = None
-    paid_at: Optional[datetime] = None
