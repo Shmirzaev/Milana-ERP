@@ -1,5 +1,11 @@
 # Team bug tracker — clone_main
 
+## FIN-PARTIAL-CONFIRM-20261025 — partial-payment confirmation says “mark as paid”
+
+- **P3 · Open · Ismail. Reviewer: Mirshoir.** Observed in the disposable local UI on source `ba70e0cb` plus finance pilot PR #308; no production occurrence claimed.
+- Reproduction: create a $3,000 invoice, choose Record Payment, and enter $100. The confirmation says “Record payment and mark INV-2026-000001 as paid?” The saved invoice correctly becomes partially paid with $2,900 open.
+- Expected: confirmation describes recording the chosen amount without promising full settlement. Check all supported languages and both partial/full payment before closure.
+
 ## INV-LATER-NASTIL-20261024 — extra Nastil can leave packaging supply negative
 
 - **Triage · owner to assign · local reproduction only.** Shavkat must confirm whether Packaging may proceed without enough packaging material; a technical reviewer must confirm the stock and issue accounting before a fix is scoped. No production occurrence has been established.
