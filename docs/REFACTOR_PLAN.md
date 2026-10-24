@@ -40,10 +40,12 @@ targets and Alembic discovery were updated. No storage migration was added.
   Sales could open Sales Orders; both UI and API denied Users and Sewing.
   Synthetic PO-0001 moved through Cutting, Sewing, partial Packaging, a later
   Nastil, receipt/assignment, resumed Sewing and Packaging. Browser screenshots
-  show Sewing 256/256 complete and Packaging 248/256 with eight still ready.
+  first showed Sewing 256/256 complete and Packaging 248/256 with eight still
+  ready; saving those final eight through the Packaging UI completed 256/256.
   Premature Packaging and premature Sewing completion were rejected; repeated
   receipt created no second assignment. PostgreSQL readback confirmed two
-  batches, two Sewing records, one later assignment, and 256/248 piece totals.
+  batches, two Sewing records, one later assignment, three Packaging records,
+  and final 256/256 piece totals.
 - PASS (bounded local stress): 2 concurrent stock-adjustment PostgreSQL tests;
   100 authenticated order reads at up to 8 concurrent requests, 100 successful,
   p95 221 ms, no integrity change. Screenshots, test XML and stress logs are
