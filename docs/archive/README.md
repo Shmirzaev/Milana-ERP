@@ -4,6 +4,8 @@ These reports preserve what was observed at their recorded date. They are not
 current implementation instructions or proof of today's production state.
 Start with [current context](../PROJECT_CONTEXT.md) for active work.
 
+- [PO-0572 and PO-0573 cleanup](PO0572_PO0573_CLEANUP_2026-10-24.md): owner-authorized
+  deletion, backup, audit and conservation evidence; no application release.
 - [Complete project context before cleanup](PROJECT_CONTEXT-2026-10-24.md): deployment
   attempts, active/rollback identities, backups, fixes, known gaps and planning history.
 - [SEWING_ECO_REVIEW_2026-09-17.md](SEWING_ECO_REVIEW_2026-09-17.md)

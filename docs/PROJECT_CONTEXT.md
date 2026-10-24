@@ -20,6 +20,15 @@ not appended here. This summary does not replace live release verification.
   by reactivation of the same images; public-path tail variation remains unresolved.
   The owner waived the timed observation period. The archive preserves all attempts.
 
+## Latest owner-authorized data cleanup
+
+- Fully removed unused PO-0572 and PO-0573: two orders, eight waiting work orders,
+  twelve size rows and two material-plan links. Shared models, both fabric quantities,
+  planning parent and six sibling orders are unchanged. Audits 132748/132749 verify.
+- Fresh backup, rollback rehearsal, persisted reconciliation and all four health
+  checks passed. Runtime/rollback/schema above remain unchanged; no deployment.
+  See [the dated cleanup record](archive/PO0572_PO0573_CLEANUP_2026-10-24.md).
+
 ## Later-Nastil Sewing fix deployed
 
 - Permanent later-Nastil receipt/completion and assignment fix is implemented and tested for MIL/BST/ECO. Runtime candidate `1fce86b5`; immutable CI `40082616718` passed.
