@@ -32,3 +32,16 @@ bug fix and feature: validate AI-written tests, run relevant automated checks,
 visually exercise actual end-to-end behavior, then challenge it with bounded
 stress and verify data integrity/recovery. Record blocked checks honestly; they
 do not count as passes. Documentation-only changes record runtime gates as not applicable.
+
+## Implementation sessions
+
+For the current refactor, MiniMax M3.1-Flash performs implementation. Use two
+MiniMax sessions with up to three scoped subagents each (six total), when
+supported, in separate work directories with disjoint file ownership. Report
+the actual model, workers started, changed paths and checks run.
+
+Codex orchestrates, integrates, independently reviews, visually tests E2E and
+runs bounded stress. Human engineering/business review and release gates remain.
+Observe model availability, capacity, speed and token cost per run; do not assume
+free or unlimited access persists. Report blockers and recover/reassign within
+MiniMax; do not silently substitute Codex for implementation.

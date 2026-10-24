@@ -94,6 +94,24 @@ Use [bugs/bugs.md](bugs/bugs.md) for active/unverified work. Move entries to
 verification. Preserve stable IDs and historical evidence. Markdown guidance is
 not a substitute for meaningful tests, required CI and independent review.
 
+## Implementation execution
+
+- MiniMax M3.1-Flash performs implementation. Codex orchestrates, integrates,
+  independently reviews, and tests visually.
+- Use two MiniMax implementation sessions, each requesting up to three scoped
+  subagents (six total), when the runtime supports it. Give them separate working
+  directories and disjoint file ownership.
+- Each session reports its actual model, workers started, changed paths, and
+  checks run.
+- Codex owns integration, independent review, visual E2E, and bounded stress.
+  Human engineering and business review, and the deployment gates, remain.
+- Session capacity, speed, and token cost (for example free or unlimited
+  tokens) are not permanently verified facts; treat them as capacity to
+  observe per run.
+- If MiniMax is unavailable or a worker is stuck, report the blocker and
+  recover or reassign inside MiniMax. Do not silently substitute Codex for
+  implementation.
+
 ## Verification gates
 
 For every completed runtime migration, bug fix or feature, follow
