@@ -93,6 +93,195 @@ Last updated: 2026-10-24
   green `20261022_130603` as rollback; those historical records are preserved.
   Reconcile the live baseline before future implementation/release work.
 
+## AI test validity, visual E2E and bounded stress gates (2026-10-24)
+
+- User required checks after each runtime folder/operation migration or bug fix:
+  meaningful automated tests, browser/computer visual E2E, then relevant stress.
+- Added docs/VERIFICATION.md and linked both canonical skills, AGENTS.md, ownership,
+  plan and service guide. Includes defect red/green, refactor parity, targeted fault
+  challenges, real screenshot inspection, readback, bounded load and recovery.
+- Inspected test configuration: default pytest suite uses SQLite; separate real
+  PostgreSQL concurrency checks need explicit collection/configuration and may skip.
+  A required missing/skipped check is BLOCKED, not PASS. Human acceptance remains.
+- Researched primary Anthropic, Playwright, Hypothesis, mutmut and Grafana guidance.
+  BrowserOS tools unavailable this session; used web research. No ERP/browser/load
+  test was run, dependencies installed, CI changed or synthetic business data written.
+- Documentation continuation of the shared-skills task, based on f8719d19; publication
+  result belongs in the final handoff. No application/database/deployment changes;
+  active/rollback history below preserved and not freshly verified.
+
+## Shared feature skill, named ownership and publication (2026-10-24)
+
+- User requested repository-shared skills, a separate skill for adding features,
+  exact team/folder allocation and availability after teammates pull newest code.
+- Added canonical .agents/skills/milana-feature/SKILL.md and Claude forwarding entry;
+  retained/refined milana-refactor. AGENTS.md, CLAUDE.md, backend guides and
+  docs/AGENT_SKILLS.md point to the shared rules. No personal installation required.
+- docs/TEAM_OWNERSHIP.md assigns all twelve service groups and shared layers to
+  named engineers/coordinators and reviewers. Individual folder guides match it.
+  Planning belongs to Ismail with Mirshoir review; production/packaging/fulfillment
+  to Mirshoir with Ismail review; people/identity/work-management to Dilmurod with
+  Mirshoir review. Shavkat owns business clarification and operator acceptance.
+- Skills distinguish actual source paths from the target schemas/ and libs/dto/
+  naming. They require backend authorization, one transaction/write path, relevant
+  regressions, visual checks and human acceptance. No automatic enforcement claimed.
+- User authorized publishing this documentation to clone_main. Prepared in the
+  existing documentation worktree/branch at base 3eea897e. The final handoff records
+  the publication commit and remote verification; this entry alone is not push proof.
+- Documentation/skill metadata only: no Python source, database, CI, runtime or
+  deployment changes. Active/rollback releases not rechecked; historical records
+  below remain intact. Earlier local-only entries describe earlier task states.
+
+## Final mentor-aligned schema naming (2026-10-24)
+
+- Owner confirmed correcting the plan and skill after choosing schemas/ as the
+  database schema-model name. Target: api/routes/, services/, schemas/ for SQLAlchemy
+  mappings, libs/dto/<feature>/ for Pydantic DTOs, libs/enums/ and libs/types/.
+- Current source is unchanged: DTOs still live in schemas/, database mappings in
+  models/. First migrate DTOs and every caller/shim to libs/dto/ and verify them;
+  then migrate database definitions, imports, registration and Alembic discovery
+  to schemas/. No mixed namespace, duplicate mappings or storage change is intended.
+- Canonical skill, layer guides, plan and source-map notes now agree. Claude Code
+  already forwards to that same canonical skill. Earlier naming decisions below
+  are superseded; source links still point to real current files.
+- Local documentation worktree/branch codex/erp-refactor-folders-20261024 at base
+  3eea897e; no source edits, commit, push or deployment. No live-state verification;
+  all earlier active/rollback deployment records are retained unchanged.
+
+## Meditech DTO separation: corrected target (2026-10-24)
+
+- Re-inspected Meditech snapshot b4c646ce471efbf6fe984f3315bba366b197281a: member and
+  board-article input/update/output DTOs are in libs/dto/<feature>/; schemas/ contains
+  Mongoose database definitions. Resolver/service/module imports confirm the separation.
+- The owner corrected the earlier instruction to keep DTOs permanently in schemas/.
+  Target is now backend/app/libs/dto/<feature>/ for Pydantic contracts, alongside
+  libs/enums/ and libs/types/. SQLAlchemy database mappings remain in models/.
+- Added libs/dto/README.md and corrected layer, service, team-plan and skill guidance.
+  Existing schemas/ remains a migration source until definitions and callers move;
+  no Python source or imports changed and no duplicate DTO implementations were added.
+- Study, contract tests, extraction, visual checks, reviewed cutover, human acceptance
+  and cleanup still apply. Earlier folder decisions below are superseded by this entry.
+- Local documentation worktree codex/erp-refactor-folders-20261024 at base 3eea897e;
+  no commit/push/deployment. Active/rollback releases not rechecked; history preserved.
+
+## Owner-selected libs organization (2026-10-24)
+
+- The owner chose backend/app/libs/ for shared definitions. Moved the documentation-only
+  enums/ and types/ scaffolds under libs/, with a parent guide and updated references.
+- Existing schemas/ remains the single home for Pydantic Create/Update/Read DTOs;
+  models/ remains SQLAlchemy database mappings; services/ owns business operations.
+- Updated the team plan and shared refactor skill. No Python source, imports,
+  database schema or runtime changed. Earlier folder paths below are historical.
+- Same documentation worktree/branch and base 3eea897e; local edits only, no commit,
+  push or deployment. Active/rollback releases were not rechecked; prior records preserved.
+
+## Complete service-folder documentation scaffold (2026-10-24)
+
+- User authorized all twelve proposed service groups with visible README.md guides:
+  identity, catalog, purchasing, sales, inventory, planning, production, packaging,
+  fulfillment, finance, people and work_management. Ten directories are new;
+  production/packaging already existed. Each guide explains purpose, current source,
+  proposed files, models/DTOs, owner, boundaries and technical/visual verification.
+- Added [the backend guide](../backend/app/README.md), [service index](../backend/app/services/README.md)
+  and [complete source/model map](REFACTOR_MAP.md): all 47 route files, 87 existing
+  service/helper files and 97 mapped classes are accounted for. This is inventory
+  coverage and proposed ownership, not completed per-operation implementation analysis.
+- Replaced hidden .readme.md guides with README.md in affected architecture folders;
+  models/schemas/enums/types retain their existing directories with expanded file
+  conventions. No duplicate model/DTO hierarchy or database tables were created.
+- The sequence explicitly requires study -> agreed operation -> baseline tests ->
+  extraction -> technical tests -> visual workflow checks -> authorized switch ->
+  human production acceptance -> cleanup. Shared skill and plan point to these guides.
+- No Python files or package initializers were added, moved or changed. Existing
+  finance.py, inventory.py, planning.py, production.py and purchasing.py remain the
+  authoritative imports beside documentation-only directories. Their package
+  conversions require coordinated changes later.
+- Local scaffolding based on 3eea897e in the existing refactor documentation worktree;
+  not committed, pushed or deployed by this scaffolding task. No runtime/database
+  access or live verification. Existing deployment history remains unchanged.
+  The earlier sections record prior planning iterations and their guide filenames.
+
+## Shared team discipline and reversible refactor plan (2026-10-24)
+
+- User confirmed clone_main as production/integration branch, human ownership of
+  service design and release decisions, reversible extraction before cleanup,
+  Ismail's enum/contract coordination, and human production approval for bug closure.
+- Added the canonical repository skill .agents/skills/milana-refactor/SKILL.md,
+  a Claude Code skill entry pointing to it, and guides in existing routes/services/
+  models/schemas folders. Updated AGENTS.md to remove the stale origin/main target
+  and document serialized landing into clone_main with isolated working directories.
+  Aligned the source/landing instructions in DEPLOYMENT.md; runtime release gates
+  and the rollback procedure remain unchanged.
+- Replaced the earlier [team plan](REFACTOR_PLAN.md) with the study/test/extract/
+  switch/verify/retire sequence and explicit pending human decisions. Existing RF
+  identifiers remain; RF-011/012 cover enums/contracts and RF-013 recovery rehearsal.
+- Moved the full historical tracker into [bugs/bugs.md](../bugs/bugs.md), preserving
+  its table rows/IDs/evidence and adjusting relative links. Root bugs.md is a pointer.
+  [finished_bugs.md](../bugs/finished_bugs.md) requires named human production approval;
+  no historical entry was newly closed or recertified. Old counts remain historical.
+- Source inspection at 5c45531d: observe_release.py reports failures but does not
+  rollback; slotctl.py has one active HAProxy target and no compensating restore on
+  post-switch failure; CI push triggers omit clone_main. These are planned tooling
+  work/rehearsal items, not fixes already implemented or live infrastructure findings.
+- User authorized committing and pushing these instructions/documents to clone_main.
+  Skill validation, document links, preservation of all 295 historical bug table
+  rows and unchanged production.py import resolution passed. Runtime tests were
+  not rerun for this documentation-only change.
+- Changes were prepared in the existing documentation worktree
+  C:/ERP/.codex-work/erp-refactor-folders-20261024 on codex/erp-refactor-folders-20261024.
+  No application/CI/deploy script, database, runtime or teammate settings changed.
+  This publication does not deploy anything. Live state was not freshly checked; the
+  historical active/rollback records below remain intact. Obsidian mirror unavailable.
+- The two older planning sections below record earlier iterations; this section
+  and REFACTOR_PLAN.md supersede their tracker location and branch-level Done policy.
+
+## Refactor execution plan drafted (2026-10-24)
+
+- Added [the step-by-step refactor plan](REFACTOR_PLAN.md) with proposed RF task
+  IDs, owners, dependencies, acceptance criteria and a shared-tracker approach.
+  Added a navigation note to `bugs.md`; its existing rows, IDs, status history
+  and October 6 delivery counts are preserved and were not reverified here.
+- The user clarified the team has three engineers: Mirshoir, Ismail and
+  Dilmurod. Shavkat is the business owner, has built much of the system using
+  Claude Code/Codex, and supplies business rules and acceptance decisions. He is
+  not assigned technical implementation, automated tests, migrations or operations.
+- Preserve existing area ownership: Mirshoir leads production/fulfillment and
+  technical design; Ismail owns stock/commercial work; Dilmurod owns people and
+  platform. Each engineer owns complete feature changes, with independent review.
+  The reference Sewing refactor precedes the next parallel feature batch.
+- This remains documentation-only work in `codex/erp-refactor-folders-20261024`
+  based on source snapshot `5c45531d`. No application code, bug completion state,
+  business data, GitHub issues or runtime state were changed. No commit, push,
+  merge or deployment occurred. Live production was not freshly verified; the
+  existing active/rollback records below are unchanged.
+
+## Refactor folder guides prepared (2026-10-24)
+
+- The user authorized folders and `.readme.md` guides only. Four new folders
+  document the proposed monolith structure: `backend/app/enums/`,
+  `backend/app/types/`, `backend/app/services/production/`, and
+  `backend/app/services/packaging/`. Existing router, schema, model, and core
+  folders are reused. No Python files, imports, API behavior, database schema, or
+  business data were changed. Implementation and multitenancy remain deferred.
+- The guides adapt the mentor's feature-service, enum, and typed-contract
+  discipline. Pydantic schemas remain the DTOs. Services own business rules and
+  may not import routers. Types are added only for an actual internal contract.
+  Recent Sewing quantity fixes are explicitly preserved in the proposed scope.
+- `app/services/production.py` already exists. The adjacent documentation folder
+  has no package initializer; an eventual file-to-package migration must be
+  coordinated with its callers to avoid shadowing the existing implementation.
+- Proposed responsibilities: Mirshoir leads technical design and sensitive
+  decisions; Shavkat owns business clarification and acceptance examples;
+  Ismail handles caller integration; Dilmurod handles regression verification.
+- Documentation worktree: `C:/ERP/.codex-work/erp-refactor-folders-20261024`, branch
+  `codex/erp-refactor-folders-20261024`, source snapshot `clone_main` at
+  `5c45531db350ba79e2e0167b942530a5b0f9bef8`. This is local planning scaffolding,
+  not a release candidate. No commit, push, merge, or deployment was performed.
+- Production was not accessed or freshly verified for this documentation-only
+  task. The existing records below identify blue `20261023_061627` as active and
+  green `20261022_130603` as rollback; those historical records are preserved.
+  Reconcile the live baseline before future implementation/release work.
+
 ## clone_main department dashboards deployed (2026-10-24)
 
 - LIVE: green `20261024_032622` on both VMs, exact owner-selected `clone_main` application `5c45531db350ba79e2e0167b942530a5b0f9bef8`. Blue `20261023_061627` remains running and healthy for rollback. Both complete manifests, image identities, current symlinks and slot states agree. Source manifest `cd370ae7e17b89e0ff55d861b3944925ebe2b49bebe2a103ab012ca78774bba5`, archive SHA-256 `933f120059f4bf2cfe04581c45b7369cf288e898539131d6646c2eae839bfd73`, 1,392 source files. Database remains `0148_second_grade_packages`; upgrade-to-head was a verified no-op and startup seeding stayed disabled. The owner explicitly waived the 30-minute monitoring period; no timed observer was started. Immediate and closing health/runtime/performance gates passed.

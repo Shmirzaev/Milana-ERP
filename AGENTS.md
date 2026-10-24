@@ -75,8 +75,12 @@ state. Keep the human summary short.
 ## Shared refactor discipline
 
 For monolith refactoring, read [.agents/skills/milana-refactor/SKILL.md](.agents/skills/milana-refactor/SKILL.md)
-and the relevant sections of [docs/REFACTOR_PLAN.md](docs/REFACTOR_PLAN.md). Read the .readme.md only in the
+and the relevant sections of [docs/REFACTOR_PLAN.md](docs/REFACTOR_PLAN.md). Read the README.md only in the
 affected architecture folders. Claude Code uses the same rules via /milana-refactor.
+For new or extended features, use [.agents/skills/milana-feature/SKILL.md](.agents/skills/milana-feature/SKILL.md).
+Use [docs/TEAM_OWNERSHIP.md](docs/TEAM_OWNERSHIP.md) to name the engineer and reviewer
+before editing. [docs/AGENT_SKILLS.md](docs/AGENT_SKILLS.md) explains team invocation.
+Both skills are versioned with the source; never substitute a personal copy of old rules.
 Service responsibilities/interfaces and business policy are human decisions; AI
 implements the approved scope. Planning requests do not authorize source refactoring.
 
@@ -84,6 +88,14 @@ Use [bugs/bugs.md](bugs/bugs.md) for active/unverified work. Move entries to
 [bugs/finished_bugs.md](bugs/finished_bugs.md) only after recorded human production
 verification. Preserve stable IDs and historical evidence. Markdown guidance is
 not a substitute for meaningful tests, required CI and independent review.
+
+## Verification gates
+
+For every completed runtime migration, bug fix or feature, follow
+[docs/VERIFICATION.md](docs/VERIFICATION.md): meaningful automated checks, actual
+browser/computer visual E2E, then bounded relevant stress and data-integrity checks.
+Record PASS/FAIL/BLOCKED evidence; missing tools or skipped required tests are not
+passes. Do not retire old paths before the required verification and human acceptance.
 
 ## Safety and scope
 
