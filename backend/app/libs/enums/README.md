@@ -36,6 +36,19 @@ states. Schemas and services should reuse the same definition.
 Introduce each enum with its actual callers during an approved feature refactor.
 This folder is not a requirement to convert every string in the application.
 
+## RF-011 pilot inventory for Ismail (source `84bbc03`)
+
+| Stored field | Current source vocabulary | Conversion gate |
+| --- | --- | --- |
+| `SewingAssignment.status` | `planned`, `in_progress`, `completed`, `cancelled`, `transferred` in the ORM comment and assignment routes. | No SQL CHECK constraint exists on this column. Query distinct values in a read-only production snapshot first; Shavkat confirms each meaning. `sewing_flows.py` defines active as only planned/in-progress and managed as planned/in-progress/completed; output currently accepts completed too. Preserve each operation's subset rather than using enum membership as editability. Mirshoir reviews the callers. |
+| `WorkOrder.status` | `new`, `planning`, `waiting`, `pending`, `ready`, `collected`, `in_progress`, `paused`, `completed`, `rejected`, `cancelled` in `ck_work_orders_status`. | This is shared by Cutting, Printing, Sewing, Packaging and Storage. Mirshoir owns the vocabulary and transitions; do not create a Sewing-only copy. Preserve the current string column and database constraint. |
+| `Invoice.status` | `unpaid`, `partially_paid`, `paid`, `void`, `cancelled` in `ck_invoices_status`. | Ismail owns this candidate. `payments_service.py` derives settlement status; finance, sales, customer payment and shipment delivery have different issuance rules. Customer-facing `payment_status` values such as `no_invoice` and `partial` are a separate projection. Preserve USD tolerance and all API strings. |
+
+This is a source inventory, not approval to add enum classes or rewrite callers.
+Use explicit `str` enum values after the responsible engineers and Shavkat confirm
+meaning, then compare validation, serialization, storage and rollback behavior on
+the accepted operation. The enum must not replace authorization or transitions.
+
 Ismail coordinates enum conventions and the vocabulary inventory. Each feature
 owner verifies its callers and serialization; Shavkat confirms business meanings.
 See the [team plan](../../../../docs/REFACTOR_PLAN.md).

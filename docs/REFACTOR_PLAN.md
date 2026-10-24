@@ -221,6 +221,8 @@ feature streams start after pilot production acceptance. One active implementati
 per engineer; one writer per shared operation. IDs are plan IDs, not created issues.
 The [RF-001 source trace and proposed output interface](../backend/app/models/production/README.md#rf-001-sewing-output-seam-proposal-for-mirshoir)
 are prepared for Mirshoir's decision; this is not RF-005 implementation approval.
+The [RF-011 fixed-value inventory](../backend/app/libs/enums/README.md#rf-011-pilot-inventory-for-ismail-source-84bbc03)
+is prepared for Ismail; it does not convert callers or change storage.
 
 ### RF-003: Sewing pilot bug evidence prepared for Ismail
 
