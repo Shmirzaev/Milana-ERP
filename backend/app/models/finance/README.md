@@ -40,6 +40,25 @@ transaction. Do not create an interface/repository or generic CRUD class by defa
 
 **First operation to study:** Trace invoice creation across finance, sales, partners and workflow_service.ensure_invoice_for_delivered_shipment. Preserve legitimate differences before consolidating shared issuance rules.
 
+### RF-008 source trace (candidate `dffde6d`, study only)
+
+| Entry point | Current creation rule and transaction |
+| --- | --- |
+| `finance.create_invoice` | `finance.invoice` permission; locks the SalesOrder before the existing-invoice check; accepts an optional amount, bounds it to invoice cents/column size and derives payment status; audits and commits. Returns any existing invoice, including a void one. |
+| `sales.generate_invoice_for_order` | Accepts `finance.invoice` **or** `sales.orders` (or wildcard); uses the same parent lock but restricts order statuses; uses order total and initial `unpaid`; audits and commits. Returns any existing invoice. |
+| `partners.create_customer_payment` | `finance.payment` permission and a payment idempotency key; creates an `unpaid` invoice only when the customer's order has no invoices, then allocates payment/advance and commits once. It reads the order without the invoice endpoints' parent lock. |
+| `shipments.deliver` via `shipment_review_service` | `storage.shipment` permission and delivery idempotency key; frozen shipments sum validated dispatch totals, reuse an invoice with the same amount, or reconcile one unpaid invoice without receipts. Mismatched paid or ambiguous ledgers are refused. Older shipments use the order total; manual dispatch may first create a SalesOrder. The delivery route owns the commit. |
+
+These are four business contexts, not four interchangeable copies. Preserve their
+current HTTP responses, audit records and outer transaction owners while testing
+any shared issuance operation. Before extracting, Ismail and Mirshoir must agree
+whether draft-order manual invoices, reversed-invoice reuse, zero/small-balance
+status and the customer-payment lock gap are intended policy or separate defects.
+Shavkat confirms business outcomes. The existing PostgreSQL race regression is
+`test_invoice_creation_integrity.py`; money bounds, delivery reconciliation and
+payment/idempotency cases need their own baseline comparisons. No RF-008 source
+implementation or policy change is approved by this trace.
+
 **DTOs and enums:** Invoice/payment status vocabulary; currencies and policy rules require explicit business decisions, not assumptions. Reuse Create/In, Update and Read/Out contracts
 where they exist. Add action-specific input only for a real action. Do not generate
 three DTOs for every table or expose privileged fields through generic updates.
