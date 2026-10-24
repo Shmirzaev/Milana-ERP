@@ -16,7 +16,11 @@ See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordi
 - Routes: [finance.py](../../api/routes/finance.py), [sales.py](../../api/routes/sales.py), [partners.py](../../api/routes/partners.py), [shipments.py](../../api/routes/shipments.py).
 - Services/helpers: [finance_service.py](../finance_service.py), [payments_service.py](../payments_service.py), [shipment_invoice_service.py](../shipment_invoice_service.py), [shipment_review_service.py](../shipment_review_service.py), [invoices_service.py](invoices_service.py).
 - Existing SQLAlchemy schema models: [Invoice](../../schemas/sales/sales.py#L132), [Payment](../../schemas/sales/sales.py#L148).
-- Existing Pydantic contracts: [sales.py](../../libs/dto/sales/sales.py), [price_calculation.py](../../libs/dto/planning/price_calculation.py).
+- Invoice/payment DTOs: [invoice_input.py](../../libs/dto/sales/invoice_input.py),
+  [invoice_output.py](../../libs/dto/sales/invoice_output.py),
+  [payment_input.py](../../libs/dto/sales/payment_input.py),
+  [payment_output.py](../../libs/dto/sales/payment_output.py).
+- Other contract: [price_calculation.py](../../libs/dto/planning/price_calculation.py).
 
 These are source pointers, not permission to move entire mixed files. Trace the
 particular operation and every caller/write before choosing what belongs here.
@@ -62,7 +66,7 @@ implementation or policy change is approved by this trace.
 ### RF-008 slice 1 — finance invoice issuance (extracted)
 
 `POST /finance/invoices` calls `invoices_service.create_order_invoice(db, payload, actor)`.
-The router keeps the `finance.invoice` permission, the `InvoiceOut` response model
+The endpoint keeps the `finance.invoice` permission, the `InvoiceOut` response model
 and the HTTP errors. The service owns the parent `sales_orders` NO KEY UPDATE
 lock, the existing-invoice check, the amount bound, the status derivation, the
 invoice number, the audit row and the commit.

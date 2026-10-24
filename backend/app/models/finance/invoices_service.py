@@ -16,7 +16,7 @@ from decimal import Decimal, InvalidOperation
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.libs.dto.sales.sales import InvoiceIn
+from app.libs.dto.sales.invoice_input import InvoiceIn
 from app.models.audit_service import log_action
 from app.models.numbering_service import next_invoice_no
 from app.models.payments_service import invoice_payment_status
