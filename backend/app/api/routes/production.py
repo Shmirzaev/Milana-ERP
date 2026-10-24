@@ -5458,9 +5458,12 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
 
 
 @router.get("/sewing/records/{rid}")
-def get_sewing(rid: int, db: DbSession, _: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS))):
+def get_sewing(rid: int, db: DbSession, current: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS))):
     r = db.get(SewingRecord, rid)
     if not r: raise HTTPException(404, "Not found")
+    wo = db.get(WorkOrder, r.work_order_id)
+    if not wo: raise HTTPException(404, "Not found")
+    require_work_order_factory_access(current, db, wo)
     return {
         "id": r.id, "work_order_id": r.work_order_id,
         "production_batch_id": r.production_batch_id,

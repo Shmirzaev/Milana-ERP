@@ -1,6 +1,6 @@
 # Milana ERP: current working context
 
-Updated 2026-10-24. Keep this file short: current decisions, release pointers and
+Updated 2026-10-25. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
@@ -86,6 +86,9 @@ not appended here. This summary does not replace live release verification.
 - Historical authorization/audit-chain findings are not declared resolved here;
   consult AGENTS.md and the relevant bug/evidence. OPS01/OPS07 still require the
   correlated factory-path evidence described in [performance evidence](performance-evidence.txt).
+- [SEW-DETAIL-SCOPE-20261025](../bugs/bugs.md#sew-detail-scope-20261025--sewing-record-detail-crosses-selected-factory)
+  tracks a confirmed cross-factory Sewing detail read and a local patch awaiting
+  visual verification, review and production release. The active release above is unchanged.
 - CI branch triggering and automatic recovery improvements in the plan remain
   implementation tasks; skills/docs do not install enforcement or rollback.
 - Recovery targets in [DISASTER_RECOVERY.md](DISASTER_RECOVERY.md) remain requirements,

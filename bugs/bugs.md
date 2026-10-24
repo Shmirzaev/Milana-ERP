@@ -1,5 +1,11 @@
 # Team bug tracker — clone_main
 
+## SEW-DETAIL-SCOPE-20261025 — Sewing record detail crosses selected factory
+
+- **P1 · Review · Mirshoir; reviewer Ismail.** Source `ba70e0c`; production verification and Shavkat/operator acceptance pending. This is a separate security correction, not part of the service extraction.
+- Reproduction: with an ECO Sewing record ID and a session selected for MIL, `GET /api/sewing/records/{rid}` returned 200 with ECO quantities because it checked broad production-read permission but not the record's WorkOrder factory. The regression test failed on the old route with 200 instead of 403.
+- Proposed fix: use the existing `require_work_order_factory_access` before returning detail. Isolated tests for ECO allowed and MIL/BST denied, corrections, and workspace permissions: 24 passed, 1 warning. Visual E2E and bounded stress remain pending; do not treat this as production-ready or move it to finished_bugs.md.
+
 ## INV-LATER-NASTIL-20261024 — extra Nastil can leave packaging supply negative
 
 - **Triage · owner to assign · local reproduction only.** Shavkat must confirm whether Packaging may proceed without enough packaging material; a technical reviewer must confirm the stock and issue accounting before a fix is scoped. No production occurrence has been established.
