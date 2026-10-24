@@ -2,7 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     AuditLog,
     MaterialReservation,
     ProductionBatch,
@@ -10,7 +10,7 @@ from app.models import (
     ProductionOrderItem,
     ProductionOrderMaterial,
 )
-from app.schemas.production import ProductionOrderIn
+from app.libs.dto.production.production import ProductionOrderIn
 
 
 _MAX_ROWS = 1000

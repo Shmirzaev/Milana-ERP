@@ -150,20 +150,21 @@ export function MetricGrid({ items }: { items: { label: string; value: ReactNode
 }
 
 export function HrWorkspaceNav() {
+  const { t } = useT();
   const pathname = usePathname() || "/hr";
   const links = [
-    ["Dashboard", "/hr"], ["Employees", "/hr/employees"],
-    ["Organization Structure", "/hr/organization"], ["Positions & Staffing Plan", "/hr/positions"],
-    ["Recruitment", "/hr/recruitment"], ["Employee Documents", "/hr/documents"],
-    ["Attendance & Time Tracking", "/hr/attendance"], ["HR Analytics", "/hr/analytics"],
-    ["HR Calendar", "/hr/calendar"], ["Settings", "/hr/settings"],
+    ["dashboard", "/hr"], ["employees", "/hr/employees"],
+    ["organization", "/hr/organization"], ["positions", "/hr/positions"],
+    ["recruitment", "/hr/recruitment"], ["documents", "/hr/documents"],
+    ["attendance", "/hr/attendance"], ["analytics", "/hr/analytics"],
+    ["calendar", "/hr/calendar"], ["settings", "/hr/settings"],
   ];
   return (
-    <nav className="card mb-6 overflow-x-auto p-2" aria-label="HR workspace sections">
+    <nav className="card mb-6 overflow-x-auto p-2" aria-label={t("hrWorkspace.navigation")}>
       <div className="flex min-w-max gap-1">
         {links.map(([label, href]) => {
           const active = href === "/hr" ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
-          return <Link className={`rounded-md px-3 py-2 text-sm transition ${active ? "bg-[#14110b] text-white" : "text-[#56503f] hover:bg-[#f1efe8]"}`} href={href} key={href}>{label}</Link>;
+          return <Link className={`rounded-md px-3 py-2 text-sm transition ${active ? "bg-[#14110b] text-white" : "text-[#56503f] hover:bg-[#f1efe8]"}`} href={href} key={href}>{t(`hrWorkspace.${label}`)}</Link>;
         })}
       </div>
     </nav>
@@ -171,9 +172,9 @@ export function HrWorkspaceNav() {
 }
 
 export function LoadState({ loading, error, empty, children }: { loading?: boolean; error?: unknown; empty?: boolean; children: ReactNode }) {
-  const { lang } = useT();
-  if (loading) return <div className="card p-8 text-center text-sm text-[#8a8472]">Loading…</div>;
-  if (error) return <div className="card border-red-200 p-5 text-sm text-red-700">{localizeError("Could not load HR data.", 0, lang)} {String((error as Error)?.message || "")}</div>;
-  if (empty) return <div className="card p-8 text-center text-sm text-[#8a8472]">No records yet.</div>;
+  const { t, lang } = useT();
+  if (error) return <div role="alert" className="card border-red-200 p-5 text-sm text-red-700">{t("hrWorkspace.loadError")} {localizeError(String((error as Error)?.message || ""), 0, lang)}</div>;
+  if (loading) return <div className="card p-8 text-center text-sm text-[#8a8472]">{t("hrWorkspace.loading")}</div>;
+  if (empty) return <div className="card p-8 text-center text-sm text-[#8a8472]">{t("hrWorkspace.empty")}</div>;
   return <>{children}</>;
 }

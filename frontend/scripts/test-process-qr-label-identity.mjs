@@ -105,3 +105,23 @@ assert.equal(buildIssuedOperationNumbers(incidentOperations.slice(0, 2), onlyHis
 const correctedEtak = issued.map((label, index) => index === 2 ? { ...label, payload: null, rate_per_piece: 250 } : label);
 assert.deepEqual(buildOperationLabelTokens(incidentOperations, correctedEtak), repairedTokens, "editing a rate on same-name operations must retain their distinct existing tokens");
 assert.equal(buildIssuedOperationNumbers(incidentOperations, correctedEtak).get(3), 3, "a corrected rate cannot move a label to another same-name operation number");
+
+const movedOperations = [
+  { id: "press-top", code: "OP-0394", name: "dazmol tepa", section: "pressing", rate: "200" },
+  { id: "size", code: "OP-5964", name: "razmer otish", section: "packaging", rate: "100" },
+];
+const movedLabels = movedOperations.map((op, index) => ({
+  id: index + 1, label_uid: uid(op.code, "46"), operation_code: op.code,
+  operation_name: op.name, operation_section: index ? "sewing" : "packaging",
+  rate_per_piece: Number(op.rate), payload: null,
+}));
+assert.equal(correctedOperationIdentityNeedsReview(movedOperations, movedLabels), false);
+assert.deepEqual([...buildIssuedOperationNumbers(movedOperations, movedLabels).values()], [1, 2],
+  "section corrections retain the matching operation number and QR identity");
+assert.deepEqual([...buildOperationLabelTokens(movedOperations, movedLabels).values()], ["OP-0394", "OP-5964"]);
+const ambiguousSections = [
+  { ...movedOperations[0], id: "a", section: "pressing" },
+  { ...movedOperations[0], id: "b", section: "packaging" },
+];
+assert.equal(buildIssuedOperationNumbers(ambiguousSections, [movedLabels[0]]).get(1), 2,
+  "same-name/code operations in different sections must still remain distinct");

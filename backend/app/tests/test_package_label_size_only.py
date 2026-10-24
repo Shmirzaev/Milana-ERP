@@ -45,7 +45,7 @@ def test_package_label_shows_sizes_without_piece_counts():
 
 
 def test_label_ordinals_restart_for_each_document_without_changing_cards():
-    from app.services.package_label_pages import label_document
+    from app.models.package_label_pages_service import label_document
     cards = ["<article class='label'><header><!--label-ordinal--></header></article>"] * 6
     first = label_document("Labels", cards, "")
     assert first == label_document("Labels", cards, "")

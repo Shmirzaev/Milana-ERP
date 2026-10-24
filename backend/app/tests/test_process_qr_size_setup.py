@@ -1,7 +1,7 @@
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, ModelSize
+from app.schemas import AuditLog, ModelSize
 from app.tests.test_payroll import _create_user_with_permissions
 from app.tests.test_process_qr_model_sizes import _model
 

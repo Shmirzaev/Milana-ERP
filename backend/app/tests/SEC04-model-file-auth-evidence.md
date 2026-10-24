@@ -1,5 +1,83 @@
 # SEC04: model file session authentication
 
+## Current branch update — 2026-10-25
+
+- Engineer owner: Dilmurod. Independent reviewer: Mirshoir (pending).
+  Business rule supplied by the owner: authenticated model-file access is
+  intentionally company-wide across MIL/BST/ECO; no per-model/factory scope added.
+- Existing branch `codex/sec04-model-file-auth` retained commit `0596ad39` and
+  merged current `origin/clone_main` at `ba70e0cb`. The only merge conflict was
+  imports in `main.py`: retain current proxy trust, rate-limit token decoding and
+  `CurrentUser`/`DbSession`. The handlers still match the original fix.
+- Adapted the test ORM import from `app.models` to current `app.schemas` after
+  the namespace relocation. Both routes use the auth dependency, which closes
+  its session before filesystem access; short-lived DB image fallback is unchanged.
+
+### Automated evidence
+
+Python 3.12.13; isolated temporary virtualenv with the branch's requirements-dev.txt.
+Normal test fixtures create disposable SQLite databases/files. No production calls.
+
+- RED: same current tests against the exact `ba70e0cb` main.py handler:
+  **13 failed, 11 passed**, exit 1. All 12 warmed-cache revocation combinations
+  (file/thumbnail x cookie/bearer x disabled/deleted/credential rotation), plus
+  the old-token rotation test, received 200 instead of required 401. This was a
+  behavior failure, not collection/dependency failure. The fixed file was restored
+  in a finally block in this isolated task worktree.
+- GREEN: fixed handler **24 passed**, then **24 passed** again after restoration.
+  Tests cover active sessions, missing/invalid/expired credentials, account deletion,
+  revocation, fresh-token acceptance, zero checked-out authentication connections
+  at path lookup, signed-model-link refusal, unchanged signed sales attachments,
+  and company-wide MIL/BST/ECO access.
+- Full backend suite: **3,888 passed, 312 skipped, 13 warnings**, exit 0,
+  in 569.06 seconds. Skipped cases are not claimed verified; PostgreSQL-dependent
+  coverage is unavailable without its disposable DB configuration.
+- Separate `python -m pytest -q -ra backend/tests`: **2 skipped** because
+  `S06_POSTGRES_URL` is absent. This stock-adjustment suite is outside default
+  collection; no PostgreSQL locking pass is claimed.
+- Ruff: `python -m ruff check backend/app` — PASS.
+- Compilation: `python -m compileall -q backend/app` — PASS.
+- Frontend: `npm run lint` — PASS (0 errors, 10 existing warnings).
+- Diff review: only SEC04 main.py/test/evidence and tracker/context changes relative
+  to `ba70e0cb`; `git diff --check` — PASS. Frontend source is unchanged.
+- Local logs: `/private/tmp/sec04-20261025-{red,green,green-restored,full-suite,frontend-lint}.log`.
+
+Commands (from the isolated task worktree unless noted):
+
+```sh
+python -m pytest -q backend/app/tests/test_static_file_auth.py
+python -m ruff check backend/app
+python -m compileall -q backend/app
+cd frontend && npm run lint
+```
+
+Full-suite command runs from `/private/tmp/milana-font-support`, using existing
+external Arial/Arial Bold symlinks needed by this Mac's report tests (no repo font
+change), with absolute config and test paths:
+
+```sh
+python -m pytest -q -c <worktree>/pyproject.toml <worktree>/backend/app/tests
+```
+
+### Remaining gates and release state
+
+- Visual E2E: **BLOCKED**. No isolated running frontend/backend stack and test
+  accounts provisioned for real browser login/model-list inspection. API fixture
+  tests are not a substitute for screenshots and real UI verification.
+- Bounded stress: **BLOCKED**. No isolated running stack/baseline/approved workload
+  provisioned for a thumbnail burst and revocation-under-load scenario with pool,
+  error/latency and recovery measurements. The sequential pool-release regression
+  above is not a load-test pass. No production stress performed.
+- Named engineering review and human production acceptance: pending.
+- Branch publication is for PR review; no merge to `clone_main`, deployment,
+  production data changes or fresh production slot/manifest verification. Retain
+  historical production pointers in PROJECT_CONTEXT.md without recertifying them.
+- Rollback: reverting this application change restores the old weak file auth;
+  there are no schema changes or data writes to undo. Do not claim release-ready
+  while required visual/stress/review gates remain blocked/pending.
+
+## Historical implementation evidence — 2026-10-03
+
 Branch: `codex/sec04-model-file-auth`, from `clone_main` at `e808891a`.
 Edited in place under real `backend/` paths.
 

@@ -60,7 +60,7 @@ app.dependency_overrides[get_db] = override_get_db
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_db():
-    import app.models  # noqa: F401 - register all models
+    import app.schemas  # noqa: F401 - register all models
     Base.metadata.create_all(bind=test_engine)
     # Seed minimal data
     from app.db.seed import seed
@@ -101,7 +101,7 @@ def reset_shared_counter_store():
 
 @pytest.fixture(autouse=True)
 def clear_attendance_mirror():
-    from app.models import AttendanceDevice, AttendanceEvent, AttendancePerson
+    from app.schemas import AttendanceDevice, AttendanceEvent, AttendancePerson
 
     db = TestSessionLocal()
     try:

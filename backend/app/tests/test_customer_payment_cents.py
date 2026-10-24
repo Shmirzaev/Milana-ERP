@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.models import AuditLog, Customer, IdempotencyRecord, Invoice, Payment, SalesOrder
+from app.schemas import AuditLog, Customer, IdempotencyRecord, Invoice, Payment, SalesOrder
 from app.tests.conftest import TestSessionLocal
 
 

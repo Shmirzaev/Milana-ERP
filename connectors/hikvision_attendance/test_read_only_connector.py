@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 import httpx
 
@@ -10,6 +12,7 @@ from read_only_connector import (
     normalize_person,
     response_json,
     sync_events,
+    sync_people,
 )
 
 
@@ -124,9 +127,11 @@ def test_initial_event_history_is_read_in_daily_windows(tmp_path):
 
     class FakeErp:
         calls = 0
+        source_snapshots = []
 
-        def events(self, device, events):
+        def events(self, device, events, *, source_snapshot_at):
             self.calls += 1
+            self.source_snapshots.append(source_snapshot_at)
             return {"inserted": 0, "duplicates": 0}
 
     hikvision = FakeHikvision()
@@ -138,4 +143,35 @@ def test_initial_event_history_is_read_in_daily_windows(tmp_path):
     assert len(hikvision.calls) == 3
     assert all((end - start).total_seconds() <= 86_400 for start, end in hikvision.calls)
     assert erp.calls == 1
+    assert erp.source_snapshots == [max(end for _start, end in hikvision.calls)]
     assert "last_event_cursor" in state
+
+
+def test_people_snapshot_carries_connector_capture_time(tmp_path):
+    connector_config = config()
+    connector_config.sync_photos = False
+    connector_config.state_path = str(tmp_path / "state.json")
+
+    class FakeHikvision:
+        def device_info(self):
+            return {"DeviceInfo": {"model": "test"}}
+
+        def person_count(self):
+            return 1
+
+        def people(self):
+            return [{"employeeNo": "735", "name": "Example Person"}]
+
+    class FakeErp:
+        source_snapshot_at = None
+
+        def people(self, device, people, *, source_snapshot_at):
+            self.source_snapshot_at = source_snapshot_at
+            return {"received": len(people), "created": len(people), "updated": 0}
+
+    erp = FakeErp()
+    started = datetime.now(timezone.utc)
+    sync_people(connector_config, FakeHikvision(), erp, {"version": 1, "photo_hashes": {}})
+    finished = datetime.now(timezone.utc)
+
+    assert started <= erp.source_snapshot_at <= finished

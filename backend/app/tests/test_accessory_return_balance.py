@@ -2,11 +2,11 @@ from uuid import uuid4
 
 import pytest
 
-from app.models import (
+from app.schemas import (
     AuditLog, IdempotencyRecord, Item, ManualAccessoryIssue, Model, ModelBOM,
     ProductionOrder, StockBatch, StockMovement, Warehouse,
 )
-from app.services.inventory import accessory_issue_plan, accessory_issue_summary, current_stock_for_item
+from app.models.inventory_service import accessory_issue_plan, accessory_issue_summary, current_stock_for_item
 from app.tests.conftest import TestSessionLocal
 
 

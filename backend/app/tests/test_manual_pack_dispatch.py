@@ -2,7 +2,7 @@
 from decimal import Decimal
 import pytest
 from app.db.session import SessionLocal
-from app.models import Customer, FinishedGoodsStock, Invoice, ManualPackageReceipt, Model, Package, PackagePrintRun, PackagePrintRunMember, Shipment
+from app.schemas import Customer, FinishedGoodsStock, Invoice, ManualPackageReceipt, Model, Package, PackagePrintRun, PackagePrintRunMember, Shipment
 from app.tests.test_package_workflows import warehouse, manual_body, package_qr  # noqa: F401
 
 
@@ -113,7 +113,7 @@ def test_unpriced_manual_invoice_print_and_later_amount(client, warehouse, deliv
     draft = client.get(base + "/invoice", headers=warehouse).json()
     assert draft["finance_posting_status"] == "draft" and draft["amount"] is None
     printed = client.get(base + "/invoice/print", headers=warehouse)
-    assert printed.status_code == 200 and "Draft invoice" in printed.text
+    assert printed.status_code == 200 and "Warehouse invoice" in printed.text
     with SessionLocal() as db:
         before_invoices = db.query(Invoice).count()
         assert db.get(Package, pid).status == "received_in_storage"
@@ -124,7 +124,7 @@ def test_unpriced_manual_invoice_print_and_later_amount(client, warehouse, deliv
     pending = client.get(base + "/invoice", headers=warehouse).json()
     assert pending["amount"] is None and pending["lines"][0]["unit_price"] is None
     assert pending["finance_posting_status"] == "pending_price"
-    for lang, label in [("en", "Price pending"), ("ru", "Цена не указана"), ("uz", "Narx kutilmoqda")]:
+    for lang, label in [("en", "Warehouse invoice"), ("ru", "Складская накладная"), ("uz", "Ombor hisob-fakturasi")]:
         printed = client.get(base + f"/invoice/print?lang={lang}", headers=warehouse)
         assert printed.status_code == 200 and label in printed.text
         assert "window.print()" in printed.text
@@ -193,7 +193,7 @@ def test_selected_labels_after_shipment_keep_client_balance(client, warehouse):
     assert original["warehouse_person"]
     assert original["lines"][0]["size_display"] and "Mixed" not in original["lines"][0]["size_display"]
     html = client.get(f"/api/shipments/{sid}/invoice/print?lang=uz", headers=warehouse).text
-    assert "Omborchi" in html and original["warehouse_person"] in html
+    assert "Omborchi" in html and original["warehouse_person"] not in html
     assert "Mixed" not in html and "Sof narxlar" not in html
     assert "Narx</th>" in html and "Summa</th>" in html
     hidden = client.get(f"/api/shipments/{sid}/invoice/print?lang=uz&show_prices=false", headers=warehouse).text

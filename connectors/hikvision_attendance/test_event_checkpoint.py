@@ -62,6 +62,7 @@ def scenario(tmp_path, monkeypatch):
         config=config,
         state={"version": 1, "last_event_cursor": (NOW - timedelta(hours=12)).isoformat()},
         pages=[], searches=[], uploads=[], stored=set(), fail_upload=None,
+        upload_source_snapshots=[],
     )
 
     def device_http(request):
@@ -81,8 +82,10 @@ def scenario(tmp_path, monkeypatch):
         assert request.method == "POST"
         assert request.url.path == "/api/attendance/integration/events"
         assert request.headers["X-Attendance-Token"] == "unused"
-        events = json.loads(request.content)["events"]
+        payload = json.loads(request.content)
+        events = payload["events"]
         scenario.uploads.append(events)
+        scenario.upload_source_snapshots.append(payload["source_snapshot_at"])
         if scenario.fail_upload == len(scenario.uploads):
             return httpx.Response(503)
         inserted = sum(item["event_uid"] not in scenario.stored for item in events)
@@ -129,6 +132,7 @@ def test_complete_event_window_is_uploaded_and_checkpointed(scenario, count):
     assert [request["searchResultPosition"] for request in scenario.searches] == (list(range(0, count, 2)) or [0])
     assert len({request["searchID"] for request in scenario.searches}) == 1
     assert not scenario.pages
+    assert scenario.upload_source_snapshots == [NOW.isoformat()]
 
 
 @pytest.mark.parametrize("last_page", [

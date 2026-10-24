@@ -1,7 +1,7 @@
 from uuid import uuid4
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, ForecastRecommendation, Model
+from app.schemas import AuditLog, ForecastRecommendation, Model
 
 
 def test_forecast_list_projects_malformed_legacy_source_roots_without_rewriting_them(client, auth_headers):

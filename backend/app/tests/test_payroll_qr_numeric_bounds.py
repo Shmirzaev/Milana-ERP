@@ -5,8 +5,8 @@ import pytest
 from pydantic import ValidationError
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, PayrollQrLabel
-from app.schemas.payroll import PayrollQrLabelEditIn, PayrollQrLabelIssueIn
+from app.schemas import AuditLog, PayrollQrLabel
+from app.libs.dto.people.payroll import PayrollQrLabelEditIn, PayrollQrLabelIssueIn
 
 
 MAX_STORED_AMOUNT = Decimal("9999999999.9999")

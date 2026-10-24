@@ -1,0 +1,34 @@
+OPS01 / OPS07: synchronized production evidence still required
+
+Status: OPEN. The P2 repository fixes and local synthetic query/concurrency tests
+are not a measurement of actual factory/branch latency. No production tracing
+has been enabled. The private backend/frontend hosts were unreachable from the
+Mac work environment. Capture from an authorized actual factory/branch path.
+
+Capture one common UTC incident window and record its start/end, client site,
+network path, application Git/release identity, browser version and action.
+Use existing records and read-only screens. Match each browser request to the
+API/proxy request ID where available; do not infer correlation from nearby times
+alone. Collect the following for the same window:
+
+1. Browser performance recording and sanitized HAR for the slow page, including
+   DNS/connect/TLS/wait/download timings, response byte counts, cache state and
+   UI render time. Remove cookies, authorization headers, personal data and tokens
+   before sharing; store raw evidence only in restricted incident storage.
+2. Existing proxy/backend logs, request duration and upstream timing/status, and
+   host CPU/memory/I/O measurements. Record active and rollback manifests/slots
+   using DEPLOYMENT.md before interpreting a release comparison.
+3. Database duration, query count and plans for the exact slow read requests,
+   plus pool/lock wait evidence. Use existing authorized SQL observability or a
+   separately reviewed local/private tracer. Do not expose a public tracer or
+   execute production mutations to reproduce a timing sample.
+4. Actual branch DNS resolution, TCP/TLS handshake timings, loss/jitter over the
+   capture window, route/VPN/proxy identity, and relevant firewall/shaping counters
+   from the responsible operator. Compare with a synchronized known-good path;
+   workstation-only probes cannot prove the factory path's behavior.
+
+Separate browser rendering, transfer/network, proxy queue, API work, database
+execution/locks and connection-pool wait. Report measured p50/p95 and sample
+counts only where enough comparable samples exist. Explain gaps and clock skew.
+Keep OPS01/OPS07 open until correlated evidence identifies or rules out the
+suspected bottleneck, with an actual-factory before/after comparison where needed.

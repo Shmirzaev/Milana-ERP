@@ -1,7 +1,7 @@
 from uuid import uuid4
 import pytest
 from app.db.session import SessionLocal
-from app.models import Bundle, CuttingRecord, CuttingMaterialUsage, MaterialReservation, StockBatch, StockMovement, WorkOrder
+from app.schemas import Bundle, CuttingRecord, CuttingMaterialUsage, MaterialReservation, StockBatch, StockMovement, WorkOrder
 from app.tests.test_material_reservations import _warehouse, _fabric_item, _receive_batch, _cutting_work_order
 
 
@@ -25,6 +25,7 @@ def passport_cutting(client, auth_headers):
     })
     assert passport.status_code == 201, passport.text
     payload = {"work_order_id": work["id"], "cutting_passport_id": passport.json()["id"], "use_passport_materials": True,
+               "production_batch_id": passport.json()["production_batch_id"],
                "input_quantity": 999, "materials": [], "cut_pieces": 10, "passed_pieces": 10,
                "bundles": [{"color": "white", "size": "46", "quantity": 10, "count": 1, "next": "sewing", "sewing_factory": "milana"}]}
     return batches, order, work, payload
@@ -54,6 +55,47 @@ def test_missing_passport_does_not_consume_or_create_bundles(client, auth_header
     with SessionLocal() as db:
         assert db.query(Bundle).filter_by(production_order_id=order["id"]).count() == 0
         assert [float(db.get(StockBatch, row["id"]).quantity) for row in batches] == [100, 100]
+
+
+@pytest.mark.parametrize("quantity", [6, 10, 15])
+def test_print_existing_nastil_keeps_later_passport_open(client, auth_headers, passport_cutting, quantity):
+    batches, order, work, payload = passport_cutting
+    payload.update(cutting_passport_id=None, use_passport_materials=False,
+                   defer_material_usage=True, input_quantity=0,
+                   cut_pieces=quantity, passed_pieces=quantity)
+    payload["bundles"][0]["quantity"] = quantity
+    created = client.post("/api/cutting/records", headers=auth_headers, json=payload)
+    assert created.status_code == 201, created.text
+    later = client.post("/api/cutting-passports", headers=auth_headers, json={
+        "date": "2026-10-16T00:00:00Z", "production_order_id": order["id"], "pieces": 10,
+    })
+    assert later.status_code == 201, later.text
+    later_batch = later.json()["production_batch_id"]
+    url = f"/api/cutting/records/{created.json()['id']}/production-sheet"
+
+    def snapshot():
+        with SessionLocal() as db:
+            rows = db.query(WorkOrder).filter_by(production_order_id=order["id"]).order_by(WorkOrder.id).all()
+            assert db.get(WorkOrder, work["id"]).status == "in_progress"
+            assert db.query(CuttingRecord).filter_by(production_batch_id=later_batch).count() == 0
+            assert db.query(Bundle).filter_by(production_batch_id=later_batch).count() == 0
+            assert [float(db.get(StockBatch, row["id"]).quantity) for row in batches] == [100, 100]
+            return [tuple(getattr(row, field) for field in (
+                "id", "status", "planned_output_qty", "actual_input_qty", "actual_output_qty",
+                "passed_qty", "failed_qty", "start_time", "end_time",
+            )) for row in rows]
+
+    before = snapshot()
+    preview = client.get(url, headers=auth_headers)
+    assert preview.status_code == 200, preview.text
+    for _ in range(2):
+        printed = client.post(url, headers=auth_headers)
+        assert printed.status_code == 200, printed.text
+        assert printed.text == preview.text
+        assert snapshot() == before
+    invalid = client.post(url + "?bundle_ids=invalid", headers=auth_headers)
+    assert invalid.status_code == 400
+    assert snapshot() == before
 
 
 def test_sheet_prints_before_usage_and_later_entry_debits_once(client, auth_headers, passport_cutting):

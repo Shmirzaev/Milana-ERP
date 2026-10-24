@@ -6,8 +6,8 @@ from time import monotonic, sleep
 from sqlalchemy import text, update
 
 from app.api.routes.production import PackagingReceiveFromSewingIn, post_packaging, receive_packaging_from_sewing
-from app.schemas.production import PackagingRecordIn
-from app.models import Department, PackagingReceipt, User, WorkOrder
+from app.libs.dto.production.production import PackagingRecordIn
+from app.schemas import Department, PackagingReceipt, User, WorkOrder
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_sewing_corrections import setup_record
 from app.tests.test_purchase_conversion_integrity import conversion_postgres_sessions  # noqa: F401
@@ -64,7 +64,7 @@ def test_packaging_record_refreshes_cached_output_counters(client):
 
 
 def test_postgres_packaging_receipts_preserve_both_increments(conversion_postgres_sessions):
-    from app.models import Model, ProductionOrder, Role, SewingRecord
+    from app.schemas import Model, ProductionOrder, Role, SewingRecord
 
     sessions = conversion_postgres_sessions
     with sessions.begin() as db:

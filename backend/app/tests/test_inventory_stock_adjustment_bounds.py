@@ -9,7 +9,7 @@ those claims without physical stock behind them.
 from uuid import uuid4
 
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     AuditLog,
     MaterialReservation,
     Model,
@@ -17,7 +17,7 @@ from app.models import (
     StockBatch,
     StockMovement,
 )
-from app.services.inventory import current_stock_for_item
+from app.models.inventory_service import current_stock_for_item
 
 ITEM_FLOOR_MESSAGE = "Stock quantity cannot be lower than reserved quantity"
 BATCH_FLOOR_MESSAGE = "Quantity cannot be lower than reserved stock"

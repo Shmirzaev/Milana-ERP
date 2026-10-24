@@ -6,7 +6,7 @@ from PIL import Image
 from app.core.config import settings
 from app.core.security import create_access_token, decode_token, hash_password
 from app.core.signing import sign_path
-from app.models import Role, User
+from app.schemas import Role, User
 from app.tests.conftest import TestSessionLocal, test_engine
 
 

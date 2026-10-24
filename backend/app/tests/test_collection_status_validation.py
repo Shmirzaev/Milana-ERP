@@ -2,7 +2,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.models import AuditLog, Brand, Collection
+from app.schemas import AuditLog, Brand, Collection
 from app.tests.conftest import TestSessionLocal
 
 

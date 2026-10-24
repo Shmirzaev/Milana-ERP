@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Fragment, useMemo, useState, type FormEvent } from "react";
 import useSWR from "swr";
+import useLoadMore from "@/lib/useLoadMore";
 import { api, fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { packagingDepartmentForSession } from "@/lib/access";
@@ -42,13 +43,18 @@ export default function PackagesPage() {
   const returnText = packageReturnText[lang];
   const [returnedOnly, setReturnedOnly] = useState(false);
   const canApprovePackageChange = can(me, "management.approve");
+  const canChangePackage = can(me, "packaging.packages") || can(me, "storage.packages");
   const canTraceability = can(me, "traceability.view");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
-  const { data: pageData, mutate } = useSWR<any>(`/api/packages?include_total=true&page=${page}&page_size=${pageSize}${returnedOnly ? "&status=returned_to_packaging" : ""}&packaging_department_code=${packagingDepartment}`, fetcher);
-  const { data: pendingRequests, mutate: mutatePendingRequests } = useSWR<any[]>(`/api/packages/change-requests?status=pending&packaging_department_code=${packagingDepartment}`, fetcher);
-  const data = useMemo<any[]>(() => pageData?.rows || [], [pageData?.rows]);
+  const listPager = useLoadMore<any>(`/api/packages?include_total=true&page=${page}&page_size=${pageSize}${returnedOnly ? "&status=returned_to_packaging" : ""}&packaging_department_code=${packagingDepartment}`, fetcher);
+  const { data: pageData, mutate } = listPager;
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const pendingRequestsKey = Object.values(expandedGroups).some(Boolean)
+    ? `/api/packages/change-requests?status=pending&packaging_department_code=${packagingDepartment}`
+    : null;
+  const { data: pendingRequests, mutate: mutatePendingRequests } = useSWR<any[]>(pendingRequestsKey, fetcher);
+  const data = useMemo<any[]>(() => pageData?.rows || [], [pageData?.rows]);
   const [editing, setEditing] = useState<any | null>(null);
   const [editForm, setEditForm] = useState<EditForm | null>(null);
   const [deleting, setDeleting] = useState<any | null>(null);
@@ -227,7 +233,7 @@ export default function PackagesPage() {
     try {
       await api.post(`/api/packages/${deleting.id}/change-requests`, { request_type: "delete" });
       setDeleting(null);
-      setMessage(t("page.packages.deleteRequestSent"));
+      setMessage(t(deleting.production_order_id ? "page.packages.outputReset" : "page.packages.deleteRequestSent"));
       await refreshPackages();
     } catch (err: any) {
       setError(err?.message || t("page.packages.deleteRequestFailed"));
@@ -413,8 +419,8 @@ export default function PackagesPage() {
                             </Link>
                           )}
                           <button type="button" disabled={p.status === "returned_to_packaging"} className="text-slate-600 hover:underline" onClick={() => api.openLabel(`/api/packages/${p.id}/label`)}>{t("btn.label")}</button>
-                          <button type="button" className="text-blue-700 hover:underline disabled:text-slate-400 disabled:no-underline" disabled={!!pending || busy || (p.status === "returned_to_packaging" && !can(me, "packaging.packages"))} onClick={() => openEdit(p)}>{t("common.edit")}</button>
-                          <button type="button" className="text-red-700 hover:underline disabled:text-slate-400 disabled:no-underline" disabled={!!pending || busy || p.status === "returned_to_packaging"} onClick={() => setDeleting(p)}>{t("common.delete")}</button>
+                          <button type="button" className="text-blue-700 hover:underline disabled:text-slate-400 disabled:no-underline" disabled={!canChangePackage || busy || (p.status === "returned_to_packaging" && !can(me, "packaging.packages"))} onClick={() => openEdit(p)}>{t("common.edit")}</button>
+                          <button type="button" className="text-red-700 hover:underline disabled:text-slate-400 disabled:no-underline" disabled={!canChangePackage || busy} onClick={() => setDeleting(p)}>{t("common.delete")}</button>
                           {p.status === "returned_to_packaging" && can(me, "packaging.packages") && <button type="button" className="btn" disabled={busy} onClick={async () => {
                             setBusy(true); setError("");
                             try {
@@ -446,7 +452,7 @@ export default function PackagesPage() {
             )}
           </tbody>
         </table>
-        <PaginationControls
+        <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()}
           page={page}
           pageSize={pageSize}
           total={Number(pageData?.total || data.length)}
@@ -540,7 +546,7 @@ export default function PackagesPage() {
       <ConfirmDialog
         isOpen={!!deleting}
         title={t("page.packages.deleteTitle")}
-        message={deleting ? t("page.packages.deleteMessage", { package: deleting.package_no }) : ""}
+        message={deleting ? t(deleting.production_order_id ? "page.packages.deleteOutputMessage" : "page.packages.deleteMessage", { package: deleting.package_no }) : ""}
         confirmText={t("page.packages.requestDelete")}
         onConfirm={submitDeleteRequest}
         onCancel={() => setDeleting(null)}

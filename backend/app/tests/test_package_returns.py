@@ -3,7 +3,7 @@ from uuid import uuid4
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import Package, PackagePrintRun, PackagePrintRunMember, FinishedGoodsStock
+from app.schemas import Package, PackagePrintRun, PackagePrintRunMember, FinishedGoodsStock
 from app.tests.test_package_workflows import packaging_order, warehouse, create_run, package_qr, stock_fingerprint  # noqa: F401
 
 

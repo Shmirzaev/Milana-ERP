@@ -3,6 +3,7 @@ import { localizeError } from "@/lib/errorMessages";
 import { useParams } from "next/navigation";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
+import CuttingSewingFactory from "@/components/CuttingSewingFactory";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
 import { formatBatchLabel, formatBatchSerial } from "@/lib/batchSerial";
@@ -134,6 +135,9 @@ type StockBatchOption = {
 };
 type CuttingPassportSummary = CuttingPassportAutofillSource & {
   id: number;
+  production_batch_id?: number | null;
+  nastil_name?: string | null;
+  used_for_cutting?: boolean;
   production_order_id?: number | null;
   lot_no?: string | null;
   passport_no?: string | null;
@@ -299,13 +303,13 @@ function distributeBundleTargets(items: any[], totalQty: number): Map<string, nu
 function autoSplitRows(totalQty: number, maxPerBatch: number): SplitRow[] {
   const safeTotal = Math.max(0, Number(totalQty || 0));
   const safeMax = Math.max(1, Number(maxPerBatch || 1));
-  if (safeTotal <= 0) return [{ name: "Batch 1", planned_quantity: "", start_date: "", deadline: "", notes: "" }];
+  if (safeTotal <= 0) return [{ name: "Nastil 1", planned_quantity: "", start_date: "", deadline: "", notes: "" }];
   const rows: SplitRow[] = [];
   let left = safeTotal;
   let idx = 1;
   while (left > 0) {
     const qty = Math.min(safeMax, left);
-    rows.push({ name: `Batch ${idx}`, planned_quantity: qty, start_date: "", deadline: "", notes: "" });
+    rows.push({ name: `Nastil ${idx}`, planned_quantity: qty, start_date: "", deadline: "", notes: "" });
     left -= qty;
     idx += 1;
   }
@@ -541,10 +545,18 @@ export default function CuttingPage() {
     [allSearchableFabricBatches],
   );
   const hasPlannedMaterials = plannedMaterials.length > 0;
-  const [passportId, setPassportId] = useState<number>(0);
+  const [passportId, setPassportId] = useState<number>(-1);
   const selectedPassportId = cuttingPassports.some((row) => row.id === passportId) ? passportId : 0;
-  const deferMaterialUsage = hasPlannedMaterials && !isUsluga;
+  const deferMaterialUsage = hasPlannedMaterials && !isUsluga && selectedPassportId === 0;
   const usePassportMaterials = !deferMaterialUsage && hasPlannedMaterials && selectedPassportId > 0;
+  useEffect(() => {
+    if (passportId !== -1 || cuttingPassports.length === 0) return;
+    const available = cuttingPassports.filter((row) => row.production_batch_id && !row.used_for_cutting && Number(row.pieces || 0) > 0);
+    const passport = available.find((row) => row.production_batch_id === Number(form.production_batch_id || wo?.production_batch_id)) || available[0];
+    if (!passport) return;
+    setPassportId(passport.id);
+    setForm((current) => ({ ...current, production_batch_id: passport.production_batch_id || current.production_batch_id }));
+  }, [cuttingPassports, passportId, form.production_batch_id, wo?.production_batch_id]);
   const materialPassports = useMemo(() => (Array.isArray(cuttingPassports) ? cuttingPassports : []).filter((passport) => passport.id === selectedPassportId).flatMap((passport: any) =>
     passport.materials?.length ? passport.materials.map((material: any) => ({ ...passport, ...material, operator_name: material.operator_name_manual || passport.operator_name })) : [passport]
   ), [cuttingPassports, selectedPassportId]);
@@ -604,14 +616,7 @@ export default function CuttingPage() {
     && (wo.production_batch_id === null || wo.production_batch_id === undefined)
   );
   const splitTotal = splitRows.reduce((sum, row) => sum + numberOrZero(row.planned_quantity), 0);
-  const splitPlannedQty = Number(wo?.planned_output_qty || po?.planned_quantity || 0);
-  const productInfoPo = useMemo(() => {
-    if (!po || !canSplitHere || splitTotal <= splitPlannedQty) return po;
-    return {
-      ...po,
-      actual_quantity: Math.max(Number(po?.actual_quantity || 0), splitTotal),
-    };
-  }, [canSplitHere, po, splitPlannedQty, splitTotal]);
+  const productInfoPo = po;
   const batchItems = useMemo(
     () => Array.isArray(batchProgress?.items) ? batchProgress.items : [],
     [batchProgress?.items],
@@ -643,10 +648,6 @@ export default function CuttingPage() {
     : plannedItemTotal;
   const cutPieces = numberOrZero(form.cut_pieces);
   const bundleTargetTotal = cutPieces > 0 ? cutPieces : batchTargetTotal;
-  const bundleTargetQtyByKey = useMemo(
-    () => distributeBundleTargets(po?.items || [], bundleTargetTotal),
-    [po?.items, bundleTargetTotal],
-  );
   const createdBundlesBatch = useMemo(() => {
     const productionBatches = Array.isArray(po?.batches) ? po.batches : [];
     const selectedId = Number(form.production_batch_id || wo?.production_batch_id || 0);
@@ -672,10 +673,20 @@ export default function CuttingPage() {
   const bundlePlanTotal = bundles.reduce((sum, row) => (
     sum + Math.max(0, numberOrZero(row.quantity)) * Math.max(0, numberOrZero(row.count))
   ), 0);
-  const visibleBundleIds = visibleBundles
-    .map((b) => Number(b?.id || 0))
-    .filter((bundleId) => bundleId > 0)
-    .join(",");
+  const printableBundleBatches = (() => {
+    const groups = new Map<number, { batchId: number; bundleIds: number[]; label: string }>();
+    for (const bundle of visibleBundles) {
+      const batchId = Number(bundle?.production_batch_id || 0);
+      const bundleId = Number(bundle?.id || 0);
+      if (!bundleId) continue;
+      const group = groups.get(batchId) || { batchId, bundleIds: [], label: "" };
+      const batch = (po?.batches || []).find((row: any) => Number(row.id) === batchId);
+      group.label = batch ? formatBatchLabel(batch, po?.id) : bundle.batch_label || orderReference(po);
+      group.bundleIds.push(bundleId);
+      groups.set(batchId, group);
+    }
+    return Array.from(groups.values());
+  })();
   const selectedBundleBatchId = Number(form.production_batch_id || wo?.production_batch_id || 0);
   const printableCuttingSheets = (() => {
     const productionBatches = Array.isArray(po?.batches) ? po.batches : [];
@@ -724,7 +735,6 @@ export default function CuttingPage() {
     if (!Array.isArray(po?.items) || po.items.length === 0 || departments.length === 0) return;
     const hasPrintingStage = Array.isArray(po?.work_orders) && po.work_orders.some((w: any) => w.operation === "printing");
     const nextStage: "sewing" | "printing" = hasPrintingStage ? "printing" : "sewing";
-    const defaultBundleQty = 50;
     const targetMap = distributeBundleTargets(po.items, bundleTargetTotal);
     setBundles((prev) => {
       const byKey = new Map(prev.map((row) => [itemKey(row.color, row.size), row]));
@@ -737,7 +747,9 @@ export default function CuttingPage() {
           const existing = byKey.get(key);
           const targetQty = targetMap.get(key) || 0;
           if (targetQty <= 0) return null;
-          const preferredQty = Math.max(1, Number(existing?.quantity || defaultBundleQty));
+          const preferredQty = existing && Number(existing.count) > 1
+            ? Math.max(1, Number(existing.quantity || targetQty))
+            : targetQty;
           const qtyPerBundle = Math.max(1, Math.min(preferredQty, targetQty));
           return {
             color,
@@ -876,18 +888,6 @@ export default function CuttingPage() {
   function setB(i: number, p: Partial<BundlePlan>) {
     setBundles((prev) => prev.map((b, j) => (applyBundleColumnToAll || i === j ? { ...b, ...p } : b)));
   }
-  function setBQty(i: number, nextQtyRaw: string | number) {
-    const parsedQty = parseWholeInput(nextQtyRaw);
-    setBundles((prev) => prev.map((b, j) => {
-      if (!applyBundleColumnToAll && i !== j) return b;
-      if (parsedQty === "") return { ...b, quantity: "" };
-      const nextQty = Math.max(1, parsedQty);
-      const key = itemKey(b.color, b.size);
-      const targetQty = bundleTargetQtyByKey.get(key) ?? (Number(b.quantity || 0) * Number(b.count || 1));
-      const nextCount = Math.max(1, Math.ceil(Number(targetQty || 0) / nextQty));
-      return { ...b, quantity: nextQty, count: nextCount };
-    }));
-  }
   function addB() {
     const first = bundles[0];
     setBundles([
@@ -930,7 +930,7 @@ export default function CuttingPage() {
   }
 
   function addSplitRow() {
-    setSplitRows((prev) => [...prev, { name: `Batch ${prev.length + 1}`, planned_quantity: "", start_date: "", deadline: "", notes: "" }]);
+    setSplitRows((prev) => [...prev, { name: `Nastil ${prev.length + 1}`, planned_quantity: "", start_date: "", deadline: "", notes: "" }]);
   }
 
   function removeSplitRow(index: number) {
@@ -971,7 +971,7 @@ export default function CuttingPage() {
   function openExtraBatchForm() {
     const nextIndex = (Array.isArray(po?.batches) ? po.batches.length : 0) + 1;
     setExtraBatch({
-      name: `Extra batch ${nextIndex}`,
+      name: `Nastil ${nextIndex}`,
       planned_quantity: Math.max(0, numberOrZero(form.cut_pieces)),
       start_date: "",
       deadline: "",
@@ -1037,6 +1037,23 @@ export default function CuttingPage() {
     setBatchPlanEditErr("");
   }
 
+  async function deleteCuttingBatch(row: any) {
+    if (row.sewing_output_recorded || batchPlanEditBusy) return;
+    if (!window.confirm(t("batch.deleteConfirm", { name: row.name || row.batch_no }))) return;
+    setBatchPlanEditBusy(true);
+    setBatchPlanEditErr("");
+    try {
+      await api.del(`/api/work-orders/${id}/batches/${row.id}`);
+      setEditingBatchId(0);
+      await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles()]);
+      setDoneMsg(t("batch.deleted"));
+    } catch (error: any) {
+      setBatchPlanEditErr(error.message || t("batch.deleteFailed"));
+    } finally {
+      setBatchPlanEditBusy(false);
+    }
+  }
+
   async function saveBatchPlanEdit(row: any) {
     const batchId = Number(row?.id || 0);
     const quantityEditable = Boolean(row?.quantity_editable ?? row?.editable);
@@ -1062,6 +1079,9 @@ export default function CuttingPage() {
           notes: batchPlanEdit.notes.trim() || null,
         } : {}),
       });
+      const passport = cuttingPassports.find((item) => item.production_batch_id === batchId && !item.used_for_cutting);
+      setPassportId(passport?.id || 0);
+      setForm((current) => ({ ...current, production_batch_id: batchId }));
       await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles()]);
       cancelBatchPlanEdit();
       setDoneMsg(t("batch.planUpdated"));
@@ -1080,8 +1100,13 @@ export default function CuttingPage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (submitting) return;
     setErr("");
     setDoneMsg("");
+    if (editingBatchId || batchPlanEditBusy || extraBatchBusy) {
+      setErr(t("batch.finishEditingBeforeOutput"));
+      return;
+    }
     if (isUsluga && !form.model_bom_id) {
       setErr(t("usluga.selectCuttingFabric"));
       return;
@@ -1097,6 +1122,17 @@ export default function CuttingPage() {
     setSubmitting(true);
     try {
       const outputPieces = isSecondaryUslugaFabric ? 0 : (bundlePlanTotal > 0 ? bundlePlanTotal : numberOrZero(form.cut_pieces));
+      if (isAlreadyBatched) {
+        const selected = (po?.batches || []).find((batch: any) => Number(batch.id) === Number(form.production_batch_id));
+        if (!selected) {
+          setErr(t("batch.selectBeforeSaving", { operation: operationLabel("cutting", t).toLowerCase() }));
+          return;
+        }
+        const confirmed = await dialogs.ask(t("batch.confirmCuttingOutput", {
+          batch: formatBatchLabel(selected, po?.id), quantity: outputPieces,
+        }));
+        if (!confirmed) return;
+      }
       const normalizedBundles = (isSecondaryUslugaFabric ? [] : bundles).map((bundle) => ({
         ...bundle,
         quantity: Math.max(1, numberOrFallback(bundle.quantity, 1)),
@@ -1512,6 +1548,7 @@ export default function CuttingPage() {
                           <>
                             <div className="font-medium">{formatBatchLabel(row, po?.id)}</div>
                             <div className="text-xs text-slate-500">{formatBatchSerial(row, po?.id)}</div>
+                            {row.passport_actual_quantity != null && <div className="text-xs text-slate-500">{t("field.actualQty")}: {row.passport_actual_quantity} · {t("page.cuttingPassports.field.passportNo")}</div>}
                           </>
                         )}
                       </td>
@@ -1598,7 +1635,16 @@ export default function CuttingPage() {
                               >
                                 {t("btn.edit")}
                               </button>
-                              {!quantityEditable && (
+                              {can(me, "cutting.records", "*") && (
+                                <button type="button" className="btn text-red-600"
+                                  disabled={batchPlanEditBusy || !row.deletable}
+                                  onClick={() => deleteCuttingBatch(row)}>
+                                  {t("btn.delete")}
+                                </button>
+                              )}
+                              {row.sewing_output_recorded ? (
+                                <span className="text-xs text-slate-500">{t("batch.lockedAfterSewing")}</span>
+                              ) : !quantityEditable && (
                                 <span className="text-xs text-slate-500">{t("batch.lockedAfterBundles")}</span>
                               )}
                             </div>
@@ -1761,6 +1807,12 @@ export default function CuttingPage() {
             </button>
           </div>
         </div>
+      )}
+
+      {!isUsluga && can(me, "cutting.records", "*") && wo && po && (
+        <CuttingSewingFactory workOrderId={Number(id)} factory={po.sewing_factory_code || "MIL"}
+          locked={batchItems.some((row: any) => row.sewing_output_recorded) || (po.work_orders || []).some((row: any) => row.operation === "sewing" && (row.actual_output_qty > 0 || row.passed_qty > 0 || row.failed_qty > 0))}
+          onSaved={() => Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles()])} />
       )}
 
       {visibleBundles.length > 0 && (
@@ -2041,7 +2093,7 @@ export default function CuttingPage() {
                             <button
                               type="button"
                               className="btn btn-primary"
-                              disabled={uslugaSizeCountEditBusy || sizeCountEditTotal !== requiredSizeCountTotal}
+                              disabled={uslugaSizeCountEditBusy || sizeCountEditTotal < requiredSizeCountTotal || uslugaSizeCountEdits.some((entry) => !Number.isInteger(entry.quantity) || Number(entry.quantity) < entry.bundle_count)}
                               onClick={() => saveUslugaSizeCounts(Number(row.id))}
                             >
                               {t("common.save")}
@@ -2075,16 +2127,17 @@ export default function CuttingPage() {
       )}
 
       <form id={isUsluga ? "usluga-cutting-entry" : undefined} onSubmit={submit} className="card space-y-5 p-6">
-        {isUsluga && cuttingPassports.length > 0 && <div>
+        {cuttingPassports.length > 0 && <div>
           <label className="label">{t("passportBatch.optional")}</label>
           <select className="input" value={selectedPassportId} onChange={(event) => {
             setPassportId(Number(event.target.value));
+            const passport = cuttingPassports.find((row) => row.id === Number(event.target.value));
             passportAutofillDirtyFields.current.clear();
-            setForm((current) => ({ ...current, input_quantity: "", layer_material_kg: "", material_rolls_used: "", layup_operator_name: "", cut_pieces: "", notes: "", beika_kg: "", waste_quantity: "" }));
+            setForm((current) => ({ ...current, production_batch_id: passport?.production_batch_id || current.production_batch_id, input_quantity: "", layer_material_kg: "", material_rolls_used: "", layup_operator_name: "", cut_pieces: "", notes: "", beika_kg: "", waste_quantity: "" }));
             setCuttingMaterials((rows) => rows.map((row) => ({ ...row, quantity: "", details: emptyMaterialDetails() })));
           }}>
             <option value={0}>{t("passportBatch.withoutPassport")}</option>
-            {(cuttingPassports || []).map((passport) => <option key={passport.id} value={passport.id}>{passport.passport_no}</option>)}
+            {(cuttingPassports || []).filter((passport) => !passport.used_for_cutting).map((passport) => <option key={passport.id} value={passport.id}>{[passport.passport_no, passport.nastil_name, passport.pieces].filter((value) => value != null).join(" · ")}</option>)}
           </select>
         </div>}
         <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
@@ -2094,7 +2147,12 @@ export default function CuttingPage() {
               <select
                 className="input"
                 value={form.production_batch_id}
-                onChange={(e) => setForm({ ...form, production_batch_id: Number(e.target.value) })}
+                onChange={(e) => {
+                  const batchId = Number(e.target.value);
+                  const passport = cuttingPassports.find((row) => row.production_batch_id === batchId && !row.used_for_cutting);
+                  setPassportId(passport?.id || 0);
+                  setForm({ ...form, production_batch_id: batchId, cut_pieces: passport?.pieces ?? "" });
+                }}
               >
                 <option value={0}>{t("batch.selectBatch")}</option>
                 {(po?.batches || []).map((b: any) => (
@@ -2271,10 +2329,6 @@ export default function CuttingPage() {
               onChange={(e) => setPassportAutofillField("layup_operator_name", e.target.value)}
             />
           </div>
-          {!isSecondaryUslugaFabric && <div>
-            <label className="label">{t("field.cutPieces")}</label>
-            <input className="input" type="number" value={form.cut_pieces} onChange={(e) => setPassportAutofillField("cut_pieces", parseWholeInput(e.target.value))} />
-          </div>}
           {isSecondaryUslugaFabric && <div>
             <label className="label">{t("usluga.reportPieces")}</label>
             <input
@@ -2304,11 +2358,16 @@ export default function CuttingPage() {
             <input className="input" value={form.waste_unit} onChange={(e) => setForm({ ...form, waste_unit: e.target.value })} />
           </div>
           </>}
+          {!isSecondaryUslugaFabric && <div>
+            <label className="label">{t("field.cutPieces")}</label>
+            <input className="input" type="number" value={form.cut_pieces} onChange={(e) => setPassportAutofillField("cut_pieces", parseWholeInput(e.target.value))} />
+          </div>}
         </div>
 
         {!isSecondaryUslugaFabric && <div>
           <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
             <h3 className="font-medium">{t("page.cutting.bundlePlan")}</h3>
+            <p className="text-sm">{t("cuttingBundles.summary", { bundles: bundles.reduce((sum, row) => sum + Math.max(0, numberOrZero(row.count)), 0), items: bundlePlanTotal })}</p>
             <div className="flex flex-wrap items-center gap-3">
               <label className="flex items-center gap-2 text-sm font-medium text-[#56503f]">
                 <input
@@ -2328,8 +2387,8 @@ export default function CuttingPage() {
               <tr>
                 <th>{t("field.color")}</th>
                 <th>{t("field.size")}</th>
-                <th>{t("field.bundleQty")}</th>
-                <th>{t("field.count")}</th>
+                <th>{t("cuttingBundles.count")}</th>
+                <th>{t("cuttingBundles.itemsPerBundle")}</th>
                 <th>{t("field.sewingFactory")}</th>
                 <th>{t("field.next")}</th>
                 <th>{t("field.actions")}</th>
@@ -2340,8 +2399,8 @@ export default function CuttingPage() {
                 <tr key={i}>
                   <td><input className="input" value={b.color} onChange={(e) => setB(i, { color: e.target.value })} /></td>
                   <td><input className="input" value={b.size} onChange={(e) => setB(i, { size: e.target.value })} /></td>
-                  <td><input className="input" type="number" value={b.quantity} onChange={(e) => setBQty(i, e.target.value)} /></td>
-                  <td><input className="input" type="number" value={b.count} onChange={(e) => setB(i, { count: parseWholeInput(e.target.value) })} /></td>
+                  <td><input className="input" type="number" min={1} step={1} aria-label={t("cuttingBundles.count")} value={b.count} onChange={(e) => setB(i, { count: parseWholeInput(e.target.value) })} /></td>
+                  <td><input className="input" type="number" min={1} step={1} aria-label={t("cuttingBundles.itemsPerBundle")} value={b.quantity} onChange={(e) => setB(i, { quantity: parseWholeInput(e.target.value) })} /></td>
                   <td>
                     <select className="input" disabled={isUsluga} value={isUsluga ? "eco_cotton" : (b.sewing_factory || "milana")} onChange={(e) => setB(i, { sewing_factory: e.target.value as SewingFactory })}>
                       <option value="milana">{t("factory.milana")}</option>
@@ -2370,7 +2429,10 @@ export default function CuttingPage() {
 
         {doneMsg && <div className="rounded border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">{doneMsg}</div>}
         {err && <div className="text-sm text-red-600">{err}</div>}
-        <button className="btn btn-primary" disabled={submitting}>
+        {isAlreadyBatched && createdBundlesBatch && (
+          <p className="text-sm" role="status">{t("batch.outputTarget", { batch: createdBundlesBatchLabel })}</p>
+        )}
+        <button className="btn btn-primary" disabled={submitting || Boolean(editingBatchId) || batchPlanEditBusy || extraBatchBusy}>
           {submitting
             ? t("common.saving")
             : isSecondaryUslugaFabric
@@ -2446,14 +2508,16 @@ export default function CuttingPage() {
                     >
                       {t(isMilanaCutting && canEditBreakdown && wo?.status !== "completed" ? "page.cutting.printAndComplete" : "page.cutting.printProductionSheet")}
                     </button>
-                    <button
-                      type="button"
-                      className="btn"
-                      disabled={!visibleBundleIds}
-                      onClick={() => api.openLabel(`/api/bundles/label-sheet/by-ids?ids=${encodeURIComponent(visibleBundleIds)}`)}
-                    >
-                      {t("page.packaging.printAllLabels")}
-                    </button>
+                    {printableBundleBatches.map((batch) => (
+                      <button
+                        key={batch.batchId}
+                        type="button"
+                        className="btn"
+                        onClick={() => api.openLabel(`/api/bundles/label-sheet/by-ids?ids=${encodeURIComponent(batch.bundleIds.join(","))}`)}
+                      >
+                        {t("common.print")} — {batch.label} ({batch.bundleIds.length})
+                      </button>
+                    ))}
                   </div>
                 </div>
                 <table className="table">
@@ -2471,8 +2535,9 @@ export default function CuttingPage() {
                   <tbody>
                     {visibleBundles.map((b) => {
                       const bundleId = Number(b?.id || 0);
-                      const canAdjust = canAdjustCuttingInventoryBundle(b);
-                      const canDelete = b?.status === "created" && Number(b?.created_by || 0) === Number(me?.id || 0);
+                      const outputLocked = batchItems.some((row: any) => Number(row.id) === Number(b.production_batch_id) && row.sewing_output_recorded);
+                      const canAdjust = !outputLocked && canAdjustCuttingInventoryBundle(b);
+                      const canDelete = !outputLocked && b?.status === "created" && Number(b?.created_by || 0) === Number(me?.id || 0);
                       const isAdjusting = adjustingBundle?.bundleId === bundleId;
                       return (
                         <tr key={b.id}>

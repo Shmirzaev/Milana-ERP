@@ -12,7 +12,7 @@ const { chromium } = loadDependency(process.env.PLAYWRIGHT_MODULE_PATH || 'playw
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const files = [
   ...['en', 'ru', 'uz'].flatMap(lang => [`lib/i18n/locales/${lang}-base.ts`, `lib/i18n/locales/${lang}-supplemental.ts`]),
-  'lib/numberInput.ts', 'lib/batchSerial.ts', 'lib/orderRef.ts', 'lib/modelCode.ts', 'lib/materialComposition.ts', 'lib/modelComposition.ts',
+  'lib/variantDisplay.ts', 'lib/numberInput.ts', 'lib/batchSerial.ts', 'lib/orderRef.ts', 'lib/modelCode.ts', 'lib/materialComposition.ts', 'lib/modelComposition.ts',
   'lib/modelVariants.ts', 'lib/modelPaidOperations.ts', 'lib/processQrLabelIdentity.ts', 'lib/garmentSizes.ts',
   'components/ManualModelSizes.tsx', 'components/ProcessQrSizeEditor.tsx', 'app/(app)/process-qr/page.tsx',
 ];
@@ -52,7 +52,7 @@ function useFixtureSWR(key){
  return {...state,isLoading:!!key&&!state.data&&!state.error,mutate};
 }
 const icon=p=>React.createElement('svg',{...p,width:16,height:16});
-const modules={react:React,swr:{default:useFixtureSWR},qrcode:{default:{toDataURL:async()=>''}},
+const modules={react:React,swr:{default:useFixtureSWR,useSWRConfig:()=>({mutate:async()=>{}})},qrcode:{default:{toDataURL:async()=>''}},
  'next/link':{default:({children,...p})=>React.createElement('a',p,children)},
  'lucide-react':new Proxy({},{get:()=>icon}),
  '@/components/PaidProcessPicker':{default:()=>null},

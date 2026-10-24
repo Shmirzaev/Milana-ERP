@@ -58,8 +58,8 @@ def test_create_user_without_password_emails_setup_link(client, auth_headers, mo
         sent["setup_url"] = setup_url
         return True
 
-    monkeypatch.setattr("app.services.password_reset.secrets.token_urlsafe", lambda _: "new-user-setup-token")
-    monkeypatch.setattr("app.services.password_reset.send_password_setup_email", fake_send)
+    monkeypatch.setattr("app.models.password_reset_service.secrets.token_urlsafe", lambda _: "new-user-setup-token")
+    monkeypatch.setattr("app.models.password_reset_service.send_password_setup_email", fake_send)
 
     r = client.post(
         "/api/users",
@@ -140,7 +140,7 @@ def test_limited_user_manager_cannot_grant_extra_permissions_they_lack(client, a
 
 def test_delete_user_with_audit_history_preserves_existing_references(client, auth_headers):
     from app.db.session import SessionLocal
-    from app.models import AuditLog, Employee, Notification, PasswordResetToken, User
+    from app.schemas import AuditLog, Employee, Notification, PasswordResetToken, User
 
     r = client.post(
         "/api/users",

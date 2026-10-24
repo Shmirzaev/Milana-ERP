@@ -2,9 +2,9 @@ from decimal import Decimal
 from uuid import uuid4
 
 from app.db.session import SessionLocal
-from app.models import Brand, FinishedGoodsStock, Item, Model, StockBatch, StockMovement, Warehouse
-from app.services.finance import branded_stock_value
-from app.services.inventory import stock_summary
+from app.schemas import Brand, FinishedGoodsStock, Item, Model, StockBatch, StockMovement, Warehouse
+from app.models.finance_service import branded_stock_value
+from app.models.inventory_service import stock_summary
 
 
 def test_finance_and_stock_summary_keep_numeric_values_as_decimals(client, auth_headers):

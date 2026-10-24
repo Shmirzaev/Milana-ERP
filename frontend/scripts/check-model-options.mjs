@@ -5,6 +5,7 @@ const hook = fs.readFileSync("src/lib/useModelOptions.ts", "utf8");
 const selector = fs.readFileSync("src/components/ModelAsyncSelect.tsx", "utf8");
 const searchable = fs.readFileSync("src/components/SearchableSelect.tsx", "utf8");
 const planning = fs.readFileSync("src/app/(app)/planning/page.tsx", "utf8");
+const brandedSelector = fs.readFileSync("src/components/BrandedModelVariantSelect.tsx", "utf8");
 const cutting = fs.readFileSync("src/app/(app)/cutting-passports/page.tsx", "utf8");
 const modelDetail = fs.readFileSync("src/app/(app)/models/[id]/page.tsx", "utf8");
 const productionDetail = fs.readFileSync("src/app/(app)/production-orders/[id]/page.tsx", "utf8");
@@ -25,7 +26,9 @@ assert.match(searchable, /onLoadMore\?\./, "The selector must support bounded in
 assert.match(searchable, /const LOCAL_RENDER_PAGE_SIZE = 80;/, "Local selectors must not mount an unbounded option list.");
 assert.match(searchable, /searchKey: normalizeModelSearch/, "Local selector search text must be normalized once per option set.");
 assert.match(searchable, /visibleOptions\.map/, "Only the current local option window may be rendered.");
-assert.match(planning, /<ModelAsyncSelect[\s\S]*status="approved"/, "Planning must use the approved-model async selector.");
+assert.match(planning, /<BrandedModelVariantSelect/, "Planning must use the bounded branded-model selector.");
+assert.match(brandedSelector, /status=approved&page_size=30&page=\$\{index \+ 1\}/, "Planning model search must page approved families.");
+assert.match(brandedSelector, /disabled: variant.status !== "approved"/, "Unapproved variants must stay unselectable.");
 assert.match(productionDetail, /<ModelAsyncSelect/, "Production-order editing must use the shared async selector.");
 assert.match(newSalesOrder, /<ModelAsyncSelect/, "New client orders must use the shared async selector.");
 assert.doesNotMatch(planning, /\/api\/models\?status=approved/, "Planning must not load every approved model.");

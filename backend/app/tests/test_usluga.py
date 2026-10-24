@@ -3,8 +3,9 @@ from __future__ import annotations
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import event
 
-from app.models import (
+from app.schemas import (
     AuditLog,
     Department,
     Bundle,
@@ -24,7 +25,7 @@ from app.models import (
     User,
 )
 from app.core.security import hash_password
-from app.services.production import expand_production_size_range_items
+from app.models.production_service import expand_production_size_range_items
 from app.tests.conftest import TestSessionLocal
 
 
@@ -213,7 +214,7 @@ def test_usluga_main_batch_size_counts_update_existing_bundles_only(client):
         f"/api/cutting/records/{record_id}/usluga-size-counts",
         json={
             "sizes": [
-                {"color": "серый", "size": "M", "quantity": 9},
+                {"color": "серый", "size": "M", "quantity": 7},
                 {"color": "серый", "size": "L", "quantity": 4},
             ]
         },
@@ -301,10 +302,24 @@ def test_reject_usluga_cutting_batch_permanently_deletes_unused_record_and_bundl
     bundle_ids = [int(row["id"]) for row in created.json()["bundles"]]
     assert len(bundle_ids) == 2
 
-    rejected = client.post(
-        f"/api/cutting/records/{record_id}/reject-usluga-batch",
-        json={"reason": "Wrong Cutting attempt"},
-    )
+    # Rejection inspects every bundle's scan history. The relationship must
+    # be loaded once for the batch rather than issuing one SELECT per bundle.
+    with TestSessionLocal() as db:
+        statements = []
+
+        def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().lower().startswith("select") and "bundle_scan_logs" in statement.lower():
+                statements.append(statement)
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            rejected = client.post(
+                f"/api/cutting/records/{record_id}/reject-usluga-batch",
+                json={"reason": "Wrong Cutting attempt"},
+            )
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+    assert len(statements) == 1
     assert rejected.status_code == 200, rejected.text
     assert rejected.json() == {
         "id": record_id,

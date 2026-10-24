@@ -8,7 +8,7 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy import select
 
-from app.models import BusinessOrderAlias, Model, ProductionOrder, SalesOrder, PayrollQrLabel, PayrollRecord, Employee, Bundle, BrandedPlanningOrder
+from app.schemas import BusinessOrderAlias, Model, ProductionOrder, SalesOrder, PayrollQrLabel, PayrollRecord, Employee, Bundle, BrandedPlanningOrder
 from app.tests.conftest import TestSessionLocal
 
 path = Path(__file__).resolve().parents[2] / "alembic" / "versions" / "0119_canonical_order_references.py"

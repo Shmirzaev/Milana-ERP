@@ -1,7 +1,7 @@
 from copy import deepcopy
 from uuid import uuid4
 
-from app.models import Department, Model, Role
+from app.schemas import Department, Model, Role
 from app.tests.conftest import TestSessionLocal
 
 

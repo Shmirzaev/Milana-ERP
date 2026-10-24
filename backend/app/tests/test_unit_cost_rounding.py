@@ -8,14 +8,14 @@ from sqlalchemy import event
 
 from app.core.costs import round_unit_cost
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     AuditLog, IdempotencyRecord, Item, Model, ProductionOrder, PurchaseOrder,
     PurchaseOrderLine, StockBatch, StockMovement, User, Warehouse,
 )
-from app.schemas.inventory import AccessoryReturnIn, ItemIn, StockBatchIn, StockBatchUpdate
-from app.schemas.purchasing import PurchaseOrderLineIn, PurchaseOrderReceiveLineIn
-from app.services.idempotency import request_fingerprint
-from app.services.purchasing import create_purchase_order, receive_purchase_order
+from app.libs.dto.inventory.inventory import AccessoryReturnIn, ItemIn, StockBatchIn, StockBatchUpdate
+from app.libs.dto.purchasing.purchasing import PurchaseOrderLineIn, PurchaseOrderReceiveLineIn
+from app.models.idempotency_service import request_fingerprint
+from app.models.purchasing_service import create_purchase_order, receive_purchase_order
 
 
 INVALID_COSTS = [-0.00001, "NaN", "Infinity", "-Infinity", True, False,
@@ -273,7 +273,8 @@ def test_receipt_replays_legacy_float_fingerprint_without_duplicate_stock(client
     legacy_payload.pop("length_m")
     legacy_payload.pop("roll_lengths_m")
     with SessionLocal() as db:
-        record = db.query(IdempotencyRecord).filter_by(scope="inventory.receive", key=key).one()
+        record = db.query(IdempotencyRecord).filter_by(key=key).one()
+        assert record.scope.startswith("inventory.receive:v2:")
         assert record.request_hash == request_fingerprint(legacy_payload)
         before = _counts(db)
     replay = client.post("/api/inventory/receive", headers=headers, json=payload)

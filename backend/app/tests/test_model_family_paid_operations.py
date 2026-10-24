@@ -1,7 +1,7 @@
 from copy import deepcopy
 
-from app.models import AuditLog, Item, Model, ModelBOM, SewingFlow
-from app.services.paid_operations import filter_paid_operations_for_factory
+from app.schemas import AuditLog, Item, Model, ModelBOM, SewingFlow
+from app.models.paid_operations_service import filter_paid_operations_for_factory
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_paid_operation_factory_scope import _create_payroll_manager, _operation
 from app.tests.test_payroll import _create_employee

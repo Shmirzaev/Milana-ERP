@@ -1,7 +1,7 @@
 import pytest
 from app.tests.test_sewing_assignment_return import make_assignment
 from app.tests.conftest import TestSessionLocal
-from app.models import (SewingRecord, SewingAssignment, WorkOrder, AuditLog, Department,
+from app.schemas import (SewingRecord, SewingAssignment, WorkOrder, AuditLog, Department,
                         PackagingReceipt, SewingReplacementRequest, Role, User)
 from app.main import app
 from app.core.deps import get_current_user
@@ -92,7 +92,7 @@ def test_correction_rejects_malformed_size_rows_before_writes(client, auth_heade
 
 
 def test_correction_keeps_duplicate_size_aggregation_and_explicit_clear(client, auth_headers):
-    from app.models import ProductionOrder, ProductionOrderItem
+    from app.schemas import ProductionOrder, ProductionOrderItem
 
     rid, wid, _ = setup_record()
     with TestSessionLocal() as db:
@@ -172,7 +172,7 @@ def test_legacy_assignment_safe_inference(client, auth_headers):
 
 @pytest.mark.parametrize("batched", [False, True])
 def test_input_increase_uses_actual_upstream_not_plan(client, auth_headers, batched):
-    from app.models import ProductionBatch, CuttingRecord
+    from app.schemas import ProductionBatch, CuttingRecord
     rid, wid, aid = setup_record()
     with TestSessionLocal() as db:
         wo = db.get(WorkOrder, wid)

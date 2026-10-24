@@ -13,7 +13,7 @@ import { can, useMe } from "@/lib/auth";
 import { storageThumbnailUrl } from "@/lib/modelImages";
 import WarehouseMap from "@/components/WarehouseMap";
 import ManualPackageReceipt from "@/components/ManualPackageReceipt";
-import PackagePrintRuns from "@/components/PackagePrintRuns";
+import ReceivePackages from "@/components/ReceivePackages";
 import { packageWorkflowCopy, type PackagePrintRun } from "@/lib/packageWorkflow";
 
 type ScannedPackage = {
@@ -67,7 +67,6 @@ const BLOCKED_MAP_MOVE_STATUSES = new Set(["shipped", "delivered", "damaged"]);
 export default function ScanPackagePage() {
   const { lang } = useT();
   const copy = packageWorkflowCopy[lang];
-  const [runRefresh, setRunRefresh] = useState(0);
   const { t } = useT();
   const { me } = useMe();
   const codeInputRef = useRef<HTMLInputElement>(null);
@@ -140,7 +139,7 @@ export default function ScanPackagePage() {
           const ids = new Set(result.packages.map(p => p.id));
           setScannedPackages(previous => [...result.packages, ...previous.filter(p => !ids.has(p.id))]);
           setSelectedIds([]); setActivePackageId(result.packages[0]?.id || null);
-          setCode(""); setRunRefresh(value => value + 1);
+          setCode("");
           setMsg(`${copy.runReceived}: ${result.run_no} (${result.count})`);
           await mutateMap();
           return;
@@ -260,14 +259,14 @@ export default function ScanPackagePage() {
     <div>
       <PageHeader title={t("page.packageScan.title")} subtitle={t("page.packageScan.subtitle")} />
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <ManualPackageReceipt onCreated={() => { setRunRefresh(value => value + 1); void mutateMap(); }} />
+        <ReceivePackages />
+        <ManualPackageReceipt onCreated={() => { void mutateMap(); }} />
         <button className="btn" type="button" disabled={!selectedIds.length} onClick={async () => {
           try { await api.openLabel(`/api/packages/label-sheet/by-ids?ids=${selectedIds.join(",")}`); }
           catch (e: any) { setMsg(e.message); }
         }}>{copy.printSelected}</button>
       </div>
       <p className="mb-4 text-sm">{copy.scanHint}</p>
-      <PackagePrintRuns refreshKey={runRefresh} />
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[minmax(560px,700px)_minmax(0,1fr)]">
         <div className="space-y-4">
           <div className="card p-4">
@@ -355,14 +354,14 @@ export default function ScanPackagePage() {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="table min-w-[680px]">
+              <table className="table min-w-[960px]">
                 <thead>
                   <tr>
                     <th className="w-10">{t("field.actions")}</th>
                     <th>{t("field.packageNo")}</th>
                     <th>{t("field.orderNo")}</th>
-                    <th>{t("field.model")}</th>
-                    <th>{t("field.qty")}</th>
+                    <th className="min-w-[280px]">{t("field.model")}</th>
+                    <th className="text-right">{t("field.qty")}</th>
                     <th>{t("field.status")}</th>
                     <th>{t("field.cell")}</th>
                     <th className="text-right">{t("common.remove")}</th>
@@ -392,22 +391,22 @@ export default function ScanPackagePage() {
                           <div className="text-xs text-[#8a8472]">{formatOrderReference(pkg.production_no || "-")}</div>
                         </td>
                         <td>
-                          <div className="flex items-center gap-2">
+                          <div className="flex min-w-0 items-center gap-3">
                             {imageUrl ? (
-                              <img src={imageUrl} alt={pkg.model_name || pkg.model_code || ""} className="h-12 w-12 rounded-md border border-[#e3dfd3] object-cover" />
+                              <img src={imageUrl} alt={pkg.model_name || pkg.model_code || ""} className="h-12 w-12 shrink-0 rounded-md border border-[#e3dfd3] object-contain" />
                             ) : (
-                              <div className="flex h-12 w-12 items-center justify-center rounded-md border border-[#e3dfd3] bg-[#f8f6ef] text-[10px] text-[#8a8472]">
+                              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-[#e3dfd3] bg-[#f8f6ef] text-[10px] text-[#8a8472]">
                                 {t("page.packageScan.noImage")}
                               </div>
                             )}
-                            <div>
-                              <div className="max-w-[220px] truncate font-medium text-[#14110b]" title={packageModelLabel(pkg)}>{packageModelLabel(pkg)}</div>
+                            <div className="min-w-0 max-w-[260px]">
+                              <div className="whitespace-normal break-words font-medium text-[#14110b]" title={packageModelLabel(pkg)}>{packageModelLabel(pkg)}</div>
                               <div className="text-xs text-[#8a8472]">{pkg.color || "-"}</div>
                             </div>
                           </div>
                         </td>
-                        <td>{Number(pkg.total_quantity || 0)}</td>
-                        <td><span className="badge">{statusLabel(pkg.status, t)}</span></td>
+                        <td className="text-right tabular-nums whitespace-nowrap">{Number(pkg.total_quantity || 0)}</td>
+                        <td><span className="badge whitespace-nowrap">{statusLabel(pkg.status, t)}</span></td>
                         <td>{pkg.storage_cell ? `${pkg.storage_cell}/${pkg.storage_shelf || "S1"}` : "-"}</td>
                         <td className="text-right">
                           <button

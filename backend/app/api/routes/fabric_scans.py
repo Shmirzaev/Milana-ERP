@@ -11,10 +11,10 @@ from sqlalchemy import case, func
 from sqlalchemy.exc import IntegrityError
 
 from app.core.deps import DbSession, require_permissions
-from app.models import StockBatch, User
-from app.models.fabric_scan import FabricScan
-from app.services.factory_scope import cutting_department_scope
-from app.services.inventory_access import MATERIAL_CATEGORIES
+from app.schemas import StockBatch, User
+from app.schemas.inventory.fabric_scan import FabricScan
+from app.models.factory_scope_service import cutting_department_scope
+from app.models.inventory_access_service import MATERIAL_CATEGORIES
 
 router = APIRouter(prefix="/fabric-scans", tags=["fabric_scan_register"])
 scan_access = require_permissions("cutting.records", "cutting.bundles", "storage.receive", "storage.items")

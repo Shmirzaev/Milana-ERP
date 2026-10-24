@@ -1,4 +1,5 @@
 export type CuttingPassportAutofillSource = {
+  meter_mode?: boolean;
   layer_weight_kg?: number | null;
   total_layers?: number | null;
   planned_kg?: number | null;
@@ -45,7 +46,7 @@ function roundKg(value: number): number {
 export function primaryMaterialKgFromPassport(
   passport: CuttingPassportAutofillSource | null | undefined,
 ): number | null {
-  if (!passport) return null;
+  if (!passport || passport.meter_mode) return null;
   const layerWeight = positiveNumber(passport.layer_weight_kg);
   const totalLayers = positiveNumber(passport.total_layers);
   const scrapKg = nonNegativeNumber(passport.scrap_kg) ?? 0;
@@ -60,7 +61,7 @@ export function wasteKgFromPassport(
   passport: CuttingPassportAutofillSource | null | undefined,
   inputQuantity: number,
 ): number | null {
-  if (!passport) return null;
+  if (!passport || passport.meter_mode) return null;
   const wastePct = positiveNumber(passport.waste_pct);
   const issuedKg = positiveNumber(passport.planned_kg);
   const baseKg = inputQuantity > 0 ? inputQuantity : (issuedKg ?? 0);
@@ -84,7 +85,7 @@ export function cuttingPassportAutofillValues(
   const notes = String(passport.notes || "").trim();
 
   if (inputQuantity !== null) values.input_quantity = inputQuantity;
-  if (layerWeight !== null) values.layer_material_kg = layerWeight;
+  if (layerWeight !== null && !passport.meter_mode) values.layer_material_kg = layerWeight;
   if (rollsCount !== null) values.material_rolls_used = rollsCount;
   if (operatorName) values.layup_operator_name = operatorName;
   if (pieces !== null) values.cut_pieces = Math.floor(pieces);
@@ -95,7 +96,7 @@ export function cuttingPassportAutofillValues(
 export function beikaKgFromPassport(
   passport: CuttingPassportAutofillSource | null | undefined,
 ): number | null {
-  if (!passport) return null;
+  if (!passport || passport.meter_mode) return null;
   const quantities = [passport.total_beka_kg, passport.other_beka_kg]
     .map(positiveNumber)
     .filter((quantity): quantity is number => quantity !== null);

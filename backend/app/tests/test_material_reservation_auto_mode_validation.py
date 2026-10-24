@@ -1,9 +1,9 @@
-from app.schemas.inventory import MaterialReservationAutoIn
+from app.libs.dto.inventory.inventory import MaterialReservationAutoIn
 from app.tests.conftest import TestSessionLocal
 
 
 def _write_state():
-    from app.models import AuditLog, IdempotencyRecord, MaterialReservation, StockMovement
+    from app.schemas import AuditLog, IdempotencyRecord, MaterialReservation, StockMovement
 
     with TestSessionLocal() as db:
         return (

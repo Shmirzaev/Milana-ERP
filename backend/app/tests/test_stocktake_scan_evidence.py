@@ -10,8 +10,8 @@ from alembic.operations import Operations
 from sqlalchemy import create_engine, event, text
 
 from app.db.session import SessionLocal
-from app.models import Model, Package, PackageItem
-from app.models.stocktake import WarehouseStocktakeRow
+from app.schemas import Model, Package, PackageItem
+from app.schemas.inventory.stocktake import WarehouseStocktakeRow
 from app.tests.test_warehouse_stocktake import BASE, business_fingerprint, detail, scan, start
 from app.tests.test_warehouse_stocktake import packs as packs
 

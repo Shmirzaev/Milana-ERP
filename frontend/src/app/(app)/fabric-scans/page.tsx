@@ -3,7 +3,7 @@ import { ApiError } from "@/lib/errorMessages";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Camera, Download, RefreshCw } from "lucide-react";
-import useSWR from "swr";
+import useLoadMore from "@/lib/useLoadMore";
 import PageHeader from "@/components/PageHeader";
 import PaginationControls from "@/components/PaginationControls";
 import FabricRollCamera from "@/components/FabricRollCamera";
@@ -32,10 +32,11 @@ export default function FabricScansPage() {
   useEffect(() => () => clearTimeout(scanTimer.current), []);
   const permitted = me?.factory_code !== "BST" && can(me, ...FABRIC_REPORT_PERMISSIONS);
   const canScan = permitted && can(me, ...FABRIC_SCAN_PERMISSIONS);
-  const { data, error, isLoading, isValidating, mutate } = useSWR<FabricReport>(
+  const listPager = useLoadMore<FabricReport>(
     permitted && day ? [`/api/fabric-scans?report_date=${day}&page=${page}&page_size=${pageSize}`, me?.factory_code] : null,
     ([url]: [string, string]) => fetcher(url), { shouldRetryOnError: false, refreshInterval: 30000 },
   );
+  const { data, error, isLoading, isValidating, mutate } = listPager;
   const time = new Intl.DateTimeFormat(lang, { timeZone: "Asia/Tashkent", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
   function save(value: string, action = direction): Promise<void> {
@@ -140,8 +141,8 @@ export default function FabricScansPage() {
               <td className="whitespace-nowrap px-4 py-3">{time.format(new Date(row.scanned_at))}</td><td className="px-4 py-3">{t(`fabricScans.${row.direction}`)}</td><td className="min-w-40 px-4 py-3">{row.fabric_name}</td><td className="px-4 py-3">{row.batch_no}</td><td className="px-4 py-3">{row.roll_number}</td><td className="px-4 py-3">{row.operator_name}</td>
             </tr>)}</tbody>
           </table></div>
-          <PaginationControls page={page} pageSize={pageSize} total={data.total} count={data.rows.length} onPageChange={setPage}
-            onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} pageSizeOptions={[25, 50, 100, 200]} />
+          <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()} page={page} pageSize={pageSize} total={data.total} count={data.rows.length} onPageChange={setPage}
+            onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} />
         </>}
       </>}
     </section>

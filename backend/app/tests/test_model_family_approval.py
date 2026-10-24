@@ -1,5 +1,5 @@
 from app.db.session import SessionLocal
-from app.models import Item, Model, ModelBOM
+from app.schemas import Item, Model, ModelBOM
 
 
 def family():
@@ -46,7 +46,7 @@ def test_one_approval_covers_existing_and_future_variants(client, auth_headers):
     created = production(future["id"])
     assert created.status_code == 201, created.text
     with SessionLocal() as db:
-        from app.models import WorkOrder
+        from app.schemas import WorkOrder
         assert db.query(WorkOrder).filter(WorkOrder.production_order_id == created.json()["id"]).count() > 0
 
 
@@ -75,7 +75,7 @@ def test_legacy_sibling_approval_is_inherited_without_approving_base(client, aut
 def test_approval_permission_and_family_scope(client, auth_headers):
     base, first, second = family()
     with SessionLocal() as db:
-        from app.models import User
+        from app.schemas import User
         modeler = db.query(User).filter(User.email == "modeling@example.com").one()
         modeler.role.permissions = ["modeling.models"]
         modeler.extra_permissions = []
@@ -101,7 +101,7 @@ def test_usluga_family_validates_all_main_fabrics_before_approval(client, auth_h
     import pytest
     from fastapi import HTTPException
     from app.api.routes.catalog import approve_model
-    from app.models import User
+    from app.schemas import User
     with SessionLocal() as db:
         actor = db.query(User).filter(User.email == "admin@example.com").one()
         rows = [Model(code="USAPP900" + suffix, name="Service family", status="draft",

@@ -17,7 +17,7 @@ from app.api.routes import waste
 from app.core.security import create_access_token
 from app.db.base import Base
 from app.db.session import SessionLocal
-from app.models import AuditLog, User, WasteDisposalRequest, WasteRecord
+from app.schemas import AuditLog, User, WasteDisposalRequest, WasteRecord
 
 
 def _actor(permissions=("waste.receive", "waste.disposal", "management.approve"), session_factory=SessionLocal):

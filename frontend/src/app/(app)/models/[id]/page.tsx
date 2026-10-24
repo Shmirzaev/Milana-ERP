@@ -119,6 +119,7 @@ type FabricVariant = {
   variant_no?: string | null;
   fabric?: string | null;
   picture_url?: string | null;
+  print_picture_url?: string | null;
   fabric_item_id?: number | null;
   color?: string | null;
   selling_price?: number | null;
@@ -206,14 +207,25 @@ export default function ModelDetail() {
     },
     fetcher,
   );
-  const { data: items } = useSWR<any[]>(`${modelApiBase}/bom-items`, fetcher);
-  const { data: brands } = useSWR<any[]>("/api/brands", fetcher);
-  const { data: seasons } = useSWR<string[]>("/api/collections/seasons", fetcher);
-  const { data: employees } = useSWR<any[]>("/api/employees", fetcher);
-  const { data: depts } = useSWR<any[]>("/api/departments", fetcher);
   const tabs = TAB_KEYS.map((k) => t(k));
 
   const [tab, setTab] = useState(1);
+  // BOM items and seasons were fetched on every page load, including for the tabs that
+  // never render them. SWR skips a null key, so these are requested only for the tabs
+  // that read them. Tab 3 is "materials" and tab 6 is "other", which is the second place
+  // that splits BOM rows into fabrics and accessories - gating on tab 3 alone would leave
+  // that panel showing every row as a fabric.
+  const needsBomItems = tab === 3 || tab === 6;
+  const { data: items } = useSWR<any[]>(needsBomItems ? `${modelApiBase}/bom-items` : null, fetcher);
+  const { data: brands } = useSWR<any[]>("/api/brands", fetcher);
+  // The season picker is rendered in the general tab only.
+  const { data: seasons } = useSWR<string[]>(tab === 1 ? "/api/collections/seasons" : null, fetcher);
+  // Employees stay unconditional: saveModel resolves the already-selected constructor
+  // and designer from this list, so deferring it could clear a value the operator never
+  // edited. Bounding this list needs a searchable endpoint, which is PERF35-HR.
+  const { data: employees } = useSWR<any[]>("/api/employees", fetcher);
+  const { data: depts } = useSWR<any[]>("/api/departments", fetcher);
+
   const [msg, setMsg] = useState("");
   const [isCloning, setIsCloning] = useState(false);
   const [showVariantForm, setShowVariantForm] = useState(false);
@@ -221,7 +233,7 @@ export default function ModelDetail() {
   const [savingVariant, setSavingVariant] = useState(false);
   const [editingVariantId, setEditingVariantId] = useState<number | null>(null);
   const [deletingVariantId, setDeletingVariantId] = useState<number | null>(null);
-  const [variantForm, setVariantForm] = useState({ variant_no: "", color: "", picture_url: "" });
+  const [variantForm, setVariantForm] = useState({ variant_no: "", color: "", picture_url: "", print_picture_url: "" });
   const [suggestedVariantNo, setSuggestedVariantNo] = useState("");
   const [automaticModelPrefix, setAutomaticModelPrefix] = useState("");
   const [modelNumberPrefixes, setModelNumberPrefixes] = useState<string[]>([]);
@@ -229,6 +241,7 @@ export default function ModelDetail() {
     isNewModel ? `${modelApiBase}/next-number?prefix=${encodeURIComponent(automaticModelPrefix || "XJ")}` : null,
     fetcher,
   );
+  const [variantPrintFile, setVariantPrintFile] = useState<File | null>(null);
   const [variantPictureFile, setVariantPictureFile] = useState<File | null>(null);
 
   const [modelForm, setModelForm] = useState<ModelFormState>({
@@ -474,10 +487,7 @@ export default function ModelDetail() {
   })), [accessoryItems]);
   const sizeRows = m?.sizes || [];
   const colorRows = m?.colors || [];
-  const primaryImage = (m?.images || []).find((img: any) => img.is_primary && img.image_type === "model")
-    || (m?.images || []).find((img: any) => img.is_primary)
-    || (m?.images || []).find((img: any) => img.image_type === "model")
-    || (m?.images || [])[0];
+  const primaryImage = m?.primary_image;
   const translatedName = details.translation?.[lang] || (lang === "ru" ? details.translation?.ru : "") || m?.name || "";
   const qolipNoValue = String(
     details.general?.qolip_no
@@ -710,9 +720,10 @@ export default function ModelDetail() {
   }
 
   function resetVariantForm() {
-    setVariantForm({ variant_no: "", color: "", picture_url: "" });
+    setVariantForm({ variant_no: "", color: "", picture_url: "", print_picture_url: "" });
     setSuggestedVariantNo("");
     setVariantPictureFile(null);
+    setVariantPrintFile(null);
     setEditingVariantId(null);
     setShowVariantForm(false);
   }
@@ -731,9 +742,11 @@ export default function ModelDetail() {
         variant_no: nextVariantNo,
         color: "",
         picture_url: "",
+        print_picture_url: "",
       });
       setSuggestedVariantNo(nextVariantNo);
       setVariantPictureFile(null);
+      setVariantPrintFile(null);
       setEditingVariantId(null);
       setShowVariantForm(true);
     } catch (e: any) {
@@ -751,8 +764,10 @@ export default function ModelDetail() {
       variant_no: String(variant.variant_no || "").trim(),
       color: String(variant.color || "").trim(),
       picture_url: String(variant.picture_url || ""),
+      print_picture_url: String(variant.print_picture_url || ""),
     });
     setVariantPictureFile(null);
+    setVariantPrintFile(null);
     setEditingVariantId(variantId);
     setShowVariantForm(true);
   }
@@ -780,11 +795,17 @@ export default function ModelDetail() {
         const uploaded = await api.postForm<{ file_url: string }>(`${modelApiBase}/${uploadModelId}/bom-photo/upload`, form);
         uploadedPictureUrl = String(uploaded.file_url || "").trim();
       }
-      const payload: { variant_no?: string; color?: string; picture_url?: string } = {};
+      const payload: { variant_no?: string; color?: string; picture_url?: string; print_picture_url?: string } = {};
       const useAutomaticVariantNumber = !editingVariantId && variantNo === suggestedVariantNo;
       if (!useAutomaticVariantNumber) payload.variant_no = variantNo;
       if (variantForm.color.trim()) payload.color = variantForm.color.trim();
       if (uploadedPictureUrl) payload.picture_url = uploadedPictureUrl;
+      if (variantPrintFile) {
+        const printForm = new FormData();
+        printForm.append("file", variantPrintFile);
+        const uploaded = await api.postForm<{ file_url: string }>(`${modelApiBase}/${editingVariantId || Number(id)}/bom-photo/upload`, printForm);
+        payload.print_picture_url = uploaded.file_url;
+      }
       if (editingVariantId) {
         await api.patch(`${modelApiBase}/${id}/variants/${editingVariantId}`, payload);
       } else {
@@ -1543,6 +1564,17 @@ export default function ModelDetail() {
                         </div>
                       )}
                     </div>
+                    <div>
+                      <label className="btn cursor-pointer">
+                        {t("page.modelDetail.addPrint")}
+                        <input type="file" className="sr-only" accept="image/png,image/jpeg,image/webp,image/gif"
+                          disabled={savingVariant} onChange={(event) => setVariantPrintFile(event.target.files?.[0] || null)} />
+                      </label>
+                      {variantPrintFile && <span className="ml-2 text-sm">{variantPrintFile.name}</span>}
+                      {variantForm.print_picture_url && <a href={imagePreviewHref(variantForm.print_picture_url, t("page.modelDetail.printPicture"))} target="_blank" rel="noreferrer">
+                        <img src={storageThumbnailUrl(variantForm.print_picture_url, 160)} alt={t("page.modelDetail.printPicture")} className="h-14 w-14 object-contain" />
+                      </a>}
+                    </div>
                     <button className="btn btn-primary" type="submit" disabled={savingVariant}>
                       {savingVariant ? t("common.saving") : editingVariantId ? t("page.modelDetail.saveVariant") : t("page.modelDetail.createVariant")}
                     </button>
@@ -1568,6 +1600,7 @@ export default function ModelDetail() {
                 <thead>
                   <tr>
                     <th>{t("field.picture")}</th>
+                    <th>{t("page.modelDetail.printPicture")}</th>
                     <th>{t("field.variantNo")}</th>
                     <th>{t("page.cuttingPassports.field.fabric")}</th>
                     <th>{t("page.priceCalculation.sellingPrice")}</th>
@@ -1591,6 +1624,9 @@ export default function ModelDetail() {
                             </div>
                           )}
                         </td>
+                        <td>{v.print_picture_url ? <a href={imagePreviewHref(v.print_picture_url, t("page.modelDetail.printPicture"))} target="_blank" rel="noreferrer">
+                          <img src={storageThumbnailUrl(v.print_picture_url, 160)} alt={t("page.modelDetail.printPicture")} className="h-14 w-14 object-contain" />
+                        </a> : "-"}</td>
                         <td>
                           {variantId ? (
                             <Link href={`${modelPageBase}/${variantId}`} className="font-medium text-brand-600 hover:underline">

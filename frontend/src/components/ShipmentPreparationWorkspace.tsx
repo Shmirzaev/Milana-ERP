@@ -73,7 +73,7 @@ type PreparationPackage = {
   location?: string | null;
   scanned: boolean;
   items: Array<{ color?: string | null; size?: string | null; quantity: number }>;
-  quantity_items?: Array<{ item_id: number; color: string; size: string; quantity: number }>;
+  quantity_items?: Array<{ item_id: number; color: string; size: string; quantity: number; available_quantity?: number }>;
 };
 
 export type ShipmentPreparation = {

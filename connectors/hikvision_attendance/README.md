@@ -39,6 +39,14 @@ For routine operation, execute `scheduled` every minute. Events use a five-minut
 overlap and ERP-side unique IDs, so retries are safe. Profiles and photos refresh
 once every 24 hours.
 
+Every roster and event upload includes a timezone-aware `source_snapshot_at`
+captured by this connector before it reads the device. ERP uses that explicit
+capture time to reject late older rosters and stale device metadata; it does not
+depend on any undocumented Hikvision or Dahua sequence field. Event rows remain
+append-only even when their accompanying metadata is stale. Once a device has
+sent an explicitly versioned upload, unversioned roster uploads are acknowledged
+but ignored so an older legacy payload cannot replace current presence state.
+
 On Windows, `setup_windows.ps1 -RegisterTask` creates a current-user scheduled
 task and stores both passwords with Windows DPAPI. The plaintext secrets exist
 only in the connector process environment while a sync is running.

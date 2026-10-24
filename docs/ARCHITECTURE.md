@@ -1,6 +1,8 @@
 # Milana ERP Architecture
 
-This document captures the current production shape of the system. Update it whenever deployment topology, authentication, storage, or trust boundaries change.
+This document describes system topology and trust boundaries, not proof that every
+legacy route already follows the target layering. Use [the backend guide](../backend/app/README.md)
+and [shared skills](AGENT_SKILLS.md) for implementation discipline. Update it whenever deployment topology, authentication, storage, or trust boundaries change.
 
 ## System Context
 
@@ -109,7 +111,7 @@ Audit rows store `prev_hash` and `entry_hash`. This provides tamper evidence for
 - Frontend: Next.js App Router on the production frontend VM.
 - Backend: FastAPI, SQLAlchemy, Alembic, deployed as a release-tagged Docker service on the production backend VM.
 - The canonical topology and release procedure are defined in `DEPLOYMENT.md`.
-- Database: PostgreSQL in production, SQLite only for tests.
+- Database: PostgreSQL in production and isolated database-specific tests; SQLite in the default backend test fixtures.
 - Auth: HttpOnly cookie for browser sessions; bearer token endpoint for machine clients.
 - Authorization: role permissions stored as JSON strings with `*` as superadmin wildcard.
 - Files: generated barcodes/model files/sales-order attachments in backend storage paths.

@@ -7,7 +7,7 @@ from openpyxl import load_workbook
 from sqlalchemy import event, func
 
 from app.core.security import create_access_token
-from app.models import (
+from app.schemas import (
     AuditLog,
     Brand,
     CuttingPassport,
@@ -185,7 +185,7 @@ def test_report_counts_actual_packages_once_and_uses_tashkent_creation_date(clie
 
 @pytest.mark.parametrize("lang", ["en", "ru", "uz"])
 def test_excel_matches_report_and_preserves_unknowns_and_literal_text(client, auth_headers, report_data, lang):
-    from app.services.packaging_report_exports import TEXT
+    from app.models.packaging_report_exports_service import TEXT
 
     response = client.get("/api/packaging/reports/export.xlsx", params={**PARAMS, "lang": lang}, headers=auth_headers)
     assert response.status_code == 200, response.text
@@ -264,5 +264,5 @@ def test_empty_invalid_and_oversized_reports(client, auth_headers, report_data, 
         headers=auth_headers,
     )
     assert empty.status_code == 200 and empty.json()["daily"] == []
-    monkeypatch.setattr("app.services.packaging_reports.MAX_REPORT_PACKAGES", 1)
+    monkeypatch.setattr("app.models.packaging_reports_service.MAX_REPORT_PACKAGES", 1)
     assert client.get("/api/packaging/reports", params=PARAMS, headers=auth_headers).status_code == 413

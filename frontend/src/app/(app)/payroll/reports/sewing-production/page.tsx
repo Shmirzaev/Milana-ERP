@@ -3,6 +3,7 @@ import { ApiError } from "@/lib/errorMessages";
 
 import { useMemo, useState } from "react";
 import useSWR from "swr";
+import useLoadMore from "@/lib/useLoadMore";
 import { Download, Filter, Printer, RotateCcw } from "lucide-react";
 
 import PageHeader from "@/components/PageHeader";
@@ -22,7 +23,7 @@ import {
   type SewingProductionReportRow,
 } from "@/lib/sewingProductionReport";
 
-const PAGE_SIZE = 100;
+const PAGE_SIZE = 50;
 
 function localDateTime(date: Date, endOfDay = false): string {
   const local = new Date(date);
@@ -122,10 +123,11 @@ export default function SewingProductionReportPage() {
     },
     [applied, page, pageSize, reportView],
   );
-  const { data, error, isLoading } = useSWR<SewingProductionReportResponse>(
+  const listPager = useLoadMore<SewingProductionReportResponse>(
     `/api/payroll/reports/sewing-production?${query}`,
     fetcher,
   );
+  const { data, error, isLoading } = listPager;
   const optionQuery = draft.factoryCode
     ? `?factory_code=${encodeURIComponent(draft.factoryCode)}`
     : "";
@@ -135,7 +137,7 @@ export default function SewingProductionReportPage() {
   );
 
   const reportRows = printRows || data?.items || [];
-  const rowOffset = printRows ? 0 : (page - 1) * pageSize;
+  const rowOffset = 0;
   const options = scopedOptions;
   const printSummary = {
     qrCount: printRows ? reportRows.length : Number(data?.total || 0),
@@ -274,7 +276,7 @@ export default function SewingProductionReportPage() {
         {(["details", "salary"] as const).map((view) => (
           <button key={view} type="button" aria-pressed={reportView === view} disabled={Boolean(action)}
             className={`border-b-2 px-1 py-3 text-sm ${reportView === view ? "border-[#14110b] font-semibold" : "border-transparent text-[#8a8472]"}`}
-            onClick={() => { setReportView(view); setPage(1); setActionError(""); }}>
+            onClick={() => { setReportView(view); setDraft(current => ({ ...current, sewingLine: "" })); setApplied(current => ({ ...current, sewingLine: "" })); setPage(1); setActionError(""); }}>
             {t(view === "salary" ? "page.sewingReport.salarySummary" : "page.sewingReport.scanDetails")}
           </button>
         ))}
@@ -348,11 +350,11 @@ export default function SewingProductionReportPage() {
           />
           <ReportFilterSelect
             id="sewing-report-line"
-            label={t("page.sewingReport.line")}
+            label={reportView === "salary" ? (lang === "ru" ? "Мастер" : "Master") : t("page.sewingReport.line")}
             value={draft.sewingLine}
-            options={options?.sewing_lines || []}
-            allLabel={t("page.sewingReport.allLines")}
-            searchPlaceholder={t("page.sewingReport.searchLine")}
+            options={(reportView === "salary" ? options?.salary_masters : options?.sewing_lines) || []}
+            allLabel={reportView === "salary" ? (lang === "ru" ? "Все мастера" : lang === "uz" ? "Barcha masterlar" : "All Masters") : t("page.sewingReport.allLines")}
+            searchPlaceholder={reportView === "salary" ? (lang === "ru" ? "Поиск мастера" : lang === "uz" ? "Masterni qidirish" : "Search Masters") : t("page.sewingReport.searchLine")}
             noResultsText={t("page.sewingReport.noFilterOptions")}
             onChange={(value) => update("sewingLine", value)}
           />
@@ -410,7 +412,7 @@ export default function SewingProductionReportPage() {
         </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-3 no-print">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 no-print">
         <div className="kpi-card">
           <div className="label">{t("page.sewingReport.records")}</div>
           <div className="text-2xl font-semibold tabular-nums">{Number(data?.total || 0).toLocaleString(lang)}</div>
@@ -426,6 +428,10 @@ export default function SewingProductionReportPage() {
               ? t("page.sewingReport.separateCurrencies")
               : <>{Number(data?.total_amount || 0).toLocaleString(lang, { maximumFractionDigits: 2 })} {data?.currency || "UZS"}</>}
           </div>
+        </div>
+        <div className="kpi-card">
+          <div className="label">{t("page.sewingReport.totalProducts")}</div>
+          <div className="text-2xl font-semibold tabular-nums">{Number(data?.total_product_quantity || 0).toLocaleString(lang)}</div>
         </div>
       </div>
 
@@ -446,12 +452,11 @@ export default function SewingProductionReportPage() {
         )}
         {!printRows && reportView === "details" && (
           <div className="no-print">
-            <PaginationControls
+            <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()}
               page={page}
               pageSize={pageSize}
               total={data?.total || 0}
               count={data?.items.length || 0}
-              pageSizeOptions={[50, 100, 200, 500]}
               onPageChange={setPage}
               onPageSizeChange={(next) => {
                 setPageSize(next);

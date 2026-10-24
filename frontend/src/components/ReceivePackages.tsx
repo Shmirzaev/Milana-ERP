@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import useSWR, { mutate } from "swr";
+import ReceivePackagesByOrder from "@/components/ReceivePackagesByOrder";
 import Modal from "@/components/Modal";
 import ManualPackageReceipt from "@/components/ManualPackageReceipt";
 import ReturnPackages from "@/components/ReturnPackages";
@@ -28,7 +29,7 @@ export default function ReceivePackages() {
     await mutate(key => typeof key === "string" && (key.startsWith("/api/finished-goods") || key.startsWith("/api/packages/storage-map") || key.startsWith("/api/inbox")));
   }
   if (!can(me, "storage.packages")) return null;
-  return <><button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>{c.receive}</button>
+  return <><ReceivePackagesByOrder /><button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>{c.receive}</button>
     <Modal open={open} onClose={() => { if (!busy) setOpen(false); }} title={c.receive} wide>
       <div className="mb-4 flex flex-wrap items-center gap-3"><span>{c.manual}:</span><ManualPackageReceipt onCreated={() => { void refreshWarehouse(); }} /></div>
       <h3 className="mb-3 font-medium">{c.existing}</h3>

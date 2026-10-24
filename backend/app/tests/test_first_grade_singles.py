@@ -2,7 +2,7 @@ from uuid import uuid4
 
 import pytest
 from app.db.session import SessionLocal
-from app.models import (Customer, Department, FinishedGoodsStock, Model, PackagingRecord,
+from app.schemas import (Customer, Department, FinishedGoodsStock, Model, PackagingRecord,
                         ProductionOrder, ProductionOrderItem, SewingRecord, WorkOrder, Shipment, ShipmentPackage)
 from app.tests.test_package_workflows import package_qr, stock_fingerprint
 
@@ -73,7 +73,7 @@ def test_singles_share_size_budget_and_survive_receipt_sale(client, auth_headers
     shipped = client.post(f"/api/shipments/{sid}/ship", headers=auth_headers)
     assert shipped.status_code == 200, shipped.text
     with SessionLocal() as db:
-        from app.models import Package
+        from app.schemas import Package
         assert db.get(Package, reserved_id).stock_kind == "first_grade"
         assert db.get(Package, reserved_id).status == "shipped"
         assert sum(s.sold_qty for s in db.query(FinishedGoodsStock).filter_by(package_id=reserved_id)) == 1
@@ -101,7 +101,7 @@ def test_invalid_grade_does_not_create_stock(client, auth_headers, output, chang
             record = db.query(SewingRecord).join(WorkOrder).filter(WorkOrder.production_order_id == output["production_order_id"]).one()
             record.size_quantities = []
         if change == "customer_owned":
-            from app.models import SalesOrder
+            from app.schemas import SalesOrder
             order = SalesOrder(order_no="SO-GRADE", order_type="client_order")
             db.add(order); db.flush(); db.get(ProductionOrder, output["production_order_id"]).sales_order_id = order.id
         db.commit()
@@ -174,7 +174,7 @@ def test_empty_manual_delete_and_permission_guards(client, auth_headers, output)
 
 
 def test_first_grade_cannot_be_increased_during_dispatch(client, auth_headers, output):
-    from app.models import PackageItem
+    from app.schemas import PackageItem
     run = create(client, auth_headers, [output])[0].json()
     client.post("/api/packages/print-runs/receive", headers=auth_headers, json={"code": package_qr(run["package_ids"][0])})
     with SessionLocal() as db:
@@ -189,3 +189,150 @@ def test_first_grade_cannot_be_increased_during_dispatch(client, auth_headers, o
     assert response.status_code == 409, response.text
     assert response.json()["detail"] == "FIRST_GRADE_ONE_PIECE_REQUIRED"
     assert stock_fingerprint() == before
+
+
+def size_entry_path(output):
+    path = f'/api/packages/first-grade/size-entry/{output["production_order_id"]}'
+    return path + (f'?production_batch_id={output["production_batch_id"]}' if output.get("production_batch_id") else "")
+
+
+def missing_size_evidence(output):
+    with SessionLocal() as db:
+        row = db.query(SewingRecord).join(WorkOrder).filter(WorkOrder.production_order_id == output["production_order_id"]).one()
+        row.size_quantities = []
+        db.commit()
+        return row.id
+
+
+def save_sizes(client, headers, output, sizes=None, version=None):
+    path = size_entry_path(output)
+    if version is None:
+        response = client.get(path, headers=headers)
+        assert response.status_code == 200, response.text
+        version = response.json()["version"]
+    return client.put(path, headers=headers, json={"version": version, "sizes": sizes if sizes is not None else [
+        {"size": "S", "quantity": 5}, {"size": "M", "quantity": 3}]})
+
+
+def test_packaging_enters_missing_sizes_without_mutating_sewing_then_receives_and_sells(client, auth_headers, output):
+    rid = missing_size_evidence(output)
+    state = client.get(size_entry_path(output), headers=auth_headers).json()
+    assert state["needs_size_entry"] and state["total"] == 8
+    assert all(row["accepted"] is None for row in state["sizes"])
+    before = stock_fingerprint()
+    saved = save_sizes(client, auth_headers, output)
+    assert saved.status_code == 200, saved.text
+    assert not saved.json()["needs_size_entry"]
+    assert stock_fingerprint() == before
+    with SessionLocal() as db:
+        assert db.get(SewingRecord, rid).size_quantities == []
+        assert db.get(SewingRecord, rid).passed_qty == 8
+        from app.schemas import AuditLog
+        assert db.query(AuditLog).filter_by(entity_type="ProductionOrder", entity_id=output["production_order_id"], action="update").count() == 1
+    # Exercise the complete normal pack -> singles -> receipt -> sale -> shipment handoff.
+    test_singles_share_size_budget_and_survive_receipt_sale(client, auth_headers, output)
+
+
+@pytest.mark.parametrize("sizes,status", [
+    ([{"size": "S", "quantity": 6}, {"size": "M", "quantity": 3}], 409),
+    ([{"size": "S", "quantity": 4}, {"size": "M", "quantity": 3}], 409),
+    ([{"size": "S", "quantity": -1}, {"size": "M", "quantity": 9}], 422),
+    ([{"size": "S", "quantity": 5.5}, {"size": "M", "quantity": 2.5}], 422),
+    ([{"size": "S", "quantity": 5}, {"size": "S", "quantity": 3}], 422),
+    ([{"size": "XL", "quantity": 8}], 422),
+])
+def test_packaging_size_input_validation(client, auth_headers, output, sizes, status):
+    missing_size_evidence(output)
+    before = stock_fingerprint()
+    response = save_sizes(client, auth_headers, output, sizes)
+    assert response.status_code == status, response.text
+    assert stock_fingerprint() == before
+    with SessionLocal() as db:
+        assert db.get(ProductionOrder, output["production_order_id"]).packaging_size_breakdowns is None
+
+
+def test_packaging_size_entry_counts_existing_packs_and_rejects_stale_submissions(client, auth_headers, output):
+    missing_size_evidence(output)
+    normal = {**output, "stock_kind": "standard", "capacity": 3,
+              "items": [{**output["items"][0], "quantity": 3}]}
+    initial = client.get(size_entry_path(output), headers=auth_headers).json()
+    assert create(client, auth_headers, [normal])[0].status_code == 201
+    assert save_sizes(client, auth_headers, output, version=initial["version"]).json()["detail"] == "FIRST_GRADE_SIZE_STALE"
+    response = save_sizes(client, auth_headers, output, [{"size": "S", "quantity": 2}, {"size": "M", "quantity": 6}])
+    assert response.status_code == 409 and response.json()["detail"] == "FIRST_GRADE_SIZE_PACKED"
+    saved = save_sizes(client, auth_headers, output)
+    assert saved.status_code == 200, saved.text
+    assert next(row for row in saved.json()["sizes"] if row["size"] == "S")["remaining"] == 2
+    assert create(client, auth_headers, [output] * 3)[0].status_code == 409
+    assert create(client, auth_headers, [output] * 2)[0].status_code == 201
+
+
+def test_packaging_size_snapshot_invalidates_when_sewing_output_changes(client, auth_headers, output):
+    rid = missing_size_evidence(output)
+    assert save_sizes(client, auth_headers, output).status_code == 200
+    with SessionLocal() as db:
+        row = db.get(SewingRecord, rid)
+        row.passed_qty = 7
+        db.commit()
+    state = client.get(size_entry_path(output), headers=auth_headers).json()
+    assert state["needs_size_entry"] and state["total"] == 7
+    assert create(client, auth_headers, [output])[0].status_code == 409
+    assert save_sizes(client, auth_headers, output, [{"size": "S", "quantity": 4}, {"size": "M", "quantity": 3}]).status_code == 200
+
+
+def test_packaging_entry_cannot_override_complete_sewing_size_evidence(client, auth_headers, output):
+    response = save_sizes(client, auth_headers, output, [{"size": "S", "quantity": 8}])
+    assert response.status_code == 409
+    assert response.json()["detail"] == "FIRST_GRADE_SIZE_STALE"
+    with SessionLocal() as db:
+        assert db.get(ProductionOrder, output["production_order_id"]).packaging_size_breakdowns is None
+
+
+def test_packaging_size_entry_batch_scope_and_legacy_sewing_batch(client, auth_headers, output):
+    from app.schemas import ProductionBatch
+    rid = missing_size_evidence(output)
+    with SessionLocal() as db:
+        batch = ProductionBatch(production_order_id=output["production_order_id"], batch_no="SINGLE-01", planned_quantity=8)
+        sibling = ProductionBatch(production_order_id=output["production_order_id"], batch_no="SINGLE-02", batch_index=2, planned_quantity=8)
+        db.add_all([batch, sibling]); db.flush()
+        row = db.get(SewingRecord, rid)
+        db.get(WorkOrder, row.work_order_id).production_batch_id = batch.id
+        db.commit()
+        bid, sibling_id = batch.id, sibling.id
+    assert client.get(size_entry_path(output), headers=auth_headers).json()["detail"] == "FIRST_GRADE_BATCH_REQUIRED"
+    output["production_batch_id"] = bid
+    assert save_sizes(client, auth_headers, output).status_code == 200
+    sibling_state = client.get(size_entry_path({**output, "production_batch_id": sibling_id}), headers=auth_headers).json()
+    assert sibling_state["needs_size_entry"] and sibling_state["total"] == 0
+    assert save_sizes(client, auth_headers, {**output, "production_batch_id": sibling_id}).status_code == 409
+    assert client.get(size_entry_path({**output, "production_batch_id": 99999999}), headers=auth_headers).status_code == 404
+
+
+def test_packaging_size_entry_requires_packaging_permission_and_matching_factory(client, auth_headers, output):
+    from app.schemas import User, Role
+    missing_size_evidence(output)
+    state = client.get(size_entry_path(output), headers=auth_headers).json()
+    body = {"version": state["version"], "sizes": [{"size": "S", "quantity": 8}]}
+    for email in ("fgs@example.com", "sales@example.com"):
+        login = client.post("/api/auth/token", data={"username": email, "password": "demo12345"})
+        headers = {"Authorization": "Bearer " + login.json()["access_token"]}
+        assert client.get(size_entry_path(output), headers=headers).status_code == 403
+        assert client.put(size_entry_path(output), headers=headers, json=body).status_code == 403
+    # A packaging-only operator can supply this evidence without Sewing access.
+    with SessionLocal() as db:
+        user = db.query(User).filter_by(email="fgs@example.com").one()
+        role = Role(name="Size Entry Packaging", permissions=["packaging.packages"])
+        db.add(role); db.flush(); user.role_id = role.id
+        user.department_id = db.query(Department.id).filter_by(code="PKG").scalar()
+        db.commit()
+    login = client.post("/api/auth/token", data={"username": "fgs@example.com", "password": "demo12345"})
+    headers = {"Authorization": "Bearer " + login.json()["access_token"]}
+    assert save_sizes(client, headers, output).status_code == 200
+    with SessionLocal() as db:
+        other = db.query(Department).filter_by(code="BPK").one_or_none()
+        if other is None:
+            other = Department(code="BPK", name="Besttex Packaging"); db.add(other); db.flush()
+        db.query(WorkOrder).filter_by(production_order_id=output["production_order_id"], operation="packaging").one().department_id = other.id
+        db.commit()
+    assert client.get(size_entry_path(output), headers=headers).status_code == 403
+    assert client.put(size_entry_path(output), headers=headers, json=body).status_code == 403

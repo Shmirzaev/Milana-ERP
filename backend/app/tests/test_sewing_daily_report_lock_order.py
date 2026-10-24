@@ -15,7 +15,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.api.routes.sewing_daily_reports import create_report, delete_report, update_report
 from app.db.base import Base
-from app.models import (
+from app.schemas import (
     Department,
     Model,
     ProductionOrder,
@@ -24,7 +24,7 @@ from app.models import (
     User,
     WorkOrder,
 )
-from app.schemas.sewing_daily_report import SewingDailyReportCreate, SewingDailyReportUpdate
+from app.libs.dto.production.sewing_daily_report import SewingDailyReportCreate, SewingDailyReportUpdate
 from app.tests.conftest import TestSessionLocal
 
 

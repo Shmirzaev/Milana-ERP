@@ -5,8 +5,8 @@ from uuid import uuid4
 
 import pytest
 
-from app.models import Customer, Invoice, Payment, SalesOrder
-from app.services.payments import invoice_paid_total, invoice_payment_status, refresh_invoice_status
+from app.schemas import Customer, Invoice, Payment, SalesOrder
+from app.models.payments_service import invoice_paid_total, invoice_payment_status, refresh_invoice_status
 from app.tests.conftest import TestSessionLocal
 
 

@@ -7,8 +7,8 @@ from fastapi import HTTPException
 
 from app.api.routes.payroll import _canonical_payroll_snapshot
 from app.core.order_reference import canonical_order_reference
-from app.models import Department, PayrollQrLabel, PayrollRecord, ProductionOrder, SalesOrder, WorkOrder
-from app.models.order_reference import BusinessOrderAlias
+from app.schemas import Department, PayrollQrLabel, PayrollRecord, ProductionOrder, SalesOrder, WorkOrder
+from app.schemas.order_reference import BusinessOrderAlias
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_payroll import _create_employee, _create_user_with_permissions
 

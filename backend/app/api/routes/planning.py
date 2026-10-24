@@ -1,26 +1,39 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.deps import DbSession, require_permissions
-from app.models import BrandedPlanningOrder, Customer, Department, Model, User, SalesOrder, WorkOrder
-from app.schemas.production import (
+from app.schemas import BrandedPlanningOrder, Customer, Department, Model, User, SalesOrder, WorkOrder
+from app.libs.dto.production.production import (
     BrandedPlanningOrderIn,
     MaterialRequirement,
     ProductionOrderIn,
     ProductionOrderOut,
 )
-from app.services.planning import material_requirements_for_sales_order
-from app.services.production import (
+from app.models.planning_service import material_requirements_for_sales_order
+from app.models.production_service import (
     create_production_order,
     create_production_batches,
     create_work_orders,
     printing_attachments_for_storage,
 )
-from app.services.audit import log_action
-from app.services.model_images import material_preview_image_url, model_display_image_url
-from app.services.numbering import next_branded_planning_order_no
+from app.models.audit_service import log_action
+from app.models.model_images_service import material_preview_image_url, model_display_image_url
+from app.models.numbering_service import next_branded_planning_order_no
 
 router = APIRouter(prefix="/planning", tags=["planning"])
+
+
+@router.get("/branded-orders/{order_id}/export.xlsx")
+def export_branded_order(order_id: int, db: DbSession,
+                         _: User = Depends(require_permissions("planning.production", "*"))):
+    from fastapi.responses import Response
+    from app.models.branded_order_export_service import build_branded_order_workbook
+    order = db.get(BrandedPlanningOrder, order_id)
+    if not order:
+        raise HTTPException(404, "Branded order not found")
+    return Response(build_branded_order_workbook(db, order),
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="branded-order-{order.id}.xlsx"'})
 
 BRANDED_ORDER_PARTIES = {
     "milana": "Milana",
@@ -171,6 +184,17 @@ def list_branded_orders(
         for production_id, works in cutting_by_production.items()
     }
     return [_branded_order_payload(row, model_by_id, cutting_by_id, cutting_details_by_id) for row in rows]
+
+
+@router.get("/branded-order-customers")
+def branded_order_customers(db: DbSession,
+                           _: User = Depends(require_permissions("planning.production", "*")),
+                           q: str = Query("", max_length=100)):
+    query = db.query(Customer.id, Customer.name)
+    if q.strip():
+        pattern = "%" + q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        query = query.filter(Customer.name.ilike(pattern, escape="\\"))
+    return [{"id": row.id, "name": row.name} for row in query.order_by(Customer.name, Customer.id).limit(50)]
 
 
 @router.post("/branded-orders", status_code=201)

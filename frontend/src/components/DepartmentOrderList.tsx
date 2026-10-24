@@ -11,6 +11,7 @@ import { formatOrderReference, orderReference } from "@/lib/orderRef";
 
 export type DepartmentOrder = {
   queueKind?: QueueKind;
+  sewing_assignment_id?: number;
   id?: number;
   work_order_id?: number | null;
   production_order_id: number;
@@ -89,13 +90,14 @@ function rowTone(state: ReturnType<typeof departmentStateFor>) {
 }
 
 export default function DepartmentOrderList({
-  rows, title, emptyLabel, t, partialPackaging = false,
+  rows, title, emptyLabel, t, partialPackaging = false, orderHref,
 }: {
   rows: DepartmentOrder[];
   title: string;
   emptyLabel: string;
   t: CtxT;
   partialPackaging?: boolean;
+  orderHref?: (row: DepartmentOrder) => string;
 }) {
   const groups = useMemo(() => {
     const grouped = new Map<string, DepartmentOrder[]>();
@@ -156,11 +158,11 @@ export default function DepartmentOrderList({
                     const state = departmentStateFor(row);
                     const material = [row.material_item_sku, row.material_item_name].filter(Boolean).join(" - ") || "-";
                     return (
-                      <tr key={`${row.work_order_id || row.id || row.production_order_id}-${row.textile_code || "all"}`} className={rowTone(state)}>
+                      <tr key={`${row.sewing_assignment_id || row.work_order_id || row.id || row.production_order_id}-${row.textile_code || "all"}`} className={rowTone(state)}>
                         <td><ImageThumbnail imageUrl={row.model_image_url} label={row.model_name || row.model_no || "-"} title={t("page.workOrder.modelPicture")} emptyLabel={t("page.workOrder.noImage")} /></td>
                         <td><ImageThumbnail imageUrl={row.material_image_url} label={material} title={t("cuttingInbox.variantPicture")} emptyLabel={t("page.workOrder.noImage")} /></td>
                         <td className="whitespace-nowrap">
-                          <Link className="mono font-semibold text-[#14110b] hover:underline" href={`/production-orders/${row.production_order_id}`}>{orderReference(row)}</Link>
+                          <Link className="mono font-semibold text-[#14110b] hover:underline" href={orderHref ? orderHref(row) : `/production-orders/${row.production_order_id}`}>{orderReference(row)}</Link>
                           <div className="text-xs text-[#56503f]">{kind === "incoming"
                             ? t("page.deptInbox.incomingProcess", { source: operationLabel(row.source_operation || "cutting", t), target: operationLabel(row.target_operation || "sewing", t) })
                             : operationLabel(row.operation || "", t)}</div>
@@ -179,7 +181,7 @@ export default function DepartmentOrderList({
                               : t("page.deptInbox.expectedReceived", { expected: Number(row.expected_qty || 0), received: Number(row.received_qty || 0) })
                             : t("page.deptInbox.passedPlanned", { passed: Number(row.passed_qty || 0), planned: Number(row.planned_output_qty || 0) })}
                           {kind !== "incoming" && Number(row.ready_qty || 0) > 0 ? <div className="text-xs text-[#56503f]">{t("page.deptInbox.readyReceived", { ready: Number(row.ready_qty || 0), received: Number(row.received_qty || 0) })}</div> : null}
-                          {row.operation === "sewing" ? <div className="text-xs text-[#56503f]">{t("field.received")}: {Number(row.received_bundle_count || 0)} {t("nav.bundles").toLowerCase()} / {Number(row.received_bundle_qty || row.actual_input_qty || 0)} {t("field.qty").toLowerCase()}</div> : null}
+                          {row.operation === "sewing" ? <div className="text-xs text-[#56503f]">{t("field.received")}: {row.sewing_assignment_id ? Number(row.received_qty || 0) : <>{Number(row.received_bundle_count || 0)} {t("nav.bundles").toLowerCase()} / {Number(row.received_bundle_qty || row.actual_input_qty || 0)}</>} {t("field.qty").toLowerCase()}</div> : null}
                           {row.bundle_count ? <div className="text-xs text-[#56503f]">{row.bundle_count} {t("nav.bundles").toLowerCase()}</div> : null}
                         </td>
                         {partialPackaging ? <><td>{row.already_packed}</td><td className="font-semibold">{row.remaining_qty}</td><td>{row.ready_qty}</td><td>{row.sewn_passed}</td></> : null}
@@ -187,7 +189,7 @@ export default function DepartmentOrderList({
                         <td className="whitespace-nowrap font-medium">{t(`page.deptInbox.state.${state}`)}</td>
                         <td>
                           <div className="flex items-center justify-end gap-2 whitespace-nowrap">
-                            <Link className="btn btn-primary h-8 px-3 text-[11px]" href={kind === "completed" ? `/production-orders/${row.production_order_id}` : actionHref(row)}>{kind === "completed" ? t("page.deptInbox.viewOrder") : t("btn.open")}</Link>
+                            <Link className="btn btn-primary h-8 px-3 text-[11px]" href={orderHref ? orderHref(row) : kind === "completed" && !["sewing", "packaging"].includes(row.operation || "") ? `/production-orders/${row.production_order_id}` : actionHref(row)}>{kind === "completed" && !["sewing", "packaging"].includes(row.operation || "") ? t("page.deptInbox.viewOrder") : t("btn.open")}</Link>
                           </div>
                         </td>
                       </tr>

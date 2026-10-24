@@ -79,6 +79,7 @@ for (const [factory, oldHome, packingHome] of [["BST", "/departments/BST", "/dep
         if (name === "@/lib/api") return { api: { post: () => { throw new Error("Unexpected factory switch"); } } };
         if (name === "@/lib/i18n") return { useT: () => ({ t: (key) => key }) };
         if (name === "@/lib/priceCalculationRequests") return {};
+        if (name === "@/components/sewing/BandWorkspace") return { default: "BandWorkspace" };
         throw new Error(name);
       },
     });
@@ -117,6 +118,7 @@ for (const page of ["packages", "packaging/queue", "packaging/receive", "packagi
         useRef: initial => ({ current: initial }),
         useMemo: fn => fn(),
         useSWR: key => { if (key) keys.push(key); return {}; },
+        useLoadMore: key => { if (key) keys.push(key); return {}; },
         packagingDepartmentForSession: access.packagingDepartmentForSession,
         can: () => true, fetcher: () => {}, today: () => "2026-09-18",
       });

@@ -26,6 +26,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   QrCode,
+  Printer,
   Scissors,
   Settings,
   Shirt,
@@ -140,6 +141,7 @@ const SECTIONS: Section[] = [
   {
     titleKey: "section.cutting",
     items: [
+      { href: "/dashboards/cutting?cutting_department=CUT", labelKey: "departmentDashboard.cutting", perms: ["cutting.records", "cutting.bundles", "planning.production"], icon: BarChart3 },
       { href: "/cutting/price-calculation", labelKey: "nav.cuttingPriceRequests", perms: ["cutting.records", "cutting.bundles", "admin.super"], icon: Calculator },
       { href: "/departments/CUT", labelKey: "nav.cuttingFloor", perms: ["cutting.records", "cutting.bundles", "planning.production"], icon: Scissors },
       { href: "/cutting-passports?cutting_department=CUT", labelKey: "nav.cuttingPassports", perms: ["cutting.records", "cutting.bundles", "planning.production"], icon: FileText },
@@ -151,6 +153,7 @@ const SECTIONS: Section[] = [
   {
     titleKey: "section.printing",
     items: [
+      { href: "/dashboards/printing", labelKey: "departmentDashboard.printing", perms: ["printing.records", "printing.bundles", "planning.production"], icon: BarChart3 },
       { href: "/departments/PRT", labelKey: "nav.printingFloor", perms: ["printing.records", "printing.bundles", "planning.production"], icon: Palette },
       { href: "/bundles/scan/printing", labelKey: "nav.scanBundle", perms: ["printing.bundles", "printing.records"], icon: QrCode },
     ],
@@ -187,6 +190,7 @@ const SECTIONS: Section[] = [
       { href: "/inventory/cutting-fabric-usage", labelKey: "cuttingUsage.title", perms: ["storage.items", "storage.receive", "cutting.records", "planning.production"], icon: FileText },
       { href: "/cutting-passports?cutting_department=ECT", labelKey: "nav.cuttingPassports", perms: ["cutting.records", "cutting.bundles", "planning.production"], icon: FileText },
       { href: "/cutting-inventory?cutting_department=ECT", labelKey: "nav.bundleInventory", perms: ["cutting.records", "cutting.bundles", "planning.production"], icon: Boxes },
+      { href: "/dashboards/cutting?cutting_department=ECT", labelKey: "departmentDashboard.cutting", perms: ["cutting.records", "cutting.bundles", "planning.production"], icon: BarChart3 },
       { href: "/bundles?cutting_department=ECT", labelKey: "nav.bundles", perms: ["cutting.bundles", "cutting.records", "planning.production"], icon: PackageSearch },
       { href: "/bundles/scan/cutting?cutting_department=ECT", labelKey: "nav.scanBundle", perms: ["cutting.bundles", "cutting.records"], icon: QrCode },
     ],
@@ -238,6 +242,7 @@ const SECTIONS: Section[] = [
       { href: "/process-qr", labelKey: "nav.processQr", perms: ["payroll.scan", "*"], icon: QrCode },
       { href: "/payroll/scan", labelKey: "nav.payrollScan", perms: ["payroll.scan", "*"], icon: Calculator },
       { href: "/payroll/qr-control", labelKey: "nav.payrollQrControl", perms: ["payroll.view", "payroll.manage", "*"], icon: FileSearch },
+      { href: "/payroll/employees", labelKey: "nav.employees", perms: ["payroll.manage"], icon: Users },
     ],
   },
   {
@@ -251,8 +256,11 @@ const SECTIONS: Section[] = [
     items: [
       { href: "/departments/FGS", labelKey: "nav.finishedGoods", icon: Building2 },
       { href: "/warehouse-stock", labelKey: "nav.warehouseStock", perms: ["storage.packages", "storage.shipment"], icon: PackageSearch },
+      { href: "/dashboards/warehouse", labelKey: "departmentDashboard.warehouse", perms: ["storage.packages", "storage.shipment"], icon: BarChart3 },
+      { href: "/warehouse-stock/reservations", labelKey: "warehouseReservations.title", perms: ["storage.packages", "storage.shipment"], icon: PackageSearch },
       { href: "/warehouse-stock/count", labelKey: "nav.stocktake", perms: ["storage.packages", "storage.shipment"], icon: FileSearch },
       { href: "/packages/scan", labelKey: "nav.scanPackage", perms: ["storage.packages"], icon: QrCode },
+      { href: "/packages/print-runs", labelKey: "nav.physicalPrintRuns", perms: ["storage.packages"], icon: Printer },
       { href: "/warehouse-map", labelKey: "nav.warehouseMap", perms: ["storage.packages", "storage.shipment"], icon: Warehouse },
       { href: "/shipments", labelKey: "nav.shipments", perms: ["storage.shipment"], icon: Truck },
       { href: "/shipments/history", labelKey: "page.shipments.history", perms: ["storage.shipment"], icon: Truck },
@@ -416,10 +424,10 @@ export default function Sidebar() {
     const currentCuttingDepartment = searchParams.get("cutting_department") || "CUT";
     const currentPackagingDepartment = packagingDepartmentForSession(me, searchParams.get("packaging_department"));
     const bundlesScanMismatch = basePath === "/bundles" && pathname.startsWith("/bundles/scan");
-    const packagesScanMismatch = basePath === "/packages" && pathname.startsWith("/packages/scan");
+    const packagesScanMismatch = basePath === "/packages" && (pathname.startsWith("/packages/scan") || pathname.startsWith("/packages/print-runs"));
     const inventoryGroupMismatch = basePath === "/inventory" && (pathname !== "/inventory" || itemGroup !== inventoryGroup);
     const inventoryReceiveGroupMismatch = basePath === "/inventory/receive" && itemGroup !== inventoryGroup;
-    const cuttingDepartmentMismatch = ["/cutting-passports", "/cutting-inventory", "/bundles"].includes(basePath)
+    const cuttingDepartmentMismatch = ["/dashboards/cutting", "/cutting-passports", "/cutting-inventory", "/bundles"].includes(basePath)
       && itemCuttingDepartment !== currentCuttingDepartment;
     const sewingFactoryMismatch = ["/sewing/flows", "/sewing/daily-report", "/bundles/scan/sewing"].includes(basePath)
       && itemFactory !== currentFactory;

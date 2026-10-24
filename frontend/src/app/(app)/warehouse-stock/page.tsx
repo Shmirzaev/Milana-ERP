@@ -2,11 +2,11 @@
 
 import { formatModelVariantCode } from "@/lib/variantDisplay";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { Boxes, Grid2X2, ImageOff, PackageSearch, Search, Warehouse } from "lucide-react";
 
-import ReceivePackages from "@/components/ReceivePackages";
+import DeleteWarehousePackage from "@/components/DeleteWarehousePackage";
 import PageHeader from "@/components/PageHeader";
 import StocktakeLink from "@/components/StocktakeLink";
 import WarehouseReportDownload from "@/components/WarehouseReportDownload";
@@ -110,10 +110,12 @@ export default function WarehouseStockPage() {
   const { t, lang } = useT();
   const copy = firstGradeText[lang];
   const search = useSearchParams();
-  const [stockKind, setStockKind] = useState(search.get("stock_kind") === "first_grade" ? "first_grade" : "standard");
+  const [stockKind, setStockKind] = useState(["first_grade", "second_grade"].includes(search.get("stock_kind") || "") ? search.get("stock_kind")! : "standard");
   const { me } = useMe();
   const canTraceability = can(me, "traceability.view");
   const [query, setQuery] = useState("");
+  const [visibleCount, setVisibleCount] = useState(50);
+  useEffect(() => { setVisibleCount(50); }, [query, stockKind]);
   const [createdFrom, setCreatedFrom] = useState("");
   const [createdTo, setCreatedTo] = useState("");
   const stockUrl = useMemo(() => {
@@ -270,11 +272,12 @@ export default function WarehouseStockPage() {
 
   return (
     <div>
-      <PageHeader title={t("page.warehouseStock.title")} subtitle={t("page.warehouseStock.subtitle")} actions={<><ReceivePackages /><WarehouseReportDownload /><StocktakeLink /></>} />
+      <PageHeader title={t("page.warehouseStock.title")} subtitle={t("page.warehouseStock.subtitle")} actions={<><Link className="btn" href="/dashboards/warehouse">{t("departmentDashboard.warehouse")}</Link><WarehouseReportDownload /><StocktakeLink /></>} />
 
       <div className="mb-4 flex flex-wrap gap-2">
         <button className={`btn ${stockKind === "standard" ? "btn-primary" : ""}`} onClick={() => setStockKind("standard")}>{copy.standard}</button>
         <button className={`btn ${stockKind === "first_grade" ? "btn-primary" : ""}`} onClick={() => setStockKind("first_grade")}>{copy.title}</button>
+        <button className={`btn ${stockKind === "second_grade" ? "btn-primary" : ""}`} onClick={() => setStockKind("second_grade")}>{lang === "ru" ? "2-й сорт" : lang === "uz" ? "2-nav" : "2nd Grade"}</button>
         {stockKind === "first_grade" && can(me, "sales.orders") && <Link className="btn" href="/sales-orders/first-grade">{copy.sale}</Link>}
       </div>
       {error && <p role="alert" className="mb-4 text-red-700">{error.message}</p>}
@@ -411,7 +414,7 @@ export default function WarehouseStockPage() {
               </tr>
             </thead>
             <tbody>
-              {detailRows.map((row) => (
+              {detailRows.slice(0, visibleCount).map((row) => (
                 <tr key={row.key}>
                   <td>
                     {row.model_image_url ? (
@@ -456,6 +459,7 @@ export default function WarehouseStockPage() {
                         packageListText(row.packages, row.package_count)
                       )}
                     </div>
+                    <details className="mt-2"><summary className="text-sm cursor-pointer">{t("common.actions")}</summary><div className="space-y-2 mt-2">{row.packages.map(pkg => <div key={pkg.id} className="flex items-center gap-2"><Link href={`/packages/${pkg.id}`} className="underline text-sm">{pkg.package_no}</Link><DeleteWarehousePackage id={pkg.id} packageNo={pkg.package_no} /></div>)}</div></details>
                   </td>
                   <td className="mono font-semibold text-[#14110b]">{row.total_quantity.toLocaleString()}</td>
                   <td><span className="badge">{statusLabel(row.status, t)}</span></td>
@@ -471,6 +475,7 @@ export default function WarehouseStockPage() {
             </tbody>
           </table>
         </div>
+        {visibleCount < detailRows.length && <div className="p-3"><button className="btn" onClick={() => setVisibleCount(count => count + 50)}>{t("common.loadMore")}</button></div>}
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.purchasing import PurchaseOrderReceiveLineIn
+from app.libs.dto.purchasing.purchasing import PurchaseOrderReceiveLineIn
 
 
 def _receive_line(roll_count: int) -> dict:

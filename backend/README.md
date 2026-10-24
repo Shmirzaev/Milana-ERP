@@ -24,3 +24,8 @@ Required production settings:
 Use Redis instead of SQLite for multi-replica deployments:
 
 - `REDIS_URL=redis://...`
+
+## Team development discipline
+
+Read [shared agent skills](../docs/AGENT_SKILLS.md), [named folder ownership](../docs/TEAM_OWNERSHIP.md)
+and [the backend architecture guide](app/README.md) before feature/refactor work.

@@ -3,8 +3,8 @@
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, ProductionOrder
-from app.schemas.production import ProductionOrderIn
+from app.schemas import AuditLog, ProductionOrder
+from app.libs.dto.production.production import ProductionOrderIn
 
 
 def _write_counts() -> tuple[int, int]:

@@ -329,7 +329,7 @@ def test_variant_search_expands_the_full_model_family_and_keeps_family_picture(c
     assert group["primary_image_url"] == family_picture
     assert group["variant_count"] == 1
     assert [row["model_id"] for row in group["variants"]] == [variant_id]
-    assert group["variants"][0]["picture_url"] == variant_picture
+    assert group["variants"][0]["picture_url"] is None  # The upload is a garment, not variant fabric.
 
 
 def test_model_variant_group_pagination_keeps_groups_whole_and_ordered(client, auth_headers):
@@ -630,8 +630,7 @@ def test_clone_model_copies_full_plm_details(client, auth_headers):
     assert data["colors"][0]["color_name"] == "Black"
     assert len(data["bom"]) == 1
     assert data["bom"][0]["item_id"] == item_id
-    assert len(data["images"]) == 1
-    assert data["images"][0]["file_url"] == "https://example.com/model.png"
+    assert data["images"] == []
 
     second_clone = client.post(f"/api/models/{model_id}/clone", headers=auth_headers)
     assert second_clone.status_code == 201, second_clone.text
@@ -867,7 +866,7 @@ def test_model_variant_groups_keep_underlying_model_ids(client, auth_headers):
     assert [row["variant_no"] for row in variant_rows] == ["V-1", "V-2"]
     assert "Variant fabric" in variant_rows[0]["fabric"]
     assert "Moss" in variant_rows[0]["fabric"]
-    assert variant_rows[0]["picture_url"].startswith("/storage/model-files/")
+    assert variant_rows[0]["picture_url"] is None  # Shared BOM photos do not define variant identity.
 
     inherited_update = client.patch(
         f"/api/models/{created_ids[0]}/variants/{created_ids[1]}",

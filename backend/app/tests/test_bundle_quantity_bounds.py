@@ -1,8 +1,8 @@
 import pytest
 from pydantic import ValidationError
 
-from app.models import AuditLog, Bundle
-from app.schemas.tracking import BundleIn
+from app.schemas import AuditLog, Bundle
+from app.libs.dto.packaging.tracking import BundleIn
 from app.tests.conftest import TestSessionLocal
 
 

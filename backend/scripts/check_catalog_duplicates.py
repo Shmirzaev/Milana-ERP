@@ -6,7 +6,7 @@ import unicodedata
 from collections import defaultdict
 
 from app.db.session import SessionLocal
-from app.models import Model
+from app.schemas import Model
 
 
 CONFUSABLES = str.maketrans(

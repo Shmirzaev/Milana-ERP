@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import select
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, FinishedGoodsStock, LegacyStockReceipt, Model, Package, PackageBarcodeAlias
+from app.schemas import AuditLog, FinishedGoodsStock, LegacyStockReceipt, Model, Package, PackageBarcodeAlias
 
 BASE = "/api/warehouse-stocktakes"
 
@@ -261,7 +261,7 @@ def test_ready_storage_user_can_run_count_and_anonymous_cannot(client, packs):
 
 
 def test_bulk_delete_counts_is_atomic_scoped_audited_and_preserves_stock(client, auth_headers, packs):
-    from app.models.stocktake import WarehouseStocktakeRow
+    from app.schemas.inventory.stocktake import WarehouseStocktakeRow
 
     first, second, retained = [start(client, auth_headers) for _ in range(3)]
     scan(client, auth_headers, first, "COUNT-0")

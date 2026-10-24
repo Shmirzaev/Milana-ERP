@@ -5,6 +5,7 @@ import { formatOrderReference } from "@/lib/orderRef";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import { ClipboardCheck, ExternalLink, PackageCheck, Pencil, Plus, RefreshCw, Scissors, Shirt, Trash2 } from "lucide-react";
 
 import Modal from "@/components/Modal";
@@ -18,6 +19,7 @@ import { useT } from "@/lib/i18n";
 import { storageThumbnailUrl } from "@/lib/modelImages";
 
 type UslugaModel = {
+  primary_image_url?: string | null;
   id: number;
   code: string;
   name: string;
@@ -57,6 +59,16 @@ type UslugaOrder = {
 
 type PlanLine = { color: string; size: string; quantity: string };
 
+/** Bounded directory fetch: the API returns a page plus the true filtered total. */
+type UslugaOrderPage = {
+  items: UslugaOrder[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+const ORDER_PAGE_SIZE = 50;
+
 function formatDate(value: string | null) {
   if (!value) return "—";
   return new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "2-digit" }).format(new Date(value));
@@ -80,7 +92,43 @@ export default function UslugaPage() {
   const { me } = useMe();
   const canManage = can(me, "usluga.manage", "*");
   const canHandover = can(me, "usluga.handover", "*");
-  const { data: orders = [], error, isLoading, isValidating, mutate: mutateOrders } = useSWR<UslugaOrder[]>("/api/usluga/orders", fetcher);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  // Debounce so typing in the search box does not fire one request per keystroke.
+  const [searchTerm, setSearchTerm] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setSearchTerm(search.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  const {
+    data: orderPages,
+    error,
+    isLoading,
+    isValidating,
+    mutate: mutateOrders,
+    size: orderPageCount,
+    setSize: setOrderPageCount,
+  } = useSWRInfinite<UslugaOrderPage>(
+    (pageIndex) => {
+      const params = new URLSearchParams({
+        limit: String(ORDER_PAGE_SIZE),
+        offset: String(pageIndex * ORDER_PAGE_SIZE),
+      });
+      if (statusFilter) params.set("status", statusFilter);
+      if (searchTerm) params.set("search", searchTerm);
+      return `/api/usluga/orders?${params.toString()}`;
+    },
+    fetcher,
+  );
+  const isLoadingMore = isLoading || Boolean(
+    isValidating && orderPageCount > 0 && orderPages?.[orderPageCount - 1] === undefined,
+  );
+  // The API filters server-side, so the accumulated pages are already the full
+  // filtered set; `total` is the true match count, not the loaded row count.
+  const orders = useMemo(() => (orderPages ?? []).flatMap((page) => page.items ?? []), [orderPages]);
+  const totalOrders = orderPages?.[0]?.total ?? 0;
+  const hasMoreOrders = orders.length < totalOrders;
 
   const [modelId, setModelId] = useState(0);
   const { data: selectedModel } = useSWR<UslugaModel>(modelId ? `/api/usluga/models/${modelId}` : null, fetcher);
@@ -102,8 +150,6 @@ export default function UslugaPage() {
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState("");
   const [successOrder, setSuccessOrder] = useState<UslugaOrder | null>(null);
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
   const [handoverOrder, setHandoverOrder] = useState<UslugaOrder | null>(null);
   const [handoverForm, setHandoverForm] = useState({ recipient: "", notes: "" });
 
@@ -122,6 +168,9 @@ export default function UslugaPage() {
     () => lines.filter((line) => line.color.trim() && line.size.trim() && Number(line.quantity || 0) > 0),
     [lines],
   );
+  // Both filters are also sent to the API, so this pass never hides a row the
+  // server would return: it only narrows the already-loaded pages while the
+  // debounced request is still in flight.
   const filteredOrders = useMemo(() => {
     const query = search.trim().toLowerCase();
     return orders.filter((order) => {
@@ -284,7 +333,7 @@ export default function UslugaPage() {
           <h2 className="text-base font-semibold text-[#242117]">{t("usluga.planSummary")}</h2>
           {selectedModel ? <div className="mt-4 flex gap-3 border-b border-[#ecebe3] pb-4">
             <div className="h-24 w-[72px] shrink-0 overflow-hidden rounded-md border border-[#dedbd0] bg-[#f1efe8]">
-              {selectedModel.images?.[0]?.file_url ? <VerticalModelPhoto src={storageThumbnailUrl(selectedModel.images[0].file_url, 240)} alt={selectedModel.name} className="h-full w-full" width={144} height={192} /> : null}
+              {selectedModel.primary_image_url ? <VerticalModelPhoto src={storageThumbnailUrl(selectedModel.primary_image_url, 240)} alt={selectedModel.name} className="h-full w-full" width={144} height={192} /> : null}
             </div>
             <div className="min-w-0"><div className="mono text-xs text-[#8a8472]">{formatModelVariantCode(selectedModel.code)}</div><div className="mt-1 font-semibold text-[#242117]">{selectedModel.name}</div><div className="mt-1 text-xs text-[#8a8472]">{selectedModel.category || "—"}</div></div>
           </div> : <p className="mt-3 text-sm text-[#8a8472]">{t("usluga.selectModel")}</p>}
@@ -327,6 +376,12 @@ export default function UslugaPage() {
               </tr>)}
             </tbody>
           </table></div>
+          {hasMoreOrders && <div className="flex flex-wrap items-center justify-center gap-3 border-t border-[#ecebe3] p-4">
+            <span className="text-sm text-[#8a8472]">{orders.length} / {totalOrders}</span>
+            <button className="btn" type="button" disabled={isLoadingMore || isValidating} onClick={() => void setOrderPageCount(orderPageCount + 1)}>
+              {t("common.loadMore")}
+            </button>
+          </div>}
         </div>
       </section>
 

@@ -4,7 +4,7 @@ import pytest
 
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
-from app.models import AuditLog, Department, Model, ProductionOrder, QualityCheck, Role, User, WorkOrder
+from app.schemas import AuditLog, Department, Model, ProductionOrder, QualityCheck, Role, User, WorkOrder
 
 
 def _headers(user: User, factory: str | None = None) -> dict[str, str]:

@@ -75,7 +75,7 @@ from urllib.request import Request,urlopen
 from urllib.parse import urlencode
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
-from app.services.audit import verify_audit_hash_chain
+from app.models.audit_service import verify_audit_hash_chain
 from sqlalchemy import text
 headers={'Authorization':'Bearer '+create_access_token('1')}
 def get(url,auth=False):

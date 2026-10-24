@@ -193,7 +193,7 @@ def test_purchasing_from_sales_order_approve_convert_receive_increases_stock(cli
     assert round(after_qty - before_qty, 2) == 5.00
 
     from app.db.session import SessionLocal
-    from app.models import StockBatch, StockMovement
+    from app.schemas import StockBatch, StockMovement
 
     db = SessionLocal()
     try:
@@ -433,7 +433,7 @@ def test_draft_purchase_order_cannot_be_received(client, auth_headers):
     assert denied.status_code == 409, denied.text
 
     from app.db.session import SessionLocal
-    from app.models import StockBatch, StockMovement
+    from app.schemas import StockBatch, StockMovement
 
     db = SessionLocal()
     try:

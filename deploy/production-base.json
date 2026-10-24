@@ -1,6 +1,6 @@
 {
-  "release": "20261003_071825",
-  "source_manifest_sha256": "1dd0912ff860785eb78884743adb4faa3f3eafbb23e7873db5f8513d6b8705c9",
-  "database_revision": "0135_usluga_paid_processes",
-  "git_baseline_commit": "d7d083def8bd190eff92b46562319e2735ce10cc"
+  "release": "20261024_093619",
+  "source_manifest_sha256": "e424f9a6f135b0ebf3851e0355c39d546bd3466eafcb4ddba6ef27c2b3bd4d31",
+  "database_revision": "0148_second_grade_packages",
+  "git_baseline_commit": "1fce86b5b9156fac050ca5c98433198323b20929"
 }

@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 import pytest
-from app.models import (StockBatch, StockMovement, EcoFabricDispatch, EcoFabricRoll, User, Role,
+from app.schemas import (StockBatch, StockMovement, EcoFabricDispatch, EcoFabricRoll, User, Role,
                         MaterialReservation, ProductionOrder)
 from app.tests.conftest import TestSessionLocal
 from app.core.deps import get_current_user
