@@ -4,7 +4,13 @@
 
 - **P1 · Review · Mirshoir; reviewer Ismail.** Source `ba70e0c`; production verification and Shavkat/operator acceptance pending. This is a separate security correction, not part of the service extraction.
 - Reproduction: with an ECO Sewing record ID and a session selected for MIL, `GET /api/sewing/records/{rid}` returned 200 with ECO quantities because it checked broad production-read permission but not the record's WorkOrder factory. The regression test failed on the old route with 200 instead of 403.
-- Proposed fix: use the existing `require_work_order_factory_access` before returning detail. Isolated tests for ECO allowed and MIL/BST denied, corrections, and workspace permissions: 24 passed, 1 warning. Visual E2E and bounded stress remain pending; do not treat this as production-ready or move it to finished_bugs.md.
+- Proposed fix in [draft PR #305](https://github.com/Shmirzaev/Milana-ERP/pull/305): use the existing `require_work_order_factory_access` before returning detail. Isolated tests for ECO allowed and MIL/BST denied, corrections, and workspace permissions: 24 passed, 1 warning. Local browser check confirms a MIL record returns 200 in MIL and 403 in ECO. Read-only local PostgreSQL stress: 120 requests, concurrency 6, 60 allowed/60 denied, no wrong status, p95 78.5 ms, p99 118.3 ms, Sewing quantity fingerprint unchanged. Whole-page visual gate fails because adjacent read endpoints still expose the MIL work order in an ECO session; see `SEW-PAGE-SCOPE-20261025`. Review and broader repair remain pending; do not treat this as production-ready or move it to finished_bugs.md.
+
+## SEW-PAGE-SCOPE-20261025 — Sewing page exposes another factory's work order
+
+- **P1 · Open · Mirshoir; reviewer Ismail.** Found on isolated PostgreSQL and local browser at PR #305 source `2845f4e`; no live-production occurrence established.
+- Reproduction: log in to ECO and open `/work-orders/2/sewing` for synthetic Milana order PO-0001. The page visibly renders Milana's order, two Nastils, 256 output and the input form, although saved Sewing records show an error. Browser requests return 200 from `/api/work-orders/2`, `/api/work-orders/2/assignments`, `/api/work-orders/2/sewing-batch-progress`, `/api/production-orders/1` and `/api/models/1`; only `/api/work-orders/2/sewing-records` returns 403. The same page works in MIL.
+- Expected: Mirshoir must define the object/factory read boundary across these shared endpoints and their legitimate planning/management callers. Add endpoint regressions and a full browser denial check before declaring the Sewing factory isolation fixed. Do not close this with the narrower record-detail guard.
 
 ## INV-LATER-NASTIL-20261024 — extra Nastil can leave packaging supply negative
 

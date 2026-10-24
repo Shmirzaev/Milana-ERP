@@ -88,7 +88,10 @@ not appended here. This summary does not replace live release verification.
   correlated factory-path evidence described in [performance evidence](performance-evidence.txt).
 - [SEW-DETAIL-SCOPE-20261025](../bugs/bugs.md#sew-detail-scope-20261025--sewing-record-detail-crosses-selected-factory)
   tracks a confirmed cross-factory Sewing detail read and a local patch awaiting
-  visual verification, review and production release. The active release above is unchanged.
+  review and production release. Local visual QA also found adjacent work-order
+  reads still expose a Milana Sewing page in an ECO session; see
+  [SEW-PAGE-SCOPE-20261025](../bugs/bugs.md#sew-page-scope-20261025--sewing-page-exposes-another-factorys-work-order).
+  The active release above is unchanged.
 - CI branch triggering and automatic recovery improvements in the plan remain
   implementation tasks; skills/docs do not install enforcement or rollback.
 - Recovery targets in [DISASTER_RECOVERY.md](DISASTER_RECOVERY.md) remain requirements,
