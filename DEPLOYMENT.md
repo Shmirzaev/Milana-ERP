@@ -36,6 +36,11 @@ Nginx Proxy Manager continues routing the public domain to stable ports. It does
 
 The deployable branch must descend from the latest clean production baseline recorded in `deploy/production-base.json`.
 
+The owner-confirmed production/integration branch is `clone_main`. Its current head
+can contain work not yet deployed; verify the exact reviewed candidate and active
+release separately. Use the shared-branch coordination rule in `AGENTS.md`. Never
+release unreviewed pending changes merely because they are on this branch.
+
 Before work, verify both application VMs:
 
 ```sh
@@ -49,14 +54,13 @@ Both VMs must name the same release and manifest. If either differs from `deploy
 
 ## Make a change
 
-1. Fetch and create a clean worktree from the latest production baseline:
-
-   ```sh
-   git fetch origin
-   git worktree add ../milana-change -b codex/<short-name> <production-baseline-commit>
-   cd ../milana-change
-   git status --short
-   ```
+1. Fetch and use a separate clean working directory for the exact reviewed
+   `clone_main` lineage, reconciled with the production baseline. Never share one
+   writable checkout between engineers/agents. The team currently uses one shared
+   integration line with serialized landing; a short-lived task branch/worktree is
+   an alternative only when accepted by the team. Continue an existing isolated
+   task worktree when appropriate. Reconcile the full candidate diff with active
+   production before preparing a release.
 
 2. Read `AGENTS.md` and relevant `docs/PROJECT_CONTEXT.md` sections.
 3. Make one scoped change with workflow and authorization regression tests.
@@ -76,7 +80,14 @@ Both VMs must name the same release and manifest. If either differs from `deploy
    ```
 
 5. Review `git diff --check`, the complete baseline diff, and all previously deployed performance contracts.
-6. Commit, push a change branch, and merge only after CI passes. Never copy uncommitted files directly to production.
+6. Review and test the exact change, then land into `clone_main` through the single
+   integration queue when authorized. Re-fetch and rerun affected checks if another
+   change landed first. Require passing CI for the exact release candidate before
+   promotion; never copy uncommitted files directly to production. At inspected
+   source `5c45531d`, direct `clone_main` pushes are not included in the CI push
+   trigger, so do not infer a pass from a push. RF-004 in `docs/REFACTOR_PLAN.md`
+   tracks that separately approved tooling correction; until then use the existing
+   explicit candidate validation/artifact workflow and verify its source SHA.
 
 ## Build immutable artifacts
 
