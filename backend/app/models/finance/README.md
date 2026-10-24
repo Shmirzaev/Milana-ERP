@@ -44,7 +44,7 @@ transaction. Do not create an interface/repository or generic CRUD class by defa
 
 **First operation to study:** Trace invoice creation across finance, sales, partners and workflow_service.ensure_invoice_for_delivered_shipment. Preserve legitimate differences before consolidating shared issuance rules.
 
-### RF-008 source trace (candidate `dffde6d`, study only)
+### RF-008 source trace
 
 | Entry point | Current creation rule and transaction |
 | --- | --- |
@@ -60,8 +60,8 @@ whether draft-order manual invoices, reversed-invoice reuse, zero/small-balance
 status and the customer-payment lock gap are intended policy or separate defects.
 Shavkat confirms business outcomes. The existing PostgreSQL race regression is
 `test_invoice_creation_integrity.py`; money bounds, delivery reconciliation and
-payment/idempotency cases need their own baseline comparisons. No RF-008 source
-implementation or policy change is approved by this trace.
+payment/idempotency cases need their own baseline comparisons. This trace does
+not authorize changing those policies.
 
 ### RF-008 slice 1 — finance invoice issuance (extracted)
 
@@ -76,11 +76,12 @@ Preserved unchanged: the missing-order 404, an existing invoice returned as it i
 `invoice_payment_status(amount, 0)` status, `INV-<year>-<n>` numbering, the
 `create` audit action, one write path per request and the same permission.
 
-Checks on this revision: 78 focused tests, no skip, including the PostgreSQL
+Checks: 296 combined finance tests passed, including the PostgreSQL
 race regression and the money-bounds storage proof. The source-text lock
 assertion was replaced by an executed-statement check and a stale-order refetch
 check; the two-connection race stays in `test_invoice_creation_integrity.py`.
-No UI check, no business change, no migration.
+The disposable local UI check covered invoice replay, partial and full payment,
+and the resulting customer balance. No business rule or database migration changed.
 
 Still undecided, unchanged here: draft-order manual invoices, reversed-invoice
 reuse, the zero/small-balance status and the customer-payment lock gap.
