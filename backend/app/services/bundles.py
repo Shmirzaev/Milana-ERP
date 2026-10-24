@@ -666,6 +666,9 @@ def receive_at_sewing(
         wo.actual_input_qty = max(int(wo.actual_input_qty or 0), received_qty)
         if wo.status in ("new", "planning", "waiting"):
             wo.status = "in_progress"
+    if receipt_context is None and wo and wo.status == "completed":
+        from app.services.sewing_progress import reconcile_sewing_order
+        reconcile_sewing_order(db, production_order_id, current=current, reason="Bundle received at Sewing")
     sync_production_order_status(
         db, bundle.production_order_id,
         production_order=(receipt_context.production_orders.get(production_order_id)
@@ -771,4 +774,11 @@ def receive_many_at_sewing(
         received_ids.append(int(bundle.id))
         if after_receive:
             after_receive(bundle)
+    if any(wo.operation == "sewing" and wo.status == "completed"
+           for wo in context.work_orders[bundles[0].production_order_id]):
+        from app.services.sewing_progress import reconcile_sewing_order
+        reconcile_sewing_order(db, bundles[0].production_order_id, current=current, reason="Bundles received at Sewing")
+        sync_production_order_status(db, bundles[0].production_order_id,
+            production_order=context.production_orders[bundles[0].production_order_id],
+            work_orders=context.work_orders[bundles[0].production_order_id])
     return received_ids

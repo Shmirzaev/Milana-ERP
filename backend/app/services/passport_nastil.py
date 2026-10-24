@@ -107,6 +107,8 @@ def sync_passport_nastil(db, passport, current, *, is_new=False):
     log_action(db, current, "sync_passport_nastil", "ProductionBatch", batch.id,
                old_value={"passport_actual_quantity": old_quantity},
                new_value={"cutting_passport_id": passport.id, "passport_actual_quantity": quantity, "name": batch.name})
+    from app.services.sewing_progress import reconcile_sewing_order
+    reconcile_sewing_order(db, passport.production_order_id, current=current, reason="Passport Nastil saved")
 
 
 def passport_batch_map(db, passport_ids):
