@@ -8,8 +8,8 @@ production verification before a bug becomes Finished.
 ## Read this first
 
 Study one operation -> humans agree its service -> capture tests -> extract without
-changing behavior -> test old/new separately -> approve and switch -> verify in
-production -> remove the old path. Repeat for enums and DTO/model cleanup.
+changing behavior -> test old/new separately -> test visually on isolated data ->
+approve and switch -> verify in production -> remove the old path. Repeat for enums and DTO/model cleanup.
 
 AI prepares and implements; humans decide business policy, service responsibilities,
 interfaces and release acceptance. Folder guides and the shared skill preserve those
@@ -23,8 +23,11 @@ agent instructions; bugs/bugs.md and bugs/finished_bugs.md; human production sig
 
 Before each operation, the team records its service name/responsibility, public
 operation, transaction owner, permissions, compatibility promise and rollback choice.
-The exact service count is NOT approved. The candidates below are suggestions.
-Do not add more folders or split by endpoint/table/line count merely to match a diagram.
+The user authorized scaffolding all twelve service groups with README guides.
+See the [full source/model map](REFACTOR_MAP.md) and [service directory guide](../backend/app/services/README.md).
+This approves the documentation folders, not every suggested file, interface or
+ownership transfer. Agree each operation before implementation; do not split by
+endpoint/table/line count merely to match a diagram.
 
 ## Mentor discipline translated to this stack
 
@@ -32,22 +35,36 @@ Do not add more folders or split by endpoint/table/line count merely to match a 
 | --- | --- | --- |
 | Controller/router | backend/app/api/routes/ | HTTP input/context, service call, response/error mapping. |
 | Service model | backend/app/services/ | Business decisions, authorized CRUD, one transaction owner. |
-| Mongoose schema model equivalent | backend/app/models/ | Existing SQLAlchemy mappings: columns, relationships, constraints/defaults. |
-| Create / update / read contracts | backend/app/schemas/ | Existing Pydantic DTOs; distinct allowed fields and output shape. |
-| Fixed vocabulary | backend/app/enums/ | Explicit serialized values; domain-owned definitions. |
-| Internal shared contracts | backend/app/types/ | Only when a real internal contract needs a type different from a DTO/model. |
+| Mongoose schema model equivalent | backend/app/schemas/ (target) | Migrate existing models/ mappings only after old schemas/ DTO imports retire. |
+| Create / update / read contracts | backend/app/libs/dto/<feature>/ | Target for existing Pydantic DTOs; migrate from schemas/ with callers. |
+| Fixed vocabulary | backend/app/libs/enums/ | Explicit serialized values; domain-owned definitions. |
+| Internal shared contracts | backend/app/libs/types/ | Only when a real internal contract needs a type different from a DTO/model. |
 
 The target is Router -> Service -> SQLAlchemy model + Session -> PostgreSQL.
 Pydantic schemas validate data; they do not perform database writes. Services can
-use the ORM directly. models/ and schemas/ already exist: reuse them. This is not
+use the ORM directly. Reuse existing models/ definitions and migrate existing
+schemas/ contracts into libs/dto/<feature>/; do not rewrite or duplicate them. This is not
 a switch to database-first development; the mentor's Mongoose Schema is also
 defined in code. No ORM replacement or generic repository layer is required.
 
-Do not duplicate DTOs under libs/dto, turn configurable roles into enums, or move
-all assets into libs. Keep the current folder vocabulary. Read the .readme.md in
+The owner chose libs/dto/<feature>/, libs/enums/ and libs/types/, following
+Meditech's explicit separation. Target schemas/ holds database schema models.
+First move current schemas/ DTOs and all callers to libs/dto/, retire old DTO
+compatibility imports and validate behavior. Then move existing models/ mappings
+to schemas/ with imports, registration and Alembic metadata discovery. Preserve
+one mapping per table and require no database-schema diff for this naming change.
+Apply the technical/visual/human-acceptance gates to both phases; do not mix the
+two meanings in the same namespace. Keep one authoritative DTO definition;
+compatibility imports may re-export it temporarily. Do not turn configurable roles
+into enums or move all assets into libs. Read the README.md in
 each affected layer before editing it.
 
 ## People and responsibilities
+
+[TEAM_OWNERSHIP.md](TEAM_OWNERSHIP.md) assigns every service group and shared layer
+to one engineer/coordinator and a named reviewer. Those allocations apply to new
+features as well as refactoring. Use [the shared skills](AGENT_SKILLS.md) in this
+repository; planning and release gates remain as described below.
 
 | Person | Accountable work |
 | --- | --- |
@@ -114,7 +131,9 @@ import and existing operation. A directory rename is not a business-logic refact
    the service is tested. Its use/location and exact removal condition need agreement.
 4. Compare independent old/new fixture runs, including database state and side
    effects. Use real isolated PostgreSQL for locks/constraints/concurrency. Staging
-   that shares production storage is not a place for write comparisons.
+   that shares production storage is not a place for write comparisons. Then test
+   the actual UI with the relevant user roles and check the affected department
+   handoff and database readback; record visual and technical evidence.
 5. Each request selects exactly one path before any write. Never run both write
    paths, shadow writes in production, or catch an error and retry the old path.
    Preserve shared idempotency semantics across switching and rollback.
@@ -202,7 +221,7 @@ No automatic closing from merge, an AI completion claim or an old Done label.
 - Codex: use $milana-refactor from this repository. Canonical skill:
   [.agents/skills/milana-refactor/SKILL.md](../.agents/skills/milana-refactor/SKILL.md).
 - Claude Code: use /milana-refactor; its small entry points to the same file.
-- AGENTS.md and CLAUDE.md direct agents to the shared rules. Folder .readme.md
+- AGENTS.md and CLAUDE.md direct agents to the shared rules. Folder README.md
   files explain local responsibilities. Teammates receive these repository-local
   skills by pulling the published commit and running their agent in that checkout.
   No personal agent settings are changed on teammates' machines.

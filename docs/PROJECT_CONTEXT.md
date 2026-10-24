@@ -2,6 +2,97 @@
 
 Last updated: 2026-10-24
 
+## Shared feature skill, named ownership and publication (2026-10-24)
+
+- User requested repository-shared skills, a separate skill for adding features,
+  exact team/folder allocation and availability after teammates pull newest code.
+- Added canonical .agents/skills/milana-feature/SKILL.md and Claude forwarding entry;
+  retained/refined milana-refactor. AGENTS.md, CLAUDE.md, backend guides and
+  docs/AGENT_SKILLS.md point to the shared rules. No personal installation required.
+- docs/TEAM_OWNERSHIP.md assigns all twelve service groups and shared layers to
+  named engineers/coordinators and reviewers. Individual folder guides match it.
+  Planning belongs to Ismail with Mirshoir review; production/packaging/fulfillment
+  to Mirshoir with Ismail review; people/identity/work-management to Dilmurod with
+  Mirshoir review. Shavkat owns business clarification and operator acceptance.
+- Skills distinguish actual source paths from the target schemas/ and libs/dto/
+  naming. They require backend authorization, one transaction/write path, relevant
+  regressions, visual checks and human acceptance. No automatic enforcement claimed.
+- User authorized publishing this documentation to clone_main. Prepared in the
+  existing documentation worktree/branch at base 3eea897e. The final handoff records
+  the publication commit and remote verification; this entry alone is not push proof.
+- Documentation/skill metadata only: no Python source, database, CI, runtime or
+  deployment changes. Active/rollback releases not rechecked; historical records
+  below remain intact. Earlier local-only entries describe earlier task states.
+
+## Final mentor-aligned schema naming (2026-10-24)
+
+- Owner confirmed correcting the plan and skill after choosing schemas/ as the
+  database schema-model name. Target: api/routes/, services/, schemas/ for SQLAlchemy
+  mappings, libs/dto/<feature>/ for Pydantic DTOs, libs/enums/ and libs/types/.
+- Current source is unchanged: DTOs still live in schemas/, database mappings in
+  models/. First migrate DTOs and every caller/shim to libs/dto/ and verify them;
+  then migrate database definitions, imports, registration and Alembic discovery
+  to schemas/. No mixed namespace, duplicate mappings or storage change is intended.
+- Canonical skill, layer guides, plan and source-map notes now agree. Claude Code
+  already forwards to that same canonical skill. Earlier naming decisions below
+  are superseded; source links still point to real current files.
+- Local documentation worktree/branch codex/erp-refactor-folders-20261024 at base
+  3eea897e; no source edits, commit, push or deployment. No live-state verification;
+  all earlier active/rollback deployment records are retained unchanged.
+
+## Meditech DTO separation: corrected target (2026-10-24)
+
+- Re-inspected Meditech snapshot b4c646ce471efbf6fe984f3315bba366b197281a: member and
+  board-article input/update/output DTOs are in libs/dto/<feature>/; schemas/ contains
+  Mongoose database definitions. Resolver/service/module imports confirm the separation.
+- The owner corrected the earlier instruction to keep DTOs permanently in schemas/.
+  Target is now backend/app/libs/dto/<feature>/ for Pydantic contracts, alongside
+  libs/enums/ and libs/types/. SQLAlchemy database mappings remain in models/.
+- Added libs/dto/README.md and corrected layer, service, team-plan and skill guidance.
+  Existing schemas/ remains a migration source until definitions and callers move;
+  no Python source or imports changed and no duplicate DTO implementations were added.
+- Study, contract tests, extraction, visual checks, reviewed cutover, human acceptance
+  and cleanup still apply. Earlier folder decisions below are superseded by this entry.
+- Local documentation worktree codex/erp-refactor-folders-20261024 at base 3eea897e;
+  no commit/push/deployment. Active/rollback releases not rechecked; history preserved.
+
+## Owner-selected libs organization (2026-10-24)
+
+- The owner chose backend/app/libs/ for shared definitions. Moved the documentation-only
+  enums/ and types/ scaffolds under libs/, with a parent guide and updated references.
+- Existing schemas/ remains the single home for Pydantic Create/Update/Read DTOs;
+  models/ remains SQLAlchemy database mappings; services/ owns business operations.
+- Updated the team plan and shared refactor skill. No Python source, imports,
+  database schema or runtime changed. Earlier folder paths below are historical.
+- Same documentation worktree/branch and base 3eea897e; local edits only, no commit,
+  push or deployment. Active/rollback releases were not rechecked; prior records preserved.
+
+## Complete service-folder documentation scaffold (2026-10-24)
+
+- User authorized all twelve proposed service groups with visible README.md guides:
+  identity, catalog, purchasing, sales, inventory, planning, production, packaging,
+  fulfillment, finance, people and work_management. Ten directories are new;
+  production/packaging already existed. Each guide explains purpose, current source,
+  proposed files, models/DTOs, owner, boundaries and technical/visual verification.
+- Added [the backend guide](../backend/app/README.md), [service index](../backend/app/services/README.md)
+  and [complete source/model map](REFACTOR_MAP.md): all 47 route files, 87 existing
+  service/helper files and 97 mapped classes are accounted for. This is inventory
+  coverage and proposed ownership, not completed per-operation implementation analysis.
+- Replaced hidden .readme.md guides with README.md in affected architecture folders;
+  models/schemas/enums/types retain their existing directories with expanded file
+  conventions. No duplicate model/DTO hierarchy or database tables were created.
+- The sequence explicitly requires study -> agreed operation -> baseline tests ->
+  extraction -> technical tests -> visual workflow checks -> authorized switch ->
+  human production acceptance -> cleanup. Shared skill and plan point to these guides.
+- No Python files or package initializers were added, moved or changed. Existing
+  finance.py, inventory.py, planning.py, production.py and purchasing.py remain the
+  authoritative imports beside documentation-only directories. Their package
+  conversions require coordinated changes later.
+- Local scaffolding based on 3eea897e in the existing refactor documentation worktree;
+  not committed, pushed or deployed by this scaffolding task. No runtime/database
+  access or live verification. Existing deployment history remains unchanged.
+  The earlier sections record prior planning iterations and their guide filenames.
+
 ## Shared team discipline and reversible refactor plan (2026-10-24)
 
 - User confirmed clone_main as production/integration branch, human ownership of

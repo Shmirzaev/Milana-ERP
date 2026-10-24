@@ -1,0 +1,26 @@
+# Shared skills for the team
+
+These skills are repository files. Pull the latest clone_main and open an agent
+session in that checkout. No personal skill copy is required. If a running session
+does not list a new skill, reopen it or explicitly ask it to read the path below.
+
+| Work | Codex | Claude Code | Shared instructions |
+| --- | --- | --- | --- |
+| Refactor existing behavior | $milana-refactor | /milana-refactor | [.agents/skills/milana-refactor/SKILL.md](../.agents/skills/milana-refactor/SKILL.md) |
+| Add or extend a feature | $milana-feature | /milana-feature | [.agents/skills/milana-feature/SKILL.md](../.agents/skills/milana-feature/SKILL.md) |
+
+Codex entries are in .agents/skills/; Claude entries in .claude/skills/ forward to
+the same canonical instructions. AGENTS.md and CLAUDE.md direct agents to use them.
+Any other agent can read those Markdown files explicitly. Skill discovery does not
+prove compliance: inspect the diff, tests, review and acceptance evidence.
+
+For a task, include: business group, engineer, reviewer, desired outcome, affected
+workflow and whether this is planning or approved implementation. Example:
+
+> Use $milana-feature for the approved purchasing change. Owner Ismail; reviewer
+> Mirshoir. Read the purchasing guide, trace the receiving operation and its stock
+> handoff, then implement only the recorded acceptance cases and verify both flows.
+
+Use [team ownership](TEAM_OWNERSHIP.md) for exact allocations and
+[the backend guide](../backend/app/README.md) for current versus target folders.
+The schema/DTO migration is planned; reading these skills does not mean it happened.

@@ -6,7 +6,7 @@ description: Plan and carry out approved Milana ERP monolith refactors using rev
 # Milana refactor discipline
 
 Keep the factory working while simplifying one business operation at a time.
-Read the repository's AGENTS.md and the relevant folder's .readme.md. For scope,
+Read the repository's AGENTS.md and the relevant folder's README.md. For scope,
 ownership and sequence, read the relevant sections of [the team plan](../../../docs/REFACTOR_PLAN.md).
 Read DEPLOYMENT.md only for release preparation or deployment work. Follow its
 actual gates; this skill grants no deployment, push, migration or data-repair authority.
@@ -25,8 +25,16 @@ Mirshoir owns sensitive architecture/transactions and production workflows.
 Ismail owns stock/commercial work and coordinates enums and DTO conventions.
 Dilmurod owns people/platform and verification infrastructure. Every code change
 has one engineer owner and another engineer reviewing it, including Mirshoir's.
+Exact group/layer owners and reviewers are recorded in [team ownership](../../../docs/TEAM_OWNERSHIP.md).
+For new behavior, also use [milana-feature](../milana-feature/SKILL.md); keep the
+behavior change distinct from extraction.
 Shavkat supplies business rules and operator acceptance; do not assign him technical
 review, migrations or operations. An AI's own test result is not human approval.
+
+For folder purpose and how to write files, use [the backend guide](../../../backend/app/README.md).
+Use [the source/model map](../../../docs/REFACTOR_MAP.md) to locate a group; load only
+the needed section. The twelve documentation folders are authorized scaffolding;
+do not treat their proposed operation names as implementation approval.
 
 ## Read a small, complete context
 
@@ -47,8 +55,21 @@ checks, rollback mechanism and next step so another session can resume accuratel
 - Services own business rules, object/factory authorization and coordinated CRUD.
   They accept the session/context explicitly. No service imports a router or calls
   an endpoint; cross-feature work uses an agreed operation, not a private helper.
-- Reuse models/ for SQLAlchemy mappings and schemas/ for Pydantic Create, Update
-  and Read/Out DTOs. DTOs do not execute queries. No parallel dto/ hierarchy.
+- Target naming follows the owner's mentor: schemas/ holds SQLAlchemy database
+  schema models; libs/dto/<feature>/ holds Pydantic input, update and output DTOs.
+  Today those implementations are in models/ and schemas/ respectively. These are
+  current locations, not the target layout. No runtime move is implied by the guides.
+- Migration order: first move existing DTO definitions and all callers to libs/dto/;
+  temporary compatibility imports must re-export the same class. Retire ALL old
+  DTO imports/shims and validate contracts before reusing schemas/ for persistence.
+  Then move existing SQLAlchemy definitions from models/ to schemas/ with their
+  imports, model registration and Alembic metadata discovery. Preserve table names,
+  constraints/defaults and a single mapping per table; require no database-schema
+  diff for this naming change. Test imports, mappings and affected workflows.
+  Keep the shared technical/visual/human-acceptance gates and rollback conditions
+  for each phase. Do not mix old DTO and new database meanings at the same path.
+- Shared definitions live in libs/enums/ and libs/types/, as chosen by the owner.
+  Keep API DTOs in libs/dto/; libs contains no services or persistence operations.
 - Enums preserve existing string values. Configurable roles/permissions/factories
   remain data. Enums do not implement RBAC or legal state transitions.
 - One outer operation owns the transaction; helpers cannot commit part of it.
@@ -72,6 +93,9 @@ checks, rollback mechanism and next step so another session can resume accuratel
    agreed operation interface. Document owner, selection scope and removal condition.
 5. Compare old/new results AND database changes on independent fixtures. Verify
    authorization failures, retries, partial quantities, concurrency and handoffs.
+   Then exercise the actual UI on isolated local/staging data with allowed/denied
+   roles and affected department handoffs. Capture outcomes and readback, not only
+   screenshots. Visual checks supplement technical tests; they do not replace them.
 6. Select exactly ONE implementation per request, before writes. Never dual-write,
    replay live writes for comparison, or automatically retry the legacy path after
    the new path fails: the first attempt may already have committed or sent effects.

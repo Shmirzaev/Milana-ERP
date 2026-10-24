@@ -75,8 +75,12 @@ state. Keep the human summary short.
 ## Shared refactor discipline
 
 For monolith refactoring, read [.agents/skills/milana-refactor/SKILL.md](.agents/skills/milana-refactor/SKILL.md)
-and the relevant sections of [docs/REFACTOR_PLAN.md](docs/REFACTOR_PLAN.md). Read the .readme.md only in the
+and the relevant sections of [docs/REFACTOR_PLAN.md](docs/REFACTOR_PLAN.md). Read the README.md only in the
 affected architecture folders. Claude Code uses the same rules via /milana-refactor.
+For new or extended features, use [.agents/skills/milana-feature/SKILL.md](.agents/skills/milana-feature/SKILL.md).
+Use [docs/TEAM_OWNERSHIP.md](docs/TEAM_OWNERSHIP.md) to name the engineer and reviewer
+before editing. [docs/AGENT_SKILLS.md](docs/AGENT_SKILLS.md) explains team invocation.
+Both skills are versioned with the source; never substitute a personal copy of old rules.
 Service responsibilities/interfaces and business policy are human decisions; AI
 implements the approved scope. Planning requests do not authorize source refactoring.
 

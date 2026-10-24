@@ -1,5 +1,8 @@
 # Enums: stable business vocabulary
 
+**Coordination owner:** Ismail. **Reviewer:** Mirshoir.
+Shavkat confirms business meanings; feature owners update callers. See [team ownership](../../../../docs/TEAM_OWNERSHIP.md).
+
 This folder is a documented part of the proposed refactor. No enum implementation
 or database change has been made yet.
 
@@ -35,4 +38,17 @@ This folder is not a requirement to convert every string in the application.
 
 Ismail coordinates enum conventions and the vocabulary inventory. Each feature
 owner verifies its callers and serialization; Shavkat confirms business meanings.
-See the [team plan](../../../docs/REFACTOR_PLAN.md).
+See the [team plan](../../../../docs/REFACTOR_PLAN.md).
+
+## How to make an enum file
+
+Use a domain-named file such as payroll.py and an explicit string-valued Enum.
+Inventory every stored value and client first. For example, the current payroll
+period vocabulary is draft, open, locked, approved, paid and cancelled; creation
+allows only draft/open. Preserve both facts instead of accepting every enum member
+for every action. The service owns legal transitions and authorization.
+
+Use `class PayrollPeriodStatus(str, Enum)` with explicit serialized values when
+that conversion is approved. Preserve the existing public strings and database
+column type. Do not switch to PostgreSQL ENUM as a side effect of adding Python types.
+Ismail coordinates conventions; each feature owner updates its actual callers/tests.
