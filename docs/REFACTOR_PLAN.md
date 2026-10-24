@@ -223,6 +223,8 @@ The [RF-001 source trace and proposed output interface](../backend/app/models/pr
 are prepared for Mirshoir's decision; this is not RF-005 implementation approval.
 The [RF-011 fixed-value inventory](../backend/app/libs/enums/README.md#rf-011-pilot-inventory-for-ismail-source-84bbc03)
 is prepared for Ismail; it does not convert callers or change storage.
+The [RF-012 Sewing contract inventory](../backend/app/libs/dto/production/README.md#rf-012-sewing-record-contract-inventory-source-345b8fa)
+lists the existing create, correction and read shapes; it creates no DTO copies.
 
 ### RF-003: Sewing pilot bug evidence prepared for Ismail
 
