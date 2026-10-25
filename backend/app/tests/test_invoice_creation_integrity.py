@@ -27,7 +27,7 @@ from app.api.routes import finance as finance_routes
 from app.api.routes import sales as sales_routes
 from app.db.base import Base
 from app.db.session import SessionLocal
-from app.schemas import Invoice, SalesOrder, User
+from app.schemas import AuditLog, Invoice, SalesOrder, User
 from app.libs.dto.sales.sales import InvoiceIn
 
 import app.schemas  # noqa: F401  — registers every table on Base.metadata
@@ -110,6 +110,52 @@ def test_sales_first_then_finance_agrees(client, auth_headers):
 
     with SessionLocal() as db:
         assert db.query(Invoice).filter(Invoice.sales_order_id == sid).count() == 1
+
+
+def test_sales_entry_point_issues_its_own_invoice_policy(client, auth_headers):
+    """The sales entry point bills the order total as `unpaid`.
+
+    `finance.create_invoice` derives the status from the amount, so an order of
+    0.50 is `paid` there under the USD settlement tolerance. The sales entry
+    point has always issued `unpaid`, audited as `generate_invoice`, and answers
+    with its own envelope — this pins that deliberate difference.
+    """
+    sid = _make_order(total=0.5)
+
+    created = client.post(f"/api/sales-orders/{sid}/generate-invoice", headers=auth_headers)
+    assert created.status_code == 200, created.text
+    body = created.json()
+    assert set(body) == {
+        "id",
+        "sales_order_id",
+        "invoice_no",
+        "amount",
+        "status",
+        "issued_at",
+        "due_date",
+        "created_existing",
+    }
+    assert body["sales_order_id"] == sid
+    assert body["amount"] == 0.5
+    assert body["status"] == "unpaid"
+    assert body["created_existing"] is False
+
+    replay = client.post(f"/api/sales-orders/{sid}/generate-invoice", headers=auth_headers)
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["id"] == body["id"]
+    assert replay.json()["created_existing"] is True
+
+    with SessionLocal() as db:
+        invoices = db.query(Invoice).filter(Invoice.sales_order_id == sid).all()
+        assert len(invoices) == 1
+        assert float(invoices[0].amount) == 0.5
+        assert invoices[0].status == "unpaid"
+        audits = (
+            db.query(AuditLog)
+            .filter(AuditLog.entity_type == "Invoice", AuditLog.entity_id == invoices[0].id)
+            .all()
+        )
+        assert [row.action for row in audits] == ["generate_invoice"]
 
 
 # --------------------------------------------------------------------------

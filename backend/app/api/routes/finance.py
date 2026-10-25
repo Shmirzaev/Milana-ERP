@@ -1,16 +1,14 @@
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, Depends, Header, Query
+from fastapi import APIRouter, Depends, Header, Query
 
 from app.core.deps import DbSession, require_permissions
-from app.schemas import Invoice, User
+from app.schemas import User
 from app.libs.dto.sales.invoice_input import InvoiceIn
 from app.libs.dto.sales.invoice_output import InvoiceOut
 from app.libs.dto.sales.payment_input import PaymentIn
 from app.libs.dto.sales.payment_output import PaymentOut
-from app.models.audit_service import log_action
-from app.models.payments_service import create_invoice_payment
-from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 from app.models.finance.invoices_service import create_order_invoice
+from app.models.finance.payments_service import record_invoice_payment
 from app.models.finance_service import (
     dashboard_summary, order_profit, branded_stock_value, waste_cost, waste_income,
     list_recent_invoices, count_invoices, INVOICE_LIST_MAX_LIMIT, revenue_by_period,
@@ -91,30 +89,4 @@ def create_payment(
     current: User = Depends(require_permissions("finance.payment", "*")),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    fingerprint_payload = payload.model_dump(mode="json")
-    replay = replay_idempotent_response(db, scope="finance.payments", key=idempotency_key, payload=fingerprint_payload)
-    if replay:
-        return replay
-    inv = db.get(Invoice, payload.invoice_id)
-    if not inv: raise HTTPException(404, "Invoice not found")
-    p = create_invoice_payment(
-        db,
-        inv,
-        amount=payload.amount,
-        payment_method=payload.payment_method,
-        paid_at=payload.paid_at,
-        notes=payload.notes,
-    )
-    log_action(db, current, "create", "Payment", p.id, new_value={"amount": float(p.amount)})
-    response = PaymentOut.model_validate(p).model_dump(mode="json")
-    store_idempotent_response(
-        db,
-        scope="finance.payments",
-        key=idempotency_key,
-        payload=fingerprint_payload,
-        response=response,
-        user=current,
-        status_code=201,
-    )
-    db.commit(); db.refresh(p)
-    return response
+    return record_invoice_payment(db, payload, current, idempotency_key)

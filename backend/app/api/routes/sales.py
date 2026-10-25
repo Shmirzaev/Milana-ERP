@@ -1,7 +1,7 @@
 from app.core.order_reference import order_reference_contains
 import os
 from collections import defaultdict
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Depends, Header
@@ -31,12 +31,11 @@ from app.schemas import (
 from app.libs.dto.sales.sales import (
     SalesOrderIn, SalesOrderUpdate, SalesOrderOut, SalesOrderDetail,
 )
-from app.libs.enums.finance import InvoiceStatus
 from app.models.audit_service import log_action
+from app.models.finance.invoices_service import generate_order_invoice
 from app.models.finished_goods_service import repair_missing_brand_metadata
 from app.models.ready_stock_sales_service import ready_pack_candidates, reserve_ready_packs
 from app.models.numbering_service import next_sales_order_no
-from app.models.numbering_service import next_invoice_no
 from app.models.workflow_service import notify_department
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 from app.models.model_images_service import model_variant_picture_url
@@ -2132,54 +2131,7 @@ def generate_invoice_for_order(
     db: DbSession,
     current: User = Depends(require_permissions("finance.invoice", "sales.orders", "*")),
 ):
-    # Match finance.create_invoice: both entry points must serialize on the
-    # order before checking whether an invoice already exists.
-    so = (
-        db.query(SalesOrder)
-        .filter(SalesOrder.id == sid)
-        .populate_existing()
-        .with_for_update(of=SalesOrder, key_share=True)
-        .first()
-    )
-    if not so:
-        raise HTTPException(404, "Sales order not found")
-    allowed = {"confirmed", "in_production", "cutting", "sewing", "packaging", "storage", "ready", "reserved", "shipped", "delivered", "planning", "planning_approved", "production"}
-    if str(so.status or "") not in allowed:
-        raise HTTPException(400, f"Cannot generate invoice for order in status '{so.status}'")
-    existing = db.query(Invoice).filter(Invoice.sales_order_id == sid).order_by(Invoice.id.desc()).first()
-    if existing:
-        return {
-            "id": existing.id,
-            "sales_order_id": existing.sales_order_id,
-            "invoice_no": existing.invoice_no,
-            "amount": float(existing.amount or 0),
-            "status": existing.status,
-            "issued_at": existing.issued_at,
-            "due_date": existing.due_date,
-            "created_existing": True,
-        }
-    inv = Invoice(
-        sales_order_id=sid,
-        invoice_no=next_invoice_no(db),
-        amount=float(so.total_amount or 0),
-        status=InvoiceStatus.UNPAID.value,
-        issued_at=datetime.now(timezone.utc),
-    )
-    db.add(inv)
-    db.flush()
-    log_action(db, current, "generate_invoice", "Invoice", inv.id, new_value={"sales_order_id": sid, "amount": float(inv.amount or 0)})
-    db.commit()
-    db.refresh(inv)
-    return {
-        "id": inv.id,
-        "sales_order_id": inv.sales_order_id,
-        "invoice_no": inv.invoice_no,
-        "amount": float(inv.amount or 0),
-        "status": inv.status,
-        "issued_at": inv.issued_at,
-        "due_date": inv.due_date,
-        "created_existing": False,
-    }
+    return generate_order_invoice(db, sid, current)
 
 
 @router.delete("/{sid}", status_code=204)
