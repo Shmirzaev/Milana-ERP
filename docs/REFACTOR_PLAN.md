@@ -6,6 +6,14 @@ RF-011 enum work currently covers InvoiceStatus only; other shared fixed values
 still require inventory, caller migration and compatibility verification. This
 remaining work was part of Ismail's assignment, not a newly added requirement.
 
+The owner's latest explicit schema-owned write/update requirement is also
+unfinished. Services must call persistence operations in the existing schema
+domain using the same Session, retaining business rules/permissions and one outer
+transaction. Trace mapped/relationship mutations and shared audit, notifications
+and idempotency; preserve hooks, locks and rollback. Namespace separation alone
+did not implement this target. Complete and verify a whole operation before broad
+enum/type adoption. Six-area worker coverage is not system-wide enum completion.
+
 Execute the remaining work one business operation at a time, using the
 [durable task packet and ledger](VERIFICATION.md#0-study-the-old-behavior-and-give-the-agent-a-verifiable-task)
 and [table-by-table type audit](../backend/app/libs/enums/README.md#table-by-table-audit).
@@ -186,12 +194,12 @@ implementation; do not split by endpoint/table/line count merely to match a diag
 | --- | --- | --- |
 | Controller/router | backend/app/api/routes/ | HTTP input/context, service call, response/error mapping. |
 | Service model | backend/app/models/ | Business decisions, authorized CRUD, one transaction owner. |
-| Mongoose schema model equivalent | backend/app/schemas/ | SQLAlchemy definitions and registration; services perform CRUD with a Session. |
+| Mongoose schema model equivalent | backend/app/schemas/ | SQLAlchemy definitions, registration and schema-owned persistence operations; services coordinate CRUD with the supplied Session. Write-boundary migration remains incomplete. |
 | Create / update / read contracts | backend/app/libs/dto/<feature>/ | Existing Pydantic inputs, allowed updates, outputs and action contracts. |
 | Fixed vocabulary | backend/app/libs/enums/ | Explicit serialized values; domain-owned definitions. |
 | Internal shared contracts | backend/app/libs/types/ | Only when a real internal contract needs a type different from a DTO/model. |
 
-The target is Router -> models/*_service.py -> SQLAlchemy schema + Session -> PostgreSQL.
+The target is Router -> models/*_service.py -> schema-owned persistence + supplied Session -> PostgreSQL.
 Pizza House calls its business-service folder models/; we use that name too.
 There is one business-service layer. No separate services/ directory is needed.
 SQLAlchemy mappings now live in schemas/ and Pydantic contracts in libs/dto/.

@@ -62,7 +62,20 @@ overlapping files/operations have one writer and require combined verification.
 
 ## Architecture contract
 
-`HTTP router -> models/<group>/*_service.py -> SQLAlchemy schema + Session -> PostgreSQL`
+`HTTP router -> models/<group>/*_service.py -> schema-owned persistence + supplied Session -> PostgreSQL`
+
+26 October 2026: the owner's explicit target puts write/update/delete mechanics in
+schema-model operations. The namespace move is complete, but this write boundary
+is not. Services retain business decisions, permissions, calculations and the outer
+transaction. Use focused persistence functions in the existing schema domain or
+methods on its mapped class; do not duplicate mappings or add a generic repository.
+Include mapped field/relationship mutation and shared audit/notification/idempotency
+writes in the same operation. Helpers use the supplied Session without hidden commits,
+new transactions, business-policy changes or service/route imports. Preserve locks,
+flush timing, audit-chain hooks and rollback; shared persistence has one writer.
+Complete the first operation's gates before mass enum/type adoption. A shared enum
+must serve its real schema/contract/service consumers; six workers do not prove
+system-wide coverage or full mentor alignment.
 
 - Routers bind/validate HTTP inputs, obtain authenticated context/session, call the
   service and map results/errors to HTTP. No new business calculations or ORM writes.

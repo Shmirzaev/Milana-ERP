@@ -32,6 +32,18 @@ entire area complete while its operation/type ledger contains unexplained gaps.
 
 ## Required context
 
+### Schema-owned writes: owner's explicit target, 26 October 2026
+
+Ismail requires routes -> business services -> schema-model persistence operations.
+The earlier namespace move did not implement this boundary. Services keep business
+rules, permissions, calculations and one outer transaction; schema-owned operations
+perform inserts, updates and deletes using that same supplied Session. Include mapped
+attribute/relationship mutations, indirect writers, audit, notifications and idempotency
+in the operation trace. Persistence helpers must not commit, change lock order, import
+services/routes or introduce a generic CRUD framework. Preserve existing contracts and
+storage. Migrate and verify one complete operation before broad enum/type adoption;
+do not claim all schemas or all system-wide enums are complete from moved files.
+
 Before a substantial change, read `docs/PROJECT_CONTEXT.md` and
 `DEPLOYMENT.md`. For a narrow question, read their relevant sections. Do not
 rely only on a task title, Git commit, local checkout, or GitHub branch.

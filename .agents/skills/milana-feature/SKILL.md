@@ -43,7 +43,8 @@ authorization covers ordinary implementation choices within the agreed scope.
 - Feature services live in models/<group>/*_service.py (the mentor's models/ service layer).
   Reuse existing shared helpers at models/ root; find the actual public operation
   in the group's README before adding another service or DTO.
-  Do not recreate services/. They own business decisions, object/factory authorization and CRUD.
+  Do not recreate services/. They own business decisions, object/factory authorization
+  and coordinated CRUD through schema-owned persistence operations.
   Accept dependencies explicitly. No route imports/calls from services, private
   cross-group reach-through or cyclic service dependencies. Coordinate via the
   agreed public operation; do not create a generic repository/interface framework.
@@ -70,6 +71,12 @@ authorization covers ordinary implementation choices within the agreed scope.
   contracts. Do not put DTOs in schemas/ or database definitions in models/.
   Reuse authoritative definitions, including mixed legacy files; do not duplicate
   classes merely to make folder ownership look complete.
+  The owner's explicit target also puts insert/update/delete mechanics and mapped
+  mutations behind operations in that schema domain. Services pass validated data
+  and the same Session; they keep business rules and the outer transaction. Include
+  indirect audit/notification/idempotency writes. No helper commits, service/route
+  imports, duplicate mappings or generic CRUD framework. This is an unfinished
+  operation-by-operation migration, not an achievement of the namespace move.
 - One outer operation owns the transaction. Helpers participate without committing.
   Preserve session/autobegin behavior, lock order, precision, audit, idempotency
   and external-effect timing. Exactly one write implementation runs per request;

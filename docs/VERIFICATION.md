@@ -51,6 +51,18 @@ the entire repository into one context window, establish what has been studied.
 
 ## 1. Make AI-generated tests capable of detecting mistakes
 
+For the owner's schema-owned write target, trace the complete operation, including
+root/shared helpers, mapped assignments, relationship/cascade writes, raw SQL,
+audit, notifications and idempotency. Schema persistence helpers participate in
+the same Session; business decisions and one outer transaction remain services.
+Prove refusal leaves no partial effects and preserve audit hooks/lock ordering.
+`backend/scripts/audit_refactor_boundaries.py` is a conservative static tripwire;
+its strict failures identify remaining work. It does not prove alias/dataflow,
+attribute mutation, ownership or runtime integrity, and must not be weakened to
+make unfinished source pass. Its function-entry counts are not approved service
+counts or reviewed business operations. Verify one complete operation before
+repeating the pattern or claiming broad enum/type readiness.
+
 - Start from Shavkat's agreed business examples and the engineer's explicit contract,
   not an expected value copied from the implementation. Name input, actor, expected
   output, persisted effects, refusals and affected downstream workflow.

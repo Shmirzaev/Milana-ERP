@@ -53,7 +53,12 @@ not appended here. This summary does not replace live release verification.
   Human visual/technical approval, merge and production acceptance are separate.
   Synthetic QA values do not establish the complete production vocabulary.
 - Keep the FastAPI/SQLAlchemy/PostgreSQL monolith. Router -> feature service ->
-  SQLAlchemy schema models + Session -> database. No microservice/ORM replacement.
+  schema-owned persistence operations + supplied Session -> database. Services
+  retain business rules, permissions and one outer transaction. Ismail explicitly
+  requires writes/updates behind schema models; this boundary remains unfinished
+  despite the completed namespace move. Include audit/notification/idempotency and
+  mapped mutations, preserve locks/hooks, and verify one complete operation first.
+  No microservice/ORM replacement.
 - Target: api/routes/ for HTTP, models/ for business services, schemas/ for
   database schema models, libs/dto/<feature>/ for input/update/output contracts,
   libs/enums/ for fixed vocabulary, libs/types/ for distinct internal contracts.

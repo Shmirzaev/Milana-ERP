@@ -40,9 +40,12 @@ See [team ownership](../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordinat
    a requirement to create every file or one class per table.
 2. Write a short contract: input/actor, allowed behavior, output, known refusals,
    affected records, lock order, transaction owner and external side effects.
-3. Use `snake_case_service.py` and explicit typed functions. A service may call SQLAlchemy
-   directly. It accepts a Session and actor/context; it does not obtain them from
-   FastAPI Depends or import HTTP handlers. Prefer the smallest useful public API.
+3. Use `snake_case_service.py` and explicit typed functions. Under Ismail's latest
+   schema-first requirement, services call schema-owned persistence operations for
+   inserts, updates and deletes; direct Session writes or mapped-field mutations
+   in services are migration debt. Services retain business rules, authorization
+   and workflow coordination. They accept a Session and actor/context, not
+   FastAPI Depends, and never import HTTP handlers. Prefer a small explicit API.
 4. Reuse the SQLAlchemy definitions in [schemas](../schemas/README.md) and the
    Pydantic contracts in [libs/dto](../libs/dto/README.md). Use [enums](../libs/enums/README.md)
    for fixed vocabulary and [types](../libs/types/README.md) only for a distinct
@@ -95,7 +98,12 @@ the mapped classes; models/__init__.py does not export ORM classes.
 
 Import services from app.models.<name>_service and mapped classes from app.schemas
 or their specific module. Never duplicate a mapped class or change table names to
-match Python folders. Services use those classes and the existing Session for CRUD.
+match Python folders. Services use those classes for reads and call persistence
+operations owned by the schema domain for writes, using the same existing Session.
+The outer business operation owns the transaction; schema helpers must not commit
+independently. This is the required target, not a claim that current services meet it.
+Migrate one complete operation with all its writers, including audit/notification
+participants; preserve atomicity, lock order, idempotency and refusal behavior.
 
 Service-group directories remain guides until an operation's package conversion
 is approved and all callers are updated. Their old ORM filename collisions have
