@@ -13,7 +13,7 @@ from app.schemas import (
     PurchaseOrderLine, StockBatch, StockMovement, User, Warehouse,
 )
 from app.libs.dto.inventory.inventory import AccessoryReturnIn, ItemIn, StockBatchIn, StockBatchUpdate
-from app.libs.dto.purchasing.purchasing import PurchaseOrderLineIn, PurchaseOrderReceiveLineIn
+from app.libs.dto.purchasing.purchase_order_input import PurchaseOrderLineIn, PurchaseOrderReceiveLineIn
 from app.models.idempotency_service import request_fingerprint
 from app.models.purchasing_service import create_purchase_order, receive_purchase_order
 

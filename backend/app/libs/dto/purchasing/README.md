@@ -4,11 +4,19 @@
 
 Existing Pydantic definitions in this group:
 
-- [purchasing.py](purchasing.py)
+- [purchase_request_input.py](purchase_request_input.py) - request, approval and conversion input.
+- [purchase_request_output.py](purchase_request_output.py) - request and line output.
+- [purchase_order_input.py](purchase_order_input.py) - order and receipt input.
+- [purchase_order_output.py](purchase_order_output.py) - order and line output.
+- [purchase_quantity.py](purchase_quantity.py) - the shared purchase quantity bound and its two aliases.
 
 These describe accepted inputs and returned data. They do not execute database
-writes, implement permissions or manage transactions. Existing filenames/class
-names are retained; the folder move does not alter validation or defaults.
+writes, implement permissions or manage transactions. Class names and validation
+are unchanged by the split; the group now has one file per entity family
+instead of one combined file.
+
+Purchasing exposes no update operation, so there is no `*_update.py` file; an
+update contract would be unused.
 
 Before adding a file, find the existing contract and its router/service callers.
 Keep creation fields/defaults, allowed update fields and response filtering distinct.

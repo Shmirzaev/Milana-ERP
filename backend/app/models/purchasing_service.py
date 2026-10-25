@@ -23,7 +23,8 @@ from app.schemas import (
     Warehouse,
     ProductionOrder,
 )
-from app.libs.dto.purchasing.purchasing import MAX_PURCHASE_QUANTITY
+from app.libs.dto.purchasing.purchase_quantity import MAX_PURCHASE_QUANTITY
+from app.models import inventory_access_service as inventory_access
 from app.models.audit_service import log_action
 from app.models.material_rolls_service import normalize_material_roll_weights
 from app.models.numbering_service import next_purchase_order_no, next_purchase_request_no
@@ -159,6 +160,18 @@ def _optional_ids(values) -> list[int]:
         except (TypeError, ValueError):
             continue
     return ids
+
+
+def require_purchase_item_access(db: Session, user: User, lines) -> None:
+    """Check the caller's current inventory access for every purchased line.
+
+    A materials-only caller must not reach a line whose item is outside the
+    material categories. The outer purchasing operations call this before they
+    commit, so a denied access leaves no committed request, order or receipt
+    behind.
+    """
+    for line in lines:
+        inventory_access.require_item(db, user, line.item_id)
 
 
 def create_purchase_request(db: Session, *, data: dict, current: User) -> PurchaseRequest:

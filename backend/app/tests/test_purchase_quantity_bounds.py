@@ -9,11 +9,11 @@ from pydantic import ValidationError
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
 from app.schemas import Item, PurchaseOrder, PurchaseOrderLine, Role, StockBatch, User, Warehouse
-from app.libs.dto.purchasing.purchasing import (
+from app.libs.dto.purchasing.purchase_order_input import (
     PurchaseOrderLineIn,
     PurchaseOrderReceiveLineIn,
-    PurchaseRequestOrderLineIn,
 )
+from app.libs.dto.purchasing.purchase_request_input import PurchaseRequestOrderLineIn
 
 # The storage bound this task requires. Declared here rather than imported so the
 # test exercises the unfixed base instead of failing at import.
