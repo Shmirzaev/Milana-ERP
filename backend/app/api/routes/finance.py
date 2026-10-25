@@ -10,9 +10,8 @@ from app.libs.dto.sales.payment_output import PaymentOut
 from app.models.finance.invoices_service import create_order_invoice
 from app.models.finance.payments_service import record_invoice_payment
 from app.models.finance_service import (
-    dashboard_summary, order_profit, branded_stock_value, waste_cost, waste_income,
-    list_recent_invoices, count_invoices, INVOICE_LIST_MAX_LIMIT, revenue_by_period,
-    cost_breakdown,
+    branded_stock_value, cost_breakdown, dashboard_summary, invoice_list_page,
+    order_profit, revenue_by_period, waste_cost, waste_income,
 )
 
 router = APIRouter(prefix="/finance", tags=["finance"])
@@ -52,14 +51,7 @@ def list_invoices(
     UI can say how many rows exist past the current page instead of silently
     stopping at `limit`.
     """
-    safe_limit = max(1, min(int(limit or 50), INVOICE_LIST_MAX_LIMIT))
-    safe_offset = max(0, int(offset or 0))
-    return {
-        "items": list_recent_invoices(db, limit=safe_limit, offset=safe_offset, search=search),
-        "total": count_invoices(db, search=search),
-        "limit": safe_limit,
-        "offset": safe_offset,
-    }
+    return invoice_list_page(db, limit=limit, offset=offset, search=search)
 
 
 @router.get("/revenue-by-period")

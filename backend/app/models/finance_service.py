@@ -182,7 +182,8 @@ def list_recent_invoices(
     """Return a page of recent invoices with sales-order and customer labels.
 
     Still returns a plain list so existing direct callers keep working; the
-    route wraps it with `count_invoices` for the exact total.
+    `invoice_list_page` operation builds the page envelope, including the
+    exact filtered total from `count_invoices`.
     """
     safe_limit = max(1, min(int(limit or 50), INVOICE_LIST_MAX_LIMIT))
     safe_offset = max(0, int(offset or 0))
@@ -220,6 +221,31 @@ def list_recent_invoices(
             }
         )
     return out
+
+
+def invoice_list_page(
+    db: Session,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+    search: str | None = None,
+) -> dict:
+    """One page of invoices plus the exact count for the same filter.
+
+    The page bound is a finance rule, not a transport detail: a page holds at
+    most `INVOICE_LIST_MAX_LIMIT` rows, `total` is the true count for the same
+    filter instead of the page length, and `search` narrows the page and the
+    count together. Read-only: this operation writes nothing and commits
+    nothing, so the caller keeps the transaction.
+    """
+    safe_limit = max(1, min(int(limit or 50), INVOICE_LIST_MAX_LIMIT))
+    safe_offset = max(0, int(offset or 0))
+    return {
+        "items": list_recent_invoices(db, limit=safe_limit, offset=safe_offset, search=search),
+        "total": count_invoices(db, search=search),
+        "limit": safe_limit,
+        "offset": safe_offset,
+    }
 
 
 def revenue_by_period(db: Session, *, from_dt: datetime | None = None, to_dt: datetime | None = None) -> list[dict]:

@@ -70,7 +70,7 @@ def test_cutting_composition_uses_actual_fabric_then_model_and_handles_blanks():
 
 def test_sales_history_and_usluga_keep_missing_identity_blank(client, auth_headers):
     from app.models.sales.history_service import _history_products
-    from app.api.routes.usluga import _model_payload
+    from app.models.catalog.models_service import _model_payload
 
     with SessionLocal() as db:
         model = Model(code="ISOLATION-HISTORY", name="History", details_json={})

@@ -1,9 +1,12 @@
 # Finance
 
-Business-service group guide, relocated into models/ on 24 October 2026. Two
-approved extractions now live here: `invoices_service.py` (invoice issuance) and
-`payments_service.py` (payment creation). `reports_service.py` is still only
-proposed.
+Business-service group guide, relocated into models/ on 24 October 2026. The
+approved extractions now live here as `invoices_service.py`,
+`payments_service.py` and `customer_ledger_service.py`. The shared money,
+ledger and report calculations stay in
+[finance_service.py](../finance_service.py) and
+[payments_service.py](../payments_service.py); both are public seams used
+outside this folder.
 
 **Purpose:** Own invoice issuance, payment allocation, balances and financial calculations.
 
@@ -12,40 +15,61 @@ proposed.
 This owner covers the feature's routes, DTOs, enums, database definitions and tests.
 See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordination.
 
+Two modules share the basename `payments_service.py`: this folder owns the
+Finance receipt operation, while `models/payments_service.py` owns shared
+low-level writes used by customer receipts and shipments. Follow the full
+import path when tracing either one.
+
+Finance and Sales invoice entry points keep their existing different amount,
+status and audit rules. The shared parent-order lock does not authorize
+unifying those policies; Mirshoir and Shavkat still review that decision.
+
 ## Existing code to study first
 
 - Routes: [finance.py](../../api/routes/finance.py), [sales.py](../../api/routes/sales.py), [partners.py](../../api/routes/partners.py), [shipments.py](../../api/routes/shipments.py).
-- Services/helpers: [finance_service.py](../finance_service.py), [payments_service.py](../payments_service.py), [shipment_invoice_service.py](../shipment_invoice_service.py), [shipment_review_service.py](../shipment_review_service.py), [invoices_service.py](invoices_service.py), [finance/payments_service.py](payments_service.py).
-- Two modules share the name `payments_service.py`. This folder owns the finance
-  payment operation; `models/payments_service.py` holds the low-level payment
-  helpers used by partners and shipments. Read the import path, not the file
-  name, when tracing either one.
-- Existing SQLAlchemy schema models: [Invoice](../../schemas/sales/sales.py#L132), [Payment](../../schemas/sales/sales.py#L148).
+- Services/helpers: [finance_service.py](../finance_service.py) (shared money/report primitives), [payments_service.py](../payments_service.py) (shared low-level payment write), [shipment_invoice_service.py](../shipment_invoice_service.py), [shipment_review_service.py](../shipment_review_service.py).
+- Services in this folder: [invoices_service.py](invoices_service.py), [payments_service.py](payments_service.py), [customer_ledger_service.py](customer_ledger_service.py).
+- Existing SQLAlchemy schema models: [Invoice](../../schemas/sales/sales.py#L137), [Payment](../../schemas/sales/sales.py#L153).
 - Invoice/payment DTOs: [invoice_input.py](../../libs/dto/sales/invoice_input.py),
   [invoice_output.py](../../libs/dto/sales/invoice_output.py),
   [payment_input.py](../../libs/dto/sales/payment_input.py),
-  [payment_output.py](../../libs/dto/sales/payment_output.py).
-- Other contract: [price_calculation.py](../../libs/dto/planning/price_calculation.py).
+  [payment_output.py](../../libs/dto/sales/payment_output.py),
+  [customer_payment_input.py](../../libs/dto/sales/customer_payment_input.py).
+- Other contract: [price_calculation_request_input.py](../../libs/dto/planning/price_calculation_request_input.py),
+  [price_calculation_request_update.py](../../libs/dto/planning/price_calculation_request_update.py),
+  [price_calculation_request_output.py](../../libs/dto/planning/price_calculation_request_output.py).
 
 These are source pointers, not permission to move entire mixed files. Trace the
 particular operation and every caller/write before choosing what belongs here.
 
-## When making a service file
+## Service files and their operations
 
-| File | Responsibility | State |
-| --- | --- | --- |
-| `invoices_service.py` | Invoice issuance/correction and lifecycle. | present |
-| `payments_service.py` | Receipts, advances and allocation. | present, payment creation only |
-| `reports_service.py` | Financial queries using authoritative facts. | proposed |
+Every operation takes the Session, the validated input and the actor
+explicitly. One outer operation owns the transaction; helpers never commit.
+`read-only` means the operation writes nothing and the caller keeps the
+transaction.
 
-Use snake_case_service.py filenames and operation names such as `create_*`, `record_*`,
-`receive_*` or `approve_*`. A typed function is sufficient; a class is optional
-when it owns real dependencies. Accept the Session, validated input and actor
-explicitly. State the transaction owner, refusal rules and result contract.
-Use the existing ORM definitions in schemas/ and DTOs in libs/dto/<feature>/;
-keep fixed values in libs/enums/. See [DTO conventions](../../libs/dto/README.md).
-Do not import routers, call an endpoint, or commit inside a helper owned by another
-transaction. Do not create an interface/repository or generic CRUD class by default.
+| File | Operation | Input | Output | Refusals | Transaction owner |
+| --- | --- | --- | --- | --- | --- |
+| [invoices_service.py](invoices_service.py) | `create_order_invoice` | `Session`, `InvoiceIn`, actor | the `Invoice` row | 404 sales order not found; 422 amount not representable in `invoices.amount` | this operation (invoice row, audit row, commit) |
+| [invoices_service.py](invoices_service.py) | `generate_order_invoice` | `Session`, sales order id, actor | invoice envelope dict | 404 sales order not found; 400 order status not invoiceable | this operation (invoice row, audit row, commit) |
+| [invoices_service.py](invoices_service.py) | `storable_invoice_amount`, `lock_sales_order` | value / session | bounded `Decimal` / locked order row | 422 from the amount guard | none (helpers of the operations above) |
+| [payments_service.py](payments_service.py) | `record_invoice_payment` | `Session`, `PaymentIn`, actor, idempotency key | `PaymentOut` snapshot dict | 404 invoice not found; 409 key reused with another payload or owner | this operation (payment row, audit row, idempotency row, commit) |
+| [customer_ledger_service.py](customer_ledger_service.py) | `list_customer_orders` | `Session`, customer id | order ledger rows | 404 customer not found | read-only |
+| [customer_ledger_service.py](customer_ledger_service.py) | `list_customer_payments` | `Session`, customer id | receipt rows | 404 customer not found | read-only |
+| [customer_ledger_service.py](customer_ledger_service.py) | `record_customer_payment` | `Session`, customer id, `CustomerPaymentIn`, actor, idempotency key | receipt dict | 404 customer or sales order not found; 400 amount not greater than zero; 409 idempotency conflict | this operation (invoice row when the order has none, payment and advance rows, audit row, idempotency row, commit) |
+| [../finance_service.py](../finance_service.py) | `dashboard_summary`, `order_profit`, `branded_stock_value`, `waste_cost`, `waste_income`, `revenue_total`, `payments_total`, `revenue_by_period`, `cost_breakdown`, `list_recent_invoices`, `count_invoices`, `invoice_list_page` | `Session` plus the report arguments | report values, rows and page envelopes | none; the queries never raise a business error | read-only |
+| [../payments_service.py](../payments_service.py) | `money_decimal`, `invoice_payment_status`, `invoice_paid_total`, `refresh_invoice_status`, `create_invoice_payment`, `create_customer_advance_payment` | `Session` where a read is needed | `Decimal`, status string, `Payment` row | 409 payment against a reversed or cancelled invoice | none (the calling operation commits) |
+
+Use snake_case_service.py filenames and operation names such as `create_*`,
+`record_*`, `receive_*` or `approve_*`. A typed function is sufficient; a class
+is optional when it owns real dependencies. Accept the Session, validated input
+and actor explicitly. State the transaction owner, refusal rules and result
+contract. Use the existing ORM definitions in schemas/ and DTOs in
+libs/dto/<feature>/; keep fixed values in libs/enums/. See
+[DTO conventions](../../libs/dto/README.md). Do not import routers, call an
+endpoint, or commit inside a helper owned by another transaction. Do not create
+an interface/repository or generic CRUD class by default.
 
 **First operation to study:** Trace invoice creation across finance, sales, partners and workflow_service.ensure_invoice_for_delivered_shipment. Preserve legitimate differences before consolidating shared issuance rules.
 
@@ -91,78 +115,96 @@ and the resulting customer balance. No business rule or database migration chang
 Still undecided, unchanged here: draft-order manual invoices, reversed-invoice
 reuse, the zero/small-balance status and the customer-payment lock gap.
 
-### RF-008 slice 2 — sales invoice issuance (extracted)
+### RF-008 slice 2 — receipt operations (extracted)
 
-`POST /sales-orders/{sid}/generate-invoice` calls
-`invoices_service.generate_order_invoice(db, sales_order_id, actor)`. The
-endpoint keeps the `finance.invoice` **or** `sales.orders` (or wildcard)
-permission, HTTP 200 and its response envelope. The service owns the parent
-`sales_orders` NO KEY UPDATE lock, the order-status rule, the existing-invoice
-check, the order-total amount, the initial `unpaid` status, the invoice number,
-the `generate_invoice` audit row and the commit.
+`POST /finance/payments` calls `finance/payments_service.record_invoice_payment`,
+and the customer receipt endpoints call
+`finance/customer_ledger_service.record_customer_payment` with the customer id.
+Both replay a stored response for a repeated idempotency key before touching the
+ledger, and both own their audit row, their idempotency record and their commit.
 
-Preserved unchanged: the missing-order 404, the 400 status refusal message and
-its 13 allowed statuses, an existing invoice returned as it is (including a void
-one) with `created_existing` true, the order-total amount with no
-invoice-storage bound, the always-`unpaid` initial status, `INV-<year>-<n>`
-numbering, the `generate_invoice` audit action and one write path per request.
+`record_customer_payment` creates an `unpaid` invoice only when the sales order
+has no invoice at all, allocates the amount to the payable invoice under
+`FOR UPDATE`, and keeps the remainder as an advance. The paid sums of the
+candidate invoices are read in grouped batches
+(`_candidate_paid_totals`), not once per invoice.
 
-Deliberately not unified with the finance path: the sales entry point takes the
-order total instead of a caller amount, applies no invoice-cents bound, starts
-`unpaid` instead of deriving `invoice_payment_status(amount, 0)`, and audits
-`generate_invoice` instead of `create`. Both entry points now take the parent
-lock through one shared helper, `lock_sales_order`, because that lock is
-genuinely identical.
+Preserved unchanged: the 404/400/409 refusals, the `finance.payment` permission,
+the USD settlement tolerance, the advance suffix in the receipt notes, the
+`create` audit action on `Payment`, the customer-facing `payment_status`
+projection (`no_invoice`, `unpaid`, `partial`, `paid`, `cancelled`, `void`) and
+the payment ordering. The test patch targets point at the owning modules:
+`app.models.payments_service.create_invoice_payment`
+in `test_idempotency_identity.py`, and
+`app.models.finance.customer_ledger_service._candidate_paid_totals` /
+`_find_payable_invoice` in `test_customer_payment_query_growth.py`.
 
-The stored order total is already cents-representable, because the ORM column
-quantizes it on write. The finance path's 422 cents refusal is therefore not
-reachable through this entry point, and no test can construct that difference.
+### RF-008 slice 3 — invoice page composition (extracted)
 
-### RF-008 slice 3 — finance payment creation (extracted)
+`GET /finance/invoices` calls `finance_service.invoice_list_page(db, limit=limit,
+offset=offset, search=search)`. The route keeps the `finance.view` permission,
+the `limit`/`offset`/`search` query binding and the `search` length limit; the
+service owns the page bound (`INVOICE_LIST_MAX_LIMIT`), the page query, the
+filtered count and the envelope.
 
-`POST /finance/payments` calls
-`finance/payments_service.record_invoice_payment(db, payload, actor, idempotency_key)`.
-The endpoint keeps the `finance.payment` permission, the `PaymentOut` response
-model, HTTP 201 and the `Idempotency-Key` header binding. The service owns the
-request fingerprint, the idempotency replay check, the invoice lookup, the
-payment write through the low-level `models/payments_service.create_invoice_payment`,
-the `create` audit row, the response snapshot, the idempotency store, the commit
-and the refresh.
+Preserved unchanged: `limit=0` still falls back to the default page size of 50,
+a negative limit is clamped to 1 and a negative offset to 0, `total` stays the
+true count for the same filter rather than the page length, `search` still
+narrows the page and the count together, and the rows keep their order and
+labels. `list_recent_invoices` still returns a plain list for its direct
+callers, and `count_invoices` is still importable from `app.models.finance_service`.
 
-Preserved unchanged: the `finance.payments` scope string and its stored 201
-status, replay-before-write ordering so a replayed request never reaches the
-business write, the missing-invoice 404, the response snapshot taken before the
-commit, commit-then-refresh order and one write path per request.
-
-The low-level helpers in `models/payments_service.py` did not move and are not
-duplicated. The concurrency test that patched the route module now patches the
-module that owns `create_invoice_payment`, so no test-only alias was left in
-production code.
-
-Checks for slices 2 and 3: ruff clean over `backend/app`; 271 finance tests
-passed with zero skips against local PostgreSQL, including the two-connection
-race, the money-bounds storage proof and the PostgreSQL payment-retry race. The
-independent reviewer confirmed the extracted bodies are AST-equal to the base
-route bodies and that the full OpenAPI schema is identical. No schema or
-migration file changed, so the SQL DDL is untouched by this diff. No business
-rule, permission or database migration changed.
-
-Refusals are still raised as `fastapi.HTTPException` inside the service, the
-pattern the approved slice-1 service already uses. Moving to domain errors is a
-separate decision, not part of these slices.
-
-Still undecided, unchanged here: draft-order manual invoices, reversed-invoice
-reuse, the zero/small-balance status and the customer-payment lock gap.
+The two report envelopes that carry no query of their own stay in the router:
+`GET /finance/branded-stock-value` answers `{"value": branded_stock_value(db)}`
+and `GET /finance/waste-report` answers `{"cost": waste_cost(db), "income":
+waste_income(db)}`. Moving an envelope alone into a service would add a pass-through
+layer, not an extraction.
 
 **DTOs and enums:** Invoice/payment status vocabulary; currencies and policy rules require explicit business decisions, not assumptions. Reuse Create/In, Update and Read/Out contracts
 where they exist. Add action-specific input only for a real action. Do not generate
 three DTOs for every table or expose privileged fields through generic updates.
+
+## Outstanding UI issues (recorded, not fixed)
+
+These are known operator-visible problems in the finance screens. They are
+recorded here for human review and are not changed by the service extraction.
+The accounting policy behind them is preserved unchanged pending human
+decision: this refactor did not change it, and human acceptance is still
+outstanding.
+
+- **FIN-PARTIAL-CONFIRM-20261025** — the partial-receipt confirmation text says
+  "mark as paid" while the persisted invoice status correctly stays partial.
+  The wording is wrong; the stored status is right. The bug stays active for
+  human review.
+- **FIN-REVENUE-CHART-STALE-20261025** — the Finance revenue chart stays stale
+  immediately after a Finance receipt until the page is reloaded, while the top
+  payment totals do update. It is recorded in
+  [the bug tracker](../../../../bugs/bugs.md) and stays active for human review.
+
+## Remaining exceptions
+
+- The customer-payment path reads the sales order without the parent
+  `sales_orders` lock the invoice endpoints take. The gap is listed in the
+  RF-008 trace and is not changed here.
+- The branded-stock-value and waste-report envelopes stay in the router, because
+  moving an envelope alone would add a pass-through layer instead of an
+  extraction. Their values come from `finance_service`.
+- The four policy questions in the RF-008 trace are still open for Ismail,
+  Mirshoir and Shavkat. Nothing in this extraction answers them.
+- The two UI issues above are recorded, not fixed, and no accounting policy was
+  changed for them.
 
 ## Boundaries and verification
 
 Sales owns commercial orders and Fulfillment owns delivery evidence. Finance consumes that evidence without rewriting quantities. Money-report queries may read across groups but must not hide writes.
 
 Verify Decimal precision, received-payment revenue, advances/reversals, idempotency and authorization. Visually compare invoice, payment, debt and revenue screens for the same fixture transactions.
+
+The concurrency, money-storage and query-growth proofs need real PostgreSQL
+(`test_invoice_creation_integrity.py`, `test_finance_money_bounds.py`,
+`test_idempotency_identity.py`, `test_customer_payment_query_growth.py`). They
+skip on SQLite, so a combined verification run must execute them against
+PostgreSQL before the domain is accepted.
 
 ## Migration steps
 

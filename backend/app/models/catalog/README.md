@@ -1,8 +1,8 @@
 # Catalog and partners
 
-Business-service group guide, relocated into models/ on 24 October 2026. This
-directory remains README-only; existing implementations are the *_service.py files
-linked below. The proposed files describe later approved operation extractions.
+Business-service group guide, relocated into models/ on 24 October 2026. The
+approved product/model extraction now lives here as the service modules below;
+the remaining proposed files describe later approved operation extractions.
 
 **Purpose:** Own product/model definitions, BOM, variants and customer/supplier reference data. This group does not own user accounts or customer payments.
 
@@ -11,23 +11,50 @@ linked below. The proposed files describe later approved operation extractions.
 This owner covers the feature's routes, DTOs, enums, database definitions and tests.
 See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordination.
 
+## Implemented services
+
+| File | Responsibility |
+| --- | --- |
+| [models_service.py](models_service.py) | Product models: list/options/details/families, approval, create/update/clone, variants, BOM, images and uploads, sizes and colours, guarded deletion, and the process-QR size setup. Also holds `_model_payload`, the usluga model preview payload. |
+| [collections_service.py](collections_service.py) | Brand and collection reference data, collection seasons and collection-to-model membership. |
+| [partners_service.py](partners_service.py) | Customer and supplier reference CRUD and their deletion guards. |
+| [paid_processes_service.py](paid_processes_service.py) | Paid-operation definitions for the standard and usluga catalogues, not payroll settlement. |
+
+Every service function takes the acting user and the `Session` first, then the
+operation input, and owns its own transaction: no helper commits and no
+service imports a router. The routers in
+[api/routes/](../../api/routes/) only bind HTTP input and authorization, call a
+service and map the result to HTTP. `models_service.model_page_headers` holds
+the pagination header names the catalog routers apply, so the header contract
+has one home.
+
+The shared helpers stay where they were owned:
+[model_family_images_service.py](../model_family_images_service.py),
+[model_images_service.py](../model_images_service.py),
+[model_identity_service.py](../model_identity_service.py),
+[paid_operations_service.py](../paid_operations_service.py),
+[paid_process_catalog_service.py](../paid_process_catalog_service.py),
+[variant_display_service.py](../variant_display_service.py),
+[numbering_service.py](../numbering_service.py),
+[image_storage_service.py](../image_storage_service.py),
+[audit_service.py](../audit_service.py) and
+[factory_scope_service.py](../factory_scope_service.py) are called, never
+re-implemented.
+
 ## Existing code to study first
 
 - Routes: [catalog.py](../../api/routes/catalog.py), [partners.py](../../api/routes/partners.py), [usluga.py](../../api/routes/usluga.py), [paid_processes.py](../../api/routes/paid_processes.py), [process_qr_setup.py](../../api/routes/process_qr_setup.py).
 - Services/helpers: [model_family_images_service.py](../model_family_images_service.py), [model_identity_service.py](../model_identity_service.py), [model_images_service.py](../model_images_service.py), [paid_process_catalog_service.py](../paid_process_catalog_service.py), [paid_operations_service.py](../paid_operations_service.py), [variant_display_service.py](../variant_display_service.py).
 - Existing SQLAlchemy schema models: [Brand](../../schemas/catalog/catalog.py#L13), [Collection](../../schemas/catalog/catalog.py#L21), [Model](../../schemas/catalog/catalog.py#L33), [CollectionModel](../../schemas/catalog/catalog.py#L111), [ModelImage](../../schemas/catalog/catalog.py#L117), [ModelSize](../../schemas/catalog/catalog.py#L129), [ModelColor](../../schemas/catalog/catalog.py#L137), [ModelBOM](../../schemas/catalog/catalog.py#L145), [PaidProcess](../../schemas/catalog/paid_process.py#L7), [UslugaPaidProcess](../../schemas/catalog/paid_process.py#L18), [Customer](../../schemas/catalog/partners.py#L7), [Supplier](../../schemas/catalog/partners.py#L16).
-- Existing Pydantic contracts: [catalog.py](../../libs/dto/catalog/catalog.py).
+- Existing Pydantic contracts: the entity-named modules under
+  [libs/dto/catalog/](../../libs/dto/catalog/). [catalog.py](../../libs/dto/catalog/catalog.py)
+  keeps the identity-owned User/Role/Department contracts and re-exports the
+  catalog contracts so the historical import path still resolves.
 
 These are source pointers, not permission to move entire mixed files. Trace the
 particular operation and every caller/write before choosing what belongs here.
 
 ## When making a service file
-
-| Proposed file | Responsibility |
-| --- | --- |
-| `models_service.py` | Product models, variants and bom. |
-| `partners_service.py` | Customer and supplier reference data. |
-| `paid_processes_service.py` | Paid-operation definitions, not payroll settlement. |
 
 Use snake_case_service.py filenames and operation names such as `create_*`, `record_*`,
 `receive_*` or `approve_*`. A typed function is sufficient; a class is optional
@@ -62,3 +89,9 @@ old/new separately -> test the real UI on isolated data -> reviewed switch -> hu
 production verification -> remove old code. Keep one write path per request.
 Record the test result, visual evidence, approver and cleanup condition in the task.
 Visual success alone does not prove permissions, concurrency or data correctness.
+
+## Callers of the moved helpers
+
+`scripts/reconcile_xj3062_besttex_20260912.py` imports `_model_code_parts` and
+`_model_group_payload` from `app.models.catalog.models_service`, the module that
+owns them. The other catalog scripts and tests point at the same module.

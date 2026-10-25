@@ -182,7 +182,7 @@ def test_model_create_rejects_deeply_nested_details_without_recursion_error(clie
 
 def test_direct_validator_rejects_depth_far_beyond_the_ceiling_iteratively():
     """The validator itself must not recurse, even far past what a body can carry."""
-    from app.api.routes.catalog import _validate_model_details_json_bounds
+    from app.models.catalog.models_service import _validate_model_details_json_bounds
 
     value = "leaf"
     for _ in range(_DEEP_REQUEST_LEVELS * 20):

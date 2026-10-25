@@ -1,8 +1,8 @@
 # Material inventory
 
-Business-service group guide, relocated into models/ on 24 October 2026. This
-directory remains README-only; existing implementations are the *_service.py files
-linked below. The proposed files describe later approved operation extractions.
+Business-service group guide. The whole group was extracted on 25 October 2026:
+the routers now bind HTTP, context and auth and delegate; the services below own
+the business rules, the ORM work and the transaction.
 
 **Purpose:** Own material/accessory stock, material reservations, stock movements, transfers, stocktake and material waste records.
 
@@ -11,25 +11,62 @@ linked below. The proposed files describe later approved operation extractions.
 This owner covers the feature's routes, DTOs, enums, database definitions and tests.
 See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordination.
 
-## Existing code to study first
+## Routes
 
-- Routes: [inventory.py](../../api/routes/inventory.py), [eco_transfers.py](../../api/routes/eco_transfers.py), [fabric_scans.py](../../api/routes/fabric_scans.py), [stocktake.py](../../api/routes/stocktake.py), [waste.py](../../api/routes/waste.py).
-- Services/helpers: [inventory_service.py](../inventory_service.py), [inventory_access_service.py](../inventory_access_service.py), [inventory_reports_service.py](../inventory_reports_service.py), [material_rolls_service.py](../material_rolls_service.py), [stocktake_service.py](../stocktake_service.py), [eco_transfer_pdf_service.py](../eco_transfer_pdf_service.py).
-- Existing SQLAlchemy schema models: [EcoFabricDispatch](../../schemas/inventory/eco_transfer.py#L8), [EcoFabricRoll](../../schemas/inventory/eco_transfer.py#L17), [FabricScan](../../schemas/inventory/fabric_scan.py#L10), [Item](../../schemas/inventory/inventory.py#L9), [Warehouse](../../schemas/inventory/inventory.py#L31), [StockBatch](../../schemas/inventory/inventory.py#L38), [StockMovement](../../schemas/inventory/inventory.py#L75), [MaterialReservation](../../schemas/inventory/inventory.py#L97), [ManualAccessoryIssue](../../schemas/inventory/inventory.py#L144), [WarehouseStocktake](../../schemas/inventory/stocktake.py#L9), [WarehouseStocktakeRow](../../schemas/inventory/stocktake.py#L18), [WasteRecord](../../schemas/inventory/waste.py#L9), [WasteSale](../../schemas/inventory/waste.py#L26), [WasteDisposalRequest](../../schemas/inventory/waste.py#L37).
-- Existing Pydantic contracts: [inventory.py](../../libs/dto/inventory/inventory.py), [waste.py](../../libs/dto/inventory/waste.py).
+- [inventory.py](../../api/routes/inventory.py) — items, warehouses, stock view, receipts, accessory issue/return, reservations, transfers, batches.
+- [eco_transfers.py](../../api/routes/eco_transfers.py) — Eco Cotton fabric dispatch register.
+- [fabric_scans.py](../../api/routes/fabric_scans.py) — daily fabric scan register.
+- [stocktake.py](../../api/routes/stocktake.py) — warehouse counts.
+- [waste.py](../../api/routes/waste.py) — waste lifecycle.
 
-These are source pointers, not permission to move entire mixed files. Trace the
-particular operation and every caller/write before choosing what belongs here.
+No route in this group imports another route, queries the ORM, or commits. Every
+endpoint below has one owning service function.
+
+## Service files
+
+This directory is the group's service package. Each module owns one responsibility:
+
+| File | Responsibility | Owns |
+| --- | --- | --- |
+| [stock_service.py](stock_service.py) | Items, warehouses, stock view, stock adjustment, receipts, accessory issue/return, batch edits, archive/restore, batch list. | commit for every write; batch row locks (`_locked_stock_batch_statement`, `_locked_active_batch_reservations_statement`); QC normalisation; image-URL policy; force-override refusal; materials-only scope. |
+| [reservations_service.py](reservations_service.py) | Reserve, auto-reserve, release and consume material reservations, and the reservation plan. | commit for every write; idempotency scope `inventory.reservations.create`; failure audit for refused creates. |
+| [transfers_service.py](transfers_service.py) | Material transfers between warehouses and the Eco Cotton fabric register (scan/send/return/report/PDF). | commit for every write; batch-before-item lock order; `inventory.transfer` idempotency scope; Eco ownership and outstanding-roll refusals. |
+| [fabric_scans_service.py](fabric_scans_service.py) | Daily fabric scan register plus the shared roll-code parser `parse_roll` and the Tashkent business date. | commit for the scan write; duplicate-scan replay. |
+| [waste_service.py](waste_service.py) | Waste record, receipt, sale and disposal lifecycle. | commit for every write; sale idempotency scope `waste.sales.<user>.<wid>`; disposal parent-then-request lock order. |
+
+The stocktake counts live in [stocktake_service.py](../stocktake_service.py). It
+stayed at the models root because it is shared with
+[legacy_package_identity_service.py](../legacy_package_identity_service.py), whose
+public `package_snapshots` seam it owns. It owns count start, scan, undo,
+completion, detail paging, CSV export and the REPEATABLE READ READ ONLY snapshot
+those reads use.
+
+Supporting services that stay the single source for their concern:
+[inventory_service.py](../inventory_service.py) (availability, reservations,
+accessory issue), [inventory_access_service.py](../inventory_access_service.py)
+(materials-only scope), [inventory_reports_service.py](../inventory_reports_service.py)
+(material reports), [material_rolls_service.py](../material_rolls_service.py) (roll
+normalisation), [eco_transfer_pdf_service.py](../eco_transfer_pdf_service.py) (Eco PDF).
+
+## Contract
+
+- Inputs: the entity-named modules under [libs/dto/inventory](../../libs/dto/inventory/).
+  The Eco/fabric/stocktake request models were inline in the routers and the
+  Inventory/Waste contracts were mixed in two files; all of them now live in
+  entity-named input/update/output modules. Class names, fields and validators are
+  unchanged, so the published OpenAPI component names did not move.
+- Outputs stay as plain dictionaries and the existing ORM records, shaped by the
+  routers' `response_model` declarations.
+- `qc_status` is a free string on the wire. The routers never type it: the service
+  trims and lowercases it and refuses anything outside
+  `pending|passed|failed|rejected|hold` with HTTP 400 `Invalid QC status`. An Enum
+  would change the accepted set and the status code, so it is deliberately not used.
+- Each service function is one outer operation: it accepts the session, the
+  validated input and the actor, and it is the only place that commits. Helpers
+  inside a service never commit.
+- SQLAlchemy definitions are unchanged: [EcoFabricDispatch](../../schemas/inventory/eco_transfer.py#L8), [EcoFabricRoll](../../schemas/inventory/eco_transfer.py#L17), [FabricScan](../../schemas/inventory/fabric_scan.py#L10), [Item](../../schemas/inventory/inventory.py#L9), [Warehouse](../../schemas/inventory/inventory.py#L31), [StockBatch](../../schemas/inventory/inventory.py#L38), [StockMovement](../../schemas/inventory/inventory.py#L75), [MaterialReservation](../../schemas/inventory/inventory.py#L97), [ManualAccessoryIssue](../../schemas/inventory/inventory.py#L144), [WarehouseStocktake](../../schemas/inventory/stocktake.py#L9), [WarehouseStocktakeRow](../../schemas/inventory/stocktake.py#L18), [WasteRecord](../../schemas/inventory/waste.py#L9), [WasteSale](../../schemas/inventory/waste.py#L26), [WasteDisposalRequest](../../schemas/inventory/waste.py#L37).
 
 ## When making a service file
-
-| Proposed file | Responsibility |
-| --- | --- |
-| `stock_service.py` | Stock quantities and movement rules. |
-| `reservations_service.py` | Reserve, consume and release materials. |
-| `transfers_service.py` | Material/fabric transfers. |
-| `stocktake_service.py` | Counting and reconciliation. |
-| `waste_service.py` | Waste stock, sale and disposal lifecycle. |
 
 Use snake_case_service.py filenames and operation names such as `create_*`, `record_*`,
 `receive_*` or `approve_*`. A typed function is sufficient; a class is optional
@@ -39,22 +76,20 @@ Use the existing ORM definitions in schemas/ and DTOs in libs/dto/<feature>/;
 keep fixed values in libs/enums/. See [DTO conventions](../../libs/dto/README.md).
 Do not import routers, call an endpoint, or commit inside a helper owned by another
 transaction. Do not create an interface/repository or generic CRUD class by default.
-
-Database definitions have moved to schemas/; business operations use
-*_service.py. Convert this guide into a service package only as an approved
-operation is extracted and all callers are updated.
-
-**First operation to study:** Trace an existing material issue or reservation operation and its concurrency locks. Reuse models/inventory_service.py and inventory_access_service.py rather than duplicating availability calculations.
-
-**DTOs and enums:** Movement/reservation/count statuses and fixed material categories; warehouses and stock-batch IDs remain data. Reuse Create/In, Update and Read/Out contracts
-where they exist. Add action-specific input only for a real action. Do not generate
-three DTOs for every table or expose privileged fields through generic updates.
+Reuse models/inventory_service.py and inventory_access_service.py rather than
+duplicating availability calculations.
 
 ## Boundaries and verification
 
 Production supplies actual usage/defect evidence; Inventory owns material balances. Finished-goods availability belongs to Fulfillment. Finance determines monetary reporting, not stock quantities.
 
 Verify reservations cannot overclaim, units stay consistent, corrections retain history and batch photos remain batch-local. Visually check receiving, reservation, issue/return and stocktake outcomes.
+
+## Remaining exceptions
+
+- The PostgreSQL-only tests in this group (real row-lock races, REPEATABLE READ
+  snapshots, concurrent reservations) were not executed here. They are recorded as
+  required verification for the combined run.
 
 ## Migration steps
 

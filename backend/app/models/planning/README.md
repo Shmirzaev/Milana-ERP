@@ -1,8 +1,8 @@
 # Planning and costing
 
-Business-service group guide, relocated into models/ on 24 October 2026. This
-directory remains README-only; existing implementations are the *_service.py files
-linked below. The proposed files describe later approved operation extractions.
+Business-service group guide, relocated into models/ on 24 October 2026. The
+whole-domain extraction of the planning group (requirements, forecasting,
+costing, branded orders) now lives in this directory.
 
 **Purpose:** Own material requirement estimates, forecast recommendations, branded planning and the costing request workflow.
 
@@ -14,21 +14,75 @@ See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordi
 ## Existing code to study first
 
 - Routes: [planning.py](../../api/routes/planning.py), [forecasting.py](../../api/routes/forecasting.py), [price_calculation.py](../../api/routes/price_calculation.py).
-- Services/helpers: [planning_service.py](../planning_service.py), [forecasting_service.py](../forecasting_service.py), [price_calculation_service.py](../price_calculation_service.py), [branded_order_export_service.py](../branded_order_export_service.py).
+- Services/helpers reused by this group: [planning_service.py](../planning_service.py), [forecasting_service.py](../forecasting_service.py), [price_calculation_service.py](../price_calculation_service.py), [branded_order_export_service.py](../branded_order_export_service.py).
 - Existing SQLAlchemy schema models: [ForecastRecommendation](../../schemas/planning/forecasting.py#L10), [PriceCalculationRequest](../../schemas/planning/price_calculation.py#L9), [BrandedPlanningOrder](../../schemas/production/production.py#L22).
-- Existing Pydantic contracts: [production.py](../../libs/dto/production/production.py), [forecasting.py](../../libs/dto/planning/forecasting.py), [price_calculation.py](../../libs/dto/planning/price_calculation.py).
+- Existing Pydantic contracts: [production.py](../../libs/dto/production/production.py), [forecast_recommendation_input.py](../../libs/dto/planning/forecast_recommendation_input.py), [forecast_recommendation_update.py](../../libs/dto/planning/forecast_recommendation_update.py), [forecast_recommendation_output.py](../../libs/dto/planning/forecast_recommendation_output.py), [price_calculation_request_input.py](../../libs/dto/planning/price_calculation_request_input.py), [price_calculation_request_update.py](../../libs/dto/planning/price_calculation_request_update.py), [price_calculation_request_output.py](../../libs/dto/planning/price_calculation_request_output.py), [branded_planning_order_input.py](../../libs/dto/planning/branded_planning_order_input.py), [material_requirement_output.py](../../libs/dto/planning/material_requirement_output.py).
 
 These are source pointers, not permission to move entire mixed files. Trace the
 particular operation and every caller/write before choosing what belongs here.
 
-## When making a service file
+## Service files in this directory
 
-| Proposed file | Responsibility |
-| --- | --- |
-| `requirements_service.py` | Bom-based material estimates. |
-| `forecasting_service.py` | Forecast recommendations. |
-| `costing_service.py` | Department contributions to price calculations. |
-| `branded_orders_service.py` | Branded planning requests and exports. |
+| File | Responsibility | Transaction owner |
+| --- | --- | --- |
+| [branded_orders_service.py](branded_orders_service.py) | Branded planning orders: list, parties, customer search, creation, workbook export. | `create_branded_order` |
+| [forecasting_recommendations_service.py](forecasting_recommendations_service.py) | Forecast recommendation lifecycle: reference checks, factory scope, payload, review. | `create_recommendation`, `update_recommendation` |
+| [costing_service.py](costing_service.py) | Price calculation request lifecycle and the cutting, finance, purchasing and accessories contributions. | every write operation |
+| [production_planning_service.py](production_planning_service.py) | Production orders planning opens for client sales orders and branded stock. | `create_client_order_production`, `create_branded_stock_production` |
+
+### branded_orders_service.py
+
+- input: the acting user, the validated `BrandedPlanningOrderIn` payload, the
+  status filter, the customer search text and the order id
+- output: the branded planning order payload as a dict; the export returns the
+  workbook bytes
+- refusals: 404 for a missing customer or branded order, 400 for an unknown
+  ordered-for party
+- records: one `branded_planning_orders` row and one `BrandedPlanningOrder`
+  audit row per creation; the list keeps the batched model and cutting work
+  order loads
+- transaction owner: `create_branded_order`
+
+### forecasting_recommendations_service.py
+
+- input: the validated `ForecastRecommendationIn` / `ForecastRecommendationPatch`
+  payload, the acting user and the factory scope the user may act in
+- output: the recommendation payload as a dict
+- refusals: 400 for a dangling reference, 403 when the recommendation has no
+  factory-attributed model or the model is outside the factory scope, 404 when
+  the recommendation does not exist in that scope
+- records: one `forecast_recommendations` row and one `ForecastRecommendation`
+  audit row per change
+- transaction owner: `create_recommendation` and `update_recommendation`
+
+### costing_service.py
+
+- input: the validated department payload, the request id, the acting user and
+  the list bounds
+- output: the serialized price calculation request as a dict
+- refusals: 403 when the acting user may not use that department, 404 for a
+  missing request, 409 when a selling price is entered before cutting,
+  purchasing and accessories are complete
+- records: the request row, its audit row, the department notifications, and the
+  completed selling price attached to the model variant
+- transaction owner: every operation that writes; the department calculations in
+  [price_calculation_service.py](../price_calculation_service.py) never commit
+
+### production_planning_service.py
+
+- input: the validated `ProductionOrderIn` payload and the acting user
+- output: the created `ProductionOrder` row
+- refusals: 400 for a mismatched production type, an unconfirmed sales order or
+  a closed branded planning order, 404 for a missing sales order or branded
+  planning order
+- records: one `production_orders` row with its batches and work orders, the
+  sales order status move for client work and one `ProductionOrder` audit row
+- transaction owner: both operations
+- production internals stay in [production_service.py](../production_service.py);
+  this module only calls its public operations and does not add a second state
+  machine
+
+## When making a service file
 
 Use snake_case_service.py filenames and operation names such as `create_*`, `record_*`,
 `receive_*` or `approve_*`. A typed function is sufficient; a class is optional
@@ -44,6 +98,26 @@ transaction. Do not create an interface/repository or generic CRUD class by defa
 **DTOs and enums:** Forecast and costing workflow statuses; do not encode calculated prices or editable rates as enum values. Reuse Create/In, Update and Read/Out contracts
 where they exist. Add action-specific input only for a real action. Do not generate
 three DTOs for every table or expose privileged fields through generic updates.
+
+## Remaining exceptions
+
+- `GET /planning/material-requirements/{sales_order_id}` still calls
+  [planning_service.py](../planning_service.py) directly. That module is the
+  public requirements seam that Purchasing already imports, so it was left in
+  place; the route only wraps the rows in the `MaterialRequirement` contract.
+  Availability itself stays with Inventory.
+- The forecast reads (dashboard, branded stock suggestions, item reorder
+  suggestions) still call [forecasting_service.py](../forecasting_service.py)
+  from the route. The calculations were already service-owned, so no forwarding
+  service was added around them.
+- The costing department calculations stay in
+  [price_calculation_service.py](../price_calculation_service.py);
+  [costing_service.py](costing_service.py) owns the request lifecycle around
+  them, including the finance stage gate and the selling price propagation.
+- `BrandedPlanningOrderIn` and `MaterialRequirement` moved out of
+  [dto/production/production.py](../../libs/dto/production/production.py) into
+  this group's DTO folder. `ProductionOrderIn` and `ProductionOrderOut` stay
+  production-owned.
 
 ## Boundaries and verification
 
