@@ -22,9 +22,19 @@ authorization covers ordinary implementation choices within the agreed scope.
 2. Inspect the current branch, recent fixes and all affected callers. Reuse an
    existing operation/DTO/model where it fits. Document any genuinely new public
    interface, table, state transition or permission; do not add them by habit.
+   Study the complete existing business action first: alternate routes/services,
+   DTO validation/defaults, database fields and actual stored values, permissions,
+   side effects, UI and department handoff. Use the [durable task packet](../../../docs/VERIFICATION.md#0-study-the-old-behavior-and-give-the-agent-a-verifiable-task)
+   to preserve Ismail's direct scope/corrections, acceptance examples and next step
+   across workers, handoffs and context compaction.
 3. State the intended behavior change separately from necessary cleanup. Extract
    only the seam needed for the feature; apply milana-refactor for that extraction.
    Do not hide unrelated behavior changes or broad migrations in feature work.
+4. Implement one business operation at a time, freeze its candidate and complete
+   its code, actual visual/browser, database-readback and bounded stress gates
+   before marking it AI-verified or advancing that worker's implementation.
+   Parallel disjoint operations may use isolated workers; shared changes need one
+   writer and combined verification. Preserve later mixed edits separately.
 
 ## Keep these boundaries
 
@@ -47,6 +57,12 @@ authorization covers ordinary implementation choices within the agreed scope.
 - Fixed shared vocabulary belongs in libs/enums/; distinct internal contracts in
   libs/types/. Reuse actual stored values. Configurable roles/factories/products
   remain data; enum membership does not authorize a transition or grant access.
+  Apply the [table-by-table audit](../../../backend/app/libs/enums/README.md#table-by-table-audit)
+  to affected existing/new fields and all consumers. Record converted, retained
+  and unresolved candidates, including JSON/discriminator and derived UI values.
+  Reconcile newly discovered fixed values with the domain owner and enum/tests;
+  do not omit them, promote a typo into policy or turn configurable records into
+  enum members. Keep action-specific subsets and create/update/read contracts distinct.
 - Database definitions live in schemas/<business-group>/, using SQLAlchemy and
   the existing Base. Shared definitions remain in schemas/core.py and
   schemas/order_reference.py. Register new mappings in schemas/__init__.py.
@@ -78,6 +94,11 @@ Use isolated test data/infrastructure. Missing browser access or a required test
 environment is BLOCKED, never PASS. Repeat invalidated checks after further edits;
 no cleanup/readiness claim before required gates pass. Human production acceptance
 remains separate. Documentation-only work records runtime gates as NOT APPLICABLE.
+After independent AI verification on the exact source, use
+**AI_VERIFIED_AWAITING_HUMAN** and supply the human's local visual checklist.
+The human repeats the affected workflow, checks saved results and records approval
+or rejection of that build. AI verification is not human approval or merge/release
+authority. Preserve the task/coverage ledger and use [the shared evidence states](../../../docs/VERIFICATION.md#5-record-evidence-and-completion).
 
 ## Prove and hand off
 

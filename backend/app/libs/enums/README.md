@@ -8,6 +8,12 @@ for the five persisted invoice status strings. It preserves the existing API
 strings and SQL `String` column; no database change has been made. Mirshoir and
 Shavkat still need to review its business meaning before it is landed.
 
+26 October 2026: Ismail reaffirmed that enums are part of his assignment and
+must be audited business operation by business operation and table by table.
+This historical pilot inventory is a starting point, not proof of full coverage
+or completion of the current enum workers. Use the procedure below and the
+[verification/human gate](../../../../docs/VERIFICATION.md).
+
 ## Purpose
 
 Give repeated, fixed business values one definition, following the enum pattern
@@ -37,6 +43,94 @@ states. Schemas and services should reuse the same definition.
 
 Introduce each enum with its actual callers during an approved feature refactor.
 This folder is not a requirement to convert every string in the application.
+
+## Table-by-table audit
+
+Audit the complete assigned database scope systematically, not just fields found
+by searching for "status". Establish the exact old-source revision, database/
+snapshot identity, migration head, mapped schema and audit date. Enumerate tables
+from both SQLAlchemy metadata and the actual authorized PostgreSQL snapshot;
+reconcile unmapped/legacy tables and relevant views. A code-only scan or an empty
+test database cannot prove the deployed vocabulary. Prefer an authorized restored
+read-only snapshot; unavailable real-value evidence is BLOCKED, never guessed.
+This procedure grants no new production access or data-repair authority.
+Label provenance as synthetic fixtures, restored production snapshot or explicitly
+authorized live read, and state its date/coverage. Synthetic rows can verify tested
+behavior but cannot prove that all real factory values have been found. Keep that
+data-coverage gap open; do not present local fixture values as production truth.
+
+For each table, inspect every column and relevant structured JSON/discriminator
+field: actual database and ORM type, nullability, client/server defaults, CHECK/
+native-enum constraints, keys, references and meaning. Then inspect distinct stored
+values including null/blank/case variants for candidate vocabulary fields, all
+writes/updates/importers, service comparisons, alternate routes, DTOs and UI/report
+projections. Record read-only query scope/results without secrets or unrelated
+personal/business records. An empty or sampled result is not a complete vocabulary.
+Bound costly reads and record incomplete scans instead of claiming full coverage.
+
+Keep a table/field ledger in the task evidence:
+
+```text
+Table/field/business concept / operation / accountable owner:
+Old source / database snapshot+migration / observation date:
+DB+ORM type, null/defaults/CHECKs/references / observed values and counts:
+Writers+alternate callers / readers+DTOs+UI projections:
+Existing enum/type and exact members / missing or conflicting values:
+Decision: enum | DTO | needed internal type | existing scalar/reference type | configurable/free-form | retain Literal/string
+Converted consumers / retained-with-reason / unresolved question+owner:
+Candidate identity / compatibility checks / operation verification status:
+```
+
+Every enumerated table needs a reviewed, pending, blocked or justified excluded
+row; every reviewed field needs a classification or an explicit unresolved result.
+Keep global table coverage and per-operation migration status separate. A partial
+table review does not complete the full audit, and creating a shared enum does not
+verify every business operation using that table. Name out-of-area owners and
+pending work instead of implementing their policy or dropping their rows.
+
+### Reconcile a newly discovered value
+
+1. Trace its source, stored occurrences, consumers and business meaning. Decide
+   whether it is a legitimate existing fixed value, a configurable record, an
+   output projection, a legacy alias, a typo/corrupt value or a new business rule.
+2. For a legitimate existing fixed value missing from its domain enum, update the
+   one authoritative enum and affected callers/tests in the operation's reviewed
+   slice, preserving its exact representation and action-specific subsets. An
+   ambiguous meaning or proposed new rule needs the accountable engineer/business
+   owner's decision before it is enforced. Do not silently accept bad data by
+   appending every observed string, or reject legacy values by omitting them.
+3. Check create/update/read behavior, defaults, omitted/null, normalization, error
+   paths, serialization, audit and stored effects before/after. `class X(str, Enum)`
+   may stringify as `X.MEMBER`; use `.value` where the existing boundary expects
+   its raw string. Do not introduce native SQLAlchemy/PostgreSQL ENUM storage or
+   constraints as an incidental source cleanup.
+4. Compare the ledger with schemas and every caller again. Then execute focused
+   tests, real UI/readback and bounded stress for this operation; independent AI
+   verification produces AI_VERIFIED_AWAITING_HUMAN, followed by the human's actual
+   visual check and recorded approval. Missing required evidence keeps the gate open.
+
+For Ismail's user-type example: first establish whether a users table/field actually
+stores a fixed user-type discriminator or references configurable roles. A newly
+discovered supported discriminator belongs in the relevant enum and callers/tests;
+a role row, permission grant, user ID or display label does not automatically
+become an enum member. Do not infer the vocabulary from a file name or one example.
+
+## Enum, DTO and internal type are different decisions
+
+- Enums give a fixed business vocabulary one definition. A full lifecycle can
+  include states forbidden for a particular create/approve/receive action; keep
+  the service's subset/transition/permission guard and test it independently.
+- Pydantic DTOs describe accepted inputs, allowed updates and output shapes.
+  Preserve an existing free-form string or narrower Literal when required for
+  compatibility, with the reason in the ledger. Replacing it with the full Enum
+  can narrow inputs, widen a subset or change normalization and HTTP 400/422 errors.
+  State honestly whether values are centralized, validation changed, or both.
+- Add dataclasses/TypedDicts/type aliases in libs/types only for a real distinct
+  internal contract with named consumers. Do not mirror every table/DTO or create
+  unused declarations to make the folder look complete.
+- Persisted state and report/UI projections can differ: invoice partially_paid
+  and customer-ledger partial/no_invoice are not one storage vocabulary. Fields
+  sharing a word such as cancelled do not automatically share a business concept.
 
 ## RF-011 pilot inventory for Ismail (source `84bbc03`)
 

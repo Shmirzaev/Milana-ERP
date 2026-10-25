@@ -1,6 +1,6 @@
 # Milana ERP: current working context
 
-Updated 2026-10-25. Keep this file short: current decisions, release pointers and
+Updated 2026-10-26. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
@@ -39,6 +39,19 @@ not appended here. This summary does not replace live release verification.
 
 ## Architecture and migration state
 
+- Scope correction, 26 October: the six-area service/DTO extraction is complete
+  in the draft candidate, but Ismail's full assignment remains incomplete.
+  RF-011 has only centralized InvoiceStatus so far. The remaining fixed-value
+  inventory, enum callers and compatibility checks are active work; the earlier
+  overall completion claim was too broad. Production/business acceptance remains separate.
+- The owner's required unit is one business operation: study old behavior and
+  callers, classify all relevant table/field/type candidates, implement, then
+  automated checks -> actual visual E2E -> persisted readback/bounded stress ->
+  independent AI review -> `AI_VERIFIED_AWAITING_HUMAN`. Follow the
+  [task packet and operation ledger](VERIFICATION.md#0-study-the-old-behavior-and-give-the-agent-a-verifiable-task)
+  and [table audit](../backend/app/libs/enums/README.md#table-by-table-audit).
+  Human visual/technical approval, merge and production acceptance are separate.
+  Synthetic QA values do not establish the complete production vocabulary.
 - Keep the FastAPI/SQLAlchemy/PostgreSQL monolith. Router -> feature service ->
   SQLAlchemy schema models + Session -> database. No microservice/ORM replacement.
 - Target: api/routes/ for HTTP, models/ for business services, schemas/ for

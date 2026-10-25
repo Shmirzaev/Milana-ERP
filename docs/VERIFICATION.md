@@ -1,11 +1,53 @@
 # Verification after every runtime change
 
-24 October 2026. Applies to each completed folder/operation migration, bug fix,
+26 October 2026. Applies to each completed folder/operation migration, bug fix,
 feature and database migration before it is marked ready or its old path removed.
 Do not defer checks until the whole refactor ends. After the final edit, verify the
 exact candidate again wherever the edit invalidated earlier evidence.
 
 This is the team's required workflow, not a claim that CI enforcement is installed.
+
+## 0. Study the old behavior and give the agent a verifiable task
+
+Ismail's direct instruction is study -> move one business operation -> code tests
+-> substantial visual checks on his computer -> persisted readback and bounded
+stress -> AI verification -> human visual approval. Treat those as ordered gates.
+Before editing, study all source and dependencies relevant to the operation:
+route/service entry points, direct and alternate callers, DTOs/validators, ORM and
+actual database shape/values, reads/writes, permissions, transaction boundaries,
+side effects, UI and the next department. Include earlier working fixes and tests.
+Record the baseline's actual results and existing defects separately; passing an
+existing bug through parity does not make its behavior approved.
+
+Provide every implementation/review agent a durable task packet containing:
+
+- The user's scope, latest corrections and approval references; operation ID/name,
+  owner/reviewer, actual model/session, exact worktree/base and allowed changed paths.
+- A route -> service -> DTO -> table/column -> UI/caller map, including alternate
+  entry points and the [table/field vocabulary ledger](../backend/app/libs/enums/README.md#table-by-table-audit).
+- Acceptance examples with input, actor, expected output, stored effects/refusals
+  and unaffected control workflow. Identify create/update/read differences, state
+  subsets, defaults, missing/null, whitespace, money/quantity boundaries and retries.
+- Exact runnable checks discovered in this checkout, required isolated PostgreSQL
+  setup, browser/test URL and fixtures, bounded load limits and evidence locations.
+  Do not invent a universal command or treat SQLite as a PostgreSQL check.
+- The next single operation, its allowed implementation seam, rollback/cleanup
+  condition, unresolved decisions and the human's later visual acceptance steps.
+
+Keep one operation ledger: ID, action/callers, tables/fields/type candidates,
+converted, retained-with-reason, unresolved/owner, source identity, evidence and
+status. Give tables outside this operation a named pending row; do not silently
+drop them from a promised full audit. Freeze one reviewable operation slice before
+verification. Preserve already-written later changes separately instead of
+including an unverified whole-domain patch. Parallel disjoint work is allowed;
+serialize overlapping writers and recheck the integrated source.
+
+At a new session, handoff or context compaction, reread the user's current scope,
+AGENTS.md, this procedure and the task/operation ledger; inspect Git/source changes
+and revalidate the claimed current gate. Preserve exact commands, evidence paths,
+hashes, blocked checks and next action. An earlier assistant's "done" is not evidence.
+Read the complete affected source in bounded slices; coverage records, not loading
+the entire repository into one context window, establish what has been studied.
 
 ## 1. Make AI-generated tests capable of detecting mistakes
 
@@ -37,6 +79,11 @@ This is the team's required workflow, not a claim that CI enforcement is install
   AI review can assist, but the named engineer reviews the result. Start with focused
   tests and expand to affected integration/handoff coverage and required CI checks.
   Coverage percentage and number of tests are not evidence of correct outcomes.
+- Give the independent reviewer the direct requirements, diff and evidence, and
+  ask for omissions, unauthorized changes and concrete failure cases. Verify its
+  findings; a second model's agreement is not an executable check. Enum tests need
+  independent expected values and per-operation allowed/forbidden cases; deriving
+  every expected value from the new enum can conceal a missing or misspelled member.
 
 ## 2. Run the right automated checks
 
@@ -71,6 +118,16 @@ Use the real UI and backend. Verify the test target and test accounts first.
   and browser/backend errors; a successful toast is not enough.
 - Check tablet/mobile, scanner/label/print and EN/RU/UZ behavior when affected.
   Use stable user-facing locators and isolated browser sessions in automated E2E.
+- Exercise each affected business part substantially: default/create, edit or
+  partial action, refusal/denied role, refresh/reopen and downstream handoff where
+  applicable. Record a coverage row for every affected screen/action, with the
+  reason for any not-applicable case. Check statuses, quantities, money, labels,
+  field validation and available actions, not merely that the page loads.
+- For browser automation, prefer role/label locators and assertions that wait for
+  an observed condition over fixed sleeps. Retain a failure trace/network/console
+  record where supported; use it to diagnose failures rather than retrying until green.
+  Mock only external dependencies outside the claimed workflow; keep its UI,
+  authorization, business operation and persistence real.
 - Reproduce any discovered issue, add its regression check, fix the cause and rerun
   the affected automated AND visual steps. If browser/vision/login/test data is
   unavailable, mark visual verification BLOCKED and state what is missing.
@@ -108,17 +165,43 @@ options to adopt where useful, not claimed installed or run by this documentatio
 
 ## 5. Record evidence and completion
 
-Use one short record in the task/bug evidence; reuse the same format:
+Advance an operation through explicit states:
+
+| State | Evidence needed |
+| --- | --- |
+| STUDYING | Old-source/caller/table map and acceptance examples being completed. |
+| IMPLEMENTING | Approved operation scope recorded; candidate work is not verified. |
+| AI_CHECKS_RUNNING | Candidate frozen; required code, visual, database, stress and independent review gates are still running. |
+| AI_VERIFIED_AWAITING_HUMAN | All required gates passed on the identified candidate; mandatory type/table/operation gaps are resolved, with any exclusions justified by recorded user-approved scope; human checklist supplied. |
+| HUMAN_APPROVED | Named human technical review and actual human visual/business acceptance recorded for that candidate and scope. |
+| NEEDS_REWORK / BLOCKED | A failure, unresolved decision or required unavailable check is recorded with its owner/next action; no ready/approved claim. |
+
+Only the independent verification role records AI_VERIFIED_AWAITING_HUMAN after
+checking the evidence. Record implementation and verifier model/session identities;
+the label describes completed checks, not a model's certification or confidence.
+A worker cannot approve itself or invent a human signature. Separate gate outcomes
+(PASS/FAIL/BLOCKED/NOT APPLICABLE) from these workflow states.
+Retain a separate overall status when one operation passes but the requested
+table-by-table audit or another operation remains unfinished. The agent cannot
+shrink the owner's scope or exempt a required check merely to obtain this label.
+
+Use one short durable record in the task/bug evidence:
 
 ```text
-Task / candidate commit / environment:
+Task / operation / state / direct-user scope and corrections:
+Baseline / candidate commit or frozen patch+file hashes / runtime build / environment:
 Engineer / reviewer / business acceptance owner:
+Implementation model/session / independent verification model/session:
 Expected behavior and unaffected control workflow:
+Operation/caller coverage and table/field/type ledger (converted/retained/unresolved):
 Automated: PASS | FAIL | BLOCKED; command, counts/skips, logs:
 Test validity: old-fails/new-passes or refactor parity; fault challenge if relevant:
 Visual E2E: PASS | FAIL | BLOCKED; roles, steps, viewed screenshots, readback:
 Stress: PASS | FAIL | BLOCKED; scenario, limits, baseline/results, integrity/recovery:
-Review and production acceptance: pending or named evidence/date:
+Independent review findings / resolution / outstanding requirements:
+Human checklist: URL/build, role, records, steps, expected results and evidence locations:
+Human technical and visual/business acceptance: PENDING or name/date/candidate/scope/result:
+Merge / deployment / production operator acceptance: separate recorded states:
 Cleanup/rollback condition and remaining limitations:
 ```
 
@@ -126,6 +209,13 @@ Any required failed/blocked gate prevents calling the runtime change ready or
 retiring its fallback. Fix and recheck; do not conceal retries or skipped checks.
 Shavkat/operator acceptance and the engineer's technical evidence are still required
 for production closure. AI visual approval is not the human's production approval.
+After AI verification, hold that operation for the human to visually repeat the
+checklist on the identified build, confirm saved results, and approve or reject it.
+Record disagreement and return the operation to NEEDS_REWORK; rerun invalidated
+gates after a fix. An AI pass, silence, elapsed time, a merge or an old approval
+cannot substitute for this human check. Unrelated approved operations may continue
+in isolation while this one waits. Human approval itself does not imply merge or
+release authorization; production acceptance remains a distinct later record.
 Documentation-only changes use document/link/skill checks; visual/load gates are
 NOT APPLICABLE with that explicit reason, never falsely reported as passed.
 
@@ -152,7 +242,8 @@ This replaces the retired CODE_REVIEW.md without weakening required checks.
 ## Research informing these rules
 
 - [Anthropic: explicit verification and independent review](https://code.claude.com/docs/en/best-practices).
-- [Anthropic: test-first agent workflow](https://www.anthropic.com/engineering/claude-code-best-practices).
+- [Anthropic: long-running agent harnesses](https://www.anthropic.com/research/effective-harnesses-for-long-running-agents): incremental work, durable progress/acceptance records and actual end-to-end checks address premature completion and lost context.
+- [OpenAI: harness engineering](https://openai.com/index/harness-engineering/): keep the entrypoint a concise map to versioned guidance and evidence; documentation alone does not install enforcement.
 - [Playwright: user-visible behavior, isolated tests and resilient assertions](https://playwright.dev/docs/best-practices).
 - [Hypothesis: stateful actions and invariants](https://hypothesis.readthedocs.io/en/latest/stateful.html).
 - [mutmut: mutation testing](https://mutmut.readthedocs.io/en/latest/); current tool requires fork support, so Windows use needs WSL or a suitable Linux environment.
@@ -160,3 +251,7 @@ This replaces the retired CODE_REVIEW.md without weakening required checks.
 
 The gate sequence and ERP examples above are this project's synthesis, not a claim
 that these sources prescribe a universal folder structure or guarantee defect-free code.
+Research reviewed 26 October 2026. Ismail's ordered gates and human visual approval
+are owner requirements; the sources inform their implementation. This Markdown
+update does not install hooks, CI checks or a database audit tool, and does not
+claim any current runtime candidate has passed these gates.

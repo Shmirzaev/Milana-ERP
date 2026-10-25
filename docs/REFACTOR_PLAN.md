@@ -1,5 +1,23 @@
 # Milana refactor: team agreement and execution plan
 
+Scope correction, 26 October 2026: service/DTO extraction across the six Ismail
+groups is implemented and verified. Ismail's assignment is **not complete**:
+RF-011 enum work currently covers InvoiceStatus only; other shared fixed values
+still require inventory, caller migration and compatibility verification. This
+remaining work was part of Ismail's assignment, not a newly added requirement.
+
+Execute the remaining work one business operation at a time, using the
+[durable task packet and ledger](VERIFICATION.md#0-study-the-old-behavior-and-give-the-agent-a-verifiable-task)
+and [table-by-table type audit](../backend/app/libs/enums/README.md#table-by-table-audit).
+Freeze each operation's candidate; preserve already-written later edits separately.
+Automated, actual visual E2E, persisted readback, bounded stress and independent
+review must pass before `AI_VERIFIED_AWAITING_HUMAN`. Wait for the human's recorded
+visual/technical approval; do not equate it with merge or deployment authority.
+Other isolated operations and read-only study can continue while human review is pending.
+Track enum conversion, deliberately retained contracts and unresolved type decisions
+separately. An enum-backed string default preserves compatibility but does not
+make an open DTO field or an internal dictionary a fully typed contract.
+
 Updated 25 October 2026. The owner authorized moving services into models/, then completing
 DTO separation into libs/dto/ and database definitions into schemas/ urgently.
 The owner then authorized all six Ismail areas (catalog, purchasing, sales,

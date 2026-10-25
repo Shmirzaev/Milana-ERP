@@ -37,15 +37,28 @@ the needed section. The six Ismail groups contain implemented candidate services
 other group guides retain proposals. A proposed name alone is not implementation
 approval; the current owner-authorized batch covers all six Ismail groups.
 
-## Read a small, complete context
+## Study the complete affected old behavior
 
 Start with the task ID, current source commit, its route, service, DTO, ORM model,
 direct callers and relevant tests. Search for imports, callers and writes before
-moving code. Expand into adjacent workflows only when a dependency requires it.
-Do not preload the entire repository or historical bug archive. Folder count and
+moving code. Include alternate entry points, database defaults/constraints and
+stored vocabularies, permissions, side effects, UI and department handoffs. Study
+the actual old behavior before selecting the seam; include recent working fixes.
+Read source in bounded slices and record coverage rather than preloading the
+entire repository or historical bug archive. Folder count and
 line count are not quality goals; minimize unrelated context and hidden coupling.
-Keep a short task record with approved decisions, exact revision, changed paths,
-checks, rollback mechanism and next step so another session can resume accurately.
+Use the [task packet and operation ledger](../../../docs/VERIFICATION.md#0-study-the-old-behavior-and-give-the-agent-a-verifiable-task):
+direct user scope/corrections, decisions, exact source, changed paths, converted/
+retained/unresolved types, checks, rollback and next action. At handoff or context
+compaction, reread that record and the current rules; do not inherit a "done" claim.
+
+Ismail requires one business operation at a time: study -> approved move -> code
+checks -> real visual/browser checks -> database readback and bounded stress ->
+independent AI verification -> human visual approval. Freeze an operation-sized
+patch/candidate and pass its gates before marking it AI-verified or moving that
+worker to the next implementation step. Preserve already-mixed later changes in
+separate slices. Parallel work is permitted only on isolated disjoint operations;
+overlapping files/operations have one writer and require combined verification.
 
 ## Architecture contract
 
@@ -74,6 +87,12 @@ checks, rollback mechanism and next step so another session can resume accuratel
   Keep API DTOs in libs/dto/; libs contains no services or persistence operations.
 - Enums preserve existing string values. Configurable roles/permissions/factories
   remain data. Enums do not implement RBAC or legal state transitions.
+- Audit the assigned database [table by table and field by field](../../../backend/app/libs/enums/README.md#table-by-table-audit),
+  reconciling schema, actual authorized snapshot values, writers, readers, DTOs
+  and UI. Account for every type candidate as converted, retained with a reason,
+  or unresolved with an owner. Reconcile newly discovered fixed values before
+  closing the operation. An enum file or a generic lifecycle set is not proof
+  that every caller or action-specific subset has been migrated correctly.
 - One outer operation owns the transaction; helpers cannot commit part of it.
   Inspect SQLAlchemy autobegin and existing auth/session use before changing scope.
   Preserve locking, audit, retries, idempotency and external side-effect timing.
@@ -95,6 +114,12 @@ Use isolated test data/infrastructure. Missing browser access or a required test
 environment is BLOCKED, never PASS. Repeat invalidated checks after further edits;
 no cleanup/readiness claim before required gates pass. Human production acceptance
 remains separate. Documentation-only work records runtime gates as NOT APPLICABLE.
+Use **AI_VERIFIED_AWAITING_HUMAN** only after the independent verification role
+has checked all required evidence on the exact candidate. Give the human a local
+visual checklist with roles, records, steps and expected saved results. Wait for
+their recorded technical and visual/business approval of that candidate; do not
+translate an AI pass into human approval, merge/deployment authority or permission
+to retire the old path. Follow [the state/evidence rules](../../../docs/VERIFICATION.md#5-record-evidence-and-completion).
 
 ## Study -> extract -> prove -> switch -> retire
 
@@ -128,6 +153,10 @@ change using the same prove/switch/accept discipline. Preserve omitted-vs-null u
 behavior, allowed fields, defaults, enum serialization and response shapes. Pure
 source cleanup should not require a database migration. Any necessary storage change
 needs its own compatibility/backfill/rollback plan and approval.
+Keep creation and lifecycle vocabularies distinct: a user/order may have states
+that are not permitted creation inputs. Record whether a change centralizes values,
+adds a DTO/internal type, or deliberately changes validation. Do not silently narrow
+free-form inputs or widen an action's accepted subset by using the full enum.
 
 ## Shared branch and completion
 

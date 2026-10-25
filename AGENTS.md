@@ -3,6 +3,33 @@
 These instructions apply to the entire Milana ERP repository and every clean
 worktree created from it.
 
+## Owner's required work cycle
+
+26 October 2026: Ismail reaffirmed this workflow after an agent omitted enum work
+and claimed completion. Preserve his direct instructions and accepted corrections
+in the task record; a summary, old completion claim or worker brief cannot remove scope.
+
+Work **one business operation at a time**:
+
+1. Study the old source and complete affected behavior: routes, services, every
+   caller, DTOs, database definitions/values, permissions and downstream handoffs.
+2. Inventory every relevant value/type and move the approved operation to its
+   correct existing layer. Track converted, intentionally retained and unresolved items.
+3. Pass meaningful automated checks on the candidate, then use the user's connected
+   computer/browser to visually exercise the actual website, inspect screenshots,
+   reopen the records and check persisted database effects and adjacent workflows.
+4. Run the bounded relevant stress/integrity/recovery checks. A missing required
+   test, browser or database check is BLOCKED; do not claim a pass.
+5. Only after independent AI review and all required evidence passes, mark
+   **AI_VERIFIED_AWAITING_HUMAN**. Supply the human's local visual checklist and wait
+   for recorded human review. This state is not approval to merge, deploy or retire paths.
+
+Use [VERIFICATION.md](docs/VERIFICATION.md) for the task packet, evidence and human
+gate. Audit enums/types [table by table](backend/app/libs/enums/README.md#table-by-table-audit),
+not by file/class count. Parallel workers may own disjoint operations; overlapping
+operations have one writer and must pass combined verification. Never call an
+entire area complete while its operation/type ledger contains unexplained gaps.
+
 ## Required context
 
 Before a substantial change, read `docs/PROJECT_CONTEXT.md` and
