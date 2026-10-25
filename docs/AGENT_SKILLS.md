@@ -35,13 +35,17 @@ do not count as passes. Documentation-only changes record runtime gates as not a
 
 ## Implementation sessions
 
-For the current refactor, MiniMax M3.1-Flash performs implementation. Use two
-MiniMax sessions with up to three scoped subagents each (six total), when
-supported, in separate work directories with disjoint file ownership. Report
-the actual model, workers started, changed paths and checks run.
+MiniMax M3.1-Flash performs implementation; Codex orchestrates, integrates,
+independently reviews and tests visually. Run two MiniMax sessions and
+request up to three scoped subagents per session (six total) when the runtime
+supports it, with separate work directories and disjoint file ownership. A
+session reports its actual model, the workers it started, the changed paths
+and the checks it ran.
 
-Codex orchestrates, integrates, independently reviews, visually tests E2E and
-runs bounded stress. Human engineering/business review and release gates remain.
-Observe model availability, capacity, speed and token cost per run; do not assume
-free or unlimited access persists. Report blockers and recover/reassign within
-MiniMax; do not silently substitute Codex for implementation.
+Codex owns integration, independent review, visual E2E and bounded stress;
+human engineering and business review, and the deployment gates in
+[DEPLOYMENT.md](../DEPLOYMENT.md), remain. Session capacity, speed and token
+cost (free or unlimited tokens) are not permanently verified facts; observe
+them per run. If MiniMax is unavailable or a worker is stuck, report the
+blocker and recover or reassign inside MiniMax. Do not silently substitute
+Codex for implementation.

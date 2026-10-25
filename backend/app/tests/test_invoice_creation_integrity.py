@@ -156,6 +156,7 @@ def test_sales_entry_point_issues_its_own_invoice_policy(client, auth_headers):
             .all()
         )
         assert [row.action for row in audits] == ["generate_invoice"]
+        assert audits[0].new_value_json == {"sales_order_id": sid, "amount": 0.5}
 
 
 # --------------------------------------------------------------------------
