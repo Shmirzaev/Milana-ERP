@@ -30,7 +30,9 @@ authorization covers ordinary implementation choices within the agreed scope.
 
 - HTTP routes bind input, obtain actor/session, call services and map results/errors.
   Add no business calculations, direct ORM queries/writes or commits to a route.
-- Feature services live in models/*_service.py (the mentor's models/ service layer).
+- Feature services live in models/<group>/*_service.py (the mentor's models/ service layer).
+  Reuse existing shared helpers at models/ root; find the actual public operation
+  in the group's README before adding another service or DTO.
   Do not recreate services/. They own business decisions, object/factory authorization and CRUD.
   Accept dependencies explicitly. No route imports/calls from services, private
   cross-group reach-through or cyclic service dependencies. Coordinate via the

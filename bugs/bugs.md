@@ -1,5 +1,19 @@
 # Team bug tracker — clone_main
 
+## FIN-REVENUE-CHART-STALE-20261025 — Finance revenue chart stays stale after a receipt
+
+- **P3 · Open · Ismail. Reviewer: Mirshoir.** Observed in the disposable local UI on source `d93dbb2` with finance pilot PR #308; no production occurrence claimed. The frontend source is unchanged by the refactor. Active and awaiting human review.
+- Reproduction: record a receipt from the Finance payment form. The top payment totals update immediately, but the revenue chart keeps the pre-receipt values until the page is reloaded, and it then matches the persisted data. The chart reads `/api/finance/revenue-by-period` through its own cache in `F:app/(app)/finance/page.tsx`; after the receipt that handler revalidates only the invoice list and the dashboard totals.
+- Expected: the revenue chart shows the receipt without a manual reload and uses the same refreshed figures as the payment totals.
+- Evidence: `outputs/finance-entrypoints-final-ledger-load.json` and the `outputs/finance-entrypoints-*.json` and `outputs/finance-entrypoints-*.png` files in the parent workspace. They are not committed to this repository.
+
+## PUR-RECEIVING-COLUMN-ORDER-20261025 — purchasing receiving quantity column is reversed against its label
+
+- **P3 · Open · Ismail. Reviewer: Mirshoir.** Observed in the disposable local UI on source `40c13cc` during the commercial verification run; no production occurrence claimed. The frontend source is unchanged by the refactor. Active and awaiting human review.
+- Reproduction: `F:app/(app)/purchasing/receiving/page.tsx` labels the quantity column "Ordered / remaining" (header line 557, `page.purchasing.orderedQty`) but renders `remaining_quantity` first and `ordered_quantity` second (line 606). A synthetic 100 kg order with 40 kg received therefore shows "60.00 / 100.00 kg" under that header. Direct database readback proves the stored data is correct: ordered 100, received 40, one 40 kg batch, two 20 kg rolls, cost 3.25. This is a display and label-order mismatch, not a data or accounting defect.
+- Expected: the numbers under "Ordered / remaining" are ordered first and remaining second, or the header matches the rendered order, with the stored quantities unchanged.
+- Evidence: `outputs/commercial-partial-readback.png` and `outputs/commercial-partial-readback.json` in the parent workspace. They are not committed to this repository.
+
 ## FIN-PARTIAL-CONFIRM-20261025 — partial-payment confirmation says “mark as paid”
 
 - **P3 · Open · Ismail. Reviewer: Mirshoir.** Observed in the disposable local UI on source `ba70e0cb` plus finance pilot PR #308; no production occurrence claimed.

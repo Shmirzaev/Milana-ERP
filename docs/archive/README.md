@@ -4,6 +4,8 @@ These reports preserve what was observed at their recorded date. They are not
 current implementation instructions or proof of today's production state.
 Start with [current context](../PROJECT_CONTEXT.md) for active work.
 
+- [Ismail six-area refactor candidate, 25 October 2026](ISMAIL_SIX_AREA_REFACTOR_2026-10-25.md):
+  implementation, local verification, limits and human checklist; not a production release.
 - [Complete project context before cleanup](PROJECT_CONTEXT-2026-10-24.md): deployment
   attempts, active/rollback identities, backups, fixes, known gaps and planning history.
 - [SEWING_ECO_REVIEW_2026-09-17.md](SEWING_ECO_REVIEW_2026-09-17.md)

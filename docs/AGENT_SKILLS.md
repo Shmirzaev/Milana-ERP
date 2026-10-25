@@ -23,7 +23,9 @@ workflow and whether this is planning or approved implementation. Example:
 
 Use [team ownership](TEAM_OWNERSHIP.md) for exact allocations and
 [the backend guide](../backend/app/README.md) for current versus target folders.
-The schema/DTO migration is planned; reading these skills does not mean it happened.
+The schema/DTO namespace migration is implemented. The six Ismail service groups
+are implemented in draft PR #308; other group extractions follow their own approval.
+Read [the current context](PROJECT_CONTEXT.md) before assuming production activation.
 
 ## Verification after each change
 
@@ -49,3 +51,8 @@ cost (free or unlimited tokens) are not permanently verified facts; observe
 them per run. If MiniMax is unavailable or a worker is stuck, report the
 blocker and recover or reassign inside MiniMax. Do not silently substitute
 Codex for implementation.
+
+The owner authorized all six Ismail areas—catalog, purchasing, sales, inventory,
+planning and finance—as parallel candidate work. This authorization covers
+implementation and review in isolated work directories. Human review,
+production acceptance and release gates remain separate.

@@ -33,8 +33,9 @@ review, migrations or operations. An AI's own test result is not human approval.
 
 For folder purpose and how to write files, use [the backend guide](../../../backend/app/README.md).
 Use [the source/model map](../../../docs/REFACTOR_MAP.md) to locate a group; load only
-the needed section. The twelve documentation folders are authorized scaffolding;
-do not treat their proposed operation names as implementation approval.
+the needed section. The six Ismail groups contain implemented candidate services;
+other group guides retain proposals. A proposed name alone is not implementation
+approval; the current owner-authorized batch covers all six Ismail groups.
 
 ## Read a small, complete context
 
@@ -48,11 +49,11 @@ checks, rollback mechanism and next step so another session can resume accuratel
 
 ## Architecture contract
 
-`HTTP router -> models/*_service.py -> SQLAlchemy schema + Session -> PostgreSQL`
+`HTTP router -> models/<group>/*_service.py -> SQLAlchemy schema + Session -> PostgreSQL`
 
 - Routers bind/validate HTTP inputs, obtain authenticated context/session, call the
   service and map results/errors to HTTP. No new business calculations or ORM writes.
-- Business services live in models/*_service.py, following Pizza House's service
+- Business services live in models/<group>/*_service.py, following Pizza House's service
   layer under models/. Do not recreate a parallel services/ folder.
   Services own business rules, object/factory authorization and coordinated CRUD.
   They accept the session/context explicitly. No service imports a router or calls
@@ -64,7 +65,8 @@ checks, rollback mechanism and next step so another session can resume accuratel
   Keep the existing Base, one mapping per table, field/default/constraint semantics
   and public DTO contracts. Pure source moves require no database-schema diff.
   Some mapped files still span business groups; consult the map before splitting.
-  Service-group directories remain guides for approved operation extraction.
+  Place new domain operations in their existing business group. Reuse shared
+  legacy helpers at models/ root rather than duplicating them or adding forwarders.
 - DTO filenames include their entity: user_input.py, user_update.py, user_output.py.
   Use explicit class imports, e.g. from app.libs.dto.user.user_input import UserIn.
   Retain existing mixed DTO files until an approved extraction updates every caller.

@@ -81,7 +81,8 @@ For new or extended features, use [.agents/skills/milana-feature/SKILL.md](.agen
 Use [docs/TEAM_OWNERSHIP.md](docs/TEAM_OWNERSHIP.md) to name the engineer and reviewer
 before editing. [docs/AGENT_SKILLS.md](docs/AGENT_SKILLS.md) explains team invocation.
 Both skills are versioned with the source; never substitute a personal copy of old rules.
-Business services live in backend/app/models/*_service.py. SQLAlchemy definitions
+Business services live in backend/app/models/<group>/*_service.py; existing shared
+helpers may remain directly under models/. SQLAlchemy definitions
 and registration live in backend/app/schemas/; Pydantic contracts live in
 backend/app/libs/dto/<business-group>/. The namespace separation is implemented.
 Do not recreate services/, put ORM mappings in models/, or put DTOs in schemas/.

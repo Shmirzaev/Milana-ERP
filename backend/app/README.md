@@ -15,10 +15,13 @@ This follows the mentor's separation: Pizza House's models/ means business servi
 its schema models correspond to our SQLAlchemy definitions in schemas/. DTOs validate
 and describe data; the service uses mapped classes and a Session to perform CRUD.
 
-Existing services are models/*_service.py. Their twelve group directories remain
-guides for approved extractions. Database and DTO files now live in business-group
-packages. Mixed legacy files remain intact; a folder move does not resolve their
-coupling or remove business logic still in routers. No table/field redesign was made.
+The candidate implements business services in models/catalog/, purchasing/, sales/,
+inventory/, planning/ and finance/. Shared existing helpers remain directly under
+models/ when their current callers need them. The other group directories guide
+their owners' later extractions. Database definitions and DTOs live in business-group
+packages. Mixed legacy operations outside this batch still need their own review.
+The current source map is in docs/REFACTOR_MAP.md; source extraction is separate
+from production acceptance. No table or field redesign was made.
 
 For a new feature: find its owner and existing operation, reuse its DTO/database
 definition, implement the business operation, then connect the HTTP handler.

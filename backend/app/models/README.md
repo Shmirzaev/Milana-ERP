@@ -6,10 +6,12 @@ This is the business-service layer, following Pizza House's models/*.service.ts
 convention. Its Python equivalents are *_service.py: business decisions,
 authorized CRUD and workflow coordination. There is no separate services/ folder.
 
-The existing service/helper implementations moved here as *_service.py with their
-callers. All twelve group directories are documentation scaffolds; grouping their
-implementations and extracting business logic from routers remain future work.
-Database definitions now live in schemas/ and DTOs in libs/dto/.
+The six Ismail groups below now contain implemented service modules in the refactor
+candidate: catalog, purchasing, sales, inventory, planning and finance. Existing
+shared helpers remain at this directory's root where their callers require them.
+The other groups retain their guides for separately approved extractions.
+Database definitions live in schemas/ and DTOs in libs/dto/. Current verification
+and remaining acceptance are recorded in the plan; a source move is not a release.
 Start with the relevant group below, then read only its affected code.
 The complete source inventory is [the refactor map](../../../docs/REFACTOR_MAP.md).
 

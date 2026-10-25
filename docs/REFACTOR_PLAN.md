@@ -1,8 +1,22 @@
 # Milana refactor: team agreement and execution plan
 
-24 October 2026. The owner authorized moving services into models/, then completing
-DTO separation into libs/dto/ and database definitions into schemas/ urgently. Business-logic extraction and production deployment
-have not started through this task.
+Updated 25 October 2026. The owner authorized moving services into models/, then completing
+DTO separation into libs/dto/ and database definitions into schemas/ urgently.
+The owner then authorized all six Ismail areas (catalog, purchasing, sales,
+inventory, planning, finance) as parallel candidate work. Their implementations
+are now combined locally for draft PR #308, with entity-named DTOs and grouped
+business services. [The source map](REFACTOR_MAP.md#service-destinations) lists the
+actual modules. MiniMax M3.1-Flash implemented them; Codex integrates and verifies.
+Finance/Purchasing/Sales passed 397 affected tests with zero skips; Planning and
+Finance paging passed another 206, including real PostgreSQL. Final affected
+coverage passed 694 cases plus 18 recovered from Windows temp-directory setup
+errors, with zero skips, and two separate PostgreSQL stock races passed. Actual
+six-area UI flows, persisted readback and bounded stress passed. Counts overlap
+between suites; they are not one summed test run. See the [candidate evidence and
+human checklist](archive/ISMAIL_SIX_AREA_REFACTOR_2026-10-25.md) for limits and CI status.
+The complete API and table DDL remain identical (577 routes, 475 documented paths,
+97 mapped tables).
+Production deployment has not started through this task.
 clone_main is the shared production branch. Multitenancy remains deferred.
 This replaces the earlier plan's branch-level definition of Done with human
 production verification before a bug becomes Finished.
@@ -140,7 +154,9 @@ Before each operation, the team records its service name/responsibility, public
 operation, transaction owner, permissions, compatibility promise and rollback choice.
 The user authorized all twelve business-service and database-schema groups as
 guides. Schema groups now contain the relocated definitions where files belong;
-service groups remain guides for later extraction.
+the six Ismail groups now hold candidate implementations; other groups retain
+their guides for later extraction. Technical verification and production acceptance
+are recorded separately from source presence.
 See the [full source/model map](REFACTOR_MAP.md) and [service directory guide](../backend/app/models/README.md).
 Their move into models/ and the existing services' relocation as *_service.py are
 authorized. Agree suggested new operations and ownership transfers before their
@@ -222,7 +238,13 @@ per engineer; one writer per shared operation. IDs are plan IDs, not created iss
 The [RF-001 source trace and proposed output interface](../backend/app/models/production/README.md#rf-001-sewing-output-seam-proposal-for-mirshoir)
 are prepared for Mirshoir's decision; this is not RF-005 implementation approval.
 The [RF-011 fixed-value inventory](../backend/app/libs/enums/README.md#rf-011-pilot-inventory-for-ismail-source-84bbc03)
-is prepared for Ismail; it does not convert callers or change storage.
+is prepared for Ismail; the finance work has since converted the enum callers
+(`InvoiceStatus` is imported and used by `app/schemas/sales/sales.py`,
+`app/models/workflow_service.py`, `app/models/payments_service.py`,
+`app/models/shipment_review_service.py`, `app/models/shipment_reopen_service.py`,
+`app/models/finance/invoices_service.py` and
+`app/models/finance/customer_ledger_service.py`), while stored values and
+mappings are unchanged.
 The [RF-012 Sewing contract inventory](../backend/app/libs/dto/production/README.md#rf-012-sewing-record-contract-inventory-source-345b8fa)
 lists the existing create, correction and read shapes; it creates no DTO copies.
 

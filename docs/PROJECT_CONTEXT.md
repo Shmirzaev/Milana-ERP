@@ -1,6 +1,6 @@
 # Milana ERP: current working context
 
-Updated 2026-10-24. Keep this file short: current decisions, release pointers and
+Updated 2026-10-25. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
@@ -49,9 +49,18 @@ not appended here. This summary does not replace live release verification.
   files are now in libs/dto/ and 26 SQLAlchemy definition files in schemas/, with
   all callers and ORM registration updated. Table definitions and business rules
   are unchanged. See the plan's verification record for actual checks/limitations.
-- Twelve service-group directories remain guides for later approved extraction.
-  Schema/DTO groups with implementations are active packages; mixed source files
-  remain intact. Route business logic extraction has not started through this task.
+- The owner authorized all six Ismail areas (catalog, purchasing, sales, inventory,
+  planning, finance) as parallel candidate work. This tree now combines their
+  grouped services and entity-named DTOs for draft PR #308. The current modules
+  are listed in [the source map](REFACTOR_MAP.md#service-destinations). Existing
+  shared helpers remain at models/ root. Finance/Purchasing/Sales passed 397
+  tests with zero skips; Planning/Finance paging passed 206, including real PG.
+  Final affected coverage passed 694 cases plus 18 recovered from Windows temp
+  permission setup errors, with zero skips, and two separate PG stock races passed.
+  Actual six-area UI flows, persisted readback and bounded stress passed; see
+  [the candidate record and human checklist](archive/ISMAIL_SIX_AREA_REFACTOR_2026-10-25.md).
+  The full API and table DDL are identical (577 routes, 475 paths, 97 tables). Mirshoir's
+  review and Shavkat's business acceptance remain; no merge or deployment is claimed.
 - Humans decide business policy, interfaces and cutover; AI implements approved
   scope. Multitenancy is deferred. No deletion quota or table-per-service requirement.
 
