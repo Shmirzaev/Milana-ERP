@@ -995,7 +995,7 @@ def test_shipment_preparation_returns_visual_items_packages_and_scan_state(clien
                 ),
                 ModelImage(
                     model_id=model.id,
-                    file_url=f"/storage/model-files/shipment-variant-{suffix}.webp",
+                    file_url=f"/storage/model-files/shipment-variant-photo-{suffix}.webp",
                     content_type="image/webp",
                     image_type="material",
                     is_primary=False,
@@ -1070,7 +1070,7 @@ def test_shipment_preparation_returns_visual_items_packages_and_scan_state(clien
     assert item["model_no"] == f"SP{suffix}"
     assert item["variant_no"] == "9001"
     assert item["model_image_url"] == f"/storage/model-files/shipment-model-{suffix}.webp"
-    assert item["variant_image_url"] == f"/storage/model-files/shipment-variant-{suffix}.webp"
+    assert item["variant_image_url"] == f"/storage/model-files/shipment-variant-photo-{suffix}.webp"
     assert item["required_qty"] == 24
     assert item["prepared_qty"] == 0
     assert item["lines"] == [{"color": "navy", "size": "48", "required_qty": 24, "prepared_qty": 0}]
