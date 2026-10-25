@@ -3,6 +3,10 @@
 These instructions apply to the entire Milana ERP repository and every clean
 worktree created from it.
 
+Start implementation/review with the [engineering workflow](docs/ENGINEERING_WORKFLOW.md):
+it defines each layer, schema-owned writes, system-wide enum/type adoption and
+the per-operation AI-then-human gates. Keep folder guides consistent with it.
+
 ## Owner's required work cycle
 
 26 October 2026: Ismail reaffirmed this workflow after an agent omitted enum work
@@ -40,9 +44,19 @@ rules, permissions, calculations and one outer transaction; schema-owned operati
 perform inserts, updates and deletes using that same supplied Session. Include mapped
 attribute/relationship mutations, indirect writers, audit, notifications and idempotency
 in the operation trace. Persistence helpers must not commit, change lock order, import
-services/routes or introduce a generic CRUD framework. Preserve existing contracts and
-storage. Migrate and verify one complete operation before broad enum/type adoption;
+services/routes or introduce a generic CRUD framework. Preserve business values and
+storage; identify and test intentional typed-contract changes described below.
+Migrate and verify one complete operation before broad enum/type adoption;
 do not claim all schemas or all system-wide enums are complete from moved files.
+
+The owner's system-wide mentor-discipline goal requires actual canonical Enum
+annotations in fixed-vocabulary DTOs and internal types, used consistently by
+schema defaults/constraints, services and relevant consumers. An enum-backed
+default on str/Any or Enum|str does not satisfy it. Preserve business values,
+normalization and action subsets; document/test intentional API-schema or validation
+changes required for real typing instead of retaining str only for OpenAPI parity.
+Configurable/free-form fields remain appropriate data types. The six Ismail pilots
+are rollout units; remaining domains retain named owners and pending coverage.
 
 Before a substantial change, read `docs/PROJECT_CONTEXT.md` and
 `DEPLOYMENT.md`. For a narrow question, read their relevant sections. Do not

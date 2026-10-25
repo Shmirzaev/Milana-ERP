@@ -52,6 +52,13 @@ not appended here. This summary does not replace live release verification.
   and [table audit](../backend/app/libs/enums/README.md#table-by-table-audit).
   Human visual/technical approval, merge and production acceptance are separate.
   Synthetic QA values do not establish the complete production vocabulary.
+- The owner's system-wide mentor-discipline goal requires actual enum-typed
+  DTOs/internal contracts and consistent schema/service consumers. Default-only
+  string fields do not satisfy it. Intentional OpenAPI/validation changes needed
+  for enum typing must be explicit and tested; keep business rules and operation
+  subsets. The six Ismail pilots are incremental work, not whole-ERP completion;
+  Identity/People/Production/Packaging/Fulfillment/platform coverage remains owned
+  and pending in the system-wide ledger.
 - Keep the FastAPI/SQLAlchemy/PostgreSQL monolith. Router -> feature service ->
   schema-owned persistence operations + supplied Session -> database. Services
   retain business rules, permissions and one outer transaction. Ismail explicitly

@@ -3,6 +3,11 @@
 These skills are repository files. Pull the latest clone_main and open an agent
 session in that checkout. No personal skill copy is required. If a running session
 does not list a new skill, reopen it or explicitly ask it to read the path below.
+When guidance is published only on a task branch, use that reviewed branch or wait
+for its authorized integration; a push to a draft PR does not update clone_main.
+Start with [AGENTS.md](../AGENTS.md) and the [engineering workflow](ENGINEERING_WORKFLOW.md).
+For another AI tool, explicitly provide those paths and require it to state the
+operation, layer responsibilities and evidence gates before implementation.
 
 | Work | Codex | Claude Code | Shared instructions |
 | --- | --- | --- | --- |
@@ -23,8 +28,10 @@ workflow and whether this is planning or approved implementation. Example:
 
 Use [team ownership](TEAM_OWNERSHIP.md) for exact allocations and
 [the backend guide](../backend/app/README.md) for current versus target folders.
-The schema/DTO namespace migration is implemented. The six Ismail service groups
-are implemented in draft PR #308; other group extractions follow their own approval.
+The schema/DTO namespace migration and six grouped-service extractions exist in
+draft PR #308. Schema-owned writers and system-wide enum-typed contracts remain
+unfinished; the folder structure is not completion evidence. Other domain work
+retains its named owner and pending coverage.
 Read [the current context](PROJECT_CONTEXT.md) before assuming production activation.
 
 ## Verification after each change

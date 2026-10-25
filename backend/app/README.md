@@ -1,19 +1,24 @@
 # Backend architecture: start here
 
-`HTTP router -> business service -> SQLAlchemy schema + Session -> PostgreSQL`
+`HTTP router -> dedicated business service -> schema-owned persistence + supplied Session -> PostgreSQL`
+
+Read the [engineering workflow](../../docs/ENGINEERING_WORKFLOW.md) for the required
+layer contract and operation-level review gates. This is the target; namespace
+separation alone did not finish schema-owned writes or system-wide enum typing.
 
 | Folder | Job |
 | --- | --- |
 | [api/routes](api/routes/README.md) | HTTP input/context, service call, response/error mapping. |
-| [models](models/README.md) | Business services: rules, permissions, queries and coordinated writes. |
-| [schemas](schemas/README.md) | SQLAlchemy database definitions, relationships, constraints and defaults. |
+| [models](models/README.md) | Business services: rules, permissions, queries, coordination and outer transaction ownership. |
+| [schemas](schemas/README.md) | SQLAlchemy definitions, constraints/defaults and explicit schema-owned write operations. |
 | [libs/dto](libs/dto/README.md) | Pydantic create/update/read and action contracts. |
 | [libs/enums](libs/enums/README.md) | Fixed vocabulary with unchanged serialized values. |
 | [libs/types](libs/types/README.md) | Distinct internal contracts only where needed. |
 
 This follows the mentor's separation: Pizza House's models/ means business services;
 its schema models correspond to our SQLAlchemy definitions in schemas/. DTOs validate
-and describe data; the service uses mapped classes and a Session to perform CRUD.
+and describe data; the service calls schema-owned write methods/operations with
+the supplied Session. Direct service writes and mapped mutations are migration debt.
 
 The candidate implements business services in models/catalog/, purchasing/, sales/,
 inventory/, planning/ and finance/. Shared existing helpers remain directly under

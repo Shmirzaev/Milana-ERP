@@ -4,10 +4,13 @@
 
 This is the business-service layer, following Pizza House's models/*.service.ts
 convention. Its Python equivalents are *_service.py: business decisions,
-authorized CRUD and workflow coordination. There is no separate services/ folder.
+authorization and workflow coordination. Writes run through schema-owned operations
+with the supplied Session. There is no separate services/ folder. Follow the
+[engineering workflow](../../../docs/ENGINEERING_WORKFLOW.md) for the layer contract.
 
-The six Ismail groups below now contain implemented service modules in the refactor
-candidate: catalog, purchasing, sales, inventory, planning and finance. Existing
+The six Ismail groups below contain extracted service modules in the refactor
+candidate: catalog, purchasing, sales, inventory, planning and finance. Schema-owned
+writes and system-wide enum-typed contracts remain unfinished. Existing
 shared helpers remain at this directory's root where their callers require them.
 The other groups retain their guides for separately approved extractions.
 Database definitions live in schemas/ and DTOs in libs/dto/. Current verification

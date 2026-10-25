@@ -5,6 +5,9 @@ description: Add or extend Milana ERP features while preserving the agreed monol
 
 # Milana feature discipline
 
+Apply the [engineering workflow](../../../docs/ENGINEERING_WORKFLOW.md) for layer
+responsibilities, schema-owned writes, enum-typed contracts and acceptance gates.
+
 Read repository AGENTS.md, [ownership](../../../docs/TEAM_OWNERSHIP.md), and the
 affected folder's README. Use [the backend guide](../../../backend/app/README.md)
 for the agreed layers and [the plan](../../../docs/REFACTOR_PLAN.md) for migration
@@ -64,6 +67,12 @@ authorization covers ordinary implementation choices within the agreed scope.
   Reconcile newly discovered fixed values with the domain owner and enum/tests;
   do not omit them, promote a typo into policy or turn configurable records into
   enum members. Keep action-specific subsets and create/update/read contracts distinct.
+  Known fixed-vocabulary fields in DTOs and internal contracts use the actual
+  canonical Enum annotation. A default on str/Any or Enum|str is not completed
+  typing. Preserve normalization and action rules with explicit adapters; record
+  deliberate API-schema/validation changes instead of using old OpenAPI parity to
+  avoid the owner's enum-typed DTO requirement. Six areas are rollout scope, not
+  proof of system-wide completeness.
 - Database definitions live in schemas/<business-group>/, using SQLAlchemy and
   the existing Base. Shared definitions remain in schemas/core.py and
   schemas/order_reference.py. Register new mappings in schemas/__init__.py.

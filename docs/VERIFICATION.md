@@ -63,6 +63,18 @@ make unfinished source pass. Its function-entry counts are not approved service
 counts or reviewed business operations. Verify one complete operation before
 repeating the pattern or claiming broad enum/type readiness.
 
+Verify enum fields by their actual annotations and runtime/schema behavior, not
+their default values or imported class count. Known fixed-vocabulary input/update/
+output DTOs and genuine internal contracts must use the canonical Enum; str, Any
+or Enum|str is not a completed conversion. Check defaults, normalization, action
+subsets, serialization and all direct/alternate consumers. Actual enum typing may
+deliberately change OpenAPI or validation errors: identify the precise change and
+test approved intended behavior against independent expectations. Preserve baseline
+characterization separately; do not assert universal API equality or weaken tests
+without explaining the new contract. Configurable rows can still have a fixed
+discriminator. Track all ERP domains with owners and unresolved items; a passing
+pilot is not system-wide completion.
+
 - Start from Shavkat's agreed business examples and the engineer's explicit contract,
   not an expected value copied from the implementation. Name input, actor, expected
   output, persisted effects, refusals and affected downstream workflow.

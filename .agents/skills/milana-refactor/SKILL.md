@@ -5,6 +5,9 @@ description: Plan and carry out approved Milana ERP monolith refactors using rev
 
 # Milana refactor discipline
 
+Apply the [engineering workflow](../../../docs/ENGINEERING_WORKFLOW.md) for layer
+responsibilities, schema-owned writes, enum-typed contracts and acceptance gates.
+
 Keep the factory working while simplifying one business operation at a time.
 Read the repository's AGENTS.md and the relevant folder's README.md. For scope,
 ownership and sequence, read the relevant sections of [the team plan](../../../docs/REFACTOR_PLAN.md).
@@ -76,6 +79,15 @@ flush timing, audit-chain hooks and rollback; shared persistence has one writer.
 Complete the first operation's gates before mass enum/type adoption. A shared enum
 must serve its real schema/contract/service consumers; six workers do not prove
 system-wide coverage or full mentor alignment.
+
+For the owner's system-wide enum/type goal, fixed-vocabulary DTO input/update/output
+and real internal contracts use canonical Enum annotations, not only enum-valued
+defaults on str, Any or Enum|str. Keep business normalization, defaults and legal
+action subsets explicit. Preserve behavior where possible with validators/adapters;
+document and test intentional OpenAPI/validation changes needed for actual enum
+typing. Do not use byte-identical OpenAPI as an excuse to omit the required types.
+Genuinely configurable/free-form fields remain data. Reconcile every relevant
+domain/consumer in the ownership ledger; the six pilots do not complete the ERP.
 
 - Routers bind/validate HTTP inputs, obtain authenticated context/session, call the
   service and map results/errors to HTTP. No new business calculations or ORM writes.

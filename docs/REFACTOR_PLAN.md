@@ -14,6 +14,15 @@ and idempotency; preserve hooks, locks and rollback. Namespace separation alone
 did not implement this target. Complete and verify a whole operation before broad
 enum/type adoption. Six-area worker coverage is not system-wide enum completion.
 
+The owner's system-wide goal includes real canonical Enum annotations in DTOs
+and genuine internal types, consistently used by schema defaults/constraints,
+services and all relevant consumers. Enum-valued defaults on str/Any or Enum|str
+are partial work. Preserve business values, normalization and action subsets;
+identify/test deliberate API-schema or validation changes required by actual enum
+typing. Do not let a byte-identical-OpenAPI check prevent the requested contract.
+The six pilots remain the rollout sequence. Name owners and pending coverage for
+all remaining domains; no declaration count or six-worker report completes the ERP.
+
 Execute the remaining work one business operation at a time, using the
 [durable task packet and ledger](VERIFICATION.md#0-study-the-old-behavior-and-give-the-agent-a-verifiable-task)
 and [table-by-table type audit](../backend/app/libs/enums/README.md#table-by-table-audit).

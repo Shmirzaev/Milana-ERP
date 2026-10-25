@@ -19,7 +19,11 @@ or completion of the current enum workers. Use the procedure below and the
 Give repeated, fixed business values one definition, following the enum pattern
 in the mentor's Nestar and Meditech backends. Organize definitions by the feature
 that owns their meaning, for example a future `production.py` for production
-states. Schemas and services should reuse the same definition.
+states. Schemas, DTO field annotations, internal types and services must reuse the
+same definition for the same fixed business concept. Ismail's current goal is
+system-wide adoption in the modular monolith, not only the six initial pilot areas.
+Domain owners keep responsibility for business policy; pilots define rollout order,
+not a smaller completion scope.
 
 ## What belongs here
 
@@ -37,12 +41,17 @@ states. Schemas and services should reuse the same definition.
 - Membership in an enum does not grant permission or validate a state transition.
   Services still enforce those rules.
 - Keep enum definitions independent of routers, services, and database sessions.
-- A small choice used in one contract can remain a `Literal` when that is clearer.
+- Known fixed business vocabularies must use the owning Enum in DTO and internal
+  type annotations. An enum-backed default on a `str` field is not enum typing.
+  For an action subset, use the canonical enum with an explicit subset validator,
+  or a type expressed using those enum members; retain the service transition guard.
 - Python enums do not require a PostgreSQL enum migration. Any storage change
   needs its own review; verify enum names versus values if using SQLAlchemy Enum.
 
 Introduce each enum with its actual callers during an approved feature refactor.
-This folder is not a requirement to convert every string in the application.
+Free text, identifiers and genuinely configurable references remain appropriately
+typed. A configurable table can still contain a fixed discriminator: inspect each
+field and its consumers instead of excluding it because its rows are configurable.
 
 ## Table-by-table audit
 
@@ -120,11 +129,13 @@ become an enum member. Do not infer the vocabulary from a file name or one examp
 - Enums give a fixed business vocabulary one definition. A full lifecycle can
   include states forbidden for a particular create/approve/receive action; keep
   the service's subset/transition/permission guard and test it independently.
-- Pydantic DTOs describe accepted inputs, allowed updates and output shapes.
-  Preserve an existing free-form string or narrower Literal when required for
-  compatibility, with the reason in the ledger. Replacing it with the full Enum
-  can narrow inputs, widen a subset or change normalization and HTTP 400/422 errors.
-  State honestly whether values are centralized, validation changed, or both.
+- Pydantic input/update/output DTOs for known fixed vocabularies must carry actual
+  enum annotations. Do not retain `str`, `Enum | str`, `Any`, a duplicated string
+  union, or only an enum-backed default as the completed result. Preserve supported
+  normalization and action subsets with explicit validators. Record and test any
+  intentional validation/OpenAPI change required by the typed contract; byte-identical
+  OpenAPI is not a reason to evade this requirement. Unknown historical values need
+  explicit reconciliation rather than a silent open-string escape or data rewrite.
 - Add dataclasses/TypedDicts/type aliases in libs/types only for a real distinct
   internal contract with named consumers. Do not mirror every table/DTO or create
   unused declarations to make the folder look complete.
