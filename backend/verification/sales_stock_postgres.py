@@ -452,3 +452,50 @@ def test_pending_ineligible_stock_or_package_is_not_reserved(case, dirty_field, 
             assert package.status == "draft"
         db.rollback()
     assert stock_totals() == (6, 0)
+
+
+@pytest.mark.parametrize("mode", ["piece", "pack"])
+def test_partially_expired_stock_routing_key_cannot_bypass_locked_refresh(case, mode):
+    from fastapi import HTTPException
+    from app.libs.enums.packaging import PackageStockKind
+    from app.libs.types.stock_reservation import PieceDemand, PackDemand
+    from app.models.fulfillment.stock_service import reserve_pieces, reserve_packs
+    seed_stock(case, packaged=mode == "pack", quantity=6)
+    with Session() as db:
+        orders = [SalesOrder(order_no=f"PARTIAL-EXPIRY-{i}", order_type="branded_stock_sale", status="draft") for i in range(2)]
+        db.add_all(orders)
+        db.commit()
+        order_ids = [row.id for row in orders]
+    with Session() as stale:
+        held = stale.query(FinishedGoodsStock).order_by(FinishedGoodsStock.id).all()
+        with Session() as winner:
+            winner.query(SalesOrder.id).filter(SalesOrder.id == order_ids[0]).with_for_update(of=SalesOrder).one()
+            if mode == "piece":
+                reserve_pieces(winner, sales_order_id=order_ids[0], reserved_by=case["user_id"],
+                    stock_kind=PackageStockKind.STANDARD,
+                    demands=(PieceDemand(case["model"], None, "white", "M", 4),), fail_on_shortage=True)
+            else:
+                for stock in winner.query(FinishedGoodsStock).with_for_update(of=FinishedGoodsStock):
+                    stock.status = "damaged"
+            winner.commit()
+        # The object still has stale allocation/status fields, but no loaded
+        # routing key. It must remain a candidate for refresh without lazy SQL.
+        for stock in held:
+            stale.expire(stock, ["model_id" if mode == "piece" else "package_id"])
+        stale.query(SalesOrder.id).filter(SalesOrder.id == order_ids[1]).with_for_update(of=SalesOrder).one()
+        with pytest.raises(HTTPException) as caught:
+            if mode == "piece":
+                reserve_pieces(stale, sales_order_id=order_ids[1], reserved_by=case["user_id"],
+                    stock_kind=PackageStockKind.STANDARD,
+                    demands=(PieceDemand(case["model"], None, "white", "M", 4),), fail_on_shortage=True)
+            else:
+                reserve_packs(stale, sales_order_id=order_ids[1], reserved_by=case["user_id"],
+                    demands=(PackDemand("line", case["model"], None, 1),))
+        assert caught.value.status_code == 409
+        stale.rollback()
+    with Session() as db:
+        reservations = db.query(StockReservation).all()
+        assert sum(row.quantity for row in reservations) == (4 if mode == "piece" else 0)
+        if mode == "pack":
+            assert {row.status for row in db.query(FinishedGoodsStock)} == {"damaged"}
+    assert stock_totals() == ((2, 4) if mode == "piece" else (6, 0))

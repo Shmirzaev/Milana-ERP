@@ -69,3 +69,14 @@ review, actual browser actions/screenshots, persisted readback, bounded operatio
 stress and human visual acceptance remain open until recorded against the exact
 candidate. This operation does not complete all Sales/Fulfillment or the system-wide
 modular-monolith/enum/type/schema goal.
+
+## Independent partial-expiry correction
+
+The first integrity candidate `628c38b` passed the original 17 independent cases,
+but two follow-up probes reproduced a gap: an expired stock model_id or package_id
+was absent from the identity-map routing filter, leaving its other stale columns
+unrefreshed. The failed candidate and probe evidence remain frozen. Matching now
+includes instances with unknown routing keys without triggering lazy reads; only
+the subsequent existing locking query reloads applicable rows. Dirty local fields
+remain preserved. Two versioned PostgreSQL regression cases exercise these exact
+piece and pack sequences alongside the original integrity/rollback/query checks.

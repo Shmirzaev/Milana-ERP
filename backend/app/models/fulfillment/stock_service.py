@@ -40,6 +40,9 @@ def _expire_clean_columns(db: Session, rows: Iterable[Package | FinishedGoodsSto
     performs no query or flush; the existing bounded locking query reloads them.
     An earlier reservation in this transaction therefore keeps its staged
     quantities, and unrelated price/notes edits remain pending for the caller.
+    Callers include instances whose routing key is expired: an unknown model or
+    package cannot exclude an instance from freshness handling. Reading that key
+    through the descriptor would also issue an unlocked lazy query.
     """
     for row in rows:
         state = inspect(row)
@@ -189,7 +192,7 @@ def _stock_rows_by_variant(
             db.query(Package).filter(Package.id.in_(package_ids)).order_by(Package.id).with_for_update(key_share=True, of=Package).all()
             qry = qry.with_for_update(key_share=True, of=FinishedGoodsStock)
         _expire_clean_columns(db, [row for row in list(db.identity_map.values())
-            if isinstance(row, FinishedGoodsStock) and inspect(row).dict.get("model_id") in keys_by_model])
+            if isinstance(row, FinishedGoodsStock) and ("model_id" not in inspect(row).dict or inspect(row).dict["model_id"] in keys_by_model)])
         for row in qry.order_by(FinishedGoodsStock.id.asc()).all():
             # SQL sees stored values; pending local eligibility must also pass.
             if row.status != FinishedGoodsStatus.AVAILABLE.value or int(row.available_qty or 0) <= 0:
@@ -336,7 +339,7 @@ def ready_pack_candidates(
     """
     if lock:
         _expire_clean_columns(db, [row for row in list(db.identity_map.values())
-            if isinstance(row, Package) and (model_ids is None or inspect(row).dict.get("model_id") in model_ids)])
+            if isinstance(row, Package) and (model_ids is None or "model_id" not in inspect(row).dict or inspect(row).dict["model_id"] in model_ids)])
     package_query = db.query(Package).join(Model, Model.id == Package.model_id).filter(
         Package.status.in_(("received_in_storage", "reserved")),
         Package.total_quantity > 0,
@@ -365,7 +368,7 @@ def ready_pack_candidates(
         stock_query = stock_query.with_for_update(of=FinishedGoodsStock)
     if lock:
         _expire_clean_columns(db, [row for row in list(db.identity_map.values())
-            if isinstance(row, FinishedGoodsStock) and inspect(row).dict.get("package_id") in package_ids])
+            if isinstance(row, FinishedGoodsStock) and ("package_id" not in inspect(row).dict or inspect(row).dict["package_id"] in package_ids)])
     stocks = stock_query.order_by(FinishedGoodsStock.id).all()
     stock_groups = defaultdict(list)
     for stock in stocks:
@@ -437,7 +440,7 @@ def reserve_pieces(
     }
     model_ids = {key[0] for key in requested_by_variant}
     _expire_clean_columns(db, [row for row in list(db.identity_map.values())
-        if isinstance(row, Package) and inspect(row).dict.get("model_id") in model_ids])
+        if isinstance(row, Package) and ("model_id" not in inspect(row).dict or inspect(row).dict["model_id"] in model_ids)])
     package_cache: dict[int, Package] = {}
     if db.bind and db.bind.dialect.name == "postgresql":
         # Lock across all lines before metadata repair or any stock lock, so
