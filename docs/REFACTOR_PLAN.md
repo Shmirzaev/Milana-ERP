@@ -1,5 +1,8 @@
 # Milana refactor: team agreement and execution plan
 
+Use the [whole-ERP coverage ledger](REFACTOR_COVERAGE.md) for all 97 tables, 1,303 fields,
+named owners and the next operation in every domain. Discovery is not acceptance.
+
 Scope correction, 26 October 2026: service/DTO extraction across the six Ismail
 groups is implemented and verified. Ismail's assignment is **not complete**:
 RF-011 enum work currently covers InvoiceStatus only; other shared fixed values
