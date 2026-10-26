@@ -158,6 +158,75 @@ def test_displayed_sales_reference_is_searchable(client, auth_headers, cuts):
     assert result.json()["items"][0]["order_no"] == "SO-CUSTOMER-REFERENCE"
 
 
+def test_list_projects_group_and_exact_variant_photos_without_binary_data(client, auth_headers, cuts):
+    from datetime import datetime, timezone
+    from sqlalchemy import event
+    from app.models import BrandedPlanningOrder, ModelImage, ProductionOrderItem
+    from app.db.session import engine
+
+    with SessionLocal() as db:
+        base = Model(code="PIC100", name="Garment", details_json={"general": {"model_no": "PIC100"}})
+        variant = Model(code="PIC100-123", name="Variant", details_json={"general": {"model_no": "PIC100", "variant_no": "123"}})
+        sibling = Model(code="PIC100-124", name="Other variant", details_json={"general": {"model_no": "PIC100", "variant_no": "124"}})
+        planning = BrandedPlanningOrder(order_no="BSO-QA-PHOTOS", ordered_for_type="milana", ordered_for_name="Milana")
+        db.add_all([base, variant, sibling, planning]); db.flush()
+        for model, kind, url in [(base, "model", "garment.jpg"), (variant, "material", "fabric-v123.jpg"), (sibling, "material", "wrong-v124.jpg")]:
+            db.add(ModelImage(model_id=model.id, image_type=kind, file_name=url, file_url="/storage/model-files/" + url,
+                              content_type="image/jpeg", file_data=b"not part of list payload"))
+        order = db.get(ProductionOrder, cuts["BST"][0])
+        order.model_id = variant.id; order.planning_order_id = planning.id
+        order.estimated_material_code = "MAT-QA-COTTON"
+        order.deadline = datetime(2026, 11, 1, tzinfo=timezone.utc)
+        for size in ("50", "46", "48"):
+            db.add(ProductionOrderItem(production_order_id=order.id, model_id=variant.id, color="White", size=size, planned_quantity=2))
+        db.commit()
+    statements = []
+    def capture(_conn, _cursor, statement, *_args):
+        statements.append(statement)
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        response = client.get("/api/besttex/cutting-orders?q=BSO-QA-PHOTOS", headers=auth_headers)
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    assert response.status_code == 200, response.text
+    row = response.json()["items"][0]
+    assert row["planning_order_no"] == "BSO-QA-PHOTOS"
+    assert row["planning_order_name"] == "Milana"
+    assert (row["model_no"], row["variant_no"]) == ("PIC100", "123")
+    assert row["model_image_url"] == "/storage/model-files/garment.jpg"
+    assert row["variant_image_url"] == "/storage/model-files/fabric-v123.jpg"
+    assert row["size_summary"] == "46–50 (3)"
+    assert row["material_label"] == "MAT-QA-COTTON"
+    assert row["deadline"].startswith("2026-11-01")
+    assert not any("model_images.file_data" in statement for statement in statements)
+    assert "not part of list payload" not in response.text
+
+
+def test_list_does_not_borrow_sibling_variant_picture(client, auth_headers, cuts):
+    from app.models import ModelImage
+    with SessionLocal() as db:
+        model = db.get(Model, db.get(ProductionOrder, cuts["BST"][0]).model_id)
+        model.details_json = {"general": {"model_no": "QA-MISSING", "variant_no": "10"}}
+        db.add(ModelImage(model_id=model.id, image_type="material", file_name="fabric-v11.jpg",
+                          file_url="/storage/model-files/fabric-v11.jpg", content_type="image/jpeg"))
+        db.commit()
+    response = client.get("/api/besttex/cutting-orders", headers=auth_headers)
+    assert response.status_code == 200
+    assert response.json()["items"][0]["variant_image_url"] is None
+
+
+def test_letter_sizes_are_listed_without_an_alphabetical_range(client, auth_headers, cuts):
+    from app.models import ProductionOrderItem
+    with SessionLocal() as db:
+        order = db.get(ProductionOrder, cuts["BST"][0])
+        for size in ("S", "M", "XL"):
+            db.add(ProductionOrderItem(production_order_id=order.id, model_id=order.model_id,
+                                       color="White", size=size, planned_quantity=2))
+        db.commit()
+    row = client.get("/api/besttex/cutting-orders", headers=auth_headers).json()["items"][0]
+    assert set(row["size_summary"].split(", ")) == {"S", "M", "XL"}
+
+
 def test_record_without_own_bundles_cannot_print_sibling_record_bundles(client, auth_headers, cuts):
     with SessionLocal() as db:
         sibling = CuttingRecord(work_order_id=cuts["BST"][2], cut_pieces=2, passed_pieces=2, cutting_batch_no="CUT-SIBLING")

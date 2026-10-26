@@ -1,13 +1,16 @@
 """Read-only Besttex cutting history. Never completes Cutting or changes data."""
 from fastapi import HTTPException
 from sqlalchemy import and_, func, or_
-from sqlalchemy.orm import Session, aliased, noload
+from sqlalchemy.orm import Session, aliased, joinedload, load_only, noload, selectinload
 
 from app.core.deps import user_permissions
 from app.schemas.besttex_cutting import BesttexCuttingPageOut, BesttexCuttingRowOut
 from app.services.cutting_sheet import render_cutting_sheet_html
 from app.services.factory_scope import selected_factory_code
-from app.models import Bundle, CuttingRecord, Department, Model, ProductionBatch, ProductionOrder, SalesOrder, User, WorkOrder
+from app.services.model_family_images import family_images_for_models
+from app.services.model_identity import model_number_fields
+from app.services.model_images import model_preview_image_url, model_variant_picture_url
+from app.models import BrandedPlanningOrder, Bundle, CuttingRecord, Department, Model, ModelImage, ProductionBatch, ProductionOrder, SalesOrder, User, WorkOrder
 
 PERMISSION = "besttex.cutting_sheets"
 
@@ -92,16 +95,48 @@ def list_besttex_cutting(db: Session, actor: User, *, page: int, page_size: int,
     query = _records(db)
     if search.strip():
         term = search.strip().lower()
+        query = query.outerjoin(BrandedPlanningOrder, BrandedPlanningOrder.id == ProductionOrder.planning_order_id)
         query = query.filter(or_(*[func.lower(column).contains(term, autoescape=True) for column in (
             CuttingRecord.cutting_batch_no, ProductionOrder.production_no, SalesOrder.order_no, ProductionBatch.batch_no, Model.code, Model.name,
+            BrandedPlanningOrder.order_no, BrandedPlanningOrder.ordered_for_name,
         )]))
     total = query.count()
-    rows = query.order_by(CuttingRecord.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    rows = query.options(
+        joinedload(ProductionOrder.planning_order), selectinload(ProductionOrder.items),
+    ).order_by(CuttingRecord.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    # Resolve only this page's models together, without loading image binaries
+    # or asking a read-only Besttex account to access the catalog endpoint.
+    models = {model.id: model for model in db.query(Model).options(
+        load_only(Model.id, Model.code, Model.name, Model.details_json, Model.catalog_scope, Model.factory_code),
+        noload(Model.bom), selectinload(Model.images).defer(ModelImage.file_data, raiseload=True),
+    ).filter(Model.id.in_({row[1].model_id for row in rows})).all()}
+    family_images_for_models(db, models.values())
+    presentation = {}
+    for _, order, *_ in rows:
+        model = models.get(order.model_id)
+        planning = order.planning_order
+        sizes = list(dict.fromkeys(str(item.size).strip() for item in order.items if str(item.size or "").strip()))
+        if sizes and all(size.isdigit() for size in sizes):
+            sizes.sort(key=int)
+            summary = f"{sizes[0]}–{sizes[-1]} ({len(sizes)})" if len(sizes) > 1 else sizes[0]
+        else:
+            summary = ", ".join(sizes) or None
+        presentation[order.id] = dict(
+            planning_order_id=order.planning_order_id,
+            planning_order_no=planning.order_no if planning else None,
+            planning_order_name=planning.ordered_for_name if planning else None,
+            **model_number_fields(model), model_image_url=model_preview_image_url(model),
+            variant_image_url=model_variant_picture_url(model),
+            size_summary=summary,
+            material_label=order.estimated_material_code or order.service_material_description,
+            deadline=order.deadline,
+        )
     return BesttexCuttingPageOut(items=[BesttexCuttingRowOut(
         cutting_record_id=record.id, cutting_batch_no=record.cutting_batch_no,
         production_no=order.production_no, order_no=sales_no or order.production_no,
         batch_no=batch_no, model_code=code, model_name=name,
         cut_pieces=record.cut_pieces, passed_pieces=record.passed_pieces, created_at=record.created_at,
+        **presentation[order.id],
     ) for record, order, batch_no, code, name, sales_no in rows], total=total, page=page, page_size=page_size)
 
 

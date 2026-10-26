@@ -2,6 +2,13 @@
 
 Last updated: 2026-10-26
 
+## Besttex Cut orders style follow-up prepared (2026-10-26)
+
+- Owner requested the grouped factory order-table appearance with separate model/variant thumbnails. Implemented only this follow-up on the exact verified active application lineage, isolated at `C:/ERP/.codex-work/besttex-cut-orders-style-20261026`, branch `codex/besttex-cut-orders-style-20261026`. No refactoring is included.
+- Reuses existing thumbnail/preview and family/exact-variant selection helpers; adds bounded read-only presentation fields, planning-order group/search, sizes/material/deadline, and retains GET-only printing and all existing factory/record authorization. No permission/schema or business-data change.
+- PASS: 37 focused/backend photo cases, lint/types/i18n, full frontend contract/build chain, independent AI reviews, actual EN/RU/UZ desktop/phone local UI and bounded 80-read challenge with zero errors and 96 unchanged business-table fingerprints. See [technical evidence](archive/BESTTEX_CUT_ORDER_STYLE_2026-10-26.md).
+- This follow-up is not deployed or merged. Active remains green `20261026_045639` / `d1879595`, rollback remains running blue `20261024_093619`. Human/operator acceptance is pending.
+
 ## QR pictures, Besttex cut orders and compact grade totals deployed (2026-10-26)
 
 - Both production roles are green `20261026_045639`, application `d187959565821cadde420809a602426caee9ac42`, activated at 05:34 UTC. Blue `20261024_093619` / `1fce86b5b9156fac050ca5c98433198323b20929` remains running and verified for rollback. Both current symlinks, slot states, immutable image IDs and source manifests agree. Source manifest: `6aa95086ca942de2503487d8506b485920cef914a02727e9497c448b07585959`.

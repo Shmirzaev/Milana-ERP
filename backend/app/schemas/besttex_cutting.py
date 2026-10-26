@@ -12,6 +12,16 @@ class BesttexCuttingRowOut(BaseModel):
     batch_no: str | None
     model_code: str | None
     model_name: str | None
+    planning_order_id: int | None = None
+    planning_order_no: str | None = None
+    planning_order_name: str | None = None
+    model_no: str | None = None
+    variant_no: str | None = None
+    model_image_url: str | None = None
+    variant_image_url: str | None = None
+    size_summary: str | None = None
+    material_label: str | None = None
+    deadline: datetime | None = None
     cut_pieces: int
     passed_pieces: int
     created_at: datetime
