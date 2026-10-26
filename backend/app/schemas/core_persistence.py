@@ -97,7 +97,7 @@ def add_notification_rows(
     message: str | None,
     link: str | None,
 ) -> list[Notification]:
-    """Add an ordered notification fan-out with one flush boundary."""
+    """Add an ordered notification fan-out. The caller owns the flush boundary."""
     rows = [
         Notification(user_id=user_id, title=title, message=message, link=link)
         for user_id in user_ids

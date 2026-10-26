@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Optional
 
 from app.libs.dto.common import ORMModel
+from app.libs.enums.purchasing import PurchaseRequestStatus
 
 
 class PurchaseRequestLineOut(ORMModel):
@@ -25,7 +26,7 @@ class PurchaseRequestLineOut(ORMModel):
 class PurchaseRequestOut(ORMModel):
     id: int
     request_no: str
-    status: str
+    status: PurchaseRequestStatus
     sales_order_id: Optional[int] = None
     sales_order_no: Optional[str] = None
     production_order_id: Optional[int] = None

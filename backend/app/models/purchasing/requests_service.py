@@ -21,11 +21,11 @@ from app.libs.dto.purchasing.purchase_request_input import (
     PurchaseRequestIn,
     PurchaseRequestOrderIn,
 )
+from app.libs.types.purchasing import PurchaseRequestCreateCommand
 from app.models import inventory_access_service as inventory_access
 from app.models import purchasing_service as purchasing_core
 from app.models.image_storage_service import store_uploaded_image
 from app.schemas import Item, PurchaseOrder, PurchaseRequest, PurchaseRequestLine, User
-
 
 def list_purchase_requests(db: Session, *, user: User) -> list[PurchaseRequest]:
     """The purchase requests the caller may see, newest first.
@@ -44,9 +44,40 @@ def list_purchase_requests(db: Session, *, user: User) -> list[PurchaseRequest]:
     )
 
 
+def _purchase_request_command(payload: PurchaseRequestIn) -> PurchaseRequestCreateCommand:
+    """The HTTP payload as the shared internal create command.
+
+    The command carries the canonical status member, so the core operation
+    never has to re-parse a raw string.
+    """
+    return {
+        "status": payload.status,
+        "sales_order_id": payload.sales_order_id,
+        "production_order_id": payload.production_order_id,
+        "notes": payload.notes,
+        "lines": [
+            {
+                "item_id": line.item_id,
+                "required_quantity": line.required_quantity,
+                "requested_quantity": line.requested_quantity,
+                "unit": line.unit,
+                "available_quantity": line.available_quantity,
+                "shortage_quantity": line.shortage_quantity,
+                "preferred_supplier_id": line.preferred_supplier_id,
+                "material_name": line.material_name,
+                "photo_url": line.photo_url,
+                "notes": line.notes,
+            }
+            for line in payload.lines
+        ],
+    }
+
+
 def create_purchase_request(db: Session, *, payload: PurchaseRequestIn, current: User) -> PurchaseRequest:
     """Create a purchase request and commit it once its lines are authorized."""
-    request = purchasing_core.create_purchase_request(db, data=payload.model_dump(), current=current)
+    request = purchasing_core.create_purchase_request(
+        db, data=_purchase_request_command(payload), current=current
+    )
     purchasing_core.require_purchase_item_access(db, current, request.lines)
     db.commit()
     db.refresh(request)

@@ -1,9 +1,10 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.libs.dto.purchasing.purchase_quantity import PurchaseQuantity
+from app.libs.enums.purchasing import PurchaseRequestStatus
 
 
 class PurchaseRequestLineIn(BaseModel):
@@ -22,9 +23,23 @@ class PurchaseRequestLineIn(BaseModel):
 class PurchaseRequestIn(BaseModel):
     sales_order_id: Optional[int] = None
     production_order_id: Optional[int] = None
-    status: str = "pending_approval"
+    status: PurchaseRequestStatus = PurchaseRequestStatus.PENDING_APPROVAL
     notes: Optional[str] = None
     lines: list[PurchaseRequestLineIn] = Field(max_length=1000)
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _normalize_status(cls, value: object) -> object:
+        """Normalize the raw status before the enum parses it.
+
+        A blank status means pending_approval and surrounding whitespace is
+        removed, exactly as the create operation did before the field became
+        enum-typed. Anything that is not text is left untouched so the enum
+        contract refuses it.
+        """
+        if not isinstance(value, str):
+            return value
+        return value.strip() or PurchaseRequestStatus.PENDING_APPROVAL.value
 
 
 class PurchaseRequestApprovalLineIn(BaseModel):
