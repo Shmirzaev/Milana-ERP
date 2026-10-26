@@ -81,6 +81,20 @@ jobs:
           backend/app/tests/test_payroll_overlap_repair.py
       - name: Deployment observation regression suite
         run: python -m unittest discover -s scripts -p 'test_observe_release.py' -v
+      - name: Create disposable Sales list review database
+        id: sales-list-db
+        run: >-
+          python -c "import psycopg2; db=psycopg2.connect(host='127.0.0.1',port=5432,user='postgres',dbname='postgres'); db.autocommit=True; db.cursor().execute('CREATE DATABASE review_sales_list_ci'); db.close()"
+      - name: Sales list quantities and bounded PostgreSQL queries
+        working-directory: backend
+        env:
+          SALES_LIST_REVIEW_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/review_sales_list_ci
+          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/review_sales_list_ci
+        run: python -m pytest -q app/tests/test_sales_list_truth.py app/tests/test_sales_list_query_growth.py
+      - name: Drop owned Sales list review database
+        if: ${{ always() && steps.sales-list-db.outcome == 'success' }}
+        run: >-
+          python -c "import psycopg2; db=psycopg2.connect(host='127.0.0.1',port=5432,user='postgres',dbname='postgres'); db.autocommit=True; db.cursor().execute('DROP DATABASE review_sales_list_ci WITH (FORCE)'); db.close()"
       - name: Ismail PostgreSQL schema and reservation regressions
         working-directory: backend
         env:
@@ -132,6 +146,7 @@ jobs:
           node scripts/test-warehouse-pack-lifecycle.browser.mjs
           node scripts/test-sewing-bands.browser.mjs
           node scripts/test-packaging-size-entry.browser.mjs
+          node scripts/test-grade-packaging-state.browser.mjs
           node scripts/test-cutting-factory-salary.browser.mjs
           node scripts/test-cutting-batch-selection.browser.mjs
           node scripts/test-sewing-received-input.browser.mjs
