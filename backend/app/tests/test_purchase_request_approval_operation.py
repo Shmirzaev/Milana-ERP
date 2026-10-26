@@ -5,12 +5,14 @@ replaced in success/rollback cases; spies delegate to the real implementation.
 """
 from dataclasses import FrozenInstanceError
 from datetime import datetime, timezone
+import sys
 from typing import get_type_hints
 from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy.orm import object_session
+from sqlalchemy import event, inspect
+from sqlalchemy.orm import Session, object_session
 
 from app.db.session import SessionLocal
 from app.libs.dto.purchasing.purchase_request_input import PurchaseRequestApprovalIn
@@ -187,3 +189,57 @@ def test_direct_approved_retry_accepts_empty_command_without_schema_writes(appro
         assert request.id==approval_case["id"] and request.status=="approved"
         db.rollback()
     assert persisted(approval_case)==before
+
+
+def test_approval_all_mapped_writes_are_schema_owned_and_one_session(approval_case):
+    """Observe real writers, including indirect audit/notification participants."""
+    writes, attaches, commits, mutation_sessions = [], [], [], []
+    participants = (PurchaseRequest, PurchaseRequestLine, AuditLog, Notification)
+
+    def assignment(target, value, previous, initiator):
+        session = object_session(target)
+        if session is not None:
+            mutation_sessions.append(id(session))
+        frame = sys._getframe(1)
+        while frame:
+            module = frame.f_globals.get("__name__", "")
+            if module.startswith("app."):
+                writes.append((type(target).__name__, initiator.key, module, frame.f_code.co_name))
+                break
+            frame = frame.f_back
+
+    def attach(session, instance):
+        if isinstance(instance, participants):
+            attaches.append((id(session), type(instance).__name__))
+
+    def commit(session):
+        commits.append(id(session))
+
+    attributes = [getattr(cls, column.key)
+                  for cls in participants for column in inspect(cls).column_attrs]
+    for attribute in attributes:
+        event.listen(attribute, "set", assignment)
+    event.listen(Session, "before_attach", attach)
+    event.listen(Session, "before_commit", commit)
+    try:
+        approve(approval_case)
+    finally:
+        for attribute in attributes:
+            event.remove(attribute, "set", assignment)
+        event.remove(Session, "before_attach", attach)
+        event.remove(Session, "before_commit", commit)
+
+    assert_approved(approval_case)
+    expected = {
+        ("PurchaseRequest", "status"), ("PurchaseRequest", "approved_by"),
+        ("PurchaseRequest", "approved_at"), ("PurchaseRequestLine", "material_name"),
+        ("PurchaseRequestLine", "photo_url"), ("PurchaseRequestLine", "preferred_supplier_id"),
+        ("AuditLog", "entry_hash"), ("Notification", "user_id"),
+    }
+    assert expected <= {(table, field) for table, field, _, _ in writes}, writes
+    violations = [row for row in writes if not row[2].startswith("app.schemas.")]
+    assert not violations, f"Mapped writes outside owning schemas: {violations}"
+    assert len(commits) == 1
+    assert {session for session, _ in attaches} == set(commits)
+    assert mutation_sessions and set(mutation_sessions) == set(commits)
+    assert {"AuditLog", "Notification"} <= {name for _, name in attaches}
