@@ -26,9 +26,12 @@ classes out of mixed files is a separate approved change.
 3. Use a descriptive `snake_case.py` file for related existing model definitions.
    Reuse the existing SQLAlchemy Base and classes; preserve table/column names,
    keys, indexes, relationships, constraints, defaults and serialized enum values.
-4. Keep only persistence definitions here. Create/update/read validation belongs
-   in DTOs; permissions, status transitions, calculations, queries and coordinated
-   writes belong in business services under `models/`. Schema classes do not commit transactions.
+4. Keep persistence definitions and persistence operations here. Create/update/read validation belongs
+   in DTOs; permissions, status transitions, calculations, queries and
+   write coordination belong in business services under `models/`. Actual
+   inserts, updates, deletes and mapped mutations belong in schema-owned
+   operations using the supplied Session; helpers never commit independently.
+   Follow the [engineering workflow](../../../../docs/ENGINEERING_WORKFLOW.md).
 5. Update callers, model registration and Alembic discovery together. Require one
    mapping per table and no database-schema difference for a source-only move.
 6. Check contracts and PostgreSQL behavior, visually exercise the affected factory
