@@ -79,14 +79,15 @@ an interface/repository or generic CRUD class by default.
 | --- | --- |
 | `finance.create_invoice` | `finance.invoice` permission; locks the SalesOrder before the existing-invoice check; accepts an optional amount, bounds it to invoice cents/column size and derives payment status; audits and commits. Returns any existing invoice, including a void one. |
 | `sales.generate_invoice_for_order` | Accepts `finance.invoice` **or** `sales.orders` (or wildcard); uses the same parent lock but restricts order statuses; uses order total and initial `unpaid`; audits and commits. Returns any existing invoice. |
-| `partners.create_customer_payment` | `finance.payment` permission and a payment idempotency key; creates an `unpaid` invoice only when the customer's order has no invoices, then allocates payment/advance and commits once. It reads the order without the invoice endpoints' parent lock. |
+| `partners.create_customer_payment` | `finance.payment` permission and a payment idempotency key; locks the order with the invoice endpoints' parent lock, creates an `unpaid` invoice only when the customer's order has no invoices, then allocates payment/advance and commits once. |
 | `shipments.deliver` via `shipment_review_service` | `storage.shipment` permission and delivery idempotency key; frozen shipments sum validated dispatch totals, reuse an invoice with the same amount, or reconcile one unpaid invoice without receipts. Mismatched paid or ambiguous ledgers are refused. Older shipments use the order total; manual dispatch may first create a SalesOrder. The delivery route owns the commit. |
 
 These are four business contexts, not four interchangeable copies. Preserve their
 current HTTP responses, audit records and outer transaction owners while testing
 any shared issuance operation. Before extracting, Ismail and Mirshoir must agree
 whether draft-order manual invoices, reversed-invoice reuse, zero/small-balance
-status and the customer-payment lock gap are intended policy or separate defects.
+status are intended policy or separate defects. The confirmed customer-payment
+lock gap has a narrow FN04 bugfix candidate; it changes no issuance policy.
 Shavkat confirms business outcomes. The existing PostgreSQL race regression is
 `test_invoice_creation_integrity.py`; money bounds, delivery reconciliation and
 payment/idempotency cases need their own baseline comparisons. This trace does
@@ -113,7 +114,8 @@ The disposable local UI check covered invoice replay, partial and full payment,
 and the resulting customer balance. No business rule or database migration changed.
 
 Still undecided, unchanged here: draft-order manual invoices, reversed-invoice
-reuse, the zero/small-balance status and the customer-payment lock gap.
+reuse and the zero/small-balance status. The later FN04 receipt follow-up addresses
+the customer-payment lock gap separately from this extraction.
 
 ### RF-008 slice 2 — receipt operations (extracted)
 
@@ -124,7 +126,9 @@ Both replay a stored response for a repeated idempotency key before touching the
 ledger, and both own their audit row, their idempotency record and their commit.
 
 `record_customer_payment` creates an `unpaid` invoice only when the sales order
-has no invoice at all, allocates the amount to the payable invoice under
+has no invoice at all. It takes the same parent-order `NO KEY UPDATE` lock as
+both invoice issuance entrypoints before looking up invoices, then allocates
+the amount to the payable invoice under
 `FOR UPDATE`, and keeps the remainder as an advance. The paid sums of the
 candidate invoices are read in grouped batches
 (`_candidate_paid_totals`), not once per invoice.

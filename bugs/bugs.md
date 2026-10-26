@@ -1,5 +1,25 @@
 # Team bug tracker — clone_main
 
+## FN04 receipt follow-up — customer receipt races with manual invoice issuance
+
+- **P1 · Candidate, unverified · Ismail. Reviewer: Mirshoir.** This extends the
+  existing FN04 residual below; it is not production acceptance or a closed bug.
+- Independent local PostgreSQL reproduction on backend `1481078`: customer receipt
+  observes no invoice, Finance or Sales issuance commits, then receipt creates a
+  second $100 invoice for one $100 order. A $25 receipt leaves $200 billed.
+- Candidate: reuse Finance's existing `lock_sales_order` before the customer's
+  invoice lookup. Lock order is keyed replay, parent order `NO KEY UPDATE`, invoice
+  rows, then numbering when required. Keep the service's outer transaction,
+  amount/refusal/allocation rules, audit cardinality and retry identity unchanged.
+- Regression scope: both manual entrypoints and both race winners; a real
+  PostgreSQL blocker check; rollback after invoice/payment/advance/audit/retry
+  participation. Automated evidence and independent browser/human review must be
+  recorded before acceptance. No migration or unique-order constraint is added.
+- Remaining FN04 residual: shipment fallback in
+  `models/workflow_service.ensure_invoice_for_delivered_shipment` still has its
+  separate unlocked issuance path. Customer auto-invoice and advance inserts still
+  need their separately reviewed schema-owned persistence extraction.
+
 ## FIN-REVENUE-CHART-STALE-20261025 — Finance revenue chart stays stale after a receipt
 
 - **P3 · Open · Ismail. Reviewer: Mirshoir.** Observed in the disposable local UI on source `d93dbb2` with finance pilot PR #308; no production occurrence claimed. The frontend source is unchanged by the refactor. Active and awaiting human review.

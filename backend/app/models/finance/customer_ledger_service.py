@@ -9,8 +9,9 @@ Contract for the three customer financial operations:
   zero", 404 "Sales order not found for this customer"
 * records: `payments` rows, an `invoices` row when the order has none, one
   `Payment` audit row and the idempotency record
-* lock order: the candidate invoice rows under FOR UPDATE, taken before the
-  batched paid-sum read; the sales order is read without a parent lock
+* lock order: idempotency key, parent sales order under NO KEY UPDATE, then
+  candidate invoice rows under FOR UPDATE before the batched paid-sum read;
+  invoice numbering follows only when the locked order has no invoices
 * transaction owner: `record_customer_payment`
 """
 from collections import defaultdict
@@ -24,6 +25,7 @@ from sqlalchemy.orm import Session
 from app.libs.dto.sales.customer_payment_input import CustomerPaymentIn
 from app.libs.enums.finance import InvoiceStatus
 from app.models.audit_service import log_action
+from app.models.finance.invoices_service import lock_sales_order
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 from app.models.numbering_service import next_invoice_no
 from app.models.payments_service import (
@@ -129,7 +131,10 @@ def record_customer_payment(
     if payload.amount <= 0:
         raise HTTPException(400, "Payment amount must be greater than zero")
 
-    sales_order = db.get(SalesOrder, payload.sales_order_id) if payload.sales_order_id else None
+    # Serialize the empty-invoice check with both invoice issuance entrypoints.
+    # Lock the parent before any invoice rows or numbering lock, using the same
+    # Session and outer transaction as the receipt and its audit/retry records.
+    sales_order = lock_sales_order(db, payload.sales_order_id) if payload.sales_order_id else None
     if payload.sales_order_id and (not sales_order or int(sales_order.customer_id or 0) != cid):
         raise HTTPException(404, "Sales order not found for this customer")
 
