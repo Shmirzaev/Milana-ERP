@@ -60,13 +60,22 @@ database/browser verification and independent AI/human acceptance remain separat
 
 - input: the validated `ForecastRecommendationIn` / `ForecastRecommendationPatch`
   payload, the acting user and the factory scope the user may act in
-- output: the recommendation payload as a dict
+- output: creation returns enum-typed `ForecastRecommendationCreatedOut`;
+  historical list/review keep their string-valued response contract
 - refusals: 400 for a dangling reference, 403 when the recommendation has no
   factory-attributed model or the model is outside the factory scope, 404 when
   the recommendation does not exist in that scope
 - records: one `forecast_recommendations` row and one `ForecastRecommendation`
   audit row per change
 - transaction owner: `create_recommendation` and `update_recommendation`
+
+Creation calls the focused schema-owned forecast insertion with the supplied
+Session and validates its controlled result before the outer commit. Existing
+audit hooks, permissions and flush timing remain intact. Confidence and object
+metadata stay extensible; malformed legacy source roots project to null without
+storage repair. Status-patch persistence, historical response vocabularies and
+raw list-status filtering remain separate follow-up work. Scoped reorder
+suggestions remain excluded; both creation types require an attributed model.
 
 ### costing_service.py
 

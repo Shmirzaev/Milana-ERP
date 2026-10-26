@@ -1,18 +1,17 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
-RecommendationType = Literal["branded_stock_production", "item_reorder"]
+from app.libs.enums.planning import ForecastRecommendationType
 
 
 class ForecastRecommendationIn(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
-    recommendation_type: RecommendationType
+    recommendation_type: ForecastRecommendationType
     model_id: int | None = None
     item_id: int | None = None
     brand_id: int | None = None

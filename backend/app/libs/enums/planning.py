@@ -14,6 +14,18 @@ accepted subset.
 from enum import Enum
 
 
+class ForecastRecommendationType(str, Enum):
+    BRANDED_STOCK_PRODUCTION = "branded_stock_production"
+    ITEM_REORDER = "item_reorder"
+
+
+class ForecastRecommendationStatus(str, Enum):
+    OPEN = "open"
+    ACCEPTED = "accepted"
+    DISMISSED = "dismissed"
+    CONVERTED = "converted"
+
+
 class BrandedPlanningOrderStatus(str, Enum):
     OPEN = "open"
     CLOSED = "closed"

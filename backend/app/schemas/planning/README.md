@@ -11,6 +11,9 @@ records. Business services live in models/*_service.py.
 ## Authoritative definitions
 
 - [ForecastRecommendation](forecasting.py)
+- [Forecast creation persistence](forecast_recommendation_persistence.py): typed
+  command and mapped insertion/flush on the supplied Session, without commit or
+  business policy. Review-status writes remain a separate pending operation.
 - [PriceCalculationRequest](price_calculation.py)
 - [BrandedPlanningOrder](../production/production.py)
 

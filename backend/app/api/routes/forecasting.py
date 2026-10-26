@@ -4,7 +4,10 @@ from fastapi import APIRouter, Depends
 
 from app.core.deps import DbSession, factory_codes_with_permission, require_permissions
 from app.libs.dto.planning.forecast_recommendation_input import ForecastRecommendationIn
-from app.libs.dto.planning.forecast_recommendation_output import ForecastRecommendationOut
+from app.libs.dto.planning.forecast_recommendation_output import (
+    ForecastRecommendationCreatedOut,
+    ForecastRecommendationOut,
+)
 from app.libs.dto.planning.forecast_recommendation_update import ForecastRecommendationPatch
 from app.models.forecasting_service import (
     branded_stock_suggestions,
@@ -47,12 +50,12 @@ def get_item_reorder_suggestions(
     )
 
 
-@router.post("/recommendations", response_model=ForecastRecommendationOut, status_code=201)
+@router.post("/recommendations", response_model=ForecastRecommendationCreatedOut, status_code=201)
 def create_forecast_recommendation(
     payload: ForecastRecommendationIn,
     db: DbSession,
     current: User = Depends(require_permissions("forecasting.manage", "*")),
-):
+) -> ForecastRecommendationCreatedOut:
     return forecasting_recommendations_service.create_recommendation(
         db,
         payload,

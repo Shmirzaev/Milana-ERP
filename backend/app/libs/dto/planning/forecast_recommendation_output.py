@@ -4,9 +4,15 @@ from typing import Any
 from pydantic import ConfigDict
 
 from app.libs.dto.common import ORMModel
+from app.libs.enums.planning import ForecastRecommendationStatus, ForecastRecommendationType
 
 
 class ForecastRecommendationOut(ORMModel):
+    """Legacy read/review contract: stored vocabularies remain unconstrained.
+
+    Do not narrow this shared response before reconciling actual stored values.
+    Newly created records have the separate canonical contract below.
+    """
     model_config = ConfigDict(from_attributes=True, protected_namespaces=())
 
     id: int
@@ -28,3 +34,10 @@ class ForecastRecommendationOut(ORMModel):
     reviewed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class ForecastRecommendationCreatedOut(ForecastRecommendationOut):
+    """Typed result of the controlled creation operation, not a legacy reader."""
+
+    recommendation_type: ForecastRecommendationType
+    status: ForecastRecommendationStatus

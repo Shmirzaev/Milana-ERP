@@ -19,9 +19,15 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.libs.dto.planning.forecast_recommendation_input import ForecastRecommendationIn
+from app.libs.dto.planning.forecast_recommendation_output import ForecastRecommendationCreatedOut
 from app.libs.dto.planning.forecast_recommendation_update import ForecastRecommendationPatch
+from app.libs.enums.planning import ForecastRecommendationStatus
 from app.models.audit_service import log_action
 from app.schemas import Brand, Collection, ForecastRecommendation, Item, Model, User
+from app.schemas.planning.forecast_recommendation_persistence import (
+    ForecastRecommendationInsert,
+    insert_forecast_recommendation,
+)
 
 
 RECOMMENDATION_LIST_LIMIT = 500
@@ -99,7 +105,7 @@ def create_recommendation(
     payload: ForecastRecommendationIn,
     factory_codes: list[str],
     current: User,
-) -> dict:
+) -> ForecastRecommendationCreatedOut:
     """Open one forecast recommendation inside the user's factory scope."""
     validate_recommendation_references(payload, db)
     require_recommendation_factory_access(
@@ -107,9 +113,9 @@ def create_recommendation(
         factory_codes=factory_codes,
         db=db,
     )
-    row = ForecastRecommendation(
+    command = ForecastRecommendationInsert(
         recommendation_type=payload.recommendation_type,
-        status="open",
+        status=ForecastRecommendationStatus.OPEN,
         model_id=payload.model_id,
         item_id=payload.item_id,
         brand_id=payload.brand_id,
@@ -123,8 +129,10 @@ def create_recommendation(
         source_json=payload.source_json,
         created_by=current.id,
     )
-    db.add(row)
-    db.flush()
+    row = insert_forecast_recommendation(db, command)
+    # Validate the newly controlled fields before committing. Legacy list/review
+    # projection stays separate because historical stored vocabularies are open.
+    ForecastRecommendationCreatedOut.model_validate(recommendation_payload(row))
     log_action(
         db,
         current,
@@ -138,7 +146,7 @@ def create_recommendation(
     )
     db.commit()
     db.refresh(row)
-    return recommendation_payload(row)
+    return ForecastRecommendationCreatedOut.model_validate(recommendation_payload(row))
 
 
 def list_recommendations(db: Session, factory_codes: list[str], status: str | None) -> list[dict]:

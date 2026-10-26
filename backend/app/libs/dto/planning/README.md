@@ -4,9 +4,9 @@
 
 Existing Pydantic definitions in this group:
 
-- [forecast_recommendation_input.py](forecast_recommendation_input.py) — `ForecastRecommendationIn` and the `RecommendationType` vocabulary.
+- [forecast_recommendation_input.py](forecast_recommendation_input.py) — `ForecastRecommendationIn` using canonical `ForecastRecommendationType` from libs/enums/planning.py.
 - [forecast_recommendation_update.py](forecast_recommendation_update.py) — `ForecastRecommendationPatch` and the `RecommendationStatus` vocabulary.
-- [forecast_recommendation_output.py](forecast_recommendation_output.py) — `ForecastRecommendationOut`.
+- [forecast_recommendation_output.py](forecast_recommendation_output.py) — historical `ForecastRecommendationOut` and canonical enum-typed `ForecastRecommendationCreatedOut` for POST only.
 - [price_calculation_request_input.py](price_calculation_request_input.py) — `PriceCalculationCreateIn`.
 - [price_calculation_request_update.py](price_calculation_request_update.py) — the cutting, finance, purchasing and accessory contribution payloads.
 - [price_calculation_request_output.py](price_calculation_request_output.py) — `PriceCalculationRequestOut` and `PriceCalculationAccessoryOut`.
@@ -18,6 +18,13 @@ writes, implement permissions or manage transactions. Field names, bounds,
 defaults and the accepted vocabulary are unchanged by the split; the former
 `forecasting.py` and `price_calculation.py` modules were replaced by these
 per-entity files once every caller moved.
+
+Forecast creation now uses real enum annotations in its input/result and internal
+insert command. Its OpenAPI references change deliberately; wire values and exact
+case validation are preserved. GET/PATCH retain unconstrained historical strings
+until real stored vocabularies are reconciled. Confidence and source_json remain
+open metadata. Patch Literal typing and its schema-owned write remain pending;
+no unknown stored value is repaired or discarded by this creation slice.
 
 `BrandedPlanningOrderIn` and `MaterialRequirement` used to live in
 [../production/production.py](../production/production.py). They are planning
