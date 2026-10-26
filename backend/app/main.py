@@ -339,6 +339,16 @@ _MODEL_THUMBS_ROOT = os.path.realpath(os.path.join(settings.MODEL_FILES_DIR, "_t
 _MODEL_FILES_CONDITIONAL = StaticFiles(directory=settings.MODEL_FILES_DIR)
 
 
+def _conditional_model_file_response(path: str, request: Request, media_type: str | None = None):
+    from fastapi.responses import FileResponse
+    from starlette.staticfiles import NotModifiedResponse
+
+    response = FileResponse(path, stat_result=os.stat(path), media_type=media_type)
+    if _MODEL_FILES_CONDITIONAL.is_not_modified(response.headers, request.headers):
+        return NotModifiedResponse(response.headers)
+    return response
+
+
 def _model_file_path_if_exists(name: str):
     from fastapi import HTTPException
 
@@ -388,7 +398,7 @@ def serve_model_file(name: str, request: Request):
 
     abs_path = _model_file_path_if_exists(name)
     if abs_path:
-        return _MODEL_FILES_CONDITIONAL.file_response(abs_path, os.stat(abs_path), request.scope)
+        return _conditional_model_file_response(abs_path, request)
 
     with SessionLocal() as db:
         img = _model_image_record(name, db)
@@ -438,7 +448,7 @@ def serve_model_thumbnail(name: str, request: Request, size: int = 320):
         except (UnidentifiedImageError, OSError, HTTPException):
             raise HTTPException(status_code=415, detail="File is not a previewable image")
 
-    return _MODEL_FILES_CONDITIONAL.file_response(thumb_path, os.stat(thumb_path), request.scope)
+    return _conditional_model_file_response(thumb_path, request, media_type="image/webp")
 
 # Sales-order printing attachments may contain customer-supplied design files, so
 # they are NOT served from a public static mount. Access requires a short-lived
