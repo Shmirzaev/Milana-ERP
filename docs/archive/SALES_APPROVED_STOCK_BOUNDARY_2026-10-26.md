@@ -92,3 +92,30 @@ independent AI verification. Combined-source review, actual connected-browser
 screenshots/actions, persisted readback, bounded UI stress and human visual
 acceptance remain required. Do not mark all Sales or Fulfillment complete from
 this operation. No production write, migration, push, merge or deployment performed.
+
+## Review corrections: shared mapping and actual service results
+
+The first candidate `747caa9` accidentally removed Finance's existing
+`InvoiceStatusType` during adoption of an earlier Sales mapping file. The
+separate correction `8fe0905` restores the exact integration-base conversion,
+`Mapped[InvoiceStatus]` annotation and enum-member default. SQL DDL equality
+alone did not catch this runtime regression; existing Finance enum reload,
+expiration, API, payment and independent roundtrip/atomicity tests must accompany
+the Sales tests whenever this shared mapping changes. All 32 original candidate
+paths were compared to the integration base; no other unrelated rollback was
+identified. Preserve the original evidence and correction chain.
+
+Creation now returns an actual `SalesOrderDetail` from its service and declares
+that return type in its route. It validates the same enriched/signed payload the
+HTTP response model already used. The shared serializer used by history, list,
+get, update and confirm remains unchanged. The nested model's `composition` was
+already excluded by the existing HTTP response model; no wire field is removed.
+
+The reserve-stock service returns `SalesStockReservationOut` for both live work
+and saved replay. The route declares that response model, so OpenAPI now names
+the existing reservation and shortage shapes. Package display identity may still
+be null for legacy partial allocation; shortage brand identity may still be null.
+The same JSON shape is saved for idempotency, with response validation before
+the existing store/outer commit. No allocation, locking, permission or retry
+policy changes. Invalid internal result shapes now fail validation rather than
+silently leaving the service as an unstructured dictionary.

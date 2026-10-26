@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, File, Header, UploadFile
 from app.core.deps import CurrentUser, DbSession, require_permissions
 from app.libs.dto.sales.sales_order_input import SalesOrderIn
 from app.libs.dto.sales.sales_order_output import SalesOrderDetail, SalesOrderOut
+from app.libs.dto.sales.sales_stock_output import SalesStockReservationOut
 from app.libs.dto.sales.sales_order_update import SalesOrderUpdate
 from app.models.finance.invoices_service import generate_order_invoice
 from app.models.sales import history_service, orders_service
@@ -88,7 +89,7 @@ def get_sales_order_history(sid: int, db: DbSession, _: CurrentUser):
 
 
 @router.post("", response_model=SalesOrderDetail, status_code=201)
-def create_sales_order(payload: SalesOrderIn, db: DbSession, current: User = Depends(require_permissions("sales.orders", "*"))):
+def create_sales_order(payload: SalesOrderIn, db: DbSession, current: User = Depends(require_permissions("sales.orders", "*"))) -> SalesOrderDetail:
     return orders_service.create_sales_order(payload, db, current)
 
 
@@ -107,13 +108,13 @@ def confirm_sales_order(sid: int, db: DbSession, current: User = Depends(require
     return orders_service.confirm_sales_order(sid, db, current)
 
 
-@router.post("/{sid}/reserve-stock")
+@router.post("/{sid}/reserve-stock", response_model=SalesStockReservationOut)
 def reserve_stock(
     sid: int,
     db: DbSession,
     current: User = Depends(require_permissions("sales.orders", "*")),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
-):
+) -> SalesStockReservationOut:
     """For branded_stock_sale: try to reserve from FinishedGoodsStock for each line."""
     return orders_service.reserve_stock(sid, db, current, idempotency_key)
 

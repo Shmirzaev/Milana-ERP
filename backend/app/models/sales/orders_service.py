@@ -32,6 +32,7 @@ from app.core.uploads import (
 )
 from app.libs.dto.sales.sales_order_input import SalesOrderIn
 from app.libs.dto.sales.sales_order_output import SalesOrderDetail, SalesOrderOut
+from app.libs.dto.sales.sales_stock_output import SalesStockReservationOut
 from app.libs.dto.sales.sales_order_update import SalesOrderUpdate
 from app.libs.enums.sales import SalesOrderItemSourceType, SalesOrderStatus, SalesOrderType
 from app.models.audit_service import log_action
@@ -262,7 +263,7 @@ def list_sales_orders(
     return payload
 
 
-def create_sales_order(payload: SalesOrderIn, db: Session, current: User):
+def create_sales_order(payload: SalesOrderIn, db: Session, current: User) -> SalesOrderDetail:
     if payload.order_type not in (SalesOrderType.CLIENT_ORDER, SalesOrderType.BRANDED_STOCK_SALE):
         raise HTTPException(400, "Invalid order_type")
     if payload.order_type == SalesOrderType.BRANDED_STOCK_SALE and not payload.items:
@@ -352,7 +353,7 @@ def create_sales_order(payload: SalesOrderIn, db: Session, current: User):
     log_action(db, current, "create", "SalesOrder", so.id, new_value={"order_no": so.order_no})
     db.commit(); db.refresh(so)
     so = db.query(SalesOrder).options(joinedload(SalesOrder.items)).filter(SalesOrder.id == so.id).first()
-    return _serialize_sales_order(db, so, include_items=True)
+    return SalesOrderDetail.model_validate(_serialize_sales_order(db, so, include_items=True))
 
 
 def get_sales_order(sid: int, db: Session):
@@ -403,12 +404,12 @@ def reserve_stock(
     db: Session,
     current: User,
     idempotency_key: str | None = None,
-):
+) -> SalesStockReservationOut:
     """For branded_stock_sale: try to reserve from FinishedGoodsStock for each line."""
     fingerprint_payload = {"sales_order_id": sid}
     replay = replay_idempotent_response(db, scope="sales.reserve-stock", key=idempotency_key, payload=fingerprint_payload)
     if replay:
-        return replay
+        return SalesStockReservationOut.model_validate(replay)
 
     so = db.get(SalesOrder, sid)
     if not so: raise HTTPException(404, "Sales order not found")
@@ -424,13 +425,13 @@ def reserve_stock(
         notify_storage_when_ready=True,
     )
     log_action(db, current, "reserve_stock", "SalesOrder", so.id, new_value={"reservations": reservations, "shortages": shortages})
-    response = {"reservations": reservations, "shortages": shortages}
+    response = SalesStockReservationOut.model_validate({"reservations": reservations, "shortages": shortages})
     store_idempotent_response(
         db,
         scope="sales.reserve-stock",
         key=idempotency_key,
         payload=fingerprint_payload,
-        response=response,
+        response=response.model_dump(mode="json"),
         user=current,
     )
     db.commit()
