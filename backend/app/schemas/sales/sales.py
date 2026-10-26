@@ -2,27 +2,25 @@ from __future__ import annotations
 from datetime import datetime
 from sqlalchemy import CheckConstraint, String, Integer, Boolean, ForeignKey, DateTime, Text, Numeric, JSON, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.types import TypeDecorator
 
 from app.db.base import Base, PkMixin, TimestampMixin
 from app.libs.enums.finance import InvoiceStatus
+from app.libs.enums.sales import SalesOrderItemSourceType, SalesOrderStatus, SalesOrderType
+
+SALES_ORDER_STATUS_VALUES = tuple(status.value for status in SalesOrderStatus)
+SALES_ORDER_STATUS_CHECK = "status IN (" + ", ".join(f"'{value}'" for value in SALES_ORDER_STATUS_VALUES) + ")"
 
 
 class SalesOrder(Base, PkMixin, TimestampMixin):
     __tablename__ = "sales_orders"
     __table_args__ = (
         CheckConstraint("total_amount >= 0", name="ck_sales_orders_total_nonnegative"),
-        CheckConstraint(
-            "status IN ('draft', 'pending_sales_approval', 'confirmed', 'planning', 'planning_approved', "
-            "'in_production', 'production', 'cutting', 'printing', 'sewing', 'packaging', 'storage', "
-            "'ready_to_ship', 'ready', 'reserved', 'shipped', 'delivered', 'closed', 'cancelled')",
-            name="ck_sales_orders_status",
-        ),
+        CheckConstraint(SALES_ORDER_STATUS_CHECK, name="ck_sales_orders_status"),
     )
     order_no: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id"))
-    order_type: Mapped[str] = mapped_column(String(32), default="client_order", nullable=False)
-    status: Mapped[str] = mapped_column(String(32), default="draft", nullable=False)
+    order_type: Mapped[str] = mapped_column(String(32), default=SalesOrderType.CLIENT_ORDER.value, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default=SalesOrderStatus.DRAFT.value, nullable=False)
     deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     total_amount: Mapped[float] = mapped_column(Numeric(14, 2), default=0, nullable=False)
     planning_estimated_material_cost: Mapped[float | None] = mapped_column(Numeric(14, 2))
@@ -74,7 +72,7 @@ class SalesOrderItem(Base, PkMixin, TimestampMixin):
     requested_pack_count: Mapped[int | None] = mapped_column(Integer)
     unit_price: Mapped[float] = mapped_column(Numeric(12, 2), default=0, nullable=False)
     printing_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    source_type: Mapped[str] = mapped_column(String(32), default="produce_new", nullable=False)
+    source_type: Mapped[str] = mapped_column(String(32), default=SalesOrderItemSourceType.PRODUCE_NEW.value, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)
 
     sales_order: Mapped["SalesOrder"] = relationship("SalesOrder", back_populates="items")
@@ -135,41 +133,6 @@ INVOICE_STATUS_VALUES = tuple(status.value for status in InvoiceStatus)
 INVOICE_STATUS_CHECK = "status IN (" + ", ".join(f"'{value}'" for value in INVOICE_STATUS_VALUES) + ")"
 
 
-class InvoiceStatusType(TypeDecorator):
-    """Storage-preserving conversion for the `invoices.status` column.
-
-    The column stays `VARCHAR(32)` and keeps the existing raw strings, so the
-    rendered DDL, the stored values and `ck_invoices_status` are untouched.
-    The conversion is explicit and reviewed: a canonical member is written as
-    its raw value and a loaded value becomes the canonical member, so the
-    mapped annotation describes what a reloaded row actually returns.
-
-    A value that is not a member is passed through unchanged and stays the
-    database CHECK constraint's business, which keeps the stored error shape.
-    An unknown stored value raises instead of silently becoming an open
-    string.
-    """
-
-    impl = String
-    cache_ok = True
-
-    def __init__(self, length: int = 32) -> None:
-        super().__init__(length)
-        self.length = length
-
-    def process_bind_param(self, value: InvoiceStatus | str | None, dialect) -> str | None:
-        if value is None:
-            return None
-        if isinstance(value, InvoiceStatus):
-            return value.value
-        return value
-
-    def process_result_value(self, value: str | None, dialect) -> InvoiceStatus | None:
-        if value is None:
-            return None
-        return InvoiceStatus(value)
-
-
 class Invoice(Base, PkMixin, TimestampMixin):
     __tablename__ = "invoices"
     __table_args__ = (
@@ -181,7 +144,7 @@ class Invoice(Base, PkMixin, TimestampMixin):
     external_source: Mapped[str | None] = mapped_column(String(32))
     external_id: Mapped[str | None] = mapped_column(String(128))
     amount: Mapped[float] = mapped_column(Numeric(14, 2), default=0, nullable=False)
-    status: Mapped[InvoiceStatus] = mapped_column(InvoiceStatusType(), default=InvoiceStatus.UNPAID, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default=InvoiceStatus.UNPAID.value, nullable=False)
     issued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

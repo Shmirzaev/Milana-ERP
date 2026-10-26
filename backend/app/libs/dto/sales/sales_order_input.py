@@ -4,6 +4,7 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from app.libs.dto.common import SchemaModel
+from app.libs.enums.sales import SalesOrderItemSourceType, SalesOrderType
 
 
 class SalesOrderItemIn(SchemaModel):
@@ -18,7 +19,7 @@ class SalesOrderItemIn(SchemaModel):
     # An explicitly entered zero remains an intentional zero-price override.
     unit_price: Optional[float] = Field(default=None, ge=0, le=9_999_999_999.99, allow_inf_nan=False)
     printing_required: bool = False
-    source_type: str = "produce_new"
+    source_type: SalesOrderItemSourceType = SalesOrderItemSourceType.PRODUCE_NEW
     notes: Optional[str] = None
 
 
@@ -30,7 +31,7 @@ class SalesOrderPrintingAttachment(BaseModel):
 
 class SalesOrderIn(BaseModel):
     customer_id: Optional[int] = None
-    order_type: str = "client_order"
+    order_type: SalesOrderType = SalesOrderType.CLIENT_ORDER
     deadline: Optional[datetime] = None
     printing_instructions: Optional[str] = None
     printing_attachments: list[SalesOrderPrintingAttachment] = []

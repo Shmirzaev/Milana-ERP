@@ -17,7 +17,7 @@ See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordi
 | --- | --- |
 | `orders_service.py` | Order CRUD, list and search, detail, first-grade and ready-stock options, confirm, notifications, reservation and idempotency, attachments. |
 | `history_service.py` | Order-history assembly and history/query projection. Owns `_history_products` and `_stock_production_history`. |
-| `ready_stock_service.py` | Ready-stock and branded-stock allocation. Owns `_reserve_branded_stock` and the package-candidate helpers. |
+| `ready_stock_service.py` | Sales reservation coordination: calls Fulfillment's typed operations, writes Sales status/notes via schema operations, and requests owned task/notification participants. |
 
 `orders_service` depends on `ready_stock_service`; `history_service` depends on
 `orders_service` for the shared order serializer. No service imports a router.
@@ -28,9 +28,10 @@ service function and returns its result.
 ## Existing code to study first
 
 - Routes: [sales.py](../../api/routes/sales.py).
-- Services/helpers: [ready_stock_sales_service.py](../ready_stock_sales_service.py),
-  reused unchanged for the physical package operations
-  (`ready_pack_candidates`, `reserve_ready_packs`).
+- Services/helpers: [ready_stock_sales_service.py](../ready_stock_sales_service.py)
+  retains the Sales order lock/replay guard and maps returned pack quantities to
+  Sales lines. [Fulfillment stock_service.py](../fulfillment/stock_service.py)
+  owns physical `reserve_pieces`, `reserve_packs` and candidate selection.
 - Existing SQLAlchemy schema models: [SalesOrder](../../schemas/sales/sales.py#L9), [SalesOrderItem](../../schemas/sales/sales.py#L45).
 - Existing Pydantic contracts: [sales_order_input.py](../../libs/dto/sales/sales_order_input.py),
   [sales_order_update.py](../../libs/dto/sales/sales_order_update.py),

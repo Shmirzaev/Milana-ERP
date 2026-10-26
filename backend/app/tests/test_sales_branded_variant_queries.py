@@ -48,6 +48,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db.base import Base
 from app.models.sales import ready_stock_service
+from app.models.fulfillment import stock_service
 from app.schemas import (
     Brand,
     Collection,
@@ -533,7 +534,7 @@ def test_whole_bag_eligibility_is_recomputed_after_a_package_is_consumed(warehou
         assert {int(row.package_id) for row in rows} == {package_id}
 
         package_cache: dict = {}
-        groups_before, partial_before = ready_stock_service._package_allocation_candidates(
+        groups_before, partial_before = stock_service._package_allocation_candidates(
             db, rows, package_cache=package_cache
         )
         # The package really was read once and cached.
@@ -549,7 +550,7 @@ def test_whole_bag_eligibility_is_recomputed_after_a_package_is_consumed(warehou
             row.status = "reserved"
         db.flush()
 
-        groups_after, _partial_after = ready_stock_service._package_allocation_candidates(
+        groups_after, _partial_after = stock_service._package_allocation_candidates(
             db, rows, package_cache=package_cache
         )
 

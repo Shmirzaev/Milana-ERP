@@ -33,14 +33,21 @@ from app.core.uploads import (
 from app.libs.dto.sales.sales_order_input import SalesOrderIn
 from app.libs.dto.sales.sales_order_output import SalesOrderDetail, SalesOrderOut
 from app.libs.dto.sales.sales_order_update import SalesOrderUpdate
+from app.libs.enums.sales import SalesOrderItemSourceType, SalesOrderStatus, SalesOrderType
 from app.models.audit_service import log_action
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 from app.models.numbering_service import next_sales_order_no
-from app.models.ready_stock_sales_service import ready_pack_candidates
-from app.models.sales.ready_stock_service import _is_any_stock_token, _reserve_branded_stock
+from app.models.fulfillment.stock_service import ready_pack_candidates, is_any_stock_token
+from app.libs.enums.packaging import PackageStockKind
+from app.models.sales.ready_stock_service import _reserve_branded_stock
 from app.models.workflow_service import notify_department
 from app.schemas import (
     Customer, Model, ProductionOrder, SalesOrder, SalesOrderItem, Shipment, StockReservation, User,
+)
+from app.schemas.sales.sales_order_persistence import (
+    create_sales_order_item,
+    create_sales_order_row,
+    set_sales_order_total,
 )
 
 
@@ -141,7 +148,7 @@ def _serialize_sales_order(
 
 
 def first_grade_options(db: Session):
-    candidates = ready_pack_candidates(db, stock_kind="first_grade")
+    candidates = ready_pack_candidates(db, stock_kind=PackageStockKind.FIRST_GRADE)
     models = {m.id: m for m in db.query(Model).filter(Model.id.in_({p.model_id for p, _ in candidates})).all()}
     grouped = {}
     for package, rows in candidates:
@@ -256,18 +263,18 @@ def list_sales_orders(
 
 
 def create_sales_order(payload: SalesOrderIn, db: Session, current: User):
-    if payload.order_type not in ("client_order", "branded_stock_sale"):
+    if payload.order_type not in (SalesOrderType.CLIENT_ORDER, SalesOrderType.BRANDED_STOCK_SALE):
         raise HTTPException(400, "Invalid order_type")
-    if payload.order_type == "branded_stock_sale" and not payload.items:
+    if payload.order_type == SalesOrderType.BRANDED_STOCK_SALE and not payload.items:
         raise HTTPException(400, "A Ready stock order must have at least one line")
-    grade_lines = [item for item in payload.items if item.source_type == "first_grade"]
-    if grade_lines and (len(grade_lines) != len(payload.items) or payload.order_type != "branded_stock_sale"
-                        or any(item.requested_pack_count is not None or _is_any_stock_token(item.size)
-                               or _is_any_stock_token(item.color) or item.printing_required for item in grade_lines)):
+    grade_lines = [item for item in payload.items if item.source_type == SalesOrderItemSourceType.FIRST_GRADE]
+    if grade_lines and (len(grade_lines) != len(payload.items) or payload.order_type != SalesOrderType.BRANDED_STOCK_SALE
+                        or any(item.requested_pack_count is not None or is_any_stock_token(item.size)
+                               or is_any_stock_token(item.color) or item.printing_required for item in grade_lines)):
         raise HTTPException(400, "FIRST_GRADE_SEPARATE_ORDER")
     pack_order = any(item.requested_pack_count is not None for item in payload.items)
     if pack_order:
-        if payload.order_type != "branded_stock_sale" or any(item.requested_pack_count is None for item in payload.items):
+        if payload.order_type != SalesOrderType.BRANDED_STOCK_SALE or any(item.requested_pack_count is None for item in payload.items):
             raise HTTPException(400, "Pack counts require a Ready stock order with pack counts on every line")
         if len({item.model_id for item in payload.items}) != len(payload.items):
             raise HTTPException(400, "Use one pack-count line per model variant")
@@ -277,18 +284,18 @@ def create_sales_order(payload: SalesOrderIn, db: Session, current: User):
         raise HTTPException(400, "A piece quantity is required")
     if payload.customer_id and not db.get(Customer, payload.customer_id):
         raise HTTPException(404, "Customer not found")
-    so = SalesOrder(
+    so = create_sales_order_row(
+        db,
         order_no=next_sales_order_no(db),
         customer_id=payload.customer_id,
         order_type=payload.order_type,
-        status="draft",
+        status=SalesOrderStatus.DRAFT,
         deadline=payload.deadline,
         printing_instructions=payload.printing_instructions,
         printing_attachments=_attachments_for_storage(payload.printing_attachments),
         notes=payload.notes,
         created_by=current.id,
     )
-    db.add(so); db.flush()
     total = 0.0
     created_lines: list[SalesOrderItem] = []
     selected_model_ids = {int(item.model_id) for item in payload.items}
@@ -306,20 +313,25 @@ def create_sales_order(payload: SalesOrderIn, db: Session, current: User):
         unit_price = item.unit_price
         if unit_price is None:
             unit_price = float(model.selling_price) if model.selling_price is not None else 0.0
-        line = SalesOrderItem(
+        line = create_sales_order_item(
+            db,
             sales_order_id=so.id,
-            unit_price=unit_price,
-            **item.model_dump(exclude={"unit_price", "quantity", "color", "size", "source_type"}),
-            quantity=0 if pack_order else item.quantity,
+            model_id=item.model_id,
+            brand_id=item.brand_id,
+            collection_id=item.collection_id,
             color="mixed" if pack_order else item.color,
             size="any" if pack_order else item.size,
-            source_type="from_stock" if pack_order else item.source_type,
+            quantity=0 if pack_order else item.quantity,
+            requested_pack_count=item.requested_pack_count,
+            unit_price=unit_price,
+            printing_required=item.printing_required,
+            source_type=SalesOrderItemSourceType.FROM_STOCK if pack_order else item.source_type,
+            notes=item.notes,
         )
-        db.add(line)
         created_lines.append(line)
         total += float(unit_price) * line.quantity
-    so.total_amount = total
-    if payload.order_type == "branded_stock_sale":
+    set_sales_order_total(db, so, total)
+    if payload.order_type == SalesOrderType.BRANDED_STOCK_SALE:
         reservations, shortages = _reserve_branded_stock(
             db,
             so=so,

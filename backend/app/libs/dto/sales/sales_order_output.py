@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from app.libs.dto.common import ORMModel
 from app.libs.dto.sales.sales_order_input import SalesOrderPrintingAttachment
+from app.libs.enums.sales import SalesOrderItemSourceType, SalesOrderStatus, SalesOrderType
 
 
 class SalesOrderItemModelRef(BaseModel):
@@ -33,7 +34,7 @@ class SalesOrderItemOut(ORMModel):
     requested_pack_count: Optional[int] = None
     unit_price: float
     printing_required: bool
-    source_type: str
+    source_type: SalesOrderItemSourceType
     notes: Optional[str] = None
     model: Optional[SalesOrderItemModelRef] = None
 
@@ -43,8 +44,8 @@ class SalesOrderOut(ORMModel):
     order_no: str
     customer_id: Optional[int] = None
     customer_name: Optional[str] = None
-    order_type: str
-    status: str
+    order_type: SalesOrderType
+    status: SalesOrderStatus
     deadline: Optional[datetime] = None
     total_amount: float
     planning_estimated_material_cost: Optional[float] = None
