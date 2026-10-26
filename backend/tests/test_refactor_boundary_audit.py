@@ -45,3 +45,21 @@ def test_strict_service_write_target_keeps_transaction_review_distinct():
 def test_unresolved_execute_and_syntax_cannot_disappear_from_report():
     assert "sql-execution-review" in rules("def report(db, sql):\n return db.execute(sql)\n")
     assert "syntax" in rules("def broken(: pass")
+
+
+def test_session_info_transaction_sets_are_not_persistence():
+    source = "def queue(db, transaction):\n db.info.setdefault('committed', set()).add(transaction)\n db.info.setdefault('rolled_back', set()).add(transaction)\n db.info.update({'flag': True})\n"
+    assert not rules(source, "models/audit_service.py", True)
+
+
+def test_real_insert_alongside_metadata_update_is_still_detected():
+    source = "def finalize(db, entries, transaction):\n db.info.setdefault('committed', set()).add(transaction)\n db.add_all(entries)\n db.flush()\n"
+    findings = MODULE.analyze(source, "models/audit_service.py", schema_writes=True)
+    errors = [f for f in findings if f['severity'] == 'error']
+    assert [(f['line'], f['rule']) for f in errors] == [(3, 'service-write-outside-schema')]
+
+
+def test_metadata_used_as_query_argument_does_not_hide_real_update_or_delete():
+    source = "def change(store: Session):\n store.query(Item).filter(Item.id == store.info['item']).update({'x': 1})\n store.query(Item).filter(Item.id == store.info['item']).delete()\n"
+    findings = MODULE.analyze(source, "models/example.py", schema_writes=True)
+    assert len([f for f in findings if f['rule'] == 'service-write-outside-schema']) == 2

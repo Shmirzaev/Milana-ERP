@@ -33,6 +33,25 @@ def root_name(node: ast.AST) -> str | None:
     return node.id if isinstance(node, ast.Name) else None
 
 
+def session_info_receiver(node: ast.AST, sessions: set[str]) -> bool:
+    """Recognize Session.info containers along the receiver, not call arguments.
+
+    Audit queues stored in Session.info are transaction metadata. Their set.add
+    and dict.update methods are not Session persistence methods. This is a
+    narrow syntactic exclusion, not inference of arbitrary values stored there.
+    """
+    while isinstance(node, (ast.Attribute, ast.Call, ast.Subscript)):
+        if isinstance(node, ast.Attribute):
+            if node.attr == "info" and isinstance(node.value, ast.Name) and node.value.id in sessions:
+                return True
+            node = node.value
+        elif isinstance(node, ast.Call):
+            node = node.func
+        else:
+            node = node.value
+    return False
+
+
 def analyze(source: str, path: str, *, schema_writes: bool = False) -> list[dict]:
     path = path.replace("\\", "/")
     findings = []
@@ -72,6 +91,8 @@ def analyze(source: str, path: str, *, schema_writes: bool = False) -> list[dict
             if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute):
                 continue
             if root_name(call.func) not in sessions:
+                continue
+            if session_info_receiver(call.func.value, sessions):
                 continue
             method = call.func.attr
             detail = ast.unparse(call)[:300]
