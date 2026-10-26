@@ -1,5 +1,8 @@
 # Catalog and partners
 
+Collection creation's typed status, persistence boundary and retained legacy
+contracts are recorded in [COLLECTION_CREATE_CONTRACT.md](../../../../docs/COLLECTION_CREATE_CONTRACT.md).
+
 Business-service group guide, relocated into models/ on 24 October 2026. The
 approved product/model extraction now lives here as the service modules below;
 the remaining proposed files describe later approved operation extractions.

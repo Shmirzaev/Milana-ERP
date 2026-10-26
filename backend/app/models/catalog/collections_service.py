@@ -14,13 +14,15 @@ from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.libs.dto.catalog.brand_input import BrandIn
-from app.libs.dto.catalog.collection_input import CollectionIn
-from app.libs.dto.catalog.collection_output import CollectionOut
+from app.libs.dto.catalog.collection_input import CollectionCreateIn, CollectionIn
+from app.libs.dto.catalog.collection_output import CollectionCreateOut, CollectionOut
+from app.libs.enums.catalog import CollectionStatus
 from app.models.audit_service import log_action
 from app.models.catalog.models_service import _pagination_payload, _standard_model
 from app.schemas import Brand, Collection, CollectionModel, User
+from app.schemas.catalog.collection_persistence import insert_collection
 
-COLLECTION_STATUSES = frozenset({"draft", "approved", "archived"})
+COLLECTION_STATUSES = frozenset(status.value for status in CollectionStatus)
 
 
 def _collection_payload(c: Collection) -> dict:
@@ -105,17 +107,22 @@ def list_collections(
 def create_collection(
     current: User,
     db: Session,
-    payload: CollectionIn,
-):
+    payload: CollectionCreateIn,
+) -> CollectionCreateOut:
     if not payload.year:
         raise HTTPException(400, "Year is required")
-    if payload.status not in COLLECTION_STATUSES:
-        raise HTTPException(400, "Invalid collection status")
-    c = Collection(**payload.model_dump())
-    db.add(c); db.flush()
+    c = insert_collection(
+        db,
+        brand_id=payload.brand_id,
+        name=payload.name,
+        season=payload.season,
+        year=payload.year,
+        description=payload.description,
+        status=payload.status,
+    )
     log_action(db, current, "create", "Collection", c.id)
     db.commit(); db.refresh(c)
-    return c
+    return CollectionCreateOut.model_validate(c)
 
 
 def list_collection_seasons(

@@ -8,6 +8,14 @@ services still own every permission and business rule.
 from enum import Enum
 
 
+class CollectionStatus(str, Enum):
+    """Allowed new collection states; historical rows may retain other values."""
+
+    DRAFT = "draft"
+    APPROVED = "approved"
+    ARCHIVED = "archived"
+
+
 class CatalogScope(str, Enum):
     """The fixed, non-persisted catalogue scope discriminator.
 

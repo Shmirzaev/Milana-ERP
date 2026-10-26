@@ -1,6 +1,7 @@
 from typing import Optional
 
 from pydantic import BaseModel
+from app.libs.enums.catalog import CollectionStatus
 
 
 class CollectionIn(BaseModel):
@@ -10,3 +11,9 @@ class CollectionIn(BaseModel):
     year: int
     description: Optional[str] = None
     status: str = "draft"
+
+
+class CollectionCreateIn(CollectionIn):
+    """New collections use canonical states; PATCH keeps legacy compatibility."""
+
+    status: CollectionStatus = CollectionStatus.DRAFT

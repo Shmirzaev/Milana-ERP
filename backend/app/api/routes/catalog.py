@@ -5,8 +5,8 @@ from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile
 from app.core.deps import CurrentUser, DbSession, require_permissions
 from app.libs.dto.catalog.brand_input import BrandIn
 from app.libs.dto.catalog.brand_output import BrandOut
-from app.libs.dto.catalog.collection_input import CollectionIn
-from app.libs.dto.catalog.collection_output import CollectionOut
+from app.libs.dto.catalog.collection_input import CollectionCreateIn, CollectionIn
+from app.libs.dto.catalog.collection_output import CollectionCreateOut, CollectionOut
 from app.libs.dto.catalog.model_bom_input import ModelBOMIn
 from app.libs.dto.catalog.model_bom_update import ModelBOMUpdate
 from app.libs.dto.catalog.model_color_input import ModelColorIn
@@ -74,8 +74,8 @@ def list_collections(
     return collections_service.list_collections(_, db, brand_id, page, page_size, include_total)
 
 
-@router.post("/collections", response_model=CollectionOut, status_code=201)
-def create_collection(payload: CollectionIn, db: DbSession, current: User = Depends(require_permissions("modeling.collections", "*"))):
+@router.post("/collections", response_model=CollectionCreateOut, status_code=201)
+def create_collection(payload: CollectionCreateIn, db: DbSession, current: User = Depends(require_permissions("modeling.collections", "*"))):
     return collections_service.create_collection(current, db, payload)
 
 
