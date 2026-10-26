@@ -3,7 +3,8 @@
 Contract per operation:
 * input: the validated payload, the acting user and the factory scope the user
   may act in
-* output: the recommendation payload as a dict
+* output: a typed ForecastRecommendationCreatedOut for creation; legacy listing
+  and review retain their existing dictionary payloads
 * refusals: 400 for a dangling reference, 403 when the recommendation has no
   factory-attributed model or the model is outside the user's factory scope,
   404 when the recommendation does not exist in that scope
