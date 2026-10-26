@@ -9,7 +9,7 @@ from app.models.payments_service import invoice_payment_status
 from app.schemas import Invoice
 from app.schemas.finance.invoice_payment_persistence import set_invoice_status
 from app.tests.conftest import TestSessionLocal
-from app.tests.test_finance_payment_operation_contract import payable_invoice
+from app.tests.test_finance_payment_operation_contract import payable_invoice as payable_invoice
 
 
 def test_fresh_session_status_matches_orm_enum_annotation(client, auth_headers, payable_invoice):

@@ -1,6 +1,4 @@
 """Independent checks for Sales canonical input/output enum adoption."""
-from typing import get_args
-
 import pytest
 
 from app.libs.dto.sales.sales_order_input import SalesOrderIn, SalesOrderItemIn

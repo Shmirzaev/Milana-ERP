@@ -6,7 +6,7 @@ import pytest
 from app.db.session import SessionLocal
 from app.schemas import AuditLog, IdempotencyRecord, Invoice, Payment
 from app.models.finance import payments_service
-from app.tests.test_finance_payment_operation_contract import payable_invoice
+from app.tests.test_finance_payment_operation_contract import payable_invoice as payable_invoice
 
 
 def counts(invoice_id):
