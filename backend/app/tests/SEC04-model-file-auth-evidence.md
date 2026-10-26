@@ -13,7 +13,9 @@ Earlier `9c90ea80` sent file `private, max-age=86400` and thumbnail
 Corrected candidate `9f6895a9`, backend Docker image, disposable PostgreSQL 16,
 isolated storage/SQLite shared store, Next dev frontend and real Chromium from
 [RF-004's local stack](https://github.com/Shmirzaev/Milana-ERP/pull/319).
-Alembic reached head. No serving host or production database was used.
+Alembic reached head. The branch then merged current `clone_main` at `cdcbdfe5`
+as `5599482c`; that integration adds the separate invoice fix without changing
+SEC04 runtime paths. No serving host or production database was used.
 
 Engineer / reviewer / business acceptance owner: Dilmurod / Mirshoir / Shavkat.
 Implementation model/session / independent verification model/session: Codex
@@ -38,6 +40,9 @@ frontend lint (0 errors, 10 existing warnings) and strict typecheck passed.
 The final full backend suite on the corrected runtime revision passed:
 **3,892 passed, 312 skipped, 13 warnings**, exit 0, 567.80 s. The skipped
 tests are not claimed verified. Log: `/private/tmp/sec04-cache-final-full-suite.log`.
+After the disjoint `clone_main` merge, SEC04 auth, security hardening and invoice
+export tests passed together (**91 passed**, 2 warnings); full-app Ruff and
+compilation passed on that combined revision.
 
 Test validity: Real Chromium on the first implementation found a thumbnail
 `application/octet-stream` regression that the browser treated as a download.
