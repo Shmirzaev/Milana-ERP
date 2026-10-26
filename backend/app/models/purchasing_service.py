@@ -24,7 +24,12 @@ from app.schemas import (
 )
 from app.libs.dto.purchasing.purchase_quantity import MAX_PURCHASE_QUANTITY
 from app.libs.enums.purchasing import PurchaseRequestStatus
-from app.libs.types.purchasing import PurchaseRequestCreateCommand, PurchaseRequestLineCommand
+from app.libs.types.purchasing import (
+    PurchaseRequestApprovalCommand,
+    PurchaseRequestApprovalTransition,
+    PurchaseRequestCreateCommand,
+    PurchaseRequestLineCommand,
+)
 from app.models import inventory_access_service as inventory_access
 from app.models.audit_service import log_action
 from app.models.material_rolls_service import normalize_material_roll_weights
@@ -34,13 +39,18 @@ from app.models.workflow_service import notify_department
 from app.schemas.purchasing.purchase_request_persistence import (
     add_purchase_request_line_row,
     add_purchase_request_row,
+    apply_purchase_request_approval,
+    apply_purchase_request_line_approval,
 )
 
 REQUEST_CREATE_STATUSES: frozenset[PurchaseRequestStatus] = frozenset({
     PurchaseRequestStatus.DRAFT,
     PurchaseRequestStatus.PENDING_APPROVAL,
 })
-REQUEST_APPROVABLE_STATUSES = {"draft", "pending_approval"}
+REQUEST_APPROVABLE_STATUSES: frozenset[PurchaseRequestStatus] = frozenset({
+    PurchaseRequestStatus.DRAFT,
+    PurchaseRequestStatus.PENDING_APPROVAL,
+})
 REQUEST_REJECTABLE_STATUSES = {"draft", "pending_approval", "approved"}
 ORDER_CREATE_STATUSES = {"draft", "sent"}
 ORDER_RECEIVABLE_STATUSES = {"sent", "approved", "partially_received"}
@@ -329,11 +339,13 @@ def _locked_purchase_request(db: Session, request_id: int) -> PurchaseRequest | 
     )
 
 
-def approve_purchase_request(db: Session, *, request_id: int, data: dict, current: User) -> PurchaseRequest:
+def approve_purchase_request(
+    db: Session, *, request_id: int, data: PurchaseRequestApprovalCommand, current: User
+) -> PurchaseRequest:
     request = _locked_purchase_request(db, request_id)
     if not request:
         raise HTTPException(404, "Purchase request not found")
-    if request.status == "approved":
+    if request.status == PurchaseRequestStatus.APPROVED:
         return request
     if request.status not in REQUEST_APPROVABLE_STATUSES:
         raise HTTPException(409, f"Cannot approve purchase request in status '{request.status}'")
@@ -355,22 +367,30 @@ def approve_purchase_request(db: Session, *, request_id: int, data: dict, curren
         if not material_name or not photo_url or not supplier_id:
             raise HTTPException(400, "Photo, material name, and supplier are required for every request line")
         _require_supplier(db, supplier_id)
-        line.material_name = material_name
-        line.photo_url = photo_url
-        line.preferred_supplier_id = supplier_id
+        apply_purchase_request_line_approval(
+            db, line, material_name=material_name, photo_url=photo_url,
+            preferred_supplier_id=supplier_id,
+        )
 
-    old_status = request.status
-    request.status = "approved"
-    request.approved_by = current.id
-    request.approved_at = datetime.now(timezone.utc)
+    # Parse only after the action subset check: unknown stored values still 409.
+    transition = PurchaseRequestApprovalTransition(
+        previous_status=PurchaseRequestStatus(request.status),
+        status=PurchaseRequestStatus.APPROVED,
+        approved_by=current.id,
+        approved_at=datetime.now(timezone.utc),
+    )
+    apply_purchase_request_approval(
+        db, request, status=transition.status, approved_by=transition.approved_by,
+        approved_at=transition.approved_at,
+    )
     log_action(
         db,
         current,
         "approve",
         "PurchaseRequest",
         request.id,
-        old_value={"status": old_status},
-        new_value={"status": request.status, "request_no": request.request_no},
+        old_value={"status": transition.previous_status.value},
+        new_value={"status": transition.status.value, "request_no": request.request_no},
     )
     notify_department(
         db,

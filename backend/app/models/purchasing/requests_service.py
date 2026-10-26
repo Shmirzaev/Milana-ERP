@@ -21,7 +21,7 @@ from app.libs.dto.purchasing.purchase_request_input import (
     PurchaseRequestIn,
     PurchaseRequestOrderIn,
 )
-from app.libs.types.purchasing import PurchaseRequestCreateCommand
+from app.libs.types.purchasing import PurchaseRequestApprovalCommand, PurchaseRequestCreateCommand
 from app.models import inventory_access_service as inventory_access
 from app.models import purchasing_service as purchasing_core
 from app.models.image_storage_service import store_uploaded_image
@@ -97,12 +97,25 @@ def create_purchase_request_from_sales_order(
     return request
 
 
+def _purchase_request_approval_command(payload: PurchaseRequestApprovalIn) -> PurchaseRequestApprovalCommand:
+    """Preserve the validated approval fields, including untrimmed text."""
+    return {"lines": [
+        {
+            "purchase_request_line_id": line.purchase_request_line_id,
+            "material_name": line.material_name,
+            "preferred_supplier_id": line.preferred_supplier_id,
+            "photo_url": line.photo_url,
+        }
+        for line in payload.lines
+    ]}
+
+
 def approve_purchase_request(
     db: Session, *, request_id: int, payload: PurchaseRequestApprovalIn, current: User
 ) -> PurchaseRequest:
     """Approve a purchase request with the supplier, material name and photo of each line."""
     request = purchasing_core.approve_purchase_request(
-        db, request_id=request_id, data=payload.model_dump(), current=current
+        db, request_id=request_id, data=_purchase_request_approval_command(payload), current=current
     )
     purchasing_core.require_purchase_item_access(db, current, request.lines)
     db.commit()

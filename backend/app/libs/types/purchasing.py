@@ -5,6 +5,8 @@ the HTTP payload and the sales-order shortage path. It describes the data a
 create operation needs; it does not validate it.
 """
 
+from dataclasses import dataclass
+from datetime import datetime
 from typing import NotRequired, TypedDict
 
 from app.libs.enums.purchasing import PurchaseRequestStatus
@@ -29,3 +31,30 @@ class PurchaseRequestCreateCommand(TypedDict):
     production_order_id: NotRequired[int | None]
     notes: str | None
     lines: list[PurchaseRequestLineCommand]
+
+
+class PurchaseRequestApprovalLineCommand(TypedDict):
+    purchase_request_line_id: int
+    material_name: str
+    preferred_supplier_id: int
+    photo_url: str
+
+
+class PurchaseRequestApprovalCommand(TypedDict):
+    # HTTP requires lines; the existing direct approved-retry caller passes {}.
+    # The core checks locked status before inspecting the optional line payload.
+    lines: NotRequired[list[PurchaseRequestApprovalLineCommand]]
+
+
+@dataclass(frozen=True)
+class PurchaseRequestApprovalTransition:
+    """Validated service decision consumed by header persistence and audit.
+
+    String storage remains a persistence boundary, not an internal status type.
+    The outer public operation still returns the existing mapped request.
+    """
+
+    previous_status: PurchaseRequestStatus
+    status: PurchaseRequestStatus
+    approved_by: int
+    approved_at: datetime

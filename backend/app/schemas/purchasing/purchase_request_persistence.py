@@ -1,10 +1,12 @@
 """Schema-owned persistence for purchase requests and their lines.
 
-These helpers own the mapped construction and add of the rows the purchase
-request create operation writes. The business rules, the reference checks, the
+These helpers own the mapped construction and approval mutations of purchase
+requests and lines. The business rules, the reference checks, the
 quantity rules, the flush boundaries and the outer transaction stay in
 `app/models/purchasing_service.py` and `app/models/purchasing/requests_service.py`.
 """
+
+from datetime import datetime
 
 from sqlalchemy.orm import Session
 
@@ -66,3 +68,34 @@ def add_purchase_request_line_row(
     )
     db.add(row)
     return row
+
+
+def apply_purchase_request_line_approval(
+    db: Session,
+    line: PurchaseRequestLine,
+    *,
+    material_name: str,
+    photo_url: str,
+    preferred_supplier_id: int,
+) -> None:
+    """Apply decided fields to a line already attached to the supplied Session.
+
+    The service preserves reference-check order; no flush or transaction here.
+    """
+    line.material_name = material_name
+    line.photo_url = photo_url
+    line.preferred_supplier_id = preferred_supplier_id
+
+
+def apply_purchase_request_approval(
+    db: Session,
+    request: PurchaseRequest,
+    *,
+    status: PurchaseRequestStatus,
+    approved_by: int,
+    approved_at: datetime,
+) -> None:
+    """Apply the service's transition to its locked, attached header row."""
+    request.status = status.value
+    request.approved_by = approved_by
+    request.approved_at = approved_at

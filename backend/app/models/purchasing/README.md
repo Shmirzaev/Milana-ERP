@@ -51,13 +51,42 @@ three DTOs for every table or expose privileged fields through generic updates.
 
 ## Remaining exceptions
 
-- `purchasing_service.py` still holds the core operations. It is the single
-  write path for purchasing data; the group modules call into it.
+- `purchasing_service.py` still holds the core operations. The group modules
+  call it; request creation and approval delegate their mapped writes to
+  `schemas/purchasing/purchase_request_persistence.py`. Other operation writes
+  remain migration work, not an exception to the schema-owned write rule.
 - The purchase quantity bound and its two aliases live in
   [purchase_quantity.py](../../libs/dto/purchasing/purchase_quantity.py) because
   the request and the order inputs both use them.
 - Purchasing exposes no update operation, so there is no `*_update.py` DTO
   module; an update contract would be unused.
+
+## Purchase request approval (PUR-APPROVE)
+
+The HTTP approval DTO maps explicitly to the used approval command in
+`libs/types/purchasing.py`. Its lines remain required over HTTP; the internal
+command permits omission only to retain the existing direct approved-retry
+caller. No client status field was added. The service's approvable subset and
+decided transition use canonical `PurchaseRequestStatus`; String storage stays
+in the existing mapping and the schema writer serializes the status value.
+
+The root operation retains the request row lock, already-approved return,
+exact line-ID checks, stripping, supplier existence checks and their order.
+Schema operations apply each line's material/photo/supplier and the header's
+status/actor/time using the same supplied Session, without flush or commit.
+Audit and PLN notifications retain their existing shared schema writers; the
+dedicated service checks every item's authorization and commits once. A late
+403 or participant failure must roll back all participants together. Unknown
+stored statuses still return409 before enum parsing, and legacy empty requests
+remain approvable with empty lines. Rejection and conversion policy is unchanged.
+
+`test_purchase_request_approval_operation.py` verifies the consumed types,
+same-Session write sequence, real participant failure/rollback/retry and direct
+approved retry. PostgreSQL characterization additionally covers HTTP validation,
+late denial and actual approve/approve and approve/reject row-lock contention.
+Exact-candidate test evidence, independent review, connected-browser approval
+and fresh persisted readback, operator handoff and human acceptance are separate
+gates. This extraction does not complete Purchasing or its remaining operations.
 
 ## Boundaries and verification
 
