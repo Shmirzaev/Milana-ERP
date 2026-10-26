@@ -83,6 +83,15 @@ default validation so a supposedly typed field does not remain a raw string.
 Preserve normalization with explicit validators; use `.value` at an existing raw
 string boundary rather than assuming `str(member)` returns the stored value.
 
+Check persisted request fingerprints when moving normalization into a DTO.
+For example, a previously accepted `"  PASSED  "` may have been hashed before
+the service normalized it; hashing the new enum value changes retry identity.
+Replay fixtures built from the pre-change DTO/serialization with the same key
+and request, including padding/case, omitted defaults and numeric representation.
+Keep the canonical enum in application contracts while preserving the required
+fingerprint representation at that boundary. Do not bypass payload comparison,
+rewrite saved hashes or weaken actor/factory isolation to make retries pass.
+
 Enum membership does not grant a transition or permission. Preserve action-specific
 subsets, omitted/null update semantics and serialized business values. Document
 and test deliberate OpenAPI/validation changes needed for actual typing; an old
