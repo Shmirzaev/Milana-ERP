@@ -1,8 +1,9 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
-import { AlertTriangle, Info } from "lucide-react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, Info, X } from "lucide-react";
 import Modal from "@/components/Modal";
+import { API_TIMEOUT_EVENT } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 
 type DialogOptions = {
@@ -32,6 +33,21 @@ function normalizeOptions(options: string | DialogOptions): DialogOptions {
 export function DialogProvider({ children }: { children: React.ReactNode }) {
   const { t } = useT();
   const [dialog, setDialog] = useState<DialogState | null>(null);
+  const [timeoutVisible, setTimeoutVisible] = useState(false);
+  const timeoutHide = useRef<number | null>(null);
+
+  useEffect(() => {
+    const showTimeout = () => {
+      setTimeoutVisible(true);
+      if (timeoutHide.current !== null) window.clearTimeout(timeoutHide.current);
+      timeoutHide.current = window.setTimeout(() => setTimeoutVisible(false), 8_000);
+    };
+    window.addEventListener(API_TIMEOUT_EVENT, showTimeout);
+    return () => {
+      window.removeEventListener(API_TIMEOUT_EVENT, showTimeout);
+      if (timeoutHide.current !== null) window.clearTimeout(timeoutHide.current);
+    };
+  }, []);
 
   const open = useCallback((kind: DialogState["kind"], options: string | DialogOptions) => {
     return new Promise<boolean>((resolve) => {
@@ -59,6 +75,15 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
   return (
     <DialogContext.Provider value={api}>
       {children}
+      {timeoutVisible && (
+        <div role="alert" className="fixed bottom-4 left-4 right-4 z-[60] mx-auto flex max-w-md items-start gap-3 rounded-lg border border-red-200 bg-[var(--erp-surface)] p-4 text-sm text-[var(--erp-text)] shadow-lg sm:left-auto sm:mx-0">
+          <AlertTriangle className="h-5 w-5 shrink-0 text-red-700" aria-hidden="true" />
+          <span className="min-w-0 flex-1">{t("common.requestTimeout")}</span>
+          <button type="button" onClick={() => setTimeoutVisible(false)} aria-label={t("common.close")} className="shrink-0 text-[var(--erp-text-muted)] hover:text-[var(--erp-text)]">
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+      )}
       <Modal open={!!dialog} onClose={() => close(false)} title={title}>
         {dialog && (
           <div className="space-y-4">

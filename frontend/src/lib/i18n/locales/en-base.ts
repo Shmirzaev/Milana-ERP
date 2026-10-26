@@ -12,6 +12,7 @@ export default {
     "page.processQr.sizeSplitMissing": "No sizes are configured for this model or order. Configure the model sizes before issuing labels.",
     "page.processQr.sizeSplitIssuedConflict": "This split differs from already issued labels. Restore their quantities before issuing more labels; use the issued-label controls to correct existing labels.",
     "auth.connectionFailed": "Unable to check your session. Check your connection and retry.",
+    "common.requestTimeout": "The server did not respond in time. Please try again.",
     "fabricRollEntry.metersRequired": "Enter a positive total length and a whole roll count.",
     "fabricRollEntry.quantityMethod": "Quantity entry",
     "fabricRollEntry.totalLengthOnly": "Total length only",
