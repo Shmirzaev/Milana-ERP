@@ -1,6 +1,6 @@
 from uuid import uuid4
 
-from app.models import AuditLog, User
+from app.schemas import AuditLog, User
 from app.tests.conftest import TestSessionLocal
 
 

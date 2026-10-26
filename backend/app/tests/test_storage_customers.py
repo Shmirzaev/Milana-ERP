@@ -2,7 +2,7 @@ import pytest
 
 from app.core.security import create_access_token
 from app.db import session as session_module
-from app.models import Role, User
+from app.schemas import Role, User
 
 
 @pytest.mark.parametrize("role_name", ["Storage", "ReadyStorage"])

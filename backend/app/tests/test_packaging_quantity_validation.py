@@ -1,7 +1,7 @@
 import pytest
 
-from app.models import Department, PackagingRecord, WorkOrder
-from app.schemas.production import PackagingRecordIn
+from app.schemas import Department, PackagingRecord, WorkOrder
+from app.libs.dto.production.production import PackagingRecordIn
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_sewing_corrections import setup_record
 

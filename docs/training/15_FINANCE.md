@@ -106,16 +106,11 @@ Do not mark payroll paid before payment execution.
 
 Finance may review Purchasing and Inventory Reservations to understand expected spend and material commitments. Purchasing operations are owned by users with purchasing permissions.
 
-## 1C Integration
+## Historical Imported Records
 
-The backend supports `POST /api/finance/integrations/1c/sync` with `X-1C-Token`. This is a system integration flow, not a normal user workflow.
-
-Finance/Admin rules:
-
-1. Keep the 1C token private.
-2. Do not send token through chat or screenshots.
-3. Validate synced records after configuration changes.
-4. Report integration failures to IT/Super Admin.
+Use the normal invoice and payment workflows. The unused 1C connector has been
+retired. Historical imported invoices, payments, and origin identifiers remain
+available for reconciliation; retirement does not delete or rewrite them.
 
 ## Common Problems
 

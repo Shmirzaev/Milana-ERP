@@ -6,7 +6,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     FinishedGoodsStock, LegacyStockReceipt, ManualPackageReceipt, Model, Package,
     PackageItem, SalesOrder, Shipment, ShipmentPackage, StockReservation, User,
 )

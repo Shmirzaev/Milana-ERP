@@ -2,8 +2,8 @@ import inspect
 
 from sqlalchemy import event
 
-import app.services.numbering as numbering
-from app.services.numbering import next_model_variant_no
+import app.models.numbering_service as numbering
+from app.models.numbering_service import next_model_variant_no
 from app.tests.conftest import TestSessionLocal
 
 

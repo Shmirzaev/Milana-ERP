@@ -5,9 +5,48 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 from uuid import uuid4
 
+from app.db.session import SessionLocal
+from app.schemas import PackagingRecord, WorkOrder
+
 _VALID_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
 )
+
+
+def _record_cutting_output(production_order_id: int, quantity: int) -> None:
+    from app.schemas import CuttingRecord
+    with SessionLocal() as db:
+        wo = db.query(WorkOrder).filter_by(production_order_id=production_order_id, operation='cutting').one()
+        wo.actual_input_qty = wo.actual_output_qty = wo.passed_qty = quantity
+        wo.status = 'completed'
+        db.add(CuttingRecord(work_order_id=wo.id, input_quantity=0,
+            cut_pieces=quantity, passed_pieces=quantity, defective_pieces=0))
+        db.commit()
+
+
+def _record_packaging_output(
+    production_order_id: int,
+    quantity: int,
+    production_batch_id: int | None = None,
+) -> None:
+    with SessionLocal() as db:
+        query = db.query(WorkOrder).filter_by(
+            production_order_id=production_order_id,
+            operation="packaging",
+        )
+        work_order = None
+        if production_batch_id is not None:
+            work_order = query.filter(WorkOrder.production_batch_id == production_batch_id).one_or_none()
+        if work_order is None:
+            work_order = query.filter(WorkOrder.production_batch_id.is_(None)).one()
+        db.add(PackagingRecord(
+            work_order_id=work_order.id,
+            production_batch_id=production_batch_id,
+            input_qty=quantity,
+            packed_qty=quantity,
+            damaged_qty=0,
+        ))
+        db.commit()
 
 
 def _prepare_sales_order_for_po(client, headers, sales_order_id: int) -> None:
@@ -125,6 +164,7 @@ def _create_package_for_change_request(client, headers, quantity: int = 20) -> i
     )
     assert r.status_code == 201, r.text
     po_id = r.json()["id"]
+    _record_packaging_output(po_id, 60)
 
     r = client.post(
         "/api/packages",
@@ -338,6 +378,7 @@ def test_printable_bundle_and_package_qr_labels_include_material_picture(client,
     )
     assert po.status_code == 201, po.text
     po_id = int(po.json()["id"])
+    _record_packaging_output(po_id, 60)
 
     bundle = client.post(
         "/api/bundles",
@@ -380,7 +421,8 @@ def test_printable_bundle_and_package_qr_labels_include_material_picture(client,
         label = client.get(endpoint, headers=auth_headers)
         assert label.status_code == 200, label.text
         assert "material-picture" in label.text
-        assert "alt='Material picture'" in label.text or 'alt="Material picture"' in label.text
+        picture_caption = "Mato rasmi" if endpoint.startswith("/api/bundles/") else "Material picture"
+        assert f"alt='{picture_caption}'" in label.text or f'alt="{picture_caption}"' in label.text
         assert "data:image/png;base64" in label.text
         if endpoint == f"/api/packages/{package_id}/label":
             assert ".qr img{display:block;width:31mm;height:31mm" in label.text
@@ -495,7 +537,7 @@ def test_cutting_record_print_sheet_keeps_all_reference_sections(client, auth_he
         "Zakaz No",
         "Bichilgan sana",
         "Etiket",
-        "Kroy No",
+        "Nastil No",
         "Detskiy",
         "Sana",
         "Buyurtma soni",
@@ -638,7 +680,7 @@ def test_process_tracking_new_waiting_order_starts_at_cutting(client, auth_heade
     po = r.json()
 
     from app.db.session import SessionLocal
-    from app.models import ProductionOrder, WorkOrder
+    from app.schemas import ProductionOrder, WorkOrder
 
     db = SessionLocal()
     try:
@@ -682,7 +724,7 @@ def test_packaging_receives_sewing_work_by_scan_and_manual_entry(client, auth_he
     production_order = response.json()
 
     from app.db.session import SessionLocal
-    from app.models import Bundle, SewingRecord, WorkOrder
+    from app.schemas import Bundle, SewingRecord, WorkOrder
 
     suffix = uuid4().hex[:8]
     db = SessionLocal()
@@ -828,8 +870,8 @@ def test_zero_quantity_storage_transfer_does_not_override_cutting(client, auth_h
     assert start_storage.status_code == 400, start_storage.text
 
     from app.db.session import SessionLocal
-    from app.models import ProductionOrder, WorkOrder
-    from app.services.workflow import sync_production_order_status
+    from app.schemas import ProductionOrder, WorkOrder
+    from app.models.workflow_service import sync_production_order_status
 
     db = SessionLocal()
     try:
@@ -942,7 +984,7 @@ def test_process_tracking_pagination_search_status_contract(client, auth_headers
     po = r.json()
 
     from app.db.session import SessionLocal
-    from app.models import ProductionOrder
+    from app.schemas import ProductionOrder
 
     db = SessionLocal()
     try:
@@ -986,7 +1028,7 @@ def test_process_tracking_pagination_search_status_contract(client, auth_headers
     assert image_url in exported.text
 
 
-def test_process_tracking_uses_bom_picture_when_model_picture_missing(client, auth_headers):
+def test_process_tracking_keeps_missing_model_picture_blank(client, auth_headers):
     suffix = uuid4().hex[:10].upper()
     bom_photo_url = f"https://example.com/process-bom-{suffix}.png"
     model = client.post(
@@ -1053,7 +1095,7 @@ def test_process_tracking_uses_bom_picture_when_model_picture_missing(client, au
     assert tracked.status_code == 200, tracked.text
     rows = tracked.json()["rows"]
     assert len(rows) == 1
-    assert rows[0]["model_image_url"] == bom_photo_url
+    assert rows[0]["model_image_url"] is None
     assert rows[0]["material_image_url"] == bom_photo_url
 
 
@@ -1224,7 +1266,7 @@ def test_cutting_inbox_hides_orders_that_progressed_to_other_departments(client,
     packaged_id = create_order()
 
     from app.db.session import SessionLocal
-    from app.models import Package, ProductionOrder, WorkOrder
+    from app.schemas import Package, ProductionOrder, WorkOrder
 
     db = SessionLocal()
     try:
@@ -1418,7 +1460,7 @@ def test_process_tracking_keeps_overlapping_production_and_sales_refs_distinct(c
     so_id = _create_client_sales_order(client, auth_headers)
 
     from app.db.session import SessionLocal
-    from app.models import ProductionOrder, SalesOrder
+    from app.schemas import ProductionOrder, SalesOrder
 
     db = SessionLocal()
     try:
@@ -2639,7 +2681,7 @@ def test_manual_sewing_receive_by_order_model_removes_bundle_inventory(client, a
     assert int(bundle["id"]) not in inventory_ids
 
 
-def test_package_edit_request_applies_after_management_approval(client, auth_headers):
+def test_package_edit_request_applies_directly_with_audit_request(client, auth_headers):
     pkg_id = _create_package_for_change_request(client, auth_headers, quantity=20)
 
     r = client.post(
@@ -2660,16 +2702,6 @@ def test_package_edit_request_applies_after_management_approval(client, auth_hea
         headers=auth_headers,
     )
     assert r.status_code == 201, r.text
-    req_id = int(r.json()["id"])
-    assert r.json()["status"] == "pending"
-
-    r = client.get(f"/api/packages/{pkg_id}", headers=auth_headers)
-    assert r.status_code == 200, r.text
-    assert int(r.json()["total_quantity"]) == 20
-    assert r.json()["package_type"] == "bag"
-
-    r = client.post(f"/api/packages/change-requests/{req_id}/approve", headers=auth_headers)
-    assert r.status_code == 200, r.text
     assert r.json()["status"] == "approved"
 
     r = client.get(f"/api/packages/{pkg_id}", headers=auth_headers)
@@ -2680,7 +2712,7 @@ def test_package_edit_request_applies_after_management_approval(client, auth_hea
     assert sorted((row["size"], int(row["quantity"])) for row in detail["items"]) == [("L", 18), ("M", 12)]
 
     from app.db.session import SessionLocal
-    from app.models import FinishedGoodsStock
+    from app.schemas import FinishedGoodsStock
 
     db = SessionLocal()
     try:
@@ -2691,7 +2723,7 @@ def test_package_edit_request_applies_after_management_approval(client, auth_hea
         db.close()
 
 
-def test_package_delete_request_removes_package_after_management_approval(client, auth_headers):
+def test_package_delete_request_removes_package_directly_with_audit_request(client, auth_headers):
     pkg_id = _create_package_for_change_request(client, auth_headers, quantity=15)
 
     r = client.post(
@@ -2700,20 +2732,13 @@ def test_package_delete_request_removes_package_after_management_approval(client
         headers=auth_headers,
     )
     assert r.status_code == 201, r.text
-    req_id = int(r.json()["id"])
-
-    r = client.get(f"/api/packages/{pkg_id}", headers=auth_headers)
-    assert r.status_code == 200, r.text
-
-    r = client.post(f"/api/packages/change-requests/{req_id}/approve", headers=auth_headers)
-    assert r.status_code == 200, r.text
     assert r.json()["status"] == "approved"
 
     r = client.get(f"/api/packages/{pkg_id}", headers=auth_headers)
     assert r.status_code == 404, r.text
 
     from app.db.session import SessionLocal
-    from app.models import FinishedGoodsStock
+    from app.schemas import FinishedGoodsStock
 
     db = SessionLocal()
     try:
@@ -3142,7 +3167,7 @@ def test_sewing_inbox_hides_cancelled_production_order_bundles(client, auth_head
     assert any(row["production_order_id"] == po_id for row in body["incoming_bundle_groups"])
 
     from app.db.session import SessionLocal
-    from app.models import ProductionOrder
+    from app.schemas import ProductionOrder
 
     db = SessionLocal()
     try:
@@ -3847,6 +3872,7 @@ def test_process_tracking_internal_batch_storage_uses_received_packages(client, 
     po = r.json()
     batch_a = next(b for b in po["batches"] if b["name"] == "Batch A")
     batch_b = next(b for b in po["batches"] if b["name"] == "Batch B")
+    _record_packaging_output(po_id, 60, batch_a["id"])
 
     r = client.post(
         "/api/packages",
@@ -3913,6 +3939,8 @@ def test_package_can_merge_leftovers_from_multiple_batches(client, auth_headers)
     po = r.json()
     batch_a = next(b for b in po["batches"] if b["name"] == "Batch A")
     batch_b = next(b for b in po["batches"] if b["name"] == "Batch B")
+    _record_packaging_output(po_id, 50, batch_a["id"])
+    _record_packaging_output(po_id, 10, batch_b["id"])
 
     r = client.post(
         "/api/packages",
@@ -3974,6 +4002,7 @@ def test_partial_package_can_be_received_in_storage(client, auth_headers):
     )
     assert r.status_code == 201, r.text
     po_id = r.json()["id"]
+    _record_packaging_output(po_id, 58)
 
     r = client.post(
         "/api/packages",
@@ -4020,6 +4049,7 @@ def test_process_tracking_prefers_storage_when_partial_order_reaches_storage(cli
     assert r.status_code == 201, r.text
     po = r.json()
     po_id = po["id"]
+    _record_packaging_output(po_id, 598)
 
     r = client.post(
         "/api/packages",
@@ -4176,7 +4206,7 @@ def test_cutting_split_batches_can_exceed_plan_and_report_actual_quantity(client
     assert r.status_code == 200, r.text
     po = r.json()
     assert int(po["planned_quantity"]) == 900
-    assert int(po["actual_quantity"]) == 1500
+    assert int(po["actual_quantity"]) == 0  # A batch plan is not department output.
     assert len(po["batches"]) == 1
     assert int(po["batches"][0]["planned_quantity"]) == 1500
     refreshed_cutting = next(w for w in po["work_orders"] if w["operation"] == "cutting")
@@ -4272,7 +4302,7 @@ def test_sewing_failure_is_recorded_without_replacement_work(client, auth_header
         assert response.status_code == 200, response.text
         assert response.json()["status"] == "completed"
     from app.db.session import SessionLocal
-    from app.models import SewingReplacementRequest
+    from app.schemas import SewingReplacementRequest
     with SessionLocal() as db:
         assert db.query(SewingReplacementRequest).filter_by(production_order_id=po_id).count() == 0
 
@@ -4643,7 +4673,7 @@ def test_packaging_actual_quantity_tracks_sewing_handoff_and_allows_breakdown_ed
     assert sorted((i["size"], int(i["planned_quantity"])) for i in po["items"]) == [("L", 310), ("M", 310)]
 
 
-def test_packaging_can_create_sticker_without_sewing_total(client, auth_headers):
+def test_packaging_rejects_output_without_sewing_total(client, auth_headers):
     r = client.post(
         "/api/planning/create-branded-production",
         json={
@@ -4682,47 +4712,10 @@ def test_packaging_can_create_sticker_without_sewing_total(client, auth_headers)
         },
         headers=auth_headers,
     )
-    assert r.status_code == 201, r.text
-
-    r = client.post(
-        "/api/packaging/records",
-        json={
-            "work_order_id": packaging_wo["id"],
-            "production_batch_id": batch["id"],
-            "input_qty": 43,
-            "packed_qty": 43,
-            "damaged_qty": 0,
-        },
-        headers=auth_headers,
-    )
     assert r.status_code == 400, r.text
-    assert "packaging batch plan 462" in r.text
-
-    r = client.post(
-        "/api/packages",
-        json={
-            "production_order_id": po_id,
-            "production_batch_id": batch["id"],
-            "model_id": 1,
-            "color": "white",
-            "package_type": "bag",
-            "capacity": 60,
-            "items": [
-                {"model_id": 1, "color": "white", "size": "M", "quantity": 60},
-            ],
-        },
-        headers=auth_headers,
-    )
-    assert r.status_code == 201, r.text
-    package_id = int(r.json()["id"])
-
-    r = client.get(f"/api/packages/{package_id}/label", headers=auth_headers)
-    assert r.status_code == 200, r.text
-    assert "Package Label" in r.text
-
-    r = client.get(f"/api/work-orders/{sewing_wo['id']}", headers=auth_headers)
-    assert r.status_code == 200, r.text
-    assert int(r.json()["passed_qty"]) == 0
+    assert "sewing passed output 0" in r.text
+    with SessionLocal() as db:
+        assert db.query(PackagingRecord).filter_by(work_order_id=packaging_wo["id"]).count() == 0
 
 
 def test_internal_batches_flow_separately_across_printing_sewing_packaging(client, auth_headers):
@@ -4891,7 +4884,7 @@ def test_internal_batches_flow_separately_across_printing_sewing_packaging(clien
         headers=auth_headers,
     )
     assert r.status_code == 400, r.text
-    assert "packaging batch plan 60" in r.text
+    assert "sewing passed output 58" in r.text
 
     r = client.post(
         "/api/packaging/records",
@@ -4948,6 +4941,8 @@ def test_sewing_record_updates_selected_line_assignment_progress(client, auth_he
     )
     assert r.status_code == 201, r.text
     po_id = r.json()["id"]
+    _record_cutting_output(po_id, 100)
+    _issue_required_accessories(client, auth_headers, po_id)
 
     r = client.get(f"/api/work-orders?production_order_id={po_id}", headers=auth_headers)
     assert r.status_code == 200, r.text
@@ -4989,7 +4984,7 @@ def test_sewing_record_updates_selected_line_assignment_progress(client, auth_he
     assert assignment["completed_qty"] == 25
     assert assignment["status"] == "in_progress"
 
-    # Over-completion is capped at planned assignment quantity.
+    # Actual over-completion expands the assignment instead of dropping output credit.
     r = client.post(
         "/api/sewing/records",
         json={
@@ -5007,7 +5002,8 @@ def test_sewing_record_updates_selected_line_assignment_progress(client, auth_he
     r = client.get(f"/api/work-orders/{sewing_wo['id']}/assignments", headers=auth_headers)
     assert r.status_code == 200, r.text
     assignment = next(a for a in r.json() if a["id"] == assignment_id)
-    assert assignment["completed_qty"] == 40
+    assert assignment["completed_qty"] == 55
+    assert assignment["quantity"] == 55
     assert assignment["status"] == "completed"
 
 
@@ -5143,11 +5139,15 @@ def test_sewing_records_partial_output_by_size_and_tracks_remaining(client, auth
         },
         headers=auth_headers,
     )
-    assert r.status_code == 400, r.text
-    assert "exceeds remaining 30" in r.text
+    assert r.status_code == 201, r.text
 
     r = client.post(f"/api/work-orders/{sewing_wo['id']}/complete", headers=auth_headers)
-    assert r.status_code == 200, r.text
+    assert r.status_code == 409, r.text
+    # Historical prematurely completed orders must still report their actual
+    # size quantities. New completion requests cannot create that state.
+    with SessionLocal() as db:
+        db.get(WorkOrder, sewing_wo["id"]).status = "completed"
+        db.commit()
 
     r = client.get(
         f"/api/process-tracking?sewing_completed_only=true&include_total=true&q={po['production_no']}",
@@ -5159,16 +5159,16 @@ def test_sewing_records_partial_output_by_size_and_tracks_remaining(client, auth
     assert len(payload["rows"]) == 1
     tracked = payload["rows"][0]
     assert int(tracked["planned_quantity"]) == 100
-    assert int(tracked["sewing_completed_quantity"]) == 40
+    assert int(tracked["sewing_completed_quantity"]) == 71
     assert int(tracked["sewing_unallocated_quantity"]) == 0
     tracked_sizes = {row["size"]: row for row in tracked["sizes"]}
-    assert int(tracked_sizes["M"]["sewing_completed_quantity"]) == 30
+    assert int(tracked_sizes["M"]["sewing_completed_quantity"]) == 61
     assert int(tracked_sizes["L"]["sewing_completed_quantity"]) == 10
     assert len(tracked["batches"]) == 1
-    assert int(tracked["batches"][0]["sewing_completed_quantity"]) == 40
+    assert int(tracked["batches"][0]["sewing_completed_quantity"]) == 71
     batch_sizes = {row["size"]: row for row in tracked["batches"][0]["sewing_sizes"]}
-    assert int(batch_sizes["M"]["completed_quantity"]) == 30
-    assert int(batch_sizes["M"]["sewing_completed_quantity"]) == 30
+    assert int(batch_sizes["M"]["completed_quantity"]) == 61
+    assert int(batch_sizes["M"]["sewing_completed_quantity"]) == 61
     assert int(batch_sizes["L"]["completed_quantity"]) == 10
 
 
@@ -5189,6 +5189,8 @@ def test_sewing_line_plan_consumes_brak_qty(client, auth_headers):
     )
     assert r.status_code == 201, r.text
     po_id = r.json()["id"]
+    _record_cutting_output(po_id, 100)
+    _issue_required_accessories(client, auth_headers, po_id)
 
     r = client.get(f"/api/work-orders?production_order_id={po_id}", headers=auth_headers)
     assert r.status_code == 200, r.text
@@ -5360,6 +5362,7 @@ def test_package_bulk_create(client, auth_headers):
     )
     assert r.status_code == 201, r.text
     po_id = r.json()["id"]
+    _record_packaging_output(po_id, 150)
 
     r = client.post(
         "/api/packages/bulk",
@@ -5397,6 +5400,7 @@ def test_package_bulk_create_accepts_per_package_weights(client, auth_headers):
     )
     assert r.status_code == 201, r.text
     po_id = r.json()["id"]
+    _record_packaging_output(po_id, 150)
 
     r = client.post(
         "/api/packages/bulk",
@@ -5441,6 +5445,7 @@ def test_package_list_backfills_saved_qr_codes(client, auth_headers):
     )
     assert r.status_code == 201, r.text
     po_id = r.json()["id"]
+    _record_packaging_output(po_id, 150)
 
     r = client.post(
         "/api/packages/bulk",
@@ -5459,7 +5464,7 @@ def test_package_list_backfills_saved_qr_codes(client, auth_headers):
     ids = {int(pid) for pid in r.json()["package_ids"]}
 
     from app.db.session import SessionLocal
-    from app.models import Package
+    from app.schemas import Package
 
     db = SessionLocal()
     try:
@@ -5516,6 +5521,7 @@ def test_storage_transfer_work_order_completes_after_full_storage_intake(client,
     assert r.status_code == 200, r.text
     by_op = {w["operation"]: w for w in r.json()}
     stg_wo = by_op["storage_transfer"]
+    _record_packaging_output(po_id, 60)
 
     r = client.post(
         "/api/packages",
@@ -5652,6 +5658,11 @@ def test_assignment_capacity_ignores_completed_work_orders(client, auth_headers)
     )
     assert r.status_code == 201, r.text
 
+    # This capacity fixture represents a fully processed work order.
+    with SessionLocal() as db:
+        wo = db.get(WorkOrder, sew_1["id"])
+        wo.actual_output_qty = wo.passed_qty = 200
+        db.commit()
     r = client.post(f"/api/work-orders/{sew_1['id']}/complete", headers=auth_headers)
     assert r.status_code == 200, r.text
 
@@ -5811,7 +5822,7 @@ def test_printing_work_starts_pending_until_collected(client, auth_headers):
     assert r.json()["start_time"] is not None
 
 
-def test_cutting_edits_after_sewing_start_reconcile_the_whole_workflow(client, auth_headers):
+def test_cutting_edits_reconcile_until_sewing_output_then_freeze(client, auth_headers):
     r = client.post(
         "/api/planning/create-branded-production",
         json={
@@ -5985,7 +5996,7 @@ def test_cutting_edits_after_sewing_start_reconcile_the_whole_workflow(client, a
         headers=auth_headers,
     )
     assert below_evidence.status_code == 409, below_evidence.text
-    assert "downstream output (610)" in below_evidence.text
+    assert "Sewing output" in below_evidence.text
 
     batch_below_evidence = client.patch(
         f"/api/work-orders/{cutting_wo['id']}/batches/{batch['id']}",
@@ -5993,7 +6004,7 @@ def test_cutting_edits_after_sewing_start_reconcile_the_whole_workflow(client, a
         headers=auth_headers,
     )
     assert batch_below_evidence.status_code == 409, batch_below_evidence.text
-    assert "workflow evidence (620)" in batch_below_evidence.text
+    assert "Sewing output" in batch_below_evidence.text
 
     identity_after_output = client.patch(
         f"/api/cutting/records/{record_id}/bundle-quantities",
@@ -6001,4 +6012,14 @@ def test_cutting_edits_after_sewing_start_reconcile_the_whole_workflow(client, a
         headers=auth_headers,
     )
     assert identity_after_output.status_code == 409, identity_after_output.text
-    assert "Color and size" in identity_after_output.text
+    assert "Sewing output" in identity_after_output.text
+
+    increase_after_output = client.patch(
+        f"/api/work-orders/{cutting_wo['id']}/batches/{batch['id']}",
+        json={"planned_quantity": 800, "name": "Cannot change"},
+        headers=auth_headers,
+    )
+    assert increase_after_output.status_code == 409, increase_after_output.text
+    unchanged = client.get(f"/api/production-orders/{po_id}", headers=auth_headers).json()
+    assert unchanged["batches"][0]["name"] == "Milana corrected batch"
+    assert unchanged["batches"][0]["planned_quantity"] == 700

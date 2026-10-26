@@ -1,4 +1,4 @@
-from app.services.variant_display import format_model_variant_code
+from app.models.variant_display_service import format_model_variant_code
 from app.core.order_reference import order_reference_contains
 from datetime import datetime, timezone
 
@@ -6,7 +6,8 @@ from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import and_, func, or_, text
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, noload
+from sqlalchemy.orm.attributes import set_committed_value
 import base64
 import hashlib
 from functools import lru_cache
@@ -15,13 +16,13 @@ from pathlib import Path
 
 from app.core.deps import DbSession, CurrentUser, PRODUCTION_READ_PERMISSIONS, require_permissions, user_permissions
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
-from app.models import (
+from app.schemas import (
     Bundle,
-    BundleScanLog,
     CuttingRecord,
     Department,
     Model,
     ModelBOM,
+    ModelImage,
     ProductionOrder,
     ProductionBatch,
     SalesOrder,
@@ -31,27 +32,33 @@ from app.models import (
     WorkOrder,
     public_production_order_no,
 )
-from app.schemas.tracking import BundleIn, BundleOut, BundleDetail
-from app.services.bundles import (
+from app.libs.dto.packaging.tracking import BundleIn, BundleOut, BundleDetail
+from app.models.bundles_service import (
     find_bundle_by_scanned_code,
     create_bundle,
     send_to_printing,
     receive_at_printing,
     send_to_sewing,
     receive_at_sewing,
+    receive_many_at_sewing,
+    verify_sewing_accessory_gate,
     bundle_qr_payload,
+    bundle_qr_payload_from_references,
     format_batch_passport,
     resolve_sewing_factory_code,
 )
-from app.services.barcode import qr_png_data_uri
-from app.services.label_images import material_label_image_src
-from app.services.model_images import material_preview_image_url
-from app.services.audit import log_action
-from app.services.sewing_scope import require_sewing_flow_access, sewing_line_factory_scope
+from app.models.barcode_service import qr_png_data_uri
+from app.models.label_images_service import is_preview_model_image, material_label_image_src
+from app.models.model_images_service import material_preview_image_url
+from app.models.audit_service import log_action
+from app.models.sewing_scope_service import require_sewing_flow_access, sewing_line_factory_scope
+from app.models.department_dashboards_service import cutting_inventory_condition, cutting_origin_condition, destination_column, inventory_totals
+from typing import Literal
 
 router = APIRouter(prefix="/bundles", tags=["bundles"])
 
 SEWING_RECEIVE_DEPARTMENT_CODES = ("SEW", "MIL", "BST", "ECO")
+_BUNDLE_LABEL_LIMIT = 200
 
 
 class SewingManualReceiveIn(BaseModel):
@@ -70,17 +77,9 @@ class SewingBatchAcceptIn(BaseModel):
 
 
 def _scope_to_cutting_department(qry, db: DbSession, current, cutting_department_code: str | None):
-    from app.services.factory_scope import cutting_department_scope
+    from app.models.factory_scope_service import cutting_department_scope
     scope = cutting_department_scope(current, cutting_department_code)
-    eco_order_ids = (
-        db.query(WorkOrder.production_order_id)
-        .join(Department, Department.id == WorkOrder.department_id)
-        .filter(WorkOrder.operation == "cutting", Department.code == "ECT")
-        .distinct()
-    )
-    if scope == "ECT":
-        return qry.filter(Bundle.production_order_id.in_(eco_order_ids))
-    return qry.filter(Bundle.production_order_id.notin_(eco_order_ids))
+    return qry.filter(cutting_origin_condition(db, scope))
 
 
 def _material_images_by_model_id(db: DbSession, model_ids) -> dict[int, str | None]:
@@ -146,15 +145,33 @@ def _bundle_label_response(title: str, page_css: str, body: str) -> HTMLResponse
         "object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
     )
     html = (
-        f"<!doctype html><html>{_bundle_label_head(title, label_css)}<body>{body}"
-        "<button type='button' id='print-labels'>Print</button>"
+        f"<!doctype html><html lang='uz'>{_bundle_label_head(title, label_css)}<body>{body}"
+        "<button type='button' id='print-labels'>Chop etish</button>"
         f"<script>{_LABEL_PRINT_SCRIPT}</script></body></html>"
     )
     return HTMLResponse(html, headers={"Content-Security-Policy": policy})
 
 
-def _qr_data_uri_for_bundle(db: DbSession, b: Bundle) -> str:
-    return qr_png_data_uri(bundle_qr_payload(db, b))
+def _qr_data_uri_for_bundle(
+    db: DbSession,
+    b: Bundle,
+    reference_context: dict | None = None,
+) -> str:
+    if reference_context is None:
+        payload = bundle_qr_payload(db, b)
+    else:
+        order = reference_context["production_orders"].get(int(b.production_order_id))
+        batch = (
+            reference_context["batches"].get(int(b.production_batch_id))
+            if order is not None and b.production_batch_id
+            else None
+        )
+        payload = bundle_qr_payload_from_references(
+            b,
+            production_no=order.production_no if order else None,
+            batch_passport=format_batch_passport(batch, b.production_order_id) if batch else None,
+        )
+    return qr_png_data_uri(payload)
 
 
 def _batch_meta(db: DbSession, production_order_id: int | None, production_batch_id: int | None) -> dict:
@@ -188,46 +205,104 @@ def _batch_meta(db: DbSession, production_order_id: int | None, production_batch
     }
 
 
+def _batch_meta_from_batch(
+    batch: ProductionBatch | None,
+    production_order_id: int | None,
+    production_batch_id: int | None,
+) -> dict:
+    if not batch:
+        if production_batch_id:
+            label = f"Batch #{production_batch_id}"
+            return {
+                "batch_no": None,
+                "batch_name": None,
+                "batch_index": None,
+                "batch_label": label,
+                "tracking_passport_no": label,
+            }
+        return {
+            "batch_no": None,
+            "batch_name": None,
+            "batch_index": None,
+            "batch_label": None,
+            "tracking_passport_no": None,
+        }
+    passport = format_batch_passport(batch, production_order_id)
+    name = str(batch.name or "").strip() or None
+    label = f"{passport} - {name}" if name else passport
+    return {
+        "batch_no": batch.batch_no,
+        "batch_name": name,
+        "batch_index": batch.batch_index,
+        "batch_label": label,
+        "tracking_passport_no": passport,
+    }
+
+
 def _bundle_payload(
     db: DbSession,
     bundle: Bundle,
     production_no: str | None = None,
     order_no: str | None = None,
     model_code: str | None = None,
+    reference_context: dict | None = None,
 ) -> dict:
     row = BundleOut.model_validate(bundle).model_dump()
-    if production_no is None or order_no is None:
+    if reference_context is not None:
+        po = reference_context["production_orders"].get(int(bundle.production_order_id))
+    elif production_no is None or order_no is None:
         po = db.get(ProductionOrder, bundle.production_order_id)
+    else:
+        po = None
+    if production_no is None or order_no is None:
         if po:
             production_no = production_no or po.production_no
             order_no = order_no or po.order_no
     if order_no is None and bundle.sales_order_id:
-        so = db.get(SalesOrder, bundle.sales_order_id)
+        so = (
+            reference_context["sales_orders"].get(int(bundle.sales_order_id))
+            if reference_context is not None
+            else db.get(SalesOrder, bundle.sales_order_id)
+        )
         order_no = so.order_no if so else None
     if model_code is None:
-        model = db.get(Model, bundle.model_id)
+        model = (
+            reference_context["models"].get(int(bundle.model_id))
+            if reference_context is not None and bundle.model_id
+            else db.get(Model, bundle.model_id)
+        )
         model_code = model.code if model else None
-    row["production_no"] = production_no
+    row["production_no"] = production_no or (po.production_no if po else None)
     row["order_no"] = order_no or public_production_order_no(production_no) or production_no
     row["model_code"] = model_code
-    row.update(_batch_meta(db, bundle.production_order_id, bundle.production_batch_id))
+    row.update(
+        reference_context["batch_meta"].get((int(bundle.production_order_id), int(bundle.production_batch_id) if bundle.production_batch_id else None), {})
+        if reference_context is not None
+        else _batch_meta(db, bundle.production_order_id, bundle.production_batch_id)
+    )
     if bundle.cutting_record_id:
         row["cutting_record_id"] = int(bundle.cutting_record_id)
         row["cutting_inventory_adjustable"] = True
         return row
-    cutting_record_ids = (
+    if reference_context is not None:
+        scoped_record_ids = reference_context["cutting_record_ids"].get(
+            (int(bundle.production_order_id), int(bundle.production_batch_id) if bundle.production_batch_id else None),
+            [],
+        )
+    else:
+        cutting_record_ids = (
         db.query(CuttingRecord.id)
         .join(WorkOrder, WorkOrder.id == CuttingRecord.work_order_id)
         .filter(
             WorkOrder.production_order_id == bundle.production_order_id,
             WorkOrder.operation == "cutting",
         )
-    )
-    if bundle.production_batch_id is None:
-        cutting_record_ids = cutting_record_ids.filter(CuttingRecord.production_batch_id.is_(None))
-    else:
-        cutting_record_ids = cutting_record_ids.filter(CuttingRecord.production_batch_id == bundle.production_batch_id)
-    scoped_record_ids = [int(row_id) for (row_id,) in cutting_record_ids.order_by(CuttingRecord.id.asc()).all()]
+        )
+        if bundle.production_batch_id is None:
+            cutting_record_ids = cutting_record_ids.filter(CuttingRecord.production_batch_id.is_(None))
+        else:
+            cutting_record_ids = cutting_record_ids.filter(CuttingRecord.production_batch_id == bundle.production_batch_id)
+        scoped_record_ids = [int(row_id) for (row_id,) in cutting_record_ids.order_by(CuttingRecord.id.asc()).all()]
     row["cutting_record_id"] = scoped_record_ids[0] if len(scoped_record_ids) == 1 else None
     row["cutting_inventory_adjustable"] = len(scoped_record_ids) == 1
     return row
@@ -239,57 +314,203 @@ def _bundle_detail_payload(db: DbSession, bundle: Bundle) -> dict:
     return row
 
 
-def _label_context(db: DbSession, b: Bundle) -> dict:
-    row = _bundle_payload(db, b)
+def _bundle_label_image_sources(db: DbSession, models: dict[int, Model]) -> dict[int, str | None]:
+    """Load only selected label binaries, sharing them across every card."""
+    candidates = {}
+    for model_id, model in models.items():
+        images = sorted(
+            [image for image in model.images if is_preview_model_image(image)],
+            key=lambda image: int(image.id), reverse=True,
+        )
+        material = next((image for image in images if str(image.image_type or "").lower() == "material"), None)
+        candidates[model_id] = material
+
+    def load_selected(images):
+        by_id = {int(image.id): image for image in images if image is not None}
+        ids = sorted(by_id)
+        for offset in range(0, len(ids), 400):
+            for image_id, data in db.query(ModelImage.id, ModelImage.file_data).filter(
+                ModelImage.id.in_(ids[offset:offset + 400]),
+            ).all():
+                set_committed_value(by_id[int(image_id)], "file_data", data)
+
+    load_selected(candidates.values())
+    return {model_id: material_label_image_src(model) for model_id, model in models.items()}
+
+
+def _bundle_label_reference_context(db: DbSession, bundles: list[Bundle]) -> dict:
+    order_ids = {int(bundle.production_order_id) for bundle in bundles}
+    batch_keys = {
+        (int(bundle.production_order_id), int(bundle.production_batch_id) if bundle.production_batch_id else None)
+        for bundle in bundles
+    }
+    production_orders = {
+        int(row.id): row
+        for row in db.query(ProductionOrder).options(noload(ProductionOrder.materials)).filter(ProductionOrder.id.in_(order_ids)).all()
+    }
+    sales_order_ids = {
+        int(bundle.sales_order_id)
+        for bundle in bundles
+        if bundle.sales_order_id
+    }
+    sales_order_ids.update(
+        int(order.sales_order_id)
+        for order in production_orders.values()
+        if order.sales_order_id
+    )
+    sales_orders = {
+        int(row.id): row
+        for row in db.query(SalesOrder).filter(SalesOrder.id.in_(sales_order_ids)).all()
+    } if sales_order_ids else {}
+    model_ids = {int(bundle.model_id) for bundle in bundles if bundle.model_id}
+    models = {
+        int(row.id): row
+        for row in db.query(Model)
+        .options(
+            selectinload(Model.images).load_only(
+                ModelImage.id,
+                ModelImage.model_id,
+                ModelImage.file_url,
+                ModelImage.file_name,
+                ModelImage.content_type,
+                ModelImage.image_type,
+                ModelImage.is_primary,
+            ),
+            selectinload(Model.bom).joinedload(ModelBOM.item),
+        )
+        .filter(Model.id.in_(model_ids)).all()
+    } if model_ids else {}
+    batch_ids = {key[1] for key in batch_keys if key[1] is not None}
+    batches = {
+        int(row.id): row
+        for row in db.query(ProductionBatch).filter(ProductionBatch.id.in_(batch_ids)).all()
+    } if batch_ids else {}
+    cutting_record_ids = {key: [] for key in batch_keys}
+    if order_ids:
+        rows = (
+            db.query(CuttingRecord.id, WorkOrder.production_order_id, CuttingRecord.production_batch_id)
+            .join(WorkOrder, WorkOrder.id == CuttingRecord.work_order_id)
+            .filter(WorkOrder.production_order_id.in_(order_ids), WorkOrder.operation == "cutting")
+            .order_by(CuttingRecord.id.asc())
+            .all()
+        )
+        for record_id, production_order_id, production_batch_id in rows:
+            key = (int(production_order_id), int(production_batch_id) if production_batch_id else None)
+            if key in cutting_record_ids:
+                cutting_record_ids[key].append(int(record_id))
+    return {
+        "production_orders": production_orders,
+        "sales_orders": sales_orders,
+        "models": models,
+        "material_image_sources": _bundle_label_image_sources(db, models),
+        "batches": batches,
+        "batch_meta": {
+            key: _batch_meta_from_batch(batches.get(key[1]), key[0], key[1])
+            for key in batch_keys
+        },
+        "cutting_record_ids": cutting_record_ids,
+    }
+
+
+def _label_context(db: DbSession, b: Bundle, reference_context: dict | None = None) -> dict:
+    row = _bundle_payload(db, b, reference_context=reference_context)
     model = (
+        reference_context["models"].get(int(b.model_id))
+        if reference_context is not None and b.model_id
+        else (
         db.query(Model)
-        .options(selectinload(Model.images), selectinload(Model.bom).joinedload(ModelBOM.item))
+        .options(
+            selectinload(Model.images).load_only(
+                ModelImage.id,
+                ModelImage.model_id,
+                ModelImage.file_url,
+                ModelImage.file_name,
+                ModelImage.content_type,
+                ModelImage.image_type,
+                ModelImage.is_primary,
+            ),
+            selectinload(Model.bom).joinedload(ModelBOM.item),
+        )
         .filter(Model.id == b.model_id)
         .first()
         if b.model_id
         else None
+        )
     )
+    if reference_context is not None:
+        material_image_src = reference_context["material_image_sources"].get(int(b.model_id)) if b.model_id else None
+    else:
+        material_image_src = None
+        if model:
+            images = sorted(
+                [image for image in (model.images or []) if is_preview_model_image(image)],
+                key=lambda image: int(image.id or 0),
+                reverse=True,
+            )
+            material_image = next(
+                (
+                    image for image in images
+                    if str(image.image_type or "").lower() == "material"
+                ),
+                None,
+            )
+
+            def load_image_data(image):
+                file_data = db.query(ModelImage.file_data).filter(
+                    ModelImage.id == image.id,
+                    ModelImage.file_data.isnot(None),
+                ).scalar()
+                if file_data is not None:
+                    set_committed_value(image, "file_data", file_data)
+
+            if material_image is not None:
+                load_image_data(material_image)
+            material_image_src = material_label_image_src(model)
     return {
         "bundle_no": _h(b.bundle_no),
         "order_no": _h(row.get("order_no") or row.get("production_no") or b.production_order_id),
         "batch_label": _h(row.get("batch_label")),
         "tracking_passport_no": _h(row.get("tracking_passport_no")),
         "model_code": _h(format_model_variant_code(row.get("model_code")) or b.model_id),
-        "material_image_src": _h(material_label_image_src(model)),
+        "material_image_src": _h(material_image_src),
         "color": _h(b.color),
         "size": _h(b.size),
         "quantity": _h(b.quantity),
         "barcode": _h(b.barcode),
+        "sewing_factory_name": {
+            "MIL": "Milana", "BST": "Besttex", "ECO": "Eco Cotton",
+        }[resolve_sewing_factory_code(b.sewing_factory_code)],
     }
 
 
 def _bundle_label_card(ctx: dict, qr: str) -> str:
     picture = (
-        f"<div class='material-picture'><img src='{ctx['material_image_src']}' alt='Material picture'/></div>"
+        f"<div class='material-picture'><img src='{ctx['material_image_src']}' alt='Mato rasmi'/></div>"
         if ctx.get("material_image_src")
         else ""
     )
     batch_row = (
-        f"<div class='row'><b>Batch</b><span>{ctx['batch_label']}</span></div>"
+        f"<div class='row'><b>Nastil</b><span>{ctx['batch_label']}</span></div>"
         if ctx.get("batch_label")
         else ""
     )
     passport_row = (
-        f"<div class='row'><b>Tracking passport</b><span>{ctx['tracking_passport_no']}</span></div>"
+        f"<div class='row'><b>Kuzatuv pasporti</b><span>{ctx['tracking_passport_no']}</span></div>"
         if ctx.get("tracking_passport_no")
         else ""
     )
     return f"""
             <div class='label'>
               <h2>MILANA ERP</h2>
-              <div class='row'><b>Bundle</b><span>{ctx['bundle_no']}</span></div>
-              <div class='row'><b>Order</b><span>{ctx['order_no']}</span></div>
+              <div class='row'><b>Bog‘lam</b><span>{ctx['bundle_no']}</span></div>
+              <div class='row'><b>Buyurtma</b><span>{ctx['order_no']}</span></div>
               {batch_row}
               {passport_row}
               <div class='row'><b>Model</b><span>{ctx['model_code']}</span></div>
-              <div class='row'><b>Color / Size</b><span>{ctx['color']} / {ctx['size']}</span></div>
-              <div class='row'><b>Qty</b><span>{ctx['quantity']}</span></div>
-              <div class='row'><b>Barcode</b><span>{ctx['barcode']}</span></div>
+              <div class='row'><b>Rang / O‘lcham</b><span>{ctx['color']} / {ctx['size']}</span></div>
+              <div class='row'><b>Soni</b><span>{ctx['quantity']}</span></div>
+              <div class='row'><b>Tikuv fabrikasi</b><span>{ctx['sewing_factory_name']}</span></div>
+              <div class='row'><b>Shtrix-kod</b><span>{ctx['barcode']}</span></div>
               <div class='label-visuals'>{picture}<div class='qr'><img src='{qr}' alt='QR'/></div></div>
             </div>
             """
@@ -380,15 +601,8 @@ def cutting_inventory(
     page: int = 1,
     page_size: int = 50,
     cutting_department_code: str | None = None,
+    destination_factory: Literal["ALL", "MIL", "BST", "ECO", "UNASSIGNED"] = "ALL",
 ):
-    received_printing_log = (
-        db.query(BundleScanLog.id)
-        .filter(
-            BundleScanLog.bundle_id == Bundle.id,
-            BundleScanLog.scan_type == "received_printing",
-        )
-        .exists()
-    )
     qry = db.query(Bundle, ProductionOrder.production_no, SalesOrder.order_no, Model.code).outerjoin(
         ProductionOrder, Bundle.production_order_id == ProductionOrder.id
     ).outerjoin(
@@ -396,12 +610,11 @@ def cutting_inventory(
     ).outerjoin(
         Model, Bundle.model_id == Model.id
     ).filter(
-        or_(
-            Bundle.status.in_(("created", "sent_to_printing")),
-            and_(Bundle.status == "sent_to_sewing", ~received_printing_log),
-        )
+        cutting_inventory_condition()
     )
     qry = _scope_to_cutting_department(qry, db, current, cutting_department_code)
+    if destination_factory != "ALL":
+        qry = qry.filter(destination_column() == destination_factory)
     search = str(q or "").strip()
     if search:
         like = f"%{search}%"
@@ -418,9 +631,10 @@ def cutting_inventory(
             )
         )
 
-    total = qry.count()
-    total_quantity = int(qry.with_entities(func.coalesce(func.sum(Bundle.quantity), 0)).order_by(None).scalar() or 0)
-    total_orders = int(qry.with_entities(func.count(func.distinct(Bundle.production_order_id))).order_by(None).scalar() or 0)
+    totals = inventory_totals(db, qry)
+    total = totals["bundles"]
+    total_quantity = totals["pieces"]
+    total_orders = totals["orders"]
     safe_page = max(1, page)
     safe_size = max(1, min(page_size, 2000))
     rows = (
@@ -451,6 +665,7 @@ def cutting_inventory(
         "total": total,
         "total_quantity": total_quantity,
         "total_orders": total_orders,
+        "total_work_orders": totals["work_orders"],
         "page": safe_page,
         "page_size": safe_size,
     }
@@ -574,13 +789,17 @@ def manual_receive_sewing(
     if not bundles:
         raise HTTPException(404, "No bundles are waiting for sewing receive")
 
-    received_quantity = 0
-    received_ids: list[int] = []
-    for bundle in bundles:
-        receive_at_sewing(db, bundle, current)
-        log_action(db, current, "manual_receive_at_sewing", "Bundle", bundle.id)
-        received_quantity += int(bundle.quantity or 0)
-        received_ids.append(int(bundle.id))
+    accessory_gate = verify_sewing_accessory_gate(db, payload.production_order_id)
+    received_ids = receive_many_at_sewing(
+        db,
+        bundles,
+        current,
+        accessory_gate,
+        after_receive=lambda bundle: log_action(
+            db, current, "manual_receive_at_sewing", "Bundle", bundle.id
+        ),
+    )
+    received_quantity = sum(int(bundle.quantity or 0) for bundle in bundles)
     db.commit()
 
     return {
@@ -604,17 +823,39 @@ def _sewing_work_order_for_batch(db: DbSession, batch: ProductionBatch) -> WorkO
     )
 
 
-def _sewing_batch_payload(db: DbSession, batch: ProductionBatch) -> dict:
-    bundles = (
-        db.query(Bundle)
-        .filter(
-            Bundle.production_batch_id == batch.id,
-            Bundle.production_order_id == batch.production_order_id,
-            Bundle.status != "cancelled",
+def _sewing_batch_payload(
+    db: DbSession,
+    batch: ProductionBatch,
+    bundles: list[Bundle] | None = None,
+) -> dict:
+    if bundles is None:
+        bundle_aggregates = (
+            db.query(
+                Bundle.status,
+                func.count(Bundle.id).label("bundle_count"),
+                func.coalesce(func.sum(Bundle.quantity), 0).label("quantity"),
+            )
+            .filter(
+                Bundle.production_batch_id == batch.id,
+                Bundle.production_order_id == batch.production_order_id,
+                Bundle.status != "cancelled",
+            )
+            .group_by(Bundle.status)
+            .all()
         )
-        .order_by(Bundle.id.asc())
-        .all()
-    )
+    else:
+        aggregates: dict[str, list[int]] = {}
+        for bundle in bundles:
+            if bundle.status == "cancelled":
+                continue
+            status = str(bundle.status or "unknown")
+            counts = aggregates.setdefault(status, [0, 0])
+            counts[0] += 1
+            counts[1] += int(bundle.quantity or 0)
+        bundle_aggregates = [
+            (status, counts[0], counts[1])
+            for status, counts in aggregates.items()
+        ]
     po = db.get(ProductionOrder, batch.production_order_id)
     model = db.get(Model, po.model_id) if po and po.model_id else None
     wo = _sewing_work_order_for_batch(db, batch)
@@ -632,9 +873,13 @@ def _sewing_batch_payload(db: DbSession, batch: ProductionBatch) -> dict:
             .all()
         )
     status_counts: dict[str, int] = {}
-    for bundle in bundles:
-        status = str(bundle.status or "unknown")
-        status_counts[status] = status_counts.get(status, 0) + 1
+    bundle_count = 0
+    quantity = 0
+    for status, count, status_quantity in bundle_aggregates:
+        status_key = str(status or "unknown")
+        status_counts[status_key] = int(count or 0)
+        bundle_count += int(count or 0)
+        quantity += int(status_quantity or 0)
     batch_meta = _batch_meta(db, batch.production_order_id, batch.id)
     return {
         "production_batch_id": int(batch.id),
@@ -643,8 +888,8 @@ def _sewing_batch_payload(db: DbSession, batch: ProductionBatch) -> dict:
         "order_no": (po.order_no if po else None) or public_production_order_no(po.production_no if po else None),
         "model_code": model.code if model else None,
         **batch_meta,
-        "bundle_count": len(bundles),
-        "quantity": sum(int(bundle.quantity or 0) for bundle in bundles),
+        "bundle_count": bundle_count,
+        "quantity": quantity,
         "status_counts": status_counts,
         "assignment_ids": [int(assignment.id) for assignment, _flow in assignments],
         "assigned_flow_ids": sorted({int(flow.id) for _assignment, flow in assignments}),
@@ -761,6 +1006,11 @@ def accept_sewing_batch(
             f"This sewing work order is already assigned to {current_flow.name if current_flow else wo.sewing_flow_id}",
         )
 
+    accessory_gate = (
+        verify_sewing_accessory_gate(db, int(batch.production_order_id))
+        if has_unreceived_bundles
+        else None
+    )
     total_quantity = sum(int(bundle.quantity or 0) for bundle in bundles)
     assignment: SewingAssignment
     if batch_assignments:
@@ -802,12 +1052,20 @@ def accept_sewing_batch(
     if not wo.sewing_flow_id:
         wo.sewing_flow_id = flow.id
 
-    received_ids: list[int] = []
-    for bundle in bundles:
-        if bundle.status == "received_sewing":
-            continue
-        receive_at_sewing(db, bundle, current)
-        received_ids.append(int(bundle.id))
+    received_ids = (
+        receive_many_at_sewing(
+            db,
+            [bundle for bundle in bundles if bundle.status != "received_sewing"],
+            current,
+            accessory_gate,
+        )
+        if accessory_gate
+        else []
+    )
+
+    if wo.status == "completed":
+        from app.models.sewing_progress_service import reconcile_sewing_order
+        reconcile_sewing_order(db, batch.production_order_id, current=current, reason="Sewing batch accepted and assigned")
 
     log_action(
         db,
@@ -825,7 +1083,7 @@ def accept_sewing_batch(
     )
     db.commit()
 
-    result = _sewing_batch_payload(db, batch)
+    result = _sewing_batch_payload(db, batch, bundles)
     result.update({
         "sewing_assignment_id": int(assignment.id),
         "sewing_flow_id": int(flow.id),
@@ -839,6 +1097,12 @@ def accept_sewing_batch(
 
 @router.post("", response_model=BundleOut, status_code=201)
 def create_bundle_api(payload: BundleIn, db: DbSession, current: User = Depends(require_permissions("cutting.bundles", "*"))):
+    cutting = db.query(WorkOrder).filter_by(production_order_id=payload.production_order_id, operation="cutting").first()
+    if cutting:
+        from app.models.factory_scope_service import require_work_order_factory_access
+        from app.models.cutting_batch_guard_service import require_cutting_batch_mutable
+        require_work_order_factory_access(current, db, cutting)
+        require_cutting_batch_mutable(db, cutting, payload.production_batch_id)
     b = create_bundle(
         db,
         production_order_id=payload.production_order_id,
@@ -890,6 +1154,13 @@ def delete_own_created_bundle(
     b = db.query(Bundle).filter(Bundle.id == bid).with_for_update().first()
     if not b:
         raise HTTPException(404, "Bundle not found")
+
+    cutting = db.query(WorkOrder).filter_by(production_order_id=b.production_order_id, operation="cutting").first()
+    if cutting:
+        from app.models.factory_scope_service import require_work_order_factory_access
+        from app.models.cutting_batch_guard_service import require_cutting_batch_mutable
+        require_work_order_factory_access(current, db, cutting)
+        require_cutting_batch_mutable(db, cutting, b.production_batch_id)
 
     permissions = set(user_permissions(current))
     if "*" not in permissions and int(b.created_by or 0) != int(current.id):
@@ -1013,7 +1284,7 @@ def bundle_label(bid: int, db: DbSession, _: User = Depends(require_permissions(
     qr = _qr_data_uri_for_bundle(db, b)
     ctx = _label_context(db, b)
     page_css = "@page{margin:8mm} body{font-family:'Milana Label Unicode','DejaVu Sans',Arial,sans-serif;margin:0;padding:8mm} .label{box-sizing:border-box;break-inside:avoid;page-break-inside:avoid;border:1px solid #000;padding:5mm;width:88mm} .row{display:flex;justify-content:space-between;gap:4mm;font-size:8.5pt;line-height:1.22} .row span{text-align:right;overflow-wrap:anywhere} .label-visuals{display:flex;align-items:center;justify-content:center;gap:4mm;margin-top:2.5mm} .qr img,.material-picture img{display:block;width:25mm;height:25mm;object-fit:contain} .material-picture{box-sizing:border-box;width:27mm;height:27mm;border:1px solid #ddd;padding:1mm;display:flex;align-items:center;justify-content:center} h2{margin:0 0 2mm 0;font-size:12pt;letter-spacing:0}@media print{body{margin:0;padding:0} button{display:none}}"
-    return _bundle_label_response(f"Bundle Label {ctx['bundle_no']}", page_css, _bundle_label_card(ctx, qr))
+    return _bundle_label_response(f"Bog‘lam yorlig‘i {ctx['bundle_no']}", page_css, _bundle_label_card(ctx, qr))
 
 
 @router.get("/label-sheet/by-ids", response_class=HTMLResponse)
@@ -1025,6 +1296,8 @@ def bundle_label_sheet(ids: str, db: DbSession, _: User = Depends(require_permis
         raise HTTPException(400, "ids must be comma-separated integers")
     if not parsed_ids:
         raise HTTPException(400, "Provide at least one bundle id")
+    if len(parsed_ids) > _BUNDLE_LABEL_LIMIT:
+        raise HTTPException(413, f"A label sheet may contain at most {_BUNDLE_LABEL_LIMIT} bundles")
 
     bundles = (
         db.query(Bundle)
@@ -1035,10 +1308,15 @@ def bundle_label_sheet(ids: str, db: DbSession, _: User = Depends(require_permis
     if not bundles:
         raise HTTPException(404, "No bundles found")
 
+    return _bundle_label_sheet_response(db, bundles)
+
+
+def _bundle_label_sheet_response(db: DbSession, bundles: list[Bundle]) -> HTMLResponse:
+    reference_context = _bundle_label_reference_context(db, bundles)
     cards = []
     for b in bundles:
-        qr = _qr_data_uri_for_bundle(db, b)
-        cards.append(_bundle_label_card(_label_context(db, b), qr))
+        qr = _qr_data_uri_for_bundle(db, b, reference_context)
+        cards.append(_bundle_label_card(_label_context(db, b, reference_context), qr))
 
     page_css = """
 @page{margin:6mm}
@@ -1055,7 +1333,7 @@ h2{margin:0 0 1.5mm 0;font-size:11pt;letter-spacing:0}
 #print-labels{margin-top:6mm}
 @media print{button{display:none} .label{break-inside:avoid;page-break-inside:avoid}}
 """
-    return _bundle_label_response("Bundle Label Sheet", page_css, f"<div class='sheet'>{''.join(cards)}</div>")
+    return _bundle_label_response("Bog‘lam yorliqlari", page_css, f"<div class='sheet'>{''.join(cards)}</div>")
 
 
 @router.get("/label-sheet/by-production-order/{production_order_id}", response_class=HTMLResponse)
@@ -1068,13 +1346,15 @@ def bundle_label_sheet_by_production_order(
         db.query(Bundle)
         .filter(Bundle.production_order_id == production_order_id)
         .order_by(Bundle.production_batch_id.asc(), Bundle.id.asc())
+        .limit(_BUNDLE_LABEL_LIMIT + 1)
         .all()
     )
     if not bundles:
         raise HTTPException(404, "No bundles found")
+    if len(bundles) > _BUNDLE_LABEL_LIMIT:
+        raise HTTPException(413, f"A label sheet may contain at most {_BUNDLE_LABEL_LIMIT} bundles")
 
-    ids = ",".join(str(int(b.id)) for b in bundles)
-    return bundle_label_sheet(ids=ids, db=db, _=_)
+    return _bundle_label_sheet_response(db, bundles)
 
 
 @router.get("/label-sheet/by-batch/{production_batch_id}", response_class=HTMLResponse)
@@ -1087,10 +1367,12 @@ def bundle_label_sheet_by_batch(
         db.query(Bundle)
         .filter(Bundle.production_batch_id == production_batch_id)
         .order_by(Bundle.id.asc())
+        .limit(_BUNDLE_LABEL_LIMIT + 1)
         .all()
     )
     if not bundles:
         raise HTTPException(404, "No bundles found")
+    if len(bundles) > _BUNDLE_LABEL_LIMIT:
+        raise HTTPException(413, f"A label sheet may contain at most {_BUNDLE_LABEL_LIMIT} bundles")
 
-    ids = ",".join(str(int(b.id)) for b in bundles)
-    return bundle_label_sheet(ids=ids, db=db, _=_)
+    return _bundle_label_sheet_response(db, bundles)

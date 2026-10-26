@@ -13,8 +13,8 @@ from app.api.routes import fabric_scans
 from app.core.deps import get_current_user
 from app.db.base import Base
 from app.main import app
-from app.models import Item, Role, StockBatch, User, Warehouse
-from app.models.fabric_scan import FabricScan
+from app.schemas import Item, Role, StockBatch, User, Warehouse
+from app.schemas.inventory.fabric_scan import FabricScan
 from app.tests.conftest import TestSessionLocal
 
 

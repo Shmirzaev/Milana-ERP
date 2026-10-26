@@ -10,11 +10,11 @@ import json
 from sqlalchemy import text
 
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     Bundle, BundleScanLog, Package, ProductionBatch, ProductionOrder,
     SewingAssignment, SewingDailyReport, SewingRecord, WorkOrder,
 )
-from app.services.audit import _json_safe, log_action
+from app.models.audit_service import _json_safe, log_action
 
 
 FIRST_IDS = list(range(2789, 2795))

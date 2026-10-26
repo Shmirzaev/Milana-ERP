@@ -7,7 +7,7 @@ from sqlalchemy import func
 
 from app.api.routes import waste
 from app.db.session import SessionLocal
-from app.models import Item, StockBatch, Warehouse, WasteRecord
+from app.schemas import Item, StockBatch, Warehouse, WasteRecord
 
 
 def _valued_waste() -> tuple[int, int]:

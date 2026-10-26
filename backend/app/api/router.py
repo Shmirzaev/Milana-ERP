@@ -1,5 +1,7 @@
+from app.api.routes import warehouse_reservations, usluga_packaging
 from app.api.routes import eco_transfers, sewing_corrections
 from fastapi import APIRouter
+from app.api.routes import sewing_bands
 
 from app.api.routes import (
     auth, admin, partners, catalog, inventory, sales, planning, purchasing, production,
@@ -14,6 +16,7 @@ from app.api.routes import (
 )
 
 api_router = APIRouter(prefix="/api")
+api_router.include_router(sewing_bands.router)
 api_router.include_router(auth.router)
 api_router.include_router(auth.session_router)
 api_router.include_router(admin.router)
@@ -60,3 +63,6 @@ api_router.include_router(fabric_scans.router)
 
 api_router.include_router(eco_transfers.router)
 api_router.include_router(sewing_corrections.router)
+
+api_router.include_router(warehouse_reservations.router)
+api_router.include_router(usluga_packaging.router)

@@ -1,12 +1,12 @@
 {
-  "source": "outputs/cycle3-migration-contract.xml",
-  "result": "DB04 frozen bootstrap is accepted with an exact reviewed known-drift baseline, not a claim of ORM parity. Thirty pre-existing drift entries remain unresolved under follow-up DB08.",
-  "environment": "Disposable loopback PostgreSQL 17 cluster stopped after run; no production connection.",
+  "source": "Fresh PostgreSQL regression test_fresh_migration_bootstrap plus test_ismail_schema_completion; historical evidence retained below",
+  "result": "All 21 DB08 unresolved entries plus the two DB06 constraint mismatches addressed on the completion branch. Remaining 94 reviewed differences are explicit accepted legacy/default/index contracts; raw global ORM parity is not claimed.",
+  "environment": "Disposable loopback PostgreSQL 17.11; no production connection",
   "observed": {
-    "fresh_upgrade": "0001 through 0131 succeeded",
+    "fresh_upgrade": "0001 through 0138_ismail_schema_contract succeeded",
     "head_rerun": "No CREATE/ALTER/DROP/INSERT/UPDATE/DELETE",
     "existing_data_upgrade": "0130 through 0131 preserved sewing row and initialized new fields",
-    "strict_parity": "126 normalized differences retained verbatim in the baseline; 2 migration-owned generated lookup columns asserted separately. Raw ORM parity is not achieved."
+    "strict_parity": "94 remaining normalized accepted contract differences; no unresolved DB08 classification remains. Production catalog not verified."
   },
   "limits": [
     "Alembic compare_metadata does not fully compare CHECK constraints.",
@@ -30,16 +30,10 @@
     }
   ],
   "classification_counts": {
-    "preexisting_unmapped_legacy_schema": 13,
-    "migration_owned_index": 34,
+    "equivalent_index_name": 10,
     "matching_python_default": 48,
-    "migration_owned_unique_constraint": 4,
-    "preexisting_default_contract": 1,
-    "preexisting_type_contract": 1,
-    "preexisting_nullable_contract": 4,
-    "preexisting_missing_hr_index": 9,
-    "preexisting_fk_contract": 2,
-    "equivalent_index_name": 10
+    "migration_owned_index": 34,
+    "migration_owned_unique_constraint": 2
   },
   "category_explanation": {
     "migration_owned_index": "34 explicit indexes from 0028, 0084, 0097, 0098, 0102, 0107, 0111. Performance and integrity additions are not bootstrap omissions.",
@@ -56,46 +50,6 @@
   "differences": [
     {
       "number": 1,
-      "classification": "preexisting_unmapped_legacy_schema",
-      "difference": [
-        "remove_index",
-        {
-          "expressions": [
-            "cutting_beika_material_usages.cutting_record_id"
-          ],
-          "index": "ix_cutting_beika_material_usages_cutting_record_id",
-          "options": {},
-          "table": "cutting_beika_material_usages",
-          "unique": false
-        }
-      ]
-    },
-    {
-      "number": 2,
-      "classification": "preexisting_unmapped_legacy_schema",
-      "difference": [
-        "remove_index",
-        {
-          "expressions": [
-            "cutting_beika_material_usages.stock_batch_id"
-          ],
-          "index": "ix_cutting_beika_material_usages_stock_batch_id",
-          "options": {},
-          "table": "cutting_beika_material_usages",
-          "unique": false
-        }
-      ]
-    },
-    {
-      "number": 3,
-      "classification": "preexisting_unmapped_legacy_schema",
-      "difference": [
-        "remove_table",
-        "cutting_beika_material_usages"
-      ]
-    },
-    {
-      "number": 4,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -112,7 +66,7 @@
       ]
     },
     {
-      "number": 5,
+      "number": 2,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -129,7 +83,7 @@
       ]
     },
     {
-      "number": 6,
+      "number": 3,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -149,59 +103,6 @@
     },
     {
       "number": 7,
-      "classification": "migration_owned_unique_constraint",
-      "difference": [
-        "remove_constraint",
-        {
-          "columns": [
-            "order_no"
-          ],
-          "constraint": "UniqueConstraint",
-          "name": "branded_planning_orders_order_no_key",
-          "table": "branded_planning_orders"
-        }
-      ]
-    },
-    {
-      "number": 8,
-      "classification": "preexisting_default_contract",
-      "difference": [
-        [
-          "modify_default",
-          null,
-          "collections",
-          "year",
-          {
-            "existing_comment": null,
-            "existing_nullable": false,
-            "existing_type": "INTEGER"
-          },
-          "2024",
-          null
-        ]
-      ]
-    },
-    {
-      "number": 9,
-      "classification": "preexisting_type_contract",
-      "difference": [
-        [
-          "modify_type",
-          null,
-          "cutting_passports",
-          "size_range",
-          {
-            "existing_comment": null,
-            "existing_nullable": true,
-            "existing_server_default": false
-          },
-          "VARCHAR(255)",
-          "VARCHAR(32)"
-        ]
-      ]
-    },
-    {
-      "number": 10,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -220,7 +121,7 @@
       ]
     },
     {
-      "number": 11,
+      "number": 8,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -239,7 +140,7 @@
       ]
     },
     {
-      "number": 12,
+      "number": 9,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -258,7 +159,7 @@
       ]
     },
     {
-      "number": 13,
+      "number": 10,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -277,7 +178,7 @@
       ]
     },
     {
-      "number": 14,
+      "number": 11,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -294,7 +195,7 @@
       ]
     },
     {
-      "number": 15,
+      "number": 12,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -313,26 +214,7 @@
       ]
     },
     {
-      "number": 16,
-      "classification": "preexisting_nullable_contract",
-      "difference": [
-        [
-          "modify_nullable",
-          null,
-          "finished_goods_stock",
-          "model_id",
-          {
-            "existing_comment": null,
-            "existing_server_default": false,
-            "existing_type": "INTEGER"
-          },
-          true,
-          false
-        ]
-      ]
-    },
-    {
-      "number": 17,
+      "number": 14,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -350,7 +232,7 @@
       ]
     },
     {
-      "number": 18,
+      "number": 15,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -366,7 +248,7 @@
       ]
     },
     {
-      "number": 19,
+      "number": 16,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -385,119 +267,7 @@
       ]
     },
     {
-      "number": 20,
-      "classification": "preexisting_missing_hr_index",
-      "difference": [
-        "add_index",
-        {
-          "expressions": [
-            "hr_calendar_events.employee_id"
-          ],
-          "index": "ix_hr_calendar_events_employee_id",
-          "options": {},
-          "table": "hr_calendar_events",
-          "unique": false
-        }
-      ]
-    },
-    {
-      "number": 21,
-      "classification": "preexisting_missing_hr_index",
-      "difference": [
-        "add_index",
-        {
-          "expressions": [
-            "hr_calendar_events.event_type"
-          ],
-          "index": "ix_hr_calendar_events_event_type",
-          "options": {},
-          "table": "hr_calendar_events",
-          "unique": false
-        }
-      ]
-    },
-    {
-      "number": 22,
-      "classification": "preexisting_missing_hr_index",
-      "difference": [
-        "add_index",
-        {
-          "expressions": [
-            "hr_employee_documents.category"
-          ],
-          "index": "ix_hr_employee_documents_category",
-          "options": {},
-          "table": "hr_employee_documents",
-          "unique": false
-        }
-      ]
-    },
-    {
-      "number": 23,
-      "classification": "preexisting_missing_hr_index",
-      "difference": [
-        "add_index",
-        {
-          "expressions": [
-            "hr_org_units.department_id"
-          ],
-          "index": "ix_hr_org_units_department_id",
-          "options": {},
-          "table": "hr_org_units",
-          "unique": false
-        }
-      ]
-    },
-    {
       "number": 24,
-      "classification": "preexisting_missing_hr_index",
-      "difference": [
-        "add_index",
-        {
-          "expressions": [
-            "hr_org_units.manager_employee_id"
-          ],
-          "index": "ix_hr_org_units_manager_employee_id",
-          "options": {},
-          "table": "hr_org_units",
-          "unique": false
-        }
-      ]
-    },
-    {
-      "number": 25,
-      "classification": "preexisting_missing_hr_index",
-      "difference": [
-        "add_index",
-        {
-          "expressions": [
-            "hr_positions.department_id"
-          ],
-          "index": "ix_hr_positions_department_id",
-          "options": {},
-          "table": "hr_positions",
-          "unique": false
-        }
-      ]
-    },
-    {
-      "number": 26,
-      "classification": "preexisting_missing_hr_index",
-      "difference": [
-        "add_index",
-        {
-          "expressions": [
-            "hr_positions.org_unit_id"
-          ],
-          "index": "ix_hr_positions_org_unit_id",
-          "options": {},
-          "table": "hr_positions",
-          "unique": false
-        }
-      ]
-    },
-    {
-      "number": 27,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -516,39 +286,7 @@
       ]
     },
     {
-      "number": 28,
-      "classification": "preexisting_missing_hr_index",
-      "difference": [
-        "add_index",
-        {
-          "expressions": [
-            "hr_recruitment_candidates.position_id"
-          ],
-          "index": "ix_hr_recruitment_candidates_position_id",
-          "options": {},
-          "table": "hr_recruitment_candidates",
-          "unique": false
-        }
-      ]
-    },
-    {
-      "number": 29,
-      "classification": "preexisting_missing_hr_index",
-      "difference": [
-        "add_index",
-        {
-          "expressions": [
-            "hr_recruitment_candidates.stage"
-          ],
-          "index": "ix_hr_recruitment_candidates_stage",
-          "options": {},
-          "table": "hr_recruitment_candidates",
-          "unique": false
-        }
-      ]
-    },
-    {
-      "number": 30,
+      "number": 27,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -567,7 +305,7 @@
       ]
     },
     {
-      "number": 31,
+      "number": 28,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -583,7 +321,7 @@
       ]
     },
     {
-      "number": 32,
+      "number": 29,
       "classification": "migration_owned_unique_constraint",
       "difference": [
         "remove_constraint",
@@ -599,7 +337,7 @@
       ]
     },
     {
-      "number": 33,
+      "number": 30,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -618,7 +356,7 @@
       ]
     },
     {
-      "number": 34,
+      "number": 31,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -637,7 +375,7 @@
       ]
     },
     {
-      "number": 35,
+      "number": 32,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -656,7 +394,7 @@
       ]
     },
     {
-      "number": 36,
+      "number": 33,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -675,7 +413,7 @@
       ]
     },
     {
-      "number": 37,
+      "number": 34,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -694,7 +432,7 @@
       ]
     },
     {
-      "number": 38,
+      "number": 35,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -713,22 +451,7 @@
       ]
     },
     {
-      "number": 39,
-      "classification": "migration_owned_unique_constraint",
-      "difference": [
-        "remove_constraint",
-        {
-          "columns": [
-            "reservation_no"
-          ],
-          "constraint": "UniqueConstraint",
-          "name": "uq_material_reservations_reservation_no",
-          "table": "material_reservations"
-        }
-      ]
-    },
-    {
-      "number": 40,
+      "number": 37,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -745,7 +468,7 @@
       ]
     },
     {
-      "number": 41,
+      "number": 38,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -763,7 +486,7 @@
       ]
     },
     {
-      "number": 42,
+      "number": 39,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -780,7 +503,7 @@
       ]
     },
     {
-      "number": 43,
+      "number": 40,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -797,7 +520,7 @@
       ]
     },
     {
-      "number": 44,
+      "number": 41,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -814,7 +537,7 @@
       ]
     },
     {
-      "number": 45,
+      "number": 42,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -833,7 +556,7 @@
       ]
     },
     {
-      "number": 46,
+      "number": 43,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -851,7 +574,7 @@
       ]
     },
     {
-      "number": 47,
+      "number": 44,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -871,65 +594,6 @@
     },
     {
       "number": 48,
-      "classification": "preexisting_fk_contract",
-      "difference": [
-        "remove_fk",
-        {
-          "columns": [
-            "package_id"
-          ],
-          "constraint": "ForeignKeyConstraint",
-          "name": "package_barcode_aliases_package_id_fkey",
-          "ondelete": "CASCADE",
-          "onupdate": null,
-          "table": "package_barcode_aliases",
-          "targets": [
-            "packages.id"
-          ]
-        }
-      ]
-    },
-    {
-      "number": 49,
-      "classification": "preexisting_fk_contract",
-      "difference": [
-        "add_fk",
-        {
-          "columns": [
-            "package_id"
-          ],
-          "constraint": "ForeignKeyConstraint",
-          "name": null,
-          "ondelete": null,
-          "onupdate": null,
-          "table": "package_barcode_aliases",
-          "targets": [
-            "packages.id"
-          ]
-        }
-      ]
-    },
-    {
-      "number": 50,
-      "classification": "preexisting_nullable_contract",
-      "difference": [
-        [
-          "modify_nullable",
-          null,
-          "package_items",
-          "model_id",
-          {
-            "existing_comment": null,
-            "existing_server_default": false,
-            "existing_type": "INTEGER"
-          },
-          true,
-          false
-        ]
-      ]
-    },
-    {
-      "number": 51,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -946,7 +610,7 @@
       ]
     },
     {
-      "number": 52,
+      "number": 49,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -965,26 +629,7 @@
       ]
     },
     {
-      "number": 53,
-      "classification": "preexisting_nullable_contract",
-      "difference": [
-        [
-          "modify_nullable",
-          null,
-          "packages",
-          "model_id",
-          {
-            "existing_comment": null,
-            "existing_server_default": false,
-            "existing_type": "INTEGER"
-          },
-          true,
-          false
-        ]
-      ]
-    },
-    {
-      "number": 54,
+      "number": 51,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -1002,7 +647,7 @@
       ]
     },
     {
-      "number": 55,
+      "number": 52,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -1019,7 +664,7 @@
       ]
     },
     {
-      "number": 56,
+      "number": 53,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -1036,7 +681,7 @@
       ]
     },
     {
-      "number": 57,
+      "number": 54,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -1053,7 +698,7 @@
       ]
     },
     {
-      "number": 58,
+      "number": 55,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -1071,7 +716,7 @@
       ]
     },
     {
-      "number": 59,
+      "number": 56,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1090,7 +735,7 @@
       ]
     },
     {
-      "number": 60,
+      "number": 57,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -1107,7 +752,7 @@
       ]
     },
     {
-      "number": 61,
+      "number": 58,
       "classification": "migration_owned_unique_constraint",
       "difference": [
         "remove_constraint",
@@ -1123,7 +768,7 @@
       ]
     },
     {
-      "number": 62,
+      "number": 59,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1142,7 +787,7 @@
       ]
     },
     {
-      "number": 63,
+      "number": 60,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1161,7 +806,7 @@
       ]
     },
     {
-      "number": 64,
+      "number": 61,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1180,7 +825,7 @@
       ]
     },
     {
-      "number": 65,
+      "number": 62,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1199,7 +844,7 @@
       ]
     },
     {
-      "number": 66,
+      "number": 63,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1218,7 +863,7 @@
       ]
     },
     {
-      "number": 67,
+      "number": 64,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1237,7 +882,7 @@
       ]
     },
     {
-      "number": 68,
+      "number": 65,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1256,7 +901,7 @@
       ]
     },
     {
-      "number": 69,
+      "number": 66,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1275,7 +920,7 @@
       ]
     },
     {
-      "number": 70,
+      "number": 67,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1294,7 +939,7 @@
       ]
     },
     {
-      "number": 71,
+      "number": 68,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1313,7 +958,7 @@
       ]
     },
     {
-      "number": 72,
+      "number": 69,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1332,7 +977,7 @@
       ]
     },
     {
-      "number": 73,
+      "number": 70,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1351,7 +996,7 @@
       ]
     },
     {
-      "number": 74,
+      "number": 71,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1370,7 +1015,7 @@
       ]
     },
     {
-      "number": 75,
+      "number": 72,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1389,7 +1034,7 @@
       ]
     },
     {
-      "number": 76,
+      "number": 73,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1408,7 +1053,7 @@
       ]
     },
     {
-      "number": 77,
+      "number": 74,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1427,7 +1072,7 @@
       ]
     },
     {
-      "number": 78,
+      "number": 75,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -1444,7 +1089,7 @@
       ]
     },
     {
-      "number": 79,
+      "number": 76,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -1461,7 +1106,7 @@
       ]
     },
     {
-      "number": 80,
+      "number": 77,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -1478,7 +1123,7 @@
       ]
     },
     {
-      "number": 81,
+      "number": 78,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1497,7 +1142,7 @@
       ]
     },
     {
-      "number": 82,
+      "number": 79,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1516,7 +1161,7 @@
       ]
     },
     {
-      "number": 83,
+      "number": 80,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1535,7 +1180,7 @@
       ]
     },
     {
-      "number": 84,
+      "number": 81,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1554,7 +1199,7 @@
       ]
     },
     {
-      "number": 85,
+      "number": 82,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1573,7 +1218,7 @@
       ]
     },
     {
-      "number": 86,
+      "number": 83,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1592,7 +1237,7 @@
       ]
     },
     {
-      "number": 87,
+      "number": 84,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1611,7 +1256,7 @@
       ]
     },
     {
-      "number": 88,
+      "number": 85,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1630,7 +1275,7 @@
       ]
     },
     {
-      "number": 89,
+      "number": 86,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1649,107 +1294,7 @@
       ]
     },
     {
-      "number": 90,
-      "classification": "preexisting_nullable_contract",
-      "difference": [
-        [
-          "modify_nullable",
-          null,
-          "sales_order_items",
-          "model_id",
-          {
-            "existing_comment": null,
-            "existing_server_default": false,
-            "existing_type": "INTEGER"
-          },
-          true,
-          false
-        ]
-      ]
-    },
-    {
-      "number": 91,
-      "classification": "preexisting_unmapped_legacy_schema",
-      "difference": [
-        "remove_index",
-        {
-          "expressions": [
-            "sales_order_items.finished_goods_stock_id"
-          ],
-          "index": "ix_sales_order_items_finished_goods_stock_id",
-          "options": {},
-          "table": "sales_order_items",
-          "unique": false
-        }
-      ]
-    },
-    {
-      "number": 92,
-      "classification": "preexisting_unmapped_legacy_schema",
-      "difference": [
-        "remove_fk",
-        {
-          "columns": [
-            "finished_goods_stock_id"
-          ],
-          "constraint": "ForeignKeyConstraint",
-          "name": "fk_sales_order_items_finished_goods_stock_id",
-          "ondelete": null,
-          "onupdate": null,
-          "table": "sales_order_items",
-          "targets": [
-            "finished_goods_stock.id"
-          ]
-        }
-      ]
-    },
-    {
-      "number": 93,
-      "classification": "preexisting_unmapped_legacy_schema",
-      "difference": [
-        "remove_column",
-        null,
-        "sales_order_items",
-        {
-          "column": "finished_goods_stock_id",
-          "default": null,
-          "nullable": true,
-          "type": "INTEGER"
-        }
-      ]
-    },
-    {
-      "number": 94,
-      "classification": "preexisting_unmapped_legacy_schema",
-      "difference": [
-        "remove_column",
-        null,
-        "sales_order_items",
-        {
-          "column": "source_model_name",
-          "default": null,
-          "nullable": true,
-          "type": "VARCHAR(255)"
-        }
-      ]
-    },
-    {
-      "number": 95,
-      "classification": "preexisting_unmapped_legacy_schema",
-      "difference": [
-        "remove_column",
-        null,
-        "sales_order_items",
-        {
-          "column": "source_model_code",
-          "default": null,
-          "nullable": true,
-          "type": "VARCHAR(64)"
-        }
-      ]
-    },
-    {
-      "number": 96,
+      "number": 87,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1768,7 +1313,7 @@
       ]
     },
     {
-      "number": 97,
+      "number": 88,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -1785,7 +1330,7 @@
       ]
     },
     {
-      "number": 98,
+      "number": 89,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1804,7 +1349,7 @@
       ]
     },
     {
-      "number": 99,
+      "number": 90,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1823,7 +1368,7 @@
       ]
     },
     {
-      "number": 100,
+      "number": 91,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -1842,7 +1387,7 @@
       ]
     },
     {
-      "number": 101,
+      "number": 92,
       "classification": "equivalent_index_name",
       "difference": [
         "remove_index",
@@ -1858,7 +1403,7 @@
       ]
     },
     {
-      "number": 102,
+      "number": 93,
       "classification": "equivalent_index_name",
       "difference": [
         "remove_index",
@@ -1874,7 +1419,7 @@
       ]
     },
     {
-      "number": 103,
+      "number": 94,
       "classification": "equivalent_index_name",
       "difference": [
         "remove_index",
@@ -1890,7 +1435,7 @@
       ]
     },
     {
-      "number": 104,
+      "number": 95,
       "classification": "equivalent_index_name",
       "difference": [
         "remove_index",
@@ -1906,7 +1451,7 @@
       ]
     },
     {
-      "number": 105,
+      "number": 96,
       "classification": "equivalent_index_name",
       "difference": [
         "remove_index",
@@ -1922,7 +1467,7 @@
       ]
     },
     {
-      "number": 106,
+      "number": 97,
       "classification": "equivalent_index_name",
       "difference": [
         "add_index",
@@ -1938,7 +1483,7 @@
       ]
     },
     {
-      "number": 107,
+      "number": 98,
       "classification": "equivalent_index_name",
       "difference": [
         "add_index",
@@ -1954,7 +1499,7 @@
       ]
     },
     {
-      "number": 108,
+      "number": 99,
       "classification": "equivalent_index_name",
       "difference": [
         "add_index",
@@ -1970,7 +1515,7 @@
       ]
     },
     {
-      "number": 109,
+      "number": 100,
       "classification": "equivalent_index_name",
       "difference": [
         "add_index",
@@ -1986,7 +1531,7 @@
       ]
     },
     {
-      "number": 110,
+      "number": 101,
       "classification": "equivalent_index_name",
       "difference": [
         "add_index",
@@ -2002,87 +1547,7 @@
       ]
     },
     {
-      "number": 111,
-      "classification": "preexisting_unmapped_legacy_schema",
-      "difference": [
-        "remove_fk",
-        {
-          "columns": [
-            "accepted_defect_by"
-          ],
-          "constraint": "ForeignKeyConstraint",
-          "name": "fk_sewing_replacements_accepted_defect_by_users",
-          "ondelete": null,
-          "onupdate": null,
-          "table": "sewing_replacement_requests",
-          "targets": [
-            "users.id"
-          ]
-        }
-      ]
-    },
-    {
-      "number": 112,
-      "classification": "preexisting_unmapped_legacy_schema",
-      "difference": [
-        "remove_column",
-        null,
-        "sewing_replacement_requests",
-        {
-          "column": "accepted_defect_by",
-          "default": null,
-          "nullable": true,
-          "type": "INTEGER"
-        }
-      ]
-    },
-    {
-      "number": 113,
-      "classification": "preexisting_unmapped_legacy_schema",
-      "difference": [
-        "remove_column",
-        null,
-        "sewing_replacement_requests",
-        {
-          "column": "accepted_defect_reason",
-          "default": null,
-          "nullable": true,
-          "type": "VARCHAR(64)"
-        }
-      ]
-    },
-    {
-      "number": 114,
-      "classification": "preexisting_unmapped_legacy_schema",
-      "difference": [
-        "remove_column",
-        null,
-        "sewing_replacement_requests",
-        {
-          "column": "accepted_defect_at",
-          "default": null,
-          "nullable": true,
-          "type": "TIMESTAMP"
-        }
-      ]
-    },
-    {
-      "number": 115,
-      "classification": "preexisting_unmapped_legacy_schema",
-      "difference": [
-        "remove_column",
-        null,
-        "sewing_replacement_requests",
-        {
-          "column": "accepted_defect_qty",
-          "default": "0",
-          "nullable": false,
-          "type": "INTEGER"
-        }
-      ]
-    },
-    {
-      "number": 116,
+      "number": 107,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -2099,7 +1564,7 @@
       ]
     },
     {
-      "number": 117,
+      "number": 108,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -2116,7 +1581,7 @@
       ]
     },
     {
-      "number": 118,
+      "number": 109,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -2133,7 +1598,7 @@
       ]
     },
     {
-      "number": 119,
+      "number": 110,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -2152,7 +1617,7 @@
       ]
     },
     {
-      "number": 120,
+      "number": 111,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -2169,7 +1634,7 @@
       ]
     },
     {
-      "number": 121,
+      "number": 112,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -2186,7 +1651,7 @@
       ]
     },
     {
-      "number": 122,
+      "number": 113,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -2203,7 +1668,7 @@
       ]
     },
     {
-      "number": 123,
+      "number": 114,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -2222,7 +1687,7 @@
       ]
     },
     {
-      "number": 124,
+      "number": 115,
       "classification": "matching_python_default",
       "difference": [
         [
@@ -2241,7 +1706,7 @@
       ]
     },
     {
-      "number": 125,
+      "number": 116,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -2258,7 +1723,7 @@
       ]
     },
     {
-      "number": 126,
+      "number": 117,
       "classification": "migration_owned_index",
       "difference": [
         "remove_index",
@@ -2285,13 +1750,14 @@
     ],
     "assertion_contract": "Compare the full normalized remaining differences to differences[].difference using canonical key ordering and top-level sorting. Any added, changed, duplicated, or disappearing difference fails until reviewed. Generated columns retain explicit existence, type and persisted-expression checks.",
     "counts": {
-      "raw_difference_entries": 128,
-      "reviewed_difference_entries": 126,
+      "raw_difference_entries": 119,
+      "reviewed_difference_entries": 117,
       "explicit_generated_columns": 2,
       "explained_migration_owned_or_representation_entries": 98,
-      "unresolved_preexisting_drift_entries": 30
+      "unresolved_preexisting_drift_entries": 21,
+      "snapshot_scope": "Historical DB04 and Beyka snapshot before Ismail completion; see completion_counts for current baseline"
     },
-    "unresolved_followup": "DB08: review the 30 pre-existing ORM/schema drift entries as one tracked risk; this DB04 change neither fixes nor silently suppresses them.",
+    "unresolved_followup": "The 21 outstanding DB08 entries and two DB06 constraint differences are now resolved on the completion branch; exact removed entries remain in resolved_by_ismail_completion. Production application and catalog verification remain pending.",
     "non_claims": [
       "Not exact ORM/database parity.",
       "Not a business-schema redesign or repair of existing drift.",
@@ -2305,6 +1771,563 @@
       "cleanup": "Disposable PostgreSQL runner confirmed its temporary cluster stopped after both tests.",
       "lint": "Ruff passed for all three owned Python files.",
       "production": "Not accessed or changed. Only disposable loopback PostgreSQL schemas and synthetic rows were used."
+    },
+    "completion_counts": {
+      "reviewed_difference_entries": 94,
+      "removed_entries": 23,
+      "unresolved_db08_entries": 0,
+      "global_orm_parity_claimed": false
     }
+  },
+  "resolved_by_db08": {
+    "commit": "187933b9",
+    "reason": "Migration 0071_model_less_legacy_sales is shipped and already applied, so it is the schema source of truth for sales_order_items. The ORM described the pre-0071 shape; 187933b9 aligns model_id nullability, finished_goods_stock_id with its named FK and index, source_model_code, source_model_name, and the ck_sales_order_items_product_reference CHECK that Alembic autogenerate does not compare.",
+    "removed_entries": [
+      {
+        "former_number": 90,
+        "classification": "preexisting_nullable_contract",
+        "difference": [
+          [
+            "modify_nullable",
+            null,
+            "sales_order_items",
+            "model_id",
+            {
+              "existing_comment": null,
+              "existing_server_default": false,
+              "existing_type": "INTEGER"
+            },
+            true,
+            false
+          ]
+        ]
+      },
+      {
+        "former_number": 91,
+        "classification": "preexisting_unmapped_legacy_schema",
+        "difference": [
+          "remove_index",
+          {
+            "expressions": [
+              "sales_order_items.finished_goods_stock_id"
+            ],
+            "index": "ix_sales_order_items_finished_goods_stock_id",
+            "options": {},
+            "table": "sales_order_items",
+            "unique": false
+          }
+        ]
+      },
+      {
+        "former_number": 92,
+        "classification": "preexisting_unmapped_legacy_schema",
+        "difference": [
+          "remove_fk",
+          {
+            "columns": [
+              "finished_goods_stock_id"
+            ],
+            "constraint": "ForeignKeyConstraint",
+            "name": "fk_sales_order_items_finished_goods_stock_id",
+            "ondelete": null,
+            "onupdate": null,
+            "table": "sales_order_items",
+            "targets": [
+              "finished_goods_stock.id"
+            ]
+          }
+        ]
+      },
+      {
+        "former_number": 93,
+        "classification": "preexisting_unmapped_legacy_schema",
+        "difference": [
+          "remove_column",
+          null,
+          "sales_order_items",
+          {
+            "column": "finished_goods_stock_id",
+            "default": null,
+            "nullable": true,
+            "type": "INTEGER"
+          }
+        ]
+      },
+      {
+        "former_number": 94,
+        "classification": "preexisting_unmapped_legacy_schema",
+        "difference": [
+          "remove_column",
+          null,
+          "sales_order_items",
+          {
+            "column": "source_model_name",
+            "default": null,
+            "nullable": true,
+            "type": "VARCHAR(255)"
+          }
+        ]
+      },
+      {
+        "former_number": 95,
+        "classification": "preexisting_unmapped_legacy_schema",
+        "difference": [
+          "remove_column",
+          null,
+          "sales_order_items",
+          {
+            "column": "source_model_code",
+            "default": null,
+            "nullable": true,
+            "type": "VARCHAR(64)"
+          }
+        ]
+      }
+    ],
+    "verification": "Post-fix rerun of the real migration chain on PostgreSQL reports exactly these six differences gone and adds none. Baseline edited deliberately, not regenerated.",
+    "still_unresolved": "At this historical sales-alignment checkpoint, 21 entries remained. They are now preserved verbatim in resolved_by_ismail_completion; 94 accepted normalized differences remain globally."
+  },
+  "resolved_by_db08_beyka": {
+    "commit": "25192d17",
+    "reason": "Migration 0076 created cutting_beika_material_usages but no ORM class or relationship was ever added, so the table read as 'remove_table' drift with both its indexes. Adding CuttingBeikaMaterialUsage and the CuttingRecord.beika_materials relationship removed exactly those three entries and introduced none. Verified by a fresh migration bootstrap on PostgreSQL 17.11: 3 disappeared, 0 appeared.",
+    "removed_entries": [
+      {
+        "number": 1,
+        "classification": "preexisting_unmapped_legacy_schema",
+        "difference": [
+          "remove_index",
+          {
+            "expressions": [
+              "cutting_beika_material_usages.cutting_record_id"
+            ],
+            "index": "ix_cutting_beika_material_usages_cutting_record_id",
+            "options": {},
+            "table": "cutting_beika_material_usages",
+            "unique": false
+          }
+        ]
+      },
+      {
+        "number": 2,
+        "classification": "preexisting_unmapped_legacy_schema",
+        "difference": [
+          "remove_index",
+          {
+            "expressions": [
+              "cutting_beika_material_usages.stock_batch_id"
+            ],
+            "index": "ix_cutting_beika_material_usages_stock_batch_id",
+            "options": {},
+            "table": "cutting_beika_material_usages",
+            "unique": false
+          }
+        ]
+      },
+      {
+        "number": 3,
+        "classification": "preexisting_unmapped_legacy_schema",
+        "difference": [
+          "remove_table",
+          "cutting_beika_material_usages"
+        ]
+      }
+    ],
+    "verification": "Alembic autogenerate against a database built by running the full migration chain, compared entry by entry against this baseline. Only the three entries listed here disappeared; nothing was added, changed or reclassified.",
+    "still_unresolved": "Not a claim of ORM parity. The remaining 21 entries are untouched."
+  },
+  "resolved_by_ismail_completion": {
+    "count": 23,
+    "reason": "ORM aligns with 21 shipped DB08 contracts plus both duplicate unique constraint/index pairs. Forward 0138 creates nine declared HR indexes and verifies/removes two redundant unique indexes plus five equivalent FKs. Historical revisions unchanged.",
+    "differences": [
+      {
+        "number": 5,
+        "classification": "preexisting_default_contract",
+        "difference": [
+          [
+            "modify_default",
+            null,
+            "collections",
+            "year",
+            {
+              "existing_comment": null,
+              "existing_nullable": false,
+              "existing_type": "INTEGER"
+            },
+            "2024",
+            null
+          ]
+        ]
+      },
+      {
+        "number": 6,
+        "classification": "preexisting_type_contract",
+        "difference": [
+          [
+            "modify_type",
+            null,
+            "cutting_passports",
+            "size_range",
+            {
+              "existing_comment": null,
+              "existing_nullable": true,
+              "existing_server_default": false
+            },
+            "VARCHAR(255)",
+            "VARCHAR(32)"
+          ]
+        ]
+      },
+      {
+        "number": 13,
+        "classification": "preexisting_nullable_contract",
+        "difference": [
+          [
+            "modify_nullable",
+            null,
+            "finished_goods_stock",
+            "model_id",
+            {
+              "existing_comment": null,
+              "existing_server_default": false,
+              "existing_type": "INTEGER"
+            },
+            true,
+            false
+          ]
+        ]
+      },
+      {
+        "number": 17,
+        "classification": "preexisting_missing_hr_index",
+        "difference": [
+          "add_index",
+          {
+            "expressions": [
+              "hr_calendar_events.employee_id"
+            ],
+            "index": "ix_hr_calendar_events_employee_id",
+            "options": {},
+            "table": "hr_calendar_events",
+            "unique": false
+          }
+        ]
+      },
+      {
+        "number": 18,
+        "classification": "preexisting_missing_hr_index",
+        "difference": [
+          "add_index",
+          {
+            "expressions": [
+              "hr_calendar_events.event_type"
+            ],
+            "index": "ix_hr_calendar_events_event_type",
+            "options": {},
+            "table": "hr_calendar_events",
+            "unique": false
+          }
+        ]
+      },
+      {
+        "number": 19,
+        "classification": "preexisting_missing_hr_index",
+        "difference": [
+          "add_index",
+          {
+            "expressions": [
+              "hr_employee_documents.category"
+            ],
+            "index": "ix_hr_employee_documents_category",
+            "options": {},
+            "table": "hr_employee_documents",
+            "unique": false
+          }
+        ]
+      },
+      {
+        "number": 20,
+        "classification": "preexisting_missing_hr_index",
+        "difference": [
+          "add_index",
+          {
+            "expressions": [
+              "hr_org_units.department_id"
+            ],
+            "index": "ix_hr_org_units_department_id",
+            "options": {},
+            "table": "hr_org_units",
+            "unique": false
+          }
+        ]
+      },
+      {
+        "number": 21,
+        "classification": "preexisting_missing_hr_index",
+        "difference": [
+          "add_index",
+          {
+            "expressions": [
+              "hr_org_units.manager_employee_id"
+            ],
+            "index": "ix_hr_org_units_manager_employee_id",
+            "options": {},
+            "table": "hr_org_units",
+            "unique": false
+          }
+        ]
+      },
+      {
+        "number": 22,
+        "classification": "preexisting_missing_hr_index",
+        "difference": [
+          "add_index",
+          {
+            "expressions": [
+              "hr_positions.department_id"
+            ],
+            "index": "ix_hr_positions_department_id",
+            "options": {},
+            "table": "hr_positions",
+            "unique": false
+          }
+        ]
+      },
+      {
+        "number": 23,
+        "classification": "preexisting_missing_hr_index",
+        "difference": [
+          "add_index",
+          {
+            "expressions": [
+              "hr_positions.org_unit_id"
+            ],
+            "index": "ix_hr_positions_org_unit_id",
+            "options": {},
+            "table": "hr_positions",
+            "unique": false
+          }
+        ]
+      },
+      {
+        "number": 25,
+        "classification": "preexisting_missing_hr_index",
+        "difference": [
+          "add_index",
+          {
+            "expressions": [
+              "hr_recruitment_candidates.position_id"
+            ],
+            "index": "ix_hr_recruitment_candidates_position_id",
+            "options": {},
+            "table": "hr_recruitment_candidates",
+            "unique": false
+          }
+        ]
+      },
+      {
+        "number": 26,
+        "classification": "preexisting_missing_hr_index",
+        "difference": [
+          "add_index",
+          {
+            "expressions": [
+              "hr_recruitment_candidates.stage"
+            ],
+            "index": "ix_hr_recruitment_candidates_stage",
+            "options": {},
+            "table": "hr_recruitment_candidates",
+            "unique": false
+          }
+        ]
+      },
+      {
+        "number": 36,
+        "classification": "migration_owned_unique_constraint",
+        "difference": [
+          "remove_constraint",
+          {
+            "columns": [
+              "reservation_no"
+            ],
+            "constraint": "UniqueConstraint",
+            "name": "uq_material_reservations_reservation_no",
+            "table": "material_reservations"
+          }
+        ]
+      },
+      {
+        "number": 45,
+        "classification": "preexisting_fk_contract",
+        "difference": [
+          "remove_fk",
+          {
+            "columns": [
+              "package_id"
+            ],
+            "constraint": "ForeignKeyConstraint",
+            "name": "package_barcode_aliases_package_id_fkey",
+            "ondelete": "CASCADE",
+            "onupdate": null,
+            "table": "package_barcode_aliases",
+            "targets": [
+              "packages.id"
+            ]
+          }
+        ]
+      },
+      {
+        "number": 46,
+        "classification": "preexisting_fk_contract",
+        "difference": [
+          "add_fk",
+          {
+            "columns": [
+              "package_id"
+            ],
+            "constraint": "ForeignKeyConstraint",
+            "name": null,
+            "ondelete": null,
+            "onupdate": null,
+            "table": "package_barcode_aliases",
+            "targets": [
+              "packages.id"
+            ]
+          }
+        ]
+      },
+      {
+        "number": 47,
+        "classification": "preexisting_nullable_contract",
+        "difference": [
+          [
+            "modify_nullable",
+            null,
+            "package_items",
+            "model_id",
+            {
+              "existing_comment": null,
+              "existing_server_default": false,
+              "existing_type": "INTEGER"
+            },
+            true,
+            false
+          ]
+        ]
+      },
+      {
+        "number": 50,
+        "classification": "preexisting_nullable_contract",
+        "difference": [
+          [
+            "modify_nullable",
+            null,
+            "packages",
+            "model_id",
+            {
+              "existing_comment": null,
+              "existing_server_default": false,
+              "existing_type": "INTEGER"
+            },
+            true,
+            false
+          ]
+        ]
+      },
+      {
+        "number": 102,
+        "classification": "preexisting_unmapped_legacy_schema",
+        "difference": [
+          "remove_fk",
+          {
+            "columns": [
+              "accepted_defect_by"
+            ],
+            "constraint": "ForeignKeyConstraint",
+            "name": "fk_sewing_replacements_accepted_defect_by_users",
+            "ondelete": null,
+            "onupdate": null,
+            "table": "sewing_replacement_requests",
+            "targets": [
+              "users.id"
+            ]
+          }
+        ]
+      },
+      {
+        "number": 103,
+        "classification": "preexisting_unmapped_legacy_schema",
+        "difference": [
+          "remove_column",
+          null,
+          "sewing_replacement_requests",
+          {
+            "column": "accepted_defect_by",
+            "default": null,
+            "nullable": true,
+            "type": "INTEGER"
+          }
+        ]
+      },
+      {
+        "number": 104,
+        "classification": "preexisting_unmapped_legacy_schema",
+        "difference": [
+          "remove_column",
+          null,
+          "sewing_replacement_requests",
+          {
+            "column": "accepted_defect_reason",
+            "default": null,
+            "nullable": true,
+            "type": "VARCHAR(64)"
+          }
+        ]
+      },
+      {
+        "number": 105,
+        "classification": "preexisting_unmapped_legacy_schema",
+        "difference": [
+          "remove_column",
+          null,
+          "sewing_replacement_requests",
+          {
+            "column": "accepted_defect_at",
+            "default": null,
+            "nullable": true,
+            "type": "TIMESTAMP"
+          }
+        ]
+      },
+      {
+        "number": 106,
+        "classification": "preexisting_unmapped_legacy_schema",
+        "difference": [
+          "remove_column",
+          null,
+          "sewing_replacement_requests",
+          {
+            "column": "accepted_defect_qty",
+            "default": "0",
+            "nullable": false,
+            "type": "INTEGER"
+          }
+        ]
+      },
+      {
+        "number": 4,
+        "classification": "migration_owned_unique_constraint",
+        "difference": [
+          "remove_constraint",
+          {
+            "columns": [
+              "order_no"
+            ],
+            "constraint": "UniqueConstraint",
+            "name": "branded_planning_orders_order_no_key",
+            "table": "branded_planning_orders"
+          }
+        ]
+      }
+    ]
   }
 }

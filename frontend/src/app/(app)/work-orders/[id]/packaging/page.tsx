@@ -2,10 +2,11 @@
 import { localizeError } from "@/lib/errorMessages";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
 import { api, fetcher } from "@/lib/api";
 import { formatBatchLabel, formatBatchSerial } from "@/lib/batchSerial";
 import FirstGradePackaging from "@/components/FirstGradePackaging";
+import UslugaPackaging from "@/components/UslugaPackaging";
 import PackageQrSection from "@/components/PackageQrSection";
 import { postPackageWorkflow, type PackagePrintRun } from "@/lib/packageWorkflow";
 import PageHeader from "@/components/PageHeader";
@@ -83,6 +84,7 @@ export default function PackagingPage() {
   const { me } = useMe();
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
+  const { mutate: mutateCache } = useSWRConfig();
   const { data: wo, mutate: mutateWo } = useSWR<any>(`/api/work-orders/${id}`, fetcher);
   const { data: po, mutate: mutatePo } = useSWR<any>(wo ? `/api/production-orders/${wo.production_order_id}` : null, fetcher);
   const { data: batchProgress, mutate: mutateBatchProgress } = useSWR<any>(
@@ -90,7 +92,7 @@ export default function PackagingPage() {
     fetcher,
   );
   const { data: so } = useSWR<any>(po?.sales_order_id ? `/api/sales-orders/${po.sales_order_id}` : null, fetcher);
-  const { data: model } = useSWR<any>(po?.model_id ? `/api/models/${po.model_id}` : null, fetcher);
+  const { data: model } = useSWR<any>(po?.model_id ? `/api/${po.source_type === "usluga" ? "usluga/" : ""}models/${po.model_id}` : null, fetcher);
   const { data: customers = [] } = useSWR<any[]>("/api/customers", fetcher);
   const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
 
@@ -140,51 +142,12 @@ export default function PackagingPage() {
     return Array.from(bySize.entries()).map(([size, planned_quantity]) => ({ size, planned_quantity }));
   }, [po?.items, color]);
 
-  const totalOrderColorQty = useMemo(
-    () => orderColorItems.reduce((s: number, it: any) => s + Number(it?.planned_quantity || 0), 0),
-    [orderColorItems],
-  );
-  const totalOrderQty = useMemo(
-    () => (po?.items || []).reduce((s: number, it: any) => s + Math.max(0, Number(it?.planned_quantity || 0)), 0),
-    [po?.items],
-  );
-
-  const packageableColorQty = useMemo(() => {
-    if (isAlreadyBatched && selectedBatchProgress) {
-      const hasPackageAccounting =
-        Number(selectedBatchProgress.packed_qty || 0) > 0 || Number(selectedBatchProgress.packaged_qty || 0) > 0;
-      if (hasPackageAccounting) {
-        return Math.max(0, Number(selectedBatchProgress.available_to_package ?? selectedBatchProgress.packed_qty ?? 0));
-      }
-    }
-    const packedQty = isAlreadyBatched
-      ? selectedBatchProgress
-        ? 0
-        : Number(rec.packed_qty || 0)
-      : Number(wo?.passed_qty || wo?.actual_output_qty || rec.packed_qty || 0);
-    if (packedQty > 0) return packedQty;
-
-    const stagePlannedQty = Math.max(
-      0,
-      Number(wo?.planned_output_qty || 0),
-      Number(po?.planned_quantity || 0),
-      totalOrderQty,
-    );
-    if (totalOrderQty > 0 && totalOrderColorQty > 0) {
-      return Math.max(totalOrderColorQty, Math.round((stagePlannedQty * totalOrderColorQty) / totalOrderQty));
-    }
-    return Math.max(totalOrderColorQty, stagePlannedQty);
-  }, [
-    isAlreadyBatched,
-    po?.planned_quantity,
-    rec.packed_qty,
-    selectedBatchProgress,
-    totalOrderColorQty,
-    totalOrderQty,
-    wo?.actual_output_qty,
-    wo?.passed_qty,
-    wo?.planned_output_qty,
-  ]);
+  const availableInputQty = Math.max(0, Number(
+    (isAlreadyBatched ? selectedBatchProgress : batchProgress)?.available_input_qty ?? 0,
+  ));
+  const packageableColorQty = Math.max(0, Number(
+    (isAlreadyBatched ? selectedBatchProgress : batchProgress)?.available_to_package ?? 0,
+  ));
 
   const colorOrderItems = useMemo(
     () => allocateDemandBySize(orderColorItems, packageableColorQty),
@@ -629,6 +592,13 @@ export default function PackagingPage() {
     production_order_id: wo?.production_order_id,
   }, `#${id}`);
 
+  if (po?.source_type === "usluga") return <div>
+    <PageHeader title={t("page.packaging.title", { id, orderNo })} />
+    <WorkOrderProductInfo t={t} so={so} po={po} wo={wo} model={model} customerName={po.service_customer_name}
+      statusText={wo ? statusLabel(wo.status, t) : "-"} compact />
+    <UslugaPackaging workOrderId={id} onSaved={refreshPackagingOutputs} />
+  </div>;
+
   return (
     <div>
       <PageHeader title={t("page.packaging.title", { id, orderNo })} subtitle={t("page.packaging.subtitle")} />
@@ -660,9 +630,9 @@ export default function PackagingPage() {
                   }}
                 >
                   <option value={0}>{t("batch.selectBatch")}</option>
-                  {(po?.batches || []).map((b: any) => (
+                  {batchItems.map((b: any) => (
                     <option key={b.id} value={b.id}>
-                      {formatBatchLabel(b, po?.id)} ({b.planned_quantity})
+                      {formatBatchLabel(b, po?.id)} ({b.sewing_output_qty})
                     </option>
                   ))}
                 </select>
@@ -670,11 +640,12 @@ export default function PackagingPage() {
             )}
             <div>
               <label className="label">{t("field.inputQty")}</label>
-              <input className="input" type="number" value={rec.input_qty} onChange={(e) => setRec({ ...rec, input_qty: parseNumberInput(e.target.value) })} />
+              <div className="text-xs text-slate-500">{t("field.available")}: {availableInputQty}</div>
+              <input className="input" type="number" min={0} max={availableInputQty} value={rec.input_qty} onChange={(e) => setRec({ ...rec, input_qty: parseNumberInput(e.target.value) })} />
             </div>
             <div>
               <label className="label">{t("field.output")}</label>
-              <input className="input" type="number" value={rec.packed_qty} onChange={(e) => setRec({ ...rec, packed_qty: parseNumberInput(e.target.value) })} />
+              <input className="input" type="number" min={0} max={Math.min(availableInputQty, numberOrZero(rec.input_qty))} value={rec.packed_qty} onChange={(e) => setRec({ ...rec, packed_qty: parseNumberInput(e.target.value) })} />
             </div>
             <div>
               <label className="label">{t("field.damaged")}</label>
@@ -699,7 +670,7 @@ export default function PackagingPage() {
                 <thead>
                   <tr>
                     <th>{t("field.batch")}</th>
-                    <th>{t("statusValue.planned")}</th>
+                    <th>{t("field.sewn")}</th>
                     <th>{t("field.packed")}</th>
                     <th>{t("field.damaged")}</th>
                     <th>{t("field.remaining")}</th>
@@ -713,10 +684,10 @@ export default function PackagingPage() {
                         <div className="font-medium">{formatBatchLabel(row, po?.id)}</div>
                         <div className="text-xs text-slate-500">{formatBatchSerial(row, po?.id)}</div>
                       </td>
-                      <td>{row.planned_quantity}</td>
+                      <td>{row.sewing_output_qty}</td>
                       <td>{row.packed_qty}</td>
                       <td>{row.damaged_qty}</td>
-                      <td>{row.remaining_quantity}</td>
+                      <td>{row.available_input_qty}</td>
                       <td>{row.progress_pct}%</td>
                     </tr>
                   ))}
@@ -979,7 +950,15 @@ export default function PackagingPage() {
         key={`${po?.id || "none"}-${packageQrRefreshKey}`}
         productionOrderId={po?.id}
         onChanged={async () => {
-          await Promise.all([mutateBatchProgress(), mutateWo()]);
+          const sizePath = `/api/packages/first-grade/size-entry/${po?.id}`;
+          await Promise.all([
+            mutateBatchProgress(), mutateWo(), mutatePo(),
+            mutateCache((key) => typeof key === "string" && (key === sizePath || key.startsWith(`${sizePath}?`))),
+          ]);
+          setRec((previous) => ({ ...previous, input_qty: "", packed_qty: "", damaged_qty: "" }));
+          setCopiesTouched(false);
+          setPkg(null);
+          setPkgNotice(null);
         }}
       />
 

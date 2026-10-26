@@ -1,7 +1,7 @@
 import os
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import field_validator
+from pydantic import Field, field_validator
 
 
 class Settings(BaseSettings):
@@ -56,11 +56,10 @@ class Settings(BaseSettings):
     BARCODE_STORAGE_DIR: str = "/app/storage/barcodes"
     MODEL_FILES_DIR: str = "/app/storage/model_files"
     SALES_ORDER_FILES_DIR: str = "/app/storage/sales_order_files"
-    INTEGRATION_1C_TOKEN: str = ""
-    INTEGRATION_1C_CLIENTS_JSON: str = ""
     ATTENDANCE_INTEGRATION_TOKEN: str = ""
     ATTENDANCE_INTEGRATION_FACTORY_CODE: str = "MIL"
     ATTENDANCE_PHOTOS_DIR: str = "/app/storage/attendance_photos"
+    ATTENDANCE_SOURCE_MAX_FUTURE_SECONDS: int = Field(default=300, ge=0, le=86400)
     ATTENDANCE_PHOTO_MAX_BYTES: int = 8 * 1024 * 1024
     HR_DOCUMENTS_DIR: str = "/app/storage/hr_documents"
     HR_DOCUMENT_MAX_BYTES: int = 20 * 1024 * 1024
@@ -131,15 +130,6 @@ class Settings(BaseSettings):
         return self.FILE_SIGNING_SECRET.strip() or self.JWT_SECRET.strip()
 
     def validate_runtime_security(self) -> None:
-        from app.core.integration_auth import parse_onec_client_credentials
-
-        try:
-            parse_onec_client_credentials(
-                self.INTEGRATION_1C_CLIENTS_JSON,
-                minimum_secret_length=32 if self.strict_security_required else 1,
-            )
-        except ValueError as exc:
-            raise RuntimeError(f"Invalid 1C integration client configuration: {exc}") from exc
         if not self.strict_security_required:
             return
         errors: list[str] = []

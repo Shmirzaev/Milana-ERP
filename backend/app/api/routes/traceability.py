@@ -6,9 +6,9 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from app.core.deps import DbSession, require_permissions
 from app.core.order_reference import resolve_order_id
-from app.services.bundles import find_bundle_by_scanned_code
-from app.models import Bundle, Package, ProductionBatch, ProductionOrder, Shipment
-from app.services.traceability import (
+from app.models.bundles_service import find_bundle_by_scanned_code
+from app.schemas import Bundle, Package, ProductionBatch, ProductionOrder, Shipment
+from app.models.traceability_service import (
     bundle_traceability,
     package_traceability,
     passport_html,

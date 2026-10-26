@@ -8,8 +8,9 @@ import { can, useMe } from "@/lib/auth";
 import { useDialogs } from "@/components/DialogProvider";
 import { mutate as mutateCache } from "swr";
 import { useState } from "react";
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 
-export default function PackagePrintRuns({ productionOrderId, refreshKey = 0 }: { productionOrderId?: number; refreshKey?: number }) {
+export default function PackagePrintRuns({ productionOrderId, refreshKey = 0, standalone = false }: { productionOrderId?: number; refreshKey?: number; standalone?: boolean }) {
   const { lang } = useT();
   const { me } = useMe();
   const dialogs = useDialogs();
@@ -20,15 +21,16 @@ export default function PackagePrintRuns({ productionOrderId, refreshKey = 0 }: 
   const path = `/api/packages/print-runs${productionOrderId ? `?production_order_id=${productionOrderId}` : ""}`;
   const { data, error, mutate } = useSWR<PackagePrintRun[]>([path, refreshKey], ([url]: [string, number]) => fetcher(url));
   const [printError, setPrintError] = useState("");
-  return <section className="mt-4 border-t pt-4">
-    <h3 className="mb-3 font-medium">{copy.runs}</h3>
+  return <section className={standalone ? "" : "mt-4 border-t pt-4"}>
+    {!standalone && <h3 className="mb-3 font-medium">{copy.runs}</h3>}
     {(error || printError) && <p role="alert" className="text-red-700">{printError || error.message}</p>}
     {!data && !error && <p>{copy.loading}</p>}
     {data?.length === 0 && <p>{copy.empty}</p>}
     {!!data?.length && <div className="overflow-x-auto"><table className="table text-sm"><thead><tr>
-      <th>{copy.runs}</th><th>{copy.packages}</th><th>{copy.pieces}</th><th>{copy.status}</th><th>{copy.reprint}</th>
+      <th>{copy.runs}</th><th>{copy.model}</th><th>{copy.packages}</th><th>{copy.pieces}</th><th>{copy.status}</th><th>{copy.reprint}</th>
     </tr></thead><tbody>{data.map(run => <tr key={run.id}>
       <td>{run.run_no}<div className="text-xs text-slate-500">{new Date(run.created_at).toLocaleString(lang)}</div></td>
+      <td>{run.model_codes?.length ? run.model_codes.map(code => <div key={code}>{formatModelVariantCode(code)}</div>) : "—"}</td>
       <td>{run.count}</td><td>{run.quantity}</td><td>{run.received_at ? copy.complete : copy.pending}</td>
       <td><button type="button" className="btn" onClick={async () => {
         setPrintError("");

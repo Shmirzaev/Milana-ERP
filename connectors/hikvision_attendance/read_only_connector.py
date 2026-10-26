@@ -471,15 +471,32 @@ class ErpMirror:
         response.raise_for_status()
         return response_json(response)
 
-    def people(self, device: dict[str, Any], people: list[dict[str, Any]]) -> dict[str, Any]:
+    def people(
+        self,
+        device: dict[str, Any],
+        people: list[dict[str, Any]],
+        *,
+        source_snapshot_at: datetime,
+    ) -> dict[str, Any]:
         return self.post_json("/api/attendance/integration/people", {
             "device": device,
             "people": people,
             "full_snapshot": True,
+            "source_snapshot_at": source_snapshot_at.isoformat(),
         })
 
-    def events(self, device: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, Any]:
-        return self.post_json("/api/attendance/integration/events", {"device": device, "events": events})
+    def events(
+        self,
+        device: dict[str, Any],
+        events: list[dict[str, Any]],
+        *,
+        source_snapshot_at: datetime,
+    ) -> dict[str, Any]:
+        return self.post_json("/api/attendance/integration/events", {
+            "device": device,
+            "events": events,
+            "source_snapshot_at": source_snapshot_at.isoformat(),
+        })
 
     def photo(self, device_key: str, person_id: str, data: bytes, content_type: str) -> dict[str, Any]:
         path = f"/api/attendance/integration/photos/{quote(device_key, safe='')}/{quote(person_id, safe='')}"
@@ -602,6 +619,7 @@ def chunks(values: list[dict[str, Any]], size: int) -> Iterable[list[dict[str, A
 
 
 def sync_people(config: Config, hik: ReadOnlyHikvision, erp: ErpMirror, state: dict[str, Any]) -> None:
+    source_snapshot_at = datetime.now(timezone.utc)
     info = hik.device_info()
     count = hik.person_count()
     raw_people = hik.people()
@@ -619,7 +637,7 @@ def sync_people(config: Config, hik: ReadOnlyHikvision, erp: ErpMirror, state: d
     if count is not None and count != len(people):
         raise RuntimeError(f"Device reported {count} people but search returned {len(people)}; snapshot was not uploaded")
     device = device_payload(config, info, count)
-    result = erp.people(device, people)
+    result = erp.people(device, people, source_snapshot_at=source_snapshot_at)
     log(f"People mirror: {result['received']} received, {result['created']} new, {result['updated']} updated")
 
     if not config.sync_photos:
@@ -689,7 +707,7 @@ def sync_events(config: Config, hik: ReadOnlyHikvision, erp: ErpMirror, state: d
         raw_events = hik.events(window_start, window_end)
         events = [normalized for raw in raw_events if (normalized := normalize_event(raw))]
         for batch in chunks(events, 1000):
-            result = erp.events(device, batch)
+            result = erp.events(device, batch, source_snapshot_at=now)
             inserted += int(result["inserted"])
             duplicates += int(result["duplicates"])
         received += len(events)
@@ -697,7 +715,7 @@ def sync_events(config: Config, hik: ReadOnlyHikvision, erp: ErpMirror, state: d
         save_state(Path(config.state_path), state)
         window_start = window_end
     if not received:
-        erp.events(device, [])
+        erp.events(device, [], source_snapshot_at=now)
     log(f"Event mirror: {received} received from device, {inserted} new, {duplicates} duplicates")
 
 

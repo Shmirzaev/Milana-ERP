@@ -3,7 +3,7 @@
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import Notification
+from app.schemas import Notification
 from app.tests.test_task_assignment_authorization import _actor
 
 

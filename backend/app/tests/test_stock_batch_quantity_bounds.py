@@ -3,7 +3,7 @@
 from uuid import uuid4
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, IdempotencyRecord, Item, StockBatch, StockMovement, Warehouse
+from app.schemas import AuditLog, IdempotencyRecord, Item, StockBatch, StockMovement, Warehouse
 
 
 def _receipt_payload(quantity):

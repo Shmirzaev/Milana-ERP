@@ -17,7 +17,7 @@ function rejectSource(fragment, message) {
 rejectSource("variant-fabric-item", "Variants form still renders a fabric/material chooser.");
 rejectSource("variantForm.fabric_item_id", "Variants form still stores a selectable fabric item.");
 rejectSource("payload.fabric_item_id", "Variants form still sends a variant-specific fabric item.");
-requireSource('id="variant-material-color"', "Variants form must retain the optional color field.");
+requireSource('<VariantColorSelect', "Variants form must retain the optional color field.");
 requireSource('id="variant-material-picture"', "Variants form must retain the optional image field.");
 rejectSource('readOnly={!editingVariantId}', "The auto-filled variant number must remain editable when creating a variant.");
 requireSource(

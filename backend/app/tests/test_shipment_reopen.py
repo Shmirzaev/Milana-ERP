@@ -4,10 +4,8 @@ import pytest
 from fastapi import HTTPException
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, FinishedGoodsStock, Invoice, Package, Payment, SalesOrder, Shipment, ShipmentScanLog
-from app.services.payments import create_invoice_payment
-from app.services.finance_1c import sync_from_1c
-from app.schemas.integrations import OneCSyncIn
+from app.schemas import AuditLog, FinishedGoodsStock, IdempotencyRecord, Invoice, Package, Payment, SalesOrder, Shipment, ShipmentScanLog
+from app.models.payments_service import create_invoice_payment
 from app.tests.test_manual_pack_dispatch import receive, shipment
 from app.tests.test_package_workflows import warehouse, package_qr  # noqa: F401
 from app.tests.test_shipment_review import correct, dispatch, review_amount  # noqa: F401
@@ -18,8 +16,32 @@ def payload(result):
             "expected_shipped_at": result["shipped_at"]}
 
 
+def test_reopen_invalidates_legacy_and_scoped_scan_results_with_only_package_identity(client, warehouse):
+    run = receive(client, warehouse)
+    sid = shipment(client, warehouse, None)
+    url = f"/api/shipments/{sid}"
+    for pid in run["package_ids"]:
+        scanned = client.post(url + "/scan-package", headers=warehouse, json={"code": package_qr(pid)})
+        assert scanned.status_code == 200 and scanned.json()["ok"], scanned.text
+    shipped = client.post(url + "/ship", headers=warehouse)
+    assert shipped.status_code == 200, shipped.text
+    with SessionLocal() as db:
+        scopes = ["shipments.scan-package", "shipments.scan-package:v2:" + "a" * 64, "shipments.other:v2:" + "b" * 64]
+        records = [IdempotencyRecord(scope=scope, key="fn06-invalidation", request_hash="c" * 64,
+                                    response_json={"package_id": run["package_ids"][0]}) for scope in scopes]
+        db.add_all(records)
+        db.commit()
+        ids = [record.id for record in records]
+    reopened = client.post(url + "/reopen", headers=warehouse, json=payload(shipped.json()))
+    assert reopened.status_code == 200, reopened.text
+    with SessionLocal() as db:
+        hashes = [db.get(IdempotencyRecord, rid).request_hash for rid in ids]
+        assert hashes[0] != "c" * 64 and hashes[1] != "c" * 64
+        assert hashes[2] == "c" * 64
+
+
 @pytest.mark.parametrize("price,delivered", [(None, False), (None, True), (Decimal("2.5"), False), (Decimal("2.5"), True)])
-def test_manual_return_and_redispatch(client, warehouse, price, delivered):
+def test_manual_return_and_redispatch(client, auth_headers, warehouse, price, delivered):
     run = receive(client, warehouse)
     sid = shipment(client, warehouse, price)
     url = f"/api/shipments/{sid}"
@@ -59,11 +81,13 @@ def test_manual_return_and_redispatch(client, warehouse, price, delivered):
             assert db.get(SalesOrder, old_order).total_amount == 0
             with pytest.raises(HTTPException):
                 create_invoice_payment(db, invoice, amount=1)
-            synced = sync_from_1c(db, OneCSyncIn(
-                invoices=[{"external_id": "late-invoice", "sales_order_id": old_order, "amount": 75}],
-                payments=[{"external_id": "late-payment", "invoice_id": invoice.id, "amount": 1}],
-            ))
-            assert len(synced["errors"]) == 2 and synced["payments_created"] == 0 and synced["invoices_created"] == 0
+            assert db.query(Payment).filter_by(invoice_id=invoice.id).count() == 0
+    if old_order:
+        rejected = client.post("/api/finance/payments", headers=auth_headers,
+                               json={"invoice_id": invoice.id, "amount": 1})
+        assert rejected.status_code == 409, rejected.text
+        with SessionLocal() as db:
+            assert db.query(Payment).filter_by(invoice_id=invoice.id).count() == 0
     assert client.post(url + "/reopen", headers=warehouse, json=body).status_code == 409
     assert client.post(url + "/ship", headers={**warehouse, "Idempotency-Key": "first-dispatch"}).status_code == 409
     for pid in run["package_ids"]:

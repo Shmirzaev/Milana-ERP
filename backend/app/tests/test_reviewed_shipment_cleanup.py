@@ -3,7 +3,7 @@ from pathlib import Path
 from decimal import Decimal
 import pytest
 from app.db.session import SessionLocal
-from app.models import Shipment, Package, FinishedGoodsStock, Invoice, SalesOrder, StockReservation, AuditLog, Payment
+from app.schemas import Shipment, Package, FinishedGoodsStock, Invoice, SalesOrder, StockReservation, AuditLog, Payment
 from app.tests.test_shipment_review import dispatch  # noqa: F401
 
 spec = importlib.util.spec_from_file_location("cleanup", Path(__file__).parents[2] / "scripts" / "reset_reviewed_shipments.py")

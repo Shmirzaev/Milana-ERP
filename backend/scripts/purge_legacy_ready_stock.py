@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.db.base import Base
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     Brand,
     CollectionModel,
     FinishedGoodsStock,
@@ -38,7 +38,7 @@ from app.models import (
     ShipmentScanLog,
     StockReservation,
 )
-from app.services.audit import log_action
+from app.models.audit_service import log_action
 
 
 SOURCE_SYSTEM = "UZERP"

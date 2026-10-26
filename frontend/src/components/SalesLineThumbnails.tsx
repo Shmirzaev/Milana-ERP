@@ -27,14 +27,8 @@ export default function SalesLineThumbnails({ modelId }: { modelId: number }) {
   if (!modelId) return null;
 
   const images = (model?.images || []).filter(isPreviewModelImage).slice().sort((a, b) => b.id - a.id);
-  const modelImages = images.filter((image) => image.image_type === "model" || !image.image_type);
-  const modelImage = modelImages.find((image) => image.is_primary) || modelImages[0];
-  const materialImage = images.find((image) => image.image_type === "material");
-  const fabrics = (model?.bom || [])
-    .filter((row) => ["fabric", "semi_finished", ""].includes(row.item?.category?.toLowerCase() || ""))
-    .slice()
-    .sort((a, b) => Number(b.material_role === "main") - Number(a.material_role === "main") || a.id - b.id);
-  const variantUrl = materialImage?.file_url || fabrics.map((row) => row.photo_url || row.item?.image_url).find(Boolean);
+  const modelUrl = model?.primary_image_url;
+  const variantUrl = model?.variant_picture_url;
   const identity = modelOrderLabel(model);
   const emptyLabel = isLoading ? t("common.loading") : t("page.workOrder.noImage");
 
@@ -43,8 +37,10 @@ export default function SalesLineThumbnails({ modelId }: { modelId: number }) {
   return (
     <div className="mt-2 flex gap-3" aria-busy={isLoading}>
       {[
-        { label: t("field.model"), url: modelImage?.file_url },
+        { label: t("field.model"), url: modelUrl },
         { label: t("page.modelDetail.variant"), url: variantUrl },
+        ...(images.some((image) => image.image_type === "print")
+          ? [{ label: t("page.modelDetail.printPicture"), url: images.find((image) => image.image_type === "print")?.file_url }] : []),
       ].map(({ label, url }) => (
         <div key={label} className="w-20 shrink-0">
           <div className="mb-1 text-xs text-[#8a8472]">{label}</div>

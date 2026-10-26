@@ -2,7 +2,7 @@ from copy import deepcopy
 
 import pytest
 
-from app.models import Model, ModelColor, ModelImage, ModelSize, SystemSetting, User
+from app.schemas import Model, ModelColor, ModelImage, ModelSize, SystemSetting, User
 from app.tests.conftest import TestSessionLocal
 from scripts.reconcile_old_erp_catalog import apply_plan, build_plan, source_record
 

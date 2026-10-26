@@ -3,6 +3,7 @@ import { formatOrderReference } from "@/lib/orderRef";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
+import useLoadMore from "@/lib/useLoadMore";
 import { Download, Filter, MoreHorizontal, Plus, Search, X } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
@@ -92,7 +93,8 @@ export default function SalesOrdersPage() {
     if (createdTo) params.set("created_to", createdTo);
     return `/api/sales-orders?${params.toString()}`;
   }, [createdFrom, createdTo, page, pageSize, query, statusFilter, typeFilter]);
-  const { data: pageData, isLoading, mutate } = useSWR<any>(salesUrl, fetcher);
+  const listPager = useLoadMore<any>(salesUrl, fetcher);
+  const { data: pageData, isLoading, mutate } = listPager;
   const data = useMemo<SO[]>(() => pageData?.rows || [], [pageData?.rows]);
 
   useEffect(() => {
@@ -271,7 +273,7 @@ export default function SalesOrdersPage() {
           })}
         </div>
         <div className="card">
-          <PaginationControls
+          <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()}
             page={page}
             pageSize={pageSize}
             total={Number(pageData?.total || data.length)}
@@ -325,7 +327,7 @@ export default function SalesOrdersPage() {
               </tbody>
             </table>
           </div>
-          <PaginationControls
+          <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()}
             page={page}
             pageSize={pageSize}
             total={Number(pageData?.total || data.length)}

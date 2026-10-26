@@ -3,8 +3,8 @@ from io import BytesIO
 from openpyxl import load_workbook
 
 from app.db.session import SessionLocal
-from app.models import LegacyStockReceipt, Model, ModelColor, Package
-from app.services.warehouse_report import export_warehouse_report
+from app.schemas import LegacyStockReceipt, Model, ModelColor, Package
+from app.models.warehouse_report_service import export_warehouse_report
 
 
 def test_report_preserves_model_grain_exact_names_colors_and_ready_totals():

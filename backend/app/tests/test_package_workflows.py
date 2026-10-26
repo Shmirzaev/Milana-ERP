@@ -2,16 +2,69 @@
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     AuditLog, Department, FinishedGoodsStock, ManualPackageReceipt, Model, Package,
     PackageBarcodeAlias, PackagePrintRun, PackagePrintRunMember,
     PackageScanLog, PackagingRecord, ProductionOrder, WorkOrder,
 )
 
 BASE = "/api/packages"
+
+
+def test_packaging_bom_item_preload_preserves_order_and_skips_missing_items(monkeypatch):
+    from app.schemas import Item, ModelBOM
+    from app.models import workflow_service as workflow
+
+    marker = uuid4().hex[:8]
+    with SessionLocal() as db:
+        model = Model(code=f"BOM-PERF20-{marker}", name="BOM query test", category="T-shirt")
+        packaging_a = Item(sku=f"BOM-A-{marker}", name="Bag", category="packaging", unit="pcs")
+        fabric = Item(sku=f"BOM-F-{marker}", name="Fabric", category="fabric", unit="kg")
+        packaging_b = Item(sku=f"BOM-B-{marker}", name="Box", category="packaging", unit="pcs")
+        db.add_all([model, packaging_a, fabric, packaging_b])
+        db.flush()
+        db.add_all([
+            ModelBOM(model_id=model.id, item_id=packaging_a.id, quantity_per_piece=2, unit="pcs"),
+            ModelBOM(model_id=model.id, item_id=fabric.id, quantity_per_piece=99, unit="kg"),
+            ModelBOM(model_id=model.id, item_id=packaging_b.id, quantity_per_piece=3, unit="pcs"),
+            ModelBOM(model_id=model.id, item_id=2_147_483_647, quantity_per_piece=7, unit="pcs"),
+        ])
+        db.flush()
+        order = ProductionOrder(
+            production_no=f"BOM-PO-{marker}",
+            production_type="branded_stock",
+            model_id=model.id,
+            planned_quantity=10,
+        )
+        db.add(order)
+        db.flush()
+        statements = []
+        consumed = []
+
+        monkeypatch.setattr(
+            workflow,
+            "consume_item_from_batches",
+            lambda _db, **kwargs: consumed.append(kwargs),
+        )
+
+        def capture(_conn, _cursor, statement, _params, _context, _executemany):
+            if statement.lstrip().upper().startswith("SELECT") and "from items" in statement.lower():
+                statements.append(statement)
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            workflow.consume_packaging_materials_from_bom(
+                db, production_order_id=order.id, packed_qty=2,
+                reference_type="PackagingRecord", reference_id=7, user_id=None,
+            )
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+        assert [row["item_id"] for row in consumed] == [packaging_a.id, packaging_b.id]
+        assert [row["quantity"] for row in consumed] == [4.0, 6.0]
+        assert len(statements) == 1
 
 
 @pytest.fixture
@@ -89,6 +142,9 @@ def test_manual_receipt_once_with_real_source_and_reprints(client, warehouse):
         assert len(packs) == 2
         assert all(p.production_order_id is None and p.legacy_receipt_id is None and p.status == "received_in_storage" for p in packs)
         assert db.query(AuditLog).filter(AuditLog.action == "manual_receipt").count() == 1
+    listed = client.get("/api/packages/print-runs", headers=warehouse)
+    assert listed.status_code == 200, listed.text
+    assert listed.json()[0]["model_codes"] == ["T-SHIRT-001"]
     assert before == stock_fingerprint()
     lookup = client.get(BASE + f"/{saved['print_run']['package_ids'][0]}", headers=warehouse)
     assert lookup.json()["manual_source"]["receipt_no"] == saved["receipt_no"]
@@ -154,7 +210,7 @@ def test_ambiguous_alias_and_changed_member_roll_back_whole_receipt(client, auth
 
 
 def test_received_run_reprints_current_quantities_after_audited_correction(client, auth_headers, warehouse):
-    from app.models import Customer, PackageItem, PackageQuantityAdjustment
+    from app.schemas import Customer, PackageItem, PackageQuantityAdjustment
     body = manual_body()
     created = client.post(BASE + "/manual-receipt", headers=warehouse, json=body)
     assert created.status_code == 201, created.text
@@ -248,7 +304,7 @@ def test_receipt_requires_storage_permission(client, auth_headers):
 
 
 def test_shortage_does_not_release_consumed_packaging_capacity(client, auth_headers, packaging_order):
-    from app.services.packages import _existing_package_totals_by_batch
+    from app.models.packages_service import _existing_package_totals_by_batch
     run = create_run(client, auth_headers, packaging_order, 10)
     with SessionLocal() as db:
         pkg = db.get(Package, run["package_ids"][0])
@@ -274,9 +330,9 @@ def test_print_manifest_cannot_silently_gain_a_member(client, auth_headers, ware
 
 def test_stale_resolved_run_refreshes_receipt_after_lock(client, auth_headers, packaging_order, monkeypatch):
     from datetime import datetime, timezone
-    from app.models import User
-    from app.schemas.package_workflows import PrintRunReceiveIn
-    from app.services import package_workflows as service
+    from app.schemas import User
+    from app.libs.dto.fulfillment.package_workflows import PrintRunReceiveIn
+    from app.models import package_workflows_service as service
     run = create_run(client, auth_headers, packaging_order, 6)
     with SessionLocal() as db:
         stale = db.get(PackagePrintRun, run["id"])
@@ -287,24 +343,26 @@ def test_stale_resolved_run_refreshes_receipt_after_lock(client, auth_headers, p
             completed.received_by = 1
             other.commit()
         monkeypatch.setattr(service, "resolve_run", lambda *_: stale)
-        refreshed, packages = service.receive_run(db, db.get(User, 1), PrintRunReceiveIn(code=run["code"]))
+        refreshed, packages, members = service.receive_run(db, db.get(User, 1), PrintRunReceiveIn(code=run["code"]))
         assert refreshed.received_at is not None
         assert packages == []
+        assert [member.package_id for member in members] == run["package_ids"]
 
 
-def test_pending_correction_cannot_change_newly_grouped_package(client, auth_headers, warehouse, packaging_order):
+def test_direct_deletion_cannot_be_grouped_or_received_again(client, auth_headers, warehouse, packaging_order):
     created = client.post(BASE, headers=auth_headers, json=packaging_order)
     assert created.status_code == 201, created.text
     pid = created.json()["id"]
+    old_qr = package_qr(pid)
     request = client.post(BASE + f"/{pid}/change-requests", headers=auth_headers,
                           json={"request_type": "delete", "reason": "Test correction before print grouping"})
     assert request.status_code == 201, request.text
     run = client.post(BASE + "/print-runs", headers=auth_headers,
                       json={"request_key": str(uuid4()), "package_ids": [pid]})
-    assert run.status_code == 201, run.text
-    approval = client.post(BASE + f"/change-requests/{request.json()['id']}/approve", headers=auth_headers)
-    assert approval.status_code == 409, approval.text
-    assert client.post(BASE + "/print-runs/receive", headers=warehouse, json={"code": package_qr(pid)}).status_code == 200
+    assert request.json()["status"] == "approved"
+    assert run.status_code == 404, run.text
+    assert client.get(BASE + f"/{pid}", headers=auth_headers).status_code == 404
+    assert client.post(BASE + "/print-runs/receive", headers=warehouse, json={"code": old_qr}).status_code == 404
 
 
 def test_0115_migration_roundtrip_preserves_existing_packages():
@@ -333,3 +391,23 @@ def test_0115_migration_roundtrip_preserves_existing_packages():
         assert connection.execute(text("SELECT id, production_order_id FROM packages")).one() == (1, 12)
         assert "manual_package_receipts" not in inspect(connection).get_table_names()
     engine.dispose()
+
+
+def test_historical_pending_delete_cannot_invalidate_new_print_run(client, auth_headers, warehouse, packaging_order):
+    created = client.post(BASE, headers=auth_headers, json=packaging_order)
+    assert created.status_code == 201, created.text
+    pid = created.json()["id"]
+    # Model an existing pending approval. The public endpoint now applies an
+    # authorized operator's correction immediately instead of queuing it.
+    from app.models.packages_service import create_package_change_request
+    with SessionLocal() as db:
+        request = create_package_change_request(db, pkg=db.get(Package, pid), request_type="delete",
+                                                payload=None, reason="Historical pending correction", user_id=1)
+        db.commit()
+        request_id = request.id
+    run = client.post(BASE + "/print-runs", headers=auth_headers,
+                      json={"request_key": str(uuid4()), "package_ids": [pid]})
+    assert run.status_code == 201, run.text
+    approval = client.post(BASE + f"/change-requests/{request_id}/approve", headers=auth_headers)
+    assert approval.status_code == 409, approval.text
+    assert client.post(BASE + "/print-runs/receive", headers=warehouse, json={"code": package_qr(pid)}).status_code == 200

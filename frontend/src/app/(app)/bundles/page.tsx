@@ -3,7 +3,7 @@ import { formatModelVariantCode } from "@/lib/variantDisplay";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Fragment, useMemo, useState } from "react";
-import useSWR from "swr";
+import useLoadMore from "@/lib/useLoadMore";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import PaginationControls from "@/components/PaginationControls";
@@ -18,7 +18,8 @@ export default function BundlesPage() {
   const factoryName = cuttingDepartment === "ECT" ? t("factory.ecoCotton") : t("factory.milana");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
-  const { data: pageData } = useSWR<any>(`/api/bundles?include_total=true&page=${page}&page_size=${pageSize}&cutting_department_code=${cuttingDepartment}`, fetcher);
+  const listPager = useLoadMore<any>(`/api/bundles?include_total=true&page=${page}&page_size=${pageSize}&cutting_department_code=${cuttingDepartment}`, fetcher);
+  const { data: pageData } = listPager;
   const data = useMemo<any[]>(() => pageData?.rows || [], [pageData?.rows]);
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
 
@@ -149,7 +150,7 @@ export default function BundlesPage() {
             })}
           </tbody>
         </table>
-        <PaginationControls
+        <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()}
           page={page}
           pageSize={pageSize}
           total={Number(pageData?.total || data.length)}

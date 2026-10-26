@@ -106,16 +106,11 @@ To'lovni amalga oshirishdan oldin to'langan ish haqini belgilamang.
 
 Moliya kutilayotgan xarajatlar va moddiy majburiyatlarni tushunish uchun Xarid qilish va inventar zahiralarini ko'rib chiqishi mumkin. Xarid qilish operatsiyalari xarid qilish ruxsatiga ega foydalanuvchilarga tegishli.
 
-## 1C integratsiyasi
+## Oldin import qilingan yozuvlar
 
-Backend `POST /api/finance/integrations/1c/sync`-ni `X-1C-Token` bilan qo'llab-quvvatlaydi. Bu oddiy foydalanuvchi ish oqimi emas, balki tizim integratsiyasi oqimi.
-
-Moliya/Administrator qoidalari:
-
-1. 1C tokenini maxfiy saqlang.
-2. Tokenni chat yoki skrinshotlar orqali yubormang.
-3. Konfiguratsiya o'zgarishlaridan keyin sinxronlangan yozuvlarni tasdiqlang.
-4. Integratsiyadagi nosozliklar haqida IT/Super Adminga xabar bering.
+Oddiy hisob-faktura va to'lov jarayonlaridan foydalaning. Ishlatilmaydigan 1C
+integratsiyasi olib tashlangan. Oldin import qilingan hisob-fakturalar, to'lovlar
+va manba identifikatorlari solishtirish uchun saqlanadi; bu yozuvlar o'zgarmaydi.
 
 ## Umumiy muammolar
 

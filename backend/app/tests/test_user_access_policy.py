@@ -7,8 +7,8 @@ import pytest
 
 from app.core.deps import is_admin, is_super_admin, user_permissions
 from app.core.permission_catalog import PERMISSION_KEYS
-from app.services.factory_scope import available_factory_codes, authorize_login_factory
-from app.services.price_calculation import is_accessory_pricing_user, is_price_purchaser
+from app.models.factory_scope_service import available_factory_codes, authorize_login_factory
+from app.models.price_calculation_service import is_accessory_pricing_user, is_price_purchaser
 
 
 def subject(permissions=None, policy=None, role="Planning", factory="MIL", extra=None):
@@ -54,22 +54,25 @@ def test_factory_overrides_never_leak_primary_role():
     assert error.value.status_code == 403
 
 
-def test_named_and_department_pricing_can_be_revoked():
+def test_department_pricing_can_be_revoked_without_identity_grants():
     u = subject(["storage.items"], {"MIL": {"deny": ["price_calculation.purchasing", "price_calculation.accessories"]}})
     u.name = "Abbosbek"
     u.department.code = "STR"
     assert not is_price_purchaser(u)
     assert not is_accessory_pricing_user(u)
     u.access_policy = None
-    assert is_price_purchaser(u)
+    # A mutable display name must not restore pricing access once removed.
+    assert not is_price_purchaser(u)
     assert is_accessory_pricing_user(u)
+    u.extra_permissions = ["price_calculation.purchasing"]
+    assert is_price_purchaser(u)
 
 
 def test_catalog_covers_authorization_keys():
     root = Path(__file__).parents[1]
     roots = {key.split(".")[0] for key in PERMISSION_KEYS if "." in key}
     found = set()
-    for folder in ["api", "services", "core", "db"]:
+    for folder in ["api", "models", "core", "db"]:
         for path in (root / folder).rglob("*.py"):
             if path.name == "permission_catalog.py":
                 continue

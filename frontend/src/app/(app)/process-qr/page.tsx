@@ -10,6 +10,7 @@ import {
   ArrowUp,
   CheckSquare,
   ChevronDown,
+  Download,
   Pencil,
   Plus,
   Printer,
@@ -20,7 +21,7 @@ import {
   Trash2,
   Users,
 } from "lucide-react";
-import { api, fetcher } from "@/lib/api";
+import { api, fetcher, fetchResponse } from "@/lib/api";
 import { formatBatchSerial } from "@/lib/batchSerial";
 import { orderReference, formatOrderReference } from "@/lib/orderRef";
 import { parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
@@ -44,6 +45,8 @@ import {
 } from "@/lib/modelPaidOperations";
 import PaidProcessPicker from "@/components/PaidProcessPicker";
 import ManualModelSizes from "@/components/ManualModelSizes";
+import ProcessQrBatchSizes from "@/components/ProcessQrBatchSizes";
+import { allocateLabelSizes, allocationQuantity, issuedSizeAllocationConflicts, type SizeAllocation } from "@/lib/processQrSizeAllocation";
 import ProcessQrSizeEditor, { type ProcessQrSizeEdit } from "@/components/ProcessQrSizeEditor";
 import { paidSectionLabel } from "@/lib/paidProcessSections";
 import PageHeader from "@/components/PageHeader";
@@ -224,10 +227,12 @@ type LabelRow = {
 
 type IssuedLabelRow = {
   id: number;
+  factory_code: string;
   label_uid: string;
   qr_token: string;
   payload: string | null;
   production_order_id: number | null;
+  production_batch_id: number | null;
   production_no: string | null;
   sales_order_no: string | null;
   batch_no: string | null;
@@ -382,10 +387,6 @@ function batchDisplayName(batch: BatchOption): string {
 
 function payrollQuantity(batch: BatchOption): number {
   return batch.sewingCompletedQuantity;
-}
-
-function sameSize(left: string, right: string): boolean {
-  return left.trim().toLocaleLowerCase() === right.trim().toLocaleLowerCase();
 }
 
 function money(value: number, currency: string): string {
@@ -545,7 +546,7 @@ function qrDataUrl(payload: string): Promise<string> {
 
 function employeeNumber(employee: Employee): string {
   const configuredNumber = String(employee.employee_no || "").trim();
-  return configuredNumber || `EMP-${String(employee.id).padStart(4, "0")}`;
+  return configuredNumber || String(employee.id).padStart(4, "0");
 }
 
 function roundedPieces(value: number): number {
@@ -596,6 +597,43 @@ function operationNumberForLabel(label: IssuedLabelRow, numbers: Map<number, num
   return numbers.get(label.id) ?? 1;
 }
 
+function issuedBatchKey(label: IssuedLabelRow): string {
+  return JSON.stringify([
+    label.factory_code,
+    label.production_order_id ?? label.production_no ?? label.sales_order_no,
+    label.production_batch_id ?? label.batch_no?.trim() ?? null,
+  ]);
+}
+
+function groupIssuedLabelsByBatch(labels: IssuedLabelRow[], batchOptions: BatchOption[] = []) {
+  const batches = new Map<string, {
+    key: string;
+    batchNo: string;
+    name: string;
+    labels: IssuedLabelRow[];
+    sizes: Map<string, IssuedLabelRow[]>;
+  }>();
+  for (const label of labels) {
+    const key = issuedBatchKey(label);
+    let batch = batches.get(key);
+    if (!batch) {
+      const batchNo = label.batch_no?.trim() || "";
+      const matches = batchOptions.filter((option) => label.production_batch_id != null
+        ? option.batchId === label.production_batch_id
+        : Boolean(batchNo) && (option.batchNo?.trim() === batchNo || option.serial === batchNo));
+      const name = matches.length === 1 ? matches[0].name?.trim() || batchNo : batchNo;
+      batch = { key, batchNo, name, labels: [], sizes: new Map() };
+      batches.set(key, batch);
+    }
+    batch.labels.push(label);
+    const size = label.size?.trim() || "-";
+    const sizeLabels = batch.sizes.get(size) || [];
+    sizeLabels.push(label);
+    batch.sizes.set(size, sizeLabels);
+  }
+  return Array.from(batches.values());
+}
+
 function compareIssuedLabelOrder(
   left: IssuedLabelRow,
   right: IssuedLabelRow,
@@ -612,7 +650,10 @@ function compareIssuedLabelOrder(
   );
 
   return (
-    configuredSizeDifference
+    (left.batch_no?.trim() || "").localeCompare(right.batch_no?.trim() || "", "en", { numeric: true })
+    || issuedBatchKey(left).localeCompare(issuedBatchKey(right), "en", { numeric: true })
+    || (issuedBatchKey(left) < issuedBatchKey(right) ? -1 : issuedBatchKey(left) > issuedBatchKey(right) ? 1 : 0)
+    || configuredSizeDifference
     || compareGarmentSizes(leftSize, rightSize)
     || operationNumberForLabel(left, operationNumbers) - operationNumberForLabel(right, operationNumbers)
     || left.copy_index - right.copy_index
@@ -731,6 +772,7 @@ export default function ProcessQrPage() {
   const [manualKroyNo, setManualKroyNo] = useState("");
   const [batchMode, setBatchMode] = useState<"selected" | "all">("selected");
   const [selectedBatchKey, setSelectedBatchKey] = useState("");
+  const [expandedIssuedBatches, setExpandedIssuedBatches] = useState<Set<string>>(() => new Set());
   const [currency, setCurrency] = useState("UZS");
   const [selectedSewingFlowKey, setSelectedSewingFlowKey] = useState("");
   const [sewingLineCode, setSewingLineCode] = useState("");
@@ -739,8 +781,12 @@ export default function ProcessQrPage() {
   const [sameSizeQuantity, setSameSizeQuantity] = useState<NumberInputValue>(0);
   const [customSizeQuantities, setCustomSizeQuantities] = useState<Record<string, NumberInputValue>>({});
   const initializedSizeSourceKey = useRef("");
+  const [batchSizeDrafts, setBatchSizeDrafts] = useState<Record<string, {
+    fingerprint: string; quantities: Record<string, NumberInputValue>;
+  }>>({});
   const [manualSizeOverride, setManualSizeOverride] = useState<{ modelId: number; sizes: string[] } | null>(null);
-  const [operations, setOperations] = useState<PaidOperation[]>(() => clonePaidOperations());
+  const [exportingOperations, setExportingOperations] = useState(false);
+  const [operations, setOperations] = useState<PaidOperation[]>([]);
   const [loadedOperationsModelId, setLoadedOperationsModelId] = useState<number | null>(null);
   const [loadedOperationsSignature, setLoadedOperationsSignature] = useState("");
   const [operationModelDirty, setOperationModelDirty] = useState(false);
@@ -808,6 +854,7 @@ export default function ProcessQrPage() {
       : null;
   const modelApiBase = sourceMode === "manual" ? manualModelApiBase
     : me?.factory_code === "ECO" && selectedTrackedProcess?.source_type === "usluga" ? "/api/usluga" : "/api";
+  const isUslugaModel = modelApiBase === "/api/usluga";
   const { data: selectedModel, mutate: mutateSelectedModel } = useSWR<ManualModel>(
     selectedModelId ? `${modelApiBase}/models/${selectedModelId}` : null,
     fetcher,
@@ -815,7 +862,7 @@ export default function ProcessQrPage() {
   const { mutate: mutateModelCache } = useSWRConfig();
   const selectedModelIdRef = useRef(selectedModelId);
   useEffect(() => { selectedModelIdRef.current = selectedModelId; }, [selectedModelId]);
-  const needsFamilySizes = sourceMode === "manual" && selectedModel?.id === selectedModelId
+  const needsFamilySizes = selectedModel?.id === selectedModelId
     && !(selectedModel.sizes || []).some(row => String(row.size || "").trim());
   const { data: familySizes, error: familySizesError, mutate: mutateFamilySizes } = useSWR<{
     model_id: number; sizes: string[]; resolution: "own" | "inherited" | "missing" | "conflict";
@@ -879,7 +926,7 @@ export default function ProcessQrPage() {
   const inferredPaidOperationFactory = useMemo<PaidOperationFactory | undefined>(() => {
     if (selectedProcess?.is_manual && selectedModel) {
       const manualFactories = new Set(
-        materializeLegacyPaidOperations(paidOperationsFromDetails(selectedModel.details_json), [accountPaidOperationFactory])
+        materializeLegacyPaidOperations(paidOperationsFromDetails(selectedModel.details_json, !isUslugaModel), [accountPaidOperationFactory])
           .map((operation) => operation.sewingFactory || "milana"),
       );
       if (manualFactories.size === 1) return Array.from(manualFactories)[0];
@@ -887,7 +934,7 @@ export default function ProcessQrPage() {
     const factories = selectedProcess?.sewing_factories || [];
     if (factories.length !== 1) return undefined;
     return paidOperationFactoryFromDepartmentCode(factories[0].code);
-  }, [accountPaidOperationFactory, selectedModel, selectedProcess?.is_manual, selectedProcess?.sewing_factories]);
+  }, [accountPaidOperationFactory, isUslugaModel, selectedModel, selectedProcess?.is_manual, selectedProcess?.sewing_factories]);
 
   useEffect(() => {
     if (accountPaidOperationFactory) {
@@ -897,14 +944,33 @@ export default function ProcessQrPage() {
     if (inferredPaidOperationFactory) setPrintPaidOperationFactory(inferredPaidOperationFactory);
   }, [accountPaidOperationFactory, inferredPaidOperationFactory, selectedProcess?.production_order_id]);
   const batchOptions = useMemo(() => batchesForProcess(selectedProcess, t), [selectedProcess, t]);
-  const selectedBatchOption = useMemo(
-    () => batchOptions.find((batch) => batch.key === selectedBatchKey),
-    [batchOptions, selectedBatchKey],
-  );
+  const batchesToPrint = useMemo(() => {
+    if (batchMode === "all") return batchOptions;
+    return batchOptions.filter((batch) => batch.key === selectedBatchKey);
+  }, [batchMode, batchOptions, selectedBatchKey]);
+  const allocationScope = `${accountPaidOperationFactory}:${selectedProcess?.production_order_id}:${selectedModelId}`;
+  const erpSizeAllocations = useMemo<Map<string, SizeAllocation>>(() => {
+    if (!selectedProcess || selectedProcess.is_manual) return new Map();
+    const ownSizes = selectedModel?.id === selectedModelId
+      ? (selectedModel.sizes || []).map(row => row.size).filter(size => size?.trim() && size !== "-") : [];
+    const orderSizes = (selectedProcess.sizes || []).map(row => row.size).filter(size => size?.trim() && size !== "-");
+    const modelSizes = [...(ownSizes.length ? ownSizes : orderSizes.length ? orderSizes : resolvedFamilySizes?.sizes || [])].sort(compareGarmentSizes);
+    return new Map(batchOptions.map(batch => [batch.key, allocateLabelSizes(
+      batch.sewingCompletedQuantity, batch.sewingSizes, modelSizes,
+      batchSizeDrafts[`${allocationScope}:${batch.key}`],
+    )]));
+  }, [selectedProcess, selectedModel, selectedModelId, resolvedFamilySizes, batchOptions, batchSizeDrafts, allocationScope]);
+  const invalidSizeAllocation = !selectedProcess?.is_manual && batchesToPrint.some(batch => !erpSizeAllocations.get(batch.key)?.valid);
   const sizeOptions = useMemo<ProcessSize[]>(() => {
-    const rows = !selectedProcess?.is_manual && batchMode === "selected" && selectedBatchOption
-      ? selectedBatchOption.sewingSizes
-      : selectedProcess?.sizes || [];
+    if (selectedProcess && !selectedProcess.is_manual) {
+      const sizes = new Map<string, ProcessSize>();
+      for (const batch of batchesToPrint) for (const row of erpSizeAllocations.get(batch.key)?.rows || []) {
+        const key = row.size.toLowerCase();
+        if (!sizes.has(key)) sizes.set(key, { size: row.size, planned_quantity: 0, completed_quantity: 0 });
+      }
+      return [...sizes.values()].sort((left, right) => compareGarmentSizes(left.size, right.size));
+    }
+    const rows = selectedProcess?.sizes || [];
     if (rows.length > 0) return [...rows].sort((left, right) => compareGarmentSizes(left.size, right.size));
     if (selectedProcess?.is_manual) return [];
     return [{
@@ -913,7 +979,7 @@ export default function ProcessQrPage() {
       completed_quantity: 0,
       sewing_completed_quantity: numberOrZero(selectedProcess?.sewing_completed_quantity),
     }];
-  }, [batchMode, selectedBatchOption, selectedProcess]);
+  }, [batchesToPrint, erpSizeAllocations, selectedProcess]);
   function applyManualSizes(rows: ProcessQrSizeEdit[]) {
     if (!selectedProcess?.is_manual || !selectedModelId) return;
     const sizes = rows.map((row) => row.size).sort(compareGarmentSizes);
@@ -1016,7 +1082,7 @@ export default function ProcessQrPage() {
   useEffect(() => {
     if (!selectedModelId) {
       if (loadedOperationsModelId !== null) {
-        setOperations(clonePaidOperations());
+        setOperations(isUslugaModel ? [] : clonePaidOperations());
         setLoadedOperationsModelId(null);
         setLoadedOperationsSignature("");
         setOperationModelDirty(false);
@@ -1026,7 +1092,7 @@ export default function ProcessQrPage() {
     }
     if (!selectedModel) return;
 
-    const nextOperations = materializeLegacyPaidOperations(paidOperationsFromDetails(selectedModel.details_json), [accountPaidOperationFactory]);
+    const nextOperations = materializeLegacyPaidOperations(paidOperationsFromDetails(selectedModel.details_json, !isUslugaModel), [accountPaidOperationFactory]);
     const nextSignature = JSON.stringify(serializePaidOperations(nextOperations));
     const sameModel = loadedOperationsModelId === selectedModelId;
     if (sameModel && operationModelDirty) return;
@@ -1039,6 +1105,7 @@ export default function ProcessQrPage() {
     setModelSaveMsg(t("page.processQr.loadedModel", { model: selectedModel.code || selectedProcess?.model_code || t("common.model") }));
   }, [
     accountPaidOperationFactory,
+    isUslugaModel,
     loadedOperationsModelId,
     loadedOperationsSignature,
     operationModelDirty,
@@ -1071,10 +1138,7 @@ export default function ProcessQrPage() {
     };
   }, []);
 
-  const batchesToPrint = useMemo(() => {
-    if (batchMode === "all") return batchOptions;
-    return batchOptions.filter((batch) => batch.key === selectedBatchKey);
-  }, [batchMode, batchOptions, selectedBatchKey]);
+
 
   const factoryOperations = useMemo(
     () => operations.filter((operation) => paidOperationMatchesFactory(operation, printPaidOperationFactory)),
@@ -1100,21 +1164,20 @@ export default function ProcessQrPage() {
     [factoryOperations],
   );
 
-  const labels = useMemo<LabelRow[]>(() => {
-    if (!selectedProcess || !selectedSewingLine || !selectedModel || loadedOperationsModelId !== selectedModelId || issuedLabelsLoading || issuedLabelsError) return [];
+  const candidateLabels = useMemo<LabelRow[]>(() => {
+    if (!selectedProcess || !selectedSewingLine || !selectedModel || loadedOperationsModelId !== selectedModelId || issuedLabelsLoading || issuedLabelsError || invalidSizeAllocation) return [];
     if (selectedProcess.is_manual && !selectedProcess.manual_kroy_no?.trim()) return [];
     const rows: LabelRow[] = [];
-    for (const sizeOption of sizeOptions) {
-      for (const batch of batchesToPrint) {
-        for (const operation of selectedOperations) {
+    for (const batch of batchesToPrint) {
+      for (const sizeOption of sizeOptions) {
+        for (const operation of factoryOperations) {
+          if (!operation.code.trim() || !operation.name.trim()) continue;
           const totalSizeQuantity = sizeQuantityMode === "same"
             ? Math.max(0, numberOrZero(sameSizeQuantity))
             : Math.max(0, numberOrZero(customSizeQuantities[sizeOption.size]));
           const baseQuantity = selectedProcess.is_manual
             ? distributeQuantityAcrossBatches(totalSizeQuantity, batchesToPrint).get(batch.key) ?? 0
-            : numberOrZero(
-                batch.sewingSizes.find((row) => sameSize(row.size, sizeOption.size))?.sewing_completed_quantity,
-              );
+            : allocationQuantity(erpSizeAllocations.get(batch.key), sizeOption.size);
           if (baseQuantity <= 0) continue;
           const copies = Math.max(1, Math.floor(numberOrZero(operation.copies) || 1));
           const rate = Math.max(0, numberOrZero(operation.rate));
@@ -1165,7 +1228,12 @@ export default function ProcessQrPage() {
       }
     }
     return rows;
-  }, [selectedModel, loadedOperationsModelId, selectedModelId, issuedLabelsLoading, issuedLabelsError, batchesToPrint, currency, customSizeQuantities, operationLabelTokens, sameSizeQuantity, selectedOperations, selectedProcess, selectedSewingLine, sizeOptions, sizeQuantityMode]);
+  }, [invalidSizeAllocation, erpSizeAllocations, selectedModel, loadedOperationsModelId, selectedModelId, issuedLabelsLoading, issuedLabelsError, batchesToPrint, currency, customSizeQuantities, operationLabelTokens, sameSizeQuantity, factoryOperations, selectedProcess, selectedSewingLine, sizeOptions, sizeQuantityMode]);
+
+  const labels = useMemo(() => candidateLabels.filter(label => label.operation.selected), [candidateLabels]);
+  const issuedSizeConflict = useMemo(() => !selectedProcess?.is_manual && issuedSizeAllocationConflicts(
+    candidateLabels.filter(label => erpSizeAllocations.get(label.batch.key)?.suggested), issuedLabels,
+  ), [candidateLabels, erpSizeAllocations, issuedLabels, selectedProcess]);
 
   const issuedLabelUids = useMemo(
     () => new Set(issuedLabels.map((label) => label.label_uid)),
@@ -1189,14 +1257,10 @@ export default function ProcessQrPage() {
     )),
     [activeIssuedLabels, issuedOperationNumbers, issuedSizeOrder],
   );
-  const issuedLabelsBySize = useMemo(() => {
-    const groups = new Map<string, IssuedLabelRow[]>();
-    for (const label of orderedIssuedLabels) {
-      const size = label.size?.trim() || "-";
-      groups.set(size, [...(groups.get(size) || []), label]);
-    }
-    return Array.from(groups.entries());
-  }, [orderedIssuedLabels]);
+  const issuedLabelsByBatch = useMemo(
+    () => groupIssuedLabelsByBatch(orderedIssuedLabels, batchOptions),
+    [orderedIssuedLabels, batchOptions],
+  );
   const editedIssuedLabels = useMemo(() => {
     const editedIds = new Set(editedLabelIds);
     return orderedIssuedLabels.filter((label) => editedIds.has(label.id));
@@ -1229,11 +1293,61 @@ export default function ProcessQrPage() {
     setModelSaveMsg("");
   }
 
+  async function exportPaidOperations() {
+    setExportingOperations(true);
+    try {
+      const response = await fetchResponse("/api/payroll/process-qr/export.xlsx", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lang,
+          model: selectedModel?.code || selectedProcess?.model_code || "",
+          order: selectedProcess?.production_no || "",
+          factory: FACTORY_SHORT_CODES[printPaidOperationFactory],
+          currency,
+          headers: ["No.", t("page.processQr.use"), t("field.section"), t("common.code"),
+            t("page.processQr.operationName"), t("page.processQr.ratePerPiece"),
+            t("page.processQr.copies"), t("page.processQr.divide")],
+          rows: factoryOperations.map((operation) => ({
+            selected: operation.selected,
+            section: paidSectionLabel(operation.section, lang),
+            code: operation.code,
+            name: operation.name,
+            rate: operation.rate.trim() || "0",
+            copies: Math.max(1, numberOrZero(operation.copies)),
+            division: operation.splitMode === "custom"
+              ? `${t("page.processQr.customDivide")}: ${operation.splitQuantities.join(", ")}`
+              : t(operation.splitMode === "equal" ? "page.processQr.equalDivide" : "page.processQr.noDivide"),
+          })),
+        }),
+      });
+      if (!response.ok) throw new Error(t("packagingReport.downloadFailed"));
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `paid-processes-${FACTORY_SHORT_CODES[printPaidOperationFactory]}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      await dialogs.notify(error instanceof Error ? error.message : t("packagingReport.downloadFailed"));
+    } finally {
+      setExportingOperations(false);
+    }
+  }
+
   function updateOperation(id: string, patch: Partial<PaidOperation>) {
     markOperationsDirty();
     setOperations((current) => current.map((operation) => (
       operation.id === id ? { ...operation, ...patch } : operation
     )));
+  }
+
+  function selectFactoryOperations(selected: boolean) {
+    markOperationsDirty();
+    setOperations(current => current.map(operation => paidOperationMatchesFactory(operation, printPaidOperationFactory) ? { ...operation, selected } : operation));
   }
 
   function addOperation(template: {name: string; code: string; section: SectionCode}) {
@@ -1274,7 +1388,7 @@ export default function ProcessQrPage() {
 
   function loadOperationsFromSelectedModel() {
     if (!selectedModel || !selectedModelId) return;
-    const nextOperations = materializeLegacyPaidOperations(paidOperationsFromDetails(selectedModel.details_json), [accountPaidOperationFactory]);
+    const nextOperations = materializeLegacyPaidOperations(paidOperationsFromDetails(selectedModel.details_json, !isUslugaModel), [accountPaidOperationFactory]);
     const nextSignature = JSON.stringify(serializePaidOperations(nextOperations));
     setOperations(nextOperations);
     setLoadedOperationsModelId(selectedModelId);
@@ -1320,7 +1434,7 @@ export default function ProcessQrPage() {
   }
 
   async function issueLabels() {
-    if (unissuedLabels.length === 0 || issuingLabels || issuedLabelsLoading || operationIdentityNeedsReview) return;
+    if (unissuedLabels.length === 0 || issuingLabels || issuedLabelsLoading || operationIdentityNeedsReview || invalidSizeAllocation || issuedSizeConflict) return;
     setIssuingLabels(true);
     setPrintError("");
     setIssueNotice("");
@@ -1390,6 +1504,7 @@ export default function ProcessQrPage() {
       title: t("page.processQr.deleteSizeTitle", { size }),
       message: t("page.processQr.deleteSizeConfirm", {
         size,
+        batch: sizeLabels[0].batch_no?.trim() || t("page.processQr.noBatch"),
         count: sizeLabels.length.toLocaleString(),
       }),
       confirmText: t("page.processQr.deleteSize"),
@@ -1397,7 +1512,7 @@ export default function ProcessQrPage() {
     });
     if (!confirmed) return;
 
-    setDeletingSize(size);
+    setDeletingSize(JSON.stringify([issuedBatchKey(sizeLabels[0]), size]));
     setPrintError("");
     try {
       const response = await api.post<{ deleted_count: number; size: string }>(
@@ -1607,7 +1722,7 @@ export default function ProcessQrPage() {
                 <Users />
                 <span>{t("page.processQr.printEmployees")}</span>
               </button>
-              <button type="button" className="btn btn-primary" onClick={issueLabels} disabled={unissuedLabels.length === 0 || issuingLabels || issuedLabelsLoading || operationIdentityNeedsReview}>
+              <button type="button" className="btn btn-primary" onClick={issueLabels} disabled={unissuedLabels.length === 0 || issuingLabels || issuedLabelsLoading || operationIdentityNeedsReview || invalidSizeAllocation || issuedSizeConflict}>
                 {issuingLabels ? <RefreshCw className="animate-spin" /> : <Printer />}
                 <span>{t(issuingLabels ? "page.processQr.issuingLabels" : "page.processQr.issueLabels")}</span>
               </button>
@@ -1930,7 +2045,7 @@ export default function ProcessQrPage() {
               key={selectedModelId} sizes={sizeOptions.map((row) => row.size)}
               sizeToken={(size) => compactQrValue(size).slice(0, 12)} onApply={applyManualSizes}
             />}
-            {needsFamilySizes && !hasManualSizeOverride && selectedModelId && <div className="mb-4"><ManualModelSizes modelId={selectedModelId} onSaved={() => { void mutateSelectedModel(); void mutateFamilySizes(); }} /></div>}
+            {selectedProcess?.is_manual && needsFamilySizes && !hasManualSizeOverride && selectedModelId && <div className="mb-4"><ManualModelSizes modelId={selectedModelId} onSaved={() => { void mutateSelectedModel(); void mutateFamilySizes(); }} /></div>}
             {needsFamilySizes && !hasManualSizeOverride && !resolvedFamilySizes && !familySizesError && <p role="status">{t("common.loading")}</p>}
             {needsFamilySizes && !hasManualSizeOverride && familySizesError && (
               <p role="alert" className="text-sm text-red-700">{t("page.processQr.sizesLoadFailed")}</p>
@@ -1944,7 +2059,20 @@ export default function ProcessQrPage() {
               </div>
             )}
 
-            {selectedProcess?.is_manual && sizeOptions.length > 0 && sizeQuantityMode === "same" ? (
+            {issuedSizeConflict && <p role="alert" className="mb-3 text-sm text-red-700">{t("page.processQr.sizeSplitIssuedConflict")}</p>}
+            {selectedProcess && !selectedProcess.is_manual ? batchesToPrint.map(batch => {
+              const allocation = erpSizeAllocations.get(batch.key);
+              if (!allocation) return null;
+              return <ProcessQrBatchSizes key={batch.key} name={`${batch.serial} · ${batch.name}`}
+                allocation={allocation} disabled={issuingLabels || issuedLabelsLoading}
+                onChange={(size, quantity) => setBatchSizeDrafts(current => ({
+                  ...current,
+                  [`${allocationScope}:${batch.key}`]: {
+                    fingerprint: allocation.fingerprint,
+                    quantities: { ...Object.fromEntries(allocation.rows.map(row => [row.size, row.quantity])), [size]: quantity },
+                  },
+                }))} />;
+            }) : selectedProcess?.is_manual && sizeOptions.length > 0 && sizeQuantityMode === "same" ? (
               <div>
                 <label className="label">{t("page.processQr.quantityPerSize")}</label>
                 <input
@@ -2035,12 +2163,21 @@ export default function ProcessQrPage() {
                 <span>{savingModelOperations ? t("common.saving") : t("page.processQr.saveToModel")}</span>
               </button>
 
+              <button
+                type="button"
+                className="btn"
+                onClick={exportPaidOperations}
+                disabled={!selectedModel || factoryOperations.length === 0 || exportingOperations}
+              >
+                <Download />
+                <span>{exportingOperations ? t("common.loading") : t("packagingReport.excel")}</span>
+              </button>
               {sectionToggle("paidOperations")}
             </div>
           </div>
 
           <div className={`process-qr-collapsible ${collapsedSections.paidOperations ? "is-collapsed" : ""}`}>
-          <div className="mb-3"><PaidProcessPicker key={selectedModelId} existing={factoryOperations} onSelect={addOperation} /></div>
+          <div className="mb-3"><PaidProcessPicker catalogScope={isUslugaModel ? "usluga" : "standard"} key={`${modelApiBase}:${selectedModelId}`} existing={factoryOperations} onSelect={addOperation} /></div>
           <div className="overflow-x-auto">
             <table className="table process-qr-operations">
               <colgroup>
@@ -2058,8 +2195,15 @@ export default function ProcessQrPage() {
                 <tr>
                   <th scope="col" className="w-12">№</th>
                   <th scope="col" title={t("page.processQr.use")}>
-                    <CheckSquare className="h-4 w-4" aria-hidden="true" />
-                    <span className="sr-only">{t("page.processQr.use")}</span>
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      aria-label={t("page.packageScan.selectAll")}
+                      disabled={factoryOperations.length === 0}
+                      checked={factoryOperations.length > 0 && factoryOperations.every(operation => operation.selected)}
+                      ref={element => { if (element) element.indeterminate = factoryOperations.some(operation => operation.selected) && !factoryOperations.every(operation => operation.selected); }}
+                      onChange={event => selectFactoryOperations(event.target.checked)}
+                    />
                   </th>
                   <th>{t("field.section")}</th>
                   <th>{t("common.code")}</th>
@@ -2447,7 +2591,7 @@ export default function ProcessQrPage() {
               <CheckSquare className="h-4 w-4" />
               {t("page.processQr.unissuedLabelCount", { count: unissuedLabels.length.toLocaleString() })}
             </div>
-            <button type="button" className="btn btn-primary" onClick={issueLabels} disabled={unissuedLabels.length === 0 || issuingLabels || issuedLabelsLoading || operationIdentityNeedsReview}>
+            <button type="button" className="btn btn-primary" onClick={issueLabels} disabled={unissuedLabels.length === 0 || issuingLabels || issuedLabelsLoading || operationIdentityNeedsReview || invalidSizeAllocation || issuedSizeConflict}>
               {issuingLabels ? <RefreshCw className="animate-spin" /> : <QrCode />}
               <span>{t(issuingLabels ? "page.processQr.issuingLabels" : "page.processQr.issueLabels")}</span>
             </button>
@@ -2508,29 +2652,62 @@ export default function ProcessQrPage() {
 
         {issuedLabelsLoading ? (
           <div className="py-8 text-center text-sm text-[#8a8472]">{t("common.loading")}</div>
-        ) : issuedLabelsBySize.length > 0 ? (
+        ) : issuedLabelsByBatch.length > 0 ? (
           <div className="space-y-4">
-            {issuedLabelsBySize.map(([size, sizeLabels]) => (
-              <section key={size} className="overflow-hidden rounded-lg border border-[#ded9ca] bg-white">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#ecebe3] bg-[#f8f6ef] px-4 py-3">
-                  <div>
-                    <div className="text-sm font-semibold text-[#14110b]">
-                      {t("field.size")}: {size}
-                    </div>
-                    <div className="mt-0.5 text-xs text-[#8a8472]">
-                      {t("page.processQr.issuedLabelCount", { count: sizeLabels.length.toLocaleString() })}
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
+            {issuedLabelsByBatch.map((batch) => (
+              <section key={batch.key} className="overflow-hidden rounded-lg border border-[#ded9ca] bg-white" data-qr-batch={batch.batchNo}>
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#ded9ca] bg-[#f8f6ef] px-4 py-3">
+                  <h3 className="min-w-0 flex-1">
                     <button
                       type="button"
-                      className="btn btn-danger"
-                      onClick={() => deleteIssuedSize(size, sizeLabels)}
-                      disabled={Boolean(deletingSize) || sizeLabels.some((label) => (
-                        label.status !== "available"
-                        || Boolean(label.payroll_record_id)
-                        || Boolean(label.last_scanned_at)
-                        || Number(label.return_count || 0) > 0
+                      className="flex min-h-11 w-full items-center gap-2 rounded text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                      aria-expanded={expandedIssuedBatches.has(batch.key)}
+                      aria-controls={`issued-batch-${encodeURIComponent(batch.key)}`}
+                      onClick={() => setExpandedIssuedBatches((previous) => {
+                        const next = new Set(previous);
+                        if (next.has(batch.key)) next.delete(batch.key);
+                        else next.add(batch.key);
+                        return next;
+                      })}
+                    >
+                      <ChevronDown aria-hidden="true" className={`h-5 w-5 shrink-0 ${expandedIssuedBatches.has(batch.key) ? "" : "-rotate-90"}`} />
+                      <span className="min-w-0 break-words">
+                        <span className="block text-base font-semibold text-[#14110b]">
+                          {t("field.batch")}: {batch.name || t("page.processQr.noBatch")}
+                        </span>
+                        <span className="mt-0.5 block text-xs font-normal text-[#8a8472]">
+                          {t("page.processQr.issuedLabelCount", { count: batch.labels.length.toLocaleString() })}
+                        </span>
+                      </span>
+                    </button>
+                  </h3>
+                  <button type="button" className="btn btn-primary" onClick={() => printIssuedLabels(batch.labels)} disabled={preparingPrint}>
+                    {preparingPrint ? <RefreshCw className="animate-spin" /> : <Printer />}
+                    <span>{t("page.processQr.printThisBatch", { batch: batch.name || t("page.processQr.noBatch") })}</span>
+                  </button>
+                </div>
+                <div id={`issued-batch-${encodeURIComponent(batch.key)}`} hidden={!expandedIssuedBatches.has(batch.key)}>
+                {expandedIssuedBatches.has(batch.key) && Array.from(batch.sizes.entries()).map(([size, sizeLabels]) => (
+                  <section key={size} data-qr-size={size}>
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#ecebe3] bg-[#f8f6ef] px-4 py-3">
+                    <div>
+                      <div className="text-sm font-semibold text-[#14110b]">
+                        {t("field.size")}: {size}
+                      </div>
+                      <div className="mt-0.5 text-xs text-[#8a8472]">
+                        {t("page.processQr.issuedLabelCount", { count: sizeLabels.length.toLocaleString() })}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        className="btn btn-danger"
+                        onClick={() => deleteIssuedSize(size, sizeLabels)}
+                        disabled={Boolean(deletingSize) || sizeLabels.some((label) => (
+                          label.status !== "available"
+                          || Boolean(label.payroll_record_id)
+                          || Boolean(label.last_scanned_at)
+                          || Number(label.return_count || 0) > 0
                       ))}
                       title={sizeLabels.some((label) => (
                         label.status !== "available"
@@ -2539,7 +2716,7 @@ export default function ProcessQrPage() {
                         || Number(label.return_count || 0) > 0
                       )) ? t("page.processQr.deleteSizeBlocked") : t("page.processQr.deleteSize")}
                     >
-                      {deletingSize === size ? <RefreshCw className="animate-spin" /> : <Trash2 />}
+                      {deletingSize === JSON.stringify([batch.key, size]) ? <RefreshCw className="animate-spin" /> : <Trash2 />}
                       <span>{t("page.processQr.deleteSize")}</span>
                     </button>
                     <button type="button" className="btn btn-primary" onClick={() => printIssuedLabels(sizeLabels)} disabled={preparingPrint}>
@@ -2559,6 +2736,9 @@ export default function ProcessQrPage() {
                       editDisabledReason={t("page.processQr.editLabelBlocked")}
                     />
                   ))}
+                </div>
+                </section>
+                ))}
                 </div>
               </section>
             ))}
@@ -2890,6 +3070,16 @@ export default function ProcessQrPage() {
             align-self: center !important;
           }
 
+          .process-label--besttex {
+            padding: 1.5mm 2mm 1.5mm 3mm !important;
+          }
+
+          .process-label--besttex .process-label__qr {
+            height: 18mm !important;
+            width: 18mm !important;
+            flex: 0 0 18mm !important;
+          }
+
           .process-label__title {
             display: -webkit-box !important;
             max-width: 100% !important;
@@ -2927,6 +3117,13 @@ export default function ProcessQrPage() {
             grid-template-rows: 0.85fr 0.85fr 0.85fr 2.25fr 1fr 1fr 1fr !important;
             font-size: 8.4pt !important;
             line-height: 1 !important;
+          }
+
+          .process-label--work .process-label__batch-value {
+            font-size: 10pt !important;
+            font-weight: 700 !important;
+            text-decoration: underline;
+            text-underline-offset: 0.3mm;
           }
 
           .process-label--employee .process-label__title {
@@ -2975,7 +3172,7 @@ export default function ProcessQrPage() {
           }
 
           .process-label--work .process-label__line {
-            grid-template-columns: 9.5mm minmax(0, 1fr) !important;
+            grid-template-columns: 2.5mm minmax(0, 1fr) !important;
             min-height: 0 !important;
             align-items: center !important;
           }
@@ -3098,8 +3295,9 @@ function ProcessLabel({ label, qrToken }: { label: LabelRow; qrToken: string }) 
   const { t, lang } = useT();
   const { process, batch, operation, sewingLine, size, quantity, rate, currency, copyIndex, copyCount, splitMode } = label;
 
+  const isBesttex = operation.sewingFactory === "besttex";
   return (
-    <article className="process-label process-label--work flex flex-col p-3">
+    <article className={`process-label process-label--work ${isBesttex ? "process-label--besttex" : ""} flex flex-col p-3`}>
       <div className="mb-1 flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="process-label__title break-words text-[13px] font-bold leading-tight text-[#111]">
@@ -3116,8 +3314,8 @@ function ProcessLabel({ label, qrToken }: { label: LabelRow; qrToken: string }) 
           <LabelLine label={t("common.model")} value={formatModelVariantCode(process.model_code) || "-"} />
           <LabelLine label={t("field.orderNo")} value={orderReference(process)} valueClassName="process-label__identity-value" />
           <LabelLine label={t("page.processQr.kroyNo")} value={batch.cuttingPassportNo || process.cutting_passport_no || "-"} strong />
-          <LabelLine label={t("field.batch")} value={batch.serial} />
-          <LabelLine label={t("page.processQr.line")} value={sewingLineDisplay(sewingLine)} strong wrap />
+          <LabelLine label={t("field.batch")} value={batch.serial} strong valueClassName="process-label__batch-value text-[13px] underline underline-offset-2" />
+          <LabelLine label={t("page.processQr.line")} value={isBesttex ? sewingLine.name || "-" : sewingLineDisplay(sewingLine)} strong wrap />
           <LabelLine label={t("field.size")} value={size} strong />
           <LabelLine label={t("field.qty")} value={`${quantity.toLocaleString()} ${t("field.unitPcs")}`} strong />
           {splitMode !== "none" && <LabelLine label={t("page.processQr.part")} value={`${copyIndex}/${copyCount}`} strong />}
@@ -3155,9 +3353,12 @@ function IssuedProcessLabel({
   )
     ? label.operation_section as SectionCode
     : "sewing";
-  const sewingLine = sewingLinePrintText(label.sewing_line_code, label.sewing_line_name);
+  const isBesttex = label.factory_code === "BST";
+  const sewingLine = isBesttex
+    ? label.sewing_line_name?.trim() || "-"
+    : sewingLinePrintText(label.sewing_line_code, label.sewing_line_name);
   return (
-    <article className="process-label process-label--work flex flex-col p-3">
+    <article className={`process-label process-label--work ${isBesttex ? "process-label--besttex" : ""} flex flex-col p-3`}>
       <div className="process-label__header mb-1 flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="process-label__title break-words text-[13px] font-bold leading-tight text-[#111]">
@@ -3190,21 +3391,24 @@ function IssuedProcessLabel({
             label={t("common.model")}
             value={formatModelVariantCode(label.model_code) || "-"}
             valueClassName="process-label__identity-value"
+            initial
           />
-          <LabelLine label={t("field.orderNo")} value={orderReference(label)} valueClassName="process-label__identity-value" />
-          <LabelLine label={t("field.batch")} value={label.batch_no || "-"} />
+          <LabelLine label={t("field.orderNo")} value={orderReference(label)} valueClassName="process-label__identity-value" initial />
+          <LabelLine label={t("field.batch")} value={label.batch_no || "-"} strong valueClassName="process-label__batch-value text-[13px] underline underline-offset-2" initial />
           <LabelLine
             label={t("page.processQr.line")}
             value={sewingLine}
             strong
             wrap
             valueClassName="process-label__identity-value process-label__sewing-line-value"
+            initial
           />
-          <LabelLine label={t("field.size")} value={label.size || "-"} strong />
-          <LabelLine label={t("field.qty")} value={`${Number(label.quantity).toLocaleString()} ${t("field.unitPcs")}`} strong />
+          <LabelLine label={t("field.size")} value={label.size || "-"} strong initial />
+          <LabelLine label={t("field.qty")} value={`${Number(label.quantity).toLocaleString()} ${t("field.unitPcs")}`} strong initial />
           <LabelLine
             label={t("page.processQr.rate")}
             value={Number(label.rate_per_piece) ? `${Number(label.rate_per_piece).toLocaleString()} ${label.currency}` : "-"}
+            initial
           />
         </div>
         {qrImage ? (
@@ -3216,7 +3420,7 @@ function IssuedProcessLabel({
 
       <div className="process-label__footer mt-1 flex items-center justify-between gap-2 pt-1 text-[9px] font-bold text-[#14110b]">
         <span className="process-label__kroy">
-          {t("page.processQr.kroyNo")} {label.cutting_passport_no || "-"}
+          {Array.from(t("page.processQr.kroyNo"))[0]} {label.cutting_passport_no || "-"}
         </span>
         <span className="shrink-0 font-mono">QR {label.qr_token}</span>
       </div>
@@ -3230,16 +3434,18 @@ function LabelLine({
   strong = false,
   wrap = false,
   valueClassName = "",
+  initial = false,
 }: {
   label: string;
   value: string;
   strong?: boolean;
   wrap?: boolean;
   valueClassName?: string;
+  initial?: boolean;
 }) {
   return (
-    <div className="process-label__line grid grid-cols-[33px_minmax(0,1fr)] gap-1">
-      <span className="text-[#7a725f]">{label}</span>
+    <div className={`process-label__line grid ${initial ? "grid-cols-[10px_minmax(0,1fr)]" : "grid-cols-[33px_minmax(0,1fr)]"} gap-1`}>
+      <span className="text-[#7a725f]" title={label}>{initial ? Array.from(label)[0] : label}</span>
       <span className={`process-label__value ${wrap ? "process-label__value--wrap" : ""} ${strong ? "font-bold" : "font-medium"} ${valueClassName}`}>{value}</span>
     </div>
   );

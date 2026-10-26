@@ -3,11 +3,12 @@
 import { formatVariantNumber } from "@/lib/variantDisplay";
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
-import useSWR from "swr";
 import ImageThumbnail from "@/components/ImageThumbnail";
 import PageHeader from "@/components/PageHeader";
 import { useDialogs } from "@/components/DialogProvider";
-import { api, fetcher } from "@/lib/api";
+import { usePriceRequests } from "@/hooks/usePriceRequests";
+import PriceRequestPagination from "@/components/price-calculation/PriceRequestPagination";
+import { api } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { priceRequestSurface, type PriceCalculationRequest, type PriceRequestStatus } from "@/lib/priceCalculationRequests";
 import {
@@ -110,7 +111,7 @@ function PriceCalculationField({ column, row, calculated, formatter, label, onCh
 export default function PriceCalculationPage() {
   const { lang, t } = useT();
   const dialogs = useDialogs();
-  const { data: requests, error, isLoading, mutate } = useSWR<PriceCalculationRequest[]>("/api/price-calculation/requests", fetcher, { refreshInterval: 5_000 });
+  const { data: requests, error, isLoading, mutate, hasMore, isLoadingMore, loadMore } = usePriceRequests();
   const [expandedRows, setExpandedRows] = useState<Set<string>>(() => new Set());
   const [editingRequests, setEditingRequests] = useState<Set<number>>(() => new Set());
   const [financeDrafts, setFinanceDrafts] = useState<Record<number, Partial<PriceCalculationRow>>>({});
@@ -216,6 +217,7 @@ export default function PriceCalculationPage() {
           );
         })}
       </div>
+      <PriceRequestPagination hasMore={hasMore} isLoadingMore={isLoadingMore} loadMore={loadMore} />
     </div>
   );
 }

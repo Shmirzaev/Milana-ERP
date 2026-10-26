@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, IdempotencyRecord, Item, StockBatch, StockMovement, Warehouse
+from app.schemas import AuditLog, IdempotencyRecord, Item, StockBatch, StockMovement, Warehouse
 
 
 VALID_QC_STATUSES = ("pending", "passed", "failed", "rejected", "hold")

@@ -97,7 +97,7 @@ const ModelsPage = component("src/app/(app)/models/page.tsx", {
   "@/components/DialogProvider": { useDialogs: () => ({ notify() {} }) },
   "@/lib/modelComposition": { formatModelComposition: () => "" },
   "@/lib/auth": { useMe: () => ({ me: { permissions } }), can: (me, ...wanted) => me.permissions.includes("*") || wanted.some((permission) => me.permissions.includes(permission)) },
-  swr: { default: () => ({ data: { rows: [{ id: 1, code: "MODEL1", name: "Model", status: familyStatus }] } }) },
+  "@/lib/useLoadMore": { default: () => ({ data: { rows: [{ id: 1, code: "MODEL1", name: "Model", status: familyStatus }] } }) },
 });
 for (const [path, allowed] of [["/models", "modeling.approve"], ["/usluga/models", "usluga.manage"]]) {
   pagePath = path;

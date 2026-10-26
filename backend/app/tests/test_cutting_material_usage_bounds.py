@@ -2,14 +2,14 @@ import pytest
 from pydantic import ValidationError
 
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     AuditLog,
     Bundle,
     CuttingMaterialUsage,
     CuttingRecord,
     StockMovement,
 )
-from app.schemas.production import CuttingMaterialUsageIn, CuttingRecordIn
+from app.libs.dto.production.production import CuttingMaterialUsageIn, CuttingRecordIn
 
 
 MAX_MATERIAL_USAGE = 9_999_999_999.9999

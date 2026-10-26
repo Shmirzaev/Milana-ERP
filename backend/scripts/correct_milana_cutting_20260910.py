@@ -4,9 +4,9 @@ import json
 
 from sqlalchemy import text
 from app.db.session import SessionLocal
-from app.models import Bundle, CuttingRecord, Department, ProductionOrder, User, WorkOrder
+from app.schemas import Bundle, CuttingRecord, Department, ProductionOrder, User, WorkOrder
 from app.core.deps import is_super_admin
-from app.services.audit import log_action
+from app.models.audit_service import log_action
 from app.api.routes.production import complete_cutting_with_shortage, _ensure_replacements_do_not_block_completion
 
 

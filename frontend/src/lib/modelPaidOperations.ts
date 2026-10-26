@@ -326,14 +326,14 @@ export function normalizePaidOperations(value: unknown): PaidOperation[] {
   return rows;
 }
 
-export function paidOperationsFromDetails(details: any): PaidOperation[] {
+export function paidOperationsFromDetails(details: any, useDefaults = true): PaidOperation[] {
   if (details && Object.prototype.hasOwnProperty.call(details, "paid_operations")) {
-    return normalizePaidOperations(details.paid_operations);
+    return normalizePaidOperations(details.paid_operations ?? (useDefaults ? undefined : []));
   }
   if (details && Object.prototype.hasOwnProperty.call(details, "paidOperations")) {
-    return normalizePaidOperations(details.paidOperations);
+    return normalizePaidOperations(details.paidOperations ?? (useDefaults ? undefined : []));
   }
-  return clonePaidOperations();
+  return useDefaults ? clonePaidOperations() : [];
 }
 
 export function serializePaidOperations(rows: PaidOperation[]): PaidOperation[] {

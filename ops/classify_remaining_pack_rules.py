@@ -9,7 +9,7 @@ from typing import Any
 from sqlalchemy import func
 
 from app.db.session import SessionLocal
-from app.models import Model, Package, PackageBarcodeAlias
+from app.schemas import Model, Package, PackageBarcodeAlias
 
 
 def clean(value: Any) -> str:

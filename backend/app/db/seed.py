@@ -16,8 +16,8 @@ from app.core.security import (
 )
 from app.db.session import SessionLocal, engine
 from app.db.base import Base
-import app.models  # noqa
-from app.models import (
+import app.schemas  # noqa
+from app.schemas import (
     Role, Department, User, Customer, Supplier, Warehouse, Item,
     Brand, Collection, Model, ModelSize, ModelColor, ModelBOM,
     CollectionModel, SalesOrder, SalesOrderItem, StockBatch, SewingFlow,

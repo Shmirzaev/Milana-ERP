@@ -4,12 +4,12 @@ from uuid import uuid4
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     AuditLog, Customer, FinishedGoodsStock, Invoice, LegacyStockReceipt, Model, Package,
     PackageItem, SalesOrder, SalesOrderItem, Shipment, ShipmentPackage,
     ShipmentScanLog, StockMovement, StockReservation, Payment, Role, User,
 )
-from app.models.shipment_review import PackageQuantityAdjustment
+from app.schemas.fulfillment.shipment_review import PackageQuantityAdjustment
 
 
 @pytest.fixture

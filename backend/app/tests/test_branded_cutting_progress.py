@@ -1,4 +1,4 @@
-from app.models import WorkOrder
+from app.schemas import WorkOrder
 from app.tests.conftest import TestSessionLocal
 
 

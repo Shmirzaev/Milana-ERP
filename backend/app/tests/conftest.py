@@ -15,7 +15,6 @@ os.environ["MODEL_FILES_DIR"] = os.path.join(_tmpdir, "model_files")
 os.environ["JWT_SECRET"] = "test-secret"
 os.environ["FILE_SIGNING_SECRET"] = "test-file-signing-secret-abcdefghijklmnopqrstuvwxyz"
 os.environ["CORS_ORIGINS"] = "http://localhost:3000"
-os.environ["INTEGRATION_1C_TOKEN"] = "test-1c-token"
 os.environ["ATTENDANCE_INTEGRATION_TOKEN"] = "test-attendance-token"
 os.environ["ATTENDANCE_INTEGRATION_FACTORY_CODE"] = "MIL"
 os.environ["ATTENDANCE_PHOTOS_DIR"] = os.path.join(_tmpdir, "attendance_photos")
@@ -61,7 +60,7 @@ app.dependency_overrides[get_db] = override_get_db
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_db():
-    import app.models  # noqa: F401 - register all models
+    import app.schemas  # noqa: F401 - register all models
     Base.metadata.create_all(bind=test_engine)
     # Seed minimal data
     from app.db.seed import seed
@@ -102,7 +101,7 @@ def reset_shared_counter_store():
 
 @pytest.fixture(autouse=True)
 def clear_attendance_mirror():
-    from app.models import AttendanceDevice, AttendanceEvent, AttendancePerson
+    from app.schemas import AttendanceDevice, AttendanceEvent, AttendancePerson
 
     db = TestSessionLocal()
     try:

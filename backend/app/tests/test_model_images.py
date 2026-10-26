@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
-from app.services.label_images import fabric_label_image_src
-from app.services.model_images import material_preview_image_url, warehouse_stock_image_url
+from app.models.label_images_service import fabric_label_image_src
+from app.models.model_images_service import material_preview_image_url, warehouse_stock_image_url
 
 
 def _fabric_bom(row_id: int, photo_url: str):

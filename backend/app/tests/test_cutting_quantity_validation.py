@@ -4,7 +4,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.routes.production import _parse_cutting_bundle_specs
-from app.models import (
+from app.schemas import (
     AuditLog,
     Bundle,
     CuttingRecord,
@@ -14,7 +14,7 @@ from app.models import (
     WasteRecord,
     WorkOrder,
 )
-from app.schemas.production import CuttingRecordIn
+from app.libs.dto.production.production import CuttingRecordIn
 from app.tests.conftest import TestSessionLocal
 
 

@@ -4,8 +4,8 @@ import pytest
 from pydantic import ValidationError
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, Model, PriceCalculationRequest
-from app.schemas.price_calculation import PriceCalculationCuttingIn
+from app.schemas import AuditLog, Model, PriceCalculationRequest
+from app.libs.dto.planning.price_calculation import PriceCalculationCuttingIn
 
 
 def _payload(**overrides) -> dict:

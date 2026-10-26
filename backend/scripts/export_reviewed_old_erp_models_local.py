@@ -30,7 +30,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import selectinload
 
 from app.db.session import SessionLocal
-from app.models import Model
+from app.schemas import Model
 from scripts import import_old_erp_models_local as local_import
 from scripts import migrate_reviewed_old_erp_models_production as production_import
 

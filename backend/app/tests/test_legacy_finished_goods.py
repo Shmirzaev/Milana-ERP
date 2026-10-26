@@ -5,7 +5,7 @@ import pytest
 from app.api.routes.packages import storage_map
 from app.api.routes.shipments import _find_package_for_scan
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     Brand,
     FinishedGoodsStock,
     LegacyStockReceipt,

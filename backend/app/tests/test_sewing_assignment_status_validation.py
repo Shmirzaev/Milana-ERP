@@ -3,7 +3,7 @@ from uuid import uuid4
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, Department, ProductionOrder, SewingAssignment, SewingFlow, WorkOrder
+from app.schemas import AuditLog, Department, ProductionOrder, SewingAssignment, SewingFlow, WorkOrder
 
 
 VALID_STATUSES = ("planned", "in_progress", "completed", "cancelled", "transferred")

@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone, timedelta, time
 from zoneinfo import ZoneInfo
-from typing import Literal
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Annotated, Literal
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 
 from app.core.deps import (
@@ -13,15 +13,50 @@ from app.core.deps import (
     require_permissions,
 )
 from app.core.dt import as_utc
-from app.models import (
+from app.schemas import (
     SalesOrder, ProductionOrder, WorkOrder, WasteRecord, FinishedGoodsStock,
     CuttingRecord, SewingRecord, PrintingRecord, PackagingRecord, Customer, User,
     SalesOrderItem,
 )
-from app.services.finance import dashboard_summary, branded_stock_value
-from app.services.inventory import stock_summary
+from app.models.finance_service import dashboard_summary, branded_stock_value
+from app.models.inventory_service import stock_summary
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+
+
+@router.get("/cutting")
+def cutting_dashboard(
+    db: DbSession, start: date, end: date,
+    current: User = Depends(require_permissions("cutting.records", "cutting.bundles", "planning.production", "*")),
+    cutting_department_code: str | None = None,
+):
+    from app.models.department_dashboards_service import cutting_board
+    from app.models.factory_scope_service import cutting_department_scope
+    department = cutting_department_scope(current, cutting_department_code)
+    return cutting_board(db, department, start, end)
+
+
+@router.get("/printing")
+def printing_dashboard(
+    db: DbSession,
+    current: User = Depends(require_permissions("printing.records", "printing.bundles", "planning.production", "*")),
+    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=48)] = 24,
+):
+    from app.models.department_dashboards_service import printing_board
+    from app.models.factory_scope_service import require_operational_department_access
+    require_operational_department_access(current, "PRT")
+    return printing_board(db, offset=offset, limit=limit)
+
+
+@router.get("/warehouse")
+def warehouse_dashboard(
+    db: DbSession, start: date, end: date,
+    _: User = Depends(require_permissions("storage.packages", "storage.shipment", "*")),
+    stock_kind: Literal["ALL", "standard", "first_grade", "second_grade"] = "ALL",
+):
+    from app.models.department_dashboards_service import warehouse_board
+    return warehouse_board(db, start, end, stock_kind=stock_kind)
 
 
 @router.get("/overview")
@@ -32,7 +67,7 @@ def management_overview(
     _: User = Depends(require_permissions("management.view", "*")),
     factory: Literal["ALL", "MIL", "BST", "ECO"] = "ALL",
 ):
-    from app.services.dashboard_overview import overview
+    from app.models.dashboard_overview_service import overview
 
     if end < start or (end - start).days > 365:
         raise HTTPException(status_code=422, detail="Choose an ordered date range of at most 366 days")

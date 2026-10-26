@@ -7,11 +7,50 @@ from openpyxl import load_workbook
 
 from app.api.routes.shipments import _invoice_print_details
 from app.db.session import SessionLocal
-from app.models import LegacyStockReceipt, Package, Shipment, ShipmentScanLog
-from app.services.shipment_invoice import build_invoice_rows, render_shipment_invoice
-from app.services.shipment_invoice_excel import shipment_invoice_workbook
-from app.services.variant_display import format_variant_number
+from app.schemas import LegacyStockReceipt, Package, Shipment, ShipmentScanLog
+from app.models.shipment_invoice_service import build_invoice_rows, render_shipment_invoice
+from app.models.shipment_invoice_excel_service import shipment_invoice_workbook
+from app.models.variant_display_service import format_variant_number
 from app.tests.test_shipment_review import dispatch as dispatch, ship
+
+
+@pytest.mark.parametrize("lang", ["en", "ru", "uz"])
+@pytest.mark.parametrize("show_prices", [True, False])
+def test_equal_invoice_rows_horizontal_sizes_and_surrounding_excel_grid(lang, show_prices):
+    from app.models.shipment_invoice_service import invoice_column_widths, invoice_size_labels
+    from openpyxl.utils import get_column_letter
+
+    packages = [{"package_no": "LAYOUT", "quantity": 60, "weight_kg": "27.22"}]
+    lines = [{"package_no": "LAYOUT", "model_no": "XJ3062", "variant_no": "5775", "size": str(size),
+              "quantity": 10, "unit_price": "5.80", "amount": "58.00"} for size in (48, 50, 52, 54, 56, 58)]
+    document = {"shipment_no": "LAYOUT", "package_details": packages, "lines": lines,
+                "packages_count": 1, "quantity": 60, "amount": "348.00", "invoice_layout_version": 2}
+    original = deepcopy(document)
+    sheet = load_workbook(BytesIO(shipment_invoice_workbook(document, lang, show_prices=show_prices))).active
+    widths = [sheet.column_dimensions[get_column_letter(column)].width for column in range(1, 12)]
+    assert widths[4] == max(widths) == 27
+    assert sum(invoice_column_widths()) == pytest.approx(100)
+    assert sheet["E10"].value == "48×10, 50×10, 52×10, 54×10, 56×10, 58×10"
+    assert sheet.row_dimensions[10].height == 23.1
+    assert not sheet["E10"].alignment.wrap_text and sheet["E10"].alignment.shrink_to_fit is True
+    assert sheet.sheet_view.showGridLines is True
+    assert sheet.sheet_view.showRowColHeaders is True
+    assert sheet.freeze_panes is None
+    assert sheet.max_row == 16 and sheet.max_column == 11
+    assert all(sheet[coordinate].fill.fgColor.rgb == "00FFFFFF" for coordinate in ("A1", "K3", "A8", "K12"))
+    assert sheet["L10"].fill.patternType is None and sheet["A17"].fill.patternType is None
+    assert sheet.print_options.gridLines is False and sheet.print_options.headings is False
+    assert sheet["F11"].value == 1 and sheet["G11"].value == 60 and sheet["I11"].value == 27.22
+    assert sheet["K11"].value == (348 if show_prices else None)
+    html = render_shipment_invoice(document, lang, show_prices=show_prices)
+    assert '<col style="width:27%">' in html
+    assert '48×10</span>, <span class="size-label">50×10' in html
+    assert invoice_size_labels([
+        {"size": "M", "color": "Red", "quantity": 4},
+        {"size": "L", "color": "Blue", "quantity": 6},
+        {"size": "ASSORTED (12)", "color": "Blue", "aggregate": True, "quantity": 12},
+    ]) == ["Red / M×4", "Blue / L×6", "Blue / ASSORTED (12)"]
+    assert document == original
 
 
 def test_partial_weight_excel_shared_pack_and_literal_text():
@@ -94,8 +133,8 @@ def test_variant_presentation_is_idempotent(raw, expected):
 
 @pytest.mark.parametrize("lang", ["en", "ru", "uz"])
 @pytest.mark.parametrize("historical", [False, True])
-def test_invoice_pdf_excel_share_identity_metadata_notes_and_portrait_layout(lang, historical):
-    from app.services.shipment_invoice import LABELS, invoice_notes
+def test_invoice_pdf_excel_share_identity_metadata_and_end_at_contact_footer(lang, historical):
+    from app.models.shipment_invoice_service import LABELS, invoice_notes
     document = {
         "supplier": "Milana Tex", "shipment_no": "SH-2026-000011", "customer": "Customer",
         "sales_order_no": None, "shipped_at": "2026-09-29T06:25:04Z", "warehouse_person": "Storage",
@@ -110,27 +149,37 @@ def test_invoice_pdf_excel_share_identity_metadata_notes_and_portrait_layout(lan
     html = render_shipment_invoice(document, lang)
     sheet = load_workbook(BytesIO(shipment_invoice_workbook(document, lang))).active
     labels = LABELS[lang]
-    assert sheet["A1"].value == "Milana Tex"
-    assert sheet["A2"].value == labels["title"]
-    assert sheet["A3"].value == "SH-2026-000011"
-    assert sheet["A4"].value == labels["shipment"] and sheet["C4"].value == document["shipment_no"]
-    assert sheet["A5"].value == labels["date"] and sheet["C5"].value == "29/09/2026 11:25:04"
-    assert sheet["C6"].value == "Customer" and sheet["C7"].value == "—"
-    assert [sheet.cell(row, 6).value for row in range(4, 8)] == ["Driver", "Truck", "Carrier", "Phone"]
+    assert sheet["A2"].value == "MILANA PREMIUM"
+    assert sheet["A3"].value == labels["title"]
+    assert sheet["A4"].value == labels["customer"] and sheet["C4"].value == "Customer"
+    assert sheet["A5"].value == labels["shipment"] and sheet["C5"].value == document["shipment_no"]
+    assert sheet["A6"].value == labels["date"] and sheet["C6"].value == "29/09/2026 11:25:04"
+    assert sheet["C7"].value == "—"
+    assert [sheet.cell(row, 7).value for row in range(4, 8)] == ["Driver", "Truck", "Carrier", "Phone"]
     assert sheet["C10"].value == "V-5865" and "<td>V-5865</td>" in html
     assert sheet.page_setup.orientation == "portrait" and sheet.page_setup.fitToWidth == 1
-    assert len(sheet._images) == 1
+    assert sheet["A9"].fill.fgColor.rgb == "001F3864"
+    assert sheet["B9"].fill.fgColor.rgb == "002F5597"
     values = [cell.value for row in sheet for cell in row]
     for note in invoice_notes(document, lang):
-        assert note in values and note in html
-    assert f'{labels["issued"]}: Storage' in values and labels["received"] in values
+        assert note not in values and note not in html
+    assert sheet.max_row == 16
+    assert 'class="accounting"' not in html
+    assert "Storage" not in values and "Milana Tex Logistics" not in values
+    assert all(contact in values and contact in html for contact in ("+998501551010", "Milanapremium.com", "wearmilana@gmail.com"))
+    assert sheet["A14"].value is None
+    assert sheet["A16"].data_type == "s" and sheet["A16"].number_format == "@"
+    assert len(sheet._images) == 1 and 'class="logo"' in html
+    assert sheet["B10"].border.bottom.style == "thin"
+    assert sheet["A10"].border.left.style == sheet["K10"].border.right.style == "medium"
+    assert sheet["A11"].border.bottom.style == "double"
     assert document == original
 
 
 @pytest.mark.parametrize("lang", ["en", "ru", "uz"])
 @pytest.mark.parametrize("price,amount", [("12345.67", "37037.01"), ("0.00", "0.00"), (None, None)])
 def test_price_columns_and_hidden_exports_preserve_saved_amounts(lang, price, amount):
-    from app.services.shipment_invoice import LABELS
+    from app.models.shipment_invoice_service import LABELS
     document = {
         "shipment_no": "PRICE-CHECK", "invoice_layout_version": 2, "packages_count": 1, "quantity": 3,
         "package_details": [{"package_no": "P", "quantity": 3, "weight_kg": "1.25"}],
@@ -151,13 +200,13 @@ def test_price_columns_and_hidden_exports_preserve_saved_amounts(lang, price, am
             assert sheet["J10"].value == (float(price) if price is not None else "—")
             assert sheet["K10"].value == (float(amount) if amount is not None else "—")
             assert sheet["K11"].value == 36500
-            assert "36\u00a0500.00" in html and "&lt;review&gt;" in html
+            assert "36\u00a0500.00" in html
         else:
             assert sheet["J10"].value is sheet["K10"].value is sheet["K11"].value is None
             assert sheet["J10"].border.left.style and sheet["K10"].border.right.style
             assert '<td class="numeric"></td><td class="numeric"></td></tr>' in html
             assert '<td></td><td class="numeric"></td></tr>' in html
             assert "36500" not in html and "36\u00a0500.00" not in html
-            assert "Agreed" not in html
-            assert not any("Agreed" in str(cell.value) for row in sheet for cell in row)
+        assert "Agreed" not in html
+        assert not any("Agreed" in str(cell.value) for row in sheet for cell in row)
     assert document == before

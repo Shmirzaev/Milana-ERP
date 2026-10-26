@@ -22,9 +22,9 @@ assert url.host in {"localhost", "127.0.0.1"} and url.database == "handoffs_cont
 os.environ["DATABASE_URL"] = url.render_as_string(hide_password=False)
 
 from app.db.base import Base
-from app.models import User, Role, Employee, PayrollQrLabel, PayrollRecord, PackagePrintRun, PackagePrintRunMember
+from app.schemas import User, Role, Employee, PayrollQrLabel, PayrollRecord, PackagePrintRun, PackagePrintRunMember
 from app.api.routes.payroll import record_numeric_work_scan, split_scanned_record
-from app.schemas.payroll import PayrollNumericWorkScanIn, PayrollScanSplitIn
+from app.libs.dto.people.payroll import PayrollNumericWorkScanIn, PayrollScanSplitIn
 
 engine = create_engine(url)
 assert not inspect(engine).get_table_names(), "Use an empty disposable QA database"

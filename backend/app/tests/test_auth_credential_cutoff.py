@@ -6,7 +6,7 @@ import pytest
 from app.core import security
 from app.core.config import settings
 from app.db.session import SessionLocal
-from app.models import User
+from app.schemas import User
 
 
 @pytest.fixture

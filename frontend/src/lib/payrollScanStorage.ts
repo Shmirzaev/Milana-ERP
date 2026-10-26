@@ -1,7 +1,7 @@
 export const PAYROLL_SCAN_STORAGE_KEY = "milana_payroll_scan_records_v2";
 
 export function payrollScanStorageKey(factoryCode: string): string {
-  return factoryCode === "ECO" ? `${PAYROLL_SCAN_STORAGE_KEY}:ECO` : PAYROLL_SCAN_STORAGE_KEY;
+  return (factoryCode === "ECO" || factoryCode === "BST") ? `${PAYROLL_SCAN_STORAGE_KEY}:${factoryCode}` : PAYROLL_SCAN_STORAGE_KEY;
 }
 
 type StoredPayrollScanRecord = {

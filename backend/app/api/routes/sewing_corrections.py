@@ -4,11 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, or_
 from app.core.deps import DbSession, require_permissions
-from app.models import (User, WorkOrder, SewingRecord, SewingAssignment, SewingFlow,
+from app.schemas import (User, WorkOrder, SewingRecord, SewingAssignment, SewingFlow,
                         SewingReplacementRequest, PackagingReceipt, PackagingRecord, CuttingRecord, PrintingRecord)
-from app.services.factory_scope import require_work_order_factory_access
-from app.services.audit import log_action
-from app.services.workflow import advance_workflow
+from app.models.factory_scope_service import require_work_order_factory_access
+from app.models.audit_service import log_action
+from app.models.workflow_service import advance_workflow
+from app.models.sewing_input_service import sync_sewing_input
 
 router = APIRouter(tags=["sewing_corrections"])
 
@@ -119,8 +120,12 @@ def locked_record(db, rid, user, version):
 
 
 def apply(db, wo, row, user, payload=None):
-    from app.api.routes.production import _context_work_order, _validated_sewing_size_quantities
-    from app.schemas.production import SewingRecordIn
+    from app.api.routes.production import (
+        _context_work_order, _validated_sewing_size_quantities,
+        _revised_sewing_input_limit, _lift_sewing_output_plans,
+        _require_confirmed_cutting_output,
+    )
+    from app.libs.dto.production.production import SewingRecordIn
     old = snapshot(row)
     assignment, applied = assignment_for(db, wo, row)
     new_input = payload.input_qty if payload else 0
@@ -135,7 +140,7 @@ def apply(db, wo, row, user, payload=None):
         SewingRecord.work_order_id == wo.id, SewingRecord.production_batch_id == row.production_batch_id).one()
     after_input = totals[0] - row.input_qty + new_input
     after_sewn = totals[1] - row.sewn_qty + new_sewn
-    if after_sewn > after_input:
+    if after_input < totals[0] and after_sewn > after_input:
         raise HTTPException(409, "sewingEdit.invalidQuantity")
     cut = _context_work_order(db, wo, "cutting")
     printing = _context_work_order(db, wo, "printing")
@@ -147,21 +152,27 @@ def apply(db, wo, row, user, payload=None):
                 model.work_order_id == upstream.id,
                 model.production_batch_id == row.production_batch_id).scalar())
         printed = passed(PrintingRecord, PrintingRecord.passed_qty, printing)
-        limit = printed if printed > 0 else passed(CuttingRecord, CuttingRecord.passed_pieces, cut)
+        cutting_passed = passed(CuttingRecord, CuttingRecord.passed_pieces, cut)
+        limit = printed if printed > 0 else cutting_passed
+        if not printing or printing.status == "skipped":
+            limit = _revised_sewing_input_limit(db, wo, row.production_batch_id, limit)
         proposed_input = after_input
     else:
+        cutting_passed = int(cut.passed_qty or 0) if cut else 0
         limit = int((printing.passed_qty if printing and printing.passed_qty else cut.passed_qty if cut else 0) or 0)
-        proposed_input = wo.actual_input_qty - row.input_qty + new_input
+        proposed_input = after_input
+    if new_input > row.input_qty or new_sewn > row.sewn_qty or new_passed > row.passed_qty:
+        _require_confirmed_cutting_output(cutting_passed, new_input, new_sewn, new_passed, status_code=409)
     if new_input > row.input_qty and proposed_input > limit:
         raise HTTPException(409, "sewingEdit.upstreamLimit")
     if assignment:
         next_completed = assignment.completed_qty - applied + new_passed
-        if next_completed < 0 or next_completed > assignment.quantity:
+        if next_completed < 0:
             raise HTTPException(409, "sewingEdit.assignmentLimit")
+        assignment.quantity = max(assignment.quantity, next_completed)
         assignment.completed_qty = next_completed
         assignment.status = "completed" if next_completed == assignment.quantity else "in_progress" if next_completed else "planned"
         assignment.actual_end = datetime.now(timezone.utc) if assignment.status == "completed" else None
-    wo.actual_input_qty += new_input - row.input_qty
     wo.actual_output_qty += new_passed - row.passed_qty
     wo.passed_qty += new_passed - row.passed_qty
     if min(wo.actual_input_qty, wo.actual_output_qty, wo.passed_qty) < 0:
@@ -187,6 +198,8 @@ def apply(db, wo, row, user, payload=None):
         wo.status = "in_progress"
         wo.end_time = None
     db.flush()
+    sync_sewing_input(db, wo)
+    _lift_sewing_output_plans(db, wo)
     advance_workflow(db, wo)
     log_action(db, user, "update" if payload else "delete", "SewingRecord", old["id"],
                old_value=old, new_value=snapshot(row) if payload else None)

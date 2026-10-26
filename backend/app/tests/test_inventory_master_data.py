@@ -1089,7 +1089,7 @@ def test_stock_batch_editor_reassigns_an_unused_batch_to_an_existing_material(cl
 
 def test_reserved_batch_delete_releases_reservation_and_archives_inventory(client, auth_headers):
     from app.db import session as session_module
-    from app.models import MaterialReservation, Model, ProductionOrder, StockBatch, StockMovement
+    from app.schemas import MaterialReservation, Model, ProductionOrder, StockBatch, StockMovement
 
     suffix = uuid4().hex[:8].upper()
     materials = []
@@ -1410,7 +1410,7 @@ def test_material_inventory_report_exports_grouped_counts_kg_and_grand_total(cli
 
 def test_admin_archives_unused_fabric_receipt_batch(client, auth_headers):
     from app.db import session as session_module
-    from app.models import StockBatch, StockMovement
+    from app.schemas import StockBatch, StockMovement
 
     suffix = uuid4().hex[:8].upper()
     item_response = client.post(
@@ -1479,8 +1479,8 @@ def test_admin_archives_unused_fabric_receipt_batch(client, auth_headers):
 
 def test_fully_consumed_fabric_batch_moves_to_archive(client, auth_headers):
     from app.db import session as session_module
-    from app.models import StockBatch, User
-    from app.services.workflow import consume_stock_batch
+    from app.schemas import StockBatch, User
+    from app.models.workflow_service import consume_stock_batch
 
     suffix = uuid4().hex[:8].upper()
     item_response = client.post(
@@ -1603,7 +1603,7 @@ def test_stock_batch_delete_flushes_receipts_before_parent_batch():
 
 def test_stock_batch_delete_archives_used_batch_and_reduces_remaining_inventory(client, auth_headers):
     from app.db import session as session_module
-    from app.models import StockBatch, StockMovement
+    from app.schemas import StockBatch, StockMovement
 
     suffix = uuid4().hex[:8].upper()
     item_response = client.post(

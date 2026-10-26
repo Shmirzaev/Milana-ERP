@@ -1,6 +1,7 @@
-from app.models.eco_transfer import EcoFabricRoll
+from app.schemas.inventory.eco_transfer import EcoFabricRoll
 from app.core.order_reference import canonical_business_order_reference, canonical_order_reference, order_reference_contains
 from datetime import date, datetime
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Depends, Header, UploadFile, File, Response, Query
@@ -8,6 +9,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import lazyload
 
 from app.core.dt import date_filter_bounds
+from app.core.costs import round_unit_cost
 from app.core.deps import (
     DbSession,
     INVENTORY_READ_PERMISSIONS,
@@ -17,7 +19,7 @@ from app.core.deps import (
     require_permissions,
     user_permissions,
 )
-from app.models import (
+from app.schemas import (
     Item,
     CuttingRecord,
     CuttingMaterialUsage,
@@ -34,23 +36,24 @@ from app.models import (
     Warehouse,
     WasteRecord,
 )
-from app.schemas.inventory import (
+from app.libs.dto.inventory.inventory import (
     ItemImageIn, ItemIn, ItemOut, WarehouseIn, WarehouseOut,
     AccessoryReturnIn, StockBatchIn, StockBatchOut, StockBatchRestoreIn, StockBatchRollWeightsIn, StockBatchUpdate, StockMovementIn, StockMovementOut, StockLine,
     AccessoryIssueIn, AccessoryIssueOut, AccessoryIssuePlanOut, AccessoryIssueRequestRow, AccessoryIssueSummaryRow,
     MaterialReservationAutoIn, MaterialReservationConsumeIn, MaterialReservationIn,
     MaterialReservationOut, MaterialReservationPlanOut, StockQuantityAdjustmentIn, StockQuantityAdjustmentOut,
 )
-from app.services import inventory_access
-from app.services.audit import log_action
-from app.services.idempotency import replay_idempotent_response, store_idempotent_response
-from app.services.material_rolls import normalize_material_roll_lengths, normalize_material_roll_weights
-from app.services.inventory import (
+from app.models import inventory_access_service as inventory_access
+from app.models.audit_service import log_action
+from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
+from app.models.material_rolls_service import normalize_material_roll_lengths, normalize_material_roll_weights
+from app.models.inventory_service import (
     accessory_issue_plan,
     accessory_issue_requests,
     accessory_issue_summary,
     auto_reserve_materials_for_production_order,
     available_stock_for_batch,
+    available_reservation_item_capacity,
     categories_for_group,
     consume_material_reservation,
     create_material_reservations,
@@ -63,14 +66,14 @@ from app.services.inventory import (
     reserved_stock_for_batch,
     stock_summary,
 )
-from app.services.inventory_reports import (
+from app.models.inventory_reports_service import (
     ReportLanguage,
     build_material_inventory_pdf,
     build_material_inventory_xlsx,
     material_inventory_report_rows,
 )
-from app.services.workflow import archive_depleted_material_batch
-from app.services.cutting_fabric_usage import cutting_fabric_usage
+from app.models.workflow_service import archive_depleted_material_batch
+from app.models.cutting_fabric_usage_service import cutting_fabric_usage
 from app.core.pagination import clamp_pagination
 from app.core.config import settings
 
@@ -131,7 +134,7 @@ def _require_admin_force(current: User, force: bool) -> None:
 def _locked_stock_batch_statement(batch_id: int):
     # StockBatch.item is joined eagerly by default. PostgreSQL rejects a broad
     # FOR UPDATE when that optional eager relationship adds an outer join, so
-    # lock only the stock_batches query and load no relationship for deletion.
+    # lock only the stock_batches query and load no relationship for mutation.
     return (
         select(StockBatch)
         .options(lazyload(StockBatch.item))
@@ -201,6 +204,7 @@ def _validate_item_image_url(image_url: str | None) -> str | None:
 
 def _item_payload(payload: ItemIn) -> dict:
     data = payload.model_dump()
+    data["default_cost"] = round_unit_cost(data["default_cost"])
     data["name"] = str(data.get("name") or "").strip()
     data["image_url"] = _validate_item_image_url(data.get("image_url"))
     composition = []
@@ -355,7 +359,7 @@ async def upload_item_image(
     file: UploadFile = File(...),
     _: User = Depends(require_permissions("storage.items", "storage.receive", "*")),
 ):
-    from app.services.image_storage import store_uploaded_image
+    from app.models.image_storage_service import store_uploaded_image
 
     stored = await store_uploaded_image(
         file,
@@ -601,7 +605,7 @@ def _apply_batch_tracked_stock_adjustment(
                 batch_no=_unique_adjustment_batch_no(db, item),
                 quantity=0,
                 unit=item.unit,
-                cost_per_unit=float(item.default_cost or 0),
+                cost_per_unit=round_unit_cost(item.default_cost or 0),
                 warehouse_id=_stock_adjustment_warehouse_id(db, item, batches),
                 qc_status="passed",
             )
@@ -680,7 +684,9 @@ def set_stock_quantity(
     target_quantity = float(payload.quantity or 0)
     previous_quantity = current_stock_for_item(db, item_id)
     reserved_quantity = reserved_stock_for_item(db, item_id)
-    if target_quantity + EPSILON < reserved_quantity and not force:
+    # Force permits legacy batch selection behavior, but a correction must
+    # never leave active reservations backed by less physical stock.
+    if target_quantity + EPSILON < reserved_quantity:
         raise HTTPException(409, f"Stock quantity cannot be lower than reserved quantity ({reserved_quantity:g} {item.unit})")
     delta = target_quantity - previous_quantity
     if abs(delta) <= EPSILON:
@@ -812,6 +818,7 @@ def receive_stock(
         raise HTTPException(404, "Warehouse not found")
     _validate_receiving_warehouse(item, warehouse)
     batch_data = payload.model_dump()
+    batch_data["cost_per_unit"] = round_unit_cost(batch_data["cost_per_unit"])
     batch_data["order_no"] = canonical_business_order_reference(db, payload.order_no)
     roll_weights, piece_count = normalize_material_roll_weights(
         item_category=item.category,
@@ -858,6 +865,34 @@ def receive_stock(
     return response
 
 
+def _lock_accessory_return_allowance(db: DbSession, production_order_id: int) -> None:
+    """Serialize the shared issue allowance behind an accessory return.
+
+    `returnable_quantity` is an aggregate, not a row: it is the order's issued
+    movements plus its manual accessory issues, minus every return already
+    recorded against the order. No single row carries it, so the production
+    order is the narrowest row that scopes all of it, and locking it is what
+    makes the read and the return the request records one decision.
+
+    `key_share=True` renders FOR NO KEY UPDATE, the narrowest row lock that
+    still serializes the read. A blanket FOR UPDATE would also conflict with the
+    FOR KEY SHARE PostgreSQL takes for the production_order_id foreign key that
+    reservation, work-order and movement writers insert under, so a return would
+    block those writers against this order row for no added safety.
+
+    The lock is a no-op when the order does not exist, so the route keeps its
+    own 404, and PostgreSQL releases it on commit or rollback.
+    """
+    if db.bind and db.bind.dialect.name == "postgresql":
+        (
+            db.query(ProductionOrder)
+            .filter(ProductionOrder.id == production_order_id)
+            .populate_existing()
+            .with_for_update(of=ProductionOrder, key_share=True)
+            .first()
+        )
+
+
 @router.post("/accessory-returns", response_model=StockBatchOut, status_code=201)
 def collect_back_accessory(
     payload: AccessoryReturnIn,
@@ -866,6 +901,8 @@ def collect_back_accessory(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     inventory_access.require_accessories(current)
+    # The allowance read below must not race the return this request records.
+    _lock_accessory_return_allowance(db, payload.production_order_id)
     fingerprint_payload = payload.model_dump(mode="json")
     if payload.length_m is None:
         fingerprint_payload.pop("length_m", None)
@@ -910,6 +947,7 @@ def collect_back_accessory(
         )
 
     batch_data = payload.model_dump(exclude={"production_order_id", "return_condition"})
+    batch_data["cost_per_unit"] = round_unit_cost(batch_data["cost_per_unit"])
     batch_data["roll_lengths_m"] = normalize_material_roll_lengths(
         item_category=item.category, roll_lengths_m=payload.roll_lengths_m, piece_count=payload.piece_count,
     )
@@ -1023,22 +1061,25 @@ def list_accessory_issue_requests(
 ):
     inventory_access.require_accessories(_)
     safe_page, safe_size, _ = clamp_pagination(page, page_size)
-    all_rows = accessory_issue_requests(
+    result = accessory_issue_requests(
         db,
         production_order_id=production_order_id,
         model_id=model_id,
         q=q,
         include_complete=include_complete,
+        page=safe_page,
+        page_size=safe_size,
+        include_total=include_total,
     )
-    rows = all_rows[(safe_page - 1) * safe_size: (safe_page - 1) * safe_size + safe_size]
     if include_total:
+        all_rows, total = result
         return {
-            "rows": [AccessoryIssueRequestRow(**row).model_dump() for row in rows],
-            "total": len(all_rows),
+            "rows": [AccessoryIssueRequestRow(**row).model_dump() for row in all_rows],
+            "total": total,
             "page": safe_page,
             "page_size": safe_size,
         }
-    return [AccessoryIssueRequestRow(**row).model_dump() for row in rows]
+    return [AccessoryIssueRequestRow(**row).model_dump() for row in result]
 
 
 @router.post("/accessory-issues", response_model=AccessoryIssueOut, status_code=201)
@@ -1300,7 +1341,91 @@ def transfer_stock(
         return replay
     if payload.movement_type not in ("transfer", "issue", "consume", "adjustment", "return"):
         raise HTTPException(400, "Invalid movement_type")
-    mv = StockMovement(**payload.model_dump(), created_by=current.id)
+    quantity = Decimal(str(payload.quantity))
+    if not quantity.is_finite() or quantity <= 0 or quantity >= Decimal("10000000000"):
+        raise HTTPException(400, "Quantity must be finite, positive and less than 10000000000")
+    if quantity != quantity.quantize(Decimal("0.0001")):
+        raise HTTPException(400, "Quantity must have at most four decimal places")
+    item = db.get(Item, payload.item_id)
+    if not item:
+        raise HTTPException(404, "Item not found")
+    if payload.unit != item.unit:
+        raise HTTPException(409, "Movement unit must match the item unit")
+    for warehouse_id in (payload.from_warehouse_id, payload.to_warehouse_id):
+        if warehouse_id is not None and not db.get(Warehouse, warehouse_id):
+            raise HTTPException(404, "Warehouse not found")
+
+    movement_data = payload.model_dump()
+    movement_data["quantity"] = quantity
+    if payload.batch_id is not None:
+        # Lock the batch before reading its quantity, warehouse or claims so a
+        # concurrent movement or reservation cannot be validated against a
+        # stale row. The ledger write and the batch write share this
+        # transaction, so the two either both land or neither does.
+        batch = db.execute(
+            _locked_stock_batch_statement(payload.batch_id).execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        if not batch:
+            raise HTTPException(404, "Active stock batch not found")
+        if batch.item_id != item.id:
+            raise HTTPException(409, "Stock batch does not belong to the selected item")
+        if payload.unit != batch.unit:
+            raise HTTPException(409, "Movement unit must match the batch unit")
+        if db.query(EcoFabricRoll.id).filter_by(batch_id=batch.id, returned_at=None).first():
+            raise HTTPException(409, "Return outstanding fabric through the Eco Cotton register before changing this batch")
+
+        outgoing = payload.movement_type in ("issue", "consume", "transfer")
+        warehouse_field = "from_warehouse_id" if outgoing else "to_warehouse_id"
+        movement_warehouse_id = movement_data[warehouse_field]
+        if movement_warehouse_id is not None and movement_warehouse_id != batch.warehouse_id:
+            raise HTTPException(409, "Movement warehouse must match the batch warehouse")
+        movement_data[warehouse_field] = batch.warehouse_id
+
+        if outgoing:
+            # Match reservation creation's batch-before-item lock order. Item-only
+            # claims can commit while the batch is locked, so read all capacity
+            # only after taking the common item lock as well.
+            db.execute(
+                select(Item).where(Item.id == item.id)
+                .with_for_update(of=Item, key_share=True)
+                .execution_options(populate_existing=True)
+            ).scalar_one()
+            reserved = Decimal(str(reserved_stock_for_batch(db, batch.id)))
+            item_capacity = Decimal(str(available_reservation_item_capacity(db, item.id, batch.warehouse_id))).quantize(
+                Decimal("0.0001"),
+            )
+            if quantity > min(batch.quantity - reserved, item_capacity):
+                raise HTTPException(409, "Movement quantity exceeds available batch stock")
+            if payload.movement_type == "transfer":
+                if payload.to_warehouse_id is None:
+                    raise HTTPException(400, "Destination warehouse is required")
+                if payload.to_warehouse_id == batch.warehouse_id:
+                    raise HTTPException(400, "Destination warehouse must differ from the source")
+                # A batch has one location. A partial relocation needs a separate
+                # batch identity, which this endpoint does not create.
+                if quantity != batch.quantity:
+                    raise HTTPException(409, "Only the entire unreserved batch can be transferred")
+                batch.warehouse_id = payload.to_warehouse_id
+            else:
+                batch.quantity -= quantity
+                archive_depleted_material_batch(db, batch, user_id=current.id)
+        else:
+            if batch.quantity + quantity >= Decimal("10000000000"):
+                raise HTTPException(400, "Resulting batch quantity is too large")
+            batch.quantity += quantity
+    elif payload.movement_type in ("issue", "consume", "transfer"):
+        db.execute(
+            select(Item).where(Item.id == item.id)
+            .with_for_update(of=Item, key_share=True)
+            .execution_options(populate_existing=True)
+        ).scalar_one()
+        available = Decimal(str(available_reservation_item_capacity(db, item.id, payload.from_warehouse_id))).quantize(
+            Decimal("0.0001"),
+        )
+        if quantity > available:
+            raise HTTPException(409, "Movement quantity exceeds available item stock")
+
+    mv = StockMovement(**movement_data, created_by=current.id)
     db.add(mv); db.flush()
     log_action(db, current, payload.movement_type, "StockMovement", mv.id)
     response = StockMovementOut.model_validate(mv).model_dump(mode="json")
@@ -1403,6 +1528,8 @@ def update_batch(
         raise HTTPException(400, "Quantity is required")
     if "cost_per_unit" in values and values["cost_per_unit"] is None:
         raise HTTPException(400, "Cost per unit is required")
+    if "cost_per_unit" in values:
+        values["cost_per_unit"] = round_unit_cost(values["cost_per_unit"])
     if "received_date" in values and values["received_date"] is None:
         raise HTTPException(400, "Received date is required")
     if "unit" in values:
@@ -1427,7 +1554,9 @@ def update_batch(
         values["image_url"] = _validate_item_image_url(values["image_url"])
 
     target_quantity = float(values.get("quantity", old_quantity))
-    if target_quantity + EPSILON < reserved_quantity and not force:
+    # Force permits linked-record overrides, but a correction must never leave
+    # active reservations on this batch backed by less physical stock.
+    if target_quantity + EPSILON < reserved_quantity:
         raise HTTPException(
             409,
             f"Quantity cannot be lower than reserved stock ({reserved_quantity:g} {old_unit})",

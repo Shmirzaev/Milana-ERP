@@ -60,8 +60,36 @@ jobs:
       - name: Backend regression suite
         working-directory: backend
         run: python -m pytest -q
+      - name: P2 PostgreSQL locking and query-plan regressions
+        env:
+          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
+        run: >-
+          python -m pytest -q
+          backend/app/tests/test_numbering_postgres_concurrency.py
+          backend/app/tests/test_material_reservation_concurrency.py
+          backend/app/tests/test_package_write_postgres.py
+          backend/app/tests/test_package_batch_receive_concurrency.py
+          backend/app/tests/test_cutting_packaging_write_postgres.py
+          backend/app/tests/test_cutting_reconciliation_postgres.py
+          backend/app/tests/test_cutting_batch_lifecycle_postgres.py
+          backend/app/tests/test_traceability_postgres_plan.py
+          backend/app/tests/test_packaging_receive_options_query_growth.py
+          backend/app/tests/test_warehouse_pack_reservations_postgres.py
+          backend/app/tests/test_sewing_band_postgres.py
+          backend/app/tests/test_sewing_later_nastil_postgres.py
+          backend/app/tests/test_payroll_overlap_repair.py
       - name: Deployment observation regression suite
         run: python -m unittest discover -s scripts -p 'test_observe_release.py' -v
+      - name: Ismail PostgreSQL schema and reservation regressions
+        working-directory: backend
+        env:
+          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
+        run: >-
+          python -m pytest -q app/tests/test_fresh_migration_bootstrap.py
+          app/tests/test_ismail_schema_completion.py app/tests/test_migration_preflight.py
+          app/tests/test_db08_beyka_orm_parity.py app/tests/test_reservation_overclaim.py
+          app/tests/test_reservation_plan_query_growth.py
+          app/tests/test_stock_movement_batch_integrity.py
       - name: PostgreSQL migration, concurrency and model numbering regression
         env:
           PYTHONPATH: ./backend
@@ -94,6 +122,26 @@ jobs:
         run: npm run lint
       - working-directory: frontend
         run: npm run typecheck:strict
+      - name: Browser pagination and Besttex label regressions
+        working-directory: frontend
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:load-more-browser
+          node scripts/test-process-qr-batch-groups.browser.mjs
+          node scripts/test-warehouse-pack-lifecycle.browser.mjs
+          node scripts/test-sewing-bands.browser.mjs
+          node scripts/test-packaging-size-entry.browser.mjs
+          node scripts/test-cutting-factory-salary.browser.mjs
+          node scripts/test-cutting-batch-selection.browser.mjs
+          node scripts/test-sewing-received-input.browser.mjs
+          node scripts/test-sewing-later-nastil.browser.mjs
+          node scripts/test-cutting-passport-reports.browser.mjs
+          node scripts/test-passport-fabric-employee-export.browser.mjs
+          node scripts/test-hr-employees-locales.browser.mjs
+          node scripts/test-employee-archive.browser.mjs
+          node scripts/test-cutting-batch-print.browser.mjs
+          node scripts/test-receive-total-length.browser.mjs
+          node scripts/check-receiving-auto-roll-weights.mjs
       - name: Optimized production build and contracts
         working-directory: frontend
         env:
@@ -146,7 +194,8 @@ jobs:
         id: frontend_image
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
-          context: ./frontend
+          context: .
+          file: ./frontend/Dockerfile
           pull: true
           push: true
           tags: ${{ steps.images.outputs.frontend }}:${{ inputs.release_id }}

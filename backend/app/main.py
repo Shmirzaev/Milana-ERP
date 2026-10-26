@@ -11,18 +11,21 @@ from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security.utils import get_authorization_scheme_param
 from starlette.middleware.gzip import GZipMiddleware
+from starlette.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import text
 
 from app.core.config import settings
+from app.core.proxy_trust import client_ip, effective_request_scheme, validate_proxy_runtime_configuration
 from app.core.deps import DbSession
 from app.core.security import decode_token
 from app.core.shared_store import get_shared_counter_store
 from app.api.router import api_router
 from app.db.session import SessionLocal, engine
-import app.models  # noqa: F401 — register models with metadata
+import app.schemas  # noqa: F401 — register models with metadata
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("milana")
@@ -69,6 +72,7 @@ def _run_local_schema_sync() -> None:
 def _run_startup() -> None:
     """Validate runtime settings and database readiness before serving."""
     settings.validate_runtime_security()
+    validate_proxy_runtime_configuration(strict_security_required=settings.strict_security_required)
     # In production validate_runtime_security() hard-fails on insecure defaults.
     # Outside production we don't block local dev, but we still surface them
     # loudly so a misconfigured deploy (e.g. ENV left at "development") can't run
@@ -112,6 +116,19 @@ app = FastAPI(title=settings.APP_NAME, version="0.1.0", lifespan=lifespan)
 
 _UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 _RATE_LIMIT_EXEMPT_PATHS = {"/health", "/ready"}
+_RATE_LIMIT_IP_ONLY_PATHS = {
+    "/api/auth/forgot-password",
+    "/api/auth/login",
+    "/api/auth/login-json",
+    "/api/auth/login-panel",
+    "/api/auth/reset-password",
+    "/api/auth/token",
+    "/api/session/forgot-password",
+    "/api/session/login",
+    "/api/session/login-json",
+    "/api/session/login-panel",
+    "/api/session/reset-password",
+}
 _READINESS_TIMEOUT_SECONDS = 2.0
 _READINESS_CHECK_SLOT = Lock()
 
@@ -152,25 +169,7 @@ def _postgresql_ready_within(timeout_seconds: float) -> bool:
 
 
 def _rate_limit_client_key(request: Request) -> str:
-    peer = request.client.host if request.client else "unknown"
-    forwarded = request.headers.get("x-forwarded-for")
-    # In supported deployments the app sits behind a trusted proxy. This keeps
-    # direct clients from picking arbitrary buckets in normal operation while
-    # still separating users behind Vercel/HF proxies and local TestClient.
-    trusted_peer = peer in {"testclient", "127.0.0.1", "::1", "localhost"}
-    if not trusted_peer:
-        try:
-            import ipaddress
-            peer_ip = ipaddress.ip_address(peer)
-            trusted_peer = peer_ip.is_private or peer_ip.is_loopback
-        except ValueError:
-            trusted_peer = False
-    if trusted_peer and forwarded:
-        first = forwarded.split(",")[0].strip()
-        if first:
-            return first
-    return peer
-
+    return client_ip(request)
 
 def _rate_limit_allowed(key: str) -> tuple[bool, int | None]:
     if not settings.GLOBAL_RATE_LIMIT_ENABLED:
@@ -207,10 +206,7 @@ def _trusted_csrf_origins(request: Request) -> set[str]:
     })
     host = request.headers.get("host", "").strip().lower()
     if host:
-        configured.add(f"{request.url.scheme}://{host}")
-        proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
-        if proto in {"http", "https"}:
-            configured.add(f"{proto}://{host}")
+        configured.add(f"{effective_request_scheme(request)}://{host}")
     return configured
 
 
@@ -229,7 +225,10 @@ def _request_origin_allowed(request: Request) -> bool:
 @app.middleware("http")
 async def _global_rate_limit(request: Request, call_next):
     if request.method.upper() != "OPTIONS" and request.url.path not in _RATE_LIMIT_EXEMPT_PATHS:
-        allowed, retry_after = _rate_limit_allowed(_rate_limit_client_key(request))
+        # Counter I/O and SQLite contention belong in Starlette's bounded pool.
+        allowed, retry_after = await run_in_threadpool(
+            _rate_limit_allowed, _rate_limit_identity_key(request)
+        )
         if not allowed:
             return JSONResponse(
                 status_code=429,
@@ -256,7 +255,7 @@ async def _security_headers(request: Request, call_next):
         "Content-Security-Policy",
         "default-src 'self'; img-src 'self' data: blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
     )
-    if request.url.scheme == "https":
+    if effective_request_scheme(request) == "https":
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     # Uploaded files under /storage are served unauthenticated (so <img> tags can
     # render them with bearer-token auth). They have unguessable UUID names; keep
@@ -364,7 +363,7 @@ def _safe_model_file_path(name: str):
 
 
 def _model_image_record(name: str, db: DbSession):
-    from app.models import ModelImage
+    from app.schemas import ModelImage
 
     file_url = f"/storage/model-files/{name}"
     return (
@@ -446,7 +445,7 @@ def serve_model_thumbnail(name: str, request: Request, size: int = 320):
     source_mtime = os.path.getmtime(source_path) if source_path else 0
     if not os.path.isfile(thumb_path) or os.path.getmtime(thumb_path) < source_mtime:
         try:
-            from app.services.image_storage import ensure_webp_thumbnail
+            from app.models.image_storage_service import ensure_webp_thumbnail
 
             ensure_webp_thumbnail(
                 destination_path=thumb_path,
@@ -503,3 +502,35 @@ def readiness() -> dict[str, object] | JSONResponse:
         status_code=503,
         content={"status": "not_ready", "checks": {"postgresql": "unavailable"}},
     )
+
+
+def _rate_limit_identity_key(request: Request) -> str:
+    """Choose a rate-limit identity without changing route authentication.
+
+    Public authentication entry points always remain IP-scoped, even when a
+    caller supplies a valid session. Other requests with a cryptographically
+    valid, unexpired access token use its canonical user id so office users do
+    not consume one shared NAT budget. Invalid credentials fall back to the IP
+    bucket and are still rejected independently by the route dependency.
+    """
+    client_key = f"ip:{_rate_limit_client_key(request)}"
+    path = request.url.path.rstrip("/") or "/"
+    if path in _RATE_LIMIT_IP_ONLY_PATHS:
+        return client_key
+
+    authorization = request.headers.get("authorization")
+    scheme, parameter = get_authorization_scheme_param(authorization)
+    token = parameter if scheme.lower() == "bearer" else None
+    if not token:
+        token = request.cookies.get(settings.AUTH_COOKIE_NAME)
+    if not token:
+        return client_key
+
+    try:
+        payload = decode_token(token)
+        user_id = int(payload["sub"])
+        if user_id <= 0:
+            raise ValueError("invalid user id")
+    except (KeyError, OverflowError, TypeError, ValueError):
+        return client_key
+    return f"user:{user_id}"

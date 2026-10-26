@@ -22,16 +22,17 @@ from app.core.deps import (
 from fastapi import Depends
 from app.core.security import hash_password, normalize_email, validate_password_strength
 from app.db.base import Base
-from app.models import User, Role, Department, AuditLog, Employee, WorkOrder
-from app.services.factory_scope import normalize_factory_code, selected_factory_code
-from app.schemas.catalog import (
+from app.schemas import User, Role, Department, AuditLog, Employee, WorkOrder
+from app.models.factory_scope_service import normalize_factory_code, selected_factory_code
+from app.libs.dto.catalog.catalog import (
     UserIn, UserUpdate, UserOut, RoleIn, RoleOut, DepartmentIn, DepartmentOut,
 )
-from app.services.audit import export_audit_hash_chain, log_action, verify_audit_hash_chain
-from app.services.password_reset import create_password_reset_token, password_reset_url, send_password_email_safely
+from app.models.credentials_service import apply_password_credential_change, lock_user_for_credential_change
+from app.models.audit_service import export_audit_hash_chain, log_action, verify_audit_hash_chain
+from app.models.password_reset_service import create_password_reset_token, password_reset_url, send_password_email_safely
 from app.db.reset_demo import reset_to_seed
 from app.core.permission_catalog import PERMISSION_CATALOG, PERMISSION_KEYS
-from app.services.factory_scope import FACTORY_CODES, available_factory_codes
+from app.models.factory_scope_service import FACTORY_CODES, available_factory_codes
 
 router = APIRouter(tags=["admin"])
 
@@ -434,6 +435,17 @@ def _count_active_super_admins(db: DbSession, exclude_user_id: int | None = None
     return count
 
 
+def _lock_active_user_memberships(db: DbSession) -> None:
+    """Serialize changes that can remove the final administrator membership."""
+    # NO KEY UPDATE still serializes membership mutations while allowing the
+    # KEY SHARE lock used by a concurrent audit-log foreign-key insertion.
+    # SQLite ignores the lock clause in disposable tests.
+    db.query(User).filter(User.is_active.is_(True)).order_by(User.id).with_for_update(
+        of=User, key_share=True
+    ).populate_existing().all()
+
+
+
 def _assert_user_has_no_audit_history(db: DbSession, user_id: int) -> None:
     if db.query(AuditLog.id).filter(AuditLog.user_id == user_id).first() is not None:
         raise HTTPException(409, "User has audit history. Deactivate the account instead.")
@@ -528,11 +540,15 @@ def get_user(user_id: int, db: DbSession, _: User = Depends(require_permissions(
 
 @router.patch("/users/{user_id}", response_model=UserOut)
 def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User = Depends(require_permissions("admin.users", "*"))):
-    # Serialize changes that can remove the final administrator on PostgreSQL.
-    # SQLite ignores FOR UPDATE in disposable tests.
+    # Lock memberships in stable order before taking a target credential lock.
     if {"role_id", "extra_permissions", "access_policy", "is_active"} & payload.model_fields_set:
-        db.query(User).filter(User.is_active.is_(True)).order_by(User.id).with_for_update(of=User).populate_existing().all()
-    u = db.get(User, user_id)
+        _lock_active_user_memberships(db)
+    credential_change = bool(payload.password)
+    u = (
+        lock_user_for_credential_change(db, user_id, require_active=False)
+        if credential_change
+        else db.get(User, user_id)
+    )
     if not u:
         raise HTTPException(404, "User not found")
     data = payload.model_dump(exclude_unset=True)
@@ -586,13 +602,15 @@ def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User 
     if data.get("email") is not None and len(data["email"]) > 255:
         raise HTTPException(422, "User email must be at most 255 characters")
     if "password" in data and data["password"]:
-        u.password_hash = hash_password(data.pop("password"))
-        u.tokens_valid_from = datetime.now(timezone.utc)
+        apply_password_credential_change(db, u, data.pop("password"))
     elif "password" in data:
         data.pop("password")
     for k, v in data.items():
         setattr(u, k, v)
-    log_action(db, current, "update", "User", u.id, old_value=old_access, new_value=data)
+    audit_new_value = dict(data)
+    if credential_change:
+        audit_new_value.update({"credential_changed": True, "reset_links_invalidated": True})
+    log_action(db, current, "update", "User", u.id, old_value=old_access, new_value=audit_new_value)
     db.commit()
     db.refresh(u)
     return u
@@ -600,12 +618,13 @@ def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User 
 
 @router.delete("/users/{user_id}", status_code=204)
 def delete_user(user_id: int, db: DbSession, current: User = Depends(require_permissions("admin.users", "*"))):
+    _lock_active_user_memberships(db)
     u = db.get(User, user_id)
     if not u:
         raise HTTPException(404, "User not found")
     if u.id == current.id:
         raise HTTPException(400, "You cannot delete your own account")
-    if "*" in user_permissions(u) and not is_super_admin(current):
+    if ("*" in user_permissions(u) or is_super_admin(u)) and not is_super_admin(current):
         raise HTTPException(403, "Only a super admin can delete administrator accounts")
     if is_super_admin(u) and _count_active_super_admins(db, exclude_user_id=u.id) == 0:
         raise HTTPException(400, "Cannot delete the last active super administrator")

@@ -3,7 +3,7 @@
 import { formatModelVariantCode } from "@/lib/variantDisplay";
 import { useState, type FormEvent } from "react";
 import { RefreshCw, Search } from "lucide-react";
-import useSWR from "swr";
+import useLoadMore from "@/lib/useLoadMore";
 import PageHeader from "@/components/PageHeader";
 import PaginationControls from "@/components/PaginationControls";
 import { fetcher } from "@/lib/api";
@@ -51,11 +51,12 @@ export default function CuttingFabricUsagePage() {
   if (filters.from) params.set("date_from", filters.from);
   if (filters.to) params.set("date_to", filters.to);
   const allowed = can(me, "storage.items", "storage.receive", "cutting.records", "planning.production");
-  const { data, error, isLoading, isValidating, mutate } = useSWR<UsageReport>(
+  const listPager = useLoadMore<UsageReport>(
     allowed ? `/api/inventory/cutting-fabric-usage?${params}` : null,
     fetcher,
     { shouldRetryOnError: false },
   );
+  const { data, error, isLoading, isValidating, mutate } = listPager;
   const number = new Intl.NumberFormat(lang === "uz" ? "uz-UZ" : lang, { maximumFractionDigits: 3 });
   const date = new Intl.DateTimeFormat(lang === "uz" ? "uz-UZ" : lang, {
     timeZone: "Asia/Tashkent", year: "numeric", month: "2-digit", day: "2-digit",
@@ -137,8 +138,8 @@ export default function CuttingFabricUsagePage() {
                 </tbody>
               </table>
             </div>
-            <PaginationControls page={page} pageSize={pageSize} total={data.total} count={rows.length}
-              onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} pageSizeOptions={[25, 50, 100, 200]} />
+            <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()} page={page} pageSize={pageSize} total={data.total} count={rows.length}
+              onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} />
           </>
         )}
       </section>

@@ -30,3 +30,8 @@ Recombining singles into full assortments and post-delivery commercial returns a
 Migration `0132_first_grade_singles` defaults all existing packages to standard and adds shipment deletion timestamps. Mistaken manual shipments can be deleted only before dispatch, releasing scan links atomically and preserving audit history. Shipped/delivered or sales-linked shipments are protected. Deleted creation requests cannot recreate the shipment.
 
 Rollback to an older application must first verify that no First Grade packages and no deleted manual shipments have been created: older applications do not understand their classification/tombstones. If either exists, use a forward repair or reconcile those records under a controlled maintenance procedure; never silently deploy the old stock-selection behavior. Schema downgrade is blocked while First Grade inventory exists.
+
+
+## Second Grade extension — prepared October 20
+
+The owner confirmed that 2-nav is allocated from accepted Sewing output, not defects. Packaging provides a grade selector beside the existing First Grade workflow, with exact-size piece count and total weight in kg. First Grade retains one QR per piece; Second Grade uses a counted package per selected size. Normal packs and both grades consume the same locked output and size balances. Warehouse receipt is still required, and Second Grade has a separate tab alongside First Grade plus package details and an export sheet. Standard-pack and First Grade sale selectors exclude Second Grade. No existing stock is reclassified. Migration `0148_second_grade_packages` is required before deployment; downgrade refuses while any Second Grade package exists.

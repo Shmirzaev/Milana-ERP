@@ -5,11 +5,12 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import selectinload
 
 from app.api.routes import catalog as catalog_routes
 from app.core.deps import DbSession, require_permissions
-from app.models import (
+from app.schemas import (
     Bundle,
     CuttingRecord,
     FinishedGoodsStock,
@@ -26,10 +27,10 @@ from app.models import (
     User,
     WorkOrder,
 )
-from app.services.audit import log_action
-from app.services.factory_scope import require_factory_access
-from app.services.production import create_production_order, create_work_orders
-from app.schemas.catalog import (
+from app.models.audit_service import log_action
+from app.models.factory_scope_service import require_factory_access
+from app.models.production_service import create_production_order, create_work_orders
+from app.libs.dto.catalog.catalog import (
     ModelBOMIn,
     ModelBOMUpdate,
     ModelDetail,
@@ -46,6 +47,11 @@ from app.schemas.catalog import (
 
 
 router = APIRouter(prefix="/usluga", tags=["usluga"])
+
+# Bound the usluga directory so it can never materialize an unbounded order
+# history.  Callers page through the rest with limit/offset.
+USLUGA_ORDERS_DEFAULT_LIMIT = 50
+USLUGA_ORDERS_MAX_LIMIT = 200
 
 
 def _require_eco(current: User) -> None:
@@ -126,14 +132,14 @@ class UslugaHandoverIn(BaseModel):
 
 
 def _model_payload(model: Model) -> dict:
-    primary = next((row for row in model.images if row.is_primary), None) or (model.images[0] if model.images else None)
+    from app.models.model_images_service import model_preview_image_url
     return {
         "id": model.id,
         "code": model.code,
         "name": model.name,
         "category": model.category,
         "description": model.description,
-        "image_url": primary.file_url if primary else None,
+        "image_url": model_preview_image_url(model),
         "sizes": [row.size for row in sorted(model.sizes, key=lambda row: row.id)],
         "colors": [row.color_name for row in sorted(model.colors, key=lambda row: row.id)],
         "created_at": model.created_at,
@@ -299,7 +305,7 @@ def _order_payload(
             required_operations_complete
             and packaging
             and packed_total > 0
-            and package_total >= packed_total
+            and package_total + int((packaging.service_packaging_json or {}).get("confirmed_quantity", 0)) >= packed_total
             and order.handed_over_at is None
         ),
     }
@@ -364,11 +370,12 @@ def list_usluga_model_variant_groups(
     include_total: bool = False,
     include_legacy_import: bool = False,
     compact: bool = False,
+    qolip_no: str | None = None,
 ):
     _usluga_viewer(current)
     return catalog_routes.list_model_variant_groups(
         db, current, status, q, code, name, category, created_from, created_to,
-        page, page_size, include_total, include_legacy_import, compact, "usluga",
+        page, page_size, include_total, include_legacy_import, compact, "usluga", qolip_no=qolip_no,
     )
 
 
@@ -631,12 +638,50 @@ def list_usluga_orders(
     db: DbSession,
     current: User = Depends(require_permissions("usluga.view", "usluga.manage", "usluga.handover", "*")),
     status: str | None = Query(default=None, max_length=32),
+    search: str | None = Query(default=None, max_length=120),
+    limit: int = Query(default=USLUGA_ORDERS_DEFAULT_LIMIT),
+    offset: int = Query(default=0),
 ):
     _require_eco(current)
     query = db.query(ProductionOrder).filter(ProductionOrder.source_type == "usluga")
     if status:
         query = query.filter(ProductionOrder.status == status)
-    return [_order_payload(db, row) for row in query.order_by(ProductionOrder.id.desc()).all()]
+    # The directory filters on the server so a bounded page still searches the
+    # whole order history instead of only the rows already loaded.
+    term = (search or "").strip()
+    if term:
+        pattern = f"%{term.lower()}%"
+        query = query.outerjoin(
+            Model,
+            and_(
+                Model.id == ProductionOrder.model_id,
+                Model.catalog_scope == "usluga",
+                Model.factory_code == "ECO",
+            ),
+        ).filter(
+            or_(
+                func.lower(func.coalesce(ProductionOrder.production_no, "")).like(pattern),
+                func.lower(func.coalesce(ProductionOrder.service_customer_name, "")).like(pattern),
+                func.lower(func.coalesce(ProductionOrder.service_customer_reference, "")).like(pattern),
+                func.lower(func.coalesce(Model.code, "")).like(pattern),
+                func.lower(func.coalesce(Model.name, "")).like(pattern),
+            )
+        )
+    total = int(query.count())
+    safe_limit = max(1, min(limit, USLUGA_ORDERS_MAX_LIMIT))
+    safe_offset = max(0, offset)
+    rows = (
+        query.order_by(ProductionOrder.id.desc())
+        .offset(safe_offset)
+        .limit(safe_limit)
+        .all()
+    )
+    return {
+        "items": [_order_payload(db, row) for row in rows],
+        "total": total,
+        "limit": safe_limit,
+        "offset": safe_offset,
+    }
 
 
 @router.get("/orders/{order_id}")
@@ -878,7 +923,7 @@ def hand_over_usluga_order(
         raise HTTPException(409, "Usluga order was already handed over")
     summary = _order_payload(db, order, packages=packages)
     if not summary["ready_for_handover"]:
-        raise HTTPException(409, "Complete packaging and create all packages before handover")
+        raise HTTPException(409, "Confirm packaging quantities before handover")
     package_ids = locked_package_ids
     if db.query(FinishedGoodsStock.id).filter(FinishedGoodsStock.package_id.in_(package_ids)).first():
         raise HTTPException(409, "Usluga packages must not create finished-goods stock")

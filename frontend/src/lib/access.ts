@@ -15,7 +15,7 @@ const SEWING_WORKSPACE_NAV_ITEMS = [
 const SEWING_WORK_ORDER_PATH = /^\/work-orders\/\d+\/sewing(?:\/|$)/;
 
 export function isSewingRole(me: Me | undefined): boolean {
-  return !me?.access_configured && (me?.role ?? "").trim().toLowerCase() === "sewing";
+  return Boolean(me?.sewing_band_id) || (!me?.access_configured && (me?.role ?? "").trim().toLowerCase() === "sewing");
 }
 
 export function sewingWorkspaceHome(me: Me | undefined): string {
@@ -31,6 +31,10 @@ export function factoryWorkspaceHome(me: Me | undefined): string {
   ));
   const packaging = permits("packaging.records", "packaging.packages", "planning.production");
   if (me?.factory_code === "BST") {
+    if (!permits("sewing.records", "sewing.bundles", "planning.production") && !packaging) {
+      if (permits("payroll.view", "payroll.manage", "payroll.pay")) return "/payroll";
+      if (permits("payroll.scan")) return "/payroll/scan";
+    }
     return packaging && !permits("sewing.records", "sewing.bundles", "planning.production")
       ? "/departments/BPK"
       : "/departments/BST";

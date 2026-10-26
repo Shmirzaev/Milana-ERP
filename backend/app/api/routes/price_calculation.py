@@ -1,9 +1,10 @@
-from fastapi import APIRouter, HTTPException
-from sqlalchemy.orm import joinedload
+from typing import Annotated
+
+from fastapi import APIRouter, HTTPException, Query
 
 from app.core.deps import CurrentUser, DbSession
-from app.models.price_calculation import PriceCalculationRequest
-from app.schemas.price_calculation import (
+from app.schemas.planning.price_calculation import PriceCalculationRequest
+from app.libs.dto.planning.price_calculation import (
     PriceCalculationAccessoriesIn,
     PriceCalculationCreateIn,
     PriceCalculationCuttingIn,
@@ -11,8 +12,8 @@ from app.schemas.price_calculation import (
     PriceCalculationPurchasingIn,
     PriceCalculationRequestOut,
 )
-from app.services.audit import log_action
-from app.services.price_calculation import (
+from app.models.audit_service import log_action
+from app.models.price_calculation_service import (
     attach_completed_selling_price,
     can_view_price_requests,
     create_price_request,
@@ -23,6 +24,7 @@ from app.services.price_calculation import (
     is_price_purchaser,
     is_sales_pricing_user,
     accessories_status,
+    price_request_load_options,
     purchasing_status,
     serialize_price_request,
     update_accessories,
@@ -33,14 +35,14 @@ from app.services.price_calculation import (
 
 router = APIRouter(prefix="/price-calculation", tags=["price_calculation"])
 
+PRICE_REQUEST_LIST_LIMIT_MAX = 500
+PRICE_REQUEST_LIST_LIMIT_DEFAULT = 50
+
 
 def _request_or_404(db: DbSession, request_id: int) -> PriceCalculationRequest:
     request = (
         db.query(PriceCalculationRequest)
-        .options(
-            joinedload(PriceCalculationRequest.model),
-            joinedload(PriceCalculationRequest.cutting_passport),
-        )
+        .options(*price_request_load_options())
         .filter(PriceCalculationRequest.id == request_id)
         .first()
     )
@@ -50,19 +52,24 @@ def _request_or_404(db: DbSession, request_id: int) -> PriceCalculationRequest:
 
 
 @router.get("/requests", response_model=list[PriceCalculationRequestOut])
-def list_requests(db: DbSession, current: CurrentUser):
+def list_requests(
+    db: DbSession,
+    current: CurrentUser,
+    limit: Annotated[int, Query(ge=1, le=PRICE_REQUEST_LIST_LIMIT_MAX)] = PRICE_REQUEST_LIST_LIMIT_DEFAULT,
+    before_id: Annotated[int | None, Query(ge=1)] = None,
+):
     if not can_view_price_requests(current):
         raise HTTPException(403, "Price calculation access required")
-    requests = (
+    qry = (
         db.query(PriceCalculationRequest)
-        .options(
-            joinedload(PriceCalculationRequest.model),
-            joinedload(PriceCalculationRequest.cutting_passport),
-        )
+        .options(*price_request_load_options())
         .order_by(PriceCalculationRequest.id.desc())
-        .all()
     )
-    return [serialize_price_request(request) for request in requests]
+    # Seek pagination keeps older rows reachable even when newer requests are
+    # inserted between page reads. All five consumers now expose load-more.
+    if before_id is not None:
+        qry = qry.filter(PriceCalculationRequest.id < before_id)
+    return [serialize_price_request(request) for request in qry.limit(limit).all()]
 
 
 @router.post("/requests", response_model=PriceCalculationRequestOut, status_code=201)

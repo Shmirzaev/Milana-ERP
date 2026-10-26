@@ -22,7 +22,7 @@ from sqlalchemy import func, text
 
 from app.core.config import settings
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     FinishedGoodsStock,
     LegacyStockReceipt,
     Model,
@@ -33,7 +33,7 @@ from app.models import (
     User,
     Warehouse,
 )
-from app.services.audit import log_action
+from app.models.audit_service import log_action
 
 
 SOURCE_SYSTEM = "UZERP_STICKER_PHOTO"

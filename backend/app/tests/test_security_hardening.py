@@ -8,6 +8,9 @@ import base64
 import os
 import time
 
+from app.db.session import SessionLocal
+from app.schemas import PackagingRecord, WorkOrder
+
 STRONG_PW = "Str0ngManager!2026"
 ESC_PW = "Esc4lation!Test2026"
 
@@ -259,7 +262,7 @@ def test_super_data_console_requires_true_super_admin(client, auth_headers):
     assert r.status_code == 403, r.text
 
 
-def test_super_admin_can_edit_and_delete_rows_from_super_data_console(client, auth_headers):
+def test_super_admin_named_rename_keeps_rows_and_raw_delete_is_blocked(client, auth_headers):
     r = client.post(
         "/api/departments",
         json={"name": "Super Data Temporary", "code": "SDC"},
@@ -281,11 +284,11 @@ def test_super_admin_can_edit_and_delete_rows_from_super_data_console(client, au
     assert any(row["id"] == department_id for row in r.json()["rows"])
 
     r = client.delete(f"/api/admin/super-data/tables/departments/rows/{department_id}", headers=auth_headers)
-    assert r.status_code == 204, r.text
+    assert r.status_code == 409, r.text
 
     r = client.get("/api/admin/super-data/tables/departments?q=Super%20Data%20Edited", headers=auth_headers)
     assert r.status_code == 200, r.text
-    assert not any(row["id"] == department_id for row in r.json()["rows"])
+    assert any(row["id"] == department_id for row in r.json()["rows"])
 
 
 # ---------- H2: permission gating on state changes ----------
@@ -418,8 +421,13 @@ def test_login_sets_httponly_cookie_and_cookie_auth_works(client):
     assert client.get("/api/auth/me").status_code == 401
 
 
-def test_https_forwarded_login_cookie_is_secure(client):
-    r = client.post(
+def test_https_forwarded_login_cookie_is_secure(client, monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    monkeypatch.setenv("TRUSTED_PROXY_CIDRS", "127.0.0.1/32")
+    proxy_client = TestClient(app, client=("127.0.0.1", 50000))
+    r = proxy_client.post(
         "/api/auth/login",
         data={"username": "admin@example.com", "password": "test-admin-password-123!"},
         headers={"x-forwarded-proto": "https"},
@@ -442,9 +450,9 @@ def test_public_deployment_login_cookie_is_secure(client, monkeypatch):
 
 
 def test_password_reset_failure_notification_suppresses_token_like_error_text(client):
-    from app.services.password_reset import notify_admins_about_password_email_failure
+    from app.models.password_reset_service import notify_admins_about_password_email_failure
     from app.db.session import SessionLocal
-    from app.models import Notification, User
+    from app.schemas import Notification, User
 
     raw_url = "https://frontend.example/reset-password?token=raw-reset-token-should-not-persist"
     provider_error = f"provider echoed body containing {raw_url} and token=raw-reset-token-should-not-persist"
@@ -556,6 +564,13 @@ def test_printable_package_label_escapes_database_values(client, auth_headers):
         headers=auth_headers,
     )
     assert po.status_code == 201, po.text
+    with SessionLocal() as db:
+        work_order = db.query(WorkOrder).filter_by(
+            production_order_id=po.json()["id"],
+            operation="packaging",
+        ).one()
+        db.add(PackagingRecord(work_order_id=work_order.id, input_qty=10, packed_qty=10, damaged_qty=0))
+        db.commit()
     payload = {
         "production_order_id": po.json()["id"],
         "model_id": 1,
@@ -656,7 +671,7 @@ def test_model_file_survives_missing_filesystem_copy(client, auth_headers):
     # Simulate a legacy/imported image that retained its database backup. New
     # browser uploads intentionally avoid storing a duplicate bytea copy.
     from app.db.session import SessionLocal
-    from app.models import ModelImage
+    from app.schemas import ModelImage
 
     with SessionLocal() as db:
         image_row = db.query(ModelImage).filter(ModelImage.file_url == file_url).one()

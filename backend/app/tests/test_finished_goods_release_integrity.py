@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.api.routes.finished_goods import release
 from app.db.base import Base
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     AuditLog,
     FinishedGoodsStock,
     LegacyStockReceipt,
@@ -27,10 +27,11 @@ from app.models import (
     SalesOrder,
     Shipment,
     ShipmentPackage,
+    WarehousePackReservation,
     StockReservation,
     User,
 )
-from app.services.packages import ship_package
+from app.models.packages_service import ship_package
 
 
 def _legacy_reservation(client, headers, *, reserved_quantity=4):
@@ -367,6 +368,7 @@ def finished_goods_postgres_sessions():
             SalesOrder.__table__,
             Shipment.__table__,
             ShipmentPackage.__table__,
+            WarehousePackReservation.__table__,
             StockReservation.__table__,
             User.__table__,
         }

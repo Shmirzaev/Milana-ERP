@@ -1,6 +1,6 @@
 from uuid import uuid4
 
-from app.models import Item, Model, ProductionOrder, StockBatch, StockMovement, Warehouse
+from app.schemas import Item, Model, ProductionOrder, StockBatch, StockMovement, Warehouse
 from app.tests.conftest import TestSessionLocal
 
 

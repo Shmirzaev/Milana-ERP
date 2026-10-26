@@ -18,7 +18,7 @@ url = make_url(os.environ["ECO_QA_DATABASE_URL"])
 assert url.host in ("localhost", "127.0.0.1") and url.database == "erp_qa"
 os.environ["DATABASE_URL"] = url.render_as_string(hide_password=False)
 from app.db.base import Base
-from app.models import (User, Role, Item, Warehouse, StockBatch, EcoFabricDispatch, EcoFabricRoll,
+from app.schemas import (User, Role, Item, Warehouse, StockBatch, EcoFabricDispatch, EcoFabricRoll,
     StockMovement, Department, Model, ProductionOrder, WorkOrder, SewingFlow, SewingAssignment, SewingRecord)
 from app.api.routes.eco_transfers import send, receive, SendIn, ReturnIn
 from app.api.routes.sewing_corrections import update, Correction

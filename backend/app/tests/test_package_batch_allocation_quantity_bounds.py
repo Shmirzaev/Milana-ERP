@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.tracking import PackageBatchAllocationIn
+from app.libs.dto.packaging.tracking import PackageBatchAllocationIn
 
 
 def test_package_batch_allocation_quantity_accepts_postgresql_integer_maximum():

@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from app.core.security import create_access_token, hash_password
 from app.db.session import SessionLocal
-from app.models import AuditLog, User
+from app.schemas import AuditLog, User
 
 
 def _account() -> tuple[int, str, dict[str, str]]:

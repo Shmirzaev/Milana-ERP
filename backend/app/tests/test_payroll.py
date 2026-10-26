@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.models import Employee
+from app.schemas import Employee
 from app.tests.conftest import TestSessionLocal
 
 
@@ -60,8 +60,8 @@ def _create_employee(client, admin_headers, name: str | None = None) -> dict:
     return r.json()
 
 
-def _create_period(client, headers, *, status: str = "open") -> dict:
-    now = datetime.now(timezone.utc)
+def _create_period(client, headers, *, status: str = "open", offset_days: int = 0) -> dict:
+    now = datetime.now(timezone.utc) + timedelta(days=offset_days)
     r = client.post(
         "/api/payroll/periods",
         json={
@@ -428,7 +428,7 @@ def test_adjustments_rejected_for_finalized_periods(client, auth_headers, status
 def test_paid_record_reversal_posts_one_audited_deduction_to_open_period(client, auth_headers):
     employee = _create_employee(client, auth_headers)
     source_period = _create_period(client, auth_headers)
-    target_period = _create_period(client, auth_headers)
+    target_period = _create_period(client, auth_headers, offset_days=20)
     payload = _record_payload(employee["id"], scan_uid=f"reversal-{uuid4().hex}")
     payload["payroll_period_id"] = source_period["id"]
     created = client.post("/api/payroll/records", json=payload, headers=auth_headers)
@@ -477,7 +477,7 @@ def test_paid_record_reversal_posts_one_audited_deduction_to_open_period(client,
     assert target_summary.status_code == 200, target_summary.text
     assert float(target_summary.json()["total_amount"]) == -2500
 
-    from app.models import AuditLog
+    from app.schemas import AuditLog
 
     with TestSessionLocal() as db:
         audit = db.query(AuditLog).filter(
@@ -492,7 +492,7 @@ def test_paid_record_reversal_posts_one_audited_deduction_to_open_period(client,
 def test_open_record_must_be_voided_instead_of_reversed(client, auth_headers):
     employee = _create_employee(client, auth_headers)
     source_period = _create_period(client, auth_headers)
-    target_period = _create_period(client, auth_headers)
+    target_period = _create_period(client, auth_headers, offset_days=20)
     payload = _record_payload(employee["id"], scan_uid=f"open-reversal-{uuid4().hex}")
     payload["payroll_period_id"] = source_period["id"]
     created = client.post("/api/payroll/records", json=payload, headers=auth_headers)
@@ -534,7 +534,7 @@ def test_payroll_qr_control_tracks_issued_and_scanned_labels(client, auth_header
                 "model_code": "MODEL-QR",
                 "operation_section": "sewing",
                 "operation_code": "SEW-QR",
-                "operation_name": "QR control sewing",
+                "operation_name": "Kontrol",
                 "sewing_line_code": "SEW-07",
                 "sewing_line_name": "Jalilova",
                 "cutting_passport_no": "KR-QR-07",
@@ -1124,6 +1124,14 @@ def test_returned_payroll_qr_can_be_scanned_for_another_employee(client, auth_he
     assert reassigned["status"] == "scanned"
     assert reassigned["employee_id"] == second_employee["id"]
     assert reassigned["return_count"] == 1
+    stale_return = client.post(
+        f"/api/payroll/qr-labels/{label['id']}/return?expected_record_id={first.json()['id']}",
+        headers=auth_headers,
+    )
+    assert stale_return.status_code == 409
+    still_assigned = client.get(f"/api/payroll/qr-labels?search={label_uid}", headers=auth_headers).json()["items"][0]
+    assert still_assigned["payroll_record_id"] == second.json()["id"]
+    assert still_assigned["return_count"] == 1
 
 
 def test_sewing_production_report_filters_and_excludes_returned_work(client, auth_headers):
@@ -1230,7 +1238,7 @@ def test_sewing_production_report_filters_and_excludes_returned_work(client, aut
 
 
 def test_sewing_production_report_options_include_reference_data_before_scans(client, auth_headers):
-    from app.models import Bundle, Model, ProductionOrder
+    from app.schemas import Bundle, Model, ProductionOrder
     from app.tests.conftest import TestSessionLocal
 
     suffix = uuid4().hex[:8].upper()
@@ -1290,7 +1298,7 @@ def test_sewing_production_report_options_include_reference_data_before_scans(cl
 
 
 def test_sewing_production_report_options_are_scoped_by_factory(client, auth_headers):
-    from app.models import Bundle, Department, Employee, Model, ProductionOrder, SewingFlow, WorkOrder
+    from app.schemas import Bundle, Department, Employee, Model, ProductionOrder, SewingFlow, WorkOrder
     from app.tests.conftest import TestSessionLocal
 
     suffix = uuid4().hex[:8].upper()
@@ -1568,10 +1576,35 @@ def test_locked_period_rejects_new_records_for_scanner(client, auth_headers):
     locked = client.post(f"/api/payroll/periods/{period['id']}/lock", headers=auth_headers)
     assert locked.status_code == 200, locked.text
 
-    payload = _record_payload(employee["id"], scan_uid=f"locked-{uuid4().hex}")
+    label_uid = f"locked-{uuid4().hex}"
+    issued = client.post(
+        "/api/payroll/qr-labels/issue",
+        json={
+            "labels": [{
+                "label_uid": label_uid,
+                "operation_section": "sewing",
+                "operation_code": "SEW-LOCKED",
+                "operation_name": "Locked period sewing",
+                "quantity": 10,
+                "rate_per_piece": 250,
+                "currency": "UZS",
+            }],
+        },
+        headers=auth_headers,
+    )
+    assert issued.status_code == 200, issued.text
+
+    payload = _record_payload(employee["id"], scan_uid=label_uid)
     payload["payroll_period_id"] = period["id"]
     denied = client.post("/api/payroll/records", json=payload, headers=scanner_headers)
     assert denied.status_code == 409, denied.text
+
+    labels = client.get(f"/api/payroll/qr-labels?search={label_uid}", headers=auth_headers)
+    assert labels.status_code == 200, labels.text
+    matching = [row for row in labels.json()["items"] if row["label_uid"] == label_uid]
+    assert len(matching) == 1
+    assert matching[0]["status"] == "available"
+    assert matching[0]["payroll_record_id"] is None
 
 
 def test_approve_and_mark_paid_permissions(client, auth_headers):
@@ -1730,7 +1763,7 @@ def test_rate_corrected_shared_code_still_rejects_another_operation(client, auth
 
 @pytest.mark.parametrize("status", [None, "open", "draft", "locked", "approved", "paid", "cancelled"])
 def test_delete_adjustment_checks_period_and_recalculates(client, auth_headers, status):
-    from app.models import AuditLog, PayrollAdjustment, PayrollPeriod
+    from app.schemas import AuditLog, PayrollAdjustment, PayrollPeriod
     employee = _create_employee(client, auth_headers)
     period = _create_period(client, auth_headers) if status else None
     response = client.post("/api/payroll/adjustments", headers=auth_headers, json={

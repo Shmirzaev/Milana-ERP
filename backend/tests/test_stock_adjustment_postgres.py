@@ -29,9 +29,9 @@ def test_concurrent_stock_adjustments(operation):
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema} -clock_timeout=10000"})
     sessions = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     from app.db.base import Base
-    from app.models import Item, StockBatch, StockMovement, Warehouse, User
+    from app.schemas import Item, StockBatch, StockMovement, Warehouse, User
     from app.api.routes.inventory import _apply_batch_tracked_stock_adjustment, set_stock_quantity
-    from app.schemas.inventory import StockQuantityAdjustmentIn
+    from app.libs.dto.inventory.inventory import StockQuantityAdjustmentIn
 
     first_read = Event()
     second_read = Event()

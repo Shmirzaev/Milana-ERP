@@ -2,14 +2,15 @@
 
 import { useRef, useState } from "react";
 import { Plus } from "lucide-react";
-import useSWR from "swr";
 import ModelAsyncSelect from "@/components/ModelAsyncSelect";
 import PageHeader from "@/components/PageHeader";
 import { useDialogs } from "@/components/DialogProvider";
+import { usePriceRequests } from "@/hooks/usePriceRequests";
+import PriceRequestPagination from "@/components/price-calculation/PriceRequestPagination";
 import PriceRequestCard, { PriceRequestProductStrip } from "@/components/price-calculation/PriceRequestCard";
-import { api, fetcher } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useT } from "@/lib/i18n";
-import { priceRequestSurface, type PriceCalculationRequest, type PriceRequestStatus } from "@/lib/priceCalculationRequests";
+import { priceRequestSurface, type PriceRequestStatus } from "@/lib/priceCalculationRequests";
 import { modelVariantPictureUrl } from "@/lib/modelVariants";
 import { modelAutofillValues, type PriceCalculationModelDetail } from "../../finance/price-calculation/modelAutofill";
 
@@ -39,11 +40,7 @@ export default function SalesPriceRequestsPage() {
   const dialogs = useDialogs();
   const nextDraftId = useRef(2);
   const requestSequence = useRef(new Map<string, number>());
-  const { data: requests, error, isLoading, mutate } = useSWR<PriceCalculationRequest[]>(
-    "/api/price-calculation/requests",
-    fetcher,
-    { refreshInterval: 5_000 },
-  );
+  const { data: requests, error, isLoading, mutate, hasMore, isLoadingMore, loadMore } = usePriceRequests();
   const [drafts, setDrafts] = useState<SalesDraft[]>([emptyDraft("sales-price-draft-1")]);
   const [savingId, setSavingId] = useState<string | null>(null);
 
@@ -160,6 +157,7 @@ export default function SalesPriceRequestsPage() {
           }}
         />)}
       </div>
+      <PriceRequestPagination hasMore={hasMore} isLoadingMore={isLoadingMore} loadMore={loadMore} />
     </div>
   );
 }

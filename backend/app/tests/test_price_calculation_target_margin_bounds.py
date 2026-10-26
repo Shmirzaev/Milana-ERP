@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, Model, Notification, PriceCalculationRequest
+from app.schemas import AuditLog, Model, Notification, PriceCalculationRequest
 
 
 def _model_with_margin(value) -> int:

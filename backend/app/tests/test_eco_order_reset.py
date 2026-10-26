@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Column, ForeignKey, Integer, MetaData, Table
 
-from app.models import Department, Model, ProductionOrder, WorkOrder, AuditLog, PayrollQrLabel
+from app.schemas import Department, Model, ProductionOrder, WorkOrder, AuditLog, PayrollQrLabel
 from app.tests.conftest import TestSessionLocal
 
 spec = importlib.util.spec_from_file_location("eco_reset", Path(__file__).parents[2] / "scripts/reset_eco_orders_20261001.py")
