@@ -349,3 +349,106 @@ def test_shortage_task_and_idempotency_participants_rollback_then_replay(case, f
     assert replay.json() == response.json()
     assert participant_counts() == after
     assert stock_totals() == (0, 3)
+
+
+@pytest.mark.parametrize("second_demand", [2, 4])
+def test_pending_piece_reservations_count_before_outer_flush(case, second_demand):
+    from fastapi import HTTPException
+    from app.libs.enums.packaging import PackageStockKind
+    from app.libs.types.stock_reservation import PieceDemand
+    from app.models.fulfillment.stock_service import reserve_pieces
+    seed_stock(case, quantity=6)
+    with Session() as db:
+        order = SalesOrder(order_no="PENDING-PIECES", order_type="branded_stock_sale", status="draft")
+        db.add(order)
+        db.flush()
+        db.query(SalesOrder.id).filter(SalesOrder.id == order.id).with_for_update(of=SalesOrder).one()
+        def reserve(quantity):
+            return reserve_pieces(db, sales_order_id=order.id, reserved_by=case["user_id"],
+                stock_kind=PackageStockKind.STANDARD,
+                demands=(PieceDemand(case["model"], None, "white", "M", quantity),), fail_on_shortage=True)
+        reserve(2)
+        if second_demand == 2:
+            with pytest.raises(HTTPException) as caught:
+                reserve(second_demand)
+            assert caught.value.status_code == 409
+        else:
+            reserve(second_demand)
+        pending = [row for row in db.new if isinstance(row, StockReservation)]
+        assert sum(row.quantity for row in pending) == second_demand
+        assert all(row.id is None for row in pending)
+        stock = db.query(FinishedGoodsStock).one()
+        assert (stock.available_qty, stock.reserved_qty) == (6-second_demand, second_demand)
+        db.flush()
+        assert sum(row.quantity for row in db.query(StockReservation)) == second_demand
+        db.rollback()
+    assert stock_totals() == (6, 0)
+    with Session() as db:
+        assert db.query(StockReservation).count() == 0
+
+
+def test_pending_pack_retry_keeps_unflushed_sales_line_and_outer_rollback(case):
+    from fastapi import HTTPException
+    from app.models.ready_stock_sales_service import reserve_ready_packs
+    seed_stock(case, packaged=True, quantity=6)
+    with Session() as db:
+        order = SalesOrder(order_no="PENDING-PACK", order_type="branded_stock_sale", status="draft")
+        db.add(order)
+        db.flush()
+        line = SalesOrderItem(sales_order_id=order.id, model_id=case["model"], color="mixed", size="any",
+            quantity=0, unit_price=2, requested_pack_count=1, source_type="from_stock")
+        db.add(line)
+        reserve_ready_packs(db, so=order, lines=[line], user_id=case["user_id"])
+        assert line.id is None and line.quantity == 6 and order.total_amount == 12
+        with pytest.raises(HTTPException) as caught:
+            reserve_ready_packs(db, so=order, lines=[line], user_id=case["user_id"])
+        assert caught.value.status_code == 409 and "already been reserved" in caught.value.detail
+        assert line.id is None
+        db.rollback()
+    assert stock_totals() == (6, 0)
+    with Session() as db:
+        assert db.query(StockReservation).count() == 0
+        assert db.query(SalesOrderItem).count() == 0
+
+
+@pytest.mark.parametrize("dirty_field", ["stock_status", "package_kind", "package_status"])
+@pytest.mark.parametrize("mode", ["piece", "pack"])
+def test_pending_ineligible_stock_or_package_is_not_reserved(case, dirty_field, mode):
+    from fastapi import HTTPException
+    from app.libs.enums.packaging import PackageStockKind
+    from app.libs.types.stock_reservation import PieceDemand, PackDemand
+    from app.models.fulfillment.stock_service import reserve_pieces, reserve_packs
+    seed_stock(case, packaged=True, quantity=6)
+    with Session() as db:
+        order = SalesOrder(order_no="PENDING-INELIGIBLE", order_type="branded_stock_sale", status="draft")
+        db.add(order)
+        db.flush()
+        db.query(SalesOrder.id).filter(SalesOrder.id == order.id).with_for_update(of=SalesOrder).one()
+        package = db.query(Package).with_for_update(of=Package).one()
+        stocks = db.query(FinishedGoodsStock).order_by(FinishedGoodsStock.id).with_for_update(of=FinishedGoodsStock).all()
+        if dirty_field == "stock_status":
+            for stock in stocks:
+                stock.status = "damaged"
+        elif dirty_field == "package_kind":
+            package.stock_kind = "first_grade"
+        else:
+            package.status = "draft"
+        with pytest.raises(HTTPException) as caught:
+            if mode == "piece":
+                reserve_pieces(db, sales_order_id=order.id, reserved_by=case["user_id"],
+                    stock_kind=PackageStockKind.STANDARD,
+                    demands=(PieceDemand(case["model"], None, "white", "any", 6),), fail_on_shortage=True)
+            else:
+                reserve_packs(db, sales_order_id=order.id, reserved_by=case["user_id"],
+                    demands=(PackDemand("line", case["model"], None, 1),))
+        assert caught.value.status_code == 409
+        assert not any(isinstance(row, StockReservation) for row in db.new)
+        assert sum(row.reserved_qty for row in stocks) == 0
+        if dirty_field == "stock_status":
+            assert all(row.status == "damaged" for row in stocks)
+        elif dirty_field == "package_kind":
+            assert package.stock_kind == "first_grade"
+        else:
+            assert package.status == "draft"
+        db.rollback()
+    assert stock_totals() == (6, 0)

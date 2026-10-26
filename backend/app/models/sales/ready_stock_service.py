@@ -129,6 +129,11 @@ def _reserve_branded_stock(
                 exclude_user_id=current.id,
             )
         return reservations, []
+    # Serialize the order's outstanding-demand snapshot, including package-less
+    # stock. Select only its identity: refreshing the mapped order here would
+    # discard staged create totals/notes in the caller's transaction.
+    if db.bind and db.bind.dialect.name == "postgresql":
+        db.query(SalesOrder.id).filter(SalesOrder.id == so.id).with_for_update(of=SalesOrder).one()
     requested_by_variant: dict[tuple[int, str, str, int | None], int] = defaultdict(int)
     for line in line_rows:
         key = (int(line.model_id), str(line.color or "").strip(), str(line.size or "").strip(), line.brand_id)

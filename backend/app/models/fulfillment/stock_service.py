@@ -6,9 +6,10 @@ selection, package/stock locks and schema-owned stock writes. No Sales mapped ob
 crosses the reservation boundary; no commit/rollback/begin/close is performed here.
 """
 from collections import defaultdict
+from collections.abc import Iterable
 
 from fastapi import HTTPException
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, func, inspect, or_
 from sqlalchemy.orm import Session
 
 from app.libs.enums.fulfillment import FinishedGoodsStatus
@@ -31,6 +32,24 @@ class _ShortagePrecheck(StockShortage):
     available: int
 
 
+def _expire_clean_columns(db: Session, rows: Iterable[Package | FinishedGoodsStock]) -> None:
+    """Let the next locked read refresh clean fields without losing local writes.
+
+    A FOR UPDATE query does not overwrite an existing identity-map instance.
+    Expire only unchanged columns, never primary keys or pending changes. This
+    performs no query or flush; the existing bounded locking query reloads them.
+    An earlier reservation in this transaction therefore keeps its staged
+    quantities, and unrelated price/notes edits remain pending for the caller.
+    """
+    for row in rows:
+        state = inspect(row)
+        names = [column.key for column in state.mapper.column_attrs
+                 if not column.columns[0].primary_key
+                 and not state.attrs[column.key].history.has_changes()]
+        if names:
+            db.expire(row, names)
+
+
 def is_any_stock_token(value: str | None) -> bool:
     """Existing stock wildcard predicate also used by Sales input guards."""
     token = str(value or "").strip().lower()
@@ -43,6 +62,8 @@ def _stock_variant_key(model_id: int, color: str, size: str, brand_id: int | Non
 
 def has_order_reservations(db: Session, sales_order_id: int) -> bool:
     """Read the reservation existence used by Sales' pack replay guard."""
+    if any(isinstance(row, StockReservation) and row.sales_order_id == sales_order_id for row in db.new):
+        return True
     return db.query(StockReservation.id).filter(StockReservation.sales_order_id == sales_order_id).first() is not None
 
 
@@ -167,7 +188,12 @@ def _stock_rows_by_variant(
             package_ids = qry.with_entities(FinishedGoodsStock.package_id).filter(FinishedGoodsStock.package_id.isnot(None))
             db.query(Package).filter(Package.id.in_(package_ids)).order_by(Package.id).with_for_update(key_share=True, of=Package).all()
             qry = qry.with_for_update(key_share=True, of=FinishedGoodsStock)
+        _expire_clean_columns(db, [row for row in list(db.identity_map.values())
+            if isinstance(row, FinishedGoodsStock) and inspect(row).dict.get("model_id") in keys_by_model])
         for row in qry.order_by(FinishedGoodsStock.id.asc()).all():
+            # SQL sees stored values; pending local eligibility must also pass.
+            if row.status != FinishedGoodsStatus.AVAILABLE.value or int(row.available_qty or 0) <= 0:
+                continue
             for key in keys_by_model.get(int(row.model_id), ()):
                 _model_id, color, size, brand_id = key
                 if not is_any_stock_token(color) and row.color != color:
@@ -185,6 +211,7 @@ def _package_allocation_candidates(
     stock_rows: list[FinishedGoodsStock],
     *,
     package_cache: dict[int, Package] | None = None,
+    stock_kind: PackageStockKind = PackageStockKind.STANDARD,
 ) -> tuple[dict[int, tuple[Package, list[FinishedGoodsStock]]], list[FinishedGoodsStock]]:
     """Split physical whole bags from legacy stock that permits piece allocation.
 
@@ -205,6 +232,8 @@ def _package_allocation_candidates(
     packages = package_cache if package_cache is not None else {}
     missing_package_ids = sorted(set(rows_by_package) - set(packages))
     if missing_package_ids:
+        _expire_clean_columns(db, [row for row in list(db.identity_map.values())
+            if isinstance(row, Package) and inspect(row).identity[0] in missing_package_ids])
         package_query = db.query(Package).filter(Package.id.in_(missing_package_ids))
         if db.bind and db.bind.dialect.name == "postgresql":
             package_query = package_query.with_for_update(key_share=True, of=Package)
@@ -213,6 +242,9 @@ def _package_allocation_candidates(
             for package in package_query.order_by(Package.id).all()
         })
 
+    packages = {key: package for key, package in packages.items()
+                if package.status in _SHIPMENT_READY_PACKAGE_STATUSES
+                and (package.stock_kind or "standard") == stock_kind.value}
     partial_rows = [
         row
         for row in stock_rows
@@ -302,6 +334,9 @@ def ready_pack_candidates(
     Compare every size/color stock row with package-item evidence. An intact
     12-piece bag counts as one pack just like a 78-piece bag.
     """
+    if lock:
+        _expire_clean_columns(db, [row for row in list(db.identity_map.values())
+            if isinstance(row, Package) and (model_ids is None or inspect(row).dict.get("model_id") in model_ids)])
     package_query = db.query(Package).join(Model, Model.id == Package.model_id).filter(
         Package.status.in_(("received_in_storage", "reserved")),
         Package.total_quantity > 0,
@@ -328,6 +363,9 @@ def ready_pack_candidates(
     stock_query = db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id.in_(package_ids))
     if lock and db.bind and db.bind.dialect.name == "postgresql":
         stock_query = stock_query.with_for_update(of=FinishedGoodsStock)
+    if lock:
+        _expire_clean_columns(db, [row for row in list(db.identity_map.values())
+            if isinstance(row, FinishedGoodsStock) and inspect(row).dict.get("package_id") in package_ids])
     stocks = stock_query.order_by(FinishedGoodsStock.id).all()
     stock_groups = defaultdict(list)
     for stock in stocks:
@@ -350,6 +388,10 @@ def ready_pack_candidates(
     }
     result = []
     for package in packages:
+        if (package.status not in ("received_in_storage", "reserved")
+                or package.stock_kind != stock_kind.value or package.sales_order_id is not None
+                or (model_ids is not None and package.model_id not in model_ids)):
+            continue
         rows = stock_groups[package.id]
         if package.id in reserved_ids or package.id in attached_ids or not rows:
             continue
@@ -381,7 +423,8 @@ def reserve_pieces(
     """Reserve whole packages then legacy remainder, preserving existing order.
 
     Explicit runtime validation precedes all database access. The caller owns
-    authorization and rollback if the operation refuses after metadata repair.
+    authorization, its Sales-order lock and rollback if the operation refuses
+    after metadata repair. Fulfillment never locks a Sales mapped row.
     """
     _validate_identity(sales_order_id, reserved_by)
     if not isinstance(stock_kind, PackageStockKind) or stock_kind not in _PIECE_STOCK_KINDS:
@@ -392,6 +435,9 @@ def reserve_pieces(
     requested_by_variant = {
         _stock_variant_key(d.model_id, d.color, d.size, d.brand_id): d.quantity for d in demands
     }
+    model_ids = {key[0] for key in requested_by_variant}
+    _expire_clean_columns(db, [row for row in list(db.identity_map.values())
+        if isinstance(row, Package) and inspect(row).dict.get("model_id") in model_ids])
     package_cache: dict[int, Package] = {}
     if db.bind and db.bind.dialect.name == "postgresql":
         # Lock across all lines before metadata repair or any stock lock, so
@@ -422,6 +468,11 @@ def reserve_pieces(
         .filter(StockReservation.sales_order_id == sales_order_id)
         .all()
     )
+    # A prior owned reservation can still be staged in this same outer unit of
+    # work (autoflush=False). Include it without flushing unrelated Sales lines.
+    existing_rows.extend((reservation, db.get(FinishedGoodsStock, reservation.finished_goods_stock_id))
+        for reservation in list(db.new)
+        if isinstance(reservation, StockReservation) and reservation.sales_order_id == sales_order_id)
 
     outstanding_by_variant: dict[tuple[int, str, str, int | None], int] = {}
     for key, requested_qty in requested_by_variant.items():
@@ -459,6 +510,7 @@ def reserve_pieces(
             db,
             stock_rows,
             package_cache=package_cache,
+            stock_kind=stock_kind,
         )
         available_qty = sum(
             int(package.total_quantity or 0)
@@ -501,6 +553,7 @@ def reserve_pieces(
             db,
             stocks,
             package_cache=package_cache,
+            stock_kind=stock_kind,
         )
         selected_package_ids = _select_whole_packages(package_groups, needed)
         for package_id in selected_package_ids:
