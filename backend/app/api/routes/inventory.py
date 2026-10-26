@@ -276,7 +276,7 @@ def receive_stock(
     db: DbSession,
     current: User = Depends(require_permissions("storage.receive", "*")),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
-):
+) -> StockBatchOut:
     return stock_service.receive_stock(db, payload, current, idempotency_key=idempotency_key)
 
 

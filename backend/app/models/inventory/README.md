@@ -58,8 +58,11 @@ normalisation), [eco_transfer_pdf_service.py](../eco_transfer_pdf_service.py) (E
   Inventory/Waste contracts were mixed in two files; all of them now live in
   entity-named input/update/output modules. Class names, fields and validators are
   unchanged, so the published OpenAPI component names did not move.
-- Outputs stay as plain dictionaries and the existing ORM records, shaped by the
-  routers' `response_model` declarations.
+- Receipt returns an actual `StockBatchOut` with canonical QC members on fresh
+  and replay paths. Only the saved idempotency response is serialized to JSON;
+  the route's return annotation and `response_model` both name `StockBatchOut`.
+  Other operations retain their dictionaries/ORM results pending their own
+  typed-contract migration; do not copy that unfinished shape into new work.
 - Receipt, correction and output QC contracts use `StockBatchQcStatus`; input
   DTOs trim and lowercase strings and reject unknown values with HTTP 422.
   Explicit correction null retains HTTP 400; omitted QC remains unchanged.

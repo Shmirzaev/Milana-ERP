@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import lazyload
+from sqlalchemy.orm import Session, lazyload
 
 from app.core.costs import round_unit_cost
 from app.core.deps import is_admin, user_permissions
@@ -650,7 +650,7 @@ def stock_view(
 
 
 # ===== Receive =====
-def _canonical_stock_replay(db, replay: dict, *, production_order_id: int | None = None) -> dict:
+def _canonical_stock_replay(db: Session, replay: dict, *, production_order_id: int | None = None) -> dict:
     # Preserve the recorded result and request hash; only render known aliases live.
     response = dict(replay)
     if "order_no" in response:
@@ -684,16 +684,16 @@ def _stock_batch_fingerprint_payload(payload: StockBatchIn) -> dict:
 
 
 def receive_stock(
-    db,
+    db: Session,
     payload: StockBatchIn,
     current: User,
     idempotency_key: str | None = None,
-) -> dict:
+) -> StockBatchOut:
     inventory_access.require_item(db, current, payload.item_id)
     fingerprint_payload = _stock_batch_fingerprint_payload(payload)
     replay = replay_idempotent_response(db, scope="inventory.receive", key=idempotency_key, payload=fingerprint_payload)
     if replay:
-        return _canonical_stock_replay(db, replay)
+        return StockBatchOut.model_validate(_canonical_stock_replay(db, replay))
 
     item = db.get(Item, payload.item_id)
     if not item:
@@ -756,13 +756,13 @@ def receive_stock(
     log_action(db, current, "receive", "StockBatch", batch.id, new_value={"batch_no": batch.batch_no, "qty": float(batch.quantity)})
     db.flush()
     db.refresh(batch)
-    response = StockBatchOut.model_validate(batch).model_dump(mode="json")
+    response = StockBatchOut.model_validate(batch)
     store_idempotent_response(
         db,
         scope="inventory.receive",
         key=idempotency_key,
         payload=fingerprint_payload,
-        response=response,
+        response=response.model_dump(mode="json"),
         user=current,
         status_code=201,
     )

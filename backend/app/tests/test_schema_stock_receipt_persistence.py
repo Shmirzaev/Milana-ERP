@@ -23,6 +23,7 @@ from pydantic import ValidationError
 
 from app.db.session import SessionLocal
 from app.libs.dto.inventory.stock_batch_input import StockBatchIn
+from app.libs.dto.inventory.stock_batch_output import StockBatchOut
 from app.libs.dto.inventory.stock_batch_update import StockBatchUpdate
 from app.libs.enums.inventory import StockBatchQcStatus, StockMovementType
 from app.models.idempotency_service import request_fingerprint
@@ -272,6 +273,41 @@ def test_receipt_stores_the_idempotency_record(client, auth_headers):
         assert scope.startswith("inventory.receive:v2:")
         assert re.fullmatch(r"inventory\.receive:v2:[0-9a-f]{64}", scope), scope
         assert records[0].status_code == 201
+
+
+@pytest.mark.parametrize("qc_status", EXPECTED_QC_STATUSES)
+def test_receipt_service_returns_typed_dto_for_fresh_and_replayed_result(
+    client, auth_headers, monkeypatch, qc_status,
+):
+    original = stock_service.receive_stock
+    actual_results = []
+
+    def capture(*args, **kwargs):
+        result = original(*args, **kwargs)
+        actual_results.append(result)
+        return result
+
+    monkeypatch.setattr(stock_service, "receive_stock", capture)
+    key = f"op01-typed-result-{uuid4().hex}"
+    headers = {**auth_headers, "Idempotency-Key": key}
+    body = _receipt_payload(qc_status=f"  {qc_status.upper()}  ")
+    created = client.post("/api/inventory/receive", headers=headers, json=body)
+    assert created.status_code == 201, created.text
+    with SessionLocal() as db:
+        before = (db.query(StockBatch).count(), db.query(StockMovement).count(), db.query(AuditLog).count())
+        saved = db.query(IdempotencyRecord).filter_by(key=key).one()
+        assert saved.response_json == created.json()
+        assert saved.response_json["qc_status"] == qc_status
+    replayed = client.post("/api/inventory/receive", headers=headers, json=body)
+    assert replayed.status_code == 201, replayed.text
+    assert replayed.json() == created.json()
+    assert len(actual_results) == 2
+    for result in actual_results:
+        assert isinstance(result, StockBatchOut)
+        assert result.qc_status is StockBatchQcStatus(qc_status)
+        assert result.id == created.json()["id"]
+    with SessionLocal() as db:
+        assert (db.query(StockBatch).count(), db.query(StockMovement).count(), db.query(AuditLog).count()) == before
 
 
 def test_receipt_rejects_an_unknown_qc_status_without_writing(client, auth_headers):
