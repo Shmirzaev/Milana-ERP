@@ -16,7 +16,7 @@ from app.tests.test_shipment_review import dispatch as dispatch, ship
 
 @pytest.mark.parametrize("lang", ["en", "ru", "uz"])
 @pytest.mark.parametrize("show_prices", [True, False])
-def test_equal_invoice_rows_horizontal_sizes_and_surrounding_excel_grid(lang, show_prices):
+def test_readable_invoice_rows_wrapped_sizes_and_surrounding_excel_grid(lang, show_prices):
     from app.services.shipment_invoice import invoice_column_widths, invoice_size_labels
     from openpyxl.utils import get_column_letter
 
@@ -28,11 +28,16 @@ def test_equal_invoice_rows_horizontal_sizes_and_surrounding_excel_grid(lang, sh
     original = deepcopy(document)
     sheet = load_workbook(BytesIO(shipment_invoice_workbook(document, lang, show_prices=show_prices))).active
     widths = [sheet.column_dimensions[get_column_letter(column)].width for column in range(1, 12)]
-    assert widths[4] == max(widths) == 27
+    assert widths[4] == max(widths) == 14
+    # Numeric values stay numeric and cannot wrap in Excel. Reserve room at 9 pt
+    # for six-digit piece counts and five-digit kilogram values plus decimals.
+    assert widths[6] >= 7 and widths[7] >= 8 and widths[8] >= 9
     assert sum(invoice_column_widths()) == pytest.approx(100)
     assert sheet["E10"].value == "48×10, 50×10, 52×10, 54×10, 56×10, 58×10"
-    assert sheet.row_dimensions[10].height == 23.1
-    assert not sheet["E10"].alignment.wrap_text and sheet["E10"].alignment.shrink_to_fit is True
+    assert sheet.row_dimensions[10].height > 23.1
+    assert sheet["E10"].alignment.wrap_text and not sheet["E10"].alignment.shrink_to_fit
+    assert all(sheet.cell(4, column).font.sz == 11 for column in (1, 3, 5, 7))
+    assert all(sheet.cell(row, column).font.sz == 9 for row in (9, 10) for column in range(1, 12))
     assert sheet.sheet_view.showGridLines is True
     assert sheet.sheet_view.showRowColHeaders is True
     assert sheet.freeze_panes is None
@@ -43,7 +48,7 @@ def test_equal_invoice_rows_horizontal_sizes_and_surrounding_excel_grid(lang, sh
     assert sheet["F11"].value == 1 and sheet["G11"].value == 60 and sheet["I11"].value == 27.22
     assert sheet["K11"].value == (348 if show_prices else None)
     html = render_shipment_invoice(document, lang, show_prices=show_prices)
-    assert '<col style="width:27%">' in html
+    assert '<col style="width:14%">' in html
     assert '48×10</span>, <span class="size-label">50×10' in html
     assert invoice_size_labels([
         {"size": "M", "color": "Red", "quantity": 4},

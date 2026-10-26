@@ -2,6 +2,7 @@
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
+from textwrap import wrap
 
 from app.services.variant_display import format_variant_number
 
@@ -28,7 +29,7 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
     for column, width in enumerate(widths, 1):
         sheet.column_dimensions[get_column_letter(column)].width = width
 
-    def put(row, column, value, *, bold=False, fill=None, color="202124", align="left", size=8):
+    def put(row, column, value, *, bold=False, fill=None, color="202124", align="left", size=9):
         cell = sheet.cell(row, column, value)
         # Business text remains literal even when it starts with =, +, - or @.
         if isinstance(value, str):
@@ -43,6 +44,13 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
         sheet.merge_cells(start_row=row, start_column=first, end_row=row, end_column=last)
         put(row, first, value, **style)
 
+    def text_height(value, width, size):
+        # Excel does not auto-fit wrapped rows when generated outside Excel.
+        # Reserve space rather than shrinking the requested type size.
+        capacity = max(1, int(width * 11 / size) - 2)
+        lines = sum(max(1, len(wrap(part, width=capacity))) for part in str(value or "").split("\n"))
+        return lines * size * 1.35 + 6
+
     merged(2, 1, 8, "MILANA PREMIUM", bold=True, color="1F3864", size=24)
     merged(3, 1, 8, text["title"], bold=True, color="2F5597", size=11)
     logo = Image(Path(__file__).resolve().parents[1] / "assets" / "milana-premium-logo.png")
@@ -53,18 +61,19 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
     sheet.row_dimensions[2].height = 30
     sheet.row_dimensions[3].height = 35
     for row, (left, lv, right, rv) in enumerate(invoice_metadata(document, text), 4):
-        merged(row, 1, 2, left, bold=True, fill="F2F5FA", color="1F3864", size=9)
-        merged(row, 3, 4, lv or "—", bold=True)
-        merged(row, 5, 6, right, bold=True, fill="F2F5FA", color="4D5656", size=9)
-        merged(row, 7, last_column, rv or "—", bold=True)
+        merged(row, 1, 2, left, bold=True, fill="F2F5FA", color="1F3864", size=11)
+        merged(row, 3, 4, lv or "—", bold=True, size=11)
+        merged(row, 5, 6, right, bold=True, fill="F2F5FA", color="4D5656", size=11)
+        merged(row, 7, last_column, rv or "—", bold=True, size=11)
         for column in range(1, last_column + 1):
             sheet.cell(row, column).border = Border(left=Side(style="thin", color="8EA9DB"), right=Side(style="thin", color="8EA9DB"), top=Side(style="thin", color="8EA9DB"), bottom=Side(style="thin", color="8EA9DB"))
-        sheet.row_dimensions[row].height = 20
+        sheet.row_dimensions[row].height = max(26, *(text_height(value, sum(widths[first:last]), 11)
+            for value, first, last in ((left, 0, 2), (lv, 2, 4), (right, 4, 6), (rv, 6, last_column))))
     sheet.row_dimensions[8].height = 16
     headers = invoice_headers(lang)
     for column, title in enumerate(headers, 1):
-        put(9, column, title, bold=True, fill="1F3864" if column in (1, 11) else "2F5597", color="FFFFFF", align="center", size=7)
-    sheet.row_dimensions[9].height = 22
+        put(9, column, title, bold=True, fill="1F3864" if column in (1, 11) else "2F5597", color="FFFFFF", align="center", size=9)
+    sheet.row_dimensions[9].height = max(30, *(text_height(title, width, 9) for title, width in zip(headers, widths)))
     packages = document.get("package_details")
     if packages is None:
         packages = list({line["package_no"]: {"package_no": line["package_no"], "weight_kg": None} for line in document.get("lines", [])}.values())
@@ -88,15 +97,15 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
         for column, value in enumerate(values, 1):
             cell = put(row, column, value, fill="FFFFFF",
                        align="right" if column >= 6 else "left" if column in (4, 5) else "center",
-                       bold=column in (1, 2, 11), size=7)
+                       bold=column in (1, 2, 11), size=9)
             cell.border = border
-            cell.alignment = Alignment(horizontal=cell.alignment.horizontal, vertical="center", wrap_text=False, shrink_to_fit=True)
+            cell.alignment = Alignment(horizontal=cell.alignment.horizontal, vertical="center", wrap_text=True, shrink_to_fit=False)
             if column >= 6:
                 cell.number_format = '#,##0.00' if column >= 8 else '#,##0'
         for column in (6, 8, 9):
             if span > 1:
                 sheet.merge_cells(start_row=row, end_row=row + span - 1, start_column=column, end_column=column)
-        sheet.row_dimensions[row].height = 23.1
+        sheet.row_dimensions[row].height = max(23.1, *(text_height(value, width, 9) for value, width in zip(values, widths)))
     total_row = 10 + len(rows)
     merged(total_row, 1, 5, text["total"], bold=True, fill="C6D9F1", color="1F3864")
     for column, value in enumerate([document["packages_count"], document["quantity"], float(recorded_weight(document)), float(recorded_weight(document))], 6):
@@ -104,9 +113,10 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
         cell.number_format = '#,##0.00' if column >= 8 else '#,##0'
     put(total_row, 10, None, fill="C6D9F1")
     amount = (float(Decimal(str(document["amount"]))) if document.get("amount") is not None else "—") if show_prices else None
-    cell = put(total_row, 11, amount, bold=True, fill="1F3864", color="FFFFFF", align="right", size=7)
+    cell = put(total_row, 11, amount, bold=True, fill="1F3864", color="FFFFFF", align="right", size=9)
     cell.number_format = '#,##0.00'
-    sheet.row_dimensions[total_row].height = 22
+    sheet.row_dimensions[total_row].height = max(22, *(text_height(sheet.cell(total_row, column).value, width, 9)
+        for column, width in enumerate(widths, 1)))
     signature_row = total_row + 2
     officer = {"en": "Responsible warehouse officer", "ru": "Ответственный кладовщик", "uz": "Mas’ul omborchi"}[lang]
     signature = {"en": "Warehouse signature", "ru": "Подпись кладовщика", "uz": "Omborchi imzosi"}[lang]
