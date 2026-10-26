@@ -110,7 +110,8 @@ SQLAlchemy definitions live in schemas/<business-group>/, with shared definition
 in schemas/core.py and schemas/order_reference.py. schemas/__init__.py registers
 the mapped classes; models/__init__.py does not export ORM classes.
 
-Import services from app.models.<name>_service and mapped classes from app.schemas
+Import domain services from app.models.<group>.<name>_service and existing shared
+helpers from app.models.<name>_service. Import mapped classes from app.schemas
 or their specific module. Never duplicate a mapped class or change table names to
 match Python folders. Services use those classes for reads and call persistence
 operations owned by the schema domain for writes, using the same existing Session.
@@ -119,9 +120,10 @@ independently. This is the required target, not a claim that current services me
 Migrate one complete operation with all its writers, including audit/notification
 participants; preserve atomicity, lock order, idempotency and refusal behavior.
 
-Service-group directories remain guides until an operation's package conversion
-is approved and all callers are updated. Their old ORM filename collisions have
-been removed. This namespace move does not itself extract business logic from routes.
+Groups without implemented operations remain guides; existing domain packages
+are active and retain per-operation verification gates. Their old ORM filename
+collisions have been removed. The namespace move does not itself extract business
+logic from routes or establish schema-owned persistence.
 See [database rules](../schemas/README.md) and [ownership map](../../../docs/REFACTOR_MAP.md#existing-database-models).
 
 ## Shared helpers and queries

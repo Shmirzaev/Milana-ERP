@@ -71,7 +71,7 @@ transaction.
 | [customer_ledger_service.py](customer_ledger_service.py) | `list_customer_payments` | `Session`, customer id | receipt rows | 404 customer not found | read-only |
 | [customer_ledger_service.py](customer_ledger_service.py) | `record_customer_payment` | `Session`, customer id, `CustomerPaymentIn`, actor, idempotency key | receipt dict | 404 customer or sales order not found; 400 amount not greater than zero; 409 idempotency conflict | this operation (invoice row when the order has none, payment and advance rows, audit row, idempotency row, commit) |
 | [../finance_service.py](../finance_service.py) | `dashboard_summary`, `order_profit`, `branded_stock_value`, `waste_cost`, `waste_income`, `revenue_total`, `payments_total`, `revenue_by_period`, `cost_breakdown`, `list_recent_invoices`, `count_invoices`, `invoice_list_page` | `Session` plus the report arguments | report values, rows and page envelopes | none; the queries never raise a business error | read-only |
-| [../payments_service.py](../payments_service.py) | `money_decimal`, `invoice_payment_status`, `invoice_paid_total`, `refresh_invoice_status`, `create_invoice_payment`, `create_customer_advance_payment` | `Session` where a read is needed | `Decimal`, status string, `Payment` row | 409 payment against a reversed or cancelled invoice | none (the calling operation commits) |
+| [../payments_service.py](../payments_service.py) | `money_decimal`, `invoice_payment_status`, `invoice_paid_total`, `refresh_invoice_status`, `create_invoice_payment`, `create_customer_advance_payment` | `Session` where a read is needed | `Decimal`, `InvoiceStatus` member, `Payment` row | 409 payment against a reversed or cancelled invoice | none (the calling operation commits) |
 
 Use snake_case_service.py filenames and operation names such as `create_*`,
 `record_*`, `receive_*` or `approve_*`. A typed function is sufficient; a class
@@ -99,7 +99,7 @@ current HTTP responses, audit records and outer transaction owners while testing
 any shared issuance operation. Before extracting, Ismail and Mirshoir must agree
 whether draft-order manual invoices, reversed-invoice reuse, zero/small-balance
 status are intended policy or separate defects. The confirmed customer-payment
-lock gap has a narrow FN04 bugfix candidate; it changes no issuance policy.
+lock gap is addressed by the included FN04 follow-up; it changes no issuance policy.
 Shavkat confirms business outcomes. The existing PostgreSQL race regression is
 `test_invoice_creation_integrity.py`; money bounds, delivery reconciliation and
 payment/idempotency cases need their own baseline comparisons. This trace does
@@ -118,7 +118,8 @@ Preserved unchanged: the missing-order 404, an existing invoice returned as it i
 `invoice_payment_status(amount, 0)` status, `INV-<year>-<n>` numbering, the
 `create` audit action, one write path per request and the same permission.
 
-Checks: 296 combined finance tests passed, including the PostgreSQL
+Historical extraction evidence (not current combined-candidate acceptance):
+296 combined finance tests passed, including the PostgreSQL
 race regression and the money-bounds storage proof. The source-text lock
 assertion was replaced by an executed-statement check and a stale-order refetch
 check; the two-connection race stays in `test_invoice_creation_integrity.py`.
@@ -126,8 +127,8 @@ The disposable local UI check covered invoice replay, partial and full payment,
 and the resulting customer balance. No business rule or database migration changed.
 
 Still undecided, unchanged here: draft-order manual invoices, reversed-invoice
-reuse and the zero/small-balance status. The later FN04 receipt follow-up addresses
-the customer-payment lock gap separately from this extraction.
+reuse and the zero/small-balance status. The later FN04 follow-up implemented
+the customer-payment parent lock separately from the original extraction.
 
 ### RF-008 slice 2 — receipt operations (extracted)
 
@@ -180,18 +181,17 @@ layer, not an extraction.
 where they exist. Add action-specific input only for a real action. Do not generate
 three DTOs for every table or expose privileged fields through generic updates.
 
-## Outstanding UI issues (recorded, not fixed)
+## UI issue status and outstanding acceptance
 
-These are known operator-visible problems in the finance screens. They are
-recorded here for human review and are not changed by the service extraction.
-The accounting policy behind them is preserved unchanged pending human
-decision: this refactor did not change it, and human acceptance is still
-outstanding.
+These operator-visible issues retain separate source and acceptance status.
+The accounting policy is preserved unchanged pending human decision; this guide
+does not establish visual verification or human acceptance for a new candidate.
 
-- **FIN-PARTIAL-CONFIRM-20261025** — the partial-receipt confirmation text says
-  "mark as paid" while the persisted invoice status correctly stays partial.
-  The wording is wrong; the stored status is right. The bug stays active for
-  human review.
+- **FIN-PARTIAL-CONFIRM-20261025** — historical reproduction on `ba70e0cb`:
+  confirmation promised "mark as paid". Current source passes the chosen amount,
+  and English, Russian and Uzbek messages describe recording that amount.
+  Stored settlement policy is unchanged. Candidate visual and human closure
+  remain separate required gates.
 - **FIN-REVENUE-CHART-STALE-20261025** — the Finance revenue chart stays stale
   immediately after a Finance receipt until the page is reloaded, while the top
   payment totals do update. It is recorded in
@@ -199,16 +199,18 @@ outstanding.
 
 ## Remaining exceptions
 
-- The customer-payment path reads the sales order without the parent
-  `sales_orders` lock the invoice endpoints take. The gap is listed in the
-  RF-008 trace and is not changed here.
+- The customer-payment parent lock is implemented: `record_customer_payment`
+  calls `lock_sales_order` before invoice lookup. Automatic invoice/advance
+  writers remain pending schema-owned extraction; candidate visual and human
+  gates remain open.
 - The branded-stock-value and waste-report envelopes stay in the router, because
   moving an envelope alone would add a pass-through layer instead of an
   extraction. Their values come from `finance_service`.
 - The four policy questions in the RF-008 trace are still open for Ismail,
   Mirshoir and Shavkat. Nothing in this extraction answers them.
-- The two UI issues above are recorded, not fixed, and no accounting policy was
-  changed for them.
+- Partial-confirmation wording is corrected in source; revenue-chart refresh
+  remains pending. Neither is human-accepted by this guide, and accounting
+  policy is unchanged.
 
 ## Boundaries and verification
 
