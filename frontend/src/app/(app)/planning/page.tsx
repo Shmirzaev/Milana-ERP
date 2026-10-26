@@ -11,6 +11,7 @@ import { api, fetcher } from "@/lib/api";
 import { useMe, can } from "@/lib/auth";
 import PageHeader from "@/components/PageHeader";
 import BrandedOrderHistory, { type BrandedPlanningOrder } from "@/components/BrandedOrderHistory";
+import { BrandedPlanningOrderType } from "@/lib/brandedPlanning";
 import Modal from "@/components/Modal";
 import SearchableSelect from "@/components/SearchableSelect";
 import BrandedModelVariantSelect from "@/components/BrandedModelVariantSelect";
@@ -896,7 +897,7 @@ export default function PlanningDashboard() {
     setNewBrandedOrderErr("");
     setNewBrandedOrderSaving(true);
     try {
-      const order = await api.post<BrandedPlanningOrder>("/api/planning/branded-orders", customerId ? { ordered_for_type: "customer", customer_id: customerId } : {});
+      const order = await api.post<BrandedPlanningOrder>("/api/planning/branded-orders", customerId ? { ordered_for_type: BrandedPlanningOrderType.CUSTOMER, customer_id: customerId } : {});
       await mutateBrandedOrders();
       setNewBrandedOrderOpen(false);
       selectBrandedOrderForProduction(order.id);

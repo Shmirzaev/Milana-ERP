@@ -34,14 +34,27 @@ particular operation and every caller/write before choosing what belongs here.
 
 - input: the acting user, the validated `BrandedPlanningOrderIn` payload, the
   status filter, the customer search text and the order id
-- output: the branded planning order payload as a dict; the export returns the
-  workbook bytes
-- refusals: 404 for a missing customer or branded order, 400 for an unknown
-  ordered-for party
+- output: `BrandedPlanningOrderOut` for creation and a list of that DTO for history;
+  both HTTP endpoints declare the same response model. The export returns bytes.
+- refusals: 404 for a missing customer or branded order; invalid party/status input
+  is rejected at the typed HTTP boundary with 422. Party input preserves strip/lower
+  normalization. The status query defaults to open and an explicit empty value
+  selects every status; padded/uppercase status values are rejected, not normalized.
 - records: one `branded_planning_orders` row and one `BrandedPlanningOrder`
   audit row per creation; the list keeps the batched model and cutting work
   order loads
 - transaction owner: `create_branded_order`
+
+The first operation uses [schema-owned insertion](../../schemas/planning/branded_order_persistence.py)
+and the supplied Session. Numbering and audit remain participants in the same outer
+service transaction. Canonical Planning enums are used by input/output DTOs,
+the insertion command and the actual history frontend; derived cutting progress
+is distinct from stored Production/WorkOrder status. Optional frontend progress
+fields retain their not-started display fallback.
+
+This does not migrate the alternate writer in `create_branded_stock_production`,
+Production status, costing status, forecasting or every Planning table. Combined
+database/browser verification and independent AI/human acceptance remain separate.
 
 ### forecasting_recommendations_service.py
 

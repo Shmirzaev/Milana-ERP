@@ -2,29 +2,46 @@
 
 Contract per operation:
 * input: the acting user, the validated payload and the filter arguments
-* output: the branded planning order payload as a dict (export returns the
+* output: the typed branded planning order payload (export returns the
   workbook bytes)
 * refusals: 404 when the customer or the branded order does not exist, 400 when
   the ordered-for party is unknown
 * records: one `branded_planning_orders` row and one `BrandedPlanningOrder`
-  audit row on creation
+  audit row on creation. The mapped row insert is schema-owned
+  (`app.schemas.planning.branded_order_persistence`); this service decides the
+  values and owns the transaction
 * transaction owner: `create_branded_order`
 """
 from fastapi import HTTPException
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.libs.dto.planning.branded_planning_order_input import BrandedPlanningOrderIn
+from app.libs.dto.planning.branded_planning_order_output import (
+    BrandedCuttingDepartmentOut,
+    BrandedModelOut,
+    BrandedPlanningOrderOut,
+    BrandedProductionOut,
+)
+from app.libs.enums.planning import (
+    BrandedCuttingProgress,
+    BrandedPlanningOrderStatus,
+    BrandedPlanningOrderType,
+)
 from app.models.audit_service import log_action
 from app.models.branded_order_export_service import build_branded_order_workbook
 from app.models.model_images_service import material_preview_image_url, model_display_image_url
 from app.models.numbering_service import next_branded_planning_order_no
 from app.schemas import BrandedPlanningOrder, Customer, Department, Model, User, WorkOrder
+from app.schemas.planning.branded_order_persistence import (
+    BrandedPlanningOrderInsert,
+    insert_branded_planning_order,
+)
 
 
 BRANDED_ORDER_PARTIES = {
-    "milana": "Milana",
-    "eco_cotton": "Eco Cotton",
-    "besttex": "Besttex",
+    BrandedPlanningOrderType.MILANA: "Milana",
+    BrandedPlanningOrderType.ECO_COTTON: "Eco Cotton",
+    BrandedPlanningOrderType.BESTTEX: "Besttex",
 }
 
 
@@ -58,54 +75,75 @@ def branded_model_payload(model: Model) -> dict:
 def branded_order_payload(
     order: BrandedPlanningOrder,
     model_by_id: dict[int, dict] | None = None,
-    cutting_by_id: dict[int, str] | None = None,
+    cutting_by_id: dict[int, BrandedCuttingProgress] | None = None,
     cutting_details_by_id: dict[int, dict] | None = None,
-) -> dict:
+) -> BrandedPlanningOrderOut:
+    """Return the branded planning order payload.
+
+    The fixed vocabularies are converted to their canonical enum members at
+    this boundary, so a stored plain string never leaves the service as an
+    untyped value. The wire payload is unchanged.
+    """
     model_by_id = model_by_id or {}
     cutting_by_id = cutting_by_id or {}
     cutting_details_by_id = cutting_details_by_id or {}
     productions = sorted(order.production_orders or [], key=lambda row: int(row.id))
-    cutting_states = [cutting_by_id.get(row.id, "not_started") for row in productions]
-    return {
-        "id": order.id,
-        "order_no": order.order_no,
-        "ordered_for_type": order.ordered_for_type,
-        "customer_id": order.customer_id,
-        "ordered_for_name": order.ordered_for_name,
-        "status": order.status,
-        "notes": order.notes,
-        "created_by": order.created_by,
-        "created_at": order.created_at,
-        "updated_at": order.updated_at,
-        "production_count": len(productions),
-        "total_quantity": sum(int(row.planned_quantity or 0) for row in productions),
-        "cutting_status": (
-            "completed" if cutting_states and all(state == "completed" for state in cutting_states)
-            else "partial" if any(state != "not_started" for state in cutting_states)
-            else "not_started"
+    cutting_states = [
+        cutting_by_id.get(row.id, BrandedCuttingProgress.NOT_STARTED) for row in productions
+    ]
+    return BrandedPlanningOrderOut(
+        id=order.id,
+        order_no=order.order_no,
+        ordered_for_type=BrandedPlanningOrderType(order.ordered_for_type),
+        customer_id=order.customer_id,
+        ordered_for_name=order.ordered_for_name,
+        status=BrandedPlanningOrderStatus(order.status),
+        notes=order.notes,
+        created_by=order.created_by,
+        created_at=order.created_at,
+        updated_at=order.updated_at,
+        production_count=len(productions),
+        total_quantity=sum(int(row.planned_quantity or 0) for row in productions),
+        cutting_status=(
+            BrandedCuttingProgress.COMPLETED
+            if cutting_states and all(state == BrandedCuttingProgress.COMPLETED for state in cutting_states)
+            else BrandedCuttingProgress.PARTIAL
+            if any(state != BrandedCuttingProgress.NOT_STARTED for state in cutting_states)
+            else BrandedCuttingProgress.NOT_STARTED
         ),
-        "productions": [
-            {
-                "id": row.id,
-                "order_no": row.order_no,
-                "production_no": row.production_no,
-                "model_id": row.model_id,
-                "model": model_by_id.get(int(row.model_id)),
-                "planned_quantity": row.planned_quantity,
-                "status": row.status,
-                "cutting_status": cutting_by_id.get(row.id, "not_started"),
-                **cutting_details_by_id.get(row.id, {"cutting_quantity": 0, "cutting_departments": []}),
-            }
+        productions=[
+            BrandedProductionOut(
+                id=row.id,
+                order_no=row.order_no,
+                production_no=row.production_no,
+                model_id=row.model_id,
+                model=(
+                    BrandedModelOut(**model_by_id[int(row.model_id)])
+                    if int(row.model_id) in model_by_id
+                    else None
+                ),
+                planned_quantity=row.planned_quantity,
+                status=row.status,
+                cutting_status=cutting_by_id.get(row.id, BrandedCuttingProgress.NOT_STARTED),
+                cutting_quantity=cutting_details_by_id.get(row.id, {}).get("cutting_quantity", 0),
+                cutting_departments=[
+                    BrandedCuttingDepartmentOut(**department)
+                    for department in cutting_details_by_id.get(row.id, {}).get("cutting_departments", [])
+                ],
+            )
             for row in productions
         ],
-    }
+    )
 
 
-def list_branded_orders(db: Session, status: str | None) -> list[dict]:
+
+def list_branded_orders(
+    db: Session, status: BrandedPlanningOrderStatus | None
+) -> list[BrandedPlanningOrderOut]:
     """Return the branded planning orders with their model and cutting state."""
     query = db.query(BrandedPlanningOrder).options(joinedload(BrandedPlanningOrder.production_orders))
     if status:
-        query = query.filter(BrandedPlanningOrder.status == status)
+        query = query.filter(BrandedPlanningOrder.status == status.value)
     rows = query.order_by(BrandedPlanningOrder.id.desc()).all()
     model_ids = {
         int(production.model_id)
@@ -135,11 +173,13 @@ def list_branded_orders(db: Session, status: str | None) -> list[dict]:
         ).all()
         for work in cutting_rows:
             cutting_by_production.setdefault(work.production_order_id, []).append(work)
-    cutting_by_id = {
+    cutting_by_id: dict[int, BrandedCuttingProgress] = {
         production_id: (
-            "completed" if all(work.status == "completed" for work in works)
-            else "partial" if any(work.status == "completed" or work.actual_output_qty > 0 for work in works)
-            else "not_started"
+            BrandedCuttingProgress.COMPLETED
+            if all(work.status == "completed" for work in works)
+            else BrandedCuttingProgress.PARTIAL
+            if any(work.status == "completed" or work.actual_output_qty > 0 for work in works)
+            else BrandedCuttingProgress.NOT_STARTED
         )
         for production_id, works in cutting_by_production.items()
     }
@@ -160,7 +200,7 @@ def branded_order_parties(db: Session) -> dict:
     """Return the selectable parties for a branded order."""
     customers = db.query(Customer).order_by(Customer.name.asc()).all()
     return {
-        "companies": [{"type": key, "name": name} for key, name in BRANDED_ORDER_PARTIES.items()],
+        "companies": [{"type": key.value, "name": name} for key, name in BRANDED_ORDER_PARTIES.items()],
         "customers": [{"id": row.id, "name": row.name} for row in customers],
     }
 
@@ -174,11 +214,13 @@ def branded_order_customers(db: Session, q: str) -> list[dict]:
     return [{"id": row.id, "name": row.name} for row in query.order_by(Customer.name, Customer.id).limit(50)]
 
 
-def create_branded_order(db: Session, payload: BrandedPlanningOrderIn, current: User) -> dict:
+def create_branded_order(
+    db: Session, payload: BrandedPlanningOrderIn, current: User
+) -> BrandedPlanningOrderOut:
     """Open one branded planning order for a company party or a customer."""
-    ordered_for_type = str(payload.ordered_for_type or "").strip().lower()
+    ordered_for_type = payload.ordered_for_type
     customer_id = payload.customer_id
-    if ordered_for_type == "customer":
+    if ordered_for_type is BrandedPlanningOrderType.CUSTOMER:
         customer = db.get(Customer, customer_id) if customer_id else None
         if not customer:
             raise HTTPException(404, "Customer not found")
@@ -189,17 +231,18 @@ def create_branded_order(db: Session, payload: BrandedPlanningOrderIn, current: 
     else:
         raise HTTPException(400, "Choose Milana, Eco Cotton, Besttex, or a customer")
 
-    order = BrandedPlanningOrder(
-        order_no=next_branded_planning_order_no(db),
-        ordered_for_type=ordered_for_type,
-        customer_id=customer_id,
-        ordered_for_name=ordered_for_name,
-        status="open",
-        notes=str(payload.notes or "").strip() or None,
-        created_by=current.id,
+    order = insert_branded_planning_order(
+        db,
+        BrandedPlanningOrderInsert(
+            order_no=next_branded_planning_order_no(db),
+            ordered_for_type=ordered_for_type,
+            customer_id=customer_id,
+            ordered_for_name=ordered_for_name,
+            status=BrandedPlanningOrderStatus.OPEN,
+            notes=str(payload.notes or "").strip() or None,
+            created_by=current.id,
+        ),
     )
-    db.add(order)
-    db.flush()
     log_action(
         db, current, "create", "BrandedPlanningOrder", order.id,
         new_value={"order_no": order.order_no, "ordered_for": order.ordered_for_name},

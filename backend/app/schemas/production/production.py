@@ -5,6 +5,7 @@ from sqlalchemy import CheckConstraint, String, Integer, Boolean, ForeignKey, Da
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, PkMixin, TimestampMixin
+from app.libs.enums.planning import BrandedPlanningOrderStatus, BrandedPlanningOrderType
 
 if TYPE_CHECKING:
     from app.schemas.catalog.partners import Customer
@@ -23,12 +24,19 @@ class BrandedPlanningOrder(Base, PkMixin, TimestampMixin):
     __tablename__ = "branded_planning_orders"
     __table_args__ = (
         UniqueConstraint("order_no", name="branded_planning_orders_order_no_key"),
+        # The two vocabularies are derived from the canonical Planning enums so
+        # the mapping and the API cannot drift apart. The rendered CHECK text,
+        # the member order, the column types and the default are unchanged.
         CheckConstraint(
-            "ordered_for_type IN ('customer', 'milana', 'eco_cotton', 'besttex')",
+            "ordered_for_type IN ("
+            + ", ".join(f"'{member.value}'" for member in BrandedPlanningOrderType)
+            + ")",
             name="ck_branded_planning_orders_ordered_for_type",
         ),
         CheckConstraint(
-            "status IN ('open', 'closed', 'cancelled')",
+            "status IN ("
+            + ", ".join(f"'{member.value}'" for member in BrandedPlanningOrderStatus)
+            + ")",
             name="ck_branded_planning_orders_status",
         ),
     )
@@ -36,7 +44,7 @@ class BrandedPlanningOrder(Base, PkMixin, TimestampMixin):
     ordered_for_type: Mapped[str] = mapped_column(String(32), nullable=False)
     customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id"), index=True)
     ordered_for_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    status: Mapped[str] = mapped_column(String(32), default="open", nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default=BrandedPlanningOrderStatus.OPEN.value, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 

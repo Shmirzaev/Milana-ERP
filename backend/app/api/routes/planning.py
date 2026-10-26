@@ -2,9 +2,14 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 
 from app.core.deps import DbSession, require_permissions
-from app.libs.dto.planning.branded_planning_order_input import BrandedPlanningOrderIn
+from app.libs.dto.planning.branded_planning_order_input import (
+    BrandedPlanningOrderIn,
+    BrandedStatusFilter,
+)
 from app.libs.dto.planning.material_requirement_output import MaterialRequirement
+from app.libs.dto.planning.branded_planning_order_output import BrandedPlanningOrderOut
 from app.libs.dto.production.production import ProductionOrderIn, ProductionOrderOut
+from app.libs.enums.planning import BrandedPlanningOrderStatus
 from app.models.planning import branded_orders_service, production_planning_service
 from app.models.planning_service import material_requirements_for_sales_order
 from app.schemas import User
@@ -29,12 +34,12 @@ def branded_order_parties(
     return branded_orders_service.branded_order_parties(db)
 
 
-@router.get("/branded-orders")
+@router.get("/branded-orders", response_model=list[BrandedPlanningOrderOut])
 def list_branded_orders(
     db: DbSession,
     _: User = Depends(require_permissions("planning.production", "*")),
-    status: str | None = "open",
-):
+    status: BrandedStatusFilter = BrandedPlanningOrderStatus.OPEN,
+) -> list[BrandedPlanningOrderOut]:
     return branded_orders_service.list_branded_orders(db, status)
 
 
@@ -45,12 +50,12 @@ def branded_order_customers(db: DbSession,
     return branded_orders_service.branded_order_customers(db, q)
 
 
-@router.post("/branded-orders", status_code=201)
+@router.post("/branded-orders", response_model=BrandedPlanningOrderOut, status_code=201)
 def create_branded_order(
     payload: BrandedPlanningOrderIn,
     db: DbSession,
     current: User = Depends(require_permissions("planning.production", "*")),
-):
+) -> BrandedPlanningOrderOut:
     return branded_orders_service.create_branded_order(db, payload, current)
 
 
