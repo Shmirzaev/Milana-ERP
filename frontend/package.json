@@ -11,6 +11,8 @@
     "start": "next start",
     "lint": "eslint .",
     "check:i18n": "node scripts/check-i18n.mjs",
+    "test:invoice-status-parity": "node scripts/check-invoice-status-parity.mjs",
+    "test:invoice-status-parity-mutations": "node --test scripts/test-invoice-status-parity.mjs",
     "test:multi-material-planning": "node scripts/check-multi-material-planning.mjs",
     "test:inventory-supplier-edit": "node scripts/check-inventory-supplier-edit.mjs",
     "test:branded-stock-physical-packs": "node scripts/check-branded-stock-physical-packs.mjs",

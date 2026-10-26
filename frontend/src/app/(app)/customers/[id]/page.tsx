@@ -12,6 +12,7 @@ import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
+import { type InvoiceStatus } from "@/lib/invoiceStatus";
 import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 
 type PaymentStatus = "paid" | "partial" | "unpaid" | "no_invoice" | "void" | "cancelled";
@@ -35,7 +36,7 @@ type InvoiceRow = {
   id: number;
   invoice_no: string;
   amount: number;
-  status: string;
+  status: InvoiceStatus;
   issued_at?: string | null;
   due_date?: string | null;
   paid_amount: number;

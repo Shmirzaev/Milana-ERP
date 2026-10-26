@@ -7,6 +7,7 @@ import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import { useT } from "@/lib/i18n";
+import { INVOICE_STATUS, type InvoiceStatus } from "@/lib/invoiceStatus";
 import { statusLabel } from "@/components/StagePipeline";
 import { useDialogs } from "@/components/DialogProvider";
 import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
@@ -18,7 +19,7 @@ type InvoiceRow = {
   order_no: string;
   customer?: string | null;
   amount: number;
-  status: string;
+  status: InvoiceStatus;
   date?: string | null;
 };
 
@@ -184,13 +185,13 @@ export default function FinancePage() {
                   <td>{inv.customer || "-"}</td>
                   <td>{money(Number(inv.amount || 0))}</td>
                   <td>
-                    <span className={`badge ${String(inv.status).toLowerCase() === "paid" ? "badge-green" : "badge-yellow"}`}>
+                    <span className={`badge ${inv.status === INVOICE_STATUS.PAID ? "badge-green" : "badge-yellow"}`}>
                       {statusLabel(inv.status, t)}
                     </span>
                   </td>
                   <td>{inv.date ? new Date(inv.date).toLocaleDateString() : "-"}</td>
                   <td>
-                    {String(inv.status).toLowerCase() !== "paid" ? (
+                    {inv.status !== INVOICE_STATUS.PAID ? (
                       <button className="btn h-7 px-2 text-[11px]" onClick={() => openPayment(inv)}>{t("page.finance.recordPayment")}</button>
                     ) : "-"}
                   </td>

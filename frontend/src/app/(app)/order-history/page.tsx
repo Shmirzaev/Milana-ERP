@@ -15,6 +15,7 @@ import PaginationControls from "@/components/PaginationControls";
 import { fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { productionTypeLabel, statusLabel } from "@/components/StagePipeline";
+import { type InvoiceStatus } from "@/lib/invoiceStatus";
 import { orderReference } from "@/lib/orderRef";
 
 type HistorySummary = {
@@ -145,7 +146,7 @@ type InvoiceRow = {
   id: number;
   invoice_no: string;
   amount: number;
-  status: string;
+  status: InvoiceStatus;
   issued_at?: string | null;
   due_date?: string | null;
 };
