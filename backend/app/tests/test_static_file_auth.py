@@ -68,6 +68,28 @@ def test_active_user_can_read_model_files(client, file_user, model_file_urls, tr
         assert response.headers["content-type"].startswith("image/")
 
 
+@pytest.mark.parametrize("route_index", [0, 1], ids=["file", "thumbnail"])
+@pytest.mark.parametrize("validator", ["if-none-match", "if-modified-since"])
+def test_model_file_cache_revalidates_after_auth(client, file_user, model_file_urls, route_index, validator):
+    user_id, token = file_user
+    headers = _auth_headers(client, token, "cookie")
+    url = model_file_urls[route_index]
+    first = client.get(url, headers=headers)
+    assert first.status_code == 200
+    conditional_headers = {**headers, validator: first.headers["etag" if validator == "if-none-match" else "last-modified"]}
+    active = client.get(url, headers=conditional_headers)
+    assert active.status_code == 304
+    assert active.content == b""
+    assert first.headers["cache-control"] == active.headers["cache-control"] == "private, no-cache, must-revalidate"
+
+    with TestSessionLocal() as db:
+        db.get(User, user_id).is_active = False
+        db.commit()
+    revoked = client.get(url, headers=conditional_headers)
+    assert revoked.status_code == 401
+    assert revoked.headers["cache-control"] == "private, no-store"
+
+
 @pytest.mark.parametrize("transport", ["cookie", "bearer"])
 @pytest.mark.parametrize("revocation", ["disabled", "deleted", "credentials_rotated"])
 @pytest.mark.parametrize("route_index", [0, 1], ids=["file", "thumbnail"])

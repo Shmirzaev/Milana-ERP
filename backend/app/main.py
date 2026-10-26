@@ -257,16 +257,12 @@ async def _security_headers(request: Request, call_next):
     )
     if effective_request_scheme(request) == "https":
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-    # Uploaded files under /storage are served unauthenticated (so <img> tags can
-    # render them with bearer-token auth). They have unguessable UUID names; keep
-    # them out of shared caches and search indexes to limit URL-leak exposure.
+    # Model-file auth must run on every request, including cached images.
     if request.url.path.startswith("/storage/"):
         if response.status_code >= 400:
             response.headers["Cache-Control"] = "private, no-store"
-        elif request.url.path.startswith("/storage/model-files/thumb/"):
-            response.headers.setdefault("Cache-Control", "private, max-age=604800")
         elif request.url.path.startswith("/storage/model-files/"):
-            response.headers.setdefault("Cache-Control", "private, max-age=86400")
+            response.headers.setdefault("Cache-Control", "private, no-cache, must-revalidate")
         else:
             response.headers.setdefault("Cache-Control", "private, no-store")
         response.headers.setdefault("X-Robots-Tag", "noindex, nofollow")
@@ -340,6 +336,7 @@ app.mount("/storage/barcodes", StaticFiles(directory=settings.BARCODE_STORAGE_DI
 os.makedirs(settings.MODEL_FILES_DIR, exist_ok=True)
 _MODEL_FILES_ROOT = os.path.realpath(settings.MODEL_FILES_DIR)
 _MODEL_THUMBS_ROOT = os.path.realpath(os.path.join(settings.MODEL_FILES_DIR, "_thumbs"))
+_MODEL_FILES_CONDITIONAL = StaticFiles(directory=settings.MODEL_FILES_DIR)
 
 
 def _model_file_path_if_exists(name: str):
@@ -386,13 +383,12 @@ def _require_model_file_token(_user: CurrentUser, db: DbSession) -> None:
 
 
 @app.get("/storage/model-files/{name}", dependencies=[Depends(_require_model_file_token)])
-def serve_model_file(name: str):
+def serve_model_file(name: str, request: Request):
     from fastapi import HTTPException
-    from fastapi.responses import FileResponse
 
     abs_path = _model_file_path_if_exists(name)
     if abs_path:
-        return FileResponse(abs_path)
+        return _MODEL_FILES_CONDITIONAL.file_response(abs_path, os.stat(abs_path), request.scope)
 
     with SessionLocal() as db:
         img = _model_image_record(name, db)
@@ -403,14 +399,13 @@ def serve_model_file(name: str):
     return Response(
         content=file_data,
         media_type=content_type or "application/octet-stream",
-        headers={"Cache-Control": "private, max-age=604800"},
+        headers={"Cache-Control": "private, no-store"},
     )
 
 
 @app.get("/storage/model-files/thumb/{name}", dependencies=[Depends(_require_model_file_token)])
-def serve_model_thumbnail(name: str, size: int = 320):
+def serve_model_thumbnail(name: str, request: Request, size: int = 320):
     from fastapi import HTTPException
-    from fastapi.responses import FileResponse
     from PIL import UnidentifiedImageError
 
     source_path = _model_file_path_if_exists(name)
@@ -443,11 +438,7 @@ def serve_model_thumbnail(name: str, size: int = 320):
         except (UnidentifiedImageError, OSError, HTTPException):
             raise HTTPException(status_code=415, detail="File is not a previewable image")
 
-    return FileResponse(
-        thumb_path,
-        media_type="image/webp",
-        headers={"Cache-Control": "private, max-age=604800"},
-    )
+    return _MODEL_FILES_CONDITIONAL.file_response(thumb_path, os.stat(thumb_path), request.scope)
 
 # Sales-order printing attachments may contain customer-supplied design files, so
 # they are NOT served from a public static mount. Access requires a short-lived
