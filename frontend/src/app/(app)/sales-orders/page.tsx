@@ -1,4 +1,6 @@
 ﻿"use client";
+import { SalesOrderStatus, SalesOrderType, salesOrderCreateType, type SalesOrderCreateType } from "@/lib/salesOrderEnums";
+import type { SalesOrderSummary } from "@/lib/salesOrderContracts";
 import { formatOrderReference } from "@/lib/orderRef";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -12,20 +14,14 @@ import { useT } from "@/lib/i18n";
 import { statusLabel } from "@/components/StagePipeline";
 import { useDialogs } from "@/components/DialogProvider";
 
-type SO = {
-  id: number;
-  order_no: string;
-  customer_id: number | null;
-  order_type: string;
-  status: string;
-  deadline: string | null;
-  total_amount: number;
-  notes: string | null;
-};
+type SO = SalesOrderSummary;
+
+const PRODUCTION_TAB_STATUSES: readonly SalesOrderStatus[] = [SalesOrderStatus.PRODUCTION, SalesOrderStatus.PLANNING, SalesOrderStatus.CONFIRMED];
+const INACTIVE_SALES_STATUSES: readonly SalesOrderStatus[] = [SalesOrderStatus.CLOSED, SalesOrderStatus.CANCELLED, SalesOrderStatus.DELIVERED];
 
 type TabKey = "all" | "production" | "late" | "shipping" | "draft";
 
-function statusClass(status: string) {
+function statusClass(status: SalesOrderStatus) {
   const s = status.toLowerCase();
   if (s.includes("late") || s.includes("cancel")) return "bg-red-100 text-red-700";
   if (s.includes("deliver") || s.includes("ship")) return "bg-green-100 text-green-700";
@@ -54,10 +50,11 @@ function toCsvCell(value: unknown): string {
 
 function matchesTab(o: SO, tab: TabKey): boolean {
   if (tab === "all") return true;
-  if (tab === "production") return ["production", "planning", "confirmed"].includes(o.status);
-  if (tab === "late") return o.status === "late";
-  if (tab === "shipping") return o.status === "ready";
-  if (tab === "draft") return o.status === "draft";
+  if (tab === "production") return PRODUCTION_TAB_STATUSES.includes(o.status);
+  // Preserve the legacy display sentinel without adding a stored Sales status.
+  if (tab === "late") return String(o.status) === "late";
+  if (tab === "shipping") return o.status === SalesOrderStatus.READY;
+  if (tab === "draft") return o.status === SalesOrderStatus.DRAFT;
   return true;
 }
 
@@ -74,8 +71,8 @@ export default function SalesOrdersPage() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("all");
   const [showFilters, setShowFilters] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<SalesOrderStatus | "all">("all");
+  const [typeFilter, setTypeFilter] = useState<SalesOrderCreateType | "all">("all");
   const [createdFrom, setCreatedFrom] = useState("");
   const [createdTo, setCreatedTo] = useState("");
   const [query, setQuery] = useState(initialQ);
@@ -93,7 +90,7 @@ export default function SalesOrdersPage() {
     if (createdTo) params.set("created_to", createdTo);
     return `/api/sales-orders?${params.toString()}`;
   }, [createdFrom, createdTo, page, pageSize, query, statusFilter, typeFilter]);
-  const listPager = useLoadMore<any>(salesUrl, fetcher);
+  const listPager = useLoadMore<{ rows: SO[]; total: number }>(salesUrl, fetcher);
   const { data: pageData, isLoading, mutate } = listPager;
   const data = useMemo<SO[]>(() => pageData?.rows || [], [pageData?.rows]);
 
@@ -117,15 +114,15 @@ export default function SalesOrdersPage() {
   }, [data, activeTab, statusFilter, typeFilter]);
 
   const selected = filtered.find((o) => o.id === (selectedId ?? filtered[0]?.id)) ?? filtered[0];
-  const activeCount = data.filter((o) => !["closed", "cancelled", "delivered"].includes(o.status)).length;
+  const activeCount = data.filter((o) => !INACTIVE_SALES_STATUSES.includes(o.status)).length;
   const inFlight = data.reduce((s, o) => s + Number(o.total_amount || 0), 0);
 
   const tabs = useMemo(() => [
     { key: "all" as TabKey, label: t("sales.tab.all"), count: data.length },
-    { key: "production" as TabKey, label: t("sales.tab.production"), count: data.filter((o) => ["production", "planning", "confirmed"].includes(o.status)).length },
-    { key: "late" as TabKey, label: t("sales.tab.late"), count: data.filter((o) => o.status === "late").length },
-    { key: "shipping" as TabKey, label: t("sales.tab.shipping"), count: data.filter((o) => o.status === "ready").length },
-    { key: "draft" as TabKey, label: t("sales.tab.draft"), count: data.filter((o) => o.status === "draft").length },
+    { key: "production" as TabKey, label: t("sales.tab.production"), count: data.filter((o) => PRODUCTION_TAB_STATUSES.includes(o.status)).length },
+    { key: "late" as TabKey, label: t("sales.tab.late"), count: data.filter((o) => String(o.status) === "late").length },
+    { key: "shipping" as TabKey, label: t("sales.tab.shipping"), count: data.filter((o) => o.status === SalesOrderStatus.READY).length },
+    { key: "draft" as TabKey, label: t("sales.tab.draft"), count: data.filter((o) => o.status === SalesOrderStatus.DRAFT).length },
   ], [data, t]);
 
   function exportCsv() {
@@ -194,17 +191,25 @@ export default function SalesOrdersPage() {
         <div className="card mb-4 grid grid-cols-1 gap-3 p-4 md:grid-cols-4">
           <div>
             <label className="label">{t("common.status")}</label>
-            <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <select className="input" value={statusFilter} onChange={(e) => {
+              // Keep the options actually returned by the list, including any
+              // legacy display value; this is not a response-validation adapter.
+              const next = e.target.value === "all" ? "all" : data.find((row) => row.status === e.target.value)?.status;
+              if (next !== undefined) setStatusFilter(next);
+            }}>
               <option value="all">{t("sales.allStatuses")}</option>
               {[...new Set(data.map((o) => o.status))].map((s) => <option key={s} value={s}>{statusLabel(s, t)}</option>)}
             </select>
           </div>
           <div>
             <label className="label">{t("sales.orderType")}</label>
-            <select className="input" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+            <select className="input" value={typeFilter} onChange={(e) => {
+              const next = e.target.value === "all" ? "all" : salesOrderCreateType(e.target.value);
+              if (next !== null) setTypeFilter(next);
+            }}>
               <option value="all">{t("sales.allTypes")}</option>
-              <option value="client_order">{t("orderType.client")}</option>
-              <option value="branded_stock_sale">{t("orderType.branded")}</option>
+              <option value={SalesOrderType.CLIENT_ORDER}>{t("orderType.client")}</option>
+              <option value={SalesOrderType.BRANDED_STOCK_SALE}>{t("orderType.branded")}</option>
             </select>
           </div>
           <div>
@@ -361,7 +366,7 @@ export default function SalesOrdersPage() {
                 </section>
                 <section>
                   <div className="label">{t("sales.orderType")}</div>
-                  <div className="badge">{selected.order_type === "client_order" ? t("orderType.client") : t("orderType.branded")}</div>
+                  <div className="badge">{selected.order_type === SalesOrderType.CLIENT_ORDER ? t("orderType.client") : t("orderType.branded")}</div>
                 </section>
                 <section>
                   <div className="label">{t("sales.financials")}</div>

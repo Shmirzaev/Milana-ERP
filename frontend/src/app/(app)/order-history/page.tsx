@@ -1,4 +1,5 @@
 "use client";
+import type { SalesOrderStatus, SalesOrderType } from "@/lib/salesOrderEnums";
 import { formatVariantNumber } from "@/lib/variantDisplay";
 import { formatOrderReference } from "@/lib/orderRef";
 
@@ -39,17 +40,14 @@ type HistorySummary = {
   material_spent?: MaterialSpent[];
 };
 
-type HistoryRow = {
+type HistoryRowBase = {
   id: number;
-  record_type: "sales_order" | "production_order";
   history_key: string;
   order_no: string;
   customer_id?: number | null;
   customer_name?: string | null;
   group_order_no?: string | null;
   ordered_for?: string | null;
-  order_type: string;
-  status: string;
   deadline?: string | null;
   created_at?: string | null;
   completed_at?: string | null;
@@ -58,6 +56,13 @@ type HistoryRow = {
   products?: HistoryProduct[];
   summary: HistorySummary;
 };
+
+// The history API emits these exact discriminators. Production statuses/types
+// belong to Production; they are not SalesOrderStatus or SalesOrderType.
+type HistoryRow = HistoryRowBase & (
+  | { record_type: "sales_order"; order_type: SalesOrderType; status: SalesOrderStatus }
+  | { record_type: "production_order"; order_type: string; status: string }
+);
 
 type HistoryProduct = {
   model_id: number;

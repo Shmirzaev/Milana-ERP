@@ -1,4 +1,5 @@
 "use client";
+import type { SalesOrderStatus } from "@/lib/salesOrderEnums";
 import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
@@ -50,7 +51,7 @@ type CustomerOrder = {
   order_no: string;
   date?: string | null;
   total: number;
-  status: string;
+  status: SalesOrderStatus;
   invoice_total: number;
   paid_total: number;
   balance_due: number;
