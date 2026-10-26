@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from app.api.routes import tasks
 from app.db.base import Base
 from app.db.session import SessionLocal
-from app.schemas import AuditLog, Notification, Task, User
+from app.schemas import AuditLog, Notification, Shipment, Task, User
 from app.libs.dto.work_management.tasks import TaskIn
 
 
@@ -55,6 +55,8 @@ def test_broadcast_batches_flushes_preserving_tasks_notifications_and_audit(broa
         users = [User(name=f"Recipient{i}", email=f"{marker}-{i}@example.com",
                       password_hash="test-only", is_active=True) for i in range(recipients)]
         db.add_all(users)
+        shipment = Shipment(shipment_no=f"SH-API02-{marker[:10]}")
+        db.add(shipment)
         db.commit()
         user_ids = [user.id for user in users]
         title = f"Broadcast {marker}"
@@ -71,7 +73,7 @@ def test_broadcast_batches_flushes_preserving_tasks_notifications_and_audit(broa
         event.listen(db.bind, "before_cursor_execute", before_execute)
         try:
             first = tasks.create_task(TaskIn(title=title, assigned_to=-1,
-                description="x" * 300, entity_type="shipment", entity_id=12), db, admin)
+                description="x" * 300, entity_type="shipment", entity_id=shipment.id), db, admin)
         finally:
             event.remove(db, "before_flush", before_flush)
             event.remove(db.bind, "before_cursor_execute", before_execute)

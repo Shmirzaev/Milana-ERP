@@ -4,11 +4,15 @@ from sqlalchemy import func
 
 from app.api.routes.notifications import _max_bulk_recipients
 from app.core.deps import DbSession, CurrentUser, is_admin, user_permissions
-from app.schemas import Notification, Task, User
+from app.schemas import Notification, Task, User, WorkOrder
 from app.libs.dto.work_management.tasks import TaskIn, TaskUpdate, TaskOut
 from app.models.audit_service import log_action
 from app.models.notifications_service import notify
 from app.models.user_access_service import access_configured, permission_denied
+from app.models.work_management.tasks_service import (
+    require_assignee_reference_access, resolve_task_reference, task_reference_key, validate_task_reference_update,
+)
+from app.libs.enums.task import TaskStatus
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -32,20 +36,25 @@ def _require_single_assignee(assigned: int | None, db: DbSession, current: User,
         raise HTTPException(404, "Assigned user not found")
 
 
-def _task_link(t: Task) -> str | None:
+def _task_link(t: Task, db: DbSession | None = None, reference=None) -> str | None:
     """Build a frontend URL for a task notification when the task references
     a concrete entity. Returns None when no mapping exists."""
-    et = (t.entity_type or "").lower()
+    et = task_reference_key(t.entity_type)
     eid = t.entity_id
     if not eid:
         return None
+    if et == "workorder":
+        work_order = reference.row if reference is not None and reference.key == et else None
+        if work_order is None and db is not None:
+            with db.no_autoflush:
+                work_order = db.get(WorkOrder, eid)
+        operation = str(getattr(work_order, "operation", "") or "").strip().lower()
+        if operation in {"cutting", "printing", "sewing", "packaging"}:
+            return f"/work-orders/{eid}/{operation}"
+        return None
     mapping = {
         "salesorder": f"/sales-orders/{eid}",
-        "sales_order": f"/sales-orders/{eid}",
         "productionorder": f"/production-orders/{eid}",
-        "production_order": f"/production-orders/{eid}",
-        "workorder": f"/work-orders/{eid}",
-        "work_order": f"/work-orders/{eid}",
         "bundle": f"/bundles/{eid}",
         "package": f"/packages/{eid}",
         "shipment": "/shipments",
@@ -58,7 +67,7 @@ def _task_link(t: Task) -> str | None:
 def list_tasks(
     db: DbSession, current: CurrentUser,
     scope: str = "mine",  # mine | created | all (manager/admin only)
-    status: str | None = None,
+    status: TaskStatus | None = None,
 ):
     qry = db.query(Task)
     if scope == "all":
@@ -69,7 +78,7 @@ def list_tasks(
     else:  # mine
         qry = qry.filter(Task.assigned_to == current.id)
     if status:
-        qry = qry.filter(Task.status == status)
+        qry = qry.filter(Task.status == status.value)
     return qry.order_by(Task.id.desc()).all()
 
 
@@ -89,6 +98,7 @@ def open_task_count(db: DbSession, current: CurrentUser):
 
 @router.post("", response_model=TaskOut, status_code=201)
 def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
+    reference = resolve_task_reference(db, current, payload.entity_type, payload.entity_id)
     is_manager = _can_manage(current)
     requested_assignee = payload.assigned_to
 
@@ -102,6 +112,11 @@ def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
             raise HTTPException(400, f"Recipient count exceeds ERP_MCP_MAX_BULK_RECIPIENTS={max_recipients}")
         if not targets:
             raise HTTPException(404, "No active users found")
+        if reference:
+            recipients = db.query(User).filter(User.id.in_([row.id for row in targets])).all()
+            for user in recipients:
+                if user.id != current.id:
+                    require_assignee_reference_access(user, reference)
 
         created: list[Task] = []
         for user in targets:
@@ -122,7 +137,7 @@ def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
                 user_id=user.id,
                 title=f"New task: {t.title}",
                 message=(t.description or "")[:280],
-                link=_task_link(t),
+                link=_task_link(t, reference=reference),
             ))
 
         # No per-recipient generated ID is needed until the audit below.
@@ -148,6 +163,8 @@ def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
     # Non-managers can only assign tasks to themselves.
     assigned = requested_assignee or current.id
     _require_single_assignee(assigned, db, current, is_manager)
+    if reference and assigned != current.id:
+        require_assignee_reference_access(db.get(User, assigned), reference)
 
     t = Task(
         title=payload.title,
@@ -169,7 +186,7 @@ def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
             db, user_id=assigned,
             title=f"New task: {t.title}",
             message=(t.description or "")[:280],
-            link=_task_link(t),
+            link=_task_link(t, reference=reference),
         )
 
     log_action(db, current, "create", "Task", t.id, new_value={"title": t.title, "assigned_to": assigned})
@@ -208,6 +225,9 @@ def update_task(tid: int, payload: TaskUpdate, db: DbSession, current: CurrentUs
     previous_assignee = t.assigned_to
     if "assigned_to" in changes and changes["assigned_to"] != previous_assignee:
         _require_single_assignee(changes["assigned_to"], db, current, is_manager)
+    next_assignee_id = changes.get("assigned_to", previous_assignee)
+    next_assignee = db.get(User, next_assignee_id) if next_assignee_id is not None else None
+    reference = validate_task_reference_update(db, current, t, changes, next_assignee)
     for k, v in changes.items():
         setattr(t, k, v)
 
@@ -222,7 +242,7 @@ def update_task(tid: int, payload: TaskUpdate, db: DbSession, current: CurrentUs
             db, user_id=t.assigned_to,
             title=f"Task reassigned to you: {t.title}",
             message=(t.description or "")[:280],
-            link=_task_link(t),
+            link=_task_link(t, db=db, reference=reference),
         )
 
     log_action(db, current, "update", "Task", t.id, new_value=changes)
@@ -255,7 +275,7 @@ def complete_task(tid: int, db: DbSession, current: CurrentUser):
             db, user_id=t.created_by,
             title=f"Task completed: {t.title}",
             message=f"Completed by user #{current.id}",
-            link=_task_link(t),
+            link=_task_link(t, db=db),
         )
     log_action(db, current, "complete", "Task", t.id)
     db.commit(); db.refresh(t)
