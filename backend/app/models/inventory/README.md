@@ -1,8 +1,11 @@
 # Material inventory
 
-Business-service group guide. The whole group was extracted on 25 October 2026:
-the routers now bind HTTP, context and auth and delegate; the services below own
-the business rules, the ORM work and the transaction.
+Business-service group guide. Routes were extracted on 25 October 2026; that
+namespace move is not full operation acceptance. Routers bind HTTP, context and
+auth and delegate. Services own business rules and the outer transaction;
+schema-model operations own mapped writes using that same supplied Session.
+Receipt INV-OP-01 implements this write boundary; remaining operations below
+still need their own extraction, tests, visual verification and human gate.
 
 **Purpose:** Own material/accessory stock, material reservations, stock movements, transfers, stocktake and material waste records.
 
@@ -57,10 +60,17 @@ normalisation), [eco_transfer_pdf_service.py](../eco_transfer_pdf_service.py) (E
   unchanged, so the published OpenAPI component names did not move.
 - Outputs stay as plain dictionaries and the existing ORM records, shaped by the
   routers' `response_model` declarations.
-- `qc_status` is a free string on the wire. The routers never type it: the service
-  trims and lowercases it and refuses anything outside
-  `pending|passed|failed|rejected|hold` with HTTP 400 `Invalid QC status`. An Enum
-  would change the accepted set and the status code, so it is deliberately not used.
+- Receipt, correction and output QC contracts use `StockBatchQcStatus`; input
+  DTOs trim and lowercase strings and reject unknown values with HTTP 422.
+  Explicit correction null retains HTTP 400; omitted QC remains unchanged.
+  The service uses the canonical member and unwraps `.value` at the existing
+  string storage/serialization boundary. Raw receipt QC text is retained solely
+  for old idempotency fingerprint compatibility. See the [DTO guide](../../libs/dto/inventory/README.md).
+- INV-OP-01 receipt delegates batch/movement inserts to
+  `schemas/inventory/stock_receipt_persistence.py`, using the same Session as
+  schema-owned audit/idempotency writers and one outer service commit. Other
+  Inventory operations still contain direct writes and require their own study,
+  extraction and verification; the service-folder move did not complete them.
 - Each service function is one outer operation: it accepts the session, the
   validated input and the actor, and it is the only place that commits. Helpers
   inside a service never commit.

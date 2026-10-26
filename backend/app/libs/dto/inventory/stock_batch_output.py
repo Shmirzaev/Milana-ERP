@@ -6,6 +6,7 @@ from typing import Optional
 from pydantic import Field
 
 from app.libs.dto.common import ORMModel
+from app.libs.enums.inventory import StockBatchQcStatus
 
 
 class StockBatchOut(ORMModel):
@@ -39,7 +40,7 @@ class StockBatchOut(ORMModel):
     received_date: datetime
     warehouse_id: int
     warehouse_name: Optional[str] = None
-    qc_status: str
+    qc_status: StockBatchQcStatus
     reserved_quantity: float = 0
     available_quantity: float = 0
     active_reservations: list[dict] = []

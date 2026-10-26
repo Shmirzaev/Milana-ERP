@@ -39,10 +39,20 @@ writes, implement permissions or manage transactions. Class names, fields and
 validators are unchanged by the split, so the published OpenAPI component names
 did not move; only the file each class lives in changed.
 
-`qc_status` stays a free string on the wire. The service trims and lowercases it
-and refuses anything outside `pending|passed|failed|rejected|hold` with HTTP 400
-`Invalid QC status`. An Enum would change the accepted set and the status code,
-so it is deliberately not used.
+`StockBatchIn`, `StockBatchUpdate` and `StockBatchOut` use the canonical
+`StockBatchQcStatus` enum. Input normalization still trims and lowercases text;
+stored and serialized values remain `pending|passed|failed|rejected|hold`.
+Unsupported input now deliberately returns request-validation HTTP 422 before
+the service runs. Receipt null is also 422; update null retains its service 400,
+while an omitted update leaves QC unchanged. Receipt defaults are actual PENDING
+members. `AccessoryReturnIn` inherits this contract. The receipt captures raw QC
+text privately for compatibility with already-recorded idempotency fingerprints;
+this text must not replace the enum used by business code.
+
+The enum change publishes the finite vocabulary in OpenAPI; do not restore broad
+string annotations to match the historical schema. Storage remains String plus
+the existing CHECK constraint. Other Inventory vocabularies and operations remain
+separate pending ledger items, not implicitly converted by this receipt slice.
 
 Before adding a file, find the existing contract and its router/service callers.
 Keep creation fields/defaults, allowed update fields and response filtering distinct.

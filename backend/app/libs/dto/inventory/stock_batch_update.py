@@ -1,11 +1,12 @@
 """Stock batch correction request contract."""
 
 from datetime import datetime
-from typing import Optional
+from typing import Annotated, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, BeforeValidator, Field
 
 from app.libs.dto.common import StoredUnitCost
+from app.libs.enums.inventory import StockBatchQcStatus
 
 
 class StockBatchUpdate(BaseModel):
@@ -30,4 +31,4 @@ class StockBatchUpdate(BaseModel):
     image_url: Optional[str] = None
     received_date: Optional[datetime] = None
     warehouse_id: Optional[int] = None
-    qc_status: Optional[str] = None
+    qc_status: Annotated[Optional[StockBatchQcStatus], BeforeValidator(StockBatchQcStatus.parse)] = None

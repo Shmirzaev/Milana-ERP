@@ -1,11 +1,12 @@
 """Stock batch receipt request contract."""
 
 from decimal import Decimal
-from typing import Annotated, Optional
+from typing import Annotated, Any, Optional
 
-from pydantic import BaseModel, Field, field_serializer
+from pydantic import BaseModel, BeforeValidator, Field, PrivateAttr, field_serializer, model_validator
 
 from app.libs.dto.common import StoredUnitCost
+from app.libs.enums.inventory import StockBatchQcStatus
 
 
 class StockBatchIn(BaseModel):
@@ -31,7 +32,33 @@ class StockBatchIn(BaseModel):
     cost_per_unit: StoredUnitCost = Decimal("0")
     image_url: Optional[str] = None
     warehouse_id: int
-    qc_status: str = "pending"
+    qc_status: Annotated[StockBatchQcStatus, BeforeValidator(StockBatchQcStatus.parse)] = StockBatchQcStatus.PENDING
+
+    _raw_qc_status: Optional[str] = PrivateAttr(default=None)
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _keep_raw_qc_status(cls, data: Any, handler) -> "StockBatchIn":
+        """Keep the `qc_status` request text next to the normalized member.
+
+        `qc_status` was a free-form string before this field became an enum, so
+        the recorded idempotency hashes were built from the text the client
+        sent. The text is read here, before the field validator normalizes it,
+        so a retry of such a request can still reproduce its recorded hash.
+        The contract itself keeps exposing the canonical value.
+        """
+        raw = data.get("qc_status") if isinstance(data, dict) else None
+        model = handler(data)
+        if isinstance(raw, StockBatchQcStatus):
+            model._raw_qc_status = raw.value
+        elif isinstance(raw, str):
+            model._raw_qc_status = raw
+        return model
+
+    @property
+    def raw_qc_status(self) -> Optional[str]:
+        """The `qc_status` text exactly as it was received, or None if omitted."""
+        return self._raw_qc_status
 
     @field_serializer("cost_per_unit", when_used="json")
     def serialize_cost_per_unit(self, value: Decimal) -> float | int:

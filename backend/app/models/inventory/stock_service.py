@@ -37,6 +37,7 @@ from app.libs.dto.inventory.stock_line_output import StockLine
 from app.libs.dto.inventory.stock_quantity_adjustment_input import StockQuantityAdjustmentIn
 from app.libs.dto.inventory.stock_quantity_adjustment_output import StockQuantityAdjustmentOut
 from app.libs.dto.inventory.warehouse_input import WarehouseIn
+from app.libs.enums.inventory import StockBatchQcStatus
 from app.models import inventory_access_service as inventory_access
 from app.models.audit_service import log_action
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
@@ -72,10 +73,11 @@ from app.schemas import (
     Warehouse,
     WasteRecord,
 )
+from app.schemas.inventory import stock_receipt_persistence
 from app.schemas.inventory.eco_transfer import EcoFabricRoll
 
 EPSILON = 1e-9
-_STOCK_BATCH_QC_STATUSES = frozenset({"pending", "passed", "failed", "rejected", "hold"})
+_STOCK_BATCH_QC_STATUSES = frozenset(status.value for status in StockBatchQcStatus)
 
 
 def _validate_receiving_warehouse(item: Item, warehouse: Warehouse) -> None:
@@ -93,11 +95,15 @@ def _validate_receiving_warehouse(item: Item, warehouse: Warehouse) -> None:
         raise HTTPException(400, f"{item.name} must be received into {expected_name}")
 
 
-def _normalize_stock_batch_qc_status(value: str | None) -> str:
-    status = str(value or "").strip().lower()
-    if status not in _STOCK_BATCH_QC_STATUSES:
+def _normalize_stock_batch_qc_status(value: StockBatchQcStatus | None) -> str:
+    """Unwrap the validated update member at the existing string storage boundary.
+
+    The DTO owns normalization and membership validation. Explicit null still
+    reaches this service refusal; an omitted field never calls this helper.
+    """
+    if value is None:
         raise HTTPException(400, "Invalid QC status")
-    return status
+    return value.value
 
 
 def _require_admin_force(current: User, force: bool) -> None:
@@ -659,6 +665,24 @@ def _canonical_stock_replay(db, replay: dict, *, production_order_id: int | None
     return response
 
 
+def _stock_batch_fingerprint_payload(payload: StockBatchIn) -> dict:
+    """The idempotency fingerprint payload of a stock batch request.
+
+    `qc_status` is hashed as the client sent it, not as the normalized member.
+    The recorded hashes were created while the field was a free-form string, so
+    a retry of such a request has to reproduce its recorded representation.
+    The request contract still exposes the canonical value on the wire.
+    """
+    fingerprint_payload = payload.model_dump(mode="json")
+    raw_qc_status = payload.raw_qc_status
+    fingerprint_payload["qc_status"] = raw_qc_status if raw_qc_status is not None else payload.qc_status.value
+    if payload.length_m is None:
+        fingerprint_payload.pop("length_m", None)
+    if not payload.roll_lengths_m:
+        fingerprint_payload.pop("roll_lengths_m", None)
+    return fingerprint_payload
+
+
 def receive_stock(
     db,
     payload: StockBatchIn,
@@ -666,11 +690,7 @@ def receive_stock(
     idempotency_key: str | None = None,
 ) -> dict:
     inventory_access.require_item(db, current, payload.item_id)
-    fingerprint_payload = payload.model_dump(mode="json")
-    if payload.length_m is None:
-        fingerprint_payload.pop("length_m", None)
-    if not payload.roll_lengths_m:
-        fingerprint_payload.pop("roll_lengths_m", None)
+    fingerprint_payload = _stock_batch_fingerprint_payload(payload)
     replay = replay_idempotent_response(db, scope="inventory.receive", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return _canonical_stock_replay(db, replay)
@@ -682,9 +702,8 @@ def receive_stock(
     if not warehouse:
         raise HTTPException(404, "Warehouse not found")
     _validate_receiving_warehouse(item, warehouse)
-    batch_data = payload.model_dump()
-    batch_data["cost_per_unit"] = round_unit_cost(batch_data["cost_per_unit"])
-    batch_data["order_no"] = canonical_business_order_reference(db, payload.order_no)
+    cost_per_unit = round_unit_cost(payload.cost_per_unit)
+    order_no = canonical_business_order_reference(db, payload.order_no)
     roll_weights, piece_count = normalize_material_roll_weights(
         item_category=item.category,
         unit=payload.unit,
@@ -692,17 +711,39 @@ def receive_stock(
         roll_weights_kg=payload.roll_weights_kg,
         piece_count=payload.piece_count,
     )
-    batch_data["roll_weights_kg"] = roll_weights
-    batch_data["piece_count"] = piece_count
-    batch_data["roll_lengths_m"] = normalize_material_roll_lengths(
+    roll_lengths_m = normalize_material_roll_lengths(
         item_category=item.category, roll_lengths_m=payload.roll_lengths_m, piece_count=piece_count,
     )
-    batch_data["image_url"] = _validate_item_image_url(batch_data.get("image_url"))
-    batch_data["qc_status"] = _normalize_stock_batch_qc_status(payload.qc_status)
-    batch = StockBatch(**batch_data)
-    db.add(batch); db.flush()
-    mv = StockMovement(
-        movement_type="receive",
+    image_url = _validate_item_image_url(payload.image_url)
+    # The request contract already carries a canonical QC member; the schema
+    # operation converts it to the stored string at the column boundary.
+    qc_status = payload.qc_status
+    batch = stock_receipt_persistence.add_stock_batch(
+        db,
+        item_id=payload.item_id,
+        batch_no=payload.batch_no,
+        supplier_id=payload.supplier_id,
+        color=payload.color,
+        old_code=payload.old_code,
+        color_code=payload.color_code,
+        color_status=payload.color_status,
+        order_no=order_no,
+        width=payload.width,
+        gsm=payload.gsm,
+        length_m=payload.length_m,
+        quantity=payload.quantity,
+        piece_count=piece_count,
+        roll_weights_kg=roll_weights,
+        roll_lengths_m=roll_lengths_m,
+        processes=payload.processes,
+        unit=payload.unit,
+        cost_per_unit=cost_per_unit,
+        image_url=image_url,
+        warehouse_id=payload.warehouse_id,
+        qc_status=qc_status,
+    )
+    stock_receipt_persistence.add_receive_movement(
+        db,
         item_id=payload.item_id,
         batch_id=batch.id,
         to_warehouse_id=payload.warehouse_id,
@@ -712,7 +753,6 @@ def receive_stock(
         reference_id=batch.id,
         created_by=current.id,
     )
-    db.add(mv)
     log_action(db, current, "receive", "StockBatch", batch.id, new_value={"batch_no": batch.batch_no, "qty": float(batch.quantity)})
     db.flush()
     db.refresh(batch)
@@ -768,11 +808,7 @@ def collect_back_accessory(
     inventory_access.require_accessories(current)
     # The allowance read below must not race the return this request records.
     _lock_accessory_return_allowance(db, payload.production_order_id)
-    fingerprint_payload = payload.model_dump(mode="json")
-    if payload.length_m is None:
-        fingerprint_payload.pop("length_m", None)
-    if not payload.roll_lengths_m:
-        fingerprint_payload.pop("roll_lengths_m", None)
+    fingerprint_payload = _stock_batch_fingerprint_payload(payload)
     replay = replay_idempotent_response(db, scope="inventory.accessory-return", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return _canonical_stock_replay(db, replay, production_order_id=payload.production_order_id)
@@ -812,6 +848,7 @@ def collect_back_accessory(
         )
 
     batch_data = payload.model_dump(exclude={"production_order_id", "return_condition"})
+    batch_data["qc_status"] = payload.qc_status.value
     batch_data["cost_per_unit"] = round_unit_cost(batch_data["cost_per_unit"])
     batch_data["roll_lengths_m"] = normalize_material_roll_lengths(
         item_category=item.category, roll_lengths_m=payload.roll_lengths_m, piece_count=payload.piece_count,
@@ -1056,7 +1093,7 @@ def update_batch(db, batch_id: int, payload: StockBatchUpdate, current: User, fo
         if not db.get(Supplier, int(values["supplier_id"])):
             raise HTTPException(404, "Supplier not found")
     if "qc_status" in values:
-        values["qc_status"] = _normalize_stock_batch_qc_status(values["qc_status"])
+        values["qc_status"] = _normalize_stock_batch_qc_status(payload.qc_status)
     if "image_url" in values:
         values["image_url"] = _validate_item_image_url(values["image_url"])
 
