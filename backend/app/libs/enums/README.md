@@ -113,6 +113,11 @@ pending work instead of implementing their policy or dropping their rows.
    may stringify as `X.MEMBER`; use `.value` where the existing boundary expects
    its raw string. Do not introduce native SQLAlchemy/PostgreSQL ENUM storage or
    constraints as an incidental source cleanup.
+   If requests use idempotency, test replay against fingerprints produced by the
+   pre-change DTO and serializer. Moving padding/case normalization before hashing
+   can reject an identical historical retry. Preserve typed enum contracts and the
+   required fingerprint boundary; never bypass hash/identity checks or rewrite
+   saved records as a shortcut. Include omitted defaults and numeric serialization.
 4. Compare the ledger with schemas and every caller again. Then execute focused
    tests, real UI/readback and bounded stress for this operation; independent AI
    verification produces AI_VERIFIED_AWAITING_HUMAN, followed by the human's actual
