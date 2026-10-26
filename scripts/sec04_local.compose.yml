@@ -1,0 +1,48 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: sec04
+      POSTGRES_USER: sec04
+      POSTGRES_PASSWORD: ${SEC04_DB_PASSWORD}
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U sec04 -d sec04"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    volumes:
+      - database:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ${SEC04_BACKEND_CONTEXT}
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ENV: development
+      DATABASE_URL: postgresql+psycopg2://sec04:${SEC04_DB_PASSWORD}@db:5432/sec04
+      JWT_SECRET: ${SEC04_JWT_SECRET}
+      FILE_SIGNING_SECRET: ${SEC04_FILE_SIGNING_SECRET}
+      INITIAL_ADMIN_EMAIL: sec04-admin@example.com
+      INITIAL_ADMIN_PASSWORD: ${SEC04_ADMIN_PASSWORD}
+      SEC04_VIEWER_PASSWORD: ${SEC04_VIEWER_PASSWORD}
+      SEC04_LOCAL_STACK: "1"
+      SHARED_STORE_URL: sqlite:////app/storage/shared-store.db
+      CORS_ORIGINS: http://127.0.0.1:3000
+      FRONTEND_BASE_URL: http://127.0.0.1:3000
+      ERP_PUBLIC_BASE_URL: http://127.0.0.1:3000
+      SEED_DEMO_USERS: "false"
+      SEED_SAMPLE_DATA: "false"
+      IMPORT_LEGACY_MODELS: "false"
+      RUN_SEED_ON_STARTUP: "true"
+      PORT: "10000"
+      WEB_CONCURRENCY: "1"
+    ports:
+      - 127.0.0.1:18080:10000
+    volumes:
+      - storage:/app/storage
+
+volumes:
+  database:
+  storage:
