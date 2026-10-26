@@ -1,6 +1,12 @@
 # Milana ERP Project Context
 
-Last updated: 2026-10-24
+Last updated: 2026-10-26
+
+## QR, Besttex cutting-sheet and grade packaging release candidate (2026-10-26)
+
+- Owner authorized all three changes and deployment, with all ongoing refactoring excluded and the 30-minute observation waived. Cleanup requires explicit owner approval before deletion. The isolated release candidate starts at active application 1fce86b5 and ports only feature commit 28a21333 into the deployed namespace layout; clone_main refactoring is not deployed. See [release evidence](archive/QR_BESTTEX_NAV_RELEASE_2026-10-26.md).
+- New Besttex permission is read-only and factory/record/batch scoped; data-only 0149 provisions only besttex@milanapremium.uz without changing its role or other rights. Packaging reuses existing grade/package workflow with exact total-kg conservation. No synthetic production data or bulk correction is authorized.
+- At preparation, both VMs remain on blue 20261024_093619; green 20261024_032622 is retained rollback; schema 0148. Focused backend112, frontend lint/types/full build and independent source review pass. Remaining deployment gates are pending and must be recorded before activation.
 
 ## Permanent later-Nastil Sewing reconciliation prepared (2026-10-24)
 

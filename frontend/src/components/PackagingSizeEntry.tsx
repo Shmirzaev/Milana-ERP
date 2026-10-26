@@ -28,11 +28,11 @@ export default function PackagingSizeEntry({ data, path, onSaved }: {
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   }}>
-    <p className="text-sm mb-3">{copy.sizeEntryHelp}</p>
-    <div className="overflow-x-auto"><table className="table text-sm"><thead><tr>
+    <p className="text-xs mb-2 max-w-3xl">{copy.sizeEntryHelp}</p>
+    <div className="max-w-xl overflow-x-auto"><table className="w-full text-sm [&_th]:px-2 [&_th]:py-1.5 [&_th]:text-left [&_td]:px-2 [&_td]:py-1.5 [&_tr]:border-b [&_tr]:border-[#ecebe3]"><thead><tr>
       <th>{copy.size}</th><th>{copy.packed}</th><th>{copy.accepted}</th>
     </tr></thead><tbody>{data.sizes.map(row => <tr key={row.size}>
-      <td>{row.size}</td><td>{row.packed}</td><td><input className="input w-28" type="number" step="1"
+      <td>{row.size}</td><td>{row.packed}</td><td><input className="input !w-24 !py-1" type="number" step="1"
         min={row.packed} max={data.total} aria-label={`${copy.accepted} ${row.size}`} disabled={busy}
         value={counts[row.size] ?? ""} onChange={event => setCounts({ ...counts, [row.size]: event.target.value })} /></td>
     </tr>)}</tbody></table></div>

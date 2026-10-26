@@ -46,6 +46,7 @@ import {
 import PaidProcessPicker from "@/components/PaidProcessPicker";
 import ManualModelSizes from "@/components/ManualModelSizes";
 import ProcessQrBatchSizes from "@/components/ProcessQrBatchSizes";
+import ProcessQrModelPictures from "@/components/ProcessQrModelPictures";
 import { allocateLabelSizes, allocationQuantity, issuedSizeAllocationConflicts, type SizeAllocation } from "@/lib/processQrSizeAllocation";
 import ProcessQrSizeEditor, { type ProcessQrSizeEdit } from "@/components/ProcessQrSizeEditor";
 import { paidSectionLabel } from "@/lib/paidProcessSections";
@@ -1907,7 +1908,10 @@ export default function ProcessQrPage() {
             </>
           )}
 
-          <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {selectedModelId && <ProcessQrModelPictures key={selectedModelId}
+            model={selectedModel?.id === selectedModelId ? selectedModel : undefined} />}
+
+          <div className="mb-3 mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div>
               <label className="label">{t("field.line")}</label>
               <select

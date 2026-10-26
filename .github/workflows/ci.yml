@@ -77,6 +77,7 @@ jobs:
           backend/app/tests/test_warehouse_pack_reservations_postgres.py
           backend/app/tests/test_sewing_band_postgres.py
           backend/app/tests/test_sewing_later_nastil_postgres.py
+          backend/app/tests/test_besttex_cutting_postgres.py
           backend/app/tests/test_payroll_overlap_repair.py
       - name: Deployment observation regression suite
         run: python -m unittest discover -s scripts -p 'test_observe_release.py' -v

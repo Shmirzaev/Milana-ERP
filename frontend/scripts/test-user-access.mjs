@@ -14,6 +14,7 @@ function load(path) {
 const { changeAccess, accessText } = load("src/lib/userAccess.ts");
 const access = load("src/lib/access.ts");
 const { isSewingRole, factoryWorkspaceHome } = access;
+assert.equal(factoryWorkspaceHome({ factory_code: "BST", permissions: ["besttex.cutting_sheets"] }), "/besttex/cutting-orders");
 let value = { MIL: { allow: ["finance.view"], deny: ["sales.orders"] } };
 const original = JSON.stringify(value);
 value = changeAccess(value, "ECO", "cutting.records", "allow");
