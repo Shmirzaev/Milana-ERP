@@ -137,7 +137,7 @@ def generate_order_invoice(db: Session, sales_order_id: int, actor: User) -> dic
             "sales_order_id": existing.sales_order_id,
             "invoice_no": existing.invoice_no,
             "amount": float(existing.amount or 0),
-            "status": existing.status,
+            "status": existing.status.value,
             "issued_at": existing.issued_at,
             "due_date": existing.due_date,
             "created_existing": True,
@@ -146,7 +146,7 @@ def generate_order_invoice(db: Session, sales_order_id: int, actor: User) -> dic
         sales_order_id=sales_order_id,
         invoice_no=next_invoice_no(db),
         amount=float(so.total_amount or 0),
-        status=InvoiceStatus.UNPAID.value,
+        status=InvoiceStatus.UNPAID,
         issued_at=datetime.now(timezone.utc),
     )
     db.add(inv)
@@ -159,7 +159,7 @@ def generate_order_invoice(db: Session, sales_order_id: int, actor: User) -> dic
         "sales_order_id": inv.sales_order_id,
         "invoice_no": inv.invoice_no,
         "amount": float(inv.amount or 0),
-        "status": inv.status,
+        "status": inv.status.value,
         "issued_at": inv.issued_at,
         "due_date": inv.due_date,
         "created_existing": False,

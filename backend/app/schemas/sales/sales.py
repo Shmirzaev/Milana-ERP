@@ -2,6 +2,7 @@ from __future__ import annotations
 from datetime import datetime
 from sqlalchemy import CheckConstraint, String, Integer, Boolean, ForeignKey, DateTime, Text, Numeric, JSON, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.types import TypeDecorator
 
 from app.db.base import Base, PkMixin, TimestampMixin
 from app.libs.enums.finance import InvoiceStatus
@@ -134,6 +135,41 @@ INVOICE_STATUS_VALUES = tuple(status.value for status in InvoiceStatus)
 INVOICE_STATUS_CHECK = "status IN (" + ", ".join(f"'{value}'" for value in INVOICE_STATUS_VALUES) + ")"
 
 
+class InvoiceStatusType(TypeDecorator):
+    """Storage-preserving conversion for the `invoices.status` column.
+
+    The column stays `VARCHAR(32)` and keeps the existing raw strings, so the
+    rendered DDL, the stored values and `ck_invoices_status` are untouched.
+    The conversion is explicit and reviewed: a canonical member is written as
+    its raw value and a loaded value becomes the canonical member, so the
+    mapped annotation describes what a reloaded row actually returns.
+
+    A value that is not a member is passed through unchanged and stays the
+    database CHECK constraint's business, which keeps the stored error shape.
+    An unknown stored value raises instead of silently becoming an open
+    string.
+    """
+
+    impl = String
+    cache_ok = True
+
+    def __init__(self, length: int = 32) -> None:
+        super().__init__(length)
+        self.length = length
+
+    def process_bind_param(self, value: InvoiceStatus | str | None, dialect) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, InvoiceStatus):
+            return value.value
+        return value
+
+    def process_result_value(self, value: str | None, dialect) -> InvoiceStatus | None:
+        if value is None:
+            return None
+        return InvoiceStatus(value)
+
+
 class Invoice(Base, PkMixin, TimestampMixin):
     __tablename__ = "invoices"
     __table_args__ = (
@@ -145,7 +181,7 @@ class Invoice(Base, PkMixin, TimestampMixin):
     external_source: Mapped[str | None] = mapped_column(String(32))
     external_id: Mapped[str | None] = mapped_column(String(128))
     amount: Mapped[float] = mapped_column(Numeric(14, 2), default=0, nullable=False)
-    status: Mapped[str] = mapped_column(String(32), default=InvoiceStatus.UNPAID.value, nullable=False)
+    status: Mapped[InvoiceStatus] = mapped_column(InvoiceStatusType(), default=InvoiceStatus.UNPAID, nullable=False)
     issued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

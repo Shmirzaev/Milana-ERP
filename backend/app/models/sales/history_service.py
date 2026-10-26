@@ -599,7 +599,7 @@ def _sales_order_history(db: Session, so: SalesOrder, *, include_detail: bool = 
         timeline.append(_history_event("shipment_shipped", f"Shipment {sh.shipment_no} shipped", sh.shipped_at, shipment_id=sh.id, status=sh.status))
         timeline.append(_history_event("shipment_delivered", f"Shipment {sh.shipment_no} delivered", sh.delivered_at, shipment_id=sh.id, status=sh.status))
     for inv in invoices:
-        timeline.append(_history_event("invoice", f"Invoice {inv.invoice_no}", inv.issued_at or inv.created_at, invoice_id=inv.id, amount=_num(inv.amount), status=inv.status))
+        timeline.append(_history_event("invoice", f"Invoice {inv.invoice_no}", inv.issued_at or inv.created_at, invoice_id=inv.id, amount=_num(inv.amount), status=inv.status.value))
     for payment in payments:
         timeline.append(_history_event("payment", "Payment received", payment.paid_at or payment.created_at, payment_id=payment.id, amount=_num(payment.amount)))
     for audit, user in audit_rows:
@@ -787,7 +787,7 @@ def _sales_order_history(db: Session, so: SalesOrder, *, include_detail: bool = 
                 "id": inv.id,
                 "invoice_no": inv.invoice_no,
                 "amount": _num(inv.amount),
-                "status": inv.status,
+                "status": inv.status.value,
                 "issued_at": inv.issued_at,
                 "due_date": inv.due_date,
             }

@@ -216,7 +216,9 @@ def list_recent_invoices(
                 "order_no": so.order_no,
                 "customer": customer.name if customer else None,
                 "amount": float(invoice.amount or 0),
-                "status": invoice_payment_status(invoice.amount, paid_by_invoice.get(invoice.id, 0), invoice.status),
+                "status": invoice_payment_status(
+                    invoice.amount, paid_by_invoice.get(invoice.id, 0), invoice.status
+                ).value,
                 "date": dt.isoformat() if dt else None,
             }
         )

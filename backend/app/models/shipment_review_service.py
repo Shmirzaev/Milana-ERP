@@ -468,12 +468,12 @@ def invoice_for_frozen_delivery(db: Session, shipment: Shipment, user: User) -> 
     existing = invoices[0] if invoices else None
     if existing:
         active_statuses = {
-            InvoiceStatus.UNPAID.value, InvoiceStatus.PAID.value, InvoiceStatus.PARTIALLY_PAID.value,
+            InvoiceStatus.UNPAID, InvoiceStatus.PAID, InvoiceStatus.PARTIALLY_PAID,
         }
         if existing.status in active_statuses and Decimal(str(existing.amount)) == amount:
             return existing
         paid = db.query(Payment.id).filter_by(invoice_id=existing.id).first()
-        if existing.status != InvoiceStatus.UNPAID.value or paid:
+        if existing.status != InvoiceStatus.UNPAID or paid:
             raise HTTPException(409, "Finance reconciliation required: invoice is paid, partially paid or has payment records")
     invoice = existing or ensure_invoice_for_delivered_shipment(db, sales_order_id=shipment.sales_order_id)
     previous_amount = str(invoice.amount)

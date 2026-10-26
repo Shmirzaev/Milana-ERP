@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Optional
 
 from app.libs.dto.common import ORMModel
+from app.libs.enums.finance import InvoiceStatus
 
 
 class InvoiceOut(ORMModel):
@@ -9,6 +10,6 @@ class InvoiceOut(ORMModel):
     sales_order_id: int
     invoice_no: str
     amount: float
-    status: str
+    status: InvoiceStatus
     issued_at: Optional[datetime] = None
     due_date: Optional[datetime] = None

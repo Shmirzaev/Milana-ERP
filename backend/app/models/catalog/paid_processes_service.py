@@ -10,21 +10,26 @@ Contract for the paid-process catalogue operations:
 """
 
 from typing import Literal
-from uuid import uuid4
 from fastapi import HTTPException
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.libs.dto.catalog.paid_process_input import PaidProcessIn
+from app.libs.dto.catalog.paid_process_output import PaidProcessOut
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import selected_factory_code
 from app.models.paid_process_catalog_service import normalized_key, normalized_name
 from app.schemas import User
 from app.schemas.catalog.paid_process import PaidProcess, UslugaPaidProcess
+from app.schemas.catalog.paid_process_persistence import (
+    assign_paid_process_code,
+    build_paid_process,
+    insert_paid_process,
+)
 
 
-def _paid_process_payload(row):
-    return {"id": row.id, "code": row.code, "name": row.name, "section": row.section}
+def _paid_process_payload(row) -> PaidProcessOut:
+    return PaidProcessOut(id=row.id, code=row.code, name=row.name, section=row.section)
 
 
 def _paid_process_model(current, catalog_scope):
@@ -60,15 +65,23 @@ def create_process(
 ):
     model = _paid_process_model(current, catalog_scope)
     prefix = "UOP" if catalog_scope == "usluga" else "OP"
+    # The identity filter is a database query boundary, so it needs the raw value.
     identity = {"factory_code": selected_factory_code(current), "normalized_key": normalized_key(payload.name),
-                "section": payload.section}
+                "section": payload.section.value}
     existing = db.query(model).filter_by(**identity).first()
     if existing:
         return _paid_process_payload(existing)
-    row = model(**identity, normalized_name=normalized_name(payload.name), name=payload.name, code=f"{prefix}-{uuid4().hex[:12].upper()}")
+    row = build_paid_process(
+        model,
+        factory_code=identity["factory_code"],
+        normalized_key=identity["normalized_key"],
+        section=payload.section,
+        normalized_name=normalized_name(payload.name),
+        name=payload.name,
+        prefix=prefix,
+    )
     try:
-        db.add(row)
-        db.flush()
+        insert_paid_process(db, row)
     except IntegrityError:
         db.rollback()
         existing = db.query(model).filter_by(**identity).first()
@@ -76,7 +89,8 @@ def create_process(
             return _paid_process_payload(existing)
         raise
     # Database-generated identity gives new catalogue entries a short stable code.
-    row.code = f"{prefix}-{row.id:04d}"
-    log_action(db, current, "create", model.__name__, row.id, new_value=_paid_process_payload(row))
+    assign_paid_process_code(row, prefix)
+    created = _paid_process_payload(row)
+    log_action(db, current, "create", model.__name__, row.id, new_value=created.model_dump(mode="json"))
     db.commit()
-    return _paid_process_payload(row)
+    return created

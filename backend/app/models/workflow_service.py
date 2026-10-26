@@ -742,7 +742,7 @@ def ensure_invoice_for_delivered_shipment(
         sales_order_id=sales_order_id,
         invoice_no=next_invoice_no(db),
         amount=float(so.total_amount or 0),
-        status=InvoiceStatus.UNPAID.value,
+        status=InvoiceStatus.UNPAID,
         issued_at=now,
         due_date=due,
     )
