@@ -21,10 +21,18 @@ const faults = [
   ["customer", 'status: SalesOrderStatus;', 'status: InvoiceStatus;'],
   ["history", 'record_type: "production_order"; order_type: string; status: string', 'record_type: "production_order"; order_type: SalesOrderType; status: SalesOrderStatus'],
 ];
-for (const [key, before, after] of faults) test(`detect ${key}: ${before}`, () => {
-  assert.ok(source[key].includes(before), "Fault challenge must modify actual source");
-  assert.throws(() => assertSalesEnumContract({...source, [key]: source[key].replace(before, after)}));
-});
+// Match the same fault against LF checkouts and CRLF archive blobs. Normalize
+// only the test's mutation input; the unchanged-source test above uses raw bytes.
+for (const newline of ["\n", "\r\n"]) {
+  for (const [key, before, after] of faults) test(`detect ${key} (${JSON.stringify(newline)}): ${before}`, () => {
+    const withLineEndings = source[key].replace(/\r\n/g, "\n").replace(/\n/g, newline);
+    const mutationSource = withLineEndings.replace(/\r\n/g, "\n");
+    assert.ok(mutationSource.includes(before), "Fault challenge must modify actual source");
+    const mutated = mutationSource.replace(before, after);
+    assert.notEqual(mutated, mutationSource, "Fault challenge must change the matched source");
+    assert.throws(() => assertSalesEnumContract({...source, [key]: mutated}));
+  });
+}
 
 function withProductionTypes(orderType, status, prefix = "") {
   const branch = 'record_type: "production_order"; order_type: string; status: string';
@@ -45,6 +53,7 @@ test("future imported Production enums and owner aliases are allowed", () => {
 
 for (const [orderType, status] of [
   ["SalesOrderType", "string"], ["string", "SalesOrderStatus"],
+  ["SalesOrderCreateType", "string"],
   ["string", "SalesOrderStatus | string"], ["Readonly<SalesOrderType>", "string"],
 ]) test(`Production cannot borrow ${orderType}/${status}`, () => {
   assert.throws(() => assertSalesEnumContract(withProductionTypes(orderType, status)), /must not borrow Sales enum types/);
@@ -63,6 +72,27 @@ test("an import alias cannot disguise a Sales order type as Production", () => {
 test("namespace-qualified Sales types cannot bypass the Production boundary", () => {
   assert.throws(() => assertSalesEnumContract(withProductionTypes("string", "Sales.SalesOrderStatus",
     'import type * as Sales from "@/lib/salesOrderEnums";\n')), /must not borrow Sales enum types/);
+});
+
+test("an import alias and local alias cannot disguise the Sales create subset", () => {
+  assert.throws(() => assertSalesEnumContract(withProductionTypes("ProductionType", "string",
+    'import type { SalesOrderCreateType as ImportedType } from "@/lib/salesOrderEnums";\ntype ProductionType = ImportedType;\n')), /must not borrow Sales enum types/);
+});
+
+for (const name of ["SalesOrderStatus", "SalesOrderType", "SalesOrderItemSourceType", "SalesOrderCreateType"]) {
+  test(`inline import cannot disguise ${name} as Production`, () => {
+    assert.throws(() => assertSalesEnumContract(withProductionTypes("string", `import("@/lib/salesOrderEnums").${name}`)), /must not borrow Sales enum types/);
+  });
+}
+
+test("local aliases cannot disguise inline Sales imports", () => {
+  assert.throws(() => assertSalesEnumContract(withProductionTypes("ProductionType", "string",
+    'type ImportedType = import("@/lib/salesOrderEnums").SalesOrderCreateType;\ntype ProductionType = ImportedType;\n')), /must not borrow Sales enum types/);
+});
+
+test("inline imports of distinct Production owner types remain allowed", () => {
+  assertSalesEnumContract(withProductionTypes('import("@/lib/productionOrderEnums").ProductionOrderType', "ProductionStatus",
+    'type ProductionStatus = import("@/lib/productionOrderEnums").ProductionOrderStatus;\n'));
 });
 
 test("the production_order discriminator must remain present", () => {

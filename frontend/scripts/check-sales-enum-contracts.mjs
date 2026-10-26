@@ -61,7 +61,7 @@ function assertProductionHistoryBoundary(source) {
   // Production may adopt its own enums. Forbid borrowing Sales types rather
   // than permanently requiring the current unfinished string annotations.
   const aliases = new Map(tree.statements.filter(ts.isTypeAliasDeclaration).map((node) => [node.name.text, node.type]));
-  const salesNames = new Set(["SalesOrderStatus", "SalesOrderType", "SalesOrderItemSourceType"]);
+  const salesNames = new Set(["SalesOrderStatus", "SalesOrderType", "SalesOrderItemSourceType", "SalesOrderCreateType"]);
   const salesNamespaces = new Set();
   for (const node of tree.statements) {
     if (!ts.isImportDeclaration(node) || node.moduleSpecifier.text !== "@/lib/salesOrderEnums") continue;
@@ -74,6 +74,9 @@ function assertProductionHistoryBoundary(source) {
     }
   }
   function borrowsSalesType(node, seen = new Set()) {
+    if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)
+        && ts.isStringLiteral(node.argument.literal)
+        && node.argument.literal.text === "@/lib/salesOrderEnums") return true;
     if (ts.isTypeReferenceNode(node)) {
       const name = node.typeName.getText(tree);
       if (salesNames.has(name)) return true;
