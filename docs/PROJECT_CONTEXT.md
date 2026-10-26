@@ -22,11 +22,30 @@ not appended here. This summary does not replace live release verification.
   Use separate engineer work directories and one landing queue coordinated by Mirshoir.
 - [DEPLOYMENT.md](../DEPLOYMENT.md) is the only supported release procedure.
   Before release reconcile Git, production-base.json, both manifests and runtime slots.
-- Verified 2026-10-24 at 16:16 Tashkent: both VMs serve blue `20261024_093619`;
-  retained healthy rollback is green `20261024_032622`. Deployed application commit
-  `1fce86b5b9156fac050ca5c98433198323b20929`, manifest
-  `e424f9a6f135b0ebf3851e0355c39d546bd3466eafcb4ddba6ef27c2b3bd4d31`;
-  database remains `0148_second_grade_packages`. See [the deployment record](archive/SEWING_LATER_NASTIL_2026-10-24.md#production-activation--2026-10-24).
+- The imported [26 October invoice release record](archive/INVOICE_READABILITY_2026-10-26.md)
+  reports green `20261026_085306`, retained blue rollback `20261026_055538`,
+  application `439555a77ef583b1b212398e16ecd52ced786e45`, manifest
+  `9511b57bf62fd3142c865f3bb07aaf3e2f1053629f90c8521a652cd6da9139e2`
+  and database `0149_besttex_cutting_access`. Its invoice-only release uses 11 pt
+  customer/transport text, 9 pt product text, separated SVG branding and matching
+  Excel. The record reports exact CI/four health checks and a corrected fixed-origin
+  performance comparison passing after an initial failed gate and rollback;
+  public-path tail variation remains unresolved. No 30-minute observation or
+  refactoring job was added. These are attributed upstream observations, not new
+  production checks by this integration review; operator acceptance stays separate.
+- [PR #310](https://github.com/Shmirzaev/Milana-ERP/pull/310) merged as
+  `cdcbdfe5e7cfeb08a65e6a86da27fc7b6175733d`, tree
+  `aabd33becc5662469eb2ba408f832fb0059f1229`. Its six-file invoice port is being
+  reconciled with frozen refactor candidate `d0920f6367b702f63c88d5940cf1b44155b34aec`.
+  This successor candidate is **not deployed, not AI-verified and not human-approved**.
+  The prior invoice-only production release does not accept or deploy the refactor.
+- `deploy/production-base.json` carries the imported release assertion above.
+  This candidate lacks migration `0149_besttex_cutting_access`; its listed Alembic
+  revisions end at `0148_second_grade_packages`. Exact release-source ancestry,
+  newer factory fixes, migration chain, manifests and slots remain under reconciliation.
+  The six-file PR310 port does not establish their presence in this candidate.
+  This is a release-reconciliation gap, not a diagnosed production fault or authority
+  to add a migration. See the [integration addendum](archive/INVOICE_READABILITY_2026-10-26.md#integration-addendum--26-october-2026).
 - The earlier `20261024_032622` deployment recorded an initial performance failure and rollback, followed
   by reactivation of the same images; public-path tail variation remains unresolved.
   The owner waived the timed observation period. The archive preserves all attempts.
