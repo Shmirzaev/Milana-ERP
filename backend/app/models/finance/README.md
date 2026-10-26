@@ -1,5 +1,17 @@
 # Finance
 
+## FIN-MANUAL-INVOICE-CREATE — 27 October 2026 candidate
+
+Manual `POST /finance/invoices` now follows route -> `create_order_invoice`
+-> `schemas/finance/invoice_persistence.insert_order_invoice`. The supplied
+Session and existing flush position are preserved. The service still owns the
+parent lock, reuse decision, amount/status calculation, numbering, audit and
+single outer commit. The schema operation only constructs, adds and flushes.
+Sales generation, receipt auto-issuance and shipment issuance remain separate
+pending writers; do not consolidate their differing policies implicitly.
+See the [operation packet](../../../../docs/archive/FINANCE_MANUAL_INVOICE_CREATE_2026-10-27.md)
+for the type ledger and outstanding independent/visual/human gates.
+
 Business-service group guide, relocated into models/ on 24 October 2026. The
 approved extractions now live here as `invoices_service.py`,
 `payments_service.py` and `customer_ledger_service.py`. The shared money,

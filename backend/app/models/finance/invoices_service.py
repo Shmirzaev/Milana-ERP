@@ -32,6 +32,7 @@ from app.models.audit_service import log_action
 from app.models.numbering_service import next_invoice_no
 from app.models.payments_service import invoice_payment_status
 from app.schemas import Invoice, SalesOrder, User
+from app.schemas.finance.invoice_persistence import insert_order_invoice
 
 # `invoices.amount` is NUMERIC(14, 2), so the largest storable amount is 999999999999.99
 # and the smallest non-zero one is one cent.
@@ -102,15 +103,14 @@ def create_order_invoice(db: Session, payload: InvoiceIn, actor: User) -> Invoic
     if existing:
         return existing
     amount = storable_invoice_amount(payload.amount if payload.amount is not None else so.total_amount)
-    inv = Invoice(
+    inv = insert_order_invoice(
+        db,
         sales_order_id=payload.sales_order_id,
         invoice_no=next_invoice_no(db),
         amount=amount,
         status=invoice_payment_status(amount, 0),
         issued_at=datetime.now(timezone.utc),
     )
-    db.add(inv)
-    db.flush()
     log_action(db, actor, "create", "Invoice", inv.id, new_value={"invoice_no": inv.invoice_no})
     db.commit()
     db.refresh(inv)

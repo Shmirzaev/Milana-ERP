@@ -1,6 +1,7 @@
 "use client";
 import { SalesOrderStatus, SalesOrderType } from "@/lib/salesOrderEnums";
 import type { SalesOrderDetail as SalesOrderDetailContract, SalesOrderItem } from "@/lib/salesOrderContracts";
+import type { InvoiceIssueResponse } from "@/lib/financeInvoiceContracts";
 import { useParams } from "next/navigation";
 import useSWR from "swr";
 import { fetcher, api } from "@/lib/api";
@@ -54,7 +55,7 @@ export default function SalesOrderDetail() {
     mutate();
   }
   async function generateInvoice() {
-    const inv = await api.post("/api/finance/invoices", { sales_order_id: Number(id) });
+    const inv = await api.post<InvoiceIssueResponse>("/api/finance/invoices", { sales_order_id: Number(id) });
     setMsg(t("page.salesOrder.invoiceGenerated", { invoiceNo: inv.invoice_no }));
   }
 

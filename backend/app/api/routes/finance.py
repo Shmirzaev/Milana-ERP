@@ -2,7 +2,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Header, Query
 
 from app.core.deps import DbSession, require_permissions
-from app.schemas import User
+from app.schemas import Invoice, User
 from app.libs.dto.sales.invoice_input import InvoiceIn
 from app.libs.dto.sales.invoice_output import InvoiceOut
 from app.libs.dto.sales.payment_input import PaymentIn
@@ -70,7 +70,7 @@ def get_cost_breakdown(db: DbSession, _: User = Depends(require_permissions("fin
 
 
 @router.post("/invoices", response_model=InvoiceOut, status_code=201)
-def create_invoice(payload: InvoiceIn, db: DbSession, current: User = Depends(require_permissions("finance.invoice", "*"))):
+def create_invoice(payload: InvoiceIn, db: DbSession, current: User = Depends(require_permissions("finance.invoice", "*"))) -> Invoice:
     return create_order_invoice(db, payload, current)
 
 

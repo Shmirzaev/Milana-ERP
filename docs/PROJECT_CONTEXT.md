@@ -15,6 +15,11 @@ Updated 2026-10-27. Keep this file short: current decisions, release pointers an
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+The [manual Finance invoice candidate](archive/FINANCE_MANUAL_INVOICE_CREATE_2026-10-27.md)
+moves its insert into schema-owned persistence and types its actual UI response.
+Existing policies are preserved; independent review, candidate visual checks and
+human acceptance remain separate. It does not complete Finance or the refactor.
+
 ## Source and production
 
 - Shared integration/production branch: clone_main. origin/main is stale for this work.

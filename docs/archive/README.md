@@ -4,6 +4,9 @@ These reports preserve what was observed at their recorded date. They are not
 current implementation instructions or proof of today's production state.
 Start with [current context](../PROJECT_CONTEXT.md) for active work.
 
+- [Manual Finance invoice creation, 27 October 2026](FINANCE_MANUAL_INVOICE_CREATE_2026-10-27.md):
+  schema-owned insert candidate, unchanged policy, type ledger and pending gates.
+
 - [Ismail six-area refactor candidate, 25 October 2026](ISMAIL_SIX_AREA_REFACTOR_2026-10-25.md):
   implementation, local verification, limits and human checklist; not a production release.
 - [Complete project context before cleanup](PROJECT_CONTEXT-2026-10-24.md): deployment
