@@ -3,7 +3,7 @@ name: ERP validation and immutable release artifacts
 on:
   pull_request:
   push:
-    branches: [main, "codex/**"]
+    branches: [main, clone_main, "codex/**"]
   workflow_dispatch:
     inputs:
       release_id:
