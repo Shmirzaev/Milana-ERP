@@ -4,6 +4,12 @@ This document describes system topology and trust boundaries, not proof that eve
 legacy route already follows the target layering. Use [the backend guide](../backend/app/README.md)
 and [shared skills](AGENT_SKILLS.md) for implementation discipline. Update it whenever deployment topology, authentication, storage, or trust boundaries change.
 
+The required application write path is route -> dedicated business service ->
+schema-model persistence operation -> database, using one supplied Session and
+an outer service transaction. See [the engineering workflow](ENGINEERING_WORKFLOW.md)
+for layer ownership, typed contracts and verification. This target remains under
+migration; the diagram below does not certify current route/service compliance.
+
 ## System Context
 
 ```mermaid
@@ -59,6 +65,7 @@ flowchart TB
     middleware["FastAPI middleware"]
     route["Permissioned route"]
     service["Domain service"]
+    schema["Schema-owned persistence"]
     database["Database"]
 
     internet --> browser
@@ -66,7 +73,9 @@ flowchart TB
     proxy --> middleware
     middleware -->|rate limit, CORS, CSRF origin, headers| route
     route -->|CurrentUser + require_permissions| service
-    service --> database
+    service -->|rules checked; same Session| schema
+    schema -->|insert / update / delete| database
+    service -->|read queries within ownership| database
 ```
 
 ## Sensitive File Access

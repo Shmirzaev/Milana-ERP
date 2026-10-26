@@ -3,6 +3,11 @@
 These skills are repository files. Pull the latest clone_main and open an agent
 session in that checkout. No personal skill copy is required. If a running session
 does not list a new skill, reopen it or explicitly ask it to read the path below.
+The current engineering guidance is published on clone_main. The unfinished
+runtime refactor remains in draft PR #308; pulling these rules does not integrate it.
+Start with [AGENTS.md](../AGENTS.md) and the [engineering workflow](ENGINEERING_WORKFLOW.md).
+For another AI tool, explicitly provide those paths and require it to state the
+operation, layer responsibilities and evidence gates before implementation.
 
 | Work | Codex | Claude Code | Shared instructions |
 | --- | --- | --- | --- |
@@ -23,7 +28,11 @@ workflow and whether this is planning or approved implementation. Example:
 
 Use [team ownership](TEAM_OWNERSHIP.md) for exact allocations and
 [the backend guide](../backend/app/README.md) for current versus target folders.
-The schema/DTO migration is planned; reading these skills does not mean it happened.
+The schema/DTO namespace migration and six grouped-service extractions exist in
+draft PR #308. Schema-owned writers and system-wide enum-typed contracts remain
+unfinished; the folder structure is not completion evidence. Other domain work
+retains its named owner and pending coverage.
+Read [the current context](PROJECT_CONTEXT.md) before assuming production activation.
 
 ## Verification after each change
 
@@ -32,3 +41,25 @@ bug fix and feature: validate AI-written tests, run relevant automated checks,
 visually exercise actual end-to-end behavior, then challenge it with bounded
 stress and verify data integrity/recovery. Record blocked checks honestly; they
 do not count as passes. Documentation-only changes record runtime gates as not applicable.
+
+## Implementation sessions
+
+MiniMax M3.1-Flash performs implementation; Codex orchestrates, integrates,
+independently reviews and tests visually. Run two MiniMax sessions and
+request up to three scoped subagents per session (six total) when the runtime
+supports it, with separate work directories and disjoint file ownership. A
+session reports its actual model, the workers it started, the changed paths
+and the checks it ran.
+
+Codex owns integration, independent review, visual E2E and bounded stress;
+human engineering and business review, and the deployment gates in
+[DEPLOYMENT.md](../DEPLOYMENT.md), remain. Session capacity, speed and token
+cost (free or unlimited tokens) are not permanently verified facts; observe
+them per run. If MiniMax is unavailable or a worker is stuck, report the
+blocker and recover or reassign inside MiniMax. Do not silently substitute
+Codex for implementation.
+
+The owner authorized all six Ismail areas—catalog, purchasing, sales, inventory,
+planning and finance—as parallel candidate work. This authorization covers
+implementation and review in isolated work directories. Human review,
+production acceptance and release gates remain separate.
