@@ -36,7 +36,7 @@ from app.libs.dto.inventory.stock_movement_output import StockMovementOut
 from app.libs.dto.inventory.stock_quantity_adjustment_input import StockQuantityAdjustmentIn
 from app.libs.dto.inventory.stock_quantity_adjustment_output import StockQuantityAdjustmentOut
 from app.libs.dto.inventory.warehouse_input import WarehouseIn
-from app.libs.dto.inventory.warehouse_output import WarehouseOut
+from app.libs.dto.inventory.warehouse_output import WarehouseCreatedOut, WarehouseOut
 from app.models.inventory import reservations_service
 from app.models.inventory import stock_service
 from app.models.inventory import transfers_service
@@ -223,7 +223,7 @@ def list_warehouses(db: DbSession, _: User = Depends(require_permissions(*WAREHO
     return stock_service.list_warehouses(db, _)
 
 
-@router.post("/warehouses", response_model=WarehouseOut, status_code=201)
+@router.post("/warehouses", response_model=WarehouseCreatedOut, status_code=201)
 def create_warehouse(payload: WarehouseIn, db: DbSession, current: User = Depends(require_permissions("admin.warehouses", "*"))):
     return stock_service.create_warehouse(db, payload, current)
 

@@ -74,6 +74,7 @@ from app.schemas import (
     WasteRecord,
 )
 from app.schemas.inventory import stock_receipt_persistence
+from app.schemas.inventory import warehouse_persistence
 from app.schemas.inventory.eco_transfer import EcoFabricRoll
 
 EPSILON = 1e-9
@@ -362,9 +363,10 @@ def list_warehouses(db, user: User) -> list[Warehouse]:
     return qry.order_by(Warehouse.id).all()
 
 
-def create_warehouse(db, payload: WarehouseIn, current: User) -> Warehouse:
-    w = Warehouse(**payload.model_dump())
-    db.add(w); db.flush()
+def create_warehouse(db: Session, payload: WarehouseIn, current: User) -> Warehouse:
+    w = warehouse_persistence.insert_warehouse(
+        db, name=payload.name, type=payload.type, department_id=payload.department_id,
+    )
     log_action(db, current, "create", "Warehouse", w.id)
     db.commit(); db.refresh(w)
     return w

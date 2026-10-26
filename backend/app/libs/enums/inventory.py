@@ -14,6 +14,29 @@ services still own the legal states, the allowed inputs and the errors.
 from enum import Enum
 
 
+class WarehouseType(str, Enum):
+    """Source-recognized warehouse kinds; membership does not permit creation.
+
+    RAW_MATERIAL and WAREHOUSE are legacy stock-adjustment lookup values.
+    Historical rows may contain other values: unrestricted reads and the String
+    mapping remain explicitly pending vocabulary reconciliation.
+    """
+
+    FABRIC_STORAGE = "fabric_storage"
+    ACCESSORY_STORAGE = "accessory_storage"
+    PACKAGING = "packaging"
+    CUTTING = "cutting"
+    ECO_COTTON_CUTTING = "eco_cotton_cutting"
+    PRINTING = "printing"
+    SEWING = "sewing"
+    BESTTEX_PACKAGING = "besttex_packaging"
+    ECO_COTTON_PACKAGING = "eco_cotton_packaging"
+    FINISHED_GOODS = "finished_goods"
+    WASTE = "waste"
+    RAW_MATERIAL = "raw_material"
+    WAREHOUSE = "warehouse"
+
+
 class StockBatchQcStatus(str, Enum):
     """`stock_batches.qc_status` - the quality state of a received batch."""
 
