@@ -1,5 +1,8 @@
 # Milana refactor: team agreement and execution plan
 
+Use the [whole-ERP coverage ledger](REFACTOR_COVERAGE.md) for all 97 tables, 1,303 fields,
+named owners and the next operation in every domain. Discovery is not acceptance.
+
 ## Guidance publication and runtime scope
 
 26 October 2026: these engineering rules are published on `clone_main`.
