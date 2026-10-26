@@ -60,21 +60,27 @@ folders, set service counts or authorize new business behavior.
 
 | Domain / tables | Engineer / reviewer | Next operation | State |
 | --- | --- | --- | --- |
-| catalog / 12 | Ismail / Mirshoir | CAT-01: Create standard/usluga paid process | PILOT_DRAFT |
-| finance / 2 | Ismail / Mirshoir | FIN-01: Record invoice payment | PILOT_DRAFT |
+| catalog / 12 | Ismail / Mirshoir | CAT-01: Create standard/usluga paid process | CONTRACT_AND_VISUAL_PENDING |
+| finance / 2 | Ismail / Mirshoir | FIN-01: Record invoice payment | FRONTEND_AND_VISUAL_PENDING |
 | fulfillment / 10 | Mirshoir / Ismail | FUL-01: Reserve finished goods | QUEUED_FOR_OWNER_AGREEMENT |
 | identity / 3 | Dilmurod / Mirshoir | IDN-01: Select authenticated session factory | QUEUED_FOR_OWNER_AGREEMENT |
-| inventory / 14 | Ismail / Mirshoir | INV-01: Receive stock batch | PILOT_REQUIRES_CORRECTION |
+| inventory / 14 | Ismail / Mirshoir | INV-01: Receive stock batch | FRONTEND_AND_INTEGRATION_PENDING |
 | packaging / 9 | Mirshoir / Ismail | PKG-01: Create package | QUEUED_FOR_OWNER_AGREEMENT |
 | people / 14 | Dilmurod / Mirshoir | PEO-01: Create employee | QUEUED_FOR_OWNER_AGREEMENT |
 | planning / 3 | Ismail / Mirshoir | PLN-01: Create branded planning order | PILOT_REQUIRES_CORRECTION |
 | production / 18 | Mirshoir / Ismail | PRD-01: Shared Sewing output | QUEUED_FOR_OWNER_AGREEMENT |
-| purchasing / 4 | Ismail / Mirshoir | PUR-01: Create purchase request, direct and from Sales | PILOT_DRAFT |
-| sales / 2 | Ismail / Mirshoir | SAL-01: Create standard sales order | PILOT_DRAFT |
+| purchasing / 4 | Ismail / Mirshoir | PUR-01: Create purchase request, direct and from Sales | AI_VERIFIED_AWAITING_HUMAN at 1a71f16 |
+| sales / 2 | Ismail / Mirshoir | SAL-01: Create standard sales order | FULFILLMENT_BOUNDARY_PENDING |
 | support / 4 | Dilmurod / Mirshoir | SUP-01: Patch one settings section | QUEUED_FOR_OWNER_AGREEMENT |
 | work_management / 2 | Dilmurod / Mirshoir | WRK-01: Create task and notification | QUEUED_FOR_OWNER_AGREEMENT |
 
 ## Operation boundaries to agree and preserve
+
+The [26 October operation checkpoint and local human checklist](archive/ISMAIL_OPERATION_CHECKPOINT_2026-10-26.md)
+records exact revisions, scoped results and remaining gates. PUR-01 acceptance is
+limited to request creation at `1a71f16`; no whole table/domain or human approval
+is implied. Other draft results remain provisional. Initial field review defaults
+above remain pending.
 
 - **CAT-01 — Create standard/usluga paid process:** `backend/app/models/catalog/paid_processes_service.py::create_process`. Neutral 13-section canonical enum; final generated row.code is also a write; audit dependency.
 - **FIN-01 — Record invoice payment:** `backend/app/models/payments_service.py::create_invoice_payment`. Payment and invoice-status writers plus same-Session audit/idempotency; actual InvoiceStatus contracts still need verification.
@@ -113,6 +119,21 @@ vision, persisted readback and bounded stress → independent AI review →
 **AI_VERIFIED_AWAITING_HUMAN** → recorded human visual/technical approval.
 
 Record converted, retained-with-reason and unresolved fields individually. Do not
-advance a whole table/domain because its first operation passes. No required gate
-is complete in this initial ledger. Publication, merging and deployment remain
-separate from runtime verification.
+advance a whole table/domain because its first operation passes. Operation-level
+checkpoints update only their explicitly named scope/revision, not initial field
+defaults. Publication, merging and deployment remain separate from runtime verification.
+
+## Subsequent Ismail operations
+
+These are named study/extraction queues, not accepted work or permission to skip
+the current operation's human gate:
+
+- Catalog: model creation/counter writes, then the shared image-preview ownership cycle.
+- Purchasing: request approve/reject, conversion, purchase-order creation and receiving.
+- Finance: invoice issuance through both existing entrypoints, customer advances,
+  customer-ledger auto-invoicing and shipment delivery/reversal writers.
+- Inventory: receipt edit/other CRUD, accessory returns, transfers, reservations,
+  stocktake and waste handoffs; preserve each operation's distinct QC/retry rules.
+- Planning: the alternate Production-creation writer, requirements and costing contracts.
+- Sales: finish the agreed Fulfillment reservation/metadata seam, then update,
+  cancellation and release paths. Mirshoir retains Fulfillment ownership.
