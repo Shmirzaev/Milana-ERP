@@ -43,7 +43,7 @@
       "next_operation": "Create standard/usluga paid process",
       "source": "backend/app/models/catalog/paid_processes_service.py",
       "function": "create_process",
-      "status": "PILOT_DRAFT",
+      "status": "CONTRACT_AND_VISUAL_PENDING",
       "acceptance_focus": "Neutral 13-section canonical enum; final generated row.code is also a write; audit dependency.",
       "human_interface_approval": "NOT_RECORDED",
       "ai_verified": false,
@@ -57,7 +57,9 @@
         "internal_commands": "PENDING",
         "internal_results": "PENDING",
         "json_discriminators": "PENDING"
-      }
+      },
+      "operation_evidence_summary": "42 focused +15 realPG draft; same15 realPG on combined075110f; scope/query/used return contracts and browser/human pending",
+      "operation_checkpoint": "archive/ISMAIL_OPERATION_CHECKPOINT_2026-10-26.md"
     },
     {
       "domain": "finance",
@@ -68,7 +70,7 @@
       "next_operation": "Record invoice payment",
       "source": "backend/app/models/payments_service.py",
       "function": "create_invoice_payment",
-      "status": "PILOT_DRAFT",
+      "status": "FRONTEND_AND_VISUAL_PENDING",
       "acceptance_focus": "Payment and invoice-status writers plus same-Session audit/idempotency; actual InvoiceStatus contracts still need verification.",
       "human_interface_approval": "NOT_RECORDED",
       "ai_verified": false,
@@ -82,7 +84,9 @@
         "internal_commands": "PENDING",
         "internal_results": "PENDING",
         "json_discriminators": "PENDING"
-      }
+      },
+      "operation_evidence_summary": "40 focused +22 realPG +120 downstream draft; same22 realPG on combined075110f; frontend enum/browser/human pending",
+      "operation_checkpoint": "archive/ISMAIL_OPERATION_CHECKPOINT_2026-10-26.md"
     },
     {
       "domain": "fulfillment",
@@ -143,7 +147,7 @@
       "next_operation": "Receive stock batch",
       "source": "backend/app/models/inventory/stock_service.py",
       "function": "receive_stock",
-      "status": "PILOT_REQUIRES_CORRECTION",
+      "status": "FRONTEND_AND_INTEGRATION_PENDING",
       "acceptance_focus": "Real QC Enum/member default and JSON/idempotency compatibility; batch/movement and every related mapped mutation.",
       "human_interface_approval": "NOT_RECORDED",
       "ai_verified": false,
@@ -157,7 +161,9 @@
         "internal_commands": "PENDING",
         "internal_results": "PENDING",
         "json_discriminators": "PENDING"
-      }
+      },
+      "operation_evidence_summary": "69 focused +21 realPG draft; frontend QC contracts and combined/browser/human pending",
+      "operation_checkpoint": "archive/ISMAIL_OPERATION_CHECKPOINT_2026-10-26.md"
     },
     {
       "domain": "packaging",
@@ -232,7 +238,9 @@
         "internal_commands": "PENDING",
         "internal_results": "PENDING",
         "json_discriminators": "PENDING"
-      }
+      },
+      "operation_evidence_summary": "65 focused draft; derived cutting Enum/map/helper and actual return annotations pending; alternate Production writer remains queued",
+      "operation_checkpoint": "archive/ISMAIL_OPERATION_CHECKPOINT_2026-10-26.md"
     },
     {
       "domain": "production",
@@ -268,10 +276,10 @@
       "next_operation": "Create purchase request, direct and from Sales",
       "source": "backend/app/models/purchasing/requests_service.py",
       "function": "create_purchase_request",
-      "status": "PILOT_DRAFT",
+      "status": "AI_VERIFIED_AWAITING_HUMAN",
       "acceptance_focus": "Typed command; legal draft/pending_approval creation subset; header/lines plus shared audit/notification persistence.",
       "human_interface_approval": "NOT_RECORDED",
-      "ai_verified": false,
+      "ai_verified": true,
       "human_approved": false,
       "non_persisted_contracts": {
         "input_dtos": "PENDING",
@@ -282,7 +290,11 @@
         "internal_commands": "PENDING",
         "internal_results": "PENDING",
         "json_discriminators": "PENDING"
-      }
+      },
+      "operation_evidence_summary": "PUR-01 only at1a71f16:51 integrated +21 realPG; actual frontend/manual and alternate-result/roles, SQL/photo/33audit hashes,12reads max3concurrency, independent review pass",
+      "operation_checkpoint": "archive/ISMAIL_OPERATION_CHECKPOINT_2026-10-26.md",
+      "verified_revision": "1a71f16b6558ebe8b929d3fa992e1954c55bfc3f",
+      "verification_scope": "Only PUR-01 direct/from-Sales request creation and used consumers; no lifecycle/domain/table acceptance"
     },
     {
       "domain": "sales",
@@ -293,7 +305,7 @@
       "next_operation": "Create standard sales order",
       "source": "backend/app/models/sales/orders_service.py",
       "function": "create_sales_order",
-      "status": "PILOT_DRAFT",
+      "status": "FULFILLMENT_BOUNDARY_PENDING",
       "acceptance_focus": "Real order/source enums; ready-stock reservation and metadata repair require Fulfillment ownership; no Sales-owned stock writer.",
       "human_interface_approval": "NOT_RECORDED",
       "ai_verified": false,
@@ -307,7 +319,9 @@
         "internal_commands": "PENDING",
         "internal_results": "PENDING",
         "json_discriminators": "PENDING"
-      }
+      },
+      "operation_evidence_summary": "103 focused +10 realPG draft; typed public Fulfillment operation and owning persistence unresolved",
+      "operation_checkpoint": "archive/ISMAIL_OPERATION_CHECKPOINT_2026-10-26.md"
     },
     {
       "domain": "support",
@@ -2858,5 +2872,7 @@
     "source_ref": "3cdd6808ff7ced0717f337d17d4e530719d4a86f",
     "connection_policy": "OFFLINE - Engine connections refused; no app.main/db.session import",
     "result_policy": "Fresh immutable extraction; sorted checks; newly generated artifact SHA, not promised original byte identity"
-  }
+  },
+  "operation_checkpoint_as_of": "2026-10-26",
+  "operation_checkpoint_document": "archive/ISMAIL_OPERATION_CHECKPOINT_2026-10-26.md"
 }
