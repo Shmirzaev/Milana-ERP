@@ -11,7 +11,7 @@ present or verified on `clone_main`. The shared checkout still contains
 legacy/root services and mixed DTO files. Schema-owned writers and full
 enum/type adoption remain incomplete across the ERP.
 
-Updated 2026-10-26. Keep this file short: current decisions, release pointers and
+Updated 2026-10-27. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
@@ -117,15 +117,22 @@ not appended here. This summary does not replace live release verification.
 
 ## SEC04 model-file session authentication (branch review only)
 
+- The 27 October browser follow-up found that one-day file and one-week thumbnail
+  private caches let revoked users reopen prior images. The SEC04 branch now
+  requires revalidation after auth and returns byte-free 304s for active filesystem
+  images; legacy DB fallback is `no-store`. Isolated Chromium Gate 3 and bounded
+  HTTP Gate 4 passed on candidate `9f6895a9`; Mirshoir's review and human
+  acceptance remain pending. Previously cached old-policy images can outlive the
+  deploy until their old TTL expires; rollout handling is unresolved.
+  [Current evidence](../backend/app/tests/SEC04-model-file-auth-evidence.md#browser-cache-follow-up--2026-10-27).
 - Updated `codex/sec04-model-file-auth` with `clone_main` at `ba70e0cb`.
   Model files/thumbnails use current-account authentication and immediately release
   its DB session before file reads/streaming. Company-wide access is intentional;
   no factory/per-model scope was added. Owner Dilmurod; reviewer Mirshoir (pending).
-- [Branch verification evidence](../backend/app/tests/SEC04-model-file-auth-evidence.md)
-  records current red/green checks and remaining gates. Visual E2E and bounded
-  stress are BLOCKED pending an isolated running UI/backend test environment.
-  No merge to `clone_main`, deployment, production verification or business-data
-  change. Release/rollback pointers above are historical and were not reverified.
+- The evidence file retains the earlier 25 October BLOCKED record as history;
+  the 27 October local gates supersede it. No merge to `clone_main`, deployment,
+  production verification or business-data change. Release/rollback pointers
+  above are historical and were not reverified.
 
 ## Required checks and open risks
 

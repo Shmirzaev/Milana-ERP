@@ -1,20 +1,24 @@
 # Team bug tracker — clone_main
 
-## SEC04 — model-file session authentication (2026-10-25 branch update)
+## SEC04 — model-file session authentication (2026-10-27 branch follow-up)
 
 - **Review · Dilmurod · reviewer Mirshoir (pending).** Updated the existing
-  `codex/sec04-model-file-auth` branch with `clone_main` at `ba70e0cb`; not merged
+  `codex/sec04-model-file-auth` branch with browser-cache revalidation at
+  `9f6895a9`; not merged
   into `clone_main` or deployed. Historical October rows below remain evidence.
 - Disabled/deleted accounts and revoked tokens must receive 401 on model files
   and cached thumbnails. Active MIL/BST/ECO users retain company-wide access.
   Authenticate through `CurrentUser`, then close the auth session before I/O.
-- Current weak handler: 13 failed / 11 passed; fixed handler: 24 passed.
+- The old cache policy let Chromium return 200 after revocation. The new
+  filesystem policy requires revalidation; authenticated ETag/Last-Modified
+  requests return 304, while revoked sessions return 401. Legacy DB fallback
+  is `no-store`. Four fail-first cases turned green; 57 focused tests passed.
   [Verification record](../backend/app/tests/SEC04-model-file-auth-evidence.md)
-  records full backend 3,888 passed / 312 skipped; Ruff/compilation/frontend lint
-  passed (frontend: 10 warnings). Separate backend/tests: 2 PostgreSQL skips.
-  Visual E2E and bounded stress are
-  BLOCKED pending an isolated running UI/backend test environment. Human review
-  and production acceptance are pending; this is not a Finished entry.
+  has visually inspected isolated-browser Gate 3 and bounded HTTP Gate 4
+  technical PASS results; full backend suite: 3,892 passed / 312 skipped.
+  Existing browser entries with the old one-day/week
+  lifetime need rollout handling. Mirshoir's limits/review, human acceptance and
+  production verification are pending; this is not a Finished entry.
 
 ## INV-LATER-NASTIL-20261024 — extra Nastil can leave packaging supply negative
 
