@@ -25,3 +25,48 @@ for (const [key, before, after] of faults) test(`detect ${key}: ${before}`, () =
   assert.ok(source[key].includes(before), "Fault challenge must modify actual source");
   assert.throws(() => assertSalesEnumContract({...source, [key]: source[key].replace(before, after)}));
 });
+
+function withProductionTypes(orderType, status, prefix = "") {
+  const branch = 'record_type: "production_order"; order_type: string; status: string';
+  assert.ok(source.history.includes(branch), "Challenge must replace the actual Production branch");
+  return { ...source, history: prefix + source.history.replace(branch,
+    `record_type: "production_order"; order_type: ${orderType}; status: ${status}`) };
+}
+
+test("future distinct Production enums are allowed", () => {
+  assertSalesEnumContract(withProductionTypes("ProductionOrderType", "ProductionOrderStatus",
+    'enum ProductionOrderType { STOCK = "stock" }\nenum ProductionOrderStatus { IN_PROGRESS = "in_progress" }\n'));
+});
+
+test("future imported Production enums and owner aliases are allowed", () => {
+  assertSalesEnumContract(withProductionTypes("ProductionOrderType", "ProductionStatus",
+    'import type { ProductionOrderType, ProductionOrderStatus } from "@/lib/productionOrderEnums";\ntype ProductionStatus = ProductionOrderStatus;\n'));
+});
+
+for (const [orderType, status] of [
+  ["SalesOrderType", "string"], ["string", "SalesOrderStatus"],
+  ["string", "SalesOrderStatus | string"], ["Readonly<SalesOrderType>", "string"],
+]) test(`Production cannot borrow ${orderType}/${status}`, () => {
+  assert.throws(() => assertSalesEnumContract(withProductionTypes(orderType, status)), /must not borrow Sales enum types/);
+});
+
+test("a local alias cannot disguise Sales status as Production", () => {
+  assert.throws(() => assertSalesEnumContract(withProductionTypes("string", "ProductionStatus",
+    'type IntermediateStatus = SalesOrderStatus;\ntype ProductionStatus = IntermediateStatus;\n')), /must not borrow Sales enum types/);
+});
+
+test("an import alias cannot disguise a Sales order type as Production", () => {
+  assert.throws(() => assertSalesEnumContract(withProductionTypes("ProductionType", "string",
+    'import type { SalesOrderType as ProductionType } from "@/lib/salesOrderEnums";\n')), /must not borrow Sales enum types/);
+});
+
+test("namespace-qualified Sales types cannot bypass the Production boundary", () => {
+  assert.throws(() => assertSalesEnumContract(withProductionTypes("string", "Sales.SalesOrderStatus",
+    'import type * as Sales from "@/lib/salesOrderEnums";\n')), /must not borrow Sales enum types/);
+});
+
+test("the production_order discriminator must remain present", () => {
+  const history = source.history.replace('record_type: "production_order";', 'record_type: "other";');
+  assert.notEqual(history, source.history);
+  assert.throws(() => assertSalesEnumContract({ ...source, history }), /production_order discriminator/);
+});

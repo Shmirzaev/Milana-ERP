@@ -44,6 +44,51 @@ function property(source, type, name) {
   assert.ok(member?.type, `Missing ${type}.${name}`);
   return member.type.getText(tree);
 }
+function assertProductionHistoryBoundary(source) {
+  const { node: history, tree } = declaration(source, "HistoryRow");
+  const branches = [];
+  function visit(node) {
+    if (ts.isTypeLiteralNode(node)) {
+      const tag = node.members.find((member) => member.name?.getText(tree) === "record_type");
+      if (tag?.type && ts.isLiteralTypeNode(tag.type) && ts.isStringLiteral(tag.type.literal)
+          && tag.type.literal.text === "production_order") branches.push(node);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(history.type);
+  assert.equal(branches.length, 1, "History must retain its production_order discriminator");
+
+  // Production may adopt its own enums. Forbid borrowing Sales types rather
+  // than permanently requiring the current unfinished string annotations.
+  const aliases = new Map(tree.statements.filter(ts.isTypeAliasDeclaration).map((node) => [node.name.text, node.type]));
+  const salesNames = new Set(["SalesOrderStatus", "SalesOrderType", "SalesOrderItemSourceType"]);
+  const salesNamespaces = new Set();
+  for (const node of tree.statements) {
+    if (!ts.isImportDeclaration(node) || node.moduleSpecifier.text !== "@/lib/salesOrderEnums") continue;
+    const bindings = node.importClause?.namedBindings;
+    if (bindings && ts.isNamespaceImport(bindings)) salesNamespaces.add(bindings.name.text);
+    if (bindings && ts.isNamedImports(bindings)) {
+      for (const entry of bindings.elements) {
+        if (salesNames.has((entry.propertyName ?? entry.name).text)) salesNames.add(entry.name.text);
+      }
+    }
+  }
+  function borrowsSalesType(node, seen = new Set()) {
+    if (ts.isTypeReferenceNode(node)) {
+      const name = node.typeName.getText(tree);
+      if (salesNames.has(name)) return true;
+      if (ts.isQualifiedName(node.typeName) && salesNamespaces.has(node.typeName.left.getText(tree))) return true;
+      if (aliases.has(name) && !seen.has(name)
+          && borrowsSalesType(aliases.get(name), new Set([...seen, name]))) return true;
+    }
+    return Boolean(ts.forEachChild(node, (child) => borrowsSalesType(child, seen) || undefined));
+  }
+  for (const name of ["order_type", "status"]) {
+    const member = branches[0].members.find((field) => field.name?.getText(tree) === name);
+    assert.ok(member?.type, `Production history must retain ${name}`);
+    assert.ok(!borrowsSalesType(member.type), `Production history ${name} must not borrow Sales enum types`);
+  }
+}
 export function listFunctions(sources) {
   const names = ["PRODUCTION_TAB_STATUSES", "INACTIVE_SALES_STATUSES", "matchesTab", "statusClass"];
   const body = names.map((name) => {
@@ -82,7 +127,7 @@ export function assertSalesEnumContract(sources) {
   for (const name of ["INVOICE_ACTION_STATUSES", "RESERVED_SALES_STATUSES"]) assert.equal(declaration(sources.detail, name).node.type.getText(), "readonly SalesOrderStatus[]");
   assert.equal(property(sources.customer, "CustomerOrder", "status"), "SalesOrderStatus");
   assert.match(sources.history, /record_type: "sales_order"; order_type: SalesOrderType; status: SalesOrderStatus/);
-  assert.match(sources.history, /record_type: "production_order"; order_type: string; status: string/);
+  assertProductionHistoryBoundary(sources.history);
   for (const key of ["history", "customer"]) assert.equal(property(sources[key], "InvoiceRow", "status"), "InvoiceStatus", "Invoice remains Finance-owned");
   const funcs = listFunctions(sources);
   assert.deepEqual(funcs.PRODUCTION_TAB_STATUSES, ["production", "planning", "confirmed"]);
