@@ -1,6 +1,6 @@
 ﻿"use client";
 import { SalesOrderStatus, SalesOrderType, salesOrderCreateType, type SalesOrderCreateType } from "@/lib/salesOrderEnums";
-import type { SalesOrderSummary } from "@/lib/salesOrderContracts";
+import type { SalesOrderListRow } from "@/lib/salesOrderContracts";
 import { formatOrderReference } from "@/lib/orderRef";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -14,7 +14,7 @@ import { useT } from "@/lib/i18n";
 import { statusLabel } from "@/components/StagePipeline";
 import { useDialogs } from "@/components/DialogProvider";
 
-type SO = SalesOrderSummary;
+type SO = SalesOrderListRow;
 
 const PRODUCTION_TAB_STATUSES: readonly SalesOrderStatus[] = [SalesOrderStatus.PRODUCTION, SalesOrderStatus.PLANNING, SalesOrderStatus.CONFIRMED];
 const INACTIVE_SALES_STATUSES: readonly SalesOrderStatus[] = [SalesOrderStatus.CLOSED, SalesOrderStatus.CANCELLED, SalesOrderStatus.DELIVERED];
@@ -31,13 +31,6 @@ function statusClass(status: SalesOrderStatus) {
 
 function Money({ value }: { value: number }) {
   return <span className="mono">${value.toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>;
-}
-
-function rowMetrics(index: number) {
-  return {
-    pct: [62, 18, 81, 47, 4, 0, 93, 100][index % 8],
-    qty: [4800, 12000, 3200, 9600, 2100, 1500, 5400, 720][index % 8],
-  };
 }
 
 function toCsvCell(value: unknown): string {
@@ -235,8 +228,7 @@ export default function SalesOrdersPage() {
         <div className="card divide-y divide-[#ecebe3]">
           {isLoading && <div className="p-4 text-sm text-[#8a8472]">{t("common.loading")}</div>}
           {!isLoading && !filtered.length && <div className="p-4 text-sm text-[#8a8472]">{t("sales.noMatch")}</div>}
-          {filtered.map((o, i) => {
-            const { pct, qty } = rowMetrics(i);
+          {filtered.map((o) => {
             return (
               <article key={o.id} className="p-4">
                 <div className="flex min-w-0 items-start justify-between gap-3">
@@ -253,7 +245,7 @@ export default function SalesOrdersPage() {
                 <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                   <div>
                     <div className="label">{t("field.qty")}</div>
-                    <div className="mono font-semibold">{qty.toLocaleString()}</div>
+                    <div className="mono font-semibold">{o.total_quantity?.toLocaleString() ?? "—"}</div>
                   </div>
                   <div>
                     <div className="label">{t("field.value")}</div>
@@ -267,10 +259,7 @@ export default function SalesOrdersPage() {
                   </div>
                   <div>
                     <div className="label">{t("page.processes.progress")}</div>
-                    <div className="flex items-center gap-2">
-                      <div className="mini-bar flex-1"><span style={{ width: `${pct}%` }} /></div>
-                      <span className="mono text-xs text-[#8a8472]">{pct}%</span>
-                    </div>
+                    <span className="text-xs text-[#8a8472]">{t("sales.progressUnavailable")}</span>
                   </div>
                 </div>
               </article>
@@ -308,20 +297,16 @@ export default function SalesOrdersPage() {
               <tbody>
                 {isLoading && <tr><td colSpan={8} className="text-[#8a8472]">{t("common.loading")}</td></tr>}
                 {!isLoading && !filtered.length && <tr><td colSpan={8} className="text-[#8a8472]">{t("sales.noMatch")}</td></tr>}
-                {filtered.map((o, i) => {
-                  const { pct, qty } = rowMetrics(i);
+                {filtered.map((o) => {
                   const active = selected?.id === o.id;
                   return (
                     <tr key={o.id} data-selected={active} className={active ? "bg-[#fdf3eb]" : ""} onClick={() => setSelectedId(o.id)}>
                       <td><input type="checkbox" onClick={(e) => e.stopPropagation()} /></td>
                       <td><a href={`/sales-orders/${o.id}`} title={o.order_no} className="mono font-medium">{formatOrderReference(o.order_no)}</a></td>
                       <td>{customerMap.get(o.customer_id) ?? t("sales.unknownCustomer")}</td>
-                      <td className="mono text-right">{qty.toLocaleString()}</td>
+                      <td className="mono text-right">{o.total_quantity?.toLocaleString() ?? "—"}</td>
                       <td>
-                        <div className="flex items-center gap-2">
-                          <div className="mini-bar w-24"><span style={{ width: `${pct}%` }} /></div>
-                          <span className="mono text-xs text-[#8a8472]">{pct}%</span>
-                        </div>
+                        <span className="text-xs text-[#8a8472]">{t("sales.progressUnavailable")}</span>
                       </td>
                       <td><span className={`badge ${statusClass(o.status)}`}>{statusLabel(o.status, t)}</span></td>
                       <td className="mono text-[#8a8472]">{o.deadline ? new Date(o.deadline).toLocaleDateString("en-US", { month: "short", day: "2-digit" }) : "-"}</td>

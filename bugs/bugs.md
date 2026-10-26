@@ -1,5 +1,20 @@
 # Team bug tracker — clone_main
 
+## SALES-LIST-TRUTH-20261027 — fabricated quantity and progress
+
+- **P1 · Candidate, unverified · Ismail. Reviewer: Mirshoir.** Actual coordinator
+  screenshots showed a six-piece order as4,800/62% and a two-piece order as9,600/47%.
+  Both desktop and mobile used arrays selected by row index, unrelated to data.
+- Candidate removes fabricated metrics. The existing Sales list read owner sums
+  stored item pieces for returned page IDs, constructs a typed list-only response,
+  and preserves filters, pagination, legacy list/envelope and detail/create contracts.
+  Unallocated pack lines contribute their stored zero; requested packs are not pieces.
+  No production-progress measure exists in this contract, so the UI says it is unavailable.
+- Component regression is red on original source and green on candidate. Targeted
+  PostgreSQL checks cover pieces, packs, empty orders, read-only state and bounded
+  queries. Independent review, combined source tests and actual browser/readback
+  checks remain required. Human approval and release remain pending.
+
 ## FN04 receipt follow-up — customer receipt races with manual invoice issuance
 
 - **P1 · Candidate, unverified · Ismail. Reviewer: Mirshoir.** This extends the

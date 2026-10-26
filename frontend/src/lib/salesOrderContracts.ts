@@ -56,6 +56,9 @@ export type SalesOrderItem = {
   model?: { id: number; code: string; name: string; translations?: Record<string, string> | null } | null;
 };
 
+/** List-only stored piece total; unallocated pack lines contribute zero. */
+export type SalesOrderListRow = SalesOrderSummary & { total_quantity: number };
+
 export type SalesOrderDetail = SalesOrderSummary & {
   customer?: { id: number; name: string } | null;
   items: SalesOrderItem[];

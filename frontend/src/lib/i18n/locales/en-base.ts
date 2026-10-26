@@ -1,5 +1,6 @@
 // Generated mechanically from dict.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "sales.progressUnavailable": "Progress unavailable",
     "batch.lockedAfterSewing": "Locked: Sewing output recorded",
     "batch.deleteFailed": "Could not delete the batch.",
     "batch.deleted": "Batch deleted and verified fabric consumption reversed.",

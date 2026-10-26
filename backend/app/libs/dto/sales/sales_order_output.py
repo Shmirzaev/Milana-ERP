@@ -68,3 +68,9 @@ class SalesOrderOut(ORMModel):
 
 class SalesOrderDetail(SalesOrderOut):
     items: list[SalesOrderItemOut] = []
+
+
+class SalesOrderListRow(SalesOrderOut):
+    # Stored pieces, including actual allocated pieces for pack orders.
+    # Unallocated pack lines hold zero; requested packs are a different unit.
+    total_quantity: int

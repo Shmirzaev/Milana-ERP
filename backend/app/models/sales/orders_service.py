@@ -15,7 +15,7 @@ from datetime import date
 from uuid import uuid4
 
 from fastapi import HTTPException, UploadFile
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import settings
@@ -31,7 +31,7 @@ from app.core.uploads import (
     read_validated_upload_content,
 )
 from app.libs.dto.sales.sales_order_input import SalesOrderIn
-from app.libs.dto.sales.sales_order_output import SalesOrderDetail, SalesOrderOut
+from app.libs.dto.sales.sales_order_output import SalesOrderDetail, SalesOrderListRow, SalesOrderOut
 from app.libs.dto.sales.sales_stock_output import SalesStockReservationOut
 from app.libs.dto.sales.sales_order_update import SalesOrderUpdate
 from app.libs.enums.sales import SalesOrderItemSourceType, SalesOrderStatus, SalesOrderType
@@ -254,10 +254,23 @@ def list_sales_orders(
     safe_size = max(1, min(page_size, 500))
     rows = qry.order_by(SalesOrder.id.desc()).offset((safe_page - 1) * safe_size).limit(safe_size).all()
     customer_names = _customer_name_map(db, {so.customer_id for so in rows if so.customer_id})
-    payload = [
-        _serialize_sales_order(db, so, include_items=False, customer_names=customer_names)
+    # Bound the aggregate to the returned page; never hydrate each order's items.
+    # quantity is pieces, not requested_pack_count and not production progress.
+    quantities = dict(
+        db.query(SalesOrderItem.sales_order_id, func.sum(SalesOrderItem.quantity))
+        .filter(SalesOrderItem.sales_order_id.in_([so.id for so in rows]))
+        .group_by(SalesOrderItem.sales_order_id)
+        .all()
+    ) if rows else {}
+    typed_rows: list[SalesOrderListRow] = [
+        SalesOrderListRow(
+            **_serialize_sales_order(db, so, include_items=False, customer_names=customer_names),
+            total_quantity=int(quantities.get(so.id, 0)),
+        )
         for so in rows
     ]
+    # Keep the legacy list/envelope shape for existing direct callers.
+    payload = [row.model_dump() for row in typed_rows]
     if include_total:
         return {"rows": payload, "total": total, "page": safe_page, "page_size": safe_size}
     return payload

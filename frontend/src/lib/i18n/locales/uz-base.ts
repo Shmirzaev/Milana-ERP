@@ -1,5 +1,6 @@
 // Generated mechanically from dict.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "sales.progressUnavailable": "Bajarilish ma’lumoti mavjud emas",
     "batch.lockedAfterSewing": "Qulflangan: tikuv natijasi kiritilgan",
     "batch.deleteFailed": "Partiyani o'chirib bo'lmadi.",
     "batch.deleted": "Partiya o'chirildi va tasdiqlangan mato sarfi bekor qilindi.",
