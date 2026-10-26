@@ -54,6 +54,17 @@ and finance/ remain guides because their definitions still share those files.
 See [DTO conventions](../libs/dto/README.md), [service discipline](../models/README.md),
 [source map](../../../docs/REFACTOR_MAP.md) and [team ownership](../../../docs/TEAM_OWNERSHIP.md).
 
+### Verify runtime types across persistence
+
+An ORM annotation must describe the value actually returned after database loading.
+`Mapped[SomeEnum]` on a plain `String` column and an enum-valued default do not prove
+that fresh-session, refresh or expired-attribute reads return enum members. Test those
+paths and raw stored values. Keep raw storage annotations truthful and convert at an
+explicit boundary, or use a reviewed conversion that preserves existing storage;
+the used business interfaces and DTOs must still carry the canonical enum. A cast,
+`Any` or `Enum | str` does not implement conversion. Check all consumers, including
+`str(member)` and `.value`, and preserve VARCHAR length, values, CHECKs and defaults.
+
 ## Incremental enforcement of the write boundary
 
 Trace one business operation from route through service and every affected table,
@@ -72,7 +83,7 @@ to delete checks. Required behavior tests, PostgreSQL checks, actual browser vis
 readback and bounded stress precede AI_VERIFIED_AWAITING_HUMAN; human approval stays
 separate. Do not label a whole table, service or area complete from a partial pass.
 
-The boundary-audit script mentioned above is available in [PR #308 at this revision](https://github.com/Shmirzaev/Milana-ERP/blob/3cdd6808ff7ced0717f337d17d4e530719d4a86f/backend/scripts/audit_refactor_boundaries.py).
-It is not installed by this documentation-only clone_main update. Check
-tool availability explicitly; missing automation does not waive manual
-writer tracing or permit a claim that the gate passed.
+The boundary-audit script is versioned at
+[backend/scripts/audit_refactor_boundaries.py](../../scripts/audit_refactor_boundaries.py).
+Check tool availability explicitly in older checkouts; missing automation does not
+waive manual writer tracing or permit a claim that the gate passed.

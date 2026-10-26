@@ -129,6 +129,11 @@ pending work instead of implementing their policy or dropping their rows.
    can reject an identical historical retry. Preserve typed enum contracts and the
    required fingerprint boundary; never bypass hash/identity checks or rewrite
    saved records as a shortcut. Include omitted defaults and numeric serialization.
+   An ORM enum annotation/default also needs a real database round-trip check:
+   verify fresh-session and expired/refresh reads, stored values, and the enum type
+   reaching business interfaces. A plain string column does not become an enum
+   converter because its annotation changed. Follow the
+   [persistence runtime-type checks](../../schemas/README.md#verify-runtime-types-across-persistence).
 4. Compare the ledger with schemas and every caller again. Then execute focused
    tests, real UI/readback and bounded stress for this operation; independent AI
    verification produces AI_VERIFIED_AWAITING_HUMAN, followed by the human's actual
