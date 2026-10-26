@@ -6,13 +6,14 @@ from fastapi import HTTPException
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session, lazyload
 
+from app.schemas.core_persistence import add_notification_row
+
 from app.schemas import (
     Department,
     FinishedGoodsStock,
     Invoice,
     Item,
     ModelBOM,
-    Notification,
     Package,
     ProductionBatch,
     ProductionOrder,
@@ -429,7 +430,7 @@ def notify_department(
     for user_id in user_ids:
         if exclude_user_id and user_id == exclude_user_id:
             continue
-        db.add(Notification(user_id=user_id, title=title, message=message, link=link))
+        add_notification_row(db, user_id=user_id, title=title, message=message, link=link)
         created += 1
     return created
 
