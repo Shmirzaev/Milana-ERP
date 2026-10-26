@@ -115,8 +115,8 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
     amount = (float(Decimal(str(document["amount"]))) if document.get("amount") is not None else "—") if show_prices else None
     cell = put(total_row, 11, amount, bold=True, fill="1F3864", color="FFFFFF", align="right", size=9)
     cell.number_format = '#,##0.00'
-    sheet.row_dimensions[total_row].height = max(22, *(text_height(sheet.cell(total_row, column).value, width, 9)
-        for column, width in enumerate(widths, 1)))
+    sheet.row_dimensions[total_row].height = max(22, text_height(text["total"], sum(widths[:5]), 9),
+        *(text_height(sheet.cell(total_row, column).value, widths[column - 1], 9) for column in range(6, last_column + 1)))
     signature_row = total_row + 2
     officer = {"en": "Responsible warehouse officer", "ru": "Ответственный кладовщик", "uz": "Mas’ul omborchi"}[lang]
     signature = {"en": "Warehouse signature", "ru": "Подпись кладовщика", "uz": "Omborchi imzosi"}[lang]
