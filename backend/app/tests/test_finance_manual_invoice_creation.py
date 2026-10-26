@@ -17,7 +17,7 @@ from app.libs.enums.finance import InvoiceStatus
 from app.models.finance import invoices_service as issuance
 from app.schemas import AuditLog, Invoice, Payment, SalesOrder, User
 from app.tests.test_customer_invoice_creation_race import (
-    receipt_race_sessions, _GateSession, _wait_for_block,
+    receipt_race_sessions as receipt_race_sessions, _GateSession, _wait_for_block,
 )
 
 

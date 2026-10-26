@@ -11,7 +11,7 @@ from app.libs.enums.finance import InvoiceStatus
 from app.models.finance import invoices_service as issuance
 from app.schemas import AuditLog, Invoice, User
 from app.schemas.finance.invoice_persistence import insert_order_invoice
-from app.tests.test_customer_invoice_creation_race import receipt_race_sessions
+from app.tests.test_customer_invoice_creation_race import receipt_race_sessions as receipt_race_sessions
 from app.tests.test_finance_manual_invoice_creation import seed
 
 
