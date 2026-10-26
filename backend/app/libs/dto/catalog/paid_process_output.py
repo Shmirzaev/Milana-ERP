@@ -8,3 +8,8 @@ class PaidProcessOut(BaseModel):
     code: str
     name: str
     section: PaidProcessSection
+
+
+class PaidProcessList(BaseModel):
+    items: list[PaidProcessOut]
+    has_more: bool

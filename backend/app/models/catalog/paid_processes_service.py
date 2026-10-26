@@ -9,13 +9,13 @@ Contract for the paid-process catalogue operations:
 * transaction owner: `create_process`; `list_processes` only reads
 """
 
-from typing import Literal
 from fastapi import HTTPException
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.libs.dto.catalog.paid_process_input import PaidProcessIn
-from app.libs.dto.catalog.paid_process_output import PaidProcessOut
+from app.libs.dto.catalog.paid_process_output import PaidProcessList, PaidProcessOut
+from app.libs.enums.catalog import CatalogScope
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import selected_factory_code
 from app.models.paid_process_catalog_service import normalized_key, normalized_name
@@ -27,13 +27,16 @@ from app.schemas.catalog.paid_process_persistence import (
     insert_paid_process,
 )
 
+PaidProcessModel = type[PaidProcess] | type[UslugaPaidProcess]
+PaidProcessRow = PaidProcess | UslugaPaidProcess
 
-def _paid_process_payload(row) -> PaidProcessOut:
+
+def _paid_process_payload(row: PaidProcessRow) -> PaidProcessOut:
     return PaidProcessOut(id=row.id, code=row.code, name=row.name, section=row.section)
 
 
-def _paid_process_model(current, catalog_scope):
-    if catalog_scope == "usluga":
+def _paid_process_model(current: User, catalog_scope: CatalogScope) -> PaidProcessModel:
+    if catalog_scope == CatalogScope.USLUGA:
         if selected_factory_code(current) != "ECO":
             raise HTTPException(status_code=403, detail="Usluga processes require Eco Cotton")
         return UslugaPaidProcess
@@ -44,8 +47,8 @@ def list_processes(
     current: User,
     db: Session,
     search: str = "",
-    catalog_scope: Literal["standard", "usluga"] = "standard",
-):
+    catalog_scope: CatalogScope = CatalogScope.STANDARD,
+) -> PaidProcessList:
     model = _paid_process_model(current, catalog_scope)
     query = db.query(model).filter(model.factory_code == selected_factory_code(current))
     needle = normalized_name(search)
@@ -54,17 +57,17 @@ def list_processes(
         query = query.filter(or_(model.normalized_name.contains(escaped, autoescape=False, escape="\\"),
                                  model.code.ilike(f"%{escaped}%", escape="\\")))
     rows = query.order_by(model.normalized_name, model.section, model.id).limit(51).all()
-    return {"items": [_paid_process_payload(row) for row in rows[:50]], "has_more": len(rows) > 50}
+    return PaidProcessList(items=[_paid_process_payload(row) for row in rows[:50]], has_more=len(rows) > 50)
 
 
 def create_process(
     current: User,
     db: Session,
     payload: PaidProcessIn,
-    catalog_scope: Literal["standard", "usluga"] = "standard",
-):
+    catalog_scope: CatalogScope = CatalogScope.STANDARD,
+) -> PaidProcessOut:
     model = _paid_process_model(current, catalog_scope)
-    prefix = "UOP" if catalog_scope == "usluga" else "OP"
+    prefix = "UOP" if catalog_scope == CatalogScope.USLUGA else "OP"
     # The identity filter is a database query boundary, so it needs the raw value.
     identity = {"factory_code": selected_factory_code(current), "normalized_key": normalized_key(payload.name),
                 "section": payload.section.value}

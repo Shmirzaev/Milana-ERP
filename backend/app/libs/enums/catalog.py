@@ -8,6 +8,17 @@ services still own every permission and business rule.
 from enum import Enum
 
 
+class CatalogScope(str, Enum):
+    """The fixed, non-persisted catalogue scope discriminator.
+
+    It selects the owning paid-process table and the Eco Cotton access rule.
+    It is not a database column, so it needs no schema and no migration.
+    """
+
+    STANDARD = "standard"
+    USLUGA = "usluga"
+
+
 class PaidProcessSection(str, Enum):
     SEWING = "sewing"
     CUTTING = "cutting"
