@@ -77,7 +77,7 @@ try {
   writeFileSync(path.join(output, "results.json"), JSON.stringify({ network, revokedResponses,
     cachedRequestCount: cachedRequests.length, readback, pageErrors }, null, 2));
   assert.deepEqual(revokedResponses.map(({ status }) => status), [401, 401]);
-  assert.ok(revokedResponses.every(({ body }) => /Not authenticated/.test(body)));
+  assert.ok(revokedResponses.every(({ body }) => /Inactive or unknown user/.test(body)));
   assert.ok(network.some((response) => response.path === file && response.status === 401));
   assert.ok(network.some((response) => response.path.includes("/thumb/") && response.status === 401));
   console.log(`PASS: real login, visible model image, file/thumbnail 200 then 401; evidence ${output}`);
