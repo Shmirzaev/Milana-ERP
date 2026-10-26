@@ -113,7 +113,13 @@ not appended here. This summary does not replace live release verification.
 - Target: api/routes/ for HTTP, models/ for business services, schemas/ for
   database schema models, libs/dto/<feature>/ for input/update/output contracts,
   libs/enums/ for fixed vocabulary, libs/types/ for distinct internal contracts.
-- Existing services now live in models/*_service.py; services/ was removed.
+- Business services live in `backend/app/models/<group>/*_service.py`;
+  existing shared helpers remain in `backend/app/models/*_service.py`.
+  The old `backend/app/services/` directory was removed. Archived plans and
+  commit-specific bug evidence may still name it; those paths describe history,
+  not where an agent should create or move current code. Follow
+  [the service guide](../backend/app/models/README.md) and
+  [the current source map](REFACTOR_MAP.md).
   The owner then authorized completing namespace separation urgently: the 22 DTO
   files are now in libs/dto/ and 26 SQLAlchemy definition files in schemas/, with
   all callers and ORM registration updated. Table definitions and business rules

@@ -1,5 +1,18 @@
 # Team bug tracker — clone_main
 
+## Current paths and historical evidence
+
+Business services live in `backend/app/models/<group>/*_service.py`, with existing
+shared helpers at `backend/app/models/*_service.py`. Database mappings live in
+`backend/app/schemas/`; write operations belong there, but remaining direct
+service writers are migration debt. Pydantic contracts live in
+`backend/app/libs/dto/<group>/`. Use the [current source map](../docs/REFACTOR_MAP.md)
+and [service guide](../backend/app/models/README.md) when implementing a task.
+Old row references such as `B:services/planning.py` and `services/workflow.py`
+identify the source at the row's recorded commit. They are historical evidence,
+not instructions to recreate a `services/` directory or proof of a current defect.
+New findings must name the actual current path and revision.
+
 ## SALES-LIST-TRUTH-20261027 — fabricated quantity and progress
 
 - **P1 · Candidate, unverified · Ismail. Reviewer: Mirshoir.** Actual coordinator
