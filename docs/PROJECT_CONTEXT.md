@@ -135,6 +135,11 @@ not appended here. This summary does not replace live release verification.
   implementation tasks; skills/docs do not install enforcement or rollback.
 - Recovery targets in [DISASTER_RECOVERY.md](DISASTER_RECOVERY.md) remain requirements,
   not proof of measured capacity. Preserve backups, active/rollback releases and evidence.
+- OPS06 candidate (26 October, Dilmurod; Mirshoir review) adds a local read-only
+  dump/storage pairing verifier with per-file hashes and checks of known database
+  upload references. No production pairing schedule or shared snapshot ID was
+  found; a manifest cannot prove capture-time atomicity or zero RPO. See the
+  [OPS06 record](archive/OPS06_BACKUP_PAIRING_2026-10-26.md).
 
 ## Latest documentation work
 
