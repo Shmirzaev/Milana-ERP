@@ -58,3 +58,25 @@ authorization remain in force. Schema-owned writes, canonical enum contracts and
 all domain ledgers retain their operation-level gates; neither this port nor its
 historical release accepts the whole ERP. See [current context](../PROJECT_CONTEXT.md)
 and [the engineering workflow](../ENGINEERING_WORKFLOW.md).
+
+## Source reconciliation — 27 October 2026
+
+The earlier addendum's missing-source finding is preserved above as historical
+evidence. Local successor `02c25ecf2c8acad55418d86cf5b067fc89307162` now has real
+parents `034cb7884e9fe2338ab621dd8a13a619fa19dd2c` and recorded production
+`439555a77ef583b1b212398e16ecd52ced786e45`; its tree is
+`a44364d139f41c1ee13c449f3db8e345337ced4b`. It includes independently reviewed
+QR, Besttex and grade-weight compatibility ports, the exact released migration
+0149 and the invoice port. All 36 release paths were accounted for. Seven merge
+conflicts were resolved explicitly, retaining current schema/service/DTO imports
+and newer release metadata; two duplicate legacy modules were removed because
+their implementations are preserved at the reviewed current paths. The merge
+adds only two historical archive documents to the accepted premerge tree;
+backend, frontend and CI bytes are unchanged by the ancestry merge.
+
+This is a local source reconciliation, not a shared-branch push, deployment,
+migration execution or live production check. No QA or production migration was
+applied. Combined technical checks, actual successor browser/readback/stress,
+human acceptance and live release gates remain separate and pending. The earlier
+source gap is closed for these exact Git inputs; current production state and
+the full refactor's remaining operation ledger are not declared complete.

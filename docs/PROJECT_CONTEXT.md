@@ -11,7 +11,7 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Updated 2026-10-26. Keep this file short: current decisions, release pointers and
+Updated 2026-10-27. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
@@ -40,12 +40,16 @@ not appended here. This summary does not replace live release verification.
   This successor candidate is **not deployed, not AI-verified and not human-approved**.
   The prior invoice-only production release does not accept or deploy the refactor.
 - `deploy/production-base.json` carries the imported release assertion above.
-  This candidate lacks migration `0149_besttex_cutting_access`; its listed Alembic
-  revisions end at `0148_second_grade_packages`. Exact release-source ancestry,
-  newer factory fixes, migration chain, manifests and slots remain under reconciliation.
-  The six-file PR310 port does not establish their presence in this candidate.
-  This is a release-reconciliation gap, not a diagnosed production fault or authority
-  to add a migration. See the [integration addendum](archive/INVOICE_READABILITY_2026-10-26.md#integration-addendum--26-october-2026).
+  Local successor merge `02c25ecf2c8acad55418d86cf5b067fc89307162` has actual
+  parents `034cb788` and recorded production `439555`; all 36 released paths were
+  reconciled, retaining reviewed namespace ports and both historical release records.
+  It includes released QR pictures, Besttex views, grade weights and the exact
+  migration `0149_besttex_cutting_access`. The migration has not been applied to QA
+  or production by this review. Customer permissions, Finance payment forms and
+  truthful Sales list totals have independent technical reviews; combined checks
+  and actual successor browser replay remain required. Live manifests, slots and
+  database revision have not been reverified. See the
+  [integration addendum](archive/INVOICE_READABILITY_2026-10-26.md#source-reconciliation--27-october-2026).
 - The earlier `20261024_032622` deployment recorded an initial performance failure and rollback, followed
   by reactivation of the same images; public-path tail variation remains unresolved.
   The owner waived the timed observation period. The archive preserves all attempts.
