@@ -1,5 +1,18 @@
 # Enums: stable business vocabulary
 
+## Guidance publication and runtime scope
+
+26 October 2026: these engineering rules were published on `clone_main`
+through `b92ee8ff109d47e573ff4e506267500a9db1f649`. That documentation-only
+publication did not integrate the runtime candidate in
+[draft PR #308](https://github.com/Shmirzaev/Milana-ERP/pull/308).
+This candidate reconciles those published rules with the grouped services,
+entity-named DTOs and scoped enum corrections. Historical test results belong
+to their recorded revisions; they do not verify this combined candidate.
+Remaining legacy/root services, mixed DTO files, schema-owned writers and
+full enum/type adoption stay in the operation ledger. Browser and human
+acceptance are separate gates.
+
 **Coordination owner:** Ismail. **Reviewer:** Mirshoir.
 Shavkat confirms business meanings; feature owners update callers. See [team ownership](../../../../docs/TEAM_OWNERSHIP.md).
 

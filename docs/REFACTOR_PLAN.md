@@ -3,11 +3,23 @@
 Use the [whole-ERP coverage ledger](REFACTOR_COVERAGE.md) for all 97 tables, 1,303 fields,
 named owners and the next operation in every domain. Discovery is not acceptance.
 
-Scope correction, 26 October 2026: service/DTO extraction across the six Ismail
-groups is implemented and verified. Ismail's assignment is **not complete**:
-RF-011 enum work currently covers InvoiceStatus only; other shared fixed values
-still require inventory, caller migration and compatibility verification. This
-remaining work was part of Ismail's assignment, not a newly added requirement.
+## Guidance publication and runtime scope
+
+The 26 October guidance publication on `clone_main` at `b92ee8f` was
+documentation-only; it did not integrate the runtime candidate in
+[draft PR #308](https://github.com/Shmirzaev/Milana-ERP/pull/308). Later integration
+candidates contain application changes that require their own exact-source evidence.
+Historical results below belong to their named snapshots, not automatically to
+this checkout, a new combined candidate or deployed production. Inspect current
+code and the operation ledger before advancing a gate. Schema-owned writers,
+system-wide enum/type adoption and human acceptance remain incomplete.
+
+Historical scope correction, 26 October 2026: the earlier six-area checkpoint
+verified service/DTO extraction and initial InvoiceStatus centralization, not
+the system-wide enum/schema-writer goal. Ismail's assignment is **not complete**.
+Later candidates have separate operation records in the coverage ledger; an
+old InvoiceStatus-only description is not a current consumer inventory. Remaining
+work was part of Ismail's assignment, not a newly added requirement.
 
 The owner's latest explicit schema-owned write/update requirement is also
 unfinished. Services must call persistence operations in the existing schema
@@ -38,22 +50,25 @@ Track enum conversion, deliberately retained contracts and unresolved type decis
 separately. An enum-backed string default preserves compatibility but does not
 make an open DTO field or an internal dictionary a fully typed contract.
 
-Updated 25 October 2026. The owner authorized moving services into models/, then completing
+Historical extraction checkpoint, recorded at `3cdd6808ff7ced0717f337d17d4e530719d4a86f`.
+The owner authorized moving services into models/, then completing
 DTO separation into libs/dto/ and database definitions into schemas/ urgently.
 The owner then authorized all six Ismail areas (catalog, purchasing, sales,
 inventory, planning, finance) as parallel candidate work. Their implementations
-are now combined locally for draft PR #308, with entity-named DTOs and grouped
-business services. [The source map](REFACTOR_MAP.md#service-destinations) lists the
-actual modules. MiniMax M3.1-Flash implemented them; Codex integrates and verifies.
+were combined for that draft PR #308 checkpoint, with entity-named DTOs and grouped
+business services. [The source map](https://github.com/Shmirzaev/Milana-ERP/blob/3cdd6808ff7ced0717f337d17d4e530719d4a86f/docs/REFACTOR_MAP.md#service-destinations) lists the
+modules at that revision. MiniMax M3.1-Flash implemented those extractions.
+The later Codex-subagent execution authorization in AGENTS.md governs remaining work.
 Finance/Purchasing/Sales passed 397 affected tests with zero skips; Planning and
 Finance paging passed another 206, including real PostgreSQL. Final affected
 coverage passed 694 cases plus 18 recovered from Windows temp-directory setup
 errors, with zero skips, and two separate PostgreSQL stock races passed. Actual
 six-area UI flows, persisted readback and bounded stress passed. Counts overlap
 between suites; they are not one summed test run. See the [candidate evidence and
-human checklist](archive/ISMAIL_SIX_AREA_REFACTOR_2026-10-25.md) for limits and CI status.
-The complete API and table DDL remain identical (577 routes, 475 documented paths,
-97 mapped tables).
+human checklist](https://github.com/Shmirzaev/Milana-ERP/blob/3cdd6808ff7ced0717f337d17d4e530719d4a86f/docs/archive/ISMAIL_SIX_AREA_REFACTOR_2026-10-25.md) for limits and CI status.
+That checkpoint's API/table DDL parity covered 577 routes, 475 documented paths
+and 97 mapped tables. These results do not certify later enum/OpenAPI changes,
+schema-owned writers or the combined candidate's visual acceptance.
 Production deployment has not started through this task.
 clone_main is the shared production branch. Multitenancy remains deferred.
 This replaces the earlier plan's branch-level definition of Done with human

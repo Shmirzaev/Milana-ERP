@@ -135,7 +135,10 @@ Use [docs/TEAM_OWNERSHIP.md](docs/TEAM_OWNERSHIP.md) to name the engineer and re
 before editing. [docs/AGENT_SKILLS.md](docs/AGENT_SKILLS.md) explains team invocation.
 Both skills are versioned with the source; never substitute a personal copy of old rules.
 Business services live in backend/app/models/<group>/*_service.py; existing shared
-helpers may remain directly under models/. SQLAlchemy definitions
+helpers remain directly under models/ where the reviewed candidate still uses them.
+The earlier clone_main documentation publication at b92ee8f did not integrate
+draft PR #308. Inspect the current candidate's exact code and operation ledger;
+publishing or merging guidance is not runtime verification. SQLAlchemy definitions
 and registration live in backend/app/schemas/; Pydantic contracts live in
 backend/app/libs/dto/<business-group>/. The namespace separation is implemented.
 Do not recreate services/, put ORM mappings in models/, or put DTOs in schemas/.

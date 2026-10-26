@@ -279,3 +279,10 @@ Research reviewed 26 October 2026. Ismail's ordered gates and human visual appro
 are owner requirements; the sources inform their implementation. This Markdown
 update does not install hooks, CI checks or a database audit tool, and does not
 claim any current runtime candidate has passed these gates.
+
+The [boundary-audit script](../backend/scripts/audit_refactor_boundaries.py) is
+present in both clone_main at `b92ee8f` and this candidate. Its earlier source is
+also recorded in [PR #308 at this revision](https://github.com/Shmirzaev/Milana-ERP/blob/3cdd6808ff7ced0717f337d17d4e530719d4a86f/backend/scripts/audit_refactor_boundaries.py).
+Verify the tool's actual source and supported checks before running it. Presence
+or publication does not prove execution or a pass, and missing automation in
+another checkout does not waive manual writer tracing.

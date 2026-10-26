@@ -1,5 +1,16 @@
 # Milana ERP: current working context
 
+## Guidance publication and runtime scope
+
+The 26 October guidance publication on `clone_main` at `b92ee8f` was
+documentation-only; it did not integrate the runtime candidate in
+[draft PR #308](https://github.com/Shmirzaev/Milana-ERP/pull/308). Later integration
+candidates contain application changes that require their own exact-source evidence.
+Historical results below belong to their named snapshots, not automatically to
+this checkout, a new combined candidate or deployed production. Inspect current
+code and the operation ledger before advancing a gate. Schema-owned writers,
+system-wide enum/type adoption and human acceptance remain incomplete.
+
 Updated 2026-10-26. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
@@ -48,11 +59,12 @@ not appended here. This summary does not replace live release verification.
   and the [remaining-domain ledger](REFACTOR_COVERAGE.md#remaining-work-by-domain).
   This is an execution change, not a new verification or completion claim.
 
-- Scope correction, 26 October: the six-area service/DTO extraction is complete
-  in the draft candidate, but Ismail's full assignment remains incomplete.
-  RF-011 has only centralized InvoiceStatus so far. The remaining fixed-value
-  inventory, enum callers and compatibility checks are active work; the earlier
-  overall completion claim was too broad. Production/business acceptance remains separate.
+- Historical scope correction, 26 October: the earlier six-area extraction
+  checkpoint covered service/DTO placement and only the initial InvoiceStatus
+  centralization. It did not complete Ismail's assignment. Subsequent enum and
+  writer candidates must be assessed from their own operation records in the
+  [coverage ledger](REFACTOR_COVERAGE.md); the old completion claim was too broad.
+  Production/business acceptance remains separate.
 - The owner's required unit is one business operation: study old behavior and
   callers, classify all relevant table/field/type candidates, implement, then
   automated checks -> actual visual E2E -> persisted readback/bounded stress ->
@@ -84,17 +96,19 @@ not appended here. This summary does not replace live release verification.
   all callers and ORM registration updated. Table definitions and business rules
   are unchanged. See the plan's verification record for actual checks/limitations.
 - The owner authorized all six Ismail areas (catalog, purchasing, sales, inventory,
-  planning, finance) as parallel candidate work. This tree now combines their
-  grouped services and entity-named DTOs for draft PR #308. The current modules
-  are listed in [the source map](REFACTOR_MAP.md#service-destinations). Existing
+  planning, finance) as parallel candidate work. The historical `3cdd6808` checkpoint
+  for draft PR #308 combined their grouped services and entity-named DTOs. Its modules
+  are listed in [the source map](https://github.com/Shmirzaev/Milana-ERP/blob/3cdd6808ff7ced0717f337d17d4e530719d4a86f/docs/REFACTOR_MAP.md#service-destinations). Existing
   shared helpers remain at models/ root. Finance/Purchasing/Sales passed 397
   tests with zero skips; Planning/Finance paging passed 206, including real PG.
   Final affected coverage passed 694 cases plus 18 recovered from Windows temp
   permission setup errors, with zero skips, and two separate PG stock races passed.
   Actual six-area UI flows, persisted readback and bounded stress passed; see
-  [the candidate record and human checklist](archive/ISMAIL_SIX_AREA_REFACTOR_2026-10-25.md).
-  The full API and table DDL are identical (577 routes, 475 paths, 97 tables). Mirshoir's
-  review and Shavkat's business acceptance remain; no merge or deployment is claimed.
+  [the candidate record and human checklist](https://github.com/Shmirzaev/Milana-ERP/blob/3cdd6808ff7ced0717f337d17d4e530719d4a86f/docs/archive/ISMAIL_SIX_AREA_REFACTOR_2026-10-25.md).
+  At that checkpoint, API/table DDL parity covered 577 routes, 475 paths and 97 tables.
+  These historical checks do not verify later enum/OpenAPI or schema-writer changes.
+  Mirshoir's review and Shavkat's business acceptance remain separately recorded gates;
+  no current candidate visual pass or production deployment is claimed here.
 - Humans decide business policy, interfaces and cutover; AI implements approved
   scope. Multitenancy is deferred. No deletion quota or table-per-service requirement.
 

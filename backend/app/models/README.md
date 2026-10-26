@@ -1,5 +1,16 @@
 # Models: business services and working discipline
 
+## Guidance publication and runtime scope
+
+The 26 October guidance publication on `clone_main` at `b92ee8f` was
+documentation-only; it did not integrate the runtime candidate in
+[draft PR #308](https://github.com/Shmirzaev/Milana-ERP/pull/308). Later integration
+candidates contain application changes that require their own exact-source evidence.
+Historical results below belong to their named snapshots, not automatically to
+this checkout, a new combined candidate or deployed production. Inspect current
+code and the operation ledger before advancing a gate. Schema-owned writers,
+system-wide enum/type adoption and human acceptance remain incomplete.
+
 **Coordination owner:** Mirshoir. **Reviewer:** Ismail.
 
 This is the business-service layer, following Pizza House's models/*.service.ts

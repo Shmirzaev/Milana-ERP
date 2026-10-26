@@ -3,8 +3,10 @@
 These skills are repository files. Pull the latest clone_main and open an agent
 session in that checkout. No personal skill copy is required. If a running session
 does not list a new skill, reopen it or explicitly ask it to read the path below.
-When guidance is published only on a task branch, use that reviewed branch or wait
-for its authorized integration; a push to a draft PR does not update clone_main.
+Engineering guidance was published on clone_main at b92ee8f without integrating
+the runtime refactor. Later candidate application changes have separate evidence
+and acceptance gates. Pulling rules or seeing a draft PR is not verification of
+the checkout being tested; inspect its exact source and operation ledger.
 Start with [AGENTS.md](../AGENTS.md) and the [engineering workflow](ENGINEERING_WORKFLOW.md).
 For another AI tool, explicitly provide those paths and require it to state the
 operation, layer responsibilities and evidence gates before implementation.
