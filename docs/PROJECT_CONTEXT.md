@@ -39,6 +39,15 @@ not appended here. This summary does not replace live release verification.
 
 ## Architecture and migration state
 
+- Execution update, 26 October: Ismail explicitly requested "do the rest iwth codex
+  subagents !" Codex subagents now implement the remaining system-wide refactor in
+  isolated owned checkouts; one integrator and a separate independent reviewer
+  retain the operation gates. This supersedes MiniMax-only execution for this task,
+  not human domain ownership, acceptance or release/spending authority. Preserve
+  prior worker source/evidence. See [execution rules](../AGENTS.md#implementation-execution)
+  and the [remaining-domain ledger](REFACTOR_COVERAGE.md#remaining-work-by-domain).
+  This is an execution change, not a new verification or completion claim.
+
 - Scope correction, 26 October: the six-area service/DTO extraction is complete
   in the draft candidate, but Ismail's full assignment remains incomplete.
   RF-011 has only centralized InvoiceStatus so far. The remaining fixed-value

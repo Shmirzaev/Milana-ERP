@@ -44,22 +44,25 @@ do not count as passes. Documentation-only changes record runtime gates as not a
 
 ## Implementation sessions
 
-MiniMax M3.1-Flash performs implementation; Codex orchestrates, integrates,
-independently reviews and tests visually. Run two MiniMax sessions and
-request up to three scoped subagents per session (six total) when the runtime
-supports it, with separate work directories and disjoint file ownership. A
-session reports its actual model, the workers it started, the changed paths
-and the checks it ran.
+The current remaining refactor uses **Codex subagents**, explicitly requested by
+Ismail on 26 October 2026. This supersedes the former MiniMax-only restriction for
+this task; use [the execution agreement](../AGENTS.md#implementation-execution).
+It grants no new MiniMax credit, paid-usage or release authorization. Preserve
+existing worker checkouts and immutable evidence during the handoff.
 
-Codex owns integration, independent review, visual E2E and bounded stress;
-human engineering and business review, and the deployment gates in
-[DEPLOYMENT.md](../DEPLOYMENT.md), remain. Session capacity, speed and token
-cost (free or unlimited tokens) are not permanently verified facts; observe
-them per run. If MiniMax is unavailable or a worker is stuck, report the
-blocker and recover or reassign inside MiniMax. Do not silently substitute
-Codex for implementation.
+Each worker receives the old-operation trace, named human owner/reviewer, exact
+source, isolated checkout, allowed files, typed public seam and success/refusal
+examples. Require its handoff to show mentor-reference-to-Milana call/type mappings,
+all direct/indirect writers and enum/DTO/internal/frontend consumers. The reference
+is separation and discipline, not permission to copy another product's policies.
 
-The owner authorized all six Ismail areas—catalog, purchasing, sales, inventory,
-planning and finance—as parallel candidate work. This authorization covers
-implementation and review in isolated work directories. Human review,
-production acceptance and release gates remain separate.
+One integrator reconciles overlapping files and freezes the combined revision.
+A different agent independently challenges the implementation/tests. The actual
+connected-browser visual checks, saved-data readback and applicable integrity,
+recovery and concurrency checks still precede `AI_VERIFIED_AWAITING_HUMAN`.
+Named human visual/technical approval remains separately pending.
+
+The [whole-system ledger](REFACTOR_COVERAGE.md) includes all 13 discovered domains
+and non-persisted contracts. Six-area pilots are incremental steps, not the scope
+limit. Owners and public-interface decisions in [team ownership](TEAM_OWNERSHIP.md)
+remain in force; record unresolved decisions without blocking independent work.
