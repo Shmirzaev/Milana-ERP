@@ -216,6 +216,12 @@ def list_recent_invoices(
                 "order_no": so.order_no,
                 "customer": customer.name if customer else None,
                 "amount": float(invoice.amount or 0),
+                # Same nonnegative due projection as the customer ledger. The
+                # payment total may exceed the invoice; that remains credit.
+                "balance_due": float(round(max(
+                    money_decimal(invoice.amount) - money_decimal(paid_by_invoice.get(invoice.id, 0)),
+                    Decimal(0),
+                ), 2)),
                 "status": invoice_payment_status(
                     invoice.amount, paid_by_invoice.get(invoice.id, 0), invoice.status
                 ).value,

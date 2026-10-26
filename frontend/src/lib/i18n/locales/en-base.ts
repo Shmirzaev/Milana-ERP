@@ -1913,7 +1913,7 @@ export default {
     "page.finance.recentInvoices": "Recent Invoices",
     "page.finance.noInvoices": "No invoices yet.",
     "page.finance.recordPayment": "Record Payment",
-    "page.finance.recordPaymentConfirm": "Record payment and mark {invoice} as paid?",
+    "page.finance.recordPaymentConfirm": "Record a payment of {amount} for {invoice}?",
     "page.finance.revenueOverTime": "Revenue over time",
     "page.finance.noRevenueData": "No revenue data in selected range.",
     "page.finance.costBreakdown": "Cost breakdown",

@@ -1787,7 +1787,7 @@ export default {
     "page.finance.recentInvoices": "Oxirgi hisob-fakturalar",
     "page.finance.noInvoices": "Hali hisob-faktura yo'q.",
     "page.finance.recordPayment": "To'lov yozish",
-    "page.finance.recordPaymentConfirm": "To'lovni yozib, {invoice} ni to'langan deb belgilaysizmi?",
+    "page.finance.recordPaymentConfirm": "{invoice} uchun {amount} miqdoridagi to'lovni qayd etasizmi?",
     "page.finance.revenueOverTime": "Davrlar bo'yicha tushum",
     "page.finance.noRevenueData": "Tanlangan oraliqda tushum ma'lumoti yo'q.",
     "page.finance.costBreakdown": "Xarajatlar taqsimoti",
