@@ -1,8 +1,34 @@
 # Production execution
 
 Business-service group guide, relocated into models/ on 24 October 2026. This
-directory remains README-only; existing implementations are the *_service.py files
-linked below. The proposed files describe later approved operation extractions.
+directory contains the released Besttex read-only compatibility service below;
+other existing implementations remain the *_service.py files linked below.
+The proposed files describe later approved operation extractions.
+
+## Besttex read-only compatibility operation
+
+`GET /api/besttex/cutting-orders` and `GET /api/besttex/cutting-orders/{record_id}/sheet`
+delegate to [besttex_cutting_service.py](besttex_cutting_service.py). The coordinator
+authorized porting this released operation from recorded production source
+`439555a77ef583b1b212398e16ecd52ced786e45`, including grouped order/photo projections.
+HTTP contracts live in [besttex_cutting_output.py](../../libs/dto/production/besttex_cutting_output.py).
+
+Preserve `besttex.cutting_sheets`, selected-factory BST restriction/admin access,
+exact batch and bundle ownership, approved positive cutting output, pagination,
+escaped search, garment-family versus exact-variant photo identity and read-only
+printing. Both entry points use the supplied Session and existing public renderer;
+they own no writes or commits. Authentication's existing last-seen behavior is not
+manufacturing mutation. Migration `0149_besttex_cutting_access` is separately
+carried unchanged; adding the file is not authorization to apply it to a live DB.
+
+Output strings are configurable identifiers, labels, references, image URLs and
+size summaries, not status enums. Existing Production/WorkOrder/Bundle status and
+operation predicates remain released literals in this compatibility slice; their
+canonical enum conversion remains in Mirshoir's Production operation ledger.
+This port does not complete Production, migration deployment or visual acceptance.
+Run `test_besttex_cutting_sheets.py`, permission/access regressions and the dedicated
+PostgreSQL lock/retry rehearsal; independently inspect the actual list, denied
+roles, grouped photos and print sheets before human review.
 
 **Purpose:** Own production orders, work orders and manufacturing-stage rules: cutting, printing, sewing, bundle handoffs and quality evidence.
 

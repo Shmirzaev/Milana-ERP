@@ -21,6 +21,7 @@ type RouteGuard = {
 };
 
 const ROUTE_GUARDS: RouteGuard[] = [
+  { prefix: "/besttex/cutting-orders", perms: ["besttex.cutting_sheets"] },
   { prefix: "/dashboards/cutting", perms: ["cutting.records", "cutting.bundles", "planning.production", "*"] },
   { prefix: "/dashboards/printing", perms: ["printing.records", "printing.bundles", "planning.production", "*"] },
   { prefix: "/dashboards/warehouse", perms: ["storage.packages", "storage.shipment", "*"] },
@@ -104,6 +105,7 @@ function routeMatches(pathname: string, guard: RouteGuard) {
 }
 
 function hasRouteAccess(me: ReturnType<typeof useMe>["me"], pathname: string) {
+  if (pathname === "/besttex/cutting-orders") return can(me, "besttex.cutting_sheets") && (me?.factory_code === "BST" || can(me, "*"));
   if (isSewingRole(me)) return isSewingWorkspacePath(pathname);
   const guard = ROUTE_GUARDS.find((entry) => routeMatches(pathname, entry));
   if (!guard) return true;
@@ -120,7 +122,8 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const { me, error, loading, hasToken, refresh } = useMe();
   const { t } = useT();
   const [factorySwitchError, setFactorySwitchError] = useState("");
-  const redirectRestrictedSewingRole = Boolean(me && isSewingRole(me) && !isSewingWorkspacePath(pathname));
+  const redirectRestrictedSewingRole = Boolean(me && isSewingRole(me) && !isSewingWorkspacePath(pathname)
+    && !(pathname === "/besttex/cutting-orders" && hasRouteAccess(me, pathname)));
   const restrictedSewingHome = sewingWorkspaceHome(me);
   const factoryHome = isSewingRole(me)
     ? restrictedSewingHome
