@@ -31,7 +31,7 @@ Verified against remote `clone_main` at [`418d5215`](https://github.com/Shmirzae
 | --- | --- | --- |
 | **API02** | Dilmurod | Validate task states, dates and references; enforce permission/factory scope and reference locks. |
 | **SEC04** | Dilmurod | Reject disabled/revoked sessions downloading model files; release the authentication connection before streaming. A pushed branch is not merged delivery. |
-| **OPS05** | Dilmurod | Probe PostgreSQL and the required shared store within one bounded readiness deadline. |
+| **OPS05** | Dilmurod | Candidate implemented; automated checks passed; gates 3/4 BLOCKED. [Evidence](../docs/archive/OPS05_READINESS_2026-10-26.md). |
 | **OPS06** | Dilmurod | Verify paired database/upload backup identities and missing, changed or extra files. |
 | **OPS08** | Dilmurod | Complete runtime/dependency hardening, token compatibility checks and fresh dependency/image security scans. |
 
@@ -248,7 +248,7 @@ The Tracking cells below retain the per-task assignments and history; refer to s
 
 | 51 | **FN07-HR-SALARY** | Employee salary values lack storage validation. | Reject nonfinite, negative and column-overflow employee salaries before create/update. | `B:api/routes/hr.py:21`; `15833133`, `dd03309c` | Open · Dilmurod |
 
-| 52 | **OPS05** | Readiness ignores a failed required shared store. | Probe PostgreSQL and required shared store under one bounded, single-flight readiness deadline. | `B:main.py:499`; `c275be7` | Open · Dilmurod |
+| 52 | **OPS05** | Readiness ignores a failed required shared store. | Probe PostgreSQL and required shared store under one bounded, single-flight readiness deadline. | `B:main.py`; donor `c275be7`; [candidate evidence](../docs/archive/OPS05_READINESS_2026-10-26.md) | Blocked · Dilmurod; gates 3/4 and review pending |
 
 | 53 | **OPS06** | Recovery tooling cannot verify paired database/upload backups. | Add paired DB/upload manifest verification for dump identity and missing/changed/extra files. | `scripts/storage_recovery_manifest.py (missing)`; `13f5994` | Open · Dilmurod |
 
