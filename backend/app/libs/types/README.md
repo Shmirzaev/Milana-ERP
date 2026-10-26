@@ -22,7 +22,8 @@ types discipline without duplicating the existing Pydantic schemas.
 ## Keep the existing responsibilities
 
 - `app/libs/dto/<feature>/` contains Pydantic input, update and output DTOs.
-- `app/schemas/` contains SQLAlchemy database definitions and registration.
+- `app/schemas/` contains SQLAlchemy definitions, registration and schema-owned
+  persistence operations; the outer business service coordinates the transaction.
 - `app/libs/enums/` is the home for fixed vocabulary as approved operations adopt it.
 - `app/models/*_service.py` implements business operations and their runtime rules.
 
@@ -31,6 +32,14 @@ types discipline without duplicating the existing Pydantic schemas.
 - Add an internal type only for a real shared contract; do not mirror every
   schema or database table here.
 - Use precise fields instead of arbitrary dictionaries for known data shapes.
+- A field representing a known fixed business vocabulary uses its canonical enum
+  annotation, including nested command/result types. Repeated string Literals,
+  `str`, `Any`, or `Enum | str` do not complete the system-wide enum adoption target.
+  Keep action subsets and legitimate optionality explicit without widening values.
+- Reuse DTOs or mapped objects where they already express the needed contract;
+  introduce a distinct internal command/result when the operation really needs one.
+  Add or refine the actual producer and consumer annotations together, not unused
+  type declarations that leave the real call boundary as an unstructured dictionary.
 - Type annotations alone do not validate external input or enforce permissions.
 - Do not put database queries, transaction management, or HTTP handling here.
 - Do not create interfaces for every concrete service or a second DTO hierarchy.

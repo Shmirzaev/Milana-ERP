@@ -3,7 +3,60 @@
 These instructions apply to the entire Milana ERP repository and every clean
 worktree created from it.
 
+Start implementation/review with the [engineering workflow](docs/ENGINEERING_WORKFLOW.md):
+it defines each layer, schema-owned writes, system-wide enum/type adoption and
+the per-operation AI-then-human gates. Keep folder guides consistent with it.
+
+## Owner's required work cycle
+
+26 October 2026: Ismail reaffirmed this workflow after an agent omitted enum work
+and claimed completion. Preserve his direct instructions and accepted corrections
+in the task record; a summary, old completion claim or worker brief cannot remove scope.
+
+Work **one business operation at a time**:
+
+1. Study the old source and complete affected behavior: routes, services, every
+   caller, DTOs, database definitions/values, permissions and downstream handoffs.
+2. Inventory every relevant value/type and move the approved operation to its
+   correct existing layer. Track converted, intentionally retained and unresolved items.
+3. Pass meaningful automated checks on the candidate, then use the user's connected
+   computer/browser to visually exercise the actual website, inspect screenshots,
+   reopen the records and check persisted database effects and adjacent workflows.
+4. Run the bounded relevant stress/integrity/recovery checks. A missing required
+   test, browser or database check is BLOCKED; do not claim a pass.
+5. Only after independent AI review and all required evidence passes, mark
+   **AI_VERIFIED_AWAITING_HUMAN**. Supply the human's local visual checklist and wait
+   for recorded human review. This state is not approval to merge, deploy or retire paths.
+
+Use [VERIFICATION.md](docs/VERIFICATION.md) for the task packet, evidence and human
+gate. Audit enums/types [table by table](backend/app/libs/enums/README.md#table-by-table-audit),
+not by file/class count. Parallel workers may own disjoint operations; overlapping
+operations have one writer and must pass combined verification. Never call an
+entire area complete while its operation/type ledger contains unexplained gaps.
+
 ## Required context
+
+### Schema-owned writes: owner's explicit target, 26 October 2026
+
+Ismail requires routes -> business services -> schema-model persistence operations.
+The earlier namespace move did not implement this boundary. Services keep business
+rules, permissions, calculations and one outer transaction; schema-owned operations
+perform inserts, updates and deletes using that same supplied Session. Include mapped
+attribute/relationship mutations, indirect writers, audit, notifications and idempotency
+in the operation trace. Persistence helpers must not commit, change lock order, import
+services/routes or introduce a generic CRUD framework. Preserve business values and
+storage; identify and test intentional typed-contract changes described below.
+Migrate and verify one complete operation before broad enum/type adoption;
+do not claim all schemas or all system-wide enums are complete from moved files.
+
+The owner's system-wide mentor-discipline goal requires actual canonical Enum
+annotations in fixed-vocabulary DTOs and internal types, used consistently by
+schema defaults/constraints, services and relevant consumers. An enum-backed
+default on str/Any or Enum|str does not satisfy it. Preserve business values,
+normalization and action subsets; document/test intentional API-schema or validation
+changes required for real typing instead of retaining str only for OpenAPI parity.
+Configurable/free-form fields remain appropriate data types. The six Ismail pilots
+are rollout units; remaining domains retain named owners and pending coverage.
 
 Before a substantial change, read `docs/PROJECT_CONTEXT.md` and
 `DEPLOYMENT.md`. For a narrow question, read their relevant sections. Do not
@@ -81,7 +134,9 @@ For new or extended features, use [.agents/skills/milana-feature/SKILL.md](.agen
 Use [docs/TEAM_OWNERSHIP.md](docs/TEAM_OWNERSHIP.md) to name the engineer and reviewer
 before editing. [docs/AGENT_SKILLS.md](docs/AGENT_SKILLS.md) explains team invocation.
 Both skills are versioned with the source; never substitute a personal copy of old rules.
-Business services live in backend/app/models/*_service.py. SQLAlchemy definitions
+Target business services live in backend/app/models/<group>/*_service.py.
+This clone_main documentation update does not integrate draft PR #308; current
+root services and mixed DTOs remain until their reviewed operation is migrated. SQLAlchemy definitions
 and registration live in backend/app/schemas/; Pydantic contracts live in
 backend/app/libs/dto/<business-group>/. The namespace separation is implemented.
 Do not recreate services/, put ORM mappings in models/, or put DTOs in schemas/.
@@ -93,6 +148,24 @@ Use [bugs/bugs.md](bugs/bugs.md) for active/unverified work. Move entries to
 [bugs/finished_bugs.md](bugs/finished_bugs.md) only after recorded human production
 verification. Preserve stable IDs and historical evidence. Markdown guidance is
 not a substitute for meaningful tests, required CI and independent review.
+
+## Implementation execution
+
+- MiniMax M3.1-Flash performs implementation. Codex orchestrates, integrates,
+  independently reviews, and tests visually.
+- Use two MiniMax implementation sessions, each requesting up to three scoped
+  subagents (six total), when the runtime supports it. Give them separate working
+  directories and disjoint file ownership.
+- Each session reports its actual model, workers started, changed paths, and
+  checks run.
+- Codex owns integration, independent review, visual E2E, and bounded stress.
+  Human engineering and business review, and the deployment gates, remain.
+- Session capacity, speed, and token cost (for example free or unlimited
+  tokens) are not permanently verified facts; treat them as capacity to
+  observe per run.
+- If MiniMax is unavailable or a worker is stuck, report the blocker and
+  recover or reassign inside MiniMax. Do not silently substitute Codex for
+  implementation.
 
 ## Verification gates
 

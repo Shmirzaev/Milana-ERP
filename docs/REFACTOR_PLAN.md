@@ -1,8 +1,68 @@
 # Milana refactor: team agreement and execution plan
 
-24 October 2026. The owner authorized moving services into models/, then completing
-DTO separation into libs/dto/ and database definitions into schemas/ urgently. Business-logic extraction and production deployment
-have not started through this task.
+## Guidance publication and runtime scope
+
+26 October 2026: these engineering rules are published on `clone_main`.
+This documentation-only update does not integrate the runtime candidate in
+[draft PR #308](https://github.com/Shmirzaev/Milana-ERP/pull/308). References
+below to its six grouped-service extractions, entity-named DTOs, InvoiceStatus
+or candidate test results describe that separate branch, not code newly
+present or verified on `clone_main`. The shared checkout still contains
+legacy/root services and mixed DTO files. Schema-owned writers and full
+enum/type adoption remain incomplete across the ERP.
+
+Scope correction, 26 October 2026: service/DTO extraction across the six Ismail
+groups is implemented and verified. Ismail's assignment is **not complete**:
+RF-011 enum work currently covers InvoiceStatus only; other shared fixed values
+still require inventory, caller migration and compatibility verification. This
+remaining work was part of Ismail's assignment, not a newly added requirement.
+
+The owner's latest explicit schema-owned write/update requirement is also
+unfinished. Services must call persistence operations in the existing schema
+domain using the same Session, retaining business rules/permissions and one outer
+transaction. Trace mapped/relationship mutations and shared audit, notifications
+and idempotency; preserve hooks, locks and rollback. Namespace separation alone
+did not implement this target. Complete and verify a whole operation before broad
+enum/type adoption. Six-area worker coverage is not system-wide enum completion.
+
+The owner's system-wide goal includes real canonical Enum annotations in DTOs
+and genuine internal types, consistently used by schema defaults/constraints,
+services and all relevant consumers. Enum-valued defaults on str/Any or Enum|str
+are partial work. Preserve business values, normalization and action subsets;
+identify/test deliberate API-schema or validation changes required by actual enum
+typing. Do not let a byte-identical-OpenAPI check prevent the requested contract.
+The six pilots remain the rollout sequence. Name owners and pending coverage for
+all remaining domains; no declaration count or six-worker report completes the ERP.
+
+Execute the remaining work one business operation at a time, using the
+[durable task packet and ledger](VERIFICATION.md#0-study-the-old-behavior-and-give-the-agent-a-verifiable-task)
+and [table-by-table type audit](../backend/app/libs/enums/README.md#table-by-table-audit).
+Freeze each operation's candidate; preserve already-written later edits separately.
+Automated, actual visual E2E, persisted readback, bounded stress and independent
+review must pass before `AI_VERIFIED_AWAITING_HUMAN`. Wait for the human's recorded
+visual/technical approval; do not equate it with merge or deployment authority.
+Other isolated operations and read-only study can continue while human review is pending.
+Track enum conversion, deliberately retained contracts and unresolved type decisions
+separately. An enum-backed string default preserves compatibility but does not
+make an open DTO field or an internal dictionary a fully typed contract.
+
+Updated 25 October 2026. The owner authorized moving services into models/, then completing
+DTO separation into libs/dto/ and database definitions into schemas/ urgently.
+The owner then authorized all six Ismail areas (catalog, purchasing, sales,
+inventory, planning, finance) as parallel candidate work. Their implementations
+are now combined locally for draft PR #308, with entity-named DTOs and grouped
+business services. [The source map](https://github.com/Shmirzaev/Milana-ERP/blob/3cdd6808ff7ced0717f337d17d4e530719d4a86f/docs/REFACTOR_MAP.md#service-destinations) lists the
+actual modules. MiniMax M3.1-Flash implemented them; Codex integrates and verifies.
+Finance/Purchasing/Sales passed 397 affected tests with zero skips; Planning and
+Finance paging passed another 206, including real PostgreSQL. Final affected
+coverage passed 694 cases plus 18 recovered from Windows temp-directory setup
+errors, with zero skips, and two separate PostgreSQL stock races passed. Actual
+six-area UI flows, persisted readback and bounded stress passed. Counts overlap
+between suites; they are not one summed test run. See the [candidate evidence and
+human checklist](https://github.com/Shmirzaev/Milana-ERP/blob/3cdd6808ff7ced0717f337d17d4e530719d4a86f/docs/archive/ISMAIL_SIX_AREA_REFACTOR_2026-10-25.md) for limits and CI status.
+The complete API and table DDL remain identical (577 routes, 475 documented paths,
+97 mapped tables).
+Production deployment has not started through this task.
 clone_main is the shared production branch. Multitenancy remains deferred.
 This replaces the earlier plan's branch-level definition of Done with human
 production verification before a bug becomes Finished.
@@ -140,7 +200,9 @@ Before each operation, the team records its service name/responsibility, public
 operation, transaction owner, permissions, compatibility promise and rollback choice.
 The user authorized all twelve business-service and database-schema groups as
 guides. Schema groups now contain the relocated definitions where files belong;
-service groups remain guides for later extraction.
+the six Ismail groups now hold candidate implementations; other groups retain
+their guides for later extraction. Technical verification and production acceptance
+are recorded separately from source presence.
 See the [full source/model map](REFACTOR_MAP.md) and [service directory guide](../backend/app/models/README.md).
 Their move into models/ and the existing services' relocation as *_service.py are
 authorized. Agree suggested new operations and ownership transfers before their
@@ -152,12 +214,12 @@ implementation; do not split by endpoint/table/line count merely to match a diag
 | --- | --- | --- |
 | Controller/router | backend/app/api/routes/ | HTTP input/context, service call, response/error mapping. |
 | Service model | backend/app/models/ | Business decisions, authorized CRUD, one transaction owner. |
-| Mongoose schema model equivalent | backend/app/schemas/ | SQLAlchemy definitions and registration; services perform CRUD with a Session. |
+| Mongoose schema model equivalent | backend/app/schemas/ | SQLAlchemy definitions, registration and schema-owned persistence operations; services coordinate CRUD with the supplied Session. Write-boundary migration remains incomplete. |
 | Create / update / read contracts | backend/app/libs/dto/<feature>/ | Existing Pydantic inputs, allowed updates, outputs and action contracts. |
 | Fixed vocabulary | backend/app/libs/enums/ | Explicit serialized values; domain-owned definitions. |
 | Internal shared contracts | backend/app/libs/types/ | Only when a real internal contract needs a type different from a DTO/model. |
 
-The target is Router -> models/*_service.py -> SQLAlchemy schema + Session -> PostgreSQL.
+The target is Router -> models/*_service.py -> schema-owned persistence + supplied Session -> PostgreSQL.
 Pizza House calls its business-service folder models/; we use that name too.
 There is one business-service layer. No separate services/ directory is needed.
 SQLAlchemy mappings now live in schemas/ and Pydantic contracts in libs/dto/.
@@ -222,7 +284,13 @@ per engineer; one writer per shared operation. IDs are plan IDs, not created iss
 The [RF-001 source trace and proposed output interface](../backend/app/models/production/README.md#rf-001-sewing-output-seam-proposal-for-mirshoir)
 are prepared for Mirshoir's decision; this is not RF-005 implementation approval.
 The [RF-011 fixed-value inventory](../backend/app/libs/enums/README.md#rf-011-pilot-inventory-for-ismail-source-84bbc03)
-is prepared for Ismail; it does not convert callers or change storage.
+is prepared for Ismail; the finance work has since converted the enum callers
+(`InvoiceStatus` is imported and used by `app/schemas/sales/sales.py`,
+`app/models/workflow_service.py`, `app/models/payments_service.py`,
+`app/models/shipment_review_service.py`, `app/models/shipment_reopen_service.py`,
+`app/models/finance/invoices_service.py` and
+`app/models/finance/customer_ledger_service.py`), while stored values and
+mappings are unchanged.
 The [RF-012 Sewing contract inventory](../backend/app/libs/dto/production/README.md#rf-012-sewing-record-contract-inventory-source-345b8fa)
 lists the existing create, correction and read shapes; it creates no DTO copies.
 
