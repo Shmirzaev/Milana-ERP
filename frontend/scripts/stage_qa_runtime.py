@@ -76,10 +76,14 @@ def ensure_safe_member(path: str, seen: set[str]) -> None:
     if "\\" in path or ":" in path or path.startswith("/") or path.startswith("//"):
         fail(f"Unsafe archive member path: {path!r}")
     pure = PurePosixPath(path)
-    if pure.is_absolute() or not pure.parts or any(part in ("", ".", "..") for part in pure.parts):
+    if pure.is_absolute() or not pure.parts or any(part in ("", ".", "..") for part in path.split("/")):
         fail(f"Unsafe archive member path: {path!r}")
     folded_parts = []
     for part in pure.parts:
+        if part.casefold() in {"node_modules", "standalone", "cache", ".cache", "__pycache__"}:
+            fail(f"Dependency or cache directory is forbidden: {path!r}")
+        if any(char in '<>"|?*' or ord(char) < 32 or ord(char) == 127 for char in part):
+            fail(f"Windows-invalid archive member: {path!r}")
         if part.endswith((".", " ")) or WINDOWS_RESERVED.fullmatch(part):
             fail(f"Windows-unsafe archive member: {path!r}")
         folded_parts.append(part.casefold())
@@ -90,7 +94,7 @@ def ensure_safe_member(path: str, seen: set[str]) -> None:
     basename = pure.name.casefold()
     if basename.startswith(".env") or basename in SECRET_NAMES:
         fail(f"Secret-like basename is forbidden: {path!r}")
-    if pure.suffix.casefold() in FORBIDDEN_SUFFIXES:
+    if any(suffix.casefold() in FORBIDDEN_SUFFIXES for suffix in pure.suffixes):
         fail(f"Native or executable file is forbidden: {path!r}")
     if basename.endswith((".pem", ".key", ".p12", ".pfx", ".log")):
         fail(f"Secret or log file is forbidden: {path!r}")

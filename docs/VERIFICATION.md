@@ -164,6 +164,25 @@ correct isolated process/environment. SQLite cannot prove PostgreSQL row locking
 Do not invent credentials or print secrets. Report collected, passed, failed and
 skipped tests; a required skipped test leaves its gate BLOCKED, not PASS.
 
+The isolated refactor PostgreSQL workflow runs the required operation groups and
+the separate Purchasing/Fabric supplement from
+`scripts/refactor_pg_required_cases.json`. Review both exact JUnit identity sets,
+source revision, failures/errors/skips and owned database/container cleanup.
+An ordinary regression-suite pass does not replace these PostgreSQL gates.
+
+For the current review branch, CI can also produce a small QA-only frontend
+package after its normal production compile. Its producer is
+`frontend/scripts/stage_qa_runtime.py`; it is restricted to a push on the named
+review branch, loopback API8107 and an empty public API origin. Production-bound
+frontend output must not be reused against local QA. Verify the actual source,
+workflow job, artifact digest, per-file manifest, endpoint configuration and
+existing Windows dependency compatibility before staging it. This selected-file
+package uses the existing pinned dependencies with `next start`; it is not the
+Linux standalone distribution or a production release. Its 20 MiB package limits
+do not lower PostgreSQL/full-build resource gates. Fresh local disk/memory checks,
+runtime identity, actual visual actions and persisted readback remain required;
+a successful build/upload alone earns no visual or human-acceptance status.
+
 ## 3. Visually exercise the real end-to-end workflow
 
 After technical checks, use the connected browser/computer tool against the exact
