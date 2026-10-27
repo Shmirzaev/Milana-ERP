@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import HTTPException, UploadFile
 
 
-SAFE_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+SAFE_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff"}
 SAFE_DOCUMENT_EXTENSIONS = {".pdf", ".dxf", ".ai"}
 
 _CONTENT_TYPES = {
@@ -14,6 +14,9 @@ _CONTENT_TYPES = {
     ".jpeg": "image/jpeg",
     ".webp": "image/webp",
     ".gif": "image/gif",
+    ".bmp": "image/bmp",
+    ".tif": "image/tiff",
+    ".tiff": "image/tiff",
     ".pdf": "application/pdf",
     ".dxf": "application/dxf",
     ".ai": "application/postscript",
@@ -49,6 +52,10 @@ def detected_image_extension(content: bytes) -> str | None:
         return ".gif"
     if len(head) >= 12 and head[:4] == b"RIFF" and head[8:12] == b"WEBP":
         return ".webp"
+    if head.startswith(b"BM"):
+        return ".bmp"
+    if head.startswith((b"II*\x00", b"MM\x00*")):
+        return ".tiff"
     return None
 
 

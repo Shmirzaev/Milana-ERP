@@ -1,9 +1,12 @@
 "use client";
 
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import Link from "next/link";
+import { useRef, useState } from "react";
 import useSWR from "swr";
 import { Check, ClipboardList, PackagePlus, RotateCcw, ShoppingBag, X } from "lucide-react";
 
+import ForecastLineChart from "@/components/ForecastLineChart";
 import PageHeader from "@/components/PageHeader";
 import { statusLabel } from "@/components/StagePipeline";
 import { api, fetcher } from "@/lib/api";
@@ -15,36 +18,76 @@ function qty(value: unknown) {
 }
 
 export default function ForecastingPage() {
-  const { t } = useT();
+  const { lang, t } = useT();
   const { me } = useMe();
   const canManage = can(me, "forecasting.manage");
-  const { data, mutate } = useSWR<any>("/api/forecasting/dashboard", fetcher);
-  const { data: recommendations, mutate: mutateRecommendations } = useSWR<any[]>("/api/forecasting/recommendations", fetcher);
+  const { data, error, isLoading, isValidating, mutate } = useSWR<any>("/api/forecasting/dashboard", fetcher);
+  const { data: recommendations, error: recommendationsError, isLoading: recommendationsLoading, mutate: mutateRecommendations } = useSWR<any[]>("/api/forecasting/recommendations", fetcher);
+  const [actionMessage, setActionMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const actionLock = useRef(false);
+  const canPlan = can(me, "planning.production", "*");
+  async function runAction(action: () => Promise<unknown>, success?: string) {
+    if (actionLock.current) return;
+    actionLock.current = true;
+    setBusy(true);
+    setActionMessage("");
+    try {
+      await action();
+      if (success) setActionMessage(success);
+    } catch (error: any) {
+      setActionMessage(error?.message || t("page.forecasting.actionFailed"));
+    } finally {
+      actionLock.current = false;
+      setBusy(false);
+    }
+  }
   const branded = data?.branded_stock_suggestions || [];
-  const reorder = data?.item_reorder_suggestions || [];
+  const reorder = (data?.item_reorder_suggestions || []).filter((row: any) => Boolean(row.model_id));
+  const demandTrend = data?.demand_trend || [];
   const cards = data?.cards || {};
+  const locale = lang === "ru" ? "ru-RU" : lang === "uz" ? "uz-UZ" : "en-US";
+  const demandPoints = demandTrend.map((row: any) => ({
+    label: new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }).format(new Date(`${row.week_start}T00:00:00`)),
+    values: { demand: Number(row.quantity || 0) },
+  }));
+  const variantPoints = branded.slice(0, 8).map((row: any) => ({
+    label: row.size || "-",
+    tooltipLabel: `${row.model_code || row.model_name || "-"} / ${row.color || "-"} / ${row.size || "-"}`,
+    values: {
+      projected: Number(row.projected_demand || 0),
+      available: Number(row.available_quantity || 0),
+      suggested: Number(row.suggested_quantity || 0),
+    },
+  }));
 
   async function saveSuggestion(row: any) {
-    await api.post("/api/forecasting/recommendations", {
-      recommendation_type: row.recommendation_type,
-      model_id: row.model_id || null,
-      item_id: row.item_id || null,
-      brand_id: row.brand_id || null,
-      collection_id: row.collection_id || null,
-      color: row.color || null,
-      size: row.size || null,
-      suggested_quantity: Number(row.suggested_quantity || 0),
-      unit: row.unit || "pcs",
-      confidence: row.confidence || null,
-      reason: row.reason || null,
-      source_json: row,
-    });
-    await mutateRecommendations();
+    if (!canManage) return;
+    await runAction(async () => {
+      await api.post("/api/forecasting/recommendations", {
+        recommendation_type: row.recommendation_type,
+        model_id: row.model_id || null,
+        item_id: row.item_id || null,
+        brand_id: row.brand_id || null,
+        collection_id: row.collection_id || null,
+        color: row.color || null,
+        size: row.size || null,
+        suggested_quantity: Number(row.suggested_quantity || 0),
+        unit: row.unit || "pcs",
+        confidence: row.confidence || null,
+        reason: row.reason || null,
+        source_json: row,
+      });
+      await mutateRecommendations();
+    }, t("page.forecasting.saved"));
   }
 
   async function setRecommendationStatus(id: number, status: "accepted" | "dismissed" | "converted") {
-    await api.patch(`/api/forecasting/recommendations/${id}`, { status });
-    await mutateRecommendations();
+    if (!canManage) return;
+    await runAction(async () => {
+      await api.patch(`/api/forecasting/recommendations/${id}`, { status });
+      await mutateRecommendations();
+    }, t("page.forecasting.updated"));
   }
 
   return (
@@ -52,14 +95,42 @@ export default function ForecastingPage() {
       <PageHeader
         title={t("page.forecasting.title")}
         subtitle={t("page.forecasting.subtitle")}
-        actions={<button className="btn" onClick={() => mutate()}><RotateCcw />{t("btn.refresh")}</button>}
+        actions={<button className="btn" disabled={busy || isValidating} onClick={() => runAction(() => Promise.all([mutate(), mutateRecommendations()]))}><RotateCcw />{t("btn.refresh")}</button>}
       />
 
+      {actionMessage && <p role="status" className="mb-4 text-sm">{actionMessage}</p>}
+      {error && <p role="alert" className="mb-4 text-sm text-red-700">{t("page.forecasting.loadFailed")}</p>}
+      {isLoading && <p role="status" className="mb-4 text-sm">{t("common.loading")}</p>}
+      {data && !error && <>
+      {data.unlinked_bom_count > 0 && <p className="mb-4 text-sm text-amber-800">{t("page.forecasting.unlinkedBom", { count: data.unlinked_bom_count })}</p>}
       <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="kpi-card"><div className="label">{t("page.forecasting.productionSuggestions")}</div><div className="mt-1 text-2xl font-semibold">{cards.suggested_production_count ?? branded.length}</div></div>
-        <div className="kpi-card"><div className="label">{t("page.forecasting.reorderAlerts")}</div><div className="mt-1 text-2xl font-semibold">{cards.reorder_alert_count ?? reorder.length}</div></div>
+        <div className="kpi-card"><div className="label">{t("page.forecasting.reorderAlerts")}</div><div className="mt-1 text-2xl font-semibold">{reorder.length || "—"}</div>{reorder.length === 0 && <div className="mt-1 text-xs text-slate-500">{t("page.forecasting.sharedInventoryExcluded")}</div>}</div>
         <div className="kpi-card"><div className="label">{t("page.forecasting.lowStockFinished")}</div><div className="mt-1 text-2xl font-semibold">{cards.low_stock_finished_goods ?? 0}</div></div>
         <div className="kpi-card"><div className="label">{t("page.forecasting.demandTrend")}</div><div className="mt-1 text-2xl font-semibold">{qty(cards.demand_trend_quantity)}</div></div>
+      </div>
+
+      <div className="mb-5 grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <ForecastLineChart
+          title={t("page.forecasting.weeklyDemand")}
+          description={t("page.forecasting.weeklyDemandDescription")}
+          points={demandPoints}
+          series={[{ key: "demand", label: t("page.forecasting.demand"), color: "var(--erp-accent)" }]}
+          emptyLabel={t("page.forecasting.noChartData")}
+          valueFormatter={(value) => qty(value)}
+        />
+        <ForecastLineChart
+          title={t("page.forecasting.variantCoverage")}
+          description={t("page.forecasting.variantCoverageDescription")}
+          points={variantPoints}
+          series={[
+            { key: "projected", label: t("page.forecasting.projectedDemand"), color: "var(--erp-accent)" },
+            { key: "available", label: t("page.forecasting.availableStock"), color: "var(--erp-success)" },
+            { key: "suggested", label: t("page.forecasting.suggestedProduction"), color: "var(--erp-blue)" },
+          ]}
+          emptyLabel={t("page.forecasting.noChartData")}
+          valueFormatter={(value) => qty(value)}
+        />
       </div>
 
       <section className="card mb-5 overflow-x-auto">
@@ -83,20 +154,20 @@ export default function ForecastingPage() {
           </thead>
           <tbody>
             {branded.map((row: any) => (
-              <tr key={`${row.model_id}-${row.brand_id}-${row.color}-${row.size}`}>
-                <td><div className="font-medium">{row.model_code || row.model_id}</div><div className="text-xs text-[#8a8472]">{row.model_name || "-"}</div></td>
-                <td>{row.brand_name || row.brand_id || "-"}</td>
+              <tr key={`${row.model_id}-${row.brand_id}-${row.collection_id}-${row.color}-${row.size}`}>
+                <td><div className="font-medium">{formatModelVariantCode(row.model_code) || row.model_name || "-"}</div><div className="text-xs text-[#8a8472]">{row.model_name || "-"}</div></td>
+                <td>{row.brand_name || "-"}</td>
                 <td>{row.color}</td>
                 <td>{row.size}</td>
                 <td>{qty(row.projected_demand)}</td>
                 <td>{qty(row.available_quantity)}</td>
                 <td className="font-semibold">{qty(row.suggested_quantity)} {row.unit}</td>
-                <td><span className="badge">{row.confidence}</span></td>
+                <td><span className="badge">{t(`forecast.confidence.${row.confidence}`)}</span></td>
                 <td className="flex flex-wrap gap-2">
-                  <Link className="text-brand-600 hover:underline" href={`/planning?model_id=${row.model_id}&color=${encodeURIComponent(row.color || "")}&size=${encodeURIComponent(row.size || "")}&qty=${row.suggested_quantity}`}>
+                  {canPlan && <Link className="text-brand-600 hover:underline" href={`/planning?model_id=${row.model_id}&color=${encodeURIComponent(row.color || "")}&size=${encodeURIComponent(row.size || "")}&qty=${row.suggested_quantity}&brand_id=${row.brand_id || ""}`}>
                     {t("page.forecasting.createPlan")}
-                  </Link>
-                  {canManage && <button className="text-slate-600 hover:underline" onClick={() => saveSuggestion(row)}>{t("page.forecasting.saveRecommendation")}</button>}
+                  </Link>}
+                  {canManage && <button className="text-slate-600 hover:underline" disabled={busy} onClick={() => saveSuggestion(row)}>{t("page.forecasting.saveRecommendation")}</button>}
                 </td>
               </tr>
             ))}
@@ -136,18 +207,19 @@ export default function ForecastingPage() {
                 <td className="font-semibold">{qty(row.suggested_quantity)} {row.unit}</td>
                 <td className="min-w-[260px] text-xs text-[#56503f]">{row.reason}</td>
                 <td className="flex flex-wrap gap-2">
-                  <Link className="text-brand-600 hover:underline" href={`/inventory?group=accessories&q=${encodeURIComponent(row.item_sku || "")}`}>
+                  <Link className="text-brand-600 hover:underline" href={`/inventory?group=${["fabric", "semi_finished"].includes(row.category) ? "materials" : "accessories"}&q=${encodeURIComponent(row.item_sku || "")}`}>
                     {t("page.forecasting.openInventory")}
                   </Link>
-                  {canManage && <button className="text-slate-600 hover:underline" onClick={() => saveSuggestion(row)}>{t("page.forecasting.saveRecommendation")}</button>}
+                  {canManage && <button className="text-slate-600 hover:underline" disabled={busy} onClick={() => saveSuggestion(row)}>{t("page.forecasting.saveRecommendation")}</button>}
                 </td>
               </tr>
             ))}
-            {reorder.length === 0 && <tr><td colSpan={9} className="text-sm text-slate-400">{t("page.forecasting.noReorderSuggestions")}</td></tr>}
+            {reorder.length === 0 && <tr><td colSpan={9} className="text-sm text-slate-500">{t("page.forecasting.sharedInventoryExcluded")}</td></tr>}
           </tbody>
         </table>
       </section>
 
+      </>}
       <section className="card overflow-x-auto">
         <div className="flex items-center justify-between gap-3 border-b border-[#ecebe3] p-4">
           <h2 className="app-card-title">{t("page.forecasting.savedRecommendations")}</h2>
@@ -157,6 +229,7 @@ export default function ForecastingPage() {
           <thead>
             <tr>
               <th>{t("field.type")}</th>
+              <th>{t("field.item")}</th>
               <th>{t("field.status")}</th>
               <th>{t("page.forecasting.suggested")}</th>
               <th>{t("page.forecasting.confidence")}</th>
@@ -166,25 +239,28 @@ export default function ForecastingPage() {
             </tr>
           </thead>
           <tbody>
+            {recommendationsError && <tr><td colSpan={8} role="alert" className="text-red-700">{t("page.forecasting.loadFailed")}</td></tr>}
+            {recommendationsLoading && <tr><td colSpan={8}>{t("common.loading")}</td></tr>}
             {(recommendations || []).map((row) => (
               <tr key={row.id}>
                 <td>{t(`forecast.type.${row.recommendation_type}`)}</td>
+                <td>{[row.source_json?.model_code || row.source_json?.item_sku, row.source_json?.model_name || row.source_json?.item_name, row.color, row.size].filter(Boolean).join(" / ") || "-"}</td>
                 <td><span className="badge">{statusLabel(row.status, t)}</span></td>
                 <td>{qty(row.suggested_quantity)} {row.unit || ""}</td>
-                <td>{row.confidence || "-"}</td>
+                <td>{row.confidence ? t(`forecast.confidence.${row.confidence}`) : "-"}</td>
                 <td className="min-w-[280px] text-xs text-[#56503f]">{row.reason || "-"}</td>
                 <td>{row.created_at ? new Date(row.created_at).toLocaleString() : "-"}</td>
                 <td className="flex flex-wrap gap-2">
                   {canManage && row.status === "open" && (
                     <>
-                      <button className="text-green-700 hover:underline" onClick={() => setRecommendationStatus(row.id, "accepted")}><Check className="inline h-3 w-3" /> {t("page.forecasting.accept")}</button>
-                      <button className="text-red-700 hover:underline" onClick={() => setRecommendationStatus(row.id, "dismissed")}><X className="inline h-3 w-3" /> {t("page.forecasting.dismiss")}</button>
+                      <button className="text-green-700 hover:underline" disabled={busy} onClick={() => setRecommendationStatus(row.id, "accepted")}><Check className="inline h-3 w-3" /> {t("page.forecasting.accept")}</button>
+                      <button className="text-red-700 hover:underline" disabled={busy} onClick={() => setRecommendationStatus(row.id, "dismissed")}><X className="inline h-3 w-3" /> {t("page.forecasting.dismiss")}</button>
                     </>
                   )}
                 </td>
               </tr>
             ))}
-            {(!recommendations || recommendations.length === 0) && <tr><td colSpan={7} className="text-sm text-slate-400">{t("page.forecasting.noSavedRecommendations")}</td></tr>}
+            {!recommendationsLoading && !recommendationsError && recommendations?.length === 0 && <tr><td colSpan={8} className="text-sm text-slate-400">{t("page.forecasting.noSavedRecommendations")}</td></tr>}
           </tbody>
         </table>
       </section>

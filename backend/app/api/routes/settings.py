@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-import os
-from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from fastapi.exceptions import RequestValidationError
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, ValidationError
+from sqlalchemy import text
 
 from app.core.config import settings as app_settings
 from app.core.deps import CurrentUser, DbSession, require_permissions
-from app.core.uploads import SAFE_IMAGE_EXTENSIONS, extension_for_upload, read_validated_upload_content
-from app.models import SystemSetting, User
-from app.services.audit import log_action
+from app.schemas import SystemSetting, User
+from app.models.audit_service import log_action
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -42,6 +41,16 @@ _SCHEMAS = {
     "financial": FinancialSettings,
     "preferences": SystemPreferences,
 }
+_SETTING_LOCK_KEYS = {"company_info": 1, "financial": 2, "preferences": 3}
+
+
+def _setting_for_update(db: DbSession, section: str) -> SystemSetting | None:
+    # A row lock alone cannot serialize the first two writes to an absent row.
+    # Both PATCH and logo updates use this section-scoped transaction lock.
+    if db.bind and db.bind.dialect.name == "postgresql":
+        db.execute(text("SELECT pg_advisory_xact_lock(:namespace, :section)"),
+                   {"namespace": 1_297_047_635, "section": _SETTING_LOCK_KEYS[section]})
+    return db.query(SystemSetting).filter(SystemSetting.key == section).with_for_update().populate_existing().first()
 
 
 def _default_payload() -> dict:
@@ -70,9 +79,21 @@ def save_settings_section(
     if section not in _SCHEMAS:
         raise HTTPException(404, "Settings section not found")
     schema = _SCHEMAS[section]
-    validated = schema(**payload).model_dump()
-    row = db.query(SystemSetting).filter(SystemSetting.key == section).first()
+    unknown = sorted(set(payload) - schema.model_fields.keys())
+    if unknown:
+        raise RequestValidationError([
+            {"type": "extra_forbidden", "loc": ("body", field), "msg": "Extra inputs are not permitted", "input": payload[field]}
+            for field in unknown
+        ])
+    row = _setting_for_update(db, section)
     old_value = row.value_json if row else None
+    previous = old_value if isinstance(old_value, dict) else {}
+    try:
+        validated = schema(**{**previous, **payload}).model_dump()
+    except ValidationError as exc:
+        raise RequestValidationError([
+            {**error, "loc": ("body", *error["loc"])} for error in exc.errors()
+        ]) from exc
     if row:
         row.value_json = validated
     else:
@@ -90,18 +111,22 @@ async def upload_company_logo(
     file: UploadFile = File(...),
     current: User = Depends(require_permissions("*")),
 ):
-    ext = extension_for_upload(file, SAFE_IMAGE_EXTENSIONS)
-    os.makedirs(app_settings.MODEL_FILES_DIR, exist_ok=True)
-    safe_name = f"company_logo_{uuid4().hex}{ext}"
-    abs_path = os.path.join(app_settings.MODEL_FILES_DIR, safe_name)
-    content = await read_validated_upload_content(file, ext, 5 * 1024 * 1024)
-    with open(abs_path, "wb") as f:
-        f.write(content)
-    logo_url = f"/storage/model-files/{safe_name}"
+    from app.models.image_storage_service import discard_replaced_managed_image, store_uploaded_image
 
-    company = _get_or_default(db, "company_info")
+    stored = await store_uploaded_image(
+        file,
+        target_dir=app_settings.MODEL_FILES_DIR,
+        file_url_base="/storage/model-files",
+        name_prefix="company_logo",
+        max_bytes=5 * 1024 * 1024,
+        prebuild_thumbnails=True,
+    )
+    logo_url = stored.file_url
+
+    row = _setting_for_update(db, "company_info")
+    company = CompanyInfo(**(row.value_json if row and isinstance(row.value_json, dict) else {})).model_dump()
+    previous_logo_url = str(company.get("logo_url") or "").strip() or None
     company["logo_url"] = logo_url
-    row = db.query(SystemSetting).filter(SystemSetting.key == "company_info").first()
     if row:
         row.value_json = CompanyInfo(**company).model_dump()
     else:
@@ -110,4 +135,9 @@ async def upload_company_logo(
         db.flush()
     log_action(db, current, "upload_logo", "SystemSetting", row.id, new_value={"logo_url": logo_url})
     db.commit()
+    # Only after the commit, and only once the new URL is the referenced one, is
+    # the old managed file unreachable. Re-uploading the identical file, or a
+    # failed commit, must leave the previous logo in place.
+    if previous_logo_url and previous_logo_url != logo_url:
+        discard_replaced_managed_image(previous_logo_url, storage_root=app_settings.MODEL_FILES_DIR)
     return {"logo_url": logo_url}

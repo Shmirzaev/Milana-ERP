@@ -28,7 +28,6 @@ Use this checklist before exposing Milana ERP to real users or customer data.
    - Unique 32+ character `JWT_SECRET`
    - Different unique 32+ character `FILE_SIGNING_SECRET`
    - Strong `INITIAL_ADMIN_PASSWORD`
-   - Strong `INTEGRATION_1C_TOKEN`
    - Explicit `CORS_ORIGINS`
 
 2. Configure database backups.

@@ -1,4 +1,5 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 import { useMemo, useState } from "react";
 import useSWR from "swr";
 
@@ -28,6 +29,16 @@ type CostBreakdown = {
   total_cogs: number;
 };
 
+/** The invoices route returns a page plus the exact filtered total. */
+type InvoicePage = {
+  items: InvoiceRow[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+const INVOICE_PAGE_SIZE = 50;
+
 function money(value: number) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
@@ -46,6 +57,8 @@ export default function FinancePage() {
   const dialogs = useDialogs();
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [invoiceOffset, setInvoiceOffset] = useState(0);
+  const [invoiceSearch, setInvoiceSearch] = useState("");
   const [paying, setPaying] = useState<InvoiceRow | null>(null);
   const [payment, setPayment] = useState<{ amount: NumberInputValue; date: string; payment_method: string }>({ amount: "", date: new Date().toISOString().slice(0, 10), payment_method: "bank_transfer" });
   const [paymentMsg, setPaymentMsg] = useState("");
@@ -61,7 +74,12 @@ export default function FinancePage() {
   const { data, mutate: mutateDashboard } = useSWR<any>("/api/finance/dashboard", fetcher);
   const { data: branded } = useSWR<any>("/api/finance/branded-stock-value", fetcher);
   const { data: waste } = useSWR<any>("/api/finance/waste-report", fetcher);
-  const { data: invoices, mutate: mutateInvoices } = useSWR<InvoiceRow[]>("/api/finance/invoices?limit=50", fetcher);
+  const { data: invoicePage, mutate: mutateInvoices } = useSWR<InvoicePage>(
+    `/api/finance/invoices?limit=${INVOICE_PAGE_SIZE}&offset=${invoiceOffset}&search=${encodeURIComponent(invoiceSearch)}`,
+    fetcher,
+  );
+  const invoices = invoicePage?.items ?? [];
+  const invoiceTotal = invoicePage?.total ?? 0;
   const { data: revenue } = useSWR<RevenueRow[]>(revenueUrl, fetcher);
   const { data: cogs } = useSWR<CostBreakdown>("/api/finance/cost-breakdown", fetcher);
 
@@ -107,8 +125,38 @@ export default function FinancePage() {
       </div>
 
       <div className="card p-4 mb-6">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
           <h2 className="font-semibold">{t("page.finance.recentInvoices")}</h2>
+          <div className="flex items-center gap-2">
+            <input
+              className="input"
+              value={invoiceSearch}
+              placeholder={t("common.search")}
+              onChange={(e) => {
+                setInvoiceSearch(e.target.value);
+                setInvoiceOffset(0);
+              }}
+            />
+            <span className="text-xs text-slate-500 whitespace-nowrap">
+              {invoiceTotal > 0
+                ? `${invoiceOffset + 1}-${Math.min(invoiceOffset + INVOICE_PAGE_SIZE, invoiceTotal)} / ${invoiceTotal}`
+                : `0 / 0`}
+            </span>
+            <button
+              className="btn btn-sm"
+              disabled={invoiceOffset <= 0}
+              onClick={() => setInvoiceOffset(Math.max(0, invoiceOffset - INVOICE_PAGE_SIZE))}
+            >
+              {"‹"}
+            </button>
+            <button
+              className="btn btn-sm"
+              disabled={invoiceOffset + INVOICE_PAGE_SIZE >= invoiceTotal}
+              onClick={() => setInvoiceOffset(invoiceOffset + INVOICE_PAGE_SIZE)}
+            >
+              {"›"}
+            </button>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="table">
@@ -132,7 +180,7 @@ export default function FinancePage() {
               {(invoices || []).map((inv) => (
                 <tr key={inv.id}>
                   <td>{inv.invoice_no || inv.id}</td>
-                  <td>{inv.order_no}</td>
+                  <td>{formatOrderReference(inv.order_no)}</td>
                   <td>{inv.customer || "-"}</td>
                   <td>{money(Number(inv.amount || 0))}</td>
                   <td>
@@ -156,7 +204,7 @@ export default function FinancePage() {
       <Modal open={!!paying} onClose={() => setPaying(null)} title={t("page.finance.recordPayment")}>
         <form onSubmit={recordPayment} className="space-y-3">
           <div className="text-sm text-slate-600">
-            {paying?.invoice_no || "-"} - {paying?.order_no || "-"} - {money(Number(paying?.amount || 0))}
+            {paying?.invoice_no || "-"} - {formatOrderReference(paying?.order_no)} - {money(Number(paying?.amount || 0))}
           </div>
           <div><label className="label">{t("field.amountReceived")}</label><input className="input" type="number" step="0.01" value={payment.amount} onChange={(e) => setPayment({ ...payment, amount: parseNumberInput(e.target.value) })} required /></div>
           <div><label className="label">{t("field.date")}</label><input className="input" type="date" value={payment.date} onChange={(e) => setPayment({ ...payment, date: e.target.value })} required /></div>

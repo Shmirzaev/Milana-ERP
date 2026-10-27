@@ -1,0 +1,315 @@
+from datetime import datetime
+from typing import Literal, Optional
+from pydantic import BaseModel, Field
+
+from app.libs.dto.common import ORMModel
+from app.libs.dto.inventory.inventory import ItemComposition, ItemOut
+from app.libs.dto.identity.user_access import AccessPolicy
+
+
+# Roles / Departments / Users
+class RoleIn(BaseModel):
+    name: str
+    permissions: list[str] = []
+
+
+class RoleOut(ORMModel):
+    id: int
+    name: str
+    permissions: list[str]
+
+
+class DepartmentIn(BaseModel):
+    name: str
+    code: str
+
+
+class DepartmentOut(ORMModel):
+    id: int
+    name: str
+    code: str
+
+
+class UserIn(BaseModel):
+    name: str
+    email: str
+    password: Optional[str] = None
+    role_id: Optional[int] = None
+    department_id: Optional[int] = None
+    factory_code: str = "MIL"
+    extra_permissions: list[str] = Field(default_factory=list)
+    access_policy: AccessPolicy | None = None
+    is_active: bool = True
+
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    password: Optional[str] = None
+    role_id: Optional[int] = None
+    department_id: Optional[int] = None
+    factory_code: Optional[str] = None
+    extra_permissions: Optional[list[str]] = None
+    access_policy: AccessPolicy | None = None
+    is_active: Optional[bool] = None
+
+
+class UserOut(ORMModel):
+    id: int
+    name: str
+    email: str
+    role_id: Optional[int] = None
+    department_id: Optional[int] = None
+    factory_code: str = "MIL"
+    extra_permissions: list[str] = Field(default_factory=list)
+    access_policy: AccessPolicy | None = None
+    is_active: bool
+    last_login_at: Optional[datetime] = None
+    last_seen_at: Optional[datetime] = None
+    created_at: datetime
+
+
+# Customers / Suppliers
+class PartyIn(BaseModel):
+    name: str = Field(max_length=255)
+    phone: Optional[str] = Field(default=None, max_length=64)
+    email: Optional[str] = Field(default=None, max_length=255)
+    address: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class PartyOut(ORMModel):
+    id: int
+    name: str
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+    notes: Optional[str] = None
+
+
+# Brand / Collection / Model
+class BrandIn(BaseModel):
+    name: str
+    description: Optional[str] = None
+    logo_url: Optional[str] = None
+    is_active: bool = True
+
+
+class BrandOut(ORMModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    logo_url: Optional[str] = None
+    is_active: bool
+
+
+class CollectionIn(BaseModel):
+    brand_id: int
+    name: str
+    season: Optional[str] = None
+    year: int
+    description: Optional[str] = None
+    status: str = "draft"
+
+
+class CollectionOut(ORMModel):
+    id: int
+    brand_id: int
+    name: str
+    season: Optional[str] = None
+    year: int
+    description: Optional[str] = None
+    status: str
+
+
+class ModelImageIn(BaseModel):
+    file_url: str
+    file_name: Optional[str] = None
+    content_type: Optional[str] = None
+    image_type: Optional[str] = None
+    is_primary: bool = False
+
+
+class ModelImageOut(ORMModel):
+    id: int
+    file_url: str
+    file_name: Optional[str] = None
+    content_type: Optional[str] = None
+    image_type: Optional[str] = None
+    is_primary: bool
+    created_at: datetime
+
+
+class ModelSizeIn(BaseModel):
+    size: str
+    measurement_json: Optional[dict] = None
+
+
+class ModelSizeOut(ORMModel):
+    id: int
+    size: str
+    measurement_json: Optional[dict] = None
+
+
+class ModelColorIn(BaseModel):
+    color_name: str
+    color_code: Optional[str] = None
+
+
+class ModelColorOut(ORMModel):
+    id: int
+    color_name: str
+    color_code: Optional[str] = None
+
+
+class ModelBOMIn(BaseModel):
+    item_id: Optional[int] = None
+    material_name: Optional[str] = Field(None, max_length=255)
+    material_role: Optional[str] = Field(None, max_length=16)
+    stock_batch_id: Optional[int] = None
+    size: Optional[str] = None
+    color: Optional[str] = None
+    photo_url: Optional[str] = None
+    quantity_per_piece: float
+    unit: str
+    waste_percent: float = 0
+
+
+class ModelBOMUpdate(BaseModel):
+    item_id: Optional[int] = None
+    material_name: Optional[str] = Field(None, max_length=255)
+    material_role: Optional[str] = Field(None, max_length=16)
+    stock_batch_id: Optional[int] = None
+    size: Optional[str] = None
+    color: Optional[str] = None
+    photo_url: Optional[str] = None
+    quantity_per_piece: Optional[float] = None
+    unit: Optional[str] = None
+    waste_percent: Optional[float] = None
+
+
+class ModelBOMOut(ORMModel):
+    id: int
+    item_id: Optional[int] = None
+    material_name: Optional[str] = None
+    material_role: Optional[str] = None
+    item: Optional[ItemOut] = None
+    stock_batch_id: Optional[int] = None
+    stock_batch_no: Optional[str] = None
+    stock_batch_image_url: Optional[str] = None
+    stock_batch_color: Optional[str] = None
+    size: Optional[str] = None
+    color: Optional[str] = None
+    photo_url: Optional[str] = None
+    quantity_per_piece: float
+    unit: str
+    waste_percent: float
+
+
+class ModelIn(BaseModel):
+    code: str
+    automatic_model_prefix: Optional[str] = Field(default=None, min_length=2, max_length=2)
+    name: str
+    category: Optional[str] = None
+    description: Optional[str] = None
+    brand_id: Optional[int] = None
+    collection_id: Optional[int] = None
+    product_type: Optional[str] = None
+    season: Optional[str] = None
+    constructor_employee_id: Optional[int] = None
+    designer_employee_id: Optional[int] = None
+    details_json: Optional[dict] = None
+    status: str = "draft"
+    sam_minutes: float = 0
+
+
+class ModelPaidOperationsIn(BaseModel):
+    paid_operations: list[dict] = Field(default_factory=list)
+    sewing_factory: Literal["milana", "besttex", "eco_cotton"] | None = None
+
+
+class ModelVariantCreateIn(BaseModel):
+    variant_no: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    fabric_item_id: Optional[int] = Field(default=None, gt=0)
+    color: Optional[str] = Field(default=None, max_length=128)
+    picture_url: Optional[str] = None
+    print_picture_url: Optional[str] = None
+    # Accepted temporarily so older clients can be normalized to the batch's
+    # master fabric item without retaining the physical batch on the model.
+    stock_batch_id: Optional[int] = Field(default=None, gt=0)
+
+
+class ModelVariantUpdateIn(ModelVariantCreateIn):
+    variant_no: str = Field(min_length=1, max_length=64)
+
+
+class ModelOut(ORMModel):
+    id: int
+    code: str
+    name: str
+    category: Optional[str] = None
+    description: Optional[str] = None
+    brand_id: Optional[int] = None
+    collection_id: Optional[int] = None
+    product_type: Optional[str] = None
+    season: Optional[str] = None
+    constructor_employee_id: Optional[int] = None
+    designer_employee_id: Optional[int] = None
+    details_json: Optional[dict] = None
+    status: str
+    sam_minutes: float = 0
+    selling_price: Optional[float] = None
+    selling_price_currency: Optional[str] = None
+    selling_price_source: Optional[str] = None
+    selling_price_request_id: Optional[int] = None
+    selling_price_updated_at: Optional[datetime] = None
+    material_composition: list[ItemComposition] = Field(default_factory=list)
+    created_by: Optional[int] = None
+    approved_by: Optional[int] = None
+    approved_at: Optional[datetime] = None
+    created_at: datetime
+
+
+class ModelDetail(ModelOut):
+    primary_image: Optional[ModelImageOut] = None
+    primary_image_url: Optional[str] = None
+    variant_picture_url: Optional[str] = None
+    images: list[ModelImageOut] = []
+    sizes: list[ModelSizeOut] = []
+    colors: list[ModelColorOut] = []
+    bom: list[ModelBOMOut] = []
+
+
+class ModelSummaryOut(BaseModel):
+    id: int
+    code: str
+    name: str
+    category: Optional[str] = None
+    brand_id: Optional[int] = None
+    status: str
+    thumbnail_url: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ModelOptionOut(BaseModel):
+    id: int
+    code: str
+    name: str
+    thumbnail_url: Optional[str] = None
+
+
+class ModelSellingPriceOut(BaseModel):
+    id: int
+    selling_price: Optional[float] = None
+    selling_price_currency: Optional[str] = None
+    selling_price_source: Optional[str] = None
+    selling_price_request_id: Optional[int] = None
+    selling_price_updated_at: Optional[datetime] = None
+
+
+class ModelOptionPage(BaseModel):
+    items: list[ModelOptionOut]
+    page: int
+    page_size: int
+    has_more: bool

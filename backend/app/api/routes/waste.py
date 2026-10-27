@@ -1,12 +1,15 @@
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Depends
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from math import isfinite
+from fastapi import APIRouter, HTTPException, Depends, Header
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
-from app.models import WasteRecord, WasteSale, WasteDisposalRequest, User, StockBatch, Item
-from app.schemas.waste import (
+from app.schemas import WasteRecord, WasteSale, WasteDisposalRequest, User, StockBatch, Item
+from app.libs.dto.inventory.waste import (
     WasteIn, WasteOut, WasteSaleIn, WasteSaleOut, WasteDisposalIn, WasteDisposalOut,
 )
-from app.services.audit import log_action
+from app.models.audit_service import log_action
+from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 
 router = APIRouter(prefix="/waste", tags=["waste"])
 
@@ -31,12 +34,9 @@ def _unit_cost_for_waste(db: DbSession, item_id: int | None, batch_id: int | Non
     return 0.0
 
 
-def _recalculate_value(db: DbSession, w: WasteRecord) -> float:
+def _estimated_value_for_waste(db: DbSession, w: WasteRecord) -> float:
     unit_cost = _unit_cost_for_waste(db, w.item_id, w.batch_id)
-    value = round(float(w.quantity or 0) * unit_cost, 2)
-    if float(w.estimated_value or 0) != value:
-        w.estimated_value = value
-    return value
+    return round(float(w.quantity or 0) * unit_cost, 2)
 
 
 @router.get("", response_model=list[WasteOut])
@@ -45,14 +45,14 @@ def list_waste(db: DbSession, _: CurrentUser, status: str | None = None, sellabl
     if status: qry = qry.filter(WasteRecord.status == status)
     if sellable is not None: qry = qry.filter(WasteRecord.sellable.is_(sellable))
     rows = qry.order_by(WasteRecord.id.desc()).all()
-    changed = False
-    for row in rows:
-        before = float(row.estimated_value or 0)
-        _recalculate_value(db, row)
-        changed = changed or before != float(row.estimated_value or 0)
-    if changed:
-        db.commit()
-    return rows
+    # Preserve the existing live-estimate response without rewriting the
+    # valuation snapshot stored with the historical waste record.
+    return [
+        WasteOut.model_validate(row).model_copy(
+            update={"estimated_value": _estimated_value_for_waste(db, row)},
+        )
+        for row in rows
+    ]
 
 
 @router.post("", response_model=WasteOut, status_code=201)
@@ -82,33 +82,138 @@ def receive_waste(wid: int, db: DbSession, current: User = Depends(require_permi
 
 
 @router.post("/{wid}/sell", response_model=WasteSaleOut)
-def sell_waste(wid: int, payload: WasteSaleIn, db: DbSession, current: User = Depends(require_permissions("waste.sell", "*"))):
-    w = db.get(WasteRecord, wid)
-    if not w: raise HTTPException(404, "Waste record not found")
-    if not w.sellable: raise HTTPException(400, "Waste is not marked sellable")
+def sell_waste(
+    wid: int,
+    payload: WasteSaleIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("waste.sell", "*")),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    idempotency_scope = f"waste.sales.{current.id}.{wid}"
+    fingerprint_payload = {"waste_record_id": wid, **payload.model_dump(mode="json")}
+    replay = replay_idempotent_response(
+        db, scope=idempotency_scope, key=idempotency_key, payload=fingerprint_payload,
+    )
+    if replay:
+        return replay
+
+    w = (
+        db.query(WasteRecord)
+        .filter(WasteRecord.id == wid)
+        .with_for_update()
+        .populate_existing()
+        .first()
+    )
+    if not w:
+        raise HTTPException(404, "Waste record not found")
+
+    # A concurrent request can store its replay only after releasing this
+    # parent lock, so check the key again after the serialized handoff.
+    replay = replay_idempotent_response(
+        db, scope=idempotency_scope, key=idempotency_key, payload=fingerprint_payload,
+    )
+    if replay:
+        return replay
+
+    if not w.sellable:
+        raise HTTPException(400, "Waste is not marked sellable")
     if w.status not in ("received_by_waste_department",):
         raise HTTPException(400, f"Cannot sell from status '{w.status}'")
+
+    buyer_name, quantity, unit_price, total_amount = _validated_sale_values(payload)
+    remaining_quantity = _remaining_sale_quantity(db, w)
+    if quantity > remaining_quantity:
+        raise HTTPException(400, f"Sale quantity exceeds remaining waste quantity {remaining_quantity:f}")
+
     sale = WasteSale(
         waste_record_id=w.id,
-        buyer_name=payload.buyer_name,
-        quantity=payload.quantity,
-        unit_price=payload.unit_price,
-        total_amount=float(payload.quantity) * float(payload.unit_price),
+        buyer_name=buyer_name,
+        quantity=quantity,
+        unit_price=unit_price,
+        total_amount=total_amount,
         sold_by=current.id,
         sold_at=datetime.now(timezone.utc),
     )
-    db.add(sale); db.flush()
-    w.status = "sold"
-    log_action(db, current, "sell", "WasteRecord", w.id, new_value={"amount": float(sale.total_amount)})
-    db.commit(); db.refresh(sale)
-    return sale
+    db.add(sale)
+    db.flush()
+    remaining_after_sale = remaining_quantity - quantity
+    # Only a sale that exhausts the record closes it. Marking it sold on a
+    # partial sale stranded the leftover waste as unsellable.
+    if remaining_after_sale == 0:
+        w.status = "sold"
+    log_action(db, current, "sell", "WasteRecord", w.id, new_value={
+        "quantity": float(quantity),
+        "remaining_quantity": float(remaining_after_sale),
+        "amount": float(total_amount),
+    })
+    response = WasteSaleOut.model_validate(sale).model_dump(mode="json")
+    store_idempotent_response(
+        db,
+        scope=idempotency_scope,
+        key=idempotency_key,
+        payload=fingerprint_payload,
+        response=response,
+        user=current,
+    )
+    db.commit()
+    return response
+
+
+def _validated_sale_values(payload: WasteSaleIn) -> tuple[str, Decimal, Decimal, Decimal]:
+    """Validate a sale against the real NUMERIC column widths.
+
+    waste_sales stores quantity NUMERIC(14,4), unit_price NUMERIC(12,2) and
+    total_amount NUMERIC(14,2), so precision is validated here rather than
+    discovered as a database error at write time.
+    """
+    buyer_name = payload.buyer_name.strip()
+    if not buyer_name:
+        raise HTTPException(400, "Buyer name is required")
+    if len(buyer_name) > 255:
+        raise HTTPException(400, "Buyer name must be at most 255 characters")
+    try:
+        quantity = Decimal(str(payload.quantity))
+        unit_price = Decimal(str(payload.unit_price))
+    except (InvalidOperation, TypeError, ValueError):
+        raise HTTPException(400, "Sale values exceed supported precision") from None
+    if not quantity.is_finite() or quantity <= 0:
+        raise HTTPException(400, "Sale quantity must be finite and greater than zero")
+    if not unit_price.is_finite() or unit_price < 0:
+        raise HTTPException(400, "Unit price must be finite and nonnegative")
+    if quantity != quantity.quantize(Decimal("0.0001")):
+        raise HTTPException(400, "Sale quantity supports at most 4 decimal places")
+    if unit_price != unit_price.quantize(Decimal("0.01")):
+        raise HTTPException(400, "Unit price supports at most 2 decimal places")
+    total_amount = (quantity * unit_price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if quantity > Decimal("9999999999.9999"):
+        raise HTTPException(400, "Sale quantity exceeds supported precision")
+    if unit_price > Decimal("9999999999.99"):
+        raise HTTPException(400, "Unit price exceeds supported precision")
+    if total_amount > Decimal("999999999999.99"):
+        raise HTTPException(400, "Sale total exceeds supported precision")
+    return buyer_name, quantity, unit_price, total_amount
+
+
+def _remaining_sale_quantity(db: DbSession, waste_record: WasteRecord) -> Decimal:
+    original_quantity = Decimal(str(waste_record.quantity or 0))
+    if not original_quantity.is_finite() or original_quantity <= 0:
+        raise HTTPException(400, "Stored waste quantity is invalid")
+    sold_quantity = Decimal("0")
+    for row in db.query(WasteSale.quantity).filter(WasteSale.waste_record_id == waste_record.id).all():
+        historical_quantity = Decimal(str(row[0]))
+        if not historical_quantity.is_finite() or historical_quantity <= 0:
+            raise HTTPException(400, "Historical waste sale quantity is invalid")
+        sold_quantity += historical_quantity
+    remaining_quantity = original_quantity - sold_quantity
+    if remaining_quantity <= 0:
+        raise HTTPException(400, "Waste has no remaining sellable quantity")
+    return remaining_quantity
 
 
 @router.post("/{wid}/request-disposal", response_model=WasteDisposalOut)
 def request_disposal(wid: int, payload: WasteDisposalIn, db: DbSession, current: User = Depends(require_permissions("waste.disposal", "*"))):
-    w = db.get(WasteRecord, wid)
-    if not w: raise HTTPException(404, "Waste record not found")
-    if w.sellable: raise HTTPException(400, "Cannot dispose sellable waste; sell it instead")
+    w = _disposal_waste_for_update(db, wid)
+    _require_disposal_waste(w, "received_by_waste_department")
     r = WasteDisposalRequest(waste_record_id=w.id, reason=payload.reason, requested_by=current.id, status="pending")
     db.add(r)
     w.status = "pending_disposal_approval"
@@ -118,15 +223,48 @@ def request_disposal(wid: int, payload: WasteDisposalIn, db: DbSession, current:
     return r
 
 
+def _disposal_waste_for_update(db: DbSession, wid: int) -> WasteRecord:
+    w = db.query(WasteRecord).filter(WasteRecord.id == wid).with_for_update().populate_existing().first()
+    if not w:
+        raise HTTPException(404, "Waste record not found")
+    return w
+
+
+def _require_disposal_state(w: WasteRecord, expected_status: str) -> None:
+    if w.status != expected_status:
+        raise HTTPException(400, f"Cannot dispose from status '{w.status}'")
+
+
+def _require_disposal_waste(w: WasteRecord, expected_status: str) -> None:
+    _require_disposal_state(w, expected_status)
+    if w.sellable:
+        raise HTTPException(400, "Cannot dispose sellable waste; sell it instead")
+    if not isfinite(float(w.quantity)) or w.quantity <= 0:
+        raise HTTPException(400, "Waste quantity must be finite and greater than zero")
+
+
+def _disposal_request_for_update(db: DbSession, rid: int) -> tuple[WasteDisposalRequest, WasteRecord]:
+    wid = db.query(WasteDisposalRequest.waste_record_id).filter(WasteDisposalRequest.id == rid).scalar()
+    if wid is None:
+        raise HTTPException(404, "Request not found")
+    # All disposal mutations lock the parent first, including new requests.
+    w = _disposal_waste_for_update(db, wid)
+    r = db.query(WasteDisposalRequest).filter(WasteDisposalRequest.id == rid).with_for_update().populate_existing().first()
+    if not r:
+        raise HTTPException(404, "Request not found")
+    return r, w
+
+
 @router.post("/disposal/{rid}/approve", response_model=WasteDisposalOut)
 def approve_disposal(rid: int, db: DbSession, current: User = Depends(require_permissions("management.approve", "*"))):
-    r = db.get(WasteDisposalRequest, rid)
-    if not r: raise HTTPException(404, "Request not found")
+    r, w = _disposal_request_for_update(db, rid)
+    if r.status != "pending":
+        raise HTTPException(400, "Disposal request is not pending")
+    _require_disposal_waste(w, "pending_disposal_approval")
     r.status = "approved"
     r.approved_by = current.id
     r.approved_at = datetime.now(timezone.utc)
-    w = db.get(WasteRecord, r.waste_record_id)
-    if w: w.status = "disposal_approved"
+    w.status = "disposal_approved"
     log_action(db, current, "approve_disposal", "WasteDisposalRequest", r.id)
     db.commit(); db.refresh(r)
     return r
@@ -134,13 +272,15 @@ def approve_disposal(rid: int, db: DbSession, current: User = Depends(require_pe
 
 @router.post("/disposal/{rid}/reject", response_model=WasteDisposalOut)
 def reject_disposal(rid: int, db: DbSession, current: User = Depends(require_permissions("management.approve", "*"))):
-    r = db.get(WasteDisposalRequest, rid)
-    if not r: raise HTTPException(404, "Request not found")
+    r, w = _disposal_request_for_update(db, rid)
+    if r.status != "pending":
+        raise HTTPException(400, "Disposal request is not pending")
+    # Rejection safely withdraws even a historically invalid disposal request.
+    _require_disposal_state(w, "pending_disposal_approval")
     r.status = "rejected"
     r.approved_by = current.id
     r.approved_at = datetime.now(timezone.utc)
-    w = db.get(WasteRecord, r.waste_record_id)
-    if w: w.status = "received_by_waste_department"
+    w.status = "received_by_waste_department"
     log_action(db, current, "reject_disposal", "WasteDisposalRequest", r.id)
     db.commit(); db.refresh(r)
     return r
@@ -148,12 +288,11 @@ def reject_disposal(rid: int, db: DbSession, current: User = Depends(require_per
 
 @router.post("/disposal/{rid}/mark-disposed", response_model=WasteDisposalOut)
 def mark_disposed(rid: int, db: DbSession, current: User = Depends(require_permissions("waste.disposal", "*"))):
-    r = db.get(WasteDisposalRequest, rid)
-    if not r: raise HTTPException(404, "Request not found")
+    r, w = _disposal_request_for_update(db, rid)
     if r.status != "approved": raise HTTPException(400, "Disposal not approved yet")
+    _require_disposal_waste(w, "disposal_approved")
     r.status = "disposed"
-    w = db.get(WasteRecord, r.waste_record_id)
-    if w: w.status = "disposed"
+    w.status = "disposed"
     log_action(db, current, "mark_disposed", "WasteDisposalRequest", r.id)
     db.commit(); db.refresh(r)
     return r

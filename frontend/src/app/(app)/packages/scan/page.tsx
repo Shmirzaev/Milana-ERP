@@ -1,4 +1,5 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 
 import { useMemo, useRef, useState } from "react";
 import useSWR from "swr";
@@ -9,9 +10,11 @@ import PageHeader from "@/components/PageHeader";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 import { can, useMe } from "@/lib/auth";
-import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 import { storageThumbnailUrl } from "@/lib/modelImages";
 import WarehouseMap from "@/components/WarehouseMap";
+import ManualPackageReceipt from "@/components/ManualPackageReceipt";
+import ReceivePackages from "@/components/ReceivePackages";
+import { packageWorkflowCopy, type PackagePrintRun } from "@/lib/packageWorkflow";
 
 type ScannedPackage = {
   id: number;
@@ -52,7 +55,7 @@ function packageScanError(error: any, t: (key: string) => string) {
 }
 
 function packageOrderLabel(pkg: ScannedPackage) {
-  return pkg.order_no || pkg.sales_order_no || pkg.production_no || (pkg.production_order_id ? `#${pkg.production_order_id}` : "-");
+  return formatOrderReference(pkg.order_no || pkg.sales_order_no || pkg.production_no || (pkg.production_order_id ? `#${pkg.production_order_id}` : "-"));
 }
 
 function packageModelLabel(pkg: ScannedPackage) {
@@ -62,6 +65,8 @@ function packageModelLabel(pkg: ScannedPackage) {
 const BLOCKED_MAP_MOVE_STATUSES = new Set(["shipped", "delivered", "damaged"]);
 
 export default function ScanPackagePage() {
+  const { lang } = useT();
+  const copy = packageWorkflowCopy[lang];
   const { t } = useT();
   const { me } = useMe();
   const codeInputRef = useRef<HTMLInputElement>(null);
@@ -73,11 +78,7 @@ export default function ScanPackagePage() {
   const [busy, setBusy] = useState<"lookup" | "receive" | "move" | null>(null);
   const [selectedCell, setSelectedCell] = useState<string>("");
   const [selectedShelf, setSelectedShelf] = useState<"S1" | "S2">("S1");
-  const { data: mapData, mutate: mutateMap } = useSWR<any>(
-    "/api/packages/storage-map",
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
+  const { data: mapData, mutate: mutateMap } = useSWR<any>("/api/packages/storage-map", fetcher);
   const canStoragePackages = can(me, "*", "storage.packages");
 
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
@@ -129,6 +130,21 @@ export default function ScanPackagePage() {
     setMsg("");
     setBusy("lookup");
     try {
+      if (canStoragePackages) {
+        const resolved = await api.get<{ print_run: PackagePrintRun | null }>(`/api/packages/print-runs/resolve?code=${encodeURIComponent(scanCode)}`);
+        if (resolved.print_run) {
+          const result = await api.post<{ count: number; packages: ScannedPackage[]; run_no: string }>("/api/packages/print-runs/receive", {
+            code: scanCode, storage_cell: selectedCell || null, storage_shelf: selectedCell ? selectedShelf : null,
+          }, 60_000);
+          const ids = new Set(result.packages.map(p => p.id));
+          setScannedPackages(previous => [...result.packages, ...previous.filter(p => !ids.has(p.id))]);
+          setSelectedIds([]); setActivePackageId(result.packages[0]?.id || null);
+          setCode("");
+          setMsg(`${copy.runReceived}: ${result.run_no} (${result.count})`);
+          await mutateMap();
+          return;
+        }
+      }
       const pkg = await api.get<ScannedPackage>(`/api/packages/barcode/${encodeURIComponent(scanCode)}`);
       setScannedPackages((prev) => {
         const exists = prev.some((row) => row.id === pkg.id);
@@ -242,7 +258,16 @@ export default function ScanPackagePage() {
   return (
     <div>
       <PageHeader title={t("page.packageScan.title")} subtitle={t("page.packageScan.subtitle")} />
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(560px,700px)_minmax(0,1fr)]">
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <ReceivePackages />
+        <ManualPackageReceipt onCreated={() => { void mutateMap(); }} />
+        <button className="btn" type="button" disabled={!selectedIds.length} onClick={async () => {
+          try { await api.openLabel(`/api/packages/label-sheet/by-ids?ids=${selectedIds.join(",")}`); }
+          catch (e: any) { setMsg(e.message); }
+        }}>{copy.printSelected}</button>
+      </div>
+      <p className="mb-4 text-sm">{copy.scanHint}</p>
+      <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[minmax(560px,700px)_minmax(0,1fr)]">
         <div className="space-y-4">
           <div className="card p-4">
             <div className="flex flex-col gap-3 lg:flex-row">
@@ -329,14 +354,14 @@ export default function ScanPackagePage() {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="table min-w-[680px]">
+              <table className="table min-w-[960px]">
                 <thead>
                   <tr>
                     <th className="w-10">{t("field.actions")}</th>
                     <th>{t("field.packageNo")}</th>
                     <th>{t("field.orderNo")}</th>
-                    <th>{t("field.model")}</th>
-                    <th>{t("field.qty")}</th>
+                    <th className="min-w-[280px]">{t("field.model")}</th>
+                    <th className="text-right">{t("field.qty")}</th>
                     <th>{t("field.status")}</th>
                     <th>{t("field.cell")}</th>
                     <th className="text-right">{t("common.remove")}</th>
@@ -363,25 +388,25 @@ export default function ScanPackagePage() {
                         </td>
                         <td>
                           <div className="font-medium text-[#14110b]">{packageOrderLabel(pkg)}</div>
-                          <div className="text-xs text-[#8a8472]">{pkg.production_no || "-"}</div>
+                          <div className="text-xs text-[#8a8472]">{formatOrderReference(pkg.production_no || "-")}</div>
                         </td>
                         <td>
-                          <div className="flex items-center gap-2">
+                          <div className="flex min-w-0 items-center gap-3">
                             {imageUrl ? (
-                              <img src={imageUrl} alt={pkg.model_name || pkg.model_code || ""} className="h-12 w-12 rounded-md border border-[#e3dfd3] object-cover" />
+                              <img src={imageUrl} alt={pkg.model_name || pkg.model_code || ""} className="h-12 w-12 shrink-0 rounded-md border border-[#e3dfd3] object-contain" />
                             ) : (
-                              <div className="flex h-12 w-12 items-center justify-center rounded-md border border-[#e3dfd3] bg-[#f8f6ef] text-[10px] text-[#8a8472]">
+                              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-[#e3dfd3] bg-[#f8f6ef] text-[10px] text-[#8a8472]">
                                 {t("page.packageScan.noImage")}
                               </div>
                             )}
-                            <div>
-                              <div className="max-w-[220px] truncate font-medium text-[#14110b]" title={packageModelLabel(pkg)}>{packageModelLabel(pkg)}</div>
+                            <div className="min-w-0 max-w-[260px]">
+                              <div className="whitespace-normal break-words font-medium text-[#14110b]" title={packageModelLabel(pkg)}>{packageModelLabel(pkg)}</div>
                               <div className="text-xs text-[#8a8472]">{pkg.color || "-"}</div>
                             </div>
                           </div>
                         </td>
-                        <td>{Number(pkg.total_quantity || 0)}</td>
-                        <td><span className="badge">{statusLabel(pkg.status, t)}</span></td>
+                        <td className="text-right tabular-nums whitespace-nowrap">{Number(pkg.total_quantity || 0)}</td>
+                        <td><span className="badge whitespace-nowrap">{statusLabel(pkg.status, t)}</span></td>
                         <td>{pkg.storage_cell ? `${pkg.storage_cell}/${pkg.storage_shelf || "S1"}` : "-"}</td>
                         <td className="text-right">
                           <button

@@ -1,7 +1,9 @@
 ﻿"use client";
+import { formatOrderReference } from "@/lib/orderRef";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
+import useLoadMore from "@/lib/useLoadMore";
 import { Download, Filter, MoreHorizontal, Plus, Search, X } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
@@ -9,7 +11,6 @@ import PaginationControls from "@/components/PaginationControls";
 import { useT } from "@/lib/i18n";
 import { statusLabel } from "@/components/StagePipeline";
 import { useDialogs } from "@/components/DialogProvider";
-import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 
 type SO = {
   id: number;
@@ -92,11 +93,8 @@ export default function SalesOrdersPage() {
     if (createdTo) params.set("created_to", createdTo);
     return `/api/sales-orders?${params.toString()}`;
   }, [createdFrom, createdTo, page, pageSize, query, statusFilter, typeFilter]);
-  const { data: pageData, isLoading, mutate } = useSWR<any>(
-    salesUrl,
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
+  const listPager = useLoadMore<any>(salesUrl, fetcher);
+  const { data: pageData, isLoading, mutate } = listPager;
   const data = useMemo<SO[]>(() => pageData?.rows || [], [pageData?.rows]);
 
   useEffect(() => {
@@ -110,21 +108,13 @@ export default function SalesOrdersPage() {
   const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
     return data.filter((o) => {
       if (!matchesTab(o, activeTab)) return false;
       if (statusFilter !== "all" && o.status !== statusFilter) return false;
       if (typeFilter !== "all" && o.order_type !== typeFilter) return false;
-      if (!q) return true;
-      const customer = String(customerMap.get(o.customer_id) || "").toLowerCase();
-      return (
-        o.order_no.toLowerCase().includes(q) ||
-        o.status.toLowerCase().includes(q) ||
-        o.order_type.toLowerCase().includes(q) ||
-        customer.includes(q)
-      );
+      return true;
     });
-  }, [data, activeTab, statusFilter, typeFilter, query, customerMap]);
+  }, [data, activeTab, statusFilter, typeFilter]);
 
   const selected = filtered.find((o) => o.id === (selectedId ?? filtered[0]?.id)) ?? filtered[0];
   const activeCount = data.filter((o) => !["closed", "cancelled", "delivered"].includes(o.status)).length;
@@ -246,8 +236,8 @@ export default function SalesOrdersPage() {
               <article key={o.id} className="p-4">
                 <div className="flex min-w-0 items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <a href={`/sales-orders/${o.id}`} className="mono block truncate font-semibold text-[#14110b]">
-                      {o.order_no}
+                    <a href={`/sales-orders/${o.id}`} title={o.order_no} className="mono block truncate font-semibold text-[#14110b]">
+                      {formatOrderReference(o.order_no)}
                     </a>
                     <div className="mt-1 truncate text-sm font-medium text-[#14110b]">
                       {customerMap.get(o.customer_id) ?? t("sales.unknownCustomer")}
@@ -283,7 +273,7 @@ export default function SalesOrdersPage() {
           })}
         </div>
         <div className="card">
-          <PaginationControls
+          <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()}
             page={page}
             pageSize={pageSize}
             total={Number(pageData?.total || data.length)}
@@ -319,7 +309,7 @@ export default function SalesOrdersPage() {
                   return (
                     <tr key={o.id} data-selected={active} className={active ? "bg-[#fdf3eb]" : ""} onClick={() => setSelectedId(o.id)}>
                       <td><input type="checkbox" onClick={(e) => e.stopPropagation()} /></td>
-                      <td><a href={`/sales-orders/${o.id}`} className="mono font-medium">{o.order_no}</a></td>
+                      <td><a href={`/sales-orders/${o.id}`} title={o.order_no} className="mono font-medium">{formatOrderReference(o.order_no)}</a></td>
                       <td>{customerMap.get(o.customer_id) ?? t("sales.unknownCustomer")}</td>
                       <td className="mono text-right">{qty.toLocaleString()}</td>
                       <td>
@@ -337,7 +327,7 @@ export default function SalesOrdersPage() {
               </tbody>
             </table>
           </div>
-          <PaginationControls
+          <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()}
             page={page}
             pageSize={pageSize}
             total={Number(pageData?.total || data.length)}
@@ -351,7 +341,7 @@ export default function SalesOrdersPage() {
           {selected ? (
             <>
               <div className="flex items-center justify-between border-b border-[#ecebe3] px-4 py-4">
-                <a href={`/sales-orders/${selected.id}`} className="mono font-semibold">{selected.order_no}</a>
+                <a href={`/sales-orders/${selected.id}`} title={selected.order_no} className="mono font-semibold">{formatOrderReference(selected.order_no)}</a>
                 <div className="flex items-center gap-3">
                   <span className={`badge ${statusClass(selected.status)}`}>{statusLabel(selected.status, t)}</span>
                   <button className="icon-btn"><MoreHorizontal /></button>

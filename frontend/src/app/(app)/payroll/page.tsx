@@ -1,7 +1,9 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import {
   Ban,
   CheckCircle2,
@@ -10,10 +12,13 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Trash2,
+  Undo2,
   Unlock,
 } from "lucide-react";
 
 import PageHeader from "@/components/PageHeader";
+import SearchableSelect from "@/components/SearchableSelect";
 import { api, fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { useDialogs } from "@/components/DialogProvider";
@@ -35,6 +40,7 @@ type PayrollRecord = {
   payroll_period_id?: number | null;
   employee_id: number;
   employee_name?: string | null;
+  department_id?: number | null;
   department_name?: string | null;
   production_no?: string | null;
   sales_order_no?: string | null;
@@ -89,12 +95,21 @@ type PayrollSummary = {
   total_amount: number | string;
   currency: string;
   employees: PayrollSummaryEmployee[];
+  employees_total?: number | null;
+  employee_page?: number | null;
+  employee_page_size?: number | null;
+  employees_has_more?: boolean | null;
+  employee_search?: string | null;
 };
 
 type PayrollAdjustment = {
   id: number;
   payroll_period_id?: number | null;
+  source_payroll_record_id?: number | null;
   employee_id: number;
+  employee_name?: string | null;
+  department_id?: number | null;
+  department_name?: string | null;
   adjustment_type: "bonus" | "deduction";
   amount: number | string;
   signed_amount: number | string;
@@ -103,11 +118,31 @@ type PayrollAdjustment = {
   created_at: string;
 };
 
-type Employee = {
+type PayrollAdjustmentPage = {
+  rows: PayrollAdjustment[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+};
+
+type PayrollEmployeeOption = {
   id: number;
   full_name: string;
+  employee_no?: string | null;
+  position?: string | null;
   department_id?: number | null;
-  status: string;
+  department_code?: string | null;
+  department_name?: string | null;
+};
+
+type PayrollEmployeeOptionPage = {
+  items: PayrollEmployeeOption[];
+  selected: PayrollEmployeeOption | null;
+  page: number;
+  page_size: number;
+  search: string;
+  has_more: boolean;
 };
 
 type Department = {
@@ -173,7 +208,7 @@ function buildPayrollQuery(filters: {
   if (filters.departmentId) params.set("department_id", filters.departmentId);
   if (filters.from) params.set("date_from", toStartIso(filters.from));
   if (filters.to) params.set("date_to", toEndIso(filters.to));
-  if (includeLimit) params.set("limit", "300");
+  if (includeLimit) params.set("page_size", "50");
   return params.toString();
 }
 
@@ -182,6 +217,13 @@ export default function PayrollPage() {
   const { t, lang } = useT();
   const { me } = useMe();
   const canManage = can(me, "payroll.manage", "*");
+  const [deletingAdjustment, setDeletingAdjustment] = useState<number | null>(null);
+  const [employeeFilterSearch, setEmployeeFilterSearch] = useState("");
+  const [debouncedEmployeeFilterSearch, setDebouncedEmployeeFilterSearch] = useState("");
+  const [adjustmentEmployeeSearch, setAdjustmentEmployeeSearch] = useState("");
+  const [debouncedAdjustmentEmployeeSearch, setDebouncedAdjustmentEmployeeSearch] = useState("");
+  const [employeeTotalsSearch, setEmployeeTotalsSearch] = useState("");
+  const [debouncedEmployeeTotalsSearch, setDebouncedEmployeeTotalsSearch] = useState("");
   const canApprove = can(me, "payroll.approve", "*");
   const canPay = can(me, "payroll.pay", "*");
   const [filters, setFilters] = useState({ periodId: "", employeeId: "", departmentId: "", from: "", to: "" });
@@ -199,42 +241,168 @@ export default function PayrollPage() {
     amount: "",
     reason: "",
   });
+  const [reversalForm, setReversalForm] = useState<{
+    record: PayrollRecord | null;
+    target_period_id: string;
+    reason: string;
+  }>({ record: null, target_period_id: "", reason: "" });
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error" | "info">("info");
 
-  const { data: periods = [], mutate: mutatePeriods } = useSWR<PayrollPeriod[]>("/api/payroll/periods", fetcher);
-  const { data: employees = [] } = useSWR<Employee[]>("/api/employees", fetcher);
-  const { data: departments = [] } = useSWR<Department[]>("/api/departments", fetcher);
+  useEffect(() => {
+    const timeout = window.setTimeout(
+      () => setDebouncedEmployeeTotalsSearch(employeeTotalsSearch.trim()),
+      250,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [employeeTotalsSearch]);
 
-  const recordsQuery = buildPayrollQuery(filters, true);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedEmployeeFilterSearch(employeeFilterSearch.trim()), 250);
+    return () => window.clearTimeout(timeout);
+  }, [employeeFilterSearch]);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedAdjustmentEmployeeSearch(adjustmentEmployeeSearch.trim()), 250);
+    return () => window.clearTimeout(timeout);
+  }, [adjustmentEmployeeSearch]);
+
+  const { data: periods = [], mutate: mutatePeriods } = useSWR<PayrollPeriod[]>("/api/payroll/periods", fetcher);
+  const { data: departments = [] } = useSWR<Department[]>("/api/departments", fetcher);
+  const {
+    data: employeeFilterPages,
+    setSize: setEmployeeFilterSize,
+    isValidating: employeeFilterIsValidating,
+  } = useSWRInfinite<PayrollEmployeeOptionPage>((index, previousPage) => {
+    if (previousPage && !previousPage.has_more) return null;
+    const params = new URLSearchParams({ page: String(index + 1), page_size: "50", search: debouncedEmployeeFilterSearch });
+    if (filters.employeeId) params.set("selected_id", filters.employeeId);
+    return `/api/payroll/employees/options?${params.toString()}`;
+  }, fetcher);
+  const {
+    data: adjustmentEmployeePages,
+    setSize: setAdjustmentEmployeeSize,
+    isValidating: adjustmentEmployeeIsValidating,
+  } = useSWRInfinite<PayrollEmployeeOptionPage>((index, previousPage) => {
+    if (!canManage) return null;
+    if (previousPage && !previousPage.has_more) return null;
+    const params = new URLSearchParams({ page: String(index + 1), page_size: "50", search: debouncedAdjustmentEmployeeSearch });
+    if (adjustmentForm.employee_id) params.set("selected_id", adjustmentForm.employee_id);
+    return `/api/payroll/employees/options?${params.toString()}`;
+  }, fetcher);
+  useEffect(() => { void setEmployeeFilterSize(1); }, [debouncedEmployeeFilterSearch, filters.employeeId, setEmployeeFilterSize]);
+  useEffect(() => { void setAdjustmentEmployeeSize(1); }, [debouncedAdjustmentEmployeeSearch, adjustmentForm.employee_id, setAdjustmentEmployeeSize]);
+
+  const recordsQuery = [buildPayrollQuery(filters), "status=active"].filter(Boolean).join("&");
   const summaryQuery = buildPayrollQuery(filters);
-  const { data: records = [], mutate: mutateRecords } = useSWR<PayrollRecord[]>(
-    `/api/payroll/records${recordsQuery ? `?${recordsQuery}` : "?limit=300"}`,
-    fetcher,
+  const { data: recordPages, mutate: mutateRecords, setSize: setRecordSize, isValidating: recordsIsValidating } = useSWRInfinite<{ rows: PayrollRecord[]; total: number; has_more: boolean }>((index, previousPage) => {
+    if (previousPage && !previousPage.has_more) return null;
+    const params = new URLSearchParams(recordsQuery);
+    params.delete("limit");
+    params.set("page", String(index + 1));
+    params.set("page_size", "50");
+    return `/api/payroll/records?${params.toString()}`;
+  }, fetcher);
+  useEffect(() => { void setRecordSize(1); }, [recordsQuery, setRecordSize]);
+  const records = useMemo(() => recordPages?.flatMap((page) => page.rows) || [], [recordPages]);
+  const recordsHasMore = Boolean(recordPages?.[recordPages.length - 1]?.has_more);
+  const {
+    data: summaryPages,
+    mutate: mutateSummary,
+    setSize: setSummarySize,
+    size: summarySize,
+    isValidating: summaryIsValidating,
+  } = useSWRInfinite<PayrollSummary>((index, previousPage) => {
+    if (previousPage && !previousPage.employees_has_more) return null;
+    const params = new URLSearchParams(summaryQuery);
+    params.set("page", String(index + 1));
+    params.set("page_size", "50");
+    params.set("group_by_operation", "true");
+    if (debouncedEmployeeTotalsSearch) params.set("employee_search", debouncedEmployeeTotalsSearch);
+    return `/api/payroll/summary?${params.toString()}`;
+  }, fetcher);
+  useEffect(() => {
+    void setSummarySize(1);
+  }, [summaryQuery, debouncedEmployeeTotalsSearch, setSummarySize]);
+  const summary = summaryPages?.[0];
+  const summaryEmployees = useMemo(
+    () => summaryPages?.flatMap((page) => page.employees) || [],
+    [summaryPages],
   );
-  const { data: summary, mutate: mutateSummary } = useSWR<PayrollSummary>(
-    `/api/payroll/summary${summaryQuery ? `?${summaryQuery}` : ""}`,
-    fetcher,
+  const summaryHasMore = Boolean(summaryPages?.[summaryPages.length - 1]?.employees_has_more);
+  const summaryIsLoadingMore = summaryIsValidating && Boolean(summaryPages?.length);
+  const {
+    data: adjustmentPages,
+    mutate: mutateAdjustmentPages,
+    setSize: setAdjustmentSize,
+    isValidating: adjustmentsIsValidating,
+    isLoading: adjustmentsIsLoading,
+  } = useSWRInfinite<PayrollAdjustmentPage>((index, previousPage) => {
+    if (previousPage && !previousPage.has_more) return null;
+    const params = new URLSearchParams(summaryQuery);
+    params.set("page", String(index + 1));
+    params.set("page_size", "50");
+    return `/api/payroll/adjustments?${params.toString()}`;
+  }, fetcher);
+  const adjustments = useMemo(
+    () => adjustmentPages?.flatMap((page) => page.rows) || [],
+    [adjustmentPages],
   );
-  const { data: adjustments = [], mutate: mutateAdjustments } = useSWR<PayrollAdjustment[]>(
-    `/api/payroll/adjustments${summaryQuery ? `?${summaryQuery}` : ""}`,
-    fetcher,
-  );
+  const adjustmentsTotal = adjustmentPages?.[0]?.total || 0;
+  const adjustmentsHasMore = Boolean(adjustmentPages?.[adjustmentPages.length - 1]?.has_more);
+  const adjustmentsIsLoadingMore = adjustmentsIsValidating && adjustments.length > 0;
 
   const periodById = useMemo(() => new Map(periods.map((period) => [Number(period.id), period])), [periods]);
-  const employeeById = useMemo(() => new Map(employees.map((employee) => [Number(employee.id), employee])), [employees]);
   const departmentById = useMemo(() => new Map(departments.map((department) => [Number(department.id), department])), [departments]);
+  const employeeFilterPagesAreCurrent = Boolean(employeeFilterPages?.every((page, index) => page.page === index + 1 && page.search === debouncedEmployeeFilterSearch));
+  const employeeFilterOptions = useMemo(() => {
+    const pages = employeeFilterPagesAreCurrent ? employeeFilterPages || [] : [];
+    const rows = new Map<number, PayrollEmployeeOption>();
+    for (const page of pages) {
+      for (const employee of page.items) rows.set(employee.id, employee);
+      if (page.selected) rows.set(page.selected.id, page.selected);
+    }
+    return [
+      { value: "", label: t("page.payroll.allEmployees") },
+      ...Array.from(rows.values()).map((employee) => ({
+        value: String(employee.id),
+        label: employee.full_name,
+        searchText: [
+          employee.employee_no,
+          employee.id,
+          employee.position,
+          employee.department_code,
+          employee.department_name,
+        ].filter(Boolean).join(" "),
+      })),
+    ];
+  }, [employeeFilterPages, employeeFilterPagesAreCurrent, t]);
+  const adjustmentEmployeePagesAreCurrent = Boolean(adjustmentEmployeePages?.every((page, index) => page.page === index + 1 && page.search === debouncedAdjustmentEmployeeSearch));
+  const adjustmentEmployeeOptions = useMemo(() => {
+    const pages = adjustmentEmployeePagesAreCurrent ? adjustmentEmployeePages || [] : [];
+    const rows = new Map<number, PayrollEmployeeOption>();
+    for (const page of pages) {
+      for (const employee of page.items) rows.set(employee.id, employee);
+      if (page.selected) rows.set(page.selected.id, page.selected);
+    }
+    return Array.from(rows.values()).map((employee) => ({
+      value: String(employee.id),
+      label: employee.full_name,
+      searchText: [employee.employee_no, employee.id, employee.position, employee.department_code, employee.department_name].filter(Boolean).join(" "),
+    }));
+  }, [adjustmentEmployeePages, adjustmentEmployeePagesAreCurrent]);
+  const employeeFilterHasMore = employeeFilterPagesAreCurrent && Boolean(employeeFilterPages?.[employeeFilterPages.length - 1]?.has_more);
+  const adjustmentEmployeeHasMore = adjustmentEmployeePagesAreCurrent && Boolean(adjustmentEmployeePages?.[adjustmentEmployeePages.length - 1]?.has_more);
   const adjustmentPeriod = adjustmentForm.payroll_period_id ? periodById.get(Number(adjustmentForm.payroll_period_id)) : null;
   const adjustmentPeriodFinalized = Boolean(adjustmentPeriod && FINALIZED_PERIOD_STATUSES.has(adjustmentPeriod.status));
   const operationRows = useMemo(() => (
-    (summary?.employees || []).flatMap((employee) => (
+    summaryEmployees.flatMap((employee) => (
       (employee.operations || []).map((operation) => ({
         ...operation,
         employee_name: employee.employee_name,
         department_name: employee.department_name,
       }))
     ))
-  ), [summary?.employees]);
+  ), [summaryEmployees]);
 
   function notice(text: string, tone: typeof messageTone = "info") {
     setMessage(text);
@@ -242,7 +410,15 @@ export default function PayrollPage() {
   }
 
   async function refreshAll() {
-    await Promise.all([mutatePeriods(), mutateRecords(), mutateSummary(), mutateAdjustments()]);
+    await Promise.all([
+      mutatePeriods(),
+      mutateRecords(),
+      mutateSummary(),
+      (async () => {
+        await setAdjustmentSize(1);
+        await mutateAdjustmentPages();
+      })(),
+    ]);
   }
 
   async function createPeriod(event: React.FormEvent) {
@@ -292,6 +468,24 @@ export default function PayrollPage() {
     }
   }
 
+  async function deleteAdjustment(adjustment: PayrollAdjustment) {
+    if (!canManage || deletingAdjustment !== null) return;
+    if (!window.confirm(t("page.payroll.confirmDeleteAdjustment", {
+      amount: money(adjustment.signed_amount, adjustment.currency),
+      reason: adjustment.reason,
+    }))) return;
+    setDeletingAdjustment(adjustment.id);
+    try {
+      await api.del(`/api/payroll/adjustments/${adjustment.id}`);
+      notice(t("page.payroll.adjustmentDeleted"), "success");
+      await refreshAll();
+    } catch (error: any) {
+      notice(error?.message || t("page.payroll.adjustmentDeleteFailed"), "error");
+    } finally {
+      setDeletingAdjustment(null);
+    }
+  }
+
   async function patchPeriod(period: PayrollPeriod, patch: Partial<PayrollPeriod>) {
     try {
       await api.patch(`/api/payroll/periods/${period.id}`, patch);
@@ -320,6 +514,35 @@ export default function PayrollPage() {
       await refreshAll();
     } catch (error: any) {
       notice(error?.message || t("page.payroll.recordVoidFailed"), "error");
+    }
+  }
+
+  function startReversal(record: PayrollRecord) {
+    const target = periods.find((period) => (
+      !FINALIZED_PERIOD_STATUSES.has(period.status) && Number(period.id) !== Number(record.payroll_period_id)
+    ));
+    setReversalForm({ record, target_period_id: target ? String(target.id) : "", reason: "" });
+  }
+
+  async function createReversal(event: React.FormEvent) {
+    event.preventDefault();
+    const record = reversalForm.record;
+    const targetPeriodId = Number(reversalForm.target_period_id || 0);
+    const reason = reversalForm.reason.trim();
+    if (!record || !targetPeriodId || reason.length < 3) {
+      notice(t("page.payroll.invalidReversal"), "error");
+      return;
+    }
+    try {
+      await api.post(`/api/payroll/records/${record.id}/reverse-as-adjustment`, {
+        target_period_id: targetPeriodId,
+        reason,
+      });
+      setReversalForm({ record: null, target_period_id: "", reason: "" });
+      notice(t("page.payroll.reversalCreated"), "success");
+      await refreshAll();
+    } catch (error: any) {
+      notice(error?.message || t("page.payroll.reversalFailed"), "error");
     }
   }
 
@@ -459,13 +682,25 @@ export default function PayrollPage() {
             </select>
           </div>
           <div className="min-w-[220px] flex-1">
-            <label className="label">{t("page.payroll.employee")}</label>
-            <select className="input" value={filters.employeeId} onChange={(event) => setFilters({ ...filters, employeeId: event.target.value })}>
-              <option value="">{t("page.payroll.allEmployees")}</option>
-              {employees.map((employee) => (
-                <option key={employee.id} value={employee.id}>{employee.full_name}</option>
-              ))}
-            </select>
+            <label className="label" htmlFor="payroll-summary-employee">{t("page.payroll.employee")}</label>
+            <SearchableSelect<string>
+              inputId="payroll-summary-employee"
+              value={filters.employeeId}
+              options={employeeFilterOptions}
+              placeholder={t("page.payroll.searchEmployee")}
+              noResultsText={t("page.payroll.noEmployeeResults")}
+              serverFilter
+              loading={employeeFilterIsValidating}
+              loadingText={t("common.loading")}
+              loadMoreText={t("common.loadMore")}
+              hasMore={employeeFilterHasMore}
+              onSearchChange={(search) => {
+                setEmployeeFilterSearch(search);
+                void setEmployeeFilterSize(1);
+              }}
+              onLoadMore={() => void setEmployeeFilterSize((size) => size + 1)}
+              onChange={(employeeId) => setFilters((current) => ({ ...current, employeeId }))}
+            />
           </div>
           <div className="min-w-[200px] flex-1">
             <label className="label">{t("field.department")}</label>
@@ -477,12 +712,12 @@ export default function PayrollPage() {
             </select>
           </div>
           <div>
-            <label className="label">{t("field.from")}</label>
-            <input className="input" type="date" value={filters.from} onChange={(event) => setFilters({ ...filters, from: event.target.value })} />
+            <label className="label" htmlFor="payroll-date-from">{t("field.dateFrom")}</label>
+            <input id="payroll-date-from" className="input" type="date" value={filters.from} onChange={(event) => setFilters({ ...filters, from: event.target.value })} />
           </div>
           <div>
-            <label className="label">{t("field.to")}</label>
-            <input className="input" type="date" value={filters.to} onChange={(event) => setFilters({ ...filters, to: event.target.value })} />
+            <label className="label" htmlFor="payroll-date-to">{t("field.dateTo")}</label>
+            <input id="payroll-date-to" className="input" type="date" value={filters.to} onChange={(event) => setFilters({ ...filters, to: event.target.value })} />
           </div>
         </div>
       </section>
@@ -536,17 +771,25 @@ export default function PayrollPage() {
               </div>
               <div>
                 <label className="label">{t("page.payroll.employee")}</label>
-                <select
-                  className="input"
+                <SearchableSelect<string>
+                  inputId="payroll-adjustment-employee"
                   value={adjustmentForm.employee_id}
-                  onChange={(event) => setAdjustmentForm({ ...adjustmentForm, employee_id: event.target.value })}
+                  options={adjustmentEmployeeOptions}
                   required
-                >
-                  <option value="">{t("page.payroll.selectEmployee")}</option>
-                  {employees.map((employee) => (
-                    <option key={employee.id} value={employee.id}>{employee.full_name}</option>
-                  ))}
-                </select>
+                  placeholder={t("page.payroll.searchEmployee")}
+                  noResultsText={t("page.payroll.noEmployeeResults")}
+                  serverFilter
+                  loading={adjustmentEmployeeIsValidating}
+                  loadingText={t("common.loading")}
+                  loadMoreText={t("common.loadMore")}
+                  hasMore={adjustmentEmployeeHasMore}
+                  onSearchChange={(search) => {
+                    setAdjustmentEmployeeSearch(search);
+                    void setAdjustmentEmployeeSize(1);
+                  }}
+                  onLoadMore={() => void setAdjustmentEmployeeSize((size) => size + 1)}
+                  onChange={(employeeId) => setAdjustmentForm((current) => ({ ...current, employee_id: employeeId }))}
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -590,7 +833,12 @@ export default function PayrollPage() {
 
         <section className="card overflow-hidden">
           <div className="border-b border-[#ecebe3] p-4">
-            <h2 className="app-card-title">{t("page.payroll.adjustments")}</h2>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="app-card-title">{t("page.payroll.adjustments")}</h2>
+              <span className="text-xs text-[#8a8472]">
+                {adjustments.length.toLocaleString()} / {adjustmentsTotal.toLocaleString()}
+              </span>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="table min-w-[840px]">
@@ -602,36 +850,84 @@ export default function PayrollPage() {
                   <th>{t("field.type")}</th>
                   <th>{t("field.amount")}</th>
                   <th>{t("field.reason")}</th>
+                  <th>{t("field.actions")}</th>
                 </tr>
               </thead>
               <tbody>
-                {adjustments.length === 0 && (
-                  <tr><td colSpan={6} className="text-sm text-[#8a8472]">{t("page.payroll.noAdjustments")}</td></tr>
+                {adjustments.length === 0 && adjustmentsIsLoading && (
+                  <tr><td colSpan={7} className="text-sm text-[#8a8472]">{t("common.loading")}</td></tr>
+                )}
+                {adjustments.length === 0 && !adjustmentsIsLoading && (
+                  <tr><td colSpan={7} className="text-sm text-[#8a8472]">{t("page.payroll.noAdjustments")}</td></tr>
                 )}
                 {adjustments.map((adjustment) => {
-                  const employee = employeeById.get(Number(adjustment.employee_id));
                   const period = adjustment.payroll_period_id ? periodById.get(Number(adjustment.payroll_period_id)) : null;
                   return (
                     <tr key={adjustment.id}>
                       <td>{new Date(adjustment.created_at).toLocaleString(lang)}</td>
-                      <td>{employee?.full_name || t("page.payroll.employeeId", { id: adjustment.employee_id })}</td>
+                      <td>{adjustment.employee_name || t("page.payroll.employeeId", { id: adjustment.employee_id })}</td>
                       <td>{period?.period_no || "-"}</td>
                       <td><span className={`badge ${adjustmentBadge(adjustment.adjustment_type)}`}>{t(`page.payroll.${adjustment.adjustment_type}`)}</span></td>
                       <td className="font-semibold">{money(adjustment.signed_amount, adjustment.currency)}</td>
-                      <td>{adjustment.reason}</td>
+                      <td>
+                        <div>{adjustment.reason}</div>
+                        {adjustment.source_payroll_record_id && (
+                          <div className="mt-1 text-xs text-[#8a8472]">
+                            {t("page.payroll.reversalOfRecord", { id: adjustment.source_payroll_record_id })}
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        {canManage && !adjustment.source_payroll_record_id &&
+                          (!adjustment.payroll_period_id || (period && !FINALIZED_PERIOD_STATUSES.has(period.status))) && (
+                          <button type="button" className="btn btn-sm text-red-700"
+                            disabled={deletingAdjustment !== null} onClick={() => deleteAdjustment(adjustment)}>
+                            <Trash2 className="h-4 w-4" />{t("btn.delete")}
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
+          {adjustmentsHasMore && (
+            <div className="border-t border-[#ecebe3] p-3 text-center">
+              <button
+                type="button"
+                className="btn"
+                disabled={adjustmentsIsLoadingMore}
+                onClick={() => void setAdjustmentSize((size) => size + 1)}
+              >
+                {adjustmentsIsLoadingMore ? t("common.loading") : t("common.loadMore")}
+              </button>
+            </div>
+          )}
         </section>
       </div>
 
       <div className="mb-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
         <section className="card overflow-hidden">
           <div className="border-b border-[#ecebe3] p-4">
-            <h2 className="app-card-title">{t("page.payroll.employeeTotals")}</h2>
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h2 className="app-card-title">{t("page.payroll.employeeTotals")}</h2>
+                <p className="mt-1 text-xs text-[#8a8472]">
+                  {summaryEmployees.length.toLocaleString()} / {Number(summary?.employees_total || 0).toLocaleString()}
+                </p>
+              </div>
+              <input
+                className="input min-w-[220px] max-w-sm"
+                value={employeeTotalsSearch}
+                maxLength={100}
+                onChange={(event) => {
+                  setEmployeeTotalsSearch(event.target.value);
+                }}
+                placeholder={t("page.payroll.searchEmployee")}
+                aria-label={t("page.payroll.searchEmployee")}
+              />
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="table min-w-[760px]">
@@ -647,10 +943,10 @@ export default function PayrollPage() {
                 </tr>
               </thead>
               <tbody>
-                {(summary?.employees || []).length === 0 && (
+                {summaryEmployees.length === 0 && (
                   <tr><td colSpan={7} className="text-sm text-[#8a8472]">{t("page.payroll.noTotals")}</td></tr>
                 )}
-                {(summary?.employees || []).map((row) => (
+                {summaryEmployees.map((row) => (
                   <tr key={`${row.employee_id}-${row.currency}`}>
                     <td>{row.employee_name}</td>
                     <td>{row.department_name || "-"}</td>
@@ -669,6 +965,12 @@ export default function PayrollPage() {
         <section className="card overflow-hidden">
           <div className="border-b border-[#ecebe3] p-4">
             <h2 className="app-card-title">{t("page.payroll.operationTotals")}</h2>
+            <p className="mt-1 text-xs text-[#8a8472]">
+              {t("page.payroll.operationTotalsScope", {
+                count: summaryEmployees.length,
+                total: Number(summary?.employees_total || 0),
+              })}
+            </p>
           </div>
           <div className="overflow-x-auto">
             <table className="table min-w-[840px]">
@@ -706,10 +1008,84 @@ export default function PayrollPage() {
         </section>
       </div>
 
+      {summaryHasMore && (
+        <div className="mb-4 flex justify-center">
+          <button
+            type="button"
+            className="btn"
+            disabled={summaryIsLoadingMore}
+            onClick={() => void setSummarySize(summarySize + 1)}
+          >
+            {summaryIsLoadingMore ? t("common.loading") : t("common.loadMore")}
+          </button>
+        </div>
+      )}
+
       <section className="card overflow-hidden">
         <div className="border-b border-[#ecebe3] p-4">
           <h2 className="app-card-title">{t("page.payroll.payrollRecords")}</h2>
         </div>
+        {reversalForm.record && (
+          <form onSubmit={createReversal} className="border-b border-[#ecebe3] bg-[#faf9f5] p-4">
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-[#28251d]">{t("page.payroll.reversalTitle")}</h3>
+                <p className="mt-1 text-xs text-[#746e5d]">
+                  {t("page.payroll.reversalSource", {
+                    id: reversalForm.record.id,
+                    employee: reversalForm.record.employee_name || t("page.payroll.employeeId", { id: reversalForm.record.employee_id }),
+                    amount: money(reversalForm.record.total_amount, reversalForm.record.currency),
+                  })}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn h-8 px-3 text-xs"
+                onClick={() => setReversalForm({ record: null, target_period_id: "", reason: "" })}
+              >
+                {t("common.cancel")}
+              </button>
+            </div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(220px,320px)_minmax(280px,1fr)_auto] md:items-end">
+              <div>
+                <label className="label">{t("page.payroll.targetPeriod")}</label>
+                <select
+                  className="select"
+                  value={reversalForm.target_period_id}
+                  onChange={(event) => setReversalForm({ ...reversalForm, target_period_id: event.target.value })}
+                  required
+                >
+                  <option value="">{t("page.payroll.selectEditablePeriod")}</option>
+                  {periods.filter((period) => (
+                    !FINALIZED_PERIOD_STATUSES.has(period.status)
+                    && Number(period.id) !== Number(reversalForm.record?.payroll_period_id)
+                  )).map((period) => (
+                    <option key={period.id} value={period.id}>{period.period_no} — {period.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label">{t("page.payroll.reversalReason")}</label>
+                <input
+                  className="input"
+                  value={reversalForm.reason}
+                  onChange={(event) => setReversalForm({ ...reversalForm, reason: event.target.value })}
+                  placeholder={t("page.payroll.reversalReasonPlaceholder")}
+                  minLength={3}
+                  maxLength={255}
+                  required
+                />
+              </div>
+              <button type="submit" className="btn btn-primary" disabled={!reversalForm.target_period_id || reversalForm.reason.trim().length < 3}>
+                <Undo2 />
+                <span>{t("page.payroll.postReversal")}</span>
+              </button>
+            </div>
+            {periods.every((period) => FINALIZED_PERIOD_STATUSES.has(period.status) || Number(period.id) === Number(reversalForm.record?.payroll_period_id)) && (
+              <p className="mt-3 text-xs text-amber-700">{t("page.payroll.noEditablePeriod")}</p>
+            )}
+          </form>
+        )}
         <div className="overflow-x-auto">
           <table className="table min-w-[1280px]">
             <thead>
@@ -733,10 +1109,14 @@ export default function PayrollPage() {
               )}
               {records.map((record) => {
                 const period = record.payroll_period_id ? periodById.get(Number(record.payroll_period_id)) : null;
+                const sourceFinalized = record.status === "approved" || record.status === "paid" || Boolean(
+                  period && ["locked", "approved", "paid"].includes(period.status)
+                );
+                const canVoidRecord = record.status !== "voided" && !sourceFinalized && !Boolean(
+                  period && FINALIZED_PERIOD_STATUSES.has(period.status)
+                );
                 const employeeDept = record.department_name || (
-                  employees.find((employee) => Number(employee.id) === Number(record.employee_id))?.department_id
-                    ? departmentById.get(Number(employees.find((employee) => Number(employee.id) === Number(record.employee_id))?.department_id))?.name
-                    : null
+                  record.department_id ? departmentById.get(Number(record.department_id))?.name : null
                 );
                 return (
                   <tr key={record.id}>
@@ -747,8 +1127,8 @@ export default function PayrollPage() {
                     </td>
                     <td>{period ? period.period_no : "-"}</td>
                     <td>
-                      <div>{record.production_no || "-"}</div>
-                      <div className="text-xs text-[#8a8472]">{record.sales_order_no || "-"}</div>
+                      <div>{formatOrderReference(record.production_no || "-")}</div>
+                      <div className="text-xs text-[#8a8472]">{formatOrderReference(record.sales_order_no || "-")}</div>
                     </td>
                     <td>{record.batch_no || "-"}</td>
                     <td>
@@ -760,10 +1140,15 @@ export default function PayrollPage() {
                     <td className="font-semibold">{money(record.total_amount, record.currency)}</td>
                     <td><span className={`badge ${statusBadge(record.status)}`}>{t(`statusValue.${record.status}`)}</span></td>
                     <td>
-                      {canManage && record.status !== "voided" ? (
+                      {canManage && canVoidRecord ? (
                         <button type="button" className="btn h-8 px-2 text-[11px]" onClick={() => voidRecord(record)}>
                           <Ban />
                           <span>{t("page.payroll.void")}</span>
+                        </button>
+                      ) : canManage && sourceFinalized ? (
+                        <button type="button" className="btn h-8 px-2 text-[11px]" onClick={() => startReversal(record)}>
+                          <Undo2 />
+                          <span>{t("page.payroll.reverseAsAdjustment")}</span>
                         </button>
                       ) : "-"}
                     </td>
@@ -774,6 +1159,10 @@ export default function PayrollPage() {
           </table>
         </div>
       </section>
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <span className="text-sm">{records.length} / {recordPages?.[0]?.total || 0}</span>
+        {recordsHasMore && <button className="btn" disabled={recordsIsValidating} onClick={() => setRecordSize((size) => size + 1)}>{t("common.loadMore")}</button>}
+      </div>
     </div>
   );
 }

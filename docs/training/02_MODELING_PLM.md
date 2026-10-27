@@ -104,3 +104,4 @@ If a model must be corrected after approval:
 | Branded production cannot be created | Model not approved | Complete model and request approval. |
 | Wrong material reserved | BOM item is wrong | Correct BOM and ask Planning to refresh reservations. |
 | Sales cannot find model | Model code/name/status issue | Check model list, approval status, and spelling. |
+

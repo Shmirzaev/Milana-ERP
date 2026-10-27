@@ -1,6 +1,7 @@
-from datetime import datetime, timezone, timedelta, time
+from datetime import date, datetime, timezone, timedelta, time
 from zoneinfo import ZoneInfo
-from fastapi import APIRouter, Depends
+from typing import Annotated, Literal
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 
 from app.core.deps import (
@@ -12,14 +13,67 @@ from app.core.deps import (
     require_permissions,
 )
 from app.core.dt import as_utc
-from app.models import (
+from app.schemas import (
     SalesOrder, ProductionOrder, WorkOrder, WasteRecord, FinishedGoodsStock,
     CuttingRecord, SewingRecord, PrintingRecord, PackagingRecord, Customer, User,
+    SalesOrderItem,
 )
-from app.services.finance import dashboard_summary, branded_stock_value
-from app.services.inventory import stock_summary
+from app.models.finance_service import dashboard_summary, branded_stock_value
+from app.models.inventory_service import stock_summary
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+
+
+@router.get("/cutting")
+def cutting_dashboard(
+    db: DbSession, start: date, end: date,
+    current: User = Depends(require_permissions("cutting.records", "cutting.bundles", "planning.production", "*")),
+    cutting_department_code: str | None = None,
+):
+    from app.models.department_dashboards_service import cutting_board
+    from app.models.factory_scope_service import cutting_department_scope
+    department = cutting_department_scope(current, cutting_department_code)
+    return cutting_board(db, department, start, end)
+
+
+@router.get("/printing")
+def printing_dashboard(
+    db: DbSession,
+    current: User = Depends(require_permissions("printing.records", "printing.bundles", "planning.production", "*")),
+    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=48)] = 24,
+):
+    from app.models.department_dashboards_service import printing_board
+    from app.models.factory_scope_service import require_operational_department_access
+    require_operational_department_access(current, "PRT")
+    return printing_board(db, offset=offset, limit=limit)
+
+
+@router.get("/warehouse")
+def warehouse_dashboard(
+    db: DbSession, start: date, end: date,
+    _: User = Depends(require_permissions("storage.packages", "storage.shipment", "*")),
+    stock_kind: Literal["ALL", "standard", "first_grade", "second_grade"] = "ALL",
+):
+    from app.models.department_dashboards_service import warehouse_board
+    return warehouse_board(db, start, end, stock_kind=stock_kind)
+
+
+@router.get("/overview")
+def management_overview(
+    db: DbSession,
+    start: date,
+    end: date,
+    _: User = Depends(require_permissions("management.view", "*")),
+    factory: Literal["ALL", "MIL", "BST", "ECO"] = "ALL",
+):
+    from app.models.dashboard_overview_service import overview
+
+    if end < start or (end - start).days > 365:
+        raise HTTPException(status_code=422, detail="Choose an ordered date range of at most 366 days")
+    return overview(db, start, end, factory)
+
+
 _ACTIVE_ORDER_STATUSES = (
     "confirmed",
     "planning",
@@ -42,26 +96,65 @@ def active_production(db: DbSession, _: User = Depends(require_permissions(*PROD
         .order_by(SalesOrder.deadline.asc(), SalesOrder.id.asc())
         .all()
     )
+    order_ids = {int(order.id) for order in orders}
+    production_orders = (
+        db.query(ProductionOrder)
+        .filter(ProductionOrder.sales_order_id.in_(order_ids))
+        .all()
+        if order_ids
+        else []
+    )
+    production_orders_by_sales_order: dict[int, list[ProductionOrder]] = {}
+    for production_order in production_orders:
+        production_orders_by_sales_order.setdefault(int(production_order.sales_order_id), []).append(production_order)
+    production_order_ids = {int(production_order.id) for production_order in production_orders}
+    packaging_work_orders = (
+        db.query(WorkOrder)
+        .filter(
+            WorkOrder.production_order_id.in_(production_order_ids),
+            WorkOrder.operation == "packaging",
+        )
+        .all()
+        if production_order_ids
+        else []
+    )
+    packaging_by_production_order: dict[int, list[WorkOrder]] = {}
+    for work_order in packaging_work_orders:
+        packaging_by_production_order.setdefault(int(work_order.production_order_id), []).append(work_order)
+    item_quantity_by_order = {
+        int(order_id): int(quantity or 0)
+        for order_id, quantity in (
+            db.query(SalesOrderItem.sales_order_id, func.coalesce(func.sum(SalesOrderItem.quantity), 0))
+            .filter(SalesOrderItem.sales_order_id.in_(order_ids))
+            .group_by(SalesOrderItem.sales_order_id)
+            .all()
+            if order_ids
+            else []
+        )
+    }
+    customer_ids = {int(order.customer_id) for order in orders if order.customer_id}
+    customers_by_id = {
+        int(customer.id): customer
+        for customer in (
+            db.query(Customer).filter(Customer.id.in_(customer_ids)).all()
+            if customer_ids
+            else []
+        )
+    }
     result = []
     for order in orders:
-        production_orders = db.query(ProductionOrder).filter(ProductionOrder.sales_order_id == order.id).all()
-        po_ids = [int(po.id) for po in production_orders]
-        planned_qty = sum(int(po.planned_quantity or 0) for po in production_orders)
+        order_production_orders = production_orders_by_sales_order.get(int(order.id), [])
+        planned_qty = sum(int(po.planned_quantity or 0) for po in order_production_orders)
         if planned_qty <= 0:
-            planned_qty = sum(int(item.quantity or 0) for item in (order.items or []))
+            planned_qty = item_quantity_by_order.get(int(order.id), 0)
 
-        completed_qty = 0
-        if po_ids:
-            packaging_wos = db.query(WorkOrder).filter(
-                WorkOrder.production_order_id.in_(po_ids),
-                WorkOrder.operation == "packaging",
-            ).all()
-            completed_qty = sum(
+        completed_qty = sum(
                 max(int(wo.passed_qty or 0), int(wo.actual_output_qty or 0))
-                for wo in packaging_wos
-            )
+                for production_order in order_production_orders
+                for wo in packaging_by_production_order.get(int(production_order.id), [])
+        )
         progress_pct = round((completed_qty / planned_qty * 100) if planned_qty > 0 else 0)
-        customer = db.get(Customer, order.customer_id) if order.customer_id else None
+        customer = customers_by_id.get(int(order.customer_id)) if order.customer_id else None
         result.append(
             {
                 "id": order.id,

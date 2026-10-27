@@ -1,3 +1,5 @@
+import math
+from types import SimpleNamespace
 from typing import Annotated
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
@@ -6,7 +8,19 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.security import decode_token
 from app.db.session import get_db
-from app.models import User
+from app.schemas import User
+from app.models.user_access_service import access_configured, apply_policy
+from app.models.idempotency_service import bind_idempotency_identity
+from app.models.factory_scope_service import (
+    assigned_factory_code,
+    available_factory_codes,
+    bind_session_factory,
+    enforce_request_factory_scope,
+    factory_permissions_for,
+    is_factory_permission_token,
+    selected_factory_code,
+    user_is_super_admin,
+)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)
 
@@ -104,10 +118,23 @@ def get_current_user(
     # password change/reset invalidates any previously stolen session.
     valid_from = getattr(user, "tokens_valid_from", None)
     issued_at = payload.get("iat")
-    if valid_from is not None and issued_at is not None:
+    if valid_from is not None:
         from app.core.dt import as_utc
-        if int(issued_at) < int(as_utc(valid_from).timestamp()):
+        # Keep subsecond precision: a token minted before rotation within the
+        # same second must not remain valid. Legacy integer dates are supported,
+        # but a rotated account requires a usable issue time.
+        try:
+            issued_timestamp = float(issued_at)
+        except (TypeError, ValueError, OverflowError):
+            issued_timestamp = float("nan")
+        if (isinstance(issued_at, bool) or not math.isfinite(issued_timestamp)
+                or issued_timestamp < as_utc(valid_from).timestamp()):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired, please sign in again")
+    bind_session_factory(user, payload.get("factory_code"))
+    enforce_request_factory_scope(user, request)
+    from app.models.sewing_scope_service import enforce_band_request
+    enforce_band_request(user, request, db)
+    bind_idempotency_identity(db, user)
     return user
 
 
@@ -131,19 +158,62 @@ def normalize_permissions(values) -> list[str]:
 
 def user_permissions(user: User) -> list[str]:
     permissions: list[str] = []
+    if not user_is_super_admin(user) and selected_factory_code(user) != assigned_factory_code(user):
+        return normalize_permissions(factory_permissions_for(user, selected_factory_code(user)))
     if user.role and user.role.permissions:
         permissions.extend(user.role.permissions)
-    permissions.extend(getattr(user, "extra_permissions", None) or [])
-    return normalize_permissions(permissions)
+    permissions.extend(
+        permission
+        for permission in (getattr(user, "extra_permissions", None) or [])
+        if not is_factory_permission_token(permission)
+    )
+    if access_configured(user):
+        # Surface historical implied rights before applying explicit overrides.
+        # Existing accounts without a policy retain their exact permission list.
+        # Mutable profile name and email must never imply a capability; pricing
+        # requires an explicit grant (role, extra_permissions or policy allow).
+        department = getattr(user, "department", None)
+        if str(getattr(department, "code", "")).upper() == "STR" and "storage.items" in permissions and "inventory.materials_only" not in permissions:
+            permissions.append("price_calculation.accessories")
+        if {"cutting.records", "cutting.bundles", "admin.super"}.intersection(permissions):
+            permissions.append("price_calculation.cutting")
+        if user.role and user.role.name.lower() in {"admin", "management"}:
+            permissions.extend(["tasks.manage", "management.approve"])
+    return normalize_permissions(apply_policy(user, selected_factory_code(user), permissions))
+
+
+def factory_codes_with_permission(user: User, permission: str) -> list[str]:
+    """Return available factories where this user effectively has a permission.
+
+    Permission resolution is evaluated as if the user had selected each
+    available factory. This preserves secondary-factory grants and applies the
+    same role, wildcard, and per-factory denial rules as ``require_permissions``.
+    """
+    if not permission:
+        return []
+
+    authorized: list[str] = []
+    for factory_code in available_factory_codes(user):
+        scoped_user = SimpleNamespace(
+            role=user.role,
+            department=user.department,
+            factory_code=user.factory_code,
+            extra_permissions=user.extra_permissions,
+            access_policy=user.access_policy,
+            session_factory_code=factory_code,
+        )
+        granted = user_permissions(scoped_user)
+        if permission in granted or "*" in granted:
+            authorized.append(factory_code)
+    return authorized
 
 
 def is_admin(user: User) -> bool:
-    return "*" in user_permissions(user) or (user.role and user.role.name.lower() == "admin")
+    return "*" in user_permissions(user) or (not access_configured(user) and user.role and user.role.name.lower() == "admin")
 
 
 def is_super_admin(user: User) -> bool:
-    role_name = (user.role.name if user.role else "").strip().lower()
-    return role_name == SUPER_ADMIN_ROLE_NAME.lower() or SUPER_ADMIN_PERMISSION in user_permissions(user)
+    return user_is_super_admin(user)
 
 
 def require_super_admin(user: CurrentUser) -> User:
