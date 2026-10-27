@@ -2,6 +2,8 @@
 
 from datetime import date, datetime
 
+from pydantic import field_serializer
+
 from app.libs.dto.common import SchemaModel
 from app.libs.enums.inventory import FabricScanDepartment, FabricScanDirection
 
@@ -16,6 +18,10 @@ class FabricScanRowOut(SchemaModel):
     roll_number: int
     operator_name: str
     scanned_at: datetime
+
+    @field_serializer("scanned_at", when_used="json")
+    def serialize_scanned_at(self, value: datetime) -> str:
+        return value.isoformat()
 
 
 class FabricScanResultOut(SchemaModel):

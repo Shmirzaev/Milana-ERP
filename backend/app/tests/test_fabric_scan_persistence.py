@@ -2,7 +2,7 @@
 
 Run explicitly with pytest --noconftest. The fixture owns its SQLite database.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
@@ -16,6 +16,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.deps import get_current_user, get_db
 from app.db.base import Base
 from app.libs.dto.inventory.fabric_scan_input import ScanInput
+from app.libs.dto.inventory.fabric_scan_output import FabricScanRowOut
 from app.libs.enums.inventory import FabricScanDepartment, FabricScanDirection
 from app.libs.types.inventory import FabricScanCreateCommand
 from app.models.inventory import fabric_scans_service as service
@@ -228,17 +229,17 @@ def test_duplicate_replay_precedes_batch_lookup(scan_case, monkeypatch):
         assert db.query(FabricScan).count() == 1
 
 
-def test_integrity_failure_rolls_back_and_a_later_scan_can_retry(scan_case, monkeypatch):
+def test_commit_integrityerror_without_duplicate_rolls_back_and_retry_succeeds(scan_case, monkeypatch):
     fixed = datetime(2026, 9, 11, 18, 59, 59, tzinfo=timezone.utc)
     monkeypatch.setattr(service, "now_utc", lambda: fixed)
     def fail_commit(db):
-        raise IntegrityError("insert fabric scan", {}, RuntimeError("injected collision"))
+        raise IntegrityError("insert fabric scan", {}, RuntimeError("forced integrity error"))
 
     with scan_case["factory"]() as db:
         actor = db.get(User, scan_case["mil_id"])
         with monkeypatch.context() as patch:
             patch.setattr(Session, "commit", fail_commit)
-            with pytest.raises(IntegrityError, match="injected collision"):
+            with pytest.raises(IntegrityError, match="forced integrity error"):
                 service.scan_fabric_roll(
                     db, ScanInput(code=f"B{scan_case['batch_id']}-R1", direction="received"), actor
                 )
@@ -248,3 +249,75 @@ def test_integrity_failure_rolls_back_and_a_later_scan_can_retry(scan_case, monk
         )
         assert result.duplicate is False
         assert result.row.direction is FabricScanDirection.RECEIVED
+
+
+@pytest.mark.parametrize("scanned_at", [
+    datetime(2026, 9, 11, 18, 59, 59),
+    datetime(2026, 9, 11, 18, 59, 59, tzinfo=timezone.utc),
+    datetime(2026, 9, 11, 23, 59, 59, tzinfo=timezone(timedelta(hours=5, minutes=30))),
+])
+def test_row_datetime_json_keeps_datetime_isoformat_spelling(scanned_at):
+    row = FabricScanRowOut(
+        id=7, report_date=datetime(2026, 9, 11).date(), direction=FabricScanDirection.RECEIVED,
+        fabric_name="Independent snapshot", batch_no="B-7", color=None,
+        roll_number=2, operator_name="Operator", scanned_at=scanned_at,
+    )
+    assert row.model_dump(mode="json")["scanned_at"] == scanned_at.isoformat()
+
+
+def test_tashkent_midnight_creates_two_historical_daily_identities(scan_case, monkeypatch):
+    app = FastAPI()
+    app.include_router(router)
+    def isolated_db():
+        with scan_case["factory"]() as db:
+            yield db
+
+    def current_user():
+        with scan_case["factory"]() as db:
+            return db.get(User, scan_case["mil_id"])
+
+    app.dependency_overrides[get_db] = isolated_db
+    app.dependency_overrides[get_current_user] = current_user
+    with TestClient(app) as client:
+        monkeypatch.setattr(service, "now_utc", lambda: datetime(2026, 9, 11, 18, 59, 59, tzinfo=timezone.utc))
+        before_midnight = client.post("/fabric-scans", json={
+            "code": f"B{scan_case['batch_id']}-R1", "direction": "received"
+        })
+        assert before_midnight.status_code == 200 and before_midnight.json()["duplicate"] is False
+        assert before_midnight.json()["row"]["report_date"] == "2026-09-11"
+
+        monkeypatch.setattr(service, "now_utc", lambda: datetime(2026, 9, 11, 19, 0, tzinfo=timezone.utc))
+        after_midnight = client.post("/fabric-scans", json={
+            "code": f"B{scan_case['batch_id']}-R1", "direction": "received"
+        })
+        assert after_midnight.status_code == 200 and after_midnight.json()["duplicate"] is False
+        assert after_midnight.json()["row"]["report_date"] == "2026-09-12"
+        for report_date in ("2026-09-11", "2026-09-12"):
+            report = client.get(f"/fabric-scans?report_date={report_date}")
+            assert report.status_code == 200
+            assert (report.json()["report_date"], report.json()["total"], report.json()["received"]) == (
+                report_date, 1, 1
+            )
+    with scan_case["factory"]() as db:
+        assert db.query(FabricScan).count() == 2
+        assert db.query(StockMovement).count() == 0
+
+
+def test_archived_depleted_batch_can_still_register_a_return_without_stock_mutation(
+    scan_case, monkeypatch
+):
+    fixed = datetime(2026, 9, 11, 19, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(service, "now_utc", lambda: fixed)
+    with scan_case["factory"]() as db:
+        actor = db.get(User, scan_case["mil_id"])
+        batch = db.get(StockBatch, scan_case["batch_id"])
+        batch.quantity = 0
+        batch.archived_at = fixed
+        db.commit()
+        before = (batch.quantity, batch.archived_at)
+        result = service.scan_fabric_roll(
+            db, ScanInput(code=f"B{batch.id}-R1", direction="returned"), actor
+        )
+        assert result.duplicate is False
+        assert (batch.quantity, batch.archived_at) == before
+        assert db.query(StockMovement).count() == 0
