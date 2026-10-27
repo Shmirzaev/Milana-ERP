@@ -306,7 +306,7 @@ export default function CustomerDetailPage() {
   return (
     <div>
       <PageHeader title={customer.name} subtitle={t("page.customerDetail.subtitle")} />
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[420px_1fr]">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
         <form onSubmit={save} className="card p-4 space-y-3">
           <div><label className="label">{t("common.name")}</label><input className="input" readOnly={!canManageCustomer} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
           {errors.name && <div className="text-xs text-red-600">{errors.name}</div>}
@@ -319,7 +319,7 @@ export default function CustomerDetailPage() {
           {canManageCustomer && <div className="flex justify-end"><button className="btn btn-primary">{t("btn.save")}</button></div>}
         </form>
 
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
             <div className="card p-4">
               <div className="label">{t("page.customerDetail.orders")}</div>
