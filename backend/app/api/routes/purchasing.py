@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, File, Header, Query, UploadFile
 
 from app.core.deps import DbSession, require_permissions
 from app.libs.dto.purchasing.purchase_order_input import PurchaseOrderIn, PurchaseOrderReceiveIn
-from app.libs.dto.purchasing.purchase_order_output import PurchaseOrderOut
+from app.libs.dto.purchasing.purchase_order_output import PurchaseOrderCreationOut, PurchaseOrderOut
 from app.libs.dto.purchasing.purchase_request_input import (
     PurchaseRequestApprovalIn,
     PurchaseRequestIn,
@@ -67,7 +67,7 @@ def reject_request(
     return requests_service.reject_purchase_request(db, request_id=request_id, current=current)
 
 
-@router.post("/requests/{request_id}/convert-to-order", response_model=PurchaseOrderOut, status_code=201)
+@router.post("/requests/{request_id}/convert-to-order", response_model=PurchaseOrderCreationOut, status_code=201)
 def convert_request_to_order(
     request_id: int,
     payload: PurchaseRequestOrderIn,
@@ -107,7 +107,7 @@ def list_purchase_orders(
     )
 
 
-@router.post("/orders", response_model=PurchaseOrderOut, status_code=201)
+@router.post("/orders", response_model=PurchaseOrderCreationOut, status_code=201)
 def create_order(
     payload: PurchaseOrderIn,
     db: DbSession,

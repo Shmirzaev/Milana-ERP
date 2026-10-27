@@ -27,6 +27,7 @@ from app.libs.types.purchasing import (
     PurchaseRequestCreateCommand,
 )
 from app.models import inventory_access_service as inventory_access
+from app.libs.dto.purchasing.purchase_order_output import PurchaseOrderCreationOut
 from app.models import purchasing_service as purchasing_core
 from app.models.image_storage_service import store_uploaded_image
 from app.schemas import Item, PurchaseOrder, PurchaseRequest, PurchaseRequestLine, User
@@ -158,15 +159,15 @@ def _purchase_request_conversion_command(
 
 def convert_purchase_request_to_order(
     db: Session, *, request_id: int, payload: PurchaseRequestOrderIn, current: User
-) -> PurchaseOrder:
+) -> PurchaseOrderCreationOut:
     """Convert an approved purchase request into a purchase order."""
     order = purchasing_core.convert_purchase_request_to_order(
         db, request_id=request_id, data=_purchase_request_conversion_command(payload), current=current
     )
     purchasing_core.require_purchase_item_access(db, current, order.lines)
+    result = PurchaseOrderCreationOut.model_validate(order)
     db.commit()
-    db.refresh(order)
-    return order
+    return result
 
 
 async def store_request_photo(file: UploadFile) -> dict[str, str]:

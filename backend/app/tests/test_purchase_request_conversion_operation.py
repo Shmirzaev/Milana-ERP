@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session, object_session
 
 from app.db.session import SessionLocal
 from app.libs.dto.purchasing.purchase_request_input import PurchaseRequestOrderIn
+from app.libs.dto.purchasing.purchase_order_output import PurchaseOrderCreationOut, PurchaseOrderOut
 from app.libs.enums.purchasing import PurchaseOrderStatus, PurchaseRequestStatus
 from app.libs.types.purchasing import (
     PurchaseOrderCreateCommand,
@@ -131,12 +132,17 @@ def test_conversion_contracts_are_used_and_canonical():
 
 def test_conversion_creates_sent_order_and_marks_the_request_converted(conversion_case):
     order = convert(conversion_case)
+    assert isinstance(order, PurchaseOrderCreationOut)
+    assert order.status is PurchaseOrderStatus.SENT
     persisted = state(conversion_case)
     assert order.status == "sent"
     assert persisted["status"] == "converted"
     assert len(persisted["orders"]) == 1
     po_no, status, supplier_id, expected_date, notes, lines = persisted["orders"][0]
-    assert status == "sent" and expected_date == EXPECTED_DATE.replace(tzinfo=None)
+    assert status == "sent"
+    # SQLite returns a naive datetime; PostgreSQL preserves an aware instant.
+    actual_instant = expected_date.replace(tzinfo=timezone.utc) if expected_date.tzinfo is None else expected_date.astimezone(timezone.utc)
+    assert actual_instant == EXPECTED_DATE
     assert notes == "Converted from " + conversion_case["number"]
     assert [line[1] for line in lines] == [10, 11]
     assert all(line[2] == 0 for line in lines)
@@ -280,3 +286,142 @@ def test_order_creation_default_status_is_draft(conversion_case):
     assert core._order_create_status(None) is PurchaseOrderStatus.DRAFT
     assert core._order_create_status("") is PurchaseOrderStatus.DRAFT
     assert core._order_create_status(PurchaseOrderStatus.SENT) is PurchaseOrderStatus.SENT
+
+
+def test_operation_result_contract_and_legacy_status():
+    from app.api.routes.purchasing import router
+    assert get_type_hints(PurchaseOrderCreationOut)["status"] is PurchaseOrderStatus
+    assert get_type_hints(PurchaseOrderOut)["status"] is str
+    assert get_type_hints(public.convert_purchase_request_to_order)["return"] is PurchaseOrderCreationOut
+    assert get_type_hints(orders_public.create_purchase_order)["return"] is PurchaseOrderCreationOut
+    schema = PurchaseOrderCreationOut.model_json_schema()
+    assert schema["properties"]["status"]["$ref"].endswith("/PurchaseOrderStatus")
+    assert "enum" not in PurchaseOrderOut.model_json_schema()["properties"]["status"]
+    routes = {(route.path, method): route for route in router.routes for method in route.methods}
+    assert routes[("/purchasing/orders", "POST")].response_model is PurchaseOrderCreationOut
+    assert routes[("/purchasing/requests/{request_id}/convert-to-order", "POST")].response_model is PurchaseOrderCreationOut
+    assert routes[("/purchasing/orders/{order_id}/receive", "POST")].response_model is PurchaseOrderOut
+
+
+def test_create_result_and_legacy_unknown_status(conversion_case):
+    from app.libs.dto.purchasing.purchase_order_input import PurchaseOrderIn
+    from pydantic import ValidationError
+
+    with SessionLocal() as db:
+        request = db.get(PurchaseRequest, conversion_case["id"])
+        item_id = request.lines[0].item_id
+        result = orders_public.create_purchase_order(
+            db, payload=PurchaseOrderIn.model_validate({
+                "status": "sent", "lines": [{"item_id": item_id, "ordered_quantity": 5}]
+            }), current=db.get(User, conversion_case["actor"])
+        )
+    assert result.status is PurchaseOrderStatus.DRAFT
+    assert result.model_dump(mode="json")["status"] == "draft"
+    raw = result.model_dump(mode="json")
+    raw["status"] = "historical_custom"
+    assert PurchaseOrderOut.model_validate(raw).status == "historical_custom"
+    with pytest.raises(ValidationError):
+        PurchaseOrderCreationOut.model_validate(raw)
+
+
+def test_duplicate_conversion_line_is_refused_without_effects(conversion_case):
+    case = conversion_case
+    before = _participant_counts()
+    with SessionLocal() as db:
+        lines = [case["lines"][0], case["lines"][0]]
+        with pytest.raises(HTTPException) as error:
+            core.convert_purchase_request_to_order(
+                db, request_id=case["id"], data={"expected_date": EXPECTED_DATE, "lines": lines},
+                current=db.get(User, case["actor"]),
+            )
+        assert error.value.status_code == 400
+        assert error.value.detail == "Order lines must match the approved purchase request"
+        db.rollback()
+    assert _participant_counts() == before
+    assert state(case)["status"] == "approved"
+
+
+def _participant_counts():
+    with SessionLocal() as db:
+        return tuple(db.query(cls).count() for cls in (PurchaseOrder, PurchaseOrderLine, AuditLog, Notification))
+
+
+@pytest.mark.parametrize("fault", ["access", "audit", "before_commit", "result"])
+def test_late_failure_rolls_back_all_participants_and_retry(conversion_case, monkeypatch, fault):
+    case = conversion_case
+    if fault == "access":
+        with SessionLocal() as db:
+            actor = db.get(User, case["actor"])
+            actor.extra_permissions = ["purchasing.order", "inventory.materials_only"]
+            request = db.get(PurchaseRequest, case["id"])
+            request.lines[0].item.category = "accessory"
+            db.commit()
+    baseline = _participant_counts()
+    captured = {}
+
+    def capture(db):
+        db.flush()
+        order = db.query(PurchaseOrder).filter_by(purchase_request_id=case["id"]).one()
+        captured.update(id=order.id, title="Purchase order ready for receiving: " + order.po_no)
+        assert db.get(PurchaseRequest, case["id"]).status == "converted"
+        assert db.query(PurchaseOrderLine).filter_by(purchase_order_id=order.id).count() == 2
+        assert db.query(AuditLog).filter_by(entity_type="PurchaseOrder", entity_id=order.id).count() == 1
+        assert db.query(AuditLog).filter_by(entity_type="PurchaseRequest", entity_id=case["id"]).count() == 1
+        assert db.query(Notification).filter_by(title=captured["title"]).count() >= 1
+
+    original_access = core.require_purchase_item_access
+    original_log = core.log_action
+    with monkeypatch.context() as patch:
+        if fault == "access":
+            def fail_access(db, current, lines):
+                capture(db)
+                return original_access(db, current, lines)
+            patch.setattr(core, "require_purchase_item_access", fail_access)
+        elif fault == "audit":
+            def fail_audit(db, *args, **kwargs):
+                original_log(db, *args, **kwargs)
+                if len(args) >= 3 and args[1:3] == ("convert_to_order", "PurchaseRequest"):
+                    capture(db)
+                    raise RuntimeError("late audit fault")
+            patch.setattr(core, "log_action", fail_audit)
+        elif fault == "before_commit":
+            def fail_commit(db):
+                capture(db)
+                raise RuntimeError("before commit fault")
+            event.listen(Session, "before_commit", fail_commit)
+        else:
+            def fail_result(*args, **kwargs):
+                raise ValueError("result validation fault")
+            # Capture after real writes and before the result is built.
+            def capture_access(db, current, lines):
+                original_access(db, current, lines)
+                capture(db)
+            patch.setattr(core, "require_purchase_item_access", capture_access)
+            patch.setattr(PurchaseOrderCreationOut, "model_validate", fail_result)
+        try:
+            with pytest.raises((HTTPException, RuntimeError, ValueError)) as error:
+                convert(case)
+            if fault == "access":
+                assert error.value.status_code == 403
+        finally:
+            if fault == "before_commit":
+                event.remove(Session, "before_commit", fail_commit)
+
+    assert captured
+    assert _participant_counts() == baseline
+    with SessionLocal() as db:
+        assert db.get(PurchaseRequest, case["id"]).status == "approved"
+        assert db.get(PurchaseOrder, captured["id"]) is None
+        assert db.query(PurchaseOrderLine).filter_by(purchase_order_id=captured["id"]).count() == 0
+        assert db.query(AuditLog).filter_by(entity_type="PurchaseOrder", entity_id=captured["id"]).count() == 0
+        assert db.query(AuditLog).filter_by(entity_type="PurchaseRequest", entity_id=case["id"]).count() == 0
+        assert db.query(Notification).filter_by(title=captured["title"]).count() == 0
+        if fault == "access":
+            db.get(User, case["actor"]).extra_permissions = ["purchasing.order"]
+            db.commit()
+    result = convert(case)
+    assert result.status is PurchaseOrderStatus.SENT
+    assert len(state(case)["orders"]) == 1
+    with pytest.raises(HTTPException) as error:
+        convert(case)
+    assert error.value.status_code == 409

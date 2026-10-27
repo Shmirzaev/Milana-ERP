@@ -15,7 +15,7 @@ Contract for the purchase order operations:
 from sqlalchemy.orm import Session, joinedload
 
 from app.libs.dto.purchasing.purchase_order_input import PurchaseOrderIn
-from app.libs.dto.purchasing.purchase_order_output import PurchaseOrderOut
+from app.libs.dto.purchasing.purchase_order_output import PurchaseOrderCreationOut, PurchaseOrderOut
 from app.libs.enums.purchasing import PurchaseOrderStatus
 from app.libs.types.purchasing import PurchaseOrderCreateCommand
 from app.models import inventory_access_service as inventory_access
@@ -111,12 +111,12 @@ def _purchase_order_command(payload: PurchaseOrderIn) -> PurchaseOrderCreateComm
     }
 
 
-def create_purchase_order(db: Session, *, payload: PurchaseOrderIn, current: User) -> PurchaseOrder:
+def create_purchase_order(db: Session, *, payload: PurchaseOrderIn, current: User) -> PurchaseOrderCreationOut:
     """Create a purchase order and commit it once its lines are authorized."""
     order = purchasing_core.create_purchase_order(
         db, data=_purchase_order_command(payload), current=current
     )
     purchasing_core.require_purchase_item_access(db, current, order.lines)
+    result = PurchaseOrderCreationOut.model_validate(order)
     db.commit()
-    db.refresh(order)
-    return order
+    return result

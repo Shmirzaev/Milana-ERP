@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Optional
 
 from app.libs.dto.common import ORMModel
+from app.libs.enums.purchasing import PurchaseOrderStatus
 
 
 class PurchaseOrderLineOut(ORMModel):
@@ -38,3 +39,9 @@ class PurchaseOrderOut(ORMModel):
     created_at: datetime
     updated_at: datetime
     lines: list[PurchaseOrderLineOut] = []
+
+
+class PurchaseOrderCreationOut(PurchaseOrderOut):
+    """Result of creating or converting an order, with a canonical status."""
+
+    status: PurchaseOrderStatus
