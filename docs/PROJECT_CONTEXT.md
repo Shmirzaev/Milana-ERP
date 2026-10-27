@@ -11,7 +11,7 @@ present or verified on `clone_main`. The shared checkout still contains
 legacy/root services and mixed DTO files. Schema-owned writers and full
 enum/type adoption remain incomplete across the ERP.
 
-Updated 2026-10-26. Keep this file short: current decisions, release pointers and
+Updated 2026-10-27. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
@@ -141,6 +141,13 @@ not appended here. This summary does not replace live release verification.
   correlated factory-path evidence described in [performance evidence](performance-evidence.txt).
 - CI branch triggering and automatic recovery improvements in the plan remain
   implementation tasks; skills/docs do not install enforcement or rollback.
+- RF-013's [disposable single-host rollback rehearsal](archive/RF013_SINGLE_HOST_REHEARSAL_2026-10-27.md)
+  switched both roles through real HAProxy, proved a candidate settings write remains
+  readable/writable by the old backend, and recovered from a partial activation.
+  The failed frontend remained routed for 41.41 seconds from injected stop to old
+  service; `slotctl.activate()` does not compensate. This is local evidence only:
+  Mirshoir review, visual acceptance, future RF-005 data compatibility, and an
+  accountable production rollback operator remain pending. No production state changed.
 - Recovery targets in [DISASTER_RECOVERY.md](DISASTER_RECOVERY.md) remain requirements,
   not proof of measured capacity. Preserve backups, active/rollback releases and evidence.
 
