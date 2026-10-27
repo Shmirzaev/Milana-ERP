@@ -1,19 +1,19 @@
 """Frozen 8a characterization. Owned migrated-constraint PG fixture; no app edits."""
-import os
+import json
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 from decimal import Decimal
 
 import pytest
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
-from sqlalchemy import create_engine, event, text
-from sqlalchemy.engine import make_url
+import sqlalchemy as sa
+from sqlalchemy import event, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
-from app.db.base import Base
 from app.db.session import get_db
 from app.core.deps import get_current_user
 from app.api.routes.catalog import router as catalog_router
@@ -26,13 +26,48 @@ from app.libs.dto.catalog.model_bom_update import ModelBOMUpdate
 from app.libs.dto.catalog.model_bom_output import ModelBOMOut
 from app.libs.dto.catalog.model_input import ModelVariantCreateIn
 
-url=make_url(os.environ['BOM_REVIEW_URL'])
-assert url.host=='127.0.0.1' and url.port==51716 and url.database.startswith('review_bom_add_')
-engine=create_engine(url)
-Sessions=sessionmaker(bind=engine,autoflush=False,expire_on_commit=False)
+from alembic import command
+from alembic.config import Config
+from starlette.responses import JSONResponse
+from app.tests.pg_approved_instance import (
+    ApprovedInstanceUnavailable, create_target_database, drop_target_database,
+    load_approved_instance, target_engine,
+)
+
+# Bound only after the module fixture has created its isolated owned database.
+engine = None
+Sessions = sessionmaker(autoflush=False, expire_on_commit=False)
+
+@pytest.fixture(scope="module")
+def bom_database():
+    global engine
+    try:
+        instance = load_approved_instance()
+    except ApprovedInstanceUnavailable as error:
+        pytest.skip(f"required PostgreSQL gate BLOCKED: {error}")
+    target = create_target_database(instance)
+    engine = None
+    try:
+        engine = target_engine(target, options="-cstatement_timeout=20000 -clock_timeout=10000")
+        # env.py constructs its own engine; route it to the already guarded engine.
+        # Run actual revisions, not metadata.create_all, to exercise the real constraints.
+        from app.core.config import settings
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(settings, "DATABASE_URL", engine.url.render_as_string(hide_password=False))
+            patch.setattr(sa, "engine_from_config", lambda *args, **kwargs: engine)
+            config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+            command.upgrade(config, "head")
+        Sessions.configure(bind=engine)
+        yield engine
+    finally:
+        Sessions.configure(bind=None)
+        if engine is not None:
+            engine.dispose()
+        engine = None
+        drop_target_database(target)
 
 @pytest.fixture(autouse=True)
-def case():
+def case(bom_database):
     with engine.begin() as c:
         c.exec_driver_sql('TRUNCATE models, items, warehouses, users, roles, audit_logs RESTART IDENTITY CASCADE')
     with Sessions.begin() as db:
@@ -272,20 +307,39 @@ def test_competing_main_creates_reach_unique_index_one_business_outcome(case,mon
     assert next(r[1] for r in results if r[0]=='integrity')=='uq_model_bom_main_material_per_model'
     assert counts()==(1,1)
 
-def test_post_openapi_current_nullable_free_string_role_and_id_only_wire(case,client):
-    schema=client.get('/openapi.json').json()['components']['schemas']['ModelBOMIn']
+def test_post_openapi_nullable_canonical_role_and_id_only_wire(case,client):
+    components=client.get('/openapi.json').json()['components']['schemas']
+    schema=components['ModelBOMIn']
     role=schema['properties']['material_role']
-    assert 'default' not in role and role['anyOf']==[{'type':'string','maxLength':16},{'type':'null'}]
+    alternatives=role['anyOf']
+    assert {'type':'null'} in alternatives
+    enum_schema=next(item for item in alternatives if item != {'type':'null'})
+    if '$ref' in enum_schema:
+        enum_schema=components[enum_schema['$ref'].rsplit('/',1)[-1]]
+    assert enum_schema['enum']==['main','secondary']
     assert ModelBOMIn.model_fields['material_role'].default is None
     assert 'quantity_per_piece' in schema['required'] and 'unit' in schema['required']
     assert 'material_role' not in schema['required']
 
-def test_blanket_strict_role_mutation_would_break_inventory_compatibility(case,client,monkeypatch):
-    original=service.add_bom
-    def globally_strict(current,db,mid,payload,catalog_scope='standard'):
-        if payload.material_role not in (None,'main','secondary'):raise HTTPException(422,'Synthetic blanket enum boundary')
-        return original(current,db,mid,payload,catalog_scope)
-    monkeypatch.setattr(service,'add_bom',globally_strict)
-    r=post(client,case,body=payload(case,material_role='unrecognized'))
+def test_blanket_strict_role_mutation_would_break_inventory_compatibility(case,client):
+    # Inject the mutant before FastAPI/Pydantic consumes the raw request; the real
+    # DTO intentionally discards this role for inventory-linked requests.
+    app=client.app
+    async def globally_strict(scope,receive,send):
+        if scope['type']=='http' and scope['method']=='POST' and scope['path'].endswith('/bom'):
+            body=b''
+            while True:
+                message=await receive()
+                body+=message.get('body',b'')
+                if not message.get('more_body',False): break
+            data=json.loads(body)
+            if data.get('material_role') not in (None,'main','secondary'):
+                await JSONResponse({'detail':'Synthetic blanket enum boundary'},status_code=422)(scope,receive,send)
+                return
+            async def replay(): return {'type':'http.request','body':body,'more_body':False}
+            return await app(scope,replay,send)
+        return await app(scope,receive,send)
+    with TestClient(globally_strict,raise_server_exceptions=False) as mutant:
+        r=post(mutant,case,body=payload(case,material_role='unrecognized'))
     assert r.status_code==422 and counts()==(0,0)
     # Companion baseline tests require 201 for this exact accepted inventory branch.
