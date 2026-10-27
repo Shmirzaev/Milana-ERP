@@ -18,9 +18,9 @@ from app.models.inventory_service import (
     auto_reserve_materials_for_production_order,
     consume_material_reservation as consume_reservation_row,
     create_material_reservations,
-    release_material_reservation as release_reservation_row,
     reservation_plan_for_production_order,
 )
+from app.models.inventory.reservation_release_service import release_material_reservation as release_reservation_row
 from app.schemas import Item, MaterialReservation, User
 
 

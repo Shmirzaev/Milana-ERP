@@ -1064,20 +1064,25 @@ def _create_material_reservations_core(
     return created
 
 
-def _set_reservation_status(reservation: MaterialReservation) -> None:
-    remaining = _open_reservation_quantity(reservation)
-    consumed = float(reservation.consumed_quantity or 0)
-    released = float(reservation.released_quantity or 0)
+def _reservation_status_for_quantities(reserved: object, consumed: object, released: object) -> MaterialReservationStatus:
+    remaining = max(0.0, float(reserved or 0) - float(consumed or 0) - float(released or 0))
+    consumed = float(consumed or 0)
+    released = float(released or 0)
     if remaining <= EPSILON:
-        reservation.status = (
-            MaterialReservationStatus.RELEASED.value
+        return (
+            MaterialReservationStatus.RELEASED
             if released > EPSILON
-            else MaterialReservationStatus.CONSUMED.value
+            else MaterialReservationStatus.CONSUMED
         )
-    elif consumed > EPSILON:
-        reservation.status = MaterialReservationStatus.PARTIALLY_CONSUMED.value
-    else:
-        reservation.status = MaterialReservationStatus.RESERVED.value
+    if consumed > EPSILON:
+        return MaterialReservationStatus.PARTIALLY_CONSUMED
+    return MaterialReservationStatus.RESERVED
+
+
+def _set_reservation_status(reservation: MaterialReservation) -> None:
+    reservation.status = _reservation_status_for_quantities(
+        reservation.reserved_quantity, reservation.consumed_quantity, reservation.released_quantity,
+    ).value
 
 
 def _consume_loaded_material_reservation(
@@ -1134,24 +1139,9 @@ def _consume_loaded_material_reservation(
 
 
 def release_material_reservation(db: Session, reservation_id: int) -> MaterialReservation:
-    reservation = db.get(MaterialReservation, reservation_id)
-    if not reservation:
-        raise HTTPException(404, "Material reservation not found")
-    if reservation.status in (
-        MaterialReservationStatus.CANCELLED.value,
-        MaterialReservationStatus.RELEASED.value,
-        MaterialReservationStatus.CONSUMED.value,
-    ):
-        raise HTTPException(409, f"Reservation is already {reservation.status}")
-    remaining = _open_reservation_quantity(reservation)
-    if remaining <= EPSILON:
-        _set_reservation_status(reservation)
-        db.flush()
-        return reservation
-    reservation.released_quantity = float(reservation.released_quantity or 0) + remaining
-    _set_reservation_status(reservation)
-    db.flush()
-    return reservation
+    # Preserve existing transaction-neutral caller interface for Cutting and stock.
+    from app.models.inventory.reservation_release_service import release_material_reservation as release
+    return release(db, reservation_id)
 
 
 def consume_material_reservation(

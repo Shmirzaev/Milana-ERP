@@ -56,3 +56,16 @@ def insert_material_reservation(
     )
     db.add(reservation)
     return reservation
+
+
+def apply_reservation_release(
+    db: Session,
+    reservation: MaterialReservation,
+    *,
+    released_quantity: float | None,
+    status: MaterialReservationStatus,
+) -> None:
+    """Apply the service's release decision on the supplied Session's row."""
+    if released_quantity is not None:
+        reservation.released_quantity = released_quantity
+    reservation.status = status.value
