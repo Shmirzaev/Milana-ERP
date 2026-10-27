@@ -56,6 +56,19 @@ Preserve existing class names unless renaming is separately justified.
 - Query/action inputs: add only for real operations, such as search or receiving.
 - Reuse [enums](../enums/README.md) for fixed values and [types](../types/README.md)
   only for distinct internal contracts. DTOs do not query, commit or import routes.
+- Ismail's current system-wide target requires enum **field annotations** in input,
+  update and output DTOs for known fixed vocabularies, as in the mentor's MemberType,
+  MemberStatus and MemberAuthType contracts. `status: str = SomeEnum.VALUE.value`
+  does not satisfy this. Neither does `SomeEnum | str` or an `Any` escape.
+- Preserve omitted/null semantics and normalization with explicit validators while
+  keeping the field enum-typed. Restrict an action's subset without inventing a second
+  independent vocabulary or granting new transitions. Record deliberate validation
+  and generated OpenAPI differences rather than leaving the field untyped to keep
+  an old snapshot green. Recheck frontend serialized values and actual UI behavior.
+- Test the runtime type for omitted and explicitly supplied enum fields. Use enum
+  members as defaults or explicit default validation; an enum annotation with a
+  raw `.value` default can otherwise leave omitted input as an unvalidated string.
+  Check consumers using `str(member)` and serialize the actual value deliberately.
 - A DTO's accepted fields are not permission grants. Keep ordinary versus privileged
   updates explicit, with service authorization. Borrow structure, not every field
   exposed by the mentor's MemberUpdate.
@@ -67,8 +80,10 @@ Preserve existing class names unless renaming is separately justified.
 2. Agree the feature destination and preserve one definition per contract.
 3. Keep existing class names. Split <entity>_input.py/<entity>_update.py/<entity>_output.py only where that
    helps a real feature; the current files already contain distinct contract classes.
-4. Update callers and test validation, omitted/null updates, allowed fields,
-   OpenAPI/response compatibility and authorization through the consuming service.
+4. Update callers and test enum annotations and generated schema, validation,
+   omitted/null updates, allowed fields, serialized response values and authorization
+   through the consuming service. Compatibility evidence must identify intentional
+   typed-contract changes separately from regressions; it cannot redefine the target.
 5. Exercise the real screens on isolated data and follow shared release acceptance.
 
 Database mappings are in [schemas/](../../schemas/README.md); business operations

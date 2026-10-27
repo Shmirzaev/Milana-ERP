@@ -5,6 +5,7 @@ Start with the document for your task. Do not load the full history into an agen
 | Need | Read |
 | --- | --- |
 | Current decisions and release pointers | [Project context](PROJECT_CONTEXT.md) |
+| Required layer responsibilities and work sequence | [Engineering workflow](ENGINEERING_WORKFLOW.md) |
 | My refactoring tasks | [Refactor plan](REFACTOR_PLAN.md), [team ownership](TEAM_OWNERSHIP.md) |
 | Folder purpose and current/target structure | [Backend guide](../backend/app/README.md), [source map](REFACTOR_MAP.md) |
 | AI-assisted implementation | [Shared skills](AGENT_SKILLS.md) |
