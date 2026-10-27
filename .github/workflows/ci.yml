@@ -3,7 +3,7 @@ name: ERP validation and immutable release artifacts
 on:
   pull_request:
   push:
-    branches: [main, "codex/**"]
+    branches: [main, clone_main, "codex/**"]
   workflow_dispatch:
     inputs:
       release_id:
@@ -27,8 +27,8 @@ jobs:
   backend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -148,8 +148,8 @@ jobs:
   frontend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: npm
@@ -160,6 +160,9 @@ jobs:
         run: npm run lint
       - working-directory: frontend
         run: npm run typecheck:strict
+      - name: Sales enum contracts and mutation checks
+        working-directory: frontend
+        run: npm run test:sales-enum-contracts
       - name: Browser pagination and Besttex label regressions
         working-directory: frontend
         run: |

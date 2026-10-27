@@ -121,6 +121,25 @@ then inspect the real UI and persisted effects. Freshly verify both production
 manifests/slots before any release. The retained active release is the source
 rollback path; a source rollback does not undo records already written.
 
+**Review decisions for the Sewing pilot PR:**
+
+| Person | Decision to record in PR before implementation |
+| --- | --- |
+| Mirshoir, technical owner | Approve or revise the one `record_sewing_output` operation, including band authorization, lock order, transaction owner, retry scope and error mapping. Confirm whether both route callers enter it or need distinct public operations. |
+| Shavkat, business owner | Confirm expected operator-visible results for the examples below, including when a later Nastil becomes active and what Packaging may consume. |
+| Ismail, technical reviewer | Check the agreed contract and regression evidence before any implementation PR is merged. |
+
+Examples for Shavkat to confirm, not new rules inferred by AI:
+
+1. Record 495 of 600 received pieces, then the remaining 105 on the same Nastil; the order must not double count either output.
+2. Complete the first Nastil, then plan/cut/receive a later Nastil; identify the exact event that reopens Sewing and the remaining quantity shown to an operator.
+3. Correct or remove an output record after a partial result; specify permitted actor, downstream quantity change and audit trail.
+4. Record through a band and through the normal form for the same physical work; specify how duplicate/retried submissions are refused or replayed.
+5. Hand passed Sewing pieces to Packaging while failed/rework pieces remain; specify which quantities Packaging may receive and when.
+
+The PR is a decision record. It does not approve code extraction, change production
+behavior, or close the examples until Mirshoir and Shavkat respond.
+
 **DTOs and enums:** Manufacturing/work-order/stage statuses. Enum membership does not authorize transitions or create replacement work. Reuse Create/In, Update and Read/Out contracts
 where they exist. Add action-specific input only for a real action. Do not generate
 three DTOs for every table or expose privileged fields through generic updates.

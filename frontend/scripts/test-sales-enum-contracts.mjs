@@ -4,12 +4,29 @@ import { assertSalesEnumContract, readSalesSources } from "./check-sales-enum-co
 
 const source = readSalesSources();
 test("actual Sales consumers preserve their typed vocabularies and behavior", () => assertSalesEnumContract(source));
+test("equivalent list intersection order preserves canonical types", () => {
+  const contracts = source.contracts.replace(
+    'SalesOrderSummary & { total_quantity: number }',
+    '{ total_quantity: number } & SalesOrderSummary',
+  );
+  assert.notEqual(contracts, source.contracts);
+  assertSalesEnumContract({ ...source, contracts });
+});
 const faults = [
   ["enums", 'DRAFT = "draft"', 'DRAFT = "draft_bad"'],
   ["enums", 'FROM_STOCK = "from_stock"', 'FROM_STOCK = "first_grade"'],
   ["enums", '  SalesOrderType.BRANDED_STOCK_SALE,\n];', '  SalesOrderType.BRANDED_STOCK_SALE, SalesOrderType.BRANDED_STOCK,\n];'],
   ["contracts", 'status: SalesOrderStatus;', 'status: string;'],
   ["contracts", 'order_type: SalesOrderType;', 'order_type: any;'],
+  ["list", 'type SO = SalesOrderListRow;', 'type SO = SalesOrderSummary;'],
+  ["contracts", 'export type SalesOrderListRow = SalesOrderSummary & { total_quantity: number };', 'export type SalesOrderListRow = { total_quantity: number };'],
+  ["contracts", 'export type SalesOrderListRow = SalesOrderSummary & { total_quantity: number };', 'export type SalesOrderListRow = SalesOrderSummary & { total_quantity: number } & any;'],
+  ["contracts", 'export type SalesOrderListRow = SalesOrderSummary & { total_quantity: number };', 'export type SalesOrderListRow = SalesOrderSummary & { status: string; total_quantity: number };'],
+  ["contracts", 'export type SalesOrderListRow = SalesOrderSummary & { total_quantity: number };', 'export type SalesOrderListRow = SalesOrderSummary & { "status": any; total_quantity: number };'],
+  ["contracts", 'export type SalesOrderListRow = SalesOrderSummary & { total_quantity: number };', 'export type SalesOrderListRow = SalesOrderSummary & { ["status"]: any; total_quantity: number };'],
+  ["contracts", 'export type SalesOrderListRow = SalesOrderSummary & { total_quantity: number };', 'export type SalesOrderListRow = SalesOrderSummary & { order_type: any; total_quantity: number };'],
+  ["contracts", 'export type SalesOrderListRow = SalesOrderSummary & { total_quantity: number };', 'export type SalesOrderListRow = SalesOrderSummary & { "order_type": any; total_quantity: number };'],
+  ["contracts", 'export type SalesOrderListRow = SalesOrderSummary & { total_quantity: number };', 'export type SalesOrderListRow = SalesOrderSummary & { total_quantity: string };'],
   ["contracts", 'source_type?: SalesOrderItemSourceType;', 'source_type?: SalesOrderItemSourceType | string;'],
   ["list", 'SalesOrderStatus.CONFIRMED];', 'SalesOrderStatus.CONFIRMED, SalesOrderStatus.PRINTING];'],
   ["list", 'readonly SalesOrderStatus[]', 'readonly string[]'],

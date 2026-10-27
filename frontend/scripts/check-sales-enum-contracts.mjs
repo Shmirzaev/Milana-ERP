@@ -44,6 +44,34 @@ function property(source, type, name) {
   assert.ok(member?.type, `Missing ${type}.${name}`);
   return member.type.getText(tree);
 }
+function assertSalesOrderListRow(source) {
+  const { node, tree } = declaration(source, "SalesOrderListRow");
+  assert.ok(ts.isTypeAliasDeclaration(node), "SalesOrderListRow must be an explicit type alias");
+  const parts = ts.isIntersectionTypeNode(node.type) ? node.type.types : [node.type];
+  assert.equal(parts.length, 2,
+    "SalesOrderListRow must contain only the canonical summary and its list-only shape");
+  const summaries = parts.filter((part) => ts.isTypeReferenceNode(part)
+    && part.typeName.getText(tree) === "SalesOrderSummary");
+  assert.equal(summaries.length, 1,
+  "SalesOrderListRow must inherit the canonical SalesOrderSummary fields");
+  const shapes = parts.filter(ts.isTypeLiteralNode);
+  assert.equal(shapes.length, 1,
+    "SalesOrderListRow must add its fields in one explicit list-only shape");
+  const fields = shapes[0].members.filter(ts.isPropertySignature);
+  const fieldName = (member) => {
+    assert.ok(member.name && (ts.isIdentifier(member.name) || ts.isStringLiteralLike(member.name)),
+      "List field names must be explicit to prove canonical enum inheritance");
+    return member.name.text;
+  };
+  assert.equal(fields.filter((member) => fieldName(member) === "status").length, 0,
+    "SalesOrderListRow must not shadow the inherited Sales status");
+  assert.equal(fields.filter((member) => fieldName(member) === "order_type").length, 0,
+    "SalesOrderListRow must not shadow the inherited Sales order type");
+  const total = fields.find((member) => fieldName(member) === "total_quantity");
+  assert.ok(total?.type, "SalesOrderListRow must retain its stored total_quantity field");
+  assert.equal(total.type.kind, ts.SyntaxKind.NumberKeyword,
+    "SalesOrderListRow.total_quantity must be numeric");
+}
 function assertProductionHistoryBoundary(source) {
   const { node: history, tree } = declaration(source, "HistoryRow");
   const branches = [];
@@ -120,8 +148,10 @@ export function assertSalesEnumContract(sources) {
     ["SalesOrderItem", "source_type", "SalesOrderItemSourceType"], ["SalesOrderItemInput", "source_type", "SalesOrderItemSourceType"],
     ["SalesOrderCreateInput", "order_type", "SalesOrderCreateType"],
   ]) assert.equal(property(sources.contracts, type, field), wanted, `${type}.${field} must use its canonical type`);
+  assertSalesOrderListRow(sources.contracts);
   assert.match(sources.list, /useLoadMore<\{ rows: SO\[\]; total: number \}>/);
-  assert.match(sources.list, /type SO = SalesOrderSummary;/);
+  assert.match(sources.list, /type SO = SalesOrderListRow;/,
+    "Sales list rows must use the typed list contract that adds total_quantity");
   assert.match(sources.detail, /useSWR<SalesOrderDetailContract>/);
   assert.match(sources.create, /useState<SalesOrderCreateType>\(SalesOrderType.CLIENT_ORDER\)/);
   for (const key of ["create", "grade"]) assert.equal(declaration(sources[key], "payload").node.type.getText(), "SalesOrderCreateInput");

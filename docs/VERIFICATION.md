@@ -170,6 +170,11 @@ the separate Purchasing/Fabric supplement from
 source revision, failures/errors/skips and owned database/container cleanup.
 An ordinary regression-suite pass does not replace these PostgreSQL gates.
 
+Frontend CI also runs the Sales enum consumer checks and their mutation tests.
+Keep the guard aligned with real typed DTO/list contracts when those contracts
+gain fields; preserve checks for enum inheritance, action subsets and domain
+ownership. This covered Sales gate does not establish system-wide enum completion.
+
 For the current review branch, CI can also produce a small QA-only frontend
 package after its normal production compile. Its producer is
 `frontend/scripts/stage_qa_runtime.py`; it is restricted to a push on the named
