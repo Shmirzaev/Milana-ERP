@@ -310,6 +310,3 @@ def test_timestamp_dto_rejects_null_projection_only(pg_case):
             fabric_name="Cotton", batch_no="B-1", color="Blue", roll_number=1,
             operator_name="Scanner", scanned_at=None,
         )
-
-
-
