@@ -45,6 +45,13 @@ not a smaller completion scope.
 
 ## Rules
 
+Audit each field's raw accepted vocabulary separately from its canonical business
+meaning, default/fallback and action subset. Padded legacy values may normalize
+for business use while their original spelling remains significant for replay or
+failure audit. Unknown input is not a fallback. Verify actual runtime enum values
+and all callers, including copied DTOs and direct service producers; an enum file,
+enum-backed string default or passing OpenAPI snapshot alone does not prove usage.
+
 - Confirm the complete vocabulary and its meaning with the feature owner before
   converting existing strings. Shavkat clarifies business meaning; Mirshoir
   reviews changes to sensitive workflow states.

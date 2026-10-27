@@ -1,5 +1,14 @@
 # Models: business services and working discipline
 
+Services live here under `models/<domain>`; a proposed `services/` root is stale
+guidance. Routes delegate to the dedicated operation, which calls schema-owned
+persistence with the same supplied Session and owns one outer transaction.
+When old direct Python callers need a compatibility adapter, keep its public
+contract explicit and the typed business core private. Preserve lock acquisition,
+lazy coercion/error precedence, raw retry/audit data and all side-effect
+participants. A typed wrapper around an otherwise unreviewed writer is not
+completion of that operation or its domain.
+
 ## Guidance publication and runtime scope
 
 The 26 October guidance publication on `clone_main` at `b92ee8f` was

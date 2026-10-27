@@ -10,6 +10,7 @@ from app.libs.dto.inventory.material_reservation_input import (
     MaterialReservationAutoIn, MaterialReservationConsumeIn, MaterialReservationIn,
 )
 from app.libs.dto.inventory.material_reservation_output import MaterialReservationOut
+from app.libs.enums.inventory import MaterialReservationSource
 from app.models import inventory_access_service as inventory_access
 from app.models.audit_service import log_action
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
@@ -75,18 +76,19 @@ def create_material_reservation(
 ) -> dict:
     inventory_access.require_item(db, current, payload.item_id)
     inventory_access.require_batch(db, current, payload.stock_batch_id)
-    fingerprint_payload = payload.model_dump(mode="json")
+    fingerprint_payload = payload.legacy_request_payload(mode="json")
     replay = replay_idempotent_response(db, scope="inventory.reservations.create", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
 
     try:
+        line = payload.legacy_request_payload()
         created = create_material_reservations(
             db,
             production_order_id=payload.production_order_id,
-            lines=[payload.model_dump()],
+            lines=[line],
             user_id=current.id,
-            source="manual",
+            source=MaterialReservationSource.MANUAL,
         )
     except HTTPException as exc:
         if exc.status_code in (400, 409):
@@ -96,7 +98,7 @@ def create_material_reservation(
                 "failed_create_material_reservation",
                 "MaterialReservation",
                 None,
-                new_value={"payload": payload.model_dump(), "detail": exc.detail},
+                new_value={"payload": payload.legacy_request_payload(), "detail": exc.detail},
             )
             db.commit()
         raise
