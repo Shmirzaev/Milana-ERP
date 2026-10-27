@@ -182,6 +182,9 @@ Linux standalone distribution or a production release. Its 20 MiB package limits
 do not lower PostgreSQL/full-build resource gates. Fresh local disk/memory checks,
 runtime identity, actual visual actions and persisted readback remain required;
 a successful build/upload alone earns no visual or human-acceptance status.
+The QA package uses the reviewed Webpack build profile because its required
+runtime manifests differ from the default Turbopack output. Keep the ordinary
+production build unchanged; do not fabricate missing manifests to pass packaging.
 
 ## 3. Visually exercise the real end-to-end workflow
 

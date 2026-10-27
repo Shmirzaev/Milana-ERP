@@ -203,7 +203,7 @@ jobs:
           NEXT_PUBLIC_API_URL: ''
           API_URL: http://127.0.0.1:8107
           NEXT_TELEMETRY_DISABLED: '1'
-        run: npm run build
+        run: npm run build -- --webpack
       - name: Stage bounded QA frontend runtime
         if: github.event_name == 'push' && github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025'
         timeout-minutes: 2
