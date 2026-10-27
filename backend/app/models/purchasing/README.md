@@ -91,6 +91,18 @@ Exact-candidate test evidence, independent review, connected-browser approval
 and fresh persisted readback, operator handoff and human acceptance are separate
 gates. This extraction does not complete Purchasing or its remaining operations.
 
+## Purchase request rejection (PUR-REQUEST-REJECT)
+
+The core operation locks the request, returns 404 before transition checks,
+and permits rejection only from draft, pending_approval or approved. The
+rejectable subset is canonical `PurchaseRequestStatus`; membership is checked
+before enum parsing so unknown stored values retain the 409 refusal. The
+schema-owned rejection writer applies the decided `REJECTED` value to the
+locked row in the same Session. The core then records the existing audit
+payload. The outer requests service keeps item-access checks after the core
+operation and commits once, so access or participant failures roll back the
+request and audit together. The writer never flushes or commits.
+
 ## Boundaries and verification
 
 Inventory owns stock facts. Receiving coordinates both changes under one transaction; do not create a second independent stock-writing implementation.

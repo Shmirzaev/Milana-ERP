@@ -99,3 +99,17 @@ def apply_purchase_request_approval(
     request.status = status.value
     request.approved_by = approved_by
     request.approved_at = approved_at
+
+
+def apply_purchase_request_rejection(
+    db: Session,
+    request: PurchaseRequest,
+    *,
+    status: PurchaseRequestStatus,
+) -> None:
+    """Apply a service-decided rejection to its locked row in this Session.
+
+    The caller owns transition policy, audit and transaction boundaries; this
+    focused writer only serializes the canonical status value.
+    """
+    request.status = status.value

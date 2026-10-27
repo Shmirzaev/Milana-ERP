@@ -49,6 +49,7 @@ from app.schemas.purchasing.purchase_request_persistence import (
     add_purchase_request_row,
     apply_purchase_request_approval,
     apply_purchase_request_line_approval,
+    apply_purchase_request_rejection,
 )
 
 REQUEST_CREATE_STATUSES: frozenset[PurchaseRequestStatus] = frozenset({
@@ -59,7 +60,11 @@ REQUEST_APPROVABLE_STATUSES: frozenset[PurchaseRequestStatus] = frozenset({
     PurchaseRequestStatus.DRAFT,
     PurchaseRequestStatus.PENDING_APPROVAL,
 })
-REQUEST_REJECTABLE_STATUSES = {"draft", "pending_approval", "approved"}
+REQUEST_REJECTABLE_STATUSES: frozenset[PurchaseRequestStatus] = frozenset({
+    PurchaseRequestStatus.DRAFT,
+    PurchaseRequestStatus.PENDING_APPROVAL,
+    PurchaseRequestStatus.APPROVED,
+})
 ORDER_CREATE_STATUSES: frozenset[PurchaseOrderStatus] = frozenset({
     PurchaseOrderStatus.DRAFT,
     PurchaseOrderStatus.SENT,
@@ -422,7 +427,9 @@ def reject_purchase_request(db: Session, *, request_id: int, current: User) -> P
         raise HTTPException(409, f"Cannot reject purchase request in status '{request.status}'")
 
     old_status = request.status
-    request.status = "rejected"
+    apply_purchase_request_rejection(
+        db, request, status=PurchaseRequestStatus.REJECTED
+    )
     log_action(
         db,
         current,
