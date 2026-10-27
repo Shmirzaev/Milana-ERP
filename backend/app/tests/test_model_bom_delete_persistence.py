@@ -13,8 +13,22 @@ from app.api.routes.usluga import router as usluga_router
 from app.core.deps import get_current_user
 from app.db.base import Base
 from app.db.session import get_db
+from app.libs.enums.inventory import WarehouseType
 from app.models.catalog import models_service
-from app.schemas import AuditLog, CuttingRecord, Item, Model, ModelBOM, Role, StockBatch, User, Warehouse
+from app.schemas import (
+    AuditLog,
+    CuttingRecord,
+    Department,
+    Item,
+    Model,
+    ModelBOM,
+    ProductionOrder,
+    Role,
+    StockBatch,
+    User,
+    Warehouse,
+    WorkOrder,
+)
 from app.schemas.catalog import bom_persistence
 
 
@@ -26,8 +40,9 @@ def database(tmp_path) -> Iterator[dict]:
     with sessions.begin() as db:
         role = Role(name="BOM delete permission", permissions=["modeling.bom", "usluga.manage"])
         denied_role = Role(name="No BOM delete permission", permissions=[])
-        warehouse = Warehouse(name="BOM delete fixture", type="fabric")
-        db.add_all([role, denied_role, warehouse])
+        warehouse = Warehouse(name="BOM delete fixture", type=WarehouseType.FABRIC_STORAGE.value)
+        cutting_department = Department(name="BOM delete cutting fixture", code="CUT")
+        db.add_all([role, denied_role, warehouse, cutting_department])
         db.flush()
         actors = {
             "standard": User(name="Standard actor", email="bom-standard@example.invalid", password_hash="unused", role_id=role.id, factory_code="MIL"),
@@ -66,19 +81,31 @@ def database(tmp_path) -> Iterator[dict]:
         }
         db.add_all(boms.values())
         db.flush()
+        production_order = ProductionOrder(
+            production_no="BOM-DELETE-PRODUCTION",
+            production_type="client_order",
+            model_id=models["standard"].id,
+        )
+        db.add(production_order)
+        db.flush()
+        work_order = WorkOrder(
+            production_order_id=production_order.id,
+            department_id=cutting_department.id,
+            operation="cutting",
+        )
+        db.add(work_order)
+        db.flush()
         ids = {
             "actors": {key: row.id for key, row in actors.items()},
             "models": {key: row.id for key, row in models.items()},
             "item": item.id,
             "batch": batch.id,
+            "work_order": work_order.id,
             "boms": {key: row.id for key, row in boms.items()},
         }
 
-    def get_sessions():
-        return sessions
-
     try:
-        yield {"engine": engine, "sessions": get_sessions, "ids": ids}
+        yield {"engine": engine, "sessions": sessions, "ids": ids}
     finally:
         engine.dispose()
 
@@ -182,8 +209,8 @@ def test_missing_cross_model_and_scope_refusal_order(database, client, scope, mo
 
 def test_cutting_link_refuses_delete_without_audit_or_row_loss(database, client):
     ids = database["ids"]
-    with database["sessions"]().begin() as db:
-        db.add(CuttingRecord(work_order_id=999999, model_bom_id=ids["boms"]["standard"]))
+    with database["sessions"].begin() as db:
+        db.add(CuttingRecord(work_order_id=ids["work_order"], model_bom_id=ids["boms"]["standard"]))
     before = _counts(database)
     response = client.delete(_path(ids, "standard"))
     assert response.status_code == 409
