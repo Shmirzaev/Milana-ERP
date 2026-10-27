@@ -27,6 +27,8 @@ from app.tests.pg_approved_instance import (
     load_approved_instance,
     verify_approved_instance,
     target_engine,
+    finalize_target,
+    require_or_skip,
 )
 
 
@@ -36,7 +38,7 @@ def receipt_race_sessions():
         instance = load_approved_instance()
         verify_approved_instance(instance)
     except ApprovedInstanceUnavailable as error:
-        pytest.skip(str(error))
+        require_or_skip(error)
 
     database = create_target_database(instance)
     engine = None
@@ -45,9 +47,7 @@ def receipt_race_sessions():
         Base.metadata.create_all(engine)
         yield sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     finally:
-        if engine is not None:
-            engine.dispose()
-        drop_target_database(database)
+        finalize_target(database, engine)
 
 
 @pytest.fixture

@@ -18,12 +18,14 @@ import ipaddress
 import re
 import os
 import secrets
+import sys
 from dataclasses import dataclass
 
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import URL, make_url
 
 CONFIG_ENV = "MILANA_TEST_PG_INSTANCE"
+REQUIRE_ENV = "MILANA_REQUIRE_TEST_PG"
 
 _IDENTITY_SQL = """
 SELECT host(inet_server_addr()) AS host,
@@ -156,12 +158,25 @@ def preflight_connection(connection, instance: ApprovedInstance, expected_databa
 
 def verify_approved_instance(instance: ApprovedInstance) -> dict:
     _validate_instance(instance)
-    engine = create_engine(instance.admin_url, connect_args={"connect_timeout": 5}, future=True)
+    engine = None
+    actual = None
+    errors: list[BaseException] = []
     try:
+        engine = create_engine(instance.admin_url, connect_args={"connect_timeout": 5}, future=True)
         with engine.connect() as conn:
-            return preflight_connection(conn, instance, "postgres")
-    finally:
-        engine.dispose()
+            try:
+                actual = preflight_connection(conn, instance, "postgres")
+            except BaseException as error:
+                errors.append(error)
+    except BaseException as error:
+        errors.append(error)
+    if engine is not None:
+        try:
+            engine.dispose()
+        except BaseException as error:
+            errors.append(error)
+    _raise_failures("approved instance preflight failures", errors)
+    return actual
 
 
 def target_database_name(instance: ApprovedInstance) -> str:
@@ -188,6 +203,7 @@ class OwnedTarget:
 
 
 _owned_targets: dict[OwnedTarget, tuple[ApprovedInstance, str]] = {}
+_pending_targets: set[OwnedTarget] = set()
 
 
 def _require_owned(target: OwnedTarget) -> tuple[ApprovedInstance, str]:
@@ -195,6 +211,8 @@ def _require_owned(target: OwnedTarget) -> tuple[ApprovedInstance, str]:
         instance, name = _owned_targets[target]
     except (KeyError, TypeError) as error:
         raise ApprovedInstanceUnavailable("target is not an active owned database") from error
+    if target in _pending_targets:
+        raise ApprovedInstanceUnavailable("target creation outcome is uncertain; inspect the recorded name")
     _validate_instance(instance)
     if not re.fullmatch(re.escape(instance.target_prefix) + r"[0-9a-f]{12}", name):
         raise ApprovedInstanceUnavailable("target does not match its approved namespace")
@@ -206,21 +224,88 @@ def owned_target_name(target: OwnedTarget) -> str:
     return _require_owned(target)[1]
 
 
+def _raise_failures(message: str, errors: list[BaseException]) -> None:
+    if len(errors) == 1:
+        raise errors[0]
+    if errors:
+        raise BaseExceptionGroup(message, errors)
+
+
+def require_or_skip(error: ApprovedInstanceUnavailable) -> None:
+    """Missing configuration may skip locally; required CI must fail."""
+    import pytest
+    if os.environ.get(REQUIRE_ENV) == "1" or os.environ.get(CONFIG_ENV):
+        pytest.fail(f"required PostgreSQL gate BLOCKED: {error}", pytrace=False)
+    pytest.skip(f"required PostgreSQL gate BLOCKED: {error}")
+
+
 def create_target_database(instance: ApprovedInstance) -> OwnedTarget:
     _validate_instance(instance)
     name = target_database_name(instance)
     sql = create_database_sql(name)
-    engine = create_engine(instance.admin_url, isolation_level="AUTOCOMMIT",
-                           connect_args={"connect_timeout": 5}, future=True)
-    try:
-        with engine.connect() as conn:
-            preflight_connection(conn, instance, "postgres")
-            conn.exec_driver_sql(sql)
-    finally:
-        engine.dispose()
+    # Record before any mutation; a statement whose outcome is unknown must not
+    # authorize dropping a potentially pre-existing database with this name.
     target = OwnedTarget()
     _owned_targets[target] = (instance, name)
+    _pending_targets.add(target)
+    engine = None
+    attempted = False
+    created = False
+    errors: list[BaseException] = []
+    try:
+        engine = create_engine(instance.admin_url, isolation_level="AUTOCOMMIT",
+                               connect_args={"connect_timeout": 5}, future=True)
+        with engine.connect() as conn:
+            try:
+                preflight_connection(conn, instance, "postgres")
+                attempted = True
+                conn.exec_driver_sql(sql)
+                created = True
+                _pending_targets.remove(target)
+            except BaseException as error:
+                errors.append(error)
+    except BaseException as error:
+        errors.append(error)
+    if engine is not None:
+        try:
+            engine.dispose()
+        except BaseException as error:
+            errors.append(error)
+    if errors:
+        for error in errors:
+            error.add_note(f"recorded target: {name}")
+        if created:
+            try:
+                drop_target_database(target)
+            except BaseException as error:
+                errors.append(error)
+        elif attempted:
+            errors.append(ApprovedInstanceUnavailable(
+                f"CREATE outcome uncertain for recorded target {name}; no automatic DROP authorized"))
+        else:
+            _pending_targets.discard(target)
+            del _owned_targets[target]
+        _raise_failures(f"owned target {name} setup and cleanup failures", errors)
     return target
+
+
+def finalize_target(target: OwnedTarget, engine=None) -> None:
+    """Dispose and drop even if either fails, preserving an active setup error."""
+    active = sys.exception()
+    errors: list[BaseException] = []
+    if engine is not None:
+        try:
+            engine.dispose()
+        except BaseException as error:
+            errors.append(error)
+    try:
+        drop_target_database(target)
+    except BaseException as error:
+        errors.append(error)
+    if errors:
+        if active is not None:
+            errors.insert(0, active)
+        _raise_failures("target setup/teardown failures", errors)
 
 
 def target_engine(target: OwnedTarget, *, options: str | None = None):
@@ -247,12 +332,27 @@ def target_engine(target: OwnedTarget, *, options: str | None = None):
 def drop_target_database(target: OwnedTarget) -> None:
     instance, name = _require_owned(target)
     sql = drop_database_sql(name)
-    engine = create_engine(instance.admin_url, isolation_level="AUTOCOMMIT",
-                           connect_args={"connect_timeout": 5}, future=True)
+    engine = None
+    dropped = False
+    errors: list[BaseException] = []
     try:
+        engine = create_engine(instance.admin_url, isolation_level="AUTOCOMMIT",
+                               connect_args={"connect_timeout": 5}, future=True)
         with engine.connect() as conn:
-            preflight_connection(conn, instance, "postgres")
-            conn.exec_driver_sql(sql)
-        del _owned_targets[target]
-    finally:
-        engine.dispose()
+            try:
+                preflight_connection(conn, instance, "postgres")
+                conn.exec_driver_sql(sql)
+                dropped = True
+                del _owned_targets[target]
+            except BaseException as error:
+                errors.append(error)
+    except BaseException as error:
+        errors.append(error)
+    if engine is not None:
+        try:
+            engine.dispose()
+        except BaseException as error:
+            errors.append(error)
+    if errors and not dropped:
+        errors.append(ApprovedInstanceUnavailable(f"cleanup incomplete for recorded target {name}"))
+    _raise_failures(f"owned target {name} cleanup failures", errors)

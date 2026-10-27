@@ -219,6 +219,102 @@ def test_drop_failure_retains_ownership_and_never_issues_ddl(monkeypatch):
         def connect(self): return Connection()
         def dispose(self): pass
     monkeypatch.setattr(guard, "create_engine", lambda *a, **k: Engine())
-    with pytest.raises(ApprovedInstanceUnavailable): guard.drop_target_database(target)
+    with pytest.raises(BaseExceptionGroup): guard.drop_target_database(target)
     assert guard.owned_target_name(target) == "review_mm_catalog_0123456789ab"
     del guard._owned_targets[target]
+
+@pytest.mark.parametrize("failure", ["exit", "dispose"])
+def test_create_success_then_admin_teardown_failure_drops_owned_target(monkeypatch, failure):
+    from app.tests import pg_approved_instance as guard
+    _set_config(monkeypatch, APPROVED); instance = load_approved_instance(); calls=[]
+    class Result:
+        def one(self): return _Row(**{**LIVE.__dict__, "database": "postgres"})
+    class Connection:
+        def __init__(self, number): self.number=number
+        def __enter__(self): return self
+        def __exit__(self,*args):
+            if self.number==0 and failure=='exit': raise RuntimeError('admin exit')
+        def execute(self, statement): return Result()
+        def exec_driver_sql(self, sql): calls.append(sql)
+    class Engine:
+        def __init__(self, number): self.number=number
+        def connect(self): return Connection(self.number)
+        def dispose(self):
+            if self.number==0 and failure=='dispose': raise RuntimeError('admin dispose')
+    engines=[]
+    def make(*args,**kwargs):
+        value=Engine(len(engines)); engines.append(value); return value
+    monkeypatch.setattr(guard, 'create_engine', make)
+    with pytest.raises(RuntimeError, match='admin'):
+        guard.create_target_database(instance)
+    assert len(calls)==2 and calls[0].startswith('CREATE DATABASE ') and calls[1]==calls[0].replace('CREATE','DROP',1)
+    assert not guard._owned_targets
+
+
+def test_failed_create_and_cleanup_report_both_and_keep_owned_name(monkeypatch):
+    from app.tests import pg_approved_instance as guard
+    _set_config(monkeypatch, APPROVED); instance = load_approved_instance()
+    class Result:
+        def one(self): return _Row(**{**LIVE.__dict__, 'database':'postgres'})
+    class Connection:
+        def __enter__(self): return self
+        def __exit__(self,*args): raise RuntimeError('connection exit')
+        def execute(self, statement): return Result()
+        def exec_driver_sql(self, sql):
+            if sql.startswith('DROP'): raise RuntimeError('drop refused')
+    class Engine:
+        def connect(self): return Connection()
+        def dispose(self): pass
+    monkeypatch.setattr(guard, 'create_engine', lambda *a, **k: Engine())
+    with pytest.raises(BaseExceptionGroup) as caught: guard.create_target_database(instance)
+    assert 'connection exit' in repr(caught.value) and 'drop refused' in repr(caught.value)
+    target=next(iter(guard._owned_targets)); assert guard.owned_target_name(target).startswith(instance.target_prefix)
+    del guard._owned_targets[target]
+
+
+def test_uncertain_create_outcome_keeps_record_without_automatic_drop(monkeypatch):
+    from app.tests import pg_approved_instance as guard
+    _set_config(monkeypatch, APPROVED); instance = load_approved_instance(); calls=[]
+    class Result:
+        def one(self): return _Row(**{**LIVE.__dict__, 'database':'postgres'})
+    class Connection:
+        def __enter__(self): return self
+        def __exit__(self,*args): pass
+        def execute(self, statement): return Result()
+        def exec_driver_sql(self, sql): calls.append(sql); raise RuntimeError('unknown create outcome')
+    class Engine:
+        def connect(self): return Connection()
+        def dispose(self): pass
+    monkeypatch.setattr(guard, 'create_engine', lambda *a, **k: Engine())
+    with pytest.raises(BaseExceptionGroup) as caught: guard.create_target_database(instance)
+    assert 'outcome uncertain' in repr(caught.value) and len(calls)==1
+    target=next(iter(guard._pending_targets)); assert target in guard._owned_targets
+    with pytest.raises(ApprovedInstanceUnavailable): guard.drop_target_database(target)
+    guard._pending_targets.remove(target); del guard._owned_targets[target]
+
+
+def test_dispose_failure_does_not_prevent_drop_and_preserves_setup_error(monkeypatch):
+    from app.tests import pg_approved_instance as guard
+    calls=[]
+    class Engine:
+        def dispose(self): calls.append('dispose'); raise RuntimeError('dispose failure')
+    monkeypatch.setattr(guard, 'drop_target_database', lambda target: calls.append(('drop',target)))
+    target=object()
+    with pytest.raises(BaseExceptionGroup) as caught:
+        try: raise ValueError('setup failure')
+        finally: guard.finalize_target(target, Engine())
+    assert calls==['dispose',('drop',target)]
+    assert 'setup failure' in repr(caught.value) and 'dispose failure' in repr(caught.value)
+
+
+def test_required_mode_fails_and_missing_optional_configuration_skips(monkeypatch):
+    from app.tests import pg_approved_instance as guard
+    monkeypatch.delenv(guard.CONFIG_ENV, raising=False)
+    monkeypatch.delenv(guard.REQUIRE_ENV, raising=False)
+    error=ApprovedInstanceUnavailable('no config')
+    with pytest.raises(pytest.skip.Exception): guard.require_or_skip(error)
+    monkeypatch.setenv(guard.REQUIRE_ENV,'1')
+    with pytest.raises(pytest.fail.Exception): guard.require_or_skip(error)
+    monkeypatch.delenv(guard.REQUIRE_ENV)
+    monkeypatch.setenv(guard.CONFIG_ENV,'bad')
+    with pytest.raises(pytest.fail.Exception): guard.require_or_skip(error)
