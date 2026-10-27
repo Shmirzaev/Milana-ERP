@@ -2,6 +2,25 @@
 
 Last updated: 2026-10-27
 
+## Label printing and payroll corrections deployed (2026-10-27)
+
+- Both roles are blue `20261027_104106`, application `1d2bfe3d5a5035d925720017766432693177d30f`, manifest
+  `1d5642ed285ae7fcb4c5b3dd69e3b8222b8a720f92ea44a20d95e9e8b8d5cbec`; green `20261026_085306` remains healthy for rollback.
+  Alembic stays `0149_besttex_cutting_access` with no schema/data repair or grants.
+- Package-label Page footers are removed, chosen cutting clients print, and payroll
+  managers can audit corrections to saved split employees/pieces/names/rates while
+  preserving QR/history identities and total pieces. Closed/paid, returned/nested,
+  stale and wrong-total changes refuse atomically.
+- Exact immutable CI, real PostgreSQL races, actual save/reload/permission browser
+  checks, signed GET-only candidate/public QA, verified backup, four health checks,
+  runtime/database checks and fixed-origin paired/public performance all pass.
+  No production business records were created or corrected by QA. The owner waived
+  30-minute monitoring; no timed observer was run. Refactoring was not interrupted
+  or merged. Human factory acceptance remains separate.
+- See [the deployment record](archive/LABEL_PAYROLL_RELEASE_2026-10-27.md) for exact
+  CI/image/backup identities and rollback. Raw private evidence stays local.
+
+
 ## Label printing and payroll corrections release preparation (2026-10-27)
 
 - Verified live source is green `20261026_085306` on both roles, exact application

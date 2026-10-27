@@ -1,5 +1,15 @@
 # Team bug tracker — clone_main
 
+## LABEL-PAYROLL-20261027 — package footer, cutting client and split-payroll editing
+
+- **P2 · Awaiting production verification.** Packaging/cutting: Mirshoir, reviewer
+  Ismail; payroll: Dilmurod, reviewer Mirshoir. Codex implementation was explicitly
+  authorized; these named assignments are not claims of human review.
+- Deployed 20261027_104106, exact application `1d2bfe3d5a5035d925720017766432693177d30f`. All three fixes and immediate
+  technical gates pass; the owner waived timed observation. Existing refactoring
+  and production business data were preserved. No merge or human closure is claimed.
+- [Tests, deployment identities and operator editing steps](../docs/archive/LABEL_PAYROLL_RELEASE_2026-10-27.md).
+
 > Current workflow, 2026-10-24: active work and items awaiting production verification live here. Human-approved production fixes move to [finished_bugs.md](finished_bugs.md). See [the refactor plan](../docs/REFACTOR_PLAN.md).
 >
 > The October 6 counts and rows below are historical evidence awaiting reconciliation, not a fresh list of missing fixes. Old Done labels mean what their evidence says; do not reopen them as regressions or recertify them automatically. Historical migration heads and source locations are not instructions to use them today.

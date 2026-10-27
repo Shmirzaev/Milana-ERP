@@ -71,3 +71,64 @@ source review of both layouts found no remaining actionable issue.
 The production deployment result, immutable identity, backup and immediate
 postflight will be appended after successful promotion. Human factory acceptance
 remains outstanding; the active bug is not marked finished by AI verification.
+
+## Deployment completed — 20261027_104106
+
+- Both production roles are blue `20261027_104106`; exact reviewed application
+  `1d2bfe3d5a5035d925720017766432693177d30f`. Retained green `20261026_085306` is healthy and ready for rollback.
+  Both current symlinks, slot states, source manifests and image identities agree.
+  Source manifest: `1d5642ed285ae7fcb4c5b3dd69e3b8222b8a720f92ea44a20d95e9e8b8d5cbec`.
+- Immutable CI [40490386264](https://github.com/Shmirzaev/Milana-ERP/actions/runs/40490386264)
+  passed all jobs: full backend **3,924 passed / 324 skipped**, then explicit
+  PostgreSQL suites **138 passed** and **176 passed**, migration/numbering scripts,
+  frontend lint/types/real-page browser regressions/build and image publication.
+  The local affected suite passed 208 without skips, including 13 new PostgreSQL
+  races. The initial local full run's obsolete footer assertion was corrected and
+  its seven print cases passed; exact final CI is green. Independent source and
+  deployment-operations reviews found no remaining blocker.
+- Actual isolated UI save, employee selection, all requested fields, persisted
+  reload/reopen, wrong-total refusal, stale conflict/reload, EN/RU/UZ and valid
+  authenticated scan-only restrictions pass. The original scan-only fixture's
+  reserved email failed existing profile validation; that evidence was superseded
+  by a repeat with a valid example.com fixture against unchanged runtime sources.
+  The reproducible integration QA helper includes this test-only correction.
+- Signed candidate and public Next production pages show the actual saved-split
+  editor and existing values with zero console errors. Production QA used GET/HEAD
+  only, existing accounts/records, and preserved the selected group's fingerprint.
+  Package HTML has no Page footer and cutting HTML contains the selected client.
+  Styled print artifacts and corrected synthetic payroll stickers were visually
+  inspected locally. Browser popup inspection remains limited by the browser's
+  existing popup policy; no real printer job or production correction was sent.
+- All four immediate health checks, valid HAProxy, two backend workers, zero
+  restarts/OOM, clean runtime logs, database connection headroom and zero invalid
+  indexes pass. Paired candidate and closing public performance pass with the same
+  retained-green client/image, 120 measured samples per fixed query, five warmups,
+  identical row counts and unchanged 10% median / 15% p95 / 15% payload budgets.
+- Fresh mode-0600 backup `/opt/milana-erp/shared/backups/milana_erp_pre_20261027_104106.dump`: 93,141,121 bytes,
+  1246 restore objects; dump SHA-256 `751a9b6a3136b067ebb7f9b98618379f00f33ed0bf6903cf51b7dc57fa4aa82c`;
+  restore-list SHA-256 `25c685b9c1bf5b661cabc3a1d9c151a362c59588af0ba5aeba04f417c991b1e8`. Candidate Alembic upgrade/current
+  was a no-op at `0149_besttex_cutting_access`; no grants, manufacturing-data repair,
+  payroll edits or fabricated production records were performed.
+- The owner explicitly waived the high-risk 30-minute observation. No timed
+  observer was started or represented as passed. Green remains live for rollback.
+  Refactoring worktrees and the dirty legacy checkout were untouched. No integration
+  or refactoring merge was performed. Human operator acceptance remains outstanding;
+  `LABEL-PAYROLL-20261027` stays in the active bug tracker.
+- Application branch `codex/label-payroll-release-20261027` is pushed. Deployment metadata
+  is a later Git record and does not alter the immutable serving commit above.
+  Private raw QA evidence and production screenshots remain in ignored
+  `outputs/deployment`; production payroll details were not copied into Git.
+
+Images:
+
+- Backend: `ghcr.io/shmirzaev/milana-erp-backend@sha256:66033f169f123c1686079d3681b62e48c2f14851dcd79159c912f8fc96a8ada3`
+- Frontend: `ghcr.io/shmirzaev/milana-erp-frontend@sha256:a5cda222e95c382857acfb3b6c0954feeb9fe5293282d750f1939cf6c6a2bb06`
+
+To edit: **Payroll → QR Control → Edit split allocation**, or the divided-label
+pencil in Process QR. Supply a reason, preserve total pieces, save, then print
+updated stickers. Closed/paid payroll remains locked.
+
+Rollback uses `outputs/deployment/rollback.py --apply` from this worktree: verify
+both retained sources/containers, switch backend then frontend to green
+`20261026_085306`, repoint both symlinks and rerun all four health checks. It does not
+downgrade the database or reverse any later operator payroll correction.
