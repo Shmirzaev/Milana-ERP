@@ -97,7 +97,7 @@ export default function DepartmentsPage() {
         <button className="btn btn-primary">{t("btn.add")}</button>
       </form>
       {msg ? <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{msg}</div> : null}
-      <div className="card">
+      <div className="card overflow-x-auto">
         <table className="table">
           <thead>
             <tr>

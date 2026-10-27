@@ -53,3 +53,4 @@ Besttex Textile Packaging handles packaging work routed to the Besttex packaging
 | Wrong department work appears | Permission gives wider packaging access | Package only assigned Besttex work and tell supervisor. |
 | Label does not match contents | Package size rows wrong | Stop and ask supervisor before storage receives package. |
 | Partial package remains | Full-package-only or insufficient quantity | Keep leftover documented and notify supervisor. |
+

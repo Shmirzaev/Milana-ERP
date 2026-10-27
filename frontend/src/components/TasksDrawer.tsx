@@ -1,4 +1,5 @@
 "use client";
+import { createPortal } from "react-dom";
 import { useEffect, useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
@@ -48,12 +49,14 @@ export default function TasksDrawer() {
   const { data: users } = useSWR<User[]>(open && isManager ? "/api/users" : null, fetcher);
 
   const { data: counts, mutate: mutateCount } = useSWR<{ count: number }>(
-    me ? "/api/tasks?scope=mine&status=pending" : null,
-    (u: string) =>
-      fetcher<Task[]>(u).then((rows) => ({
-        count: rows.filter((tk) => tk.status !== "completed" && tk.status !== "cancelled").length,
-      })),
-    { refreshInterval: 30_000 },
+    me ? "/api/tasks/open-count" : null,
+    fetcher,
+    {
+      refreshInterval: 60_000,
+      refreshWhenHidden: false,
+      refreshWhenOffline: false,
+      revalidateOnFocus: true,
+    },
   );
   const openTaskCount = counts?.count ?? 0;
 
@@ -125,7 +128,7 @@ export default function TasksDrawer() {
         onClick={() => setOpen(true)}
         title={t("tasks.openButton")}
         aria-label={t("tasks.openButton")}
-        className="fixed bottom-2 right-2 z-30 grid h-10 w-10 place-items-center transition sm:bottom-6 sm:right-6 sm:h-[60px] sm:w-[60px]"
+        className="icon-btn relative z-10 grid h-10 w-10 shrink-0 place-items-center transition"
         style={{
           borderRadius: "50%",
           background: "var(--erp-primary)",
@@ -189,7 +192,7 @@ export default function TasksDrawer() {
       {/* ============================================================ */}
       {/* DRAWER — "Ledger" interior                                    */}
       {/* ============================================================ */}
-      {open && (
+      {open && createPortal(
       <div
         className="fixed inset-0 z-40 opacity-100 pointer-events-auto"
         onClick={() => setOpen(false)}
@@ -200,7 +203,7 @@ export default function TasksDrawer() {
           role="dialog"
           aria-modal="true"
           aria-labelledby="tasks-drawer-title"
-          className="absolute top-0 right-0 h-full w-full max-w-md flex flex-col translate-x-0 transition-transform duration-200"
+          className="absolute right-0 top-0 flex h-[100dvh] w-full max-w-md translate-x-0 flex-col pb-[env(safe-area-inset-bottom)] transition-transform duration-200"
           style={{
             background: "var(--erp-surface)",
             borderLeft: "1px solid var(--erp-border)",
@@ -210,7 +213,7 @@ export default function TasksDrawer() {
         >
           {/* Header */}
           <header
-            className="px-7 pt-6 pb-4"
+            className="shrink-0 px-4 pb-4 pt-5 sm:px-7 sm:pt-6"
             style={{ borderBottom: "1px solid var(--erp-border)", position: "relative" }}
           >
             <div className="flex items-start justify-between">
@@ -302,8 +305,9 @@ export default function TasksDrawer() {
             )}
           </header>
 
+          <div className="flex min-h-0 flex-1 flex-col">
           {/* Ledger body */}
-          <div className="flex-1 overflow-y-auto" style={{ position: "relative" }}>
+          <div className="min-h-14 flex-1 overflow-y-auto" style={{ position: "relative" }}>
             {/* hairline ruling background */}
             <div
               aria-hidden
@@ -336,7 +340,7 @@ export default function TasksDrawer() {
           {/* New entry form */}
           <form
             onSubmit={addTask}
-            className="px-7 pt-4 pb-5"
+            className="max-h-[calc(100%-3.5rem)] shrink-0 overflow-y-auto px-4 pb-5 pt-4 sm:px-7"
             style={{
               borderTop: "2px solid var(--erp-primary)",
               background: "var(--erp-surface-muted)",
@@ -436,9 +440,10 @@ export default function TasksDrawer() {
               {t("tasks.add")}
             </button>
           </form>
+          </div>
         </aside>
       </div>
-      )}
+      , document.body)}
     </>
   );
 }

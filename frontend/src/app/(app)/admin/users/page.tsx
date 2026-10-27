@@ -9,6 +9,8 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 import { useT } from "@/lib/i18n";
 import { useMe } from "@/lib/auth";
 import { useDialogs } from "@/components/DialogProvider";
+import UserAccessEditor from "@/components/UserAccessEditor";
+import { type AccessPolicy } from "@/lib/userAccess";
 
 type Role = { id: number; name: string; permissions: string[] };
 type Dept = { id: number; name: string };
@@ -18,104 +20,15 @@ type User = {
   email: string;
   role_id: number | null;
   department_id: number | null;
+  factory_code: "MIL" | "BST" | "ECO";
   extra_permissions: string[];
+  access_policy: AccessPolicy | null;
   is_active: boolean;
   last_login_at: string | null;
   last_seen_at: string | null;
-  password_setup_email_sent?: boolean | null;
-  password_setup_email_error?: string | null;
 };
-type PasswordSetupEmailStatus = { available: boolean; message?: string | null };
-
-type PermissionOption = { value: string; label: string };
-type AccessGroup = { title: string; permissions: PermissionOption[] };
 
 const SUPER_ADMIN_PERMISSION = "admin.super";
-
-const ACCESS_GROUPS: AccessGroup[] = [
-  {
-    title: "Sales",
-    permissions: [
-      { value: "sales.orders", label: "Sales orders" },
-      { value: "sales.customers", label: "Customers" },
-    ],
-  },
-  {
-    title: "Planning",
-    permissions: [
-      { value: "planning.view", label: "Planning dashboard" },
-      { value: "planning.requirements", label: "Planning requirements" },
-      { value: "planning.production", label: "Production orders" },
-      { value: "processes.view", label: "Process tracking" },
-      { value: "sewing.flows", label: "Sewing flows" },
-    ],
-  },
-  {
-    title: "Modeling / PLM",
-    permissions: [
-      { value: "modeling.models", label: "Models" },
-      { value: "modeling.bom", label: "Bill of materials" },
-      { value: "modeling.brands", label: "Brands" },
-      { value: "modeling.collections", label: "Collections" },
-      { value: "modeling.approve", label: "Model approval" },
-    ],
-  },
-  {
-    title: "Production Floor",
-    permissions: [
-      { value: "cutting.records", label: "Cutting records" },
-      { value: "cutting.bundles", label: "Cutting bundles" },
-      { value: "printing.records", label: "Printing records" },
-      { value: "printing.bundles", label: "Printing bundles" },
-      { value: "sewing.records", label: "Sewing records" },
-      { value: "sewing.bundles", label: "Sewing bundles" },
-      { value: "packaging.records", label: "Packaging records" },
-      { value: "packaging.packages", label: "Packaging packages" },
-      { value: "production.override_deadline", label: "Deadline override" },
-    ],
-  },
-  {
-    title: "Storage & Shipment",
-    permissions: [
-      { value: "storage.receive", label: "Receive stock" },
-      { value: "storage.transfer", label: "Transfer stock" },
-      { value: "storage.items", label: "Inventory items" },
-      { value: "storage.suppliers", label: "Suppliers" },
-      { value: "storage.packages", label: "Warehouse packages" },
-      { value: "storage.shipment", label: "Shipments" },
-    ],
-  },
-  {
-    title: "Finance",
-    permissions: [
-      { value: "finance.view", label: "Finance dashboard" },
-      { value: "finance.invoice", label: "Invoices" },
-      { value: "finance.payment", label: "Payments" },
-    ],
-  },
-  {
-    title: "People & Admin",
-    permissions: [
-      { value: "hr.employees", label: "Employees" },
-      { value: "admin.users", label: "Users" },
-      { value: "admin.audit", label: "Audit logs" },
-      { value: SUPER_ADMIN_PERMISSION, label: "Super admin control" },
-      { value: "tasks.manage", label: "Manage tasks" },
-      { value: "management.view", label: "Management dashboard" },
-      { value: "management.approve", label: "Management approvals" },
-    ],
-  },
-  {
-    title: "Waste",
-    permissions: [
-      { value: "waste.receive", label: "Receive waste" },
-      { value: "waste.sell", label: "Sell waste" },
-      { value: "waste.disposal", label: "Waste disposal" },
-    ],
-  },
-];
-
-const KNOWN_PERMISSION_VALUES = new Set(ACCESS_GROUPS.flatMap((group) => group.permissions.map((permission) => permission.value)));
 
 const RECENT_ACTIVITY_MS = 15 * 60 * 1000;
 const ACTIVE_THIS_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -138,12 +51,6 @@ function uniquePermissions(values: string[]) {
   return out;
 }
 
-function roleIncludesPermission(role: Role | undefined, permission: string) {
-  const permissions = new Set(role?.permissions ?? []);
-  if (permissions.has(permission)) return true;
-  return permission !== SUPER_ADMIN_PERMISSION && permissions.has("*");
-}
-
 function roleIsAdministrator(role: Role | undefined) {
   const permissions = new Set(role?.permissions ?? []);
   return permissions.has("*") || permissions.has(SUPER_ADMIN_PERMISSION) || (role?.name ?? "").trim().toLowerCase() === "super admin";
@@ -154,9 +61,10 @@ export default function AdminUsersPage() {
   const q = (searchParams.get("q") ?? "").trim().toLowerCase();
   const { t, lang } = useT();
   const dialogs = useDialogs();
-  const { me } = useMe();
+  const { me, refresh: refreshMe } = useMe();
+  const [createAccessReady, setCreateAccessReady] = useState(false);
+  const [editAccessReady, setEditAccessReady] = useState(false);
   const { data, mutate } = useSWR<User[]>("/api/users", fetcher);
-  const { data: setupEmailStatus } = useSWR<PasswordSetupEmailStatus>("/api/users/password-setup-email-status", fetcher);
   const { data: roles } = useSWR<Role[]>("/api/roles", fetcher);
   const { data: depts } = useSWR<Dept[]>("/api/departments", fetcher);
   const [nowMs, setNowMs] = useState<number | null>(null);
@@ -167,7 +75,6 @@ export default function AdminUsersPage() {
   };
   const locale = localeByLang[lang] || "en-US";
   const canManageAdmins = Boolean(me?.permissions.includes(SUPER_ADMIN_PERMISSION));
-  const setupEmailAvailable = setupEmailStatus?.available === true;
 
   useEffect(() => {
     const updateNow = () => setNowMs(Date.now());
@@ -181,40 +88,27 @@ export default function AdminUsersPage() {
     email: "",
     role_id: 0,
     department_id: 0,
+    factory_code: "MIL" as "MIL" | "BST" | "ECO",
     is_active: true,
+    access_policy: {} as AccessPolicy | null,
   });
   const [createMsg, setCreateMsg] = useState("");
   const [createError, setCreateError] = useState(false);
-  const [setupSendingUserId, setSetupSendingUserId] = useState<number | null>(null);
-  const [setupMessages, setSetupMessages] = useState<Record<number, string>>({});
-  const [setupErrors, setSetupErrors] = useState<Record<number, boolean>>({});
-
-  function emailDeliveryText(user: User, successKey: string, failedKey: string) {
-    if (user.password_setup_email_sent) return { message: t(successKey), error: false };
-    if (user.password_setup_email_error && setupEmailStatus?.available === false) {
-      return { message: t("page.admin.users.setupEmailUnavailableAfterCreate"), error: true };
-    }
-    if (user.password_setup_email_error) {
-      return { message: t(failedKey, { error: user.password_setup_email_error }), error: true };
-    }
-    return { message: t(successKey), error: false };
-  }
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
+    if (!createAccessReady) return;
     setCreateMsg("");
     setCreateError(false);
     try {
-      const created = await api.post<User>("/api/users", {
+      await api.post("/api/users", {
         ...f,
         role_id: f.role_id || null,
         department_id: f.department_id || null,
       });
       mutate();
-      setF({ name: "", email: "", role_id: 0, department_id: 0, is_active: true });
-      const delivery = emailDeliveryText(created, "page.admin.users.setupEmailSent", "page.admin.users.setupEmailFailed");
-      setCreateError(delivery.error);
-      setCreateMsg(delivery.message);
+      setF({ name: "", email: "", role_id: 0, department_id: 0, factory_code: "MIL", is_active: true, access_policy: {} });
+      setCreateMsg(t("page.admin.users.setupEmailQueued"));
     } catch (e: any) {
       setCreateError(true);
       setCreateMsg(e.message);
@@ -228,7 +122,9 @@ export default function AdminUsersPage() {
     password: "",
     role_id: 0,
     department_id: 0,
+    factory_code: "MIL" as "MIL" | "BST" | "ECO",
     extra_permissions: [] as string[],
+    access_policy: null as AccessPolicy | null,
     is_active: true,
   });
   const [editMsg, setEditMsg] = useState("");
@@ -242,7 +138,9 @@ export default function AdminUsersPage() {
       password: "",
       role_id: u.role_id ?? 0,
       department_id: u.department_id ?? 0,
+      factory_code: u.factory_code || "MIL",
       extra_permissions: uniquePermissions(u.extra_permissions ?? []),
+      access_policy: u.access_policy ?? null,
       is_active: u.is_active,
     });
     setEditMsg("");
@@ -250,7 +148,7 @@ export default function AdminUsersPage() {
 
   async function saveEdit(e: React.FormEvent) {
     e.preventDefault();
-    if (!editing) return;
+    if (!editing || !editAccessReady) return;
     setEditMsg("");
     try {
       const payload: any = {
@@ -258,16 +156,16 @@ export default function AdminUsersPage() {
         email: edit.email,
         role_id: edit.role_id || null,
         department_id: edit.department_id || null,
-        extra_permissions: uniquePermissions(edit.extra_permissions).filter((permission) => {
-          const role = roles?.find((r) => r.id === edit.role_id);
-          return !roleIncludesPermission(role, permission);
-        }),
+        factory_code: edit.factory_code,
+        extra_permissions: uniquePermissions(edit.extra_permissions),
+        access_policy: edit.access_policy,
         is_active: edit.is_active,
       };
       if (edit.password.trim()) payload.password = edit.password;
       await api.patch(`/api/users/${editing.id}`, payload);
       setEditing(null);
       mutate();
+      refreshMe();
     } catch (e: any) {
       setEditMsg(e.message);
     }
@@ -288,24 +186,6 @@ export default function AdminUsersPage() {
     }
   }
 
-  async function sendSetupLink(u: User) {
-    setSetupSendingUserId(u.id);
-    setSetupMessages((current) => ({ ...current, [u.id]: "" }));
-    setSetupErrors((current) => ({ ...current, [u.id]: false }));
-    try {
-      const result = await api.post<User>(`/api/users/${u.id}/password-setup`);
-      mutate();
-      const delivery = emailDeliveryText(result, "page.admin.users.setupEmailResent", "page.admin.users.setupEmailResendFailed");
-      setSetupErrors((current) => ({ ...current, [u.id]: delivery.error }));
-      setSetupMessages((current) => ({ ...current, [u.id]: delivery.message }));
-    } catch (e: any) {
-      setSetupErrors((current) => ({ ...current, [u.id]: true }));
-      setSetupMessages((current) => ({ ...current, [u.id]: e.message }));
-    } finally {
-      setSetupSendingUserId(null);
-    }
-  }
-
   const rows = useMemo(() => {
     if (!data) return [];
     if (!q) return data;
@@ -320,43 +200,6 @@ export default function AdminUsersPage() {
       );
     });
   }, [data, roles, depts, q]);
-
-  const selectedRole = useMemo(() => roles?.find((r) => r.id === edit.role_id), [roles, edit.role_id]);
-  const selectedRolePermissions = useMemo(() => new Set(selectedRole?.permissions ?? []), [selectedRole]);
-  const roleHasFullAccess = selectedRolePermissions.has("*");
-  const accessGroups = useMemo(() => {
-    const extraKnownPermissions = new Set<string>();
-    roles?.forEach((role) => {
-      (role.permissions ?? []).forEach((permission) => {
-        if (permission !== "*" && !KNOWN_PERMISSION_VALUES.has(permission)) extraKnownPermissions.add(permission);
-      });
-    });
-    edit.extra_permissions.forEach((permission) => {
-      if (permission !== "*" && !KNOWN_PERMISSION_VALUES.has(permission)) extraKnownPermissions.add(permission);
-    });
-    if (!extraKnownPermissions.size) return ACCESS_GROUPS;
-    return [
-      ...ACCESS_GROUPS,
-      {
-        title: t("page.admin.users.accessOther"),
-        permissions: [...extraKnownPermissions].sort().map((permission) => ({ value: permission, label: permission })),
-      },
-    ];
-  }, [edit.extra_permissions, roles, t]);
-  const additionalAccessCount = uniquePermissions(edit.extra_permissions).filter((permission) => {
-    return !roleIncludesPermission(selectedRole, permission);
-  }).length;
-
-  function toggleExtraPermission(permission: string, enabled: boolean) {
-    if (roleIncludesPermission(selectedRole, permission)) return;
-    if (permission === SUPER_ADMIN_PERMISSION && !canManageAdmins) return;
-    setEdit((current) => ({
-      ...current,
-      extra_permissions: enabled
-        ? uniquePermissions([...current.extra_permissions, permission])
-        : current.extra_permissions.filter((value) => value !== permission),
-    }));
-  }
 
   const activityStats = useMemo(() => {
     if (nowMs === null) return { onlineRecently: 0, activeThisWeek: 0, notUsing: 0 };
@@ -402,12 +245,6 @@ export default function AdminUsersPage() {
     <div>
       <PageHeader title={t("page.admin.users")} />
 
-      {setupEmailStatus?.available === false && (
-        <div className="mb-4 rounded-md border border-[#e6d8b8] bg-[#fff9eb] p-3 text-sm text-[#5f4a1f]">
-          {t("page.admin.users.setupEmailUnavailable", { message: setupEmailStatus.message || "" })}
-        </div>
-      )}
-
       <form onSubmit={create} autoComplete="off" className="card mb-6 grid grid-cols-1 gap-3 p-4 md:grid-cols-5">
         <input className="input" placeholder={t("common.name")} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required />
         <input className="input" name="new_user_email" autoComplete="off" placeholder={t("auth.email")} type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} required />
@@ -426,7 +263,14 @@ export default function AdminUsersPage() {
           <option value={0}>{t("ph.dept")}</option>
           {depts?.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
-        <button className="btn btn-primary">{t("btn.create")}</button>
+        <select className="input" value={f.factory_code} onChange={(e) => setF({ ...f, factory_code: e.target.value as "MIL" | "BST" | "ECO" })}>
+          <option value="MIL">Milana</option><option value="BST">Besttex</option><option value="ECO">Eco Cotton</option>
+        </select>
+        <div className="md:col-span-5">
+          <UserAccessEditor subject={{ ...f, role_id: f.role_id || null, department_id: f.department_id || null }}
+            value={f.access_policy} onChange={(access_policy) => setF((current) => ({ ...current, access_policy }))} onReady={setCreateAccessReady} />
+        </div>
+        <button className="btn btn-primary" disabled={!createAccessReady}>{t("btn.create")}</button>
         {createMsg && <div className={`text-sm ${createError ? "text-red-600" : "text-green-700"} md:col-span-5`}>{createMsg}</div>}
       </form>
 
@@ -453,6 +297,7 @@ export default function AdminUsersPage() {
               <th>{t("auth.email")}</th>
               <th>{t("field.role")}</th>
               <th>{t("field.department")}</th>
+              <th>Factory</th>
               <th>{t("field.active")}</th>
               <th>{t("field.activity")}</th>
               <th>{t("field.actions")}</th>
@@ -470,6 +315,7 @@ export default function AdminUsersPage() {
                   <td>{u.email}</td>
                   <td>{role?.name ?? u.role_id ?? "-"}</td>
                   <td>{depts?.find((d) => d.id === u.department_id)?.name ?? u.department_id ?? "-"}</td>
+                  <td>{u.factory_code}</td>
                   <td>
                     <span className={`badge ${u.is_active ? "badge-green" : "badge-red"}`}>
                       {u.is_active ? t("field.yes") : t("field.no")}
@@ -486,44 +332,23 @@ export default function AdminUsersPage() {
                       </span>
                     </div>
                   </td>
-                  <td>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        className="text-brand-600 hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:no-underline"
-                        disabled={restrictedAdminAccount}
-                        title={restrictedAdminAccount ? t("page.admin.users.superAdminOnly") : undefined}
-                        onClick={() => openEdit(u)}
-                      >
-                        {t("btn.edit")}
-                      </button>
-                      {!u.last_login_at && u.is_active && (
-                        <>
-                          {setupEmailAvailable && (
-                            <button
-                              className="text-brand-600 hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:no-underline"
-                              disabled={restrictedAdminAccount || setupSendingUserId === u.id}
-                              title={restrictedAdminAccount ? t("page.admin.users.superAdminOnly") : undefined}
-                              onClick={() => sendSetupLink(u)}
-                            >
-                              {setupSendingUserId === u.id ? t("page.admin.users.setupEmailSending") : t("page.admin.users.resendSetupLink")}
-                            </button>
-                          )}
-                        </>
-                      )}
-                      <button
-                        className="text-red-600 hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:no-underline"
-                        disabled={adminAccount && !canManageAdmins}
-                        title={adminAccount && !canManageAdmins ? t("page.admin.users.superAdminOnly") : undefined}
-                        onClick={() => deleteUser(u)}
-                      >
-                        {t("btn.delete")}
-                      </button>
-                    </div>
-                    {setupMessages[u.id] && (
-                      <div className={`mt-1 text-xs ${setupErrors[u.id] ? "text-red-600" : "text-green-700"}`}>
-                        {setupMessages[u.id]}
-                      </div>
-                    )}
+                  <td className="flex gap-2">
+                    <button
+                      className={`text-brand-600 hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:no-underline`}
+                      disabled={restrictedAdminAccount}
+                      title={restrictedAdminAccount ? t("page.admin.users.superAdminOnly") : undefined}
+                      onClick={() => openEdit(u)}
+                    >
+                      {t("btn.edit")}
+                    </button>
+                    <button
+                      className="text-red-600 hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:no-underline"
+                      disabled={adminAccount && !canManageAdmins}
+                      title={adminAccount && !canManageAdmins ? t("page.admin.users.superAdminOnly") : undefined}
+                      onClick={() => deleteUser(u)}
+                    >
+                      {t("btn.delete")}
+                    </button>
                   </td>
                 </tr>
               );
@@ -568,65 +393,23 @@ export default function AdminUsersPage() {
                 {depts?.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
               </select>
             </div>
+            <div>
+              <label className="label">Factory</label>
+              <select className="input" value={edit.factory_code} onChange={(e) => setEdit({ ...edit, factory_code: e.target.value as "MIL" | "BST" | "ECO" })}>
+                <option value="MIL">Milana</option><option value="BST">Besttex</option><option value="ECO">Eco Cotton</option>
+              </select>
+            </div>
           </div>
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={edit.is_active} onChange={(e) => setEdit({ ...edit, is_active: e.target.checked })} />
             {t("field.active")}
           </label>
-          <section className="rounded-md border border-[#e3dfd3] bg-[#f8f6ef] p-3">
-            <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
-              <div>
-                <h3 className="text-sm font-semibold text-[#2c2920]">{t("page.admin.users.additionalAccess")}</h3>
-                <p className="mt-1 text-xs text-[#6f6858]">{t("page.admin.users.additionalAccessHelp")}</p>
-              </div>
-              <span className="badge badge-blue">{t("page.admin.users.extraAccessCount", { count: additionalAccessCount })}</span>
-            </div>
-            <div className="max-h-56 space-y-3 overflow-y-auto pr-1">
-              {accessGroups.map((group) => (
-                <div key={group.title}>
-                  <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[#8a8472]">{group.title}</div>
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    {group.permissions.map((permission) => {
-                      const includedByRole = roleIncludesPermission(selectedRole, permission.value);
-                      const restricted = permission.value === SUPER_ADMIN_PERMISSION && !canManageAdmins;
-                      const enabled = includedByRole || edit.extra_permissions.includes(permission.value);
-                      return (
-                        <label
-                          key={permission.value}
-                          className={`flex min-h-10 items-center justify-between gap-3 rounded-md border border-[#e3dfd3] bg-[#fffdf7] px-3 py-2 text-sm ${
-                            includedByRole ? "text-[#8a8472]" : "text-[#2c2920]"
-                          }`}
-                        >
-                          <span className="min-w-0">
-                            <span className="block truncate">{permission.label}</span>
-                            <span className="block truncate text-[11px] text-[#8a8472]">{permission.value}</span>
-                          </span>
-                          <span className="flex shrink-0 items-center gap-2">
-                            {includedByRole && (
-                              <span className="rounded bg-[#eee9dc] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#6f6858]">
-                                {roleHasFullAccess ? t("page.admin.users.fullRoleAccess") : t("page.admin.users.includedInRole")}
-                              </span>
-                            )}
-                            <input
-                              type="checkbox"
-                              checked={enabled}
-                              disabled={includedByRole || restricted}
-                              title={restricted ? t("page.admin.users.superAdminOnly") : undefined}
-                              onChange={(e) => toggleExtraPermission(permission.value, e.target.checked)}
-                            />
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
+          <UserAccessEditor subject={{ ...edit, role_id: edit.role_id || null, department_id: edit.department_id || null }}
+            value={edit.access_policy} onChange={(access_policy) => setEdit((current) => ({ ...current, access_policy }))} onReady={setEditAccessReady} />
           {editMsg && <div className="text-sm text-red-600">{editMsg}</div>}
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" className="btn" onClick={() => setEditing(null)}>{t("btn.cancel")}</button>
-            <button type="submit" className="btn btn-primary">{t("btn.saveChanges")}</button>
+            <button type="submit" className="btn btn-primary" disabled={!editAccessReady}>{t("btn.saveChanges")}</button>
           </div>
         </form>
       </Modal>

@@ -4,6 +4,9 @@ import { Fragment, useMemo, useState, type FormEvent } from "react";
 import useSWR from "swr";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import Modal from "@/components/Modal";
+import PackagePrintRuns from "@/components/PackagePrintRuns";
+import PendingPackageWorkflow from "@/components/PendingPackageWorkflow";
+import { packageWorkflowCopy, postPackageWorkflow, type PackagePrintRun } from "@/lib/packageWorkflow";
 import { statusLabel } from "@/components/StagePipeline";
 import { api, fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
@@ -30,9 +33,13 @@ export default function PackageQrSection({
   productionOrderId?: number | null;
   onChanged?: () => void | Promise<void>;
 }) {
-  const { t } = useT();
+  const { t, lang } = useT();
+  const copy = packageWorkflowCopy[lang];
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [runRefresh, setRunRefresh] = useState(0);
   const { me } = useMe();
   const canApprovePackageChange = can(me, "management.approve");
+  const canChangePackage = can(me, "packaging.packages") || can(me, "storage.packages");
   const packagesKey = productionOrderId
     ? `/api/packages?production_order_id=${productionOrderId}&include_total=true&page=1&page_size=500`
     : null;
@@ -70,6 +77,7 @@ export default function PackageQrSection({
 
   async function refreshPackages() {
     await Promise.all([mutate(), mutatePendingRequests(), onChanged?.()]);
+    setRunRefresh(value => value + 1);
   }
 
   async function openEdit(pkg: any) {
@@ -160,8 +168,9 @@ export default function PackageQrSection({
     setMessage("");
     try {
       await api.post(`/api/packages/${deleting.id}/change-requests`, { request_type: "delete" });
+      setSelectedIds((ids) => ids.filter((id) => id !== deleting.id));
       setDeleting(null);
-      setMessage(t("page.packages.deleteRequestSent"));
+      setMessage(t("page.packages.outputReset"));
       await refreshPackages();
     } catch (err: any) {
       setError(err?.message || t("page.packages.deleteRequestFailed"));
@@ -248,6 +257,17 @@ export default function PackageQrSection({
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
+          {(can(me, "packaging.packages") || can(me, "storage.packages")) && <button
+            type="button" className="btn" disabled={!selectedIds.length || busy}
+            onClick={async () => {
+              setBusy(true); setError("");
+              try {
+                const run = await postPackageWorkflow<PackagePrintRun>("/api/packages/print-runs", { package_ids: selectedIds }, me!.id);
+                setSelectedIds([]); setRunRefresh(value => value + 1);
+                await api.openLabel(`/api/packages/print-runs/${run.id}/label`);
+              } catch (e: any) { setError(e.message); }
+              finally { setBusy(false); }
+            }}>{copy.createRun}</button>}
           <button
             type="button"
             className="btn"
@@ -294,6 +314,8 @@ export default function PackageQrSection({
                     )}
                   </td>
                   <td className="font-medium">
+                    {p.status === "packed" && <input type="checkbox" className="mr-2" aria-label={`${copy.select} ${p.package_no}`}
+                      checked={selectedIds.includes(p.id)} onChange={e => setSelectedIds(ids => e.target.checked ? [...ids, p.id] : ids.filter(id => id !== p.id))} />}
                     <div>{p.package_no}</div>
                     <div className="mt-1 text-xs text-slate-500">
                       {p.qr_code_url ? t("page.packaging.qrSaved") : t("page.packaging.qrMissing")}
@@ -317,8 +339,8 @@ export default function PackageQrSection({
                           {t("page.packaging.downloadQr")}
                         </a>
                       )}
-                      <button type="button" className="text-blue-700 hover:underline disabled:text-slate-400 disabled:no-underline" disabled={!!pending || busy} onClick={() => openEdit(p)}>{t("common.edit")}</button>
-                      <button type="button" className="text-red-700 hover:underline disabled:text-slate-400 disabled:no-underline" disabled={!!pending || busy} onClick={() => setDeleting(p)}>{t("common.delete")}</button>
+                      <button type="button" className="text-blue-700 hover:underline disabled:text-slate-400 disabled:no-underline" disabled={!canChangePackage || busy} onClick={() => openEdit(p)}>{t("common.edit")}</button>
+                      <button type="button" className="text-red-700 hover:underline disabled:text-slate-400 disabled:no-underline" disabled={!canChangePackage || busy} onClick={() => setDeleting(p)}>{t("common.delete")}</button>
                       {pending && canApprovePackageChange && (
                         <Fragment>
                           <button type="button" className="text-green-700 hover:underline disabled:text-slate-400" disabled={busy} onClick={() => approveRequest(pending)}>{t("btn.approve")}</button>
@@ -341,6 +363,9 @@ export default function PackageQrSection({
         </table>
       </div>
 
+      <PackagePrintRuns productionOrderId={productionOrderId} refreshKey={runRefresh + totalPackages} />
+      <PendingPackageWorkflow path="/api/packages/print-runs/create-packages" onResolved={refreshPackages} />
+      <PendingPackageWorkflow path="/api/packages/print-runs" onResolved={async () => { setRunRefresh(value => value + 1); await refreshPackages(); }} />
       <Modal
         open={!!editing}
         onClose={() => { if (!busy) { setEditing(null); setEditForm(null); } }}
@@ -384,7 +409,7 @@ export default function PackageQrSection({
               </div>
               <div className="space-y-2">
                 {editForm.items.map((item, idx) => (
-                  <div key={`${idx}-${item.size}`} className="grid grid-cols-[minmax(0,1fr)_110px_auto] gap-2">
+                  <div key={`${idx}-${item.size}`} className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_110px_auto]">
                     <input className="input" value={item.size} onChange={(e) => setItemField(idx, "size", e.target.value)} placeholder={t("common.size")} required />
                     <input className="input" type="number" min={1} value={item.quantity} onChange={(e) => setItemField(idx, "quantity", e.target.value)} required />
                     <button type="button" className="btn" onClick={() => removeItemRow(idx)} disabled={editForm.items.length <= 1}>{t("common.remove")}</button>
@@ -399,7 +424,7 @@ export default function PackageQrSection({
                 <div className="mb-2 text-sm font-medium text-slate-900">{t("page.packages.batchAllocations")}</div>
                 <div className="space-y-2">
                   {editForm.batch_allocations.map((row, idx) => (
-                    <div key={row.production_batch_id} className="grid grid-cols-[minmax(0,1fr)_120px] gap-2">
+                    <div key={row.production_batch_id} className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_120px]">
                       <div className="input flex items-center bg-slate-50 text-slate-600">#{row.production_batch_id}</div>
                       <input className="input" type="number" min={1} value={row.quantity} onChange={(e) => setBatchQuantity(idx, e.target.value)} required />
                     </div>
@@ -426,7 +451,7 @@ export default function PackageQrSection({
       <ConfirmDialog
         isOpen={!!deleting}
         title={t("page.packages.deleteTitle")}
-        message={deleting ? t("page.packages.deleteMessage", { package: deleting.package_no }) : ""}
+        message={deleting ? t("page.packages.deleteOutputMessage", { package: deleting.package_no }) : ""}
         confirmText={t("page.packages.requestDelete")}
         onConfirm={submitDeleteRequest}
         onCancel={() => setDeleting(null)}

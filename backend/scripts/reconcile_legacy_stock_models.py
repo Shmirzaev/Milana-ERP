@@ -18,7 +18,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     FinishedGoodsStock,
     LegacyStockReceipt,
     Model,
@@ -27,7 +27,7 @@ from app.models import (
     ShipmentPackage,
     StockReservation,
 )
-from app.services.audit import log_action
+from app.models.audit_service import log_action
 from scripts.import_legacy_ready_stock import display_color
 
 

@@ -1,13 +1,14 @@
 ﻿"use client";
+import { formatOrderReference } from "@/lib/orderRef";
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { CalendarDays, Download, Factory, Plus, TrendingDown, TrendingUp } from "lucide-react";
 import { fetcher } from "@/lib/api";
-import { DASHBOARD_SWR_OPTIONS } from "@/lib/liveData";
 import PageHeader from "@/components/PageHeader";
 import { useMe, can } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { statusLabel } from "@/components/StagePipeline";
+import ManagementDashboard from "@/components/dashboard/ManagementDashboard";
 
 type FilterKind = "all" | "client_order" | "branded_stock_sale";
 type DatePreset = "all" | "today" | "yesterday" | "tomorrow" | "this_week" | "this_month" | "current_year" | "custom";
@@ -103,6 +104,13 @@ function toCsvCell(v: unknown): string {
 }
 
 export default function HomePage() {
+  const { me, loading } = useMe();
+  const { t } = useT();
+  if (loading || !me) return <div role="status">{t("common.loading")}</div>;
+  return can(me, "management.view") ? <ManagementDashboard /> : <LegacyHomePage />;
+}
+
+function LegacyHomePage() {
   const { me } = useMe();
   const { t } = useT();
   const [clientTz, setClientTz] = useState("UTC");
@@ -118,24 +126,13 @@ export default function HomePage() {
   const { data: mgmt } = useSWR<any>(
     can(me, "management.view", "*") ? `/api/dashboard/management?tz=${encodeURIComponent(clientTz)}` : null,
     fetcher,
-    DASHBOARD_SWR_OPTIONS,
   );
-  const { data: fin } = useSWR<any>(
-    can(me, "finance.view", "*") ? "/api/dashboard/finance" : null,
-    fetcher,
-    DASHBOARD_SWR_OPTIONS,
-  );
+  const { data: fin } = useSWR<any>(can(me, "finance.view", "*") ? "/api/dashboard/finance" : null, fetcher);
   const {
-    data: activeProductionData,
+    data: activeProduction = [],
     error: activeProductionError,
     isLoading: activeProductionLoading,
-  } = useSWR<ActiveProductionOrder[]>(
-    "/api/dashboard/active-production",
-    fetcher,
-    DASHBOARD_SWR_OPTIONS,
-  );
-  const activeProduction = useMemo(() => activeProductionData ?? [], [activeProductionData]);
-  const showActiveProductionError = Boolean(activeProductionError && !activeProductionData);
+  } = useSWR<ActiveProductionOrder[]>("/api/dashboard/active-production", fetcher);
 
   const [kind, setKind] = useState<FilterKind>("all");
   const [datePreset, setDatePreset] = useState<DatePreset>("this_week");
@@ -181,7 +178,7 @@ export default function HomePage() {
     const qs = params.toString();
     return qs ? `/api/dashboard/production?${qs}` : "/api/dashboard/production";
   }, [dateRange.start, dateRange.end]);
-  const { data: prod } = useSWR<any>(prodUrl, fetcher, DASHBOARD_SWR_OPTIONS);
+  const { data: prod } = useSWR<any>(prodUrl, fetcher);
 
   const activeOrders = useMemo(() => {
     return activeProduction
@@ -238,7 +235,7 @@ export default function HomePage() {
                 <CalendarDays />{t(formatRangeLabel(datePreset))}
               </button>
               {showDateMenu ? (
-                <div className="absolute right-0 top-10 z-20 w-64 rounded-lg border border-[#ded9ca] bg-[#fdfcf8] p-3 shadow-lg">
+                <div className="absolute left-0 right-auto top-10 z-20 w-[min(16rem,calc(100vw-2rem))] rounded-lg border border-[#ded9ca] bg-[#fdfcf8] p-3 shadow-lg lg:left-auto lg:right-0">
                   <div>
                     <div className="label">{t("home.datePreset")}</div>
                     <select
@@ -291,7 +288,7 @@ export default function HomePage() {
 
       <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Kpi label={t("dash.activeOrders")} value={activeOrdersTotal || mgmt?.active_orders || 0} sub="Planning + confirmed + in production" tone="good" />
-        <Kpi label={t("dash.production")} value={(Number(prod?.cutting_output || 0) + Number(prod?.printing_output || 0) + Number(prod?.sewing_output || 0) + Number(prod?.packaging_output || 0)).toLocaleString()} tone="good" />
+        <Kpi label={t("home.stageActivity")} sub={t("home.stageActivityHint")} value={(Number(prod?.cutting_output || 0) + Number(prod?.printing_output || 0) + Number(prod?.sewing_output || 0) + Number(prod?.packaging_output || 0)).toLocaleString()} tone="good" />
         <Kpi label={t("dash.lateOrders")} value={mgmt?.late_orders ?? 0} tone={Number(mgmt?.late_orders || 0) > 0 ? "bad" : "good"} />
         <Kpi label={t("dash.todaysDefects")} value={Number(mgmt?.todays_defects || 0).toLocaleString()} tone={Number(mgmt?.todays_defects || 0) > 0 ? "bad" : "good"} />
       </div>
@@ -315,7 +312,7 @@ export default function HomePage() {
           <div className="divide-y divide-[#ecebe3] md:hidden">
             {activeProductionLoading ? (
               <div className="p-4 text-sm text-[#8a8472]">{t("common.loading")}</div>
-            ) : showActiveProductionError ? (
+            ) : activeProductionError ? (
               <div className="p-4 text-sm text-red-600">{t("page.home.activeProductionError")}</div>
             ) : !activeOrders.length ? (
               <div className="p-4 text-sm text-[#8a8472]">{t("page.home.noOrdersSelectedFilter")}</div>
@@ -325,7 +322,7 @@ export default function HomePage() {
                 <article key={o.id} className="p-4">
                   <div className="flex min-w-0 items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <a href={`/sales-orders/${o.id}`} className="mono block truncate font-semibold text-[#14110b]">{o.order_no}</a>
+                      <a href={`/sales-orders/${o.id}`} title={o.order_no} className="mono block truncate font-semibold text-[#14110b]">{formatOrderReference(o.order_no)}</a>
                       <div className="mt-1 truncate text-sm font-medium text-[#14110b]">{o.customer || t("sales.unknownCustomer")}</div>
                     </div>
                     <span className="badge shrink-0 bg-[#fbe9dd] text-[#c2410c]">{statusLabel(o.status, t)}</span>
@@ -367,7 +364,7 @@ export default function HomePage() {
               <tbody>
                 {activeProductionLoading ? (
                   <tr><td colSpan={7} className="px-4 py-6 text-sm text-[#8a8472]">{t("common.loading")}</td></tr>
-                ) : showActiveProductionError ? (
+                ) : activeProductionError ? (
                   <tr><td colSpan={7} className="px-4 py-6 text-sm text-red-600">{t("page.home.activeProductionError")}</td></tr>
                 ) : !activeOrders.length ? (
                   <tr><td colSpan={7} className="px-4 py-6 text-sm text-[#8a8472]">{t("page.home.noOrdersSelectedFilter")}</td></tr>
@@ -375,7 +372,7 @@ export default function HomePage() {
                   const pct = Math.max(0, Math.min(100, Number(o.progress || 0)));
                   return (
                     <tr key={o.id}>
-                      <td><a href={`/sales-orders/${o.id}`} className="mono font-medium">{o.order_no}</a></td>
+                      <td><a href={`/sales-orders/${o.id}`} title={o.order_no} className="mono font-medium">{formatOrderReference(o.order_no)}</a></td>
                       <td>{o.customer || t("sales.unknownCustomer")}</td>
                       <td className="mono">{Number(o.qty || 0).toLocaleString()}</td>
                       <td className="min-w-36">

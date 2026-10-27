@@ -1,7 +1,7 @@
 import os
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import field_validator
+from pydantic import Field, field_validator
 
 
 class Settings(BaseSettings):
@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     ENV: str = "development"
     DEBUG: bool = False
     DATABASE_URL: str = "postgresql+psycopg2://erp:erp@db:5432/erp"
+    DB_POOL_SIZE: int | None = None
+    DB_MAX_OVERFLOW: int | None = None
     JWT_SECRET: str = "dev-secret"
     FILE_SIGNING_SECRET: str = ""
     JWT_ALGORITHM: str = "HS256"
@@ -54,7 +56,13 @@ class Settings(BaseSettings):
     BARCODE_STORAGE_DIR: str = "/app/storage/barcodes"
     MODEL_FILES_DIR: str = "/app/storage/model_files"
     SALES_ORDER_FILES_DIR: str = "/app/storage/sales_order_files"
-    INTEGRATION_1C_TOKEN: str = ""
+    ATTENDANCE_INTEGRATION_TOKEN: str = ""
+    ATTENDANCE_INTEGRATION_FACTORY_CODE: str = "MIL"
+    ATTENDANCE_PHOTOS_DIR: str = "/app/storage/attendance_photos"
+    ATTENDANCE_SOURCE_MAX_FUTURE_SECONDS: int = Field(default=300, ge=0, le=86400)
+    ATTENDANCE_PHOTO_MAX_BYTES: int = 8 * 1024 * 1024
+    HR_DOCUMENTS_DIR: str = "/app/storage/hr_documents"
+    HR_DOCUMENT_MAX_BYTES: int = 20 * 1024 * 1024
     STARTUP_SCHEMA_SYNC: bool = False
 
     @field_validator("DEBUG", mode="before")
@@ -68,6 +76,20 @@ class Settings(BaseSettings):
                 return True
             if normalized in {"0", "false", "f", "no", "n", "off", "falce", "fasle", "flase"}:
                 return False
+        return value
+
+    @field_validator("DB_POOL_SIZE")
+    @classmethod
+    def validate_db_pool_size(cls, value):
+        if value is not None and value <= 0:
+            raise ValueError("DB_POOL_SIZE must be positive")
+        return value
+
+    @field_validator("DB_MAX_OVERFLOW")
+    @classmethod
+    def validate_db_max_overflow(cls, value):
+        if value is not None and value < 0:
+            raise ValueError("DB_MAX_OVERFLOW must be non-negative")
         return value
 
     @property
@@ -94,13 +116,6 @@ class Settings(BaseSettings):
         return any(str(os.environ.get(name, "")).strip() for name in public_markers)
 
     @property
-    def is_hugging_face_space(self) -> bool:
-        return any(
-            str(os.environ.get(name, "")).strip()
-            for name in ("SPACE_ID", "SPACE_HOST", "HF_SPACE_ID", "HF_SPACE_HOST")
-        )
-
-    @property
     def strict_security_required(self) -> bool:
         return self.is_production or self.is_public_deployment
 
@@ -120,8 +135,6 @@ class Settings(BaseSettings):
         errors: list[str] = []
         if self.DEBUG:
             errors.append("DEBUG must be false")
-        if self.JWT_ALGORITHM != "HS256":
-            errors.append("JWT_ALGORITHM must be HS256")
         jwt_secret = self.JWT_SECRET.strip()
         file_secret = self.FILE_SIGNING_SECRET.strip()
         if jwt_secret in {"", "dev-secret", "test-secret"} or len(jwt_secret) < 32:

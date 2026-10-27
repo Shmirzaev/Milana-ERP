@@ -1,0 +1,5 @@
+export const payrollClosureText = {
+  en: { close: "Close scanning after Control", hint: "Unscanned QRs in this batch, model and size will be saved separately without payroll credit.", reason: "Reason (worker left, missing QR, etc.)", closed: "Closed · not scanned", active: "Active QRs", archived: "Closed unscanned QRs", date: "Closed at" },
+  ru: { close: "Закрыть сканирование после контроля", hint: "Неотсканированные QR этого настила, модели и размера будут сохранены отдельно без начисления зарплаты.", reason: "Причина (сотрудник ушёл, QR отсутствует и т. д.)", closed: "Закрыт · не отсканирован", active: "Активные QR", archived: "Закрытые неотсканированные QR", date: "Дата закрытия" },
+  uz: { close: "Kontroldan keyin skanerlashni yopish", hint: "Ushbu nastil, model va o‘lchamdagi skan qilinmagan QRlar ish haqi hisoblanmasdan alohida saqlanadi.", reason: "Sabab (xodim ketgan, QR yo‘q va hokazo)", closed: "Yopilgan · skan qilinmagan", active: "Faol QRlar", archived: "Yopilgan, skan qilinmagan QRlar", date: "Yopilgan vaqt" },
+};
