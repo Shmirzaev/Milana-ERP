@@ -130,10 +130,13 @@ For local PostgreSQL coverage, install the backend test dependencies and run
 requires a local Unix-socket Docker daemon. It starts a disposable PostgreSQL 16
 container on a random loopback port, sets `STABILIZATION_POSTGRES_URL` for the
 default backend suite and `S06_POSTGRES_URL` for the separately collected
-`backend/tests/test_stock_adjustment_postgres.py`, then removes the container.
-Both URLs point to its isolated `milana_test` database; neither can target a
-serving database. The child processes also receive this local `DATABASE_URL` so
-an inherited application URL cannot redirect their imports. Report the two test
+`backend/tests/test_stock_adjustment_postgres.py`. It also sets
+`FN04_TEST_PG_ADMIN_URL` to the container's `postgres` database so the invoice
+race fixture can create and drop its own temporary database. It then removes the
+container. The first two URLs point to its isolated `milana_test` database;
+all three are loopback-only and cannot target a serving database. The child
+processes also receive a local `DATABASE_URL` so an inherited application URL
+cannot redirect their imports. Report the two test
 results and any remaining skips separately.
 
 ## 3. Visually exercise the real end-to-end workflow

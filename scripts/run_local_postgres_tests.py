@@ -55,8 +55,15 @@ def main() -> int:
         else:
             raise TimeoutError("Disposable PostgreSQL did not become ready within 60 seconds")
 
-        url = f"postgresql+psycopg2://postgres@127.0.0.1:{match.group(1)}/milana_test"
-        env = {**os.environ, "STABILIZATION_POSTGRES_URL": url, "S06_POSTGRES_URL": url, "DATABASE_URL": url}
+        base_url = f"postgresql+psycopg2://postgres@127.0.0.1:{match.group(1)}"
+        url = f"{base_url}/milana_test"
+        env = {
+            **os.environ,
+            "STABILIZATION_POSTGRES_URL": url,
+            "S06_POSTGRES_URL": url,
+            "FN04_TEST_PG_ADMIN_URL": f"{base_url}/postgres",
+            "DATABASE_URL": url,
+        }
         print(f"PostgreSQL 16 ready on loopback port {match.group(1)}; running default backend suite", flush=True)
         suite = subprocess.run([sys.executable, "-m", "pytest", "-q"], cwd=ROOT / "backend", env=env)
         print("Running separately collected S06 stock-adjustment races", flush=True)
