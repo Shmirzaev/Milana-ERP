@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.api.routes.catalog import router as catalog_router
 from app.api.routes.usluga import router as usluga_router
@@ -33,8 +34,15 @@ from app.schemas.catalog import bom_persistence
 
 
 @pytest.fixture
-def database(tmp_path) -> Iterator[dict]:
-    engine = create_engine(f"sqlite:///{tmp_path / 'catalog-bom-delete.sqlite'}")
+def database() -> Iterator[dict]:
+    # A single in-memory connection supports TestClient's worker thread while
+    # avoiding pytest's Windows mode-0700 tmp_path directory creation.
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    event.listen(engine, "connect", lambda connection, _record: connection.execute("PRAGMA foreign_keys=ON"))
     Base.metadata.create_all(engine)
     sessions = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     with sessions.begin() as db:
