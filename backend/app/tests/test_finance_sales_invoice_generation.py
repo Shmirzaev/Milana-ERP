@@ -5,19 +5,15 @@ assertions pin the contract it returns, the write it uses and the transaction
 it owns. The PostgreSQL-only cases prove what SQLite cannot: row-lock
 serialization of two issuers and the rollback residue of a failed issuance.
 
-The PostgreSQL fixture uses this worker's own disposable database and refuses
-any server whose identity is not the pinned review instance, both before the
-first use and inside every connection it hands out.
+The PostgreSQL fixture uses an approved instance and an owned disposable
+database, checking the actual connections before use and cleaning up its target.
 """
-import os
-import re
 import threading
 from decimal import Decimal
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, event, text
-from sqlalchemy.engine import make_url
+from sqlalchemy import event, text
 
 from app.db.base import Base
 from app.db.session import SessionLocal
@@ -28,59 +24,29 @@ from app.models.finance import invoices_service as issuance
 from app.schemas import AuditLog, Invoice, SalesOrder, User
 from app.tests.test_customer_invoice_creation_race import _GateSession, _wait_for_block
 
-PINNED_HOST = "127.0.0.1"
-PINNED_PORT = 51716
-PINNED_SERVER_VERSION = "17.11"
-PINNED_SYSTEM_IDENTIFIER = "7700371345869473300"
-PINNED_DATA_DIRECTORY = "C:/Users/ismoi/Documents/Codex/2026-10-23/we-x20/work/finance-visual-qa-5aafe01d69/data"
-OWNED_DATABASE_PATTERN = re.compile(r"review_mm_finance_[0-9a-f]{12}")
-
-IDENTITY_QUERY = (
-    "SELECT host(inet_server_addr()), inet_server_port(), current_setting('server_version'), "
-    "(SELECT system_identifier::text FROM pg_control_system()), current_setting('data_directory')"
+from app.tests.pg_approved_instance import (
+    ApprovedInstanceUnavailable, create_target_database, finalize_target,
+    load_approved_instance, require_or_skip, target_engine,
 )
-
-
-def _assert_pinned_identity(host, port, version, system_identifier, data_directory):
-    assert host == PINNED_HOST, f"unexpected server address {host!r}"
-    assert int(port) == PINNED_PORT, f"unexpected server port {port!r}"
-    assert version == PINNED_SERVER_VERSION, f"unexpected server version {version!r}"
-    assert system_identifier == PINNED_SYSTEM_IDENTIFIER, f"unexpected system identifier {system_identifier!r}"
-    assert data_directory.replace("\\", "/").rstrip("/") == PINNED_DATA_DIRECTORY, f"unexpected data directory {data_directory!r}"
 
 
 @pytest.fixture(scope="module")
 def owned_pg_sessions():
-    """This worker's own disposable database on the pinned review instance."""
-    url = os.environ.get("FN04_TEST_PG_DB_URL")
-    if not url:
-        pytest.skip("Set FN04_TEST_PG_DB_URL to this worker's own review_mm_finance_<12hex> database")
-    parsed = make_url(url)
-    assert parsed.host == PINNED_HOST and parsed.port == PINNED_PORT, "the owned database is not on the pinned review instance"
-    assert OWNED_DATABASE_PATTERN.fullmatch(parsed.database or ""), "the owned database must use the assigned review_mm_finance_<12hex> name"
-    engine = create_engine(
-        parsed,
-        connect_args={"options": "-cstatement_timeout=20000 -clock_timeout=10000"},
-    )
-
-    @event.listens_for(engine, "connect")
-    def _check_identity(dbapi_connection, connection_record):
-        cursor = dbapi_connection.cursor()
-        try:
-            cursor.execute(IDENTITY_QUERY)
-            _assert_pinned_identity(*cursor.fetchone())
-        finally:
-            cursor.close()
-
+    """Create and clean up exactly one approved, guarded PostgreSQL target."""
     try:
-        with engine.connect() as connection:
-            _assert_pinned_identity(*connection.execute(text(IDENTITY_QUERY)).one())
+        instance = load_approved_instance()
+    except ApprovedInstanceUnavailable as error:
+        require_or_skip(error)
+    target = create_target_database(instance)
+    engine = None
+    try:
+        engine = target_engine(target, options="-cstatement_timeout=20000 -clock_timeout=10000")
         Base.metadata.create_all(engine)
         from sqlalchemy.orm import sessionmaker
 
         yield sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     finally:
-        engine.dispose()
+        finalize_target(target, engine)
 
 
 def _seed_order(sessions, status="confirmed", total="250.00"):
