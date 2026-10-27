@@ -1,6 +1,6 @@
 "use client";
 import { formatVariantNumber } from "@/lib/variantDisplay";
-import { localizeError } from "@/lib/errorMessages";
+import { errorDetail, localizeError } from "@/lib/errorMessages";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -863,6 +863,7 @@ export default function ModelDetail() {
 
   async function addBom(e?: { preventDefault?: () => void }, expectedCategory?: BomSection) {
     e?.preventDefault?.();
+    setMsg("");
     if (isNewModel) {
       await dialogs.notify(t("page.modelDetail.saveGeneralFirst"));
       setTab(1);
@@ -904,10 +905,15 @@ export default function ModelDetail() {
     if (isManualUslugaMaterial) payload.material_name = bomRow.material_name.trim();
     if (isManualUslugaMaterial) payload.material_role = bomRow.material_role;
     const activeEdit = editingBom?.section === target ? editingBom : null;
-    if (activeEdit) {
-      await api.patch(`${modelApiBase}/${id}/bom/${activeEdit.id}`, payload);
-    } else {
-      await api.post<BomCreateResult>(`${modelApiBase}/${id}/bom`, payload);
+    try {
+      if (activeEdit) {
+        await api.patch(`${modelApiBase}/${id}/bom/${activeEdit.id}`, payload);
+      } else {
+        await api.post<BomCreateResult>(`${modelApiBase}/${id}/bom`, payload);
+      }
+    } catch (error: unknown) {
+      await dialogs.notify(errorDetail(error) || localizeError(""));
+      return;
     }
     resetBomForm();
     setMsg(activeEdit ? t("page.modelDetail.msg.updatedBom") : target === "material" ? t("page.modelDetail.msg.addedToFabrics") : t("page.modelDetail.msg.addedToAccessories"));

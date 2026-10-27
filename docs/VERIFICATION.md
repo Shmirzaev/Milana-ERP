@@ -7,6 +7,19 @@ exact candidate again wherever the edit invalidated earlier evidence.
 
 This is the team's required workflow, not a claim that CI enforcement is installed.
 
+Compatibility checks must include supported Python entry paths as well as JSON:
+mapping and attribute validation, omitted fields, assignment, `model_copy` and
+legacy `copy` updates, include/exclude and deep-copy behavior. Preserve raw values
+where they determine retry identity or audit payloads; separately prove the actual
+canonical type consumed by business logic. Exercise concurrent validation if a
+context-local adapter is used. A passing custom/mock handler test is not a real
+database transaction, DOM lifecycle, browser action or PostgreSQL concurrency pass.
+
+The shared model BOM feedback check runs as `test:model-bom-feedback` and is part
+of the frontend build prerequisites. After a rejection, verify that the old green
+success is gone, the actual refusal is visible, entered/edit values remain and no
+phantom row or persisted write appears; then verify a successful retry and reload.
+
 ## 0. Study the old behavior and give the agent a verifiable task
 
 Ismail's direct instruction is study -> move one business operation -> code tests

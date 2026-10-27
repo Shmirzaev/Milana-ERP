@@ -15,6 +15,16 @@ Updated 2026-10-27. Keep this file short: current decisions, release pointers an
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+The current reservation compatibility correction preserves raw input spelling for
+retry fingerprints and failure audits while keeping canonical typed business
+values. Empty category fallback and invalid input have distinct private tags;
+invalid input must reach the original domain refusal point. Mapping/attribute
+validation, assignment and both Pydantic copy APIs have independent regression
+controls. The shared Catalog BOM page also clears stale success and reports a
+refused write without clearing the form. These corrections require their own
+combined PostgreSQL/build/browser evidence; earlier ff7c UI passes do not verify
+this source. Full enum adoption and human acceptance remain open.
+
 The [manual Finance invoice candidate](archive/FINANCE_MANUAL_INVOICE_CREATE_2026-10-27.md)
 moves its insert into schema-owned persistence and types its actual UI response.
 Existing policies are preserved; independent review, candidate visual checks and
