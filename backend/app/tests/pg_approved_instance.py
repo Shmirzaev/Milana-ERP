@@ -292,6 +292,10 @@ def create_target_database(instance: ApprovedInstance) -> OwnedTarget:
 def finalize_target(target: OwnedTarget, engine=None) -> None:
     """Dispose and drop even if either fails, preserving an active setup error."""
     active = sys.exception()
+    try:
+        name = owned_target_name(target)
+    except ApprovedInstanceUnavailable:
+        name = "unavailable"
     errors: list[BaseException] = []
     if engine is not None:
         try:
@@ -305,7 +309,7 @@ def finalize_target(target: OwnedTarget, engine=None) -> None:
     if errors:
         if active is not None:
             errors.insert(0, active)
-        _raise_failures("target setup/teardown failures", errors)
+        _raise_failures(f"target {name} setup/teardown failures", errors)
 
 
 def target_engine(target: OwnedTarget, *, options: str | None = None):
