@@ -17,6 +17,7 @@ import xml.etree.ElementTree as ET
 # Minimum collected counts pin the current parameterized business cases. Adding
 # cases is allowed; removing a required case needs an explicit ledger change.
 GROUPS = {
+    "test_purchase_conversion_postgres": (7, ()),
     "test_bom_add_characterization": (54, ()),
     "test_forecast_review_postgres": (9, ()),
     "test_stock_movement_and_reservation_postgres": (5, ()),

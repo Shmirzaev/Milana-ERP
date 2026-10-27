@@ -90,6 +90,18 @@
         "test_receipt_and_manual_issuance_share_one_invoice",
         "test_receipt_failure_rolls_back_participants_and_releases_order"
       ]
+    },
+    "test_purchase_conversion_postgres": {
+      "revision": "29166bb524baca93b9d477cc95dcceade46f4a8b",
+      "git_blob_sha256": "2d702a14fa04bc479219d24b82d26fca0d6ae367d75dc28ae625ac80f80e2233",
+      "selected_functions": [
+        "test_pg_conversion_typed_snapshot_matches_persisted_and_timezone",
+        "test_pg_deferred_audit_failure_rolls_back_every_participant_then_retry",
+        "test_pg_materials_only_late_refusal_rolls_back_and_retry",
+        "test_pg_foreign_line_is_refused_without_effects",
+        "test_pg_late_missing_reference_rolls_back",
+        "test_pg_concurrent_conversion_serializes_and_refuses_second"
+      ]
     }
   },
   "cases": {
@@ -197,6 +209,15 @@
       "test_transfer_conserves_quantity_and_moves_the_batch_location",
       "test_failed_audit_leaves_no_movement_and_no_batch_change",
       "test_retry_with_the_same_key_replays_without_a_second_movement"
+    ],
+    "test_purchase_conversion_postgres": [
+      "test_pg_conversion_typed_snapshot_matches_persisted_and_timezone",
+      "test_pg_deferred_audit_failure_rolls_back_every_participant_then_retry",
+      "test_pg_materials_only_late_refusal_rolls_back_and_retry",
+      "test_pg_foreign_line_is_refused_without_effects",
+      "test_pg_late_missing_reference_rolls_back[item]",
+      "test_pg_late_missing_reference_rolls_back[supplier]",
+      "test_pg_concurrent_conversion_serializes_and_refuses_second"
     ]
   }
 }
