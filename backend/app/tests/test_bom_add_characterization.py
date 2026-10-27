@@ -211,8 +211,11 @@ def test_second_main409_secondary_repeated_and_other_model_main_allowed(case,cli
     with Sessions() as db:service.add_bom(db.get(User,case['actors']['usluga']),db,other_id,ModelBOMIn(**manual()),'usluga')
     assert counts()==(4,4)
 
-def test_shared_patch_and_output_contract_remain_permissive_but_identity_rules_apply(case,client):
-    assert ModelBOMUpdate(material_role='historical').material_role=='historical'
+def test_patch_uses_canonical_roles_and_output_keeps_legacy_projection(case,client):
+    # Unsupported PATCH roles now fail binding under the approved enum contract.
+    # Keep the GET projection permissive for historical stored values.
+    with pytest.raises(ValidationError):
+        ModelBOMUpdate(material_role='historical')
     legacy=ModelBOMOut.model_validate({'id':100,'material_role':'historical','quantity_per_piece':1,'unit':'kg','waste_percent':0})
     assert legacy.material_role=='historical'  # Contract evidence, not a claim migrated DB permits this value.
     r=post(client,case,'usluga',manual());bid=r.json()['id']
