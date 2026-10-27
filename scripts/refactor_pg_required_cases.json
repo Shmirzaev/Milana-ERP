@@ -3,8 +3,8 @@
   "collection_method": "Frozen function signatures/literal pytest parameter decorators only; no application/fixture code imported",
   "sources": {
     "test_bom_add_characterization": {
-      "revision": "7587b848",
-      "git_blob_sha256": "dfee629df34e16ab1b87a5ab449812ad0cb1d1b7d127ff3b305067a4a45f019e",
+      "revision": "1e9d983e2b856cb66aaa32ea61c05505651996af",
+      "git_blob_sha256": "457f7831ed3b468bd59b291f3e9042e51a8ef73ce7b86ea3e90d7c474567fb4c",
       "selected_functions": [
         "test_manual_normalizes_role_name_and_discards_stale_references",
         "test_manual_invalid_role_is_currently_service400_and_no_write",
@@ -20,7 +20,7 @@
         "test_usluga_requires_selected_eco_factory",
         "test_existing_numeric_policy_and_pg_rounding_preserved",
         "test_second_main409_secondary_repeated_and_other_model_main_allowed",
-        "test_shared_patch_and_output_contract_remain_permissive_but_identity_rules_apply",
+        "test_patch_uses_canonical_roles_and_output_keeps_legacy_projection",
         "test_clone_and_variant_copy_roles_without_calling_add_bom",
         "test_same_session_audit_outer_commit_and_precommit_invisibility",
         "test_real_audit_failure_rolls_back_bom_and_audit",
@@ -146,7 +146,7 @@
       "test_existing_numeric_policy_and_pg_rounding_preserved[0]",
       "test_existing_numeric_policy_and_pg_rounding_preserved[0.12345]",
       "test_second_main409_secondary_repeated_and_other_model_main_allowed",
-      "test_shared_patch_and_output_contract_remain_permissive_but_identity_rules_apply",
+      "test_patch_uses_canonical_roles_and_output_keeps_legacy_projection",
       "test_clone_and_variant_copy_roles_without_calling_add_bom",
       "test_same_session_audit_outer_commit_and_precommit_invisibility",
       "test_real_audit_failure_rolls_back_bom_and_audit[queued]",
