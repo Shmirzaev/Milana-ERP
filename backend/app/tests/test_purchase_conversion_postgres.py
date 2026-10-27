@@ -123,11 +123,9 @@ def test_pg_conversion_typed_snapshot_matches_persisted_and_timezone(pg_case):
         stored = db.get(PurchaseOrder, result.id)
         actual = result.model_dump(mode="json")
         fresh = PurchaseOrderOut.model_validate(stored).model_dump(mode="json")
-        # Compare instants while retaining an aware offset in both projections.
+        # Preserve both instant and exact serialized output, including the offset.
         assert stored.expected_date.tzinfo is not None
         assert stored.expected_date.astimezone(timezone.utc) == EXPECTED.astimezone(timezone.utc)
-        actual.pop("expected_date")
-        fresh.pop("expected_date")
         assert actual == fresh
         assert db.get(PurchaseRequest, pg_case["id"]).status == "converted"
         audits = db.query(AuditLog).filter(
