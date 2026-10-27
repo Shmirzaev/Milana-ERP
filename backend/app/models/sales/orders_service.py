@@ -12,7 +12,7 @@ Contract for the order operations:
 """
 import os
 from datetime import date
-from typing import Iterable, cast
+from typing import Iterable
 from uuid import uuid4
 
 from fastapi import HTTPException, UploadFile
@@ -61,9 +61,11 @@ def _attachments_for_storage(
     """Persist the bare storage path (no signature) so it never expires at rest."""
     out: list[StoredSalesAttachment] = []
     for a in attachments or []:
-        d = cast(StoredSalesAttachment, a.model_dump())
-        if d.get("file_url"):
-            d["file_url"] = strip_signature(d["file_url"])
+        d: StoredSalesAttachment = {
+            "file_url": strip_signature(a.file_url) if a.file_url else a.file_url,
+            "file_name": a.file_name,
+            "content_type": a.content_type,
+        }
         out.append(d)
     return out
 

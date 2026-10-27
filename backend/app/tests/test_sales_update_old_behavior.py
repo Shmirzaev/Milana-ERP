@@ -11,6 +11,7 @@ from app.core.security import create_access_token
 from app.core.signing import verify_path
 from app.db.session import SessionLocal
 from app.libs.dto.sales.sales_order_update import SalesOrderUpdate
+from app.libs.dto.sales.sales_order_output import SalesOrderOut
 from app.libs.enums.sales import SalesOrderStatus
 from app.models.sales import orders_service as sales
 from app.schemas import (
@@ -112,7 +113,7 @@ def test_unchanged_extended_status_is_allowed_and_internal_result_is_dict(client
     ids = seed(SessionLocal, status=status)
     with SessionLocal() as db:
         result = sales.update_sales_order(ids[0], SalesOrderUpdate(status=status, notes="edited"), db, db.get(User, ids[1]))
-        assert isinstance(result, dict) and result["status"] is SalesOrderStatus(status)
+        assert isinstance(result, SalesOrderOut) and result.status is SalesOrderStatus(status)
     response = client.patch(f"/api/sales-orders/{ids[0]}", headers=auth_headers, json={"status": status})
     assert response.status_code == 200 and response.json()["status"] == status
 
@@ -151,8 +152,8 @@ def test_pg_stale_unchanged_status_cannot_rewind_concurrent_workflow(receipt_rac
             result = sales.update_sales_order(ids[0], SalesOrderUpdate(status="reserved", notes="late header"), stale, actor)
         finally:
             event.remove(stale.bind, "before_cursor_execute", capture)
-        assert result["status"] is SalesOrderStatus.SHIPPED
-        assert result["printing_instructions"] == "workflow note"
+        assert result.status is SalesOrderStatus.SHIPPED
+        assert result.printing_instructions == "workflow note"
         writes = [s for s in statements if s.startswith("update sales_orders")]
         assert len(writes) == 1 and "status=" not in writes[0].replace(" ", "")
         assert not any("for update" in s or "for no key update" in s for s in statements)
@@ -186,7 +187,7 @@ def test_pg_edit_and_audit_rollback_together_then_retry(receipt_race_sessions, m
         assert db.get(SalesOrder, ids[0]).notes == "old notes"
         assert db.query(AuditLog).filter_by(entity_type="SalesOrder", entity_id=ids[0], action="update").count() == 0
         result = sales.update_sales_order(ids[0], SalesOrderUpdate(notes="retry saved"), db, db.get(User, ids[1]))
-        assert result["notes"] == "retry saved"
+        assert result.notes == "retry saved"
         assert db.query(AuditLog).filter_by(entity_type="SalesOrder", entity_id=ids[0], action="update").count() == 1
         assert_physical_unchanged(db, ids)
 

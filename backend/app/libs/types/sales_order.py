@@ -8,7 +8,7 @@ Key presence is the supplied/not-supplied signal. An absent key leaves the
 stored column untouched; a present key holding null clears it.
 """
 from datetime import datetime
-from typing import NotRequired, TypedDict
+from typing import TypedDict
 
 
 class StoredSalesAttachment(TypedDict):
@@ -18,8 +18,8 @@ class StoredSalesAttachment(TypedDict):
     the way out.
     """
     file_url: str
-    file_name: NotRequired[str]
-    content_type: NotRequired[str]
+    file_name: str | None
+    content_type: str | None
 
 
 class SalesOrderHeaderChanges(TypedDict, total=False):
