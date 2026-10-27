@@ -53,7 +53,7 @@ def bom_database():
         # Run actual revisions, not metadata.create_all, to exercise the real constraints.
         from app.core.config import settings
         with pytest.MonkeyPatch.context() as patch:
-            patch.setattr(settings, "DATABASE_URL", engine.url.render_as_string(hide_password=False))
+            patch.setattr(settings, "DATABASE_URL", engine.url.render_as_string(hide_password=False).replace("%", "%%"))
             patch.setattr(sa, "engine_from_config", lambda *args, **kwargs: engine)
             config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
             command.upgrade(config, "head")
