@@ -227,21 +227,41 @@ def test_repeated_rejection_refusals_leave_one_audit(reject_case):
     )
 
 
-def test_reject_route_keeps_real_permission_dependency(reject_case):
+def _reject_route_app(reject_case, actor):
     app = FastAPI()
     app.include_router(purchasing_router)
-    with reject_case["factory"]() as db:
-        actor = db.get(User, reject_case["actor_id"])
-        db.expunge(actor)
-
     def isolated_db():
         with reject_case["factory"]() as db:
             yield db
-
     app.dependency_overrides[get_db] = isolated_db
     app.dependency_overrides[get_current_user] = lambda: actor
+    return app
+
+
+def test_reject_route_keeps_real_permission_dependency(reject_case):
+    with reject_case["factory"]() as db:
+        actor = db.get(User, reject_case["actor_id"])
+        db.expunge(actor)
+    app = _reject_route_app(reject_case, actor)
     with TestClient(app) as client:
         response = client.post(f"/purchasing/requests/{reject_case['request_id']}/reject")
     assert response.status_code == 403
     assert state(reject_case)[0] == "pending_approval"
     assert state(reject_case)[1] == []
+
+
+def test_authorized_reject_route_returns_canonical_status_and_persists_audit(reject_case):
+    with reject_case["factory"]() as db:
+        actor = db.get(User, reject_case["actor_id"])
+        actor.extra_permissions = ["purchasing.approve"]
+        db.commit()
+        db.expunge(actor)
+    app = _reject_route_app(reject_case, actor)
+    with TestClient(app) as client:
+        response = client.post(f"/purchasing/requests/{reject_case['request_id']}/reject")
+    assert response.status_code == 200
+    assert response.json()["status"] == PurchaseRequestStatus.REJECTED.value
+    assert state(reject_case) == (
+        "rejected", [("reject", {"status": "pending_approval"},
+                      {"status": "rejected", "request_no": reject_case["request_no"]})]
+    )
