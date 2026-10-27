@@ -1,0 +1,29 @@
+const en = {
+  secondSaved: "Packages created. Receive their print run in the warehouse.", second: "2nd Grade", grade: "Grade", count: "Pieces to pack", createPacks: "Create packages and labels", secondHelp: "Enter pieces and total kg by size from accepted Sewing output. Receive the labelled packages in Warehouse Stock under 2nd Grade.",
+  sizeEntryHelp: "Enter the accepted quantities by size here in Packaging, including pieces already packed. The total must match the accepted Sewing output. Then select the remaining singles.",
+  saveSizes: "Save size quantities",
+  title: "1st Grade — singles", standard: "Normal packs", description: "Good products without a complete size assortment. Allocate complete packs first, then select remaining pieces by size. Each single receives its own QR label and requires warehouse receipt before sale.",
+  size: "Size", accepted: "Accepted from sewing", packed: "Already packed", remaining: "Remaining", quantity: "Singles to pack", create: "Create singles and labels", saved: "Singles created. Receive their print run in the warehouse.",
+  stock: "Warehouse stock", sale: "Sell singles", model: "Model / variant", customer: "Customer", price: "Price per piece", saveSale: "Create sale and reserve singles", available: "Available", reserved: "Reserved", packages: "Individual packages", production: "Production", contents: "Contents", location: "Location", status: "Status", received: "Received", weight: "Weight (kg)", previous: "Previous", next: "Next", empty: "No packages found", loading: "Loading…", select: "Select", print: "Print labels", total: "Total",
+  deleteShipment: "Delete mistaken shipment", deleteConfirm: "Delete this manual shipment? Its scanned packages will be released to inventory. The audit history will be kept.", deleteReason: "Manual shipment created by mistake", deleted: "Shipment deleted",
+};
+type Copy = Record<keyof typeof en, string>;
+const ru: Copy = {
+  secondSaved: "Упаковки созданы. Примите их группу печати на склад.", second: "2-й сорт", grade: "Сорт", count: "Изделий для упаковки", createPacks: "Создать упаковки и этикетки", secondHelp: "Введите количество и общий вес по размерам из принятого выхода пошива. Примите упаковки с этикетками в разделе склада «2-й сорт».",
+  sizeEntryHelp: "Укажите принятые количества по размерам здесь, в упаковке, включая уже упакованные изделия. Сумма должна совпадать с принятым выходом пошива. Затем выберите остатки для поштучной упаковки.",
+  saveSizes: "Сохранить количества по размерам",
+  title: "1-й сорт — поштучно", standard: "Обычные упаковки", description: "Качественные изделия без полного размерного ряда. Сначала соберите полные упаковки, затем выберите остатки по размерам. Каждое изделие получает QR-этикетку и перед продажей принимается на склад.",
+  size: "Размер", accepted: "Принято из пошива", packed: "Уже упаковано", remaining: "Остаток", quantity: "Упаковать поштучно", create: "Создать изделия и этикетки", saved: "Изделия созданы. Примите их группу печати на склад.",
+  stock: "Остатки склада", sale: "Продать поштучно", model: "Модель / вариант", customer: "Клиент", price: "Цена за изделие", saveSale: "Создать продажу и резерв", available: "Доступно", reserved: "В резерве", packages: "Отдельные упаковки", production: "Производство", contents: "Состав", location: "Место", status: "Статус", received: "Принято", weight: "Вес (кг)", previous: "Назад", next: "Далее", empty: "Упаковки не найдены", loading: "Загрузка…", select: "Выберите", print: "Печать этикеток", total: "Итого",
+  deleteShipment: "Удалить ошибочную отгрузку", deleteConfirm: "Удалить эту ручную отгрузку? Отсканированные упаковки вернутся в доступный остаток. История действий сохранится.", deleteReason: "Ручная отгрузка создана ошибочно", deleted: "Отгрузка удалена",
+};
+const uz: Copy = {
+  secondSaved: "Qadoqlar yaratildi. Chop etish guruhini omborga qabul qiling.", second: "2-nav", grade: "Nav", count: "Qadoqlanadigan donalar", createPacks: "Qadoqlar va yorliqlar yaratish", secondHelp: "Tikuvdan qabul qilingan donalar va jami kg ni o‘lcham bo‘yicha kiriting. Yorliqli qadoqlarni omborning 2-nav bo‘limida qabul qiling.",
+  sizeEntryHelp: "Qabul qilingan miqdorlarni o‘lcham bo‘yicha shu yerda, qadoqlashda kiriting, qadoqlangan donalarni ham qo‘shing. Jami tikuvdan qabul qilingan miqdorga teng bo‘lishi kerak. Keyin qolgan donalarni tanlang.",
+  saveSizes: "O‘lcham miqdorlarini saqlash",
+  title: "1-nav — donalab", standard: "Oddiy qadoqlar", description: "To‘liq o‘lchamlar qatoriga ega bo‘lmagan sifatli mahsulotlar. Avval to‘liq qadoqlarni yig‘ing, keyin o‘lcham bo‘yicha qolgan donalarni tanlang. Har bir dona QR yorlig‘ini oladi va sotishdan oldin omborga qabul qilinadi.",
+  size: "O‘lcham", accepted: "Tikuvdan qabul qilingan", packed: "Qadoqlangan", remaining: "Qoldiq", quantity: "Donalab qadoqlash", create: "Donalar va yorliqlar yaratish", saved: "Donalar yaratildi. Chop etish guruhini omborga qabul qiling.",
+  stock: "Ombor qoldig‘i", sale: "Donalab sotish", model: "Model / variant", customer: "Mijoz", price: "Bir dona narxi", saveSale: "Sotuv va band qilish", available: "Mavjud", reserved: "Band", packages: "Alohida qadoqlar", production: "Ishlab chiqarish", contents: "Tarkib", location: "Joylashuv", status: "Holat", received: "Qabul qilingan", weight: "Vazn (kg)", previous: "Oldingi", next: "Keyingi", empty: "Qadoqlar topilmadi", loading: "Yuklanmoqda…", select: "Tanlang", print: "Yorliqlarni chop etish", total: "Jami",
+  deleteShipment: "Xato jo‘natmani o‘chirish", deleteConfirm: "Ushbu qo‘lda yaratilgan jo‘natma o‘chirilsinmi? Skanerlangan qadoqlar mavjud qoldiqqa qaytariladi. Amallar tarixi saqlanadi.", deleteReason: "Qo‘lda yaratilgan jo‘natma xato ochilgan", deleted: "Jo‘natma o‘chirildi",
+};
+export const firstGradeText = { en, ru, uz };

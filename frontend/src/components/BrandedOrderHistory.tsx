@@ -1,11 +1,14 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ChevronDown, Plus, Search } from "lucide-react";
+import { ChevronDown, Download, Plus, Search } from "lucide-react";
+import { fetchResponse } from "@/lib/api";
 import ImageThumbnail from "@/components/ImageThumbnail";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
+import { modelSearchIncludes, normalizeModelSearch } from "@/lib/modelCode";
 
 export type BrandedPlanningOrder = {
   id: number;
@@ -17,13 +20,18 @@ export type BrandedPlanningOrder = {
   created_at: string;
   production_count: number;
   total_quantity: number;
+  cutting_status?: "not_started" | "partial" | "completed";
   productions: {
     id: number;
     order_no: string;
     production_no: string;
     model_id: number;
+    model?: ModelOption | null;
     planned_quantity: number;
     status: string;
+    cutting_status?: "not_started" | "partial" | "completed";
+    cutting_quantity?: number;
+    cutting_departments?: { code: string; name: string }[];
   }[];
 };
 
@@ -57,16 +65,32 @@ export default function BrandedOrderHistory({
   const { t } = useT();
   const [searchText, setSearchText] = useState("");
   const [query, setQuery] = useState("");
+  const [exporting, setExporting] = useState<number | null>(null);
+  const [exportError, setExportError] = useState("");
+  async function exportOrder(order: BrandedPlanningOrder) {
+    if (exporting !== null) return;
+    setExporting(order.id); setExportError("");
+    try {
+      const response = await fetchResponse(`/api/planning/branded-orders/${order.id}/export.xlsx`, { credentials: "same-origin" });
+      if (!response.ok) throw new Error(t("page.sewingReport.exportFailed"));
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url; link.download = `${order.order_no.replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`;
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (caught) { setExportError(caught instanceof Error ? caught.message : String(caught)); }
+    finally { setExporting(null); }
+  }
   const modelById = useMemo(() => new Map(models.map((model) => [Number(model.id), model])), [models]);
-  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const normalizedQuery = normalizeModelSearch(query);
   const filteredOrders = useMemo(() => {
     return orders.flatMap((order) => {
       if (!normalizedQuery) return [{ ...order, visibleProductions: order.productions }];
-      const orderMatches = order.order_no.toLocaleLowerCase().includes(normalizedQuery);
+      const orderMatches = [order.order_no, order.ordered_for_name].some(value => normalizeModelSearch(value).includes(normalizedQuery));
       const visibleProductions = orderMatches
         ? order.productions
-        : order.productions.filter((production) => {
-            const model = modelById.get(Number(production.model_id));
+          : order.productions.filter((production) => {
+            const model = production.model || modelById.get(Number(production.model_id));
             return [
               production.order_no,
               production.production_no,
@@ -74,7 +98,7 @@ export default function BrandedOrderHistory({
               model?.code,
               model?.name,
               model?.variant_fabric,
-            ].some((value) => String(value || "").toLocaleLowerCase().includes(normalizedQuery));
+            ].some((value) => modelSearchIncludes(value, normalizedQuery));
           });
       return orderMatches || visibleProductions.length ? [{ ...order, visibleProductions }] : [];
     });
@@ -104,6 +128,7 @@ export default function BrandedOrderHistory({
       </div>
 
       {error ? <div className="border-b border-[#ecebe3] px-5 py-3 text-sm text-red-700">{error}</div> : null}
+      {exportError && <p role="alert" className="px-5 py-3 text-red-700">{exportError}</p>}
 
       <form onSubmit={submitSearch} className="flex flex-col gap-2 border-b border-[#ecebe3] px-5 py-3 sm:flex-row">
         <label className="relative min-w-0 flex-1">
@@ -130,15 +155,17 @@ export default function BrandedOrderHistory({
           {filteredOrders.map((order) => (
             <details
               key={order.id}
-              className={`group ${order.id === activeOrderId ? "bg-[#faf9f5]" : ""}`}
+              className="group"
               open={normalizedQuery ? true : undefined}
             >
-              <summary className="flex cursor-pointer list-none items-center gap-3 px-5 py-4 hover:bg-[#faf9f5]">
+              <summary className={`flex cursor-pointer list-none flex-wrap items-center gap-3 px-5 py-4 ${order.cutting_status === "completed" ? "bg-green-100" : order.cutting_status === "partial" ? "bg-yellow-100" : "bg-white"} ${order.id === activeOrderId ? "ring-1 ring-inset ring-[#b7b09e]" : ""}`}>
                 <ChevronDown className="h-4 w-4 shrink-0 text-[#8a8472] transition-transform group-open:rotate-180" />
-                <span className="mono min-w-16 font-semibold text-[#14110b]">{order.order_no}</span>
+                <span className="mono min-w-16 font-semibold text-[#14110b]">{formatOrderReference(order.order_no)}</span>
+                <span className="text-sm">{order.ordered_for_name}</span>
                 <span className="text-sm text-[#56503f]">
                   {t("page.planning.productionCount", { count: order.production_count })}
                 </span>
+                <span className="text-sm text-[#56503f]">{t(`page.planning.cutting.${order.cutting_status || "not_started"}`)}</span>
                 <span className="hidden text-sm text-[#8a8472] sm:inline">
                   {new Date(order.created_at).toLocaleDateString()}
                 </span>
@@ -162,14 +189,14 @@ export default function BrandedOrderHistory({
                       </thead>
                       <tbody>
                         {order.visibleProductions.map((production) => {
-                          const model = modelById.get(Number(production.model_id));
-                          const modelLabel = model ? [model.code, model.name].filter(Boolean).join(" - ") : `#${production.model_id}`;
+                          const model = production.model || modelById.get(Number(production.model_id));
+                          const modelLabel = [model?.code, model?.name].filter(Boolean).join(" - ") || "-";
                           const fabricLabel = String(model?.variant_fabric || "").trim() || "-";
                           return (
-                            <tr key={production.id}>
+                            <tr key={production.id} className={production.cutting_status === "completed" ? "!bg-green-100" : production.cutting_status === "partial" ? "!bg-yellow-100" : "!bg-white"}>
                               <td>
                                 <Link className="mono font-semibold underline" href={`/production-orders/${production.id}`}>
-                                  {production.order_no || production.production_no}
+                                  {formatOrderReference(production.order_no || production.production_no)}
                                 </Link>
                               </td>
                               <td>
@@ -195,7 +222,18 @@ export default function BrandedOrderHistory({
                                 </div>
                               </td>
                               <td>{Number(production.planned_quantity || 0).toLocaleString()}</td>
-                              <td>{statusLabel(production.status, t)}</td>
+                              <td>
+                                <div>{t(`page.planning.cutting.${production.cutting_status || "not_started"}`)}</div>
+                                <div className="text-xs text-[#56503f]">
+                                  {t("cuttingInbox.cutProgress")}: {Number(production.cutting_quantity || 0).toLocaleString()} / {Number(production.planned_quantity || 0).toLocaleString()}
+                                </div>
+                                {production.cutting_departments?.map((department) => (
+                                  <div key={department.code} className="text-xs text-[#56503f]">
+                                    {department.code === "CUT" ? t("nav.cuttingFloor") : department.code === "ECT" ? t("nav.ecoCottonCutting") : department.name}
+                                  </div>
+                                ))}
+                                <div className="text-xs text-[#56503f]">{statusLabel(production.status, t)}</div>
+                              </td>
                             </tr>
                           );
                         })}
@@ -206,7 +244,10 @@ export default function BrandedOrderHistory({
                   <div className="text-sm text-[#8a8472]">{t("page.planning.noProductions")}</div>
                 )}
 
-                <div className="mt-4 flex justify-end">
+                <div className="mt-4 flex justify-end gap-2">
+                  <button type="button" className="btn" disabled={exporting !== null} onClick={() => void exportOrder(order)}>
+                    <Download />{exporting === order.id ? t("common.loading") : "Excel"}
+                  </button>
                   <button type="button" className="btn" onClick={() => onAddProduction(order.id)}>
                     <Plus />
                     {t("page.planning.addProductionToThisOrder")}

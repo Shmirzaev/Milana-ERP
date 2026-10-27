@@ -1,32 +1,58 @@
+from app.models.package_dispatch_service import remaining_quantity, remaining_item_quantity, selected_items, select_dispatch_quantity, dispatch_selected
 from datetime import datetime, timezone
+from dataclasses import dataclass
+from urllib.parse import quote
 from fastapi import APIRouter, HTTPException, Depends, Header
-from sqlalchemy import func
+from fastapi.responses import HTMLResponse, Response
+from app.models.print_response_service import warehouse_print_response
+from pydantic import ValidationError
+from sqlalchemy import and_, func, exists
+from sqlalchemy.orm import selectinload, aliased
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
-from app.models import (
+from app.schemas import (
     FinishedGoodsStock,
     Shipment,
     ShipmentPackage,
     ShipmentScanLog,
     Package,
-    PackageScanLog,
-    PackageBarcodeAlias,
+    PackageItem,
     SalesOrder,
+    SalesOrderItem,
     StockReservation,
+    WarehousePackReservation,
     User,
     Model,
+    ModelBOM,
     Customer,
+    Invoice,
 )
-from app.schemas.sales import ShipmentIn, ShipmentOut, ShipmentScanIn, ShipmentScanOut
-from app.services.audit import log_action
-from app.services.idempotency import replay_idempotent_response, store_idempotent_response
-from app.services.numbering import next_shipment_no
-from app.services.packages import ship_package, mark_delivered
-from app.services.legacy_stock import package_legacy_identity
-from app.services.workflow import ensure_invoice_for_delivered_shipment, notify_department
+from app.libs.dto.sales.sales import ShipmentIn, ShipmentOut, ShipmentScanIn, ShipmentScanOut, ShipmentPreviousScan
+from app.libs.dto.catalog.catalog import PartyIn
+from app.libs.dto.fulfillment.shipment_review import ShipmentAmountReview, ShipmentPackageRemoval, ShipmentQuantityReview, ShipmentTransportDetails, ShipmentReopen
+from app.models.shipment_reopen_service import reopen_shipment
+from app.models.shipment_review_service import (
+    correct_received_quantity, detach_shipment_package, freeze_dispatch_document, locked_shipment,
+    invoice_for_frozen_delivery, review_shipment_amount, shipment_document,
+)
+from app.models.shipment_invoice_service import render_shipment_invoice
+from app.models.package_identity_service import resolve_warehouse_package, scan_candidates
+from app.models.audit_service import log_action
+from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
+from app.models.numbering_service import next_shipment_no
+from app.models.model_images_service import model_preview_image_url, model_variant_picture_url
+from app.models.packages_service import (
+    format_storage_location,
+    mark_delivered,
+    ship_package,
+    sync_package_production_orders,
+    package_shipment_context,
+)
+from app.models.workflow_service import notify_department
 
 router = APIRouter(prefix="/shipments", tags=["shipments"])
 _READY_FOR_SHIPMENT_STATUSES = ("received_in_storage", "reserved")
+_OPEN_SHIPMENT_STATUSES = ("draft", "created")
 _SHIPMENT_ORDER_STATUSES = {
     "confirmed",
     "planning",
@@ -43,11 +69,92 @@ _SHIPMENT_ORDER_STATUSES = {
 }
 
 
-def _shipment_payload(db: DbSession, sh: Shipment) -> dict:
-    so = db.get(SalesOrder, sh.sales_order_id) if sh.sales_order_id else None
-    customer = db.get(Customer, sh.customer_id or (so.customer_id if so else None)) if (sh.customer_id or (so.customer_id if so else None)) else None
+@dataclass(frozen=True)
+class _ShipmentOrderRef:
+    """The only sales-order fields a shipment payload renders."""
+
+    order_no: str | None
+    customer_id: int | None
+
+
+def _shipment_order_ref_map(db: DbSession, shipments: list[Shipment]) -> dict[int, _ShipmentOrderRef]:
+    """Read only the sales-order fields a shipment payload renders."""
+    order_ids = {int(sh.sales_order_id) for sh in shipments if sh.sales_order_id}
+    if not order_ids:
+        return {}
+    rows = (
+        db.query(SalesOrder.id, SalesOrder.order_no, SalesOrder.customer_id)
+        .filter(SalesOrder.id.in_(sorted(order_ids)))
+        .all()
+    )
+    return {
+        int(order_id): _ShipmentOrderRef(order_no=order_no, customer_id=customer_id)
+        for order_id, order_no, customer_id in rows
+    }
+
+
+def _shipment_customer_name_map(
+    db: DbSession,
+    shipments: list[Shipment],
+    sales_orders: dict[int, _ShipmentOrderRef],
+) -> dict[int, str]:
+    """Read only the customer names these shipments render.
+
+    A shipment-level ``customer_id`` overrides its sales order's customer, so the
+    effective id is resolved through the same bounded order map the payload uses
+    instead of re-reading the order per row.
+    """
+    customer_ids: set[int] = set()
+    for sh in shipments:
+        customer_id = sh.customer_id
+        if not customer_id and sh.sales_order_id:
+            order_ref = sales_orders.get(int(sh.sales_order_id))
+            customer_id = order_ref.customer_id if order_ref else None
+        if customer_id:
+            customer_ids.add(int(customer_id))
+    if not customer_ids:
+        return {}
+    rows = (
+        db.query(Customer.id, Customer.name)
+        .filter(Customer.id.in_(sorted(customer_ids)))
+        .all()
+    )
+    return {int(customer_id): name for customer_id, name in rows}
+
+
+def _shipment_payload(
+    db: DbSession,
+    sh: Shipment,
+    *,
+    scanned_count: int | None = None,
+    sales_orders: dict[int, _ShipmentOrderRef] | None = None,
+    customer_names: dict[int, str] | None = None,
+) -> dict:
+    if sh.deleted_at:
+        raise HTTPException(404, "Shipment not found")
+    sales_order_id = int(sh.sales_order_id) if sh.sales_order_id else None
+    so = (
+        sales_orders.get(sales_order_id)
+        if sales_orders is not None
+        else db.get(SalesOrder, sales_order_id) if sales_order_id else None
+    )
+    customer_id = sh.customer_id or (so.customer_id if so else None)
+    if customer_names is not None:
+        customer_key = int(customer_id) if customer_id else None
+        customer_found = customer_key is not None and customer_key in customer_names
+        customer_name = customer_names.get(customer_key) if customer_found else None
+    else:
+        customer = db.get(Customer, customer_id) if customer_id else None
+        customer_found = customer is not None
+        customer_name = customer.name if customer is not None else None
     packages_count = len(sh.packages or [])
     total_qty = sum(int(sp.quantity or 0) for sp in (sh.packages or []))
+    if scanned_count is None:
+        scanned_count = len(
+            _matched_package_ids_for_shipment(db, int(sh.id))
+            & {int(sp.package_id) for sp in (sh.packages or []) if sp.package_id is not None}
+        )
+    remaining_count = max(0, packages_count - scanned_count)
     return {
         "id": sh.id,
         "sales_order_id": sh.sales_order_id,
@@ -57,12 +164,248 @@ def _shipment_payload(db: DbSession, sh: Shipment) -> dict:
         "shipped_at": sh.shipped_at,
         "delivered_at": sh.delivered_at,
         "notes": sh.notes,
+        "transport_details": sh.transport_details or {},
         "created_at": sh.created_at,
         "sales_order_no": so.order_no if so else None,
-        "customer_name": customer.name if customer else None,
+        "customer_name": customer_name if customer_found else None,
+        "shipment_type": "manual" if (sh.dispatch_snapshot or {}).get("manual") else "sales_order" if sh.sales_order_id else "warehouse_exit",
         "packages_count": packages_count,
         "total_qty": total_qty,
+        "required_count": packages_count,
+        "scanned_count": scanned_count,
+        "remaining_count": remaining_count,
+        "is_complete": packages_count > 0 and remaining_count == 0,
     }
+
+
+def _model_identity(model: Model | None) -> tuple[str | None, str | None]:
+    if not model:
+        return None, None
+    details = model.details_json if isinstance(model.details_json, dict) else {}
+    general = details.get("general") if isinstance(details.get("general"), dict) else {}
+    code = str(model.code or "").strip()
+    code_model_no, separator, code_variant_no = code.rpartition("-")
+    if not separator:
+        code_model_no, code_variant_no = code, ""
+    model_no = str(general.get("model_no") or general.get("modelNo") or code_model_no or "").strip()
+    variant_no = str(general.get("variant_no") or general.get("variantNo") or code_variant_no or "").strip()
+    return model_no or None, variant_no or None
+
+
+def _preparation_payload(
+    db: DbSession,
+    *,
+    shipment: Shipment | None = None,
+    sales_order: SalesOrder | None = None,
+) -> dict:
+    if shipment is None and sales_order is None:
+        raise ValueError("shipment or sales_order is required")
+
+    sales_order_id = int(shipment.sales_order_id) if shipment and shipment.sales_order_id else None
+    if sales_order is None and sales_order_id:
+        sales_order = db.get(SalesOrder, sales_order_id)
+    if sales_order is not None:
+        sales_order_id = int(sales_order.id)
+
+    if shipment is not None:
+        linked_rows = (
+            db.query(ShipmentPackage, Package)
+            .join(Package, Package.id == ShipmentPackage.package_id)
+            .filter(ShipmentPackage.shipment_id == shipment.id)
+            .order_by(Package.id.asc())
+            .all()
+        )
+        package_rows = [(int(link.quantity or 0), package) for link, package in linked_rows]
+        scanned_ids = _matched_package_ids_for_shipment(db, int(shipment.id))
+    elif sales_order_id:
+        package_rows = [
+            (remaining_quantity(package), package)
+            for package, _model in _ready_packages_for_sales_order(db, sales_order_id)
+        ]
+        scanned_ids = set()
+    else:
+        package_rows = []
+        scanned_ids = set()
+
+    package_ids = [int(package.id) for _, package in package_rows]
+    package_items = (
+        db.query(PackageItem)
+        .filter(PackageItem.package_id.in_(package_ids))
+        .order_by(PackageItem.package_id.asc(), PackageItem.id.asc())
+        .all()
+        if package_ids
+        else []
+    )
+    package_items_by_id: dict[int, list[PackageItem]] = {}
+    for item in package_items:
+        package_items_by_id.setdefault(int(item.package_id), []).append(item)
+
+    order_items = (
+        db.query(SalesOrderItem)
+        .filter(SalesOrderItem.sales_order_id == sales_order_id)
+        .order_by(SalesOrderItem.id.asc())
+        .all()
+        if sales_order_id
+        else []
+    )
+    model_ids = {
+        int(model_id)
+        for model_id in [
+            *(row.model_id for row in order_items),
+            *(package.model_id for _, package in package_rows),
+            *(row.model_id for row in package_items),
+        ]
+        if model_id
+    }
+    models = (
+        db.query(Model)
+        .options(
+            selectinload(Model.images),
+            selectinload(Model.bom).joinedload(ModelBOM.item),
+        )
+        .filter(Model.id.in_(model_ids))
+        .all()
+        if model_ids
+        else []
+    )
+    model_by_id = {int(model.id): model for model in models}
+    selected_by_package = {package.id: selected_items(shipment, package, package_items_by_id.get(package.id, []))
+                           if shipment else {str(item.id): remaining_item_quantity(package, item) for item in package_items_by_id.get(package.id, [])}
+                           for _, package in package_rows}
+    prepared_by_variant: dict[tuple[int, str, str], int] = {}
+    for package_quantity, package in package_rows:
+        items = package_items_by_id.get(int(package.id), [])
+        if items:
+            for item in items:
+                key = (int(item.model_id), str(item.color or "").strip(), str(item.size or "").strip())
+                prepared_by_variant[key] = prepared_by_variant.get(key, 0) + selected_by_package[package.id][str(item.id)]
+        else:
+            key = (int(package.model_id), str(package.color or "").strip(), "")
+            prepared_by_variant[key] = prepared_by_variant.get(key, 0) + package_quantity
+
+    required_by_variant: dict[tuple[int, str, str], int] = {}
+    if order_items:
+        for item in order_items:
+            key = (int(item.model_id), str(item.color or "").strip(), str(item.size or "").strip())
+            required_by_variant[key] = required_by_variant.get(key, 0) + int(item.quantity or 0)
+    else:
+        required_by_variant.update(prepared_by_variant)
+
+    variant_keys = list(required_by_variant)
+    for key in prepared_by_variant:
+        if key not in required_by_variant:
+            variant_keys.append(key)
+
+    grouped: dict[int, dict] = {}
+    for model_id, color, size in variant_keys:
+        model = model_by_id.get(model_id)
+        model_no, variant_no = _model_identity(model)
+        group = grouped.setdefault(
+            model_id,
+            {
+                "model_id": model_id,
+                "model_code": model.code if model else None,
+                "model_no": model_no,
+                "variant_no": variant_no,
+                "model_name": model.name if model else None,
+                "model_image_url": model_preview_image_url(model),
+                "variant_image_url": model_variant_picture_url(model),
+                "required_qty": 0,
+                "prepared_qty": 0,
+                "packages_count": 0,
+                "requested_pack_count": sum(int(getattr(line, "requested_pack_count", None) or 0)
+                                             for line in order_items if line.model_id == model_id) or None,
+                "scanned_packages_count": 0,
+                "lines": [],
+            },
+        )
+        required_qty = int(required_by_variant.get((model_id, color, size), 0))
+        prepared_qty = int(prepared_by_variant.get((model_id, color, size), 0))
+        group["required_qty"] += required_qty
+        group["prepared_qty"] += prepared_qty
+        group["lines"].append(
+            {
+                "color": color or None,
+                "size": size or None,
+                "required_qty": required_qty,
+                "prepared_qty": prepared_qty,
+            }
+        )
+
+    packages: list[dict] = []
+    for package_quantity, package in package_rows:
+        model = model_by_id.get(int(package.model_id))
+        model_no, variant_no = _model_identity(model)
+        item_lines = [
+            {
+                "color": str(item.color or "").strip() or None,
+                "size": str(item.size or "").strip() or None,
+                "quantity": selected_by_package[package.id][str(item.id)],
+            }
+            for item in package_items_by_id.get(int(package.id), [])
+        ]
+        packages.append(
+            {
+                "id": int(package.id),
+                "package_no": package.package_no,
+                "model_id": int(package.model_id),
+                "model_code": model.code if model else None,
+                "model_no": model_no,
+                "variant_no": variant_no,
+                "model_name": model.name if model else None,
+                "model_image_url": model_preview_image_url(model),
+                "variant_image_url": model_variant_picture_url(model),
+                "color": package.color,
+                "quantity": package_quantity,
+                "status": package.status,
+                "location": format_storage_location(package.storage_cell, package.storage_shelf),
+                "scanned": int(package.id) in scanned_ids,
+                "items": item_lines,
+                "quantity_items": [{"item_id": item.id, "color": item.color, "size": item.size,
+                                    "quantity": selected_by_package[package.id][str(item.id)],
+                                    "available_quantity": remaining_item_quantity(package, item)} for item in package_items_by_id.get(int(package.id), [])],
+            }
+        )
+        group = grouped.get(int(package.model_id))
+        if group:
+            group["packages_count"] += 1
+            if int(package.id) in scanned_ids:
+                group["scanned_packages_count"] += 1
+
+    if shipment is not None:
+        required_count, scanned_count, remaining_count, is_complete, _, _ = _scan_progress(db, shipment)
+        shipment_payload = _shipment_payload(db, shipment, scanned_count=scanned_count)
+    else:
+        required_count = len(package_rows)
+        scanned_count = 0
+        remaining_count = required_count
+        is_complete = False
+        customer = db.get(Customer, sales_order.customer_id) if sales_order and sales_order.customer_id else None
+        shipment_payload = {
+            "id": 0,
+            "sales_order_id": sales_order_id,
+            "sales_order_no": sales_order.order_no if sales_order else None,
+            "customer_name": customer.name if customer else None,
+            "shipment_no": None,
+            "status": "not_created",
+            "packages_count": required_count,
+            "total_qty": sum(quantity for quantity, _package in package_rows),
+        }
+    return {
+        "shipment": shipment_payload,
+        "items": list(grouped.values()),
+        "packages": packages,
+        "required_count": required_count,
+        "scanned_count": scanned_count,
+        "remaining_count": remaining_count,
+        "is_complete": is_complete,
+        "is_preview": shipment is None,
+        "review": shipment_document(db, shipment, scanned_ids=scanned_ids) if shipment else None,
+    }
+
+
+def _shipment_preparation_payload(db: DbSession, sh: Shipment) -> dict:
+    return _preparation_payload(db, shipment=sh)
 
 
 def _commit_scan_response(
@@ -108,6 +451,82 @@ def _shipment_exists_for_sales_order(db: DbSession, sales_order_id: int) -> bool
     )
 
 
+def _other_open_shipment_for_package(
+    db: DbSession,
+    package_id: int,
+    *,
+    shipment_id: int | None = None,
+) -> Shipment | None:
+    qry = (
+        db.query(Shipment)
+        .join(ShipmentPackage, ShipmentPackage.shipment_id == Shipment.id)
+        .filter(
+            ShipmentPackage.package_id == package_id,
+            Shipment.status.in_(_OPEN_SHIPMENT_STATUSES),
+        )
+    )
+    if shipment_id is not None:
+        qry = qry.filter(Shipment.id != shipment_id)
+    return qry.order_by(Shipment.id.asc()).first()
+
+
+def _lock_package(db: DbSession, package: Package) -> Package:
+    if db.bind and db.bind.dialect.name == "postgresql":
+        return (
+            db.query(Package)
+            .filter(Package.id == package.id)
+            .with_for_update(of=Package)
+            .one()
+        )
+    return package
+
+
+def _orderless_package_error(db: DbSession, package: Package) -> str | None:
+    if package.sales_order_id:
+        return f"Package {package.package_no} belongs to a sales order and must use its sales shipment."
+    if package.status != "received_in_storage":
+        return f"Package {package.package_no} is not unreserved warehouse stock."
+    reserved = (
+        db.query(StockReservation.id)
+        .filter(
+            StockReservation.package_id == package.id,
+            StockReservation.quantity > 0,
+        )
+        .first()
+    )
+    if reserved:
+        return f"Package {package.package_no} is reserved for a sales order."
+    stock_count, available_qty, reserved_qty = (
+        db.query(
+            func.count(FinishedGoodsStock.id),
+            func.coalesce(func.sum(FinishedGoodsStock.available_qty), 0),
+            func.coalesce(func.sum(FinishedGoodsStock.reserved_qty), 0),
+        )
+        .filter(FinishedGoodsStock.package_id == package.id)
+        .one()
+    )
+    if (
+        int(stock_count or 0) <= 0
+        or int(available_qty or 0) != remaining_quantity(package)
+        or int(reserved_qty or 0) != 0
+    ):
+        return f"Package {package.package_no} is not fully available in finished-goods stock."
+    return None
+
+
+def _package_attachment_error(db: DbSession, shipment: Shipment, package: Package) -> str | None:
+    if db.query(WarehousePackReservation.id).filter_by(package_id=package.id).first():
+        return f"Package {package.package_no} is reserved for a customer. Prepare it from Warehouse reservations."
+    other = _other_open_shipment_for_package(db, int(package.id), shipment_id=int(shipment.id))
+    if other:
+        return f"Package {package.package_no} is already attached to shipment {other.shipment_no}."
+    if not shipment.sales_order_id:
+        return _orderless_package_error(db, package)
+    if package.sales_order_id and package.sales_order_id != shipment.sales_order_id:
+        return f"Package {package.package_no} belongs to another sales order."
+    return None
+
+
 def _ready_packages_for_sales_order(db: DbSession, sales_order_id: int) -> list[tuple[Package, Model | None]]:
     statuses = _READY_FOR_SHIPMENT_STATUSES
     pkg_ids_from_reservations = [
@@ -128,7 +547,7 @@ def _ready_packages_for_sales_order(db: DbSession, sales_order_id: int) -> list[
     if pkg_ids_from_reservations:
         for pkg, model in (
             db.query(Package, Model)
-            .outerjoin(Model, Model.id == Package.model_id)
+            .join(Model, Model.id == Package.model_id)
             .filter(Package.id.in_(pkg_ids_from_reservations), Package.status.in_(statuses))
             .order_by(Package.id.asc())
             .all()
@@ -137,7 +556,7 @@ def _ready_packages_for_sales_order(db: DbSession, sales_order_id: int) -> list[
 
     for pkg, model in (
         db.query(Package, Model)
-        .outerjoin(Model, Model.id == Package.model_id)
+        .join(Model, Model.id == Package.model_id)
         .filter(Package.sales_order_id == sales_order_id, Package.status.in_(statuses))
         .order_by(Package.id.asc())
         .all()
@@ -147,203 +566,65 @@ def _ready_packages_for_sales_order(db: DbSession, sales_order_id: int) -> list[
     return [rows[k] for k in sorted(rows.keys())]
 
 
-def _reserved_quantities_by_package(
-    db: DbSession,
-    sales_order_id: int,
-) -> dict[int, int]:
-    rows = (
-        db.query(
-            StockReservation.package_id,
-            func.coalesce(func.sum(StockReservation.quantity), 0),
-        )
-        .filter(
-            StockReservation.sales_order_id == sales_order_id,
-            StockReservation.package_id.isnot(None),
-        )
-        .group_by(StockReservation.package_id)
-        .all()
-    )
-    return {
-        int(package_id): int(quantity or 0)
-        for package_id, quantity in rows
-        if package_id is not None and int(quantity or 0) > 0
-    }
-
-
-def _shipment_quantity_for_package(
-    db: DbSession,
-    *,
-    shipment: Shipment,
-    package: Package,
-) -> int:
-    if shipment.sales_order_id:
-        reserved = _reserved_quantities_by_package(
-            db,
-            int(shipment.sales_order_id),
-        ).get(int(package.id), 0)
-        if reserved > 0:
-            return reserved
-    return int(package.total_quantity or 0)
-
-
-def _ship_reserved_package_quantity(
-    db: DbSession,
-    *,
-    shipment: Shipment,
-    shipment_package: ShipmentPackage,
-    package: Package,
-    user_id: int | None,
-) -> None:
-    """Ship only this order's reserved quantity from an aggregate stock lot."""
-    if not shipment.sales_order_id:
-        ship_package(db, package, user_id)
-        return
-
-    requested = int(shipment_package.quantity or 0)
-    if requested <= 0:
-        raise HTTPException(409, f"Package {package.package_no} has no shipment quantity")
-
-    reservations = (
-        db.query(StockReservation)
-        .filter(
-            StockReservation.sales_order_id == shipment.sales_order_id,
-            StockReservation.package_id == package.id,
-        )
-        .order_by(StockReservation.id.asc())
-    )
-    if db.bind and db.bind.dialect.name == "postgresql":
-        reservations = reservations.with_for_update(of=StockReservation)
-    reservation_rows = reservations.all()
-
-    remaining = requested
-    for reservation in reservation_rows:
-        if remaining <= 0:
-            break
-        stock_qry = db.query(FinishedGoodsStock).filter(
-            FinishedGoodsStock.id == reservation.finished_goods_stock_id
-        )
-        if db.bind and db.bind.dialect.name == "postgresql":
-            stock_qry = stock_qry.with_for_update(of=FinishedGoodsStock)
-        stock = stock_qry.first()
-        if not stock:
-            raise HTTPException(409, "Reserved finished-goods stock is missing")
-
-        take = min(
-            remaining,
-            int(reservation.quantity or 0),
-            int(stock.reserved_qty or 0),
-        )
-        if take <= 0:
-            continue
-        stock.reserved_qty = int(stock.reserved_qty or 0) - take
-        stock.sold_qty = int(stock.sold_qty or 0) + take
-        if int(stock.available_qty or 0) > 0:
-            stock.status = "available"
-        elif int(stock.reserved_qty or 0) > 0:
-            stock.status = "reserved"
-        else:
-            stock.status = "sold"
-        remaining -= take
-
-    if remaining > 0:
-        raise HTTPException(
-            409,
-            f"Package {package.package_no} is short by {remaining} reserved piece(s)",
-        )
-
-    package_stock = (
-        db.query(FinishedGoodsStock)
-        .filter(FinishedGoodsStock.package_id == package.id)
-        .all()
-    )
-    available = sum(int(row.available_qty or 0) for row in package_stock)
-    reserved = sum(int(row.reserved_qty or 0) for row in package_stock)
-    if available <= 0 and reserved <= 0:
-        package.status = "shipped"
-        package.shipped_at = datetime.now(timezone.utc)
-        package.storage_cell = None
-        package.storage_shelf = None
-        package.storage_placed_at = None
-    elif available > 0:
-        package.status = "received_in_storage"
-    else:
-        package.status = "reserved"
-
-    db.add(
-        PackageScanLog(
-            package_id=package.id,
-            scanned_by=user_id,
-            scan_type="shipped",
-            location=f"shipment:{shipment.id};quantity:{requested}",
-        )
-    )
-
-
-def _scan_code_candidates(raw_code: str) -> list[str]:
-    code = (raw_code or "").strip()
-    if not code:
-        return []
-    candidates: list[str] = [code]
-    if "|" in code:
-        candidates.extend([p.strip() for p in code.split("|") if p.strip()])
-    upper = code.upper()
-    if upper.startswith("PACKAGE:"):
-        payload = code.split(":", 1)[1]
-        candidates.extend([p.strip() for p in payload.split("|") if p.strip()])
-
-    unique: list[str] = []
-    seen: set[str] = set()
-    for candidate in candidates:
-        token = candidate.strip()
-        if token and token not in seen:
-            seen.add(token)
-            unique.append(token)
-    return unique
-
-
 def _find_package_for_scan(
     db: DbSession,
     raw_code: str,
     *,
     shipment_id: int | None = None,
 ) -> tuple[Package | None, str]:
-    for candidate in _scan_code_candidates(raw_code):
-        pkg = db.query(Package).filter((Package.barcode == candidate) | (Package.package_no == candidate)).first()
-        if pkg:
-            return pkg, candidate
+    package_id, ambiguous = resolve_warehouse_package(db, raw_code)
+    if ambiguous:
+        raise HTTPException(409, "This code matches multiple packages. Scan the individual package QR label.")
+    package = db.get(Package, package_id) if package_id is not None else None
+    matched = next((code for code in scan_candidates(raw_code)
+                    if package and code in (package.barcode, package.package_no)), raw_code.strip())
+    return package, matched
 
-        alias_package_ids = [
-            int(package_id)
-            for (package_id,) in (
-                db.query(PackageBarcodeAlias.package_id)
-                .filter(PackageBarcodeAlias.code == candidate)
-                .order_by(PackageBarcodeAlias.package_id.asc())
-                .all()
-            )
-        ]
-        if not alias_package_ids:
-            continue
 
-        if shipment_id is not None:
-            attached_ids = {
-                int(package_id)
-                for (package_id,) in (
-                    db.query(ShipmentPackage.package_id)
-                    .filter(
-                        ShipmentPackage.shipment_id == shipment_id,
-                        ShipmentPackage.package_id.in_(alias_package_ids),
-                    )
-                    .all()
-                )
-            }
-            already_scanned = _matched_package_ids_for_shipment(db, shipment_id)
-            remaining_ids = sorted(attached_ids - already_scanned)
-            if remaining_ids:
-                return db.get(Package, remaining_ids[0]), candidate
+def _valid_matched_scan():
+    later = aliased(ShipmentScanLog)
+    return and_(ShipmentScanLog.scan_result == "matched", ~exists().where(
+        later.shipment_id == ShipmentScanLog.shipment_id,
+        later.package_id == ShipmentScanLog.package_id,
+        later.scan_result == "detached", later.id > ShipmentScanLog.id,
+    ))
 
-        if len(alias_package_ids) == 1:
-            return db.get(Package, alias_package_ids[0]), candidate
-    return None, (raw_code or "").strip()
+
+def _previous_package_scan(db: DbSession, package_id: int, shipment_id: int) -> ShipmentPreviousScan | None:
+    # Only report successful scans for retained links. Detached/cancelled history
+    # must never be presented as the package's current shipment assignment.
+    row = (
+        db.query(ShipmentScanLog, Shipment)
+        .join(Shipment, Shipment.id == ShipmentScanLog.shipment_id)
+        .join(ShipmentPackage, and_(
+            ShipmentPackage.shipment_id == Shipment.id,
+            ShipmentPackage.package_id == ShipmentScanLog.package_id,
+        ))
+        .filter(
+            ShipmentScanLog.package_id == package_id,
+            _valid_matched_scan(),
+            Shipment.status != "cancelled",
+            Shipment.deleted_at.is_(None),
+        )
+        .order_by((Shipment.id == shipment_id).desc(), Shipment.id.desc(), ShipmentScanLog.id.asc())
+        .first()
+    )
+    if not row:
+        return None
+    scan, shipment = row
+    order = db.get(SalesOrder, shipment.sales_order_id) if shipment.sales_order_id else None
+    customer_id = shipment.customer_id or (order.customer_id if order else None)
+    customer = db.get(Customer, customer_id) if customer_id else None
+    actor = db.get(User, scan.scanned_by) if scan.scanned_by else None
+    scanned_at = scan.scanned_at
+    if scanned_at.tzinfo is None:
+        scanned_at = scanned_at.replace(tzinfo=timezone.utc)
+    return ShipmentPreviousScan(
+        shipment_no=shipment.shipment_no,
+        customer_name=customer.name if customer else None,
+        scanned_by_name=actor.name if actor else None,
+        scanned_at=scanned_at,
+    )
 
 
 def _matched_package_ids_for_shipment(db: DbSession, shipment_id: int) -> set[int]:
@@ -351,7 +632,7 @@ def _matched_package_ids_for_shipment(db: DbSession, shipment_id: int) -> set[in
         db.query(ShipmentScanLog.package_id)
         .filter(
             ShipmentScanLog.shipment_id == shipment_id,
-            ShipmentScanLog.scan_result == "matched",
+            _valid_matched_scan(),
             ShipmentScanLog.package_id.isnot(None),
         )
         .group_by(ShipmentScanLog.package_id)
@@ -382,6 +663,19 @@ def _finished_goods_rows_for_package(db: DbSession, package_id: int, *, availabl
     return qry.order_by(FinishedGoodsStock.id.asc()).all()
 
 
+def _finished_goods_rows_for_packages(db: DbSession, package_ids: set[int]) -> dict[int, list[FinishedGoodsStock]]:
+    """Lock and load shipment stock rows in one round trip."""
+    if not package_ids:
+        return {}
+    qry = db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id.in_(sorted(package_ids)))
+    if db.bind and db.bind.dialect.name == "postgresql":
+        qry = qry.with_for_update(of=FinishedGoodsStock)
+    rows_by_package: dict[int, list[FinishedGoodsStock]] = {}
+    for row in qry.order_by(FinishedGoodsStock.package_id.asc(), FinishedGoodsStock.id.asc()).all():
+        rows_by_package.setdefault(int(row.package_id), []).append(row)
+    return rows_by_package
+
+
 def _move_package_reservations(
     db: DbSession,
     *,
@@ -402,12 +696,18 @@ def _move_package_reservations(
         .order_by(StockReservation.id.asc())
         .all()
     )
-    required_qty = sum(int(row.quantity or 0) for row in old_reservations)
+    pack_line = db.query(SalesOrderItem).filter_by(sales_order_id=sales_order_id, model_id=to_package.model_id).filter(
+        SalesOrderItem.requested_pack_count.isnot(None)).first()
+    required_qty = int(to_package.total_quantity) if pack_line else sum(int(row.quantity or 0) for row in old_reservations)
     if required_qty <= 0:
         return None
 
     new_stock_rows = _finished_goods_rows_for_package(db, int(to_package.id), available_only=True)
     available_qty = sum(int(row.available_qty or 0) for row in new_stock_rows)
+    if pack_line and (available_qty != to_package.total_quantity or
+                      any(row.reserved_qty or row.sold_qty or row.quantity != row.available_qty for row in new_stock_rows) or
+                      (pack_line.brand_id is not None and to_package.brand_id != pack_line.brand_id)):
+        return f"Package {to_package.package_no} is not an intact available package for this order."
     if available_qty < required_qty:
         return f"Package {to_package.package_no} matches the model but has only {available_qty} available pcs."
 
@@ -457,8 +757,6 @@ def _replace_unscanned_same_model_package(
     scanned_package: Package,
     current: User,
 ) -> tuple[ShipmentPackage | None, str | None]:
-    if scanned_package.model_id is None:
-        return None, None
     matched_ids = _matched_package_ids_for_shipment(db, int(shipment.id))
     qry = (
         db.query(ShipmentPackage)
@@ -488,7 +786,7 @@ def _replace_unscanned_same_model_package(
 
     old_package_id = int(slot.package_id)
     slot.package_id = int(scanned_package.id)
-    slot.quantity = int(scanned_package.total_quantity or 0)
+    slot.quantity = remaining_quantity(scanned_package)
     db.flush()
     log_action(
         db,
@@ -517,6 +815,7 @@ def _scan_response(
     scanned_count: int,
     remaining_count: int,
     is_complete: bool,
+    previous_scan: ShipmentPreviousScan | None = None,
 ) -> ShipmentScanOut:
     return ShipmentScanOut(
         ok=ok,
@@ -525,7 +824,9 @@ def _scan_response(
         message=message,
         package_id=int(package.id) if package else None,
         package_no=package.package_no if package else None,
+        package_quantity=remaining_quantity(package) if package else None,
         package_model_code=package_model_code,
+        previous_scan=previous_scan,
         required_count=required_count,
         scanned_count=scanned_count,
         remaining_count=remaining_count,
@@ -533,20 +834,186 @@ def _scan_response(
     )
 
 
+def _ship_verified_packages(db: DbSession, shipment: Shipment, current: User) -> tuple[int, int]:
+    if str(shipment.status or "") not in _OPEN_SHIPMENT_STATUSES:
+        raise HTTPException(409, f"Shipment {shipment.shipment_no} cannot ship from status '{shipment.status}'")
+
+    required_count, scanned_count, remaining_count, _, attached_ids, scanned_attached = _scan_progress(db, shipment)
+    if required_count <= 0:
+        raise HTTPException(400, "Shipment has no packages to ship")
+    if remaining_count > 0:
+        missing_ids = sorted(attached_ids - scanned_attached)
+        missing_rows = db.query(Package.package_no).filter(Package.id.in_(missing_ids)).all()
+        missing_nos = [str(no) for (no,) in missing_rows if no]
+        suffix = ", ".join(missing_nos[:10]) if missing_nos else f"{remaining_count} package(s)"
+        raise HTTPException(
+            409,
+            f"Scan all shipment packages before shipping. Missing scan for: {suffix}",
+        )
+
+    locked_packages = (
+        db.query(Package)
+        .filter(Package.id.in_(attached_ids))
+        .order_by(Package.id)
+        .with_for_update()
+        .populate_existing()
+        .all()
+    )
+    locked_packages_by_id = {int(package.id): package for package in locked_packages}
+    packages: list[Package] = []
+    package_ids = {int(row.package_id) for row in shipment.packages}
+    if db.query(WarehousePackReservation.id).filter(
+        WarehousePackReservation.package_id.in_(sorted(package_ids)),
+    ).first():
+        raise HTTPException(409, "Prepare customer reservations from Warehouse reservations before shipping")
+    stocks_by_package = _finished_goods_rows_for_packages(db, package_ids)
+    foreign_reservation_package_ids = {
+        int(package_id)
+        for package_id, in db.query(StockReservation.package_id).filter(
+            StockReservation.package_id.in_(sorted(package_ids)),
+            (StockReservation.sales_order_id != shipment.sales_order_id)
+            if shipment.sales_order_id
+            else (StockReservation.quantity > 0),
+        ).distinct().all()
+        if package_id is not None
+    }
+    for shipment_package in sorted(shipment.packages, key=lambda row: row.package_id):
+        package = locked_packages_by_id.get(int(shipment_package.package_id))
+        if not package:
+            raise HTTPException(409, f"Shipment package #{shipment_package.package_id} no longer exists")
+        if package.status not in _READY_FOR_SHIPMENT_STATUSES:
+            raise HTTPException(409, f"Package {package.package_no} is no longer ready to ship")
+        stocks = stocks_by_package.get(int(package.id), [])
+        if (not 0 < shipment_package.quantity <= remaining_quantity(package) or not stocks or
+                sum(row.sold_qty for row in stocks) != package.dispatched_quantity or
+                sum(row.available_qty + row.reserved_qty for row in stocks) != remaining_quantity(package) or
+                any(row.quantity != row.available_qty + row.reserved_qty + row.sold_qty for row in stocks)):
+            raise HTTPException(409, f"Package {package.package_no} quantities do not match warehouse stock")
+        if int(package.id) in foreign_reservation_package_ids:
+            raise HTTPException(409, f"Package {package.package_no} is reserved for another order")
+        packages.append(package)
+
+    if shipment.sales_order_id:
+        order = db.query(SalesOrder).filter_by(id=shipment.sales_order_id).with_for_update().one()
+        order_lines = db.query(SalesOrderItem).filter_by(sales_order_id=order.id).with_for_update().all()
+        if any(line.requested_pack_count is not None for line in order_lines) and any(
+            package.model_id not in {line.model_id for line in order_lines} for package in packages
+        ):
+            raise HTTPException(409, "Shipment contains a model not requested by this order")
+        changed = []
+        for line in order_lines:
+            requested = getattr(line, "requested_pack_count", None)
+            if requested is None:
+                continue
+            matching = [package for package in packages if package.model_id == line.model_id]
+            if len(matching) != requested:
+                raise HTTPException(409, f"Model requires exactly {requested} verified packages")
+            actual = sum(link.quantity for link in shipment.packages if link.package_id in {package.id for package in matching})
+            changed.append({"item_id": line.id, "previous_quantity": line.quantity, "quantity": actual})
+            line.quantity = actual
+        if changed:
+            from decimal import Decimal
+            previous_amount = str(order.total_amount)
+            reconciled_total = sum(
+                Decimal(str(line.unit_price)) * line.quantity for line in order_lines
+            )
+            if (
+                not reconciled_total.is_finite()
+                or reconciled_total > Decimal("999999999999.99")
+            ):
+                raise HTTPException(422, "Reconciled order total exceeds supported database precision")
+            order.total_amount = reconciled_total
+            log_action(db, current, "reconcile_scanned_sales_quantities", "SalesOrder", order.id,
+                       old_value={"total_amount": previous_amount},
+                       new_value={"items": changed, "total_amount": str(order.total_amount), "shipment_id": shipment.id})
+            db.flush()
+    shipment.status = "shipped"
+    shipment.shipped_at = datetime.now(timezone.utc)
+    freeze_dispatch_document(db, shipment)
+    shipment.dispatch_snapshot = {**shipment.dispatch_snapshot, "document": {**shipment.dispatch_snapshot["document"], "warehouse_person": current.name}}
+    shipment_context = package_shipment_context(db, packages, stocks_by_package)
+    for package in packages:
+        if package.dispatched_quantities or str(package.id) in (shipment.dispatch_snapshot or {}).get("package_quantities", {}):
+            dispatch_selected(db, shipment, package, stocks_by_package[package.id], current)
+        else:
+            ship_package(db, package, current.id, sync_production=False, shipment_context=shipment_context)
+    sync_package_production_orders(db, (package.production_order_id for package in packages))
+    if (shipment.dispatch_snapshot or {}).get("manual"):
+        from app.models.shipment_review_service import post_manual_shipment_invoice
+        post_manual_shipment_invoice(db, shipment, current)
+    return required_count, scanned_count
+
+
 @router.get("", response_model=list[ShipmentOut])
 def list_shipments(db: DbSession, _: CurrentUser, sales_order_id: int | None = None):
-    qry = db.query(Shipment)
+    qry = db.query(Shipment).options(selectinload(Shipment.packages)).filter(Shipment.deleted_at.is_(None))
     if sales_order_id:
         qry = qry.filter(Shipment.sales_order_id == sales_order_id)
     rows = qry.order_by(Shipment.id.desc()).all()
-    return [_shipment_payload(db, sh) for sh in rows]
+    sales_orders = _shipment_order_ref_map(db, rows)
+    customer_names = _shipment_customer_name_map(db, rows, sales_orders)
+    shipment_ids = [int(sh.id) for sh in rows]
+    scanned_by_shipment = (
+        {
+            int(shipment_id): int(count or 0)
+            for shipment_id, count in (
+                db.query(
+                    ShipmentScanLog.shipment_id,
+                    func.count(func.distinct(ShipmentScanLog.package_id)),
+                )
+                .join(
+                    ShipmentPackage,
+                    and_(
+                        ShipmentPackage.shipment_id == ShipmentScanLog.shipment_id,
+                        ShipmentPackage.package_id == ShipmentScanLog.package_id,
+                    ),
+                )
+                .filter(
+                    ShipmentScanLog.shipment_id.in_(shipment_ids),
+                    _valid_matched_scan(),
+                )
+                .group_by(ShipmentScanLog.shipment_id)
+                .all()
+            )
+        }
+        if shipment_ids
+        else {}
+    )
+    return [
+        _shipment_payload(
+            db, sh,
+            scanned_count=scanned_by_shipment.get(int(sh.id), 0),
+            sales_orders=sales_orders,
+            customer_names=customer_names,
+        )
+        for sh in rows
+    ]
+
+
+@router.get("/customers")
+def manual_shipment_customers(db: DbSession, _: User = Depends(require_permissions("storage.shipment", "*"))):
+    return [{"id": cid, "name": name} for cid, name in db.query(Customer.id, Customer.name).order_by(Customer.name).all()]
+
+
+@router.post("/customers", status_code=201)
+def create_manual_shipment_customer(payload: PartyIn, db: DbSession,
+                                    current: User = Depends(require_permissions("storage.shipment", "*"))):
+    name = payload.name.strip()
+    if not name or len(name) > 255:
+        raise HTTPException(422, "Client name is required and must be at most 255 characters")
+    customer = Customer(**{**payload.model_dump(), "name": name})
+    db.add(customer)
+    db.flush()
+    log_action(db, current, "create", "Customer", customer.id)
+    db.commit()
+    return {"id": customer.id, "name": customer.name}
 
 
 @router.get("/eligible-orders")
 def eligible_orders(db: DbSession, _: CurrentUser):
     shipment_so_ids = _sales_order_ids_with_shipments(db)
     package_rows = (
-        db.query(Package.sales_order_id, func.coalesce(func.sum(Package.total_quantity), 0))
+        db.query(Package.sales_order_id, func.coalesce(func.sum(Package.total_quantity - Package.dispatched_quantity), 0))
         .filter(Package.sales_order_id.isnot(None), Package.status.in_(_READY_FOR_SHIPMENT_STATUSES))
         .group_by(Package.sales_order_id)
         .all()
@@ -584,29 +1051,42 @@ def ready_packages(db: DbSession, _: CurrentUser, sales_order_id: int | None = N
     if sales_order_id:
         rows = _ready_packages_for_sales_order(db, int(sales_order_id))
     else:
+        reserved_package_ids = db.query(StockReservation.package_id).filter(
+            StockReservation.package_id.isnot(None),
+            StockReservation.quantity > 0,
+        )
+        attached_package_ids = (
+            db.query(ShipmentPackage.package_id)
+            .join(Shipment, Shipment.id == ShipmentPackage.shipment_id)
+            .filter(Shipment.status.in_(_OPEN_SHIPMENT_STATUSES))
+        )
         rows = (
             db.query(Package, Model)
-            .outerjoin(Model, Model.id == Package.model_id)
-            .filter(Package.status.in_(_READY_FOR_SHIPMENT_STATUSES))
+            .join(Model, Model.id == Package.model_id)
+            .filter(
+                Package.status == "received_in_storage",
+                Package.sales_order_id.is_(None),
+                Package.id.notin_(reserved_package_ids),
+                Package.id.notin_(attached_package_ids),
+            )
             .order_by(Package.id.asc())
             .all()
         )
-    result = []
-    for p, model in rows:
-        identity = package_legacy_identity(db, p) if not model else {}
-        result.append({
+    return [
+        {
             "id": p.id,
             "package_no": p.package_no,
             "sales_order_id": p.sales_order_id,
             "model_id": p.model_id,
-            "model_code": model.code if model else identity.get("model_code"),
+            "model_code": model.code if model else None,
             "color": p.color,
-            "total_quantity": p.total_quantity,
+            "total_quantity": remaining_quantity(p),
             "status": p.status,
             "storage_cell": p.storage_cell,
             "storage_shelf": p.storage_shelf,
-        })
-    return result
+        }
+        for p, model in rows
+    ]
 
 
 @router.post("", response_model=ShipmentOut, status_code=201)
@@ -617,12 +1097,41 @@ def create_shipment(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     fingerprint_payload = payload.model_dump(mode="json")
-    replay = replay_idempotent_response(db, scope="shipments.create", key=idempotency_key, payload=fingerprint_payload)
-    if replay:
-        return replay
-    so = db.get(SalesOrder, payload.sales_order_id) if payload.sales_order_id else None
+    if not payload.manual:
+        fingerprint_payload.pop("manual", None)
+    if payload.request_key is None:
+        fingerprint_payload.pop("request_key", None)
+    if payload.manual and payload.request_key:
+        from app.models.package_workflows_service import lock_request
+        idempotency_key = str(payload.request_key)
+        lock_request(db, current.id, "manual-shipment", idempotency_key)
+
+    # Serialize every create for this order before replay/existence checks. A
+    # waiter must refresh its cached order and see the first transaction's
+    # idempotency record or shipment after that transaction commits.
+    so = (
+        db.query(SalesOrder)
+        .filter(SalesOrder.id == payload.sales_order_id)
+        .with_for_update(of=SalesOrder)
+        .populate_existing()
+        .first()
+        if payload.sales_order_id else None
+    )
     if payload.sales_order_id and not so:
         raise HTTPException(404, "Sales order not found")
+    replay = replay_idempotent_response(db, scope="shipments.create", key=idempotency_key, payload=fingerprint_payload)
+    if replay:
+        previous = db.get(Shipment, replay.get("id"))
+        if previous and previous.deleted_at:
+            raise HTTPException(410, "SHIPMENT_ALREADY_DELETED")
+        return replay
+    if payload.manual:
+        if payload.sales_order_id or not payload.customer_id:
+            raise HTTPException(422, "Select a customer for a manual shipment without a sales order")
+        if not db.get(Customer, payload.customer_id):
+            raise HTTPException(404, "Customer not found")
+    if not payload.manual and not payload.sales_order_id and not str(payload.notes or "").strip():
+        raise HTTPException(400, "Recipient or warehouse exit reference is required")
     if so:
         if _shipment_exists_for_sales_order(db, int(so.id)):
             raise HTTPException(409, f"Shipment already exists for {so.order_no}")
@@ -635,11 +1144,12 @@ def create_shipment(
         shipment_no=next_shipment_no(db),
         status="created",
         notes=payload.notes,
+        dispatch_snapshot={"manual": True} if payload.manual else None,
+        transport_details=payload.transport_details.model_dump() if payload.transport_details else None,
     )
     db.add(sh); db.flush()
     added = 0
     if so:
-        reserved_by_package = _reserved_quantities_by_package(db, int(so.id))
         for pkg, _ in _ready_packages_for_sales_order(db, int(so.id)):
             exists = db.query(ShipmentPackage.id).filter(
                 ShipmentPackage.shipment_id == sh.id,
@@ -647,12 +1157,22 @@ def create_shipment(
             ).first()
             if exists:
                 continue
-            quantity = reserved_by_package.get(int(pkg.id), int(pkg.total_quantity or 0))
-            if quantity <= 0:
-                continue
-            db.add(ShipmentPackage(shipment_id=sh.id, package_id=pkg.id, quantity=quantity))
+            db.add(ShipmentPackage(shipment_id=sh.id, package_id=pkg.id, quantity=remaining_quantity(pkg)))
             added += 1
-    log_action(db, current, "create", "Shipment", sh.id, new_value={"shipment_no": sh.shipment_no, "packages": added})
+    log_action(
+        db,
+        current,
+        "create",
+        "Shipment",
+        sh.id,
+        new_value={
+            "shipment_no": sh.shipment_no,
+            "shipment_type": "manual" if (sh.dispatch_snapshot or {}).get("manual") else "sales_order" if sh.sales_order_id else "warehouse_exit",
+            "packages": added,
+            "notes": sh.notes,
+            "transport_details": sh.transport_details,
+        },
+    )
     db.flush()
     db.refresh(sh)
     response = _shipment_payload(db, sh)
@@ -681,11 +1201,28 @@ def update_shipment(
     replay = replay_idempotent_response(db, scope="shipments.update", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
-    sh = db.get(Shipment, sid)
-    if not sh: raise HTTPException(404, "Shipment not found")
-    for k, v in payload.items():
-        if hasattr(sh, k): setattr(sh, k, v)
-    log_action(db, current, "update", "Shipment", sh.id)
+    sh = locked_shipment(db, sid)
+    if sh.status not in _OPEN_SHIPMENT_STATUSES:
+        raise HTTPException(409, "Dispatched shipment metadata is frozen")
+    if set(payload) - {"notes", "transport_details"}:
+        raise HTTPException(422, "Only shipment notes and transport details may be edited; use validated workflow actions")
+    notes = payload.get("notes", sh.notes)
+    if notes is not None and (not isinstance(notes, str) or len(notes) > 4000):
+        raise HTTPException(422, "Notes must be text up to 4000 characters")
+    if not sh.sales_order_id and not (sh.dispatch_snapshot or {}).get("manual") and not str(notes or "").strip():
+        raise HTTPException(422, "Warehouse exit reference is required")
+    previous_notes = sh.notes
+    previous_transport = sh.transport_details
+    if "transport_details" in payload:
+        try:
+            transport = ShipmentTransportDetails.model_validate(payload["transport_details"]).model_dump() if payload["transport_details"] is not None else None
+        except ValidationError:
+            raise HTTPException(422, "Transport details allow driver_name, vehicle_info, cargo_name (up to 200 characters), driver_phone (up to 50), or null")
+        sh.transport_details = transport if transport and any(transport.values()) else None
+    sh.notes = notes
+    log_action(db, current, "update", "Shipment", sh.id,
+               old_value={"notes": previous_notes, "transport_details": previous_transport},
+               new_value={"notes": notes, "transport_details": sh.transport_details})
     db.flush()
     response = _shipment_payload(db, sh)
     store_idempotent_response(
@@ -712,21 +1249,22 @@ def add_package(
     replay = replay_idempotent_response(db, scope="shipments.add-package", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
-    sh = db.get(Shipment, sid)
+    sh = locked_shipment(db, sid)
     if not sh: raise HTTPException(404, "Shipment not found")
     pkg = db.get(Package, package_id)
     if not pkg: raise HTTPException(404, "Package not found")
+    pkg = _lock_package(db, pkg)
     if pkg.status not in _READY_FOR_SHIPMENT_STATUSES:
         raise HTTPException(409, f"Package {pkg.package_no} is not ready to ship")
+    attachment_error = _package_attachment_error(db, sh, pkg)
+    if attachment_error:
+        raise HTTPException(409, attachment_error)
     exists = db.query(ShipmentPackage).filter(
         ShipmentPackage.shipment_id == sh.id, ShipmentPackage.package_id == pkg.id,
     ).first()
     if exists:
         raise HTTPException(409, "Package already attached to this shipment")
-    quantity = _shipment_quantity_for_package(db, shipment=sh, package=pkg)
-    if quantity <= 0:
-        raise HTTPException(409, "Package has no quantity reserved for this shipment")
-    db.add(ShipmentPackage(shipment_id=sh.id, package_id=pkg.id, quantity=quantity))
+    db.add(ShipmentPackage(shipment_id=sh.id, package_id=pkg.id, quantity=remaining_quantity(pkg)))
     log_action(db, current, "add_package", "Shipment", sh.id, new_value={"package_id": pkg.id})
     response = {"message": "added"}
     store_idempotent_response(
@@ -752,22 +1290,20 @@ def add_ready_packages(
     replay = replay_idempotent_response(db, scope="shipments.add-ready-packages", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
-    sh = db.get(Shipment, sid)
+    sh = locked_shipment(db, sid)
     if not sh: raise HTTPException(404, "Shipment not found")
+    if sh.status not in _OPEN_SHIPMENT_STATUSES:
+        raise HTTPException(409, "Packages can only be added before shipment")
     if not sh.sales_order_id:
         raise HTTPException(400, "Shipment has no sales_order_id")
     attached = {sp.package_id for sp in sh.packages}
     ready = [pkg for pkg, _ in _ready_packages_for_sales_order(db, int(sh.sales_order_id))]
     ready_ids = {pkg.id for pkg in ready}
-    reserved_by_package = _reserved_quantities_by_package(db, int(sh.sales_order_id))
     added = 0
     for p in ready:
         if p.id in attached:
             continue
-        quantity = reserved_by_package.get(int(p.id), int(p.total_quantity or 0))
-        if quantity <= 0:
-            continue
-        db.add(ShipmentPackage(shipment_id=sh.id, package_id=p.id, quantity=quantity))
+        db.add(ShipmentPackage(shipment_id=sh.id, package_id=p.id, quantity=remaining_quantity(p)))
         added += 1
     reported = added if added > 0 else len(attached & ready_ids)
     log_action(db, current, "add_ready_packages", "Shipment", sh.id, new_value={"added": added, "ready_attached": reported})
@@ -782,6 +1318,167 @@ def add_ready_packages(
     )
     db.commit()
     return response
+
+
+@router.get("/sales-order/{sales_order_id}/preparation")
+def sales_order_preparation(sales_order_id: int, db: DbSession, _: CurrentUser):
+    sales_order = db.get(SalesOrder, sales_order_id)
+    if not sales_order:
+        raise HTTPException(404, "Sales order not found")
+    return _preparation_payload(db, sales_order=sales_order)
+
+
+@router.get("/{sid}/preparation")
+def shipment_preparation(sid: int, db: DbSession, _: CurrentUser):
+    sh = db.get(Shipment, sid)
+    if not sh:
+        raise HTTPException(404, "Shipment not found")
+    return _shipment_preparation_payload(db, sh)
+
+
+@router.post("/{sid}/packages/{pid}/quantity")
+def review_package_quantity(sid: int, pid: int, payload: ShipmentQuantityReview, db: DbSession,
+                            current: User = Depends(require_permissions("storage.shipment", "*"))):
+    shipment = locked_shipment(db, sid)
+    if pid not in _matched_package_ids_for_shipment(db, sid):
+        raise HTTPException(409, "Scan the package before reviewing its quantity")
+    if payload.keep_remainder:
+        select_dispatch_quantity(db, shipment, pid, payload, current)
+    else:
+        correct_received_quantity(db, shipment, pid, payload, current)
+    db.commit()
+    return _shipment_preparation_payload(db, shipment)
+
+
+@router.post("/{sid}/review-amount")
+def review_amount(sid: int, payload: ShipmentAmountReview, db: DbSession,
+                  current: User = Depends(require_permissions("storage.shipment", "*"))):
+    shipment = locked_shipment(db, sid)
+    document = shipment_document(db, shipment, scanned_ids=_matched_package_ids_for_shipment(db, sid))
+    review_shipment_amount(db, shipment, document, payload, current)
+    db.commit()
+    return _shipment_preparation_payload(db, shipment)
+
+
+@router.post("/{sid}/packages/{pid}/remove")
+def remove_reviewed_package(sid: int, pid: int, payload: ShipmentPackageRemoval, db: DbSession,
+                            current: User = Depends(require_permissions("storage.shipment", "*"))):
+    shipment = locked_shipment(db, sid)
+    detach_shipment_package(db, shipment, pid, payload.reason, current)
+    db.commit()
+    return _shipment_preparation_payload(db, shipment)
+
+
+@router.post("/{sid}/delete")
+def delete_mistaken_manual_shipment(sid: int, payload: ShipmentPackageRemoval, db: DbSession,
+                                    current: User = Depends(require_permissions("storage.shipment", "*"))):
+    from app.models.shipment_review_service import delete_manual_shipment
+    shipment = locked_shipment(db, sid)
+    delete_manual_shipment(db, shipment, payload.reason, current)
+    db.commit()
+    return {"deleted": True, "shipment_id": sid}
+
+
+def _invoice_print_details(db, shipment, document):
+    from app.schemas import AuditLog
+    from app.models.shipment_review_service import manual_invoice_sizes
+    from app.models.shipment_invoice_service import build_invoice_rows
+    lines = [dict(line) for line in document.get("lines", [])]
+    # Older dispatch snapshots lack completeness metadata. Enrich a copy for
+    # presentation, retaining all frozen quantities, prices and recorded weights.
+    details = document.get("package_details")
+    if details is not None and any("is_partial" not in row for row in details):
+        pack_sizes = {p.package_no: max(p.total_quantity, p.capacity) for p in db.query(Package).join(
+            ShipmentPackage, ShipmentPackage.package_id == Package.id
+        ).filter(ShipmentPackage.shipment_id == shipment.id)}
+        document["package_details"] = [
+            {**row, "is_partial": row.get("is_partial", (row.get("quantity") or 0) < pack_sizes.get(row["package_no"], float("inf")))}
+            for row in details
+        ]
+    if any(str(line.get("size")).lower() == "mixed" and not line.get("size_display") for line in lines):
+        packages = {p.package_no: p for p in db.query(Package).join(ShipmentPackage, ShipmentPackage.package_id == Package.id).filter(ShipmentPackage.shipment_id == shipment.id)}
+        for line in lines:
+            package = packages.get(line.get("package_no"))
+            if package and not line.get("size_display"):
+                line["size_display"] = manual_invoice_sizes(db, package, line.get("size"))
+        document["lines"] = lines
+        document["invoice_rows"] = build_invoice_rows(lines, document.get("package_details") or [])
+    # Presentation order uses successful scans, never package IDs. Ignore scans
+    # invalidated by detachment; duplicate scans retain their first position.
+    scanned = db.query(Package.package_no).join(ShipmentScanLog, ShipmentScanLog.package_id == Package.id).filter(
+        ShipmentScanLog.shipment_id == shipment.id, _valid_matched_scan()
+    ).order_by(ShipmentScanLog.scanned_at, ShipmentScanLog.id).all()
+    positions = {}
+    for (package_no,) in scanned:
+        positions.setdefault(package_no, len(positions))
+    def rank(row):
+        return positions.get(row.get("package_no"), len(positions))
+    # Copy before sorting: printing and export must not mutate the frozen snapshot.
+    document["lines"] = sorted(lines, key=rank)
+    if document.get("package_details") is not None:
+        document["package_details"] = sorted(document["package_details"], key=rank)
+        document["invoice_rows"] = build_invoice_rows(document["lines"], document["package_details"])
+    elif document.get("invoice_rows"):
+        document["invoice_rows"] = sorted(document["invoice_rows"], key=rank)
+    if not document.get("warehouse_person"):
+        actor = db.query(User).join(AuditLog, AuditLog.user_id == User.id).filter(
+            AuditLog.entity_type == "Shipment", AuditLog.entity_id == shipment.id, AuditLog.action == "ship"
+        ).order_by(AuditLog.id).first()
+        document["warehouse_person"] = actor.name if actor else None
+    return document
+
+
+def _printed_document(db: DbSession, shipment: Shipment) -> dict:
+    if shipment.deleted_at:
+        raise HTTPException(404, "Shipment not found")
+    if shipment.status not in {"shipped", "delivered"}:
+        if (shipment.dispatch_snapshot or {}).get("manual") and shipment.status in {"draft", "created"}:
+            document = shipment_document(db, shipment, scanned_ids=_matched_package_ids_for_shipment(db, shipment.id))
+            if document["packages_count"]:
+                return _invoice_print_details(db, shipment, {**document, "finance_posting_status": "draft"})
+        raise HTTPException(409, "Invoice printing is available after shipment")
+    frozen = (shipment.dispatch_snapshot or {}).get("document")
+    if frozen:
+        document = dict(frozen)
+        if shipment.status == "delivered":
+            invoice = db.query(Invoice).filter_by(sales_order_id=shipment.sales_order_id).first() if shipment.sales_order_id else None
+            if invoice:
+                document["finance_posting_status"] = "posted"
+                document["ledger_invoice_no"] = invoice.invoice_no
+        return _invoice_print_details(db, shipment, document)
+    document = shipment_document(db, shipment)
+    document["historical_reconstruction"] = True
+    return _invoice_print_details(db, shipment, document)
+
+
+@router.get("/{sid}/invoice")
+def shipment_invoice(sid: int, db: DbSession,
+                      _: User = Depends(require_permissions("storage.shipment", "sales.orders", "finance.view", "*"))):
+    shipment = db.get(Shipment, sid)
+    if not shipment:
+        raise HTTPException(404, "Shipment not found")
+    return _printed_document(db, shipment)
+
+
+@router.get("/{sid}/invoice/print", response_class=HTMLResponse)
+def print_shipment_invoice(sid: int, db: DbSession, lang: str = "en", show_prices: bool = True,
+                            _: User = Depends(require_permissions("storage.shipment", "sales.orders", "finance.view", "*"))):
+    shipment = db.get(Shipment, sid)
+    if not shipment:
+        raise HTTPException(404, "Shipment not found")
+    return warehouse_print_response(render_shipment_invoice(_printed_document(db, shipment), lang, show_prices=show_prices))
+
+
+@router.get("/{sid}/invoice.xlsx")
+def export_shipment_invoice(sid: int, db: DbSession, lang: str = "en", show_prices: bool = True,
+                            _: User = Depends(require_permissions("storage.shipment", "sales.orders", "finance.view", "*"))):
+    from app.models.shipment_invoice_excel_service import shipment_invoice_workbook
+    shipment = db.get(Shipment, sid)
+    if not shipment:
+        raise HTTPException(404, "Shipment not found")
+    return Response(shipment_invoice_workbook(_printed_document(db, shipment), lang, show_prices=show_prices),
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": 'attachment; filename="shipment-invoice.xlsx"; filename*=UTF-8\'\'' + quote(shipment.shipment_no + "-invoice.xlsx", safe=""), "Cache-Control": "no-store"})
 
 
 @router.get("/{sid}/scan-status", response_model=ShipmentScanOut)
@@ -839,11 +1536,11 @@ def scan_package(
     if replay:
         return replay
 
-    sh = db.get(Shipment, sid)
+    sh = locked_shipment(db, sid)
     if not sh:
         raise HTTPException(404, "Shipment not found")
-    if str(sh.status or "") in ("shipped", "delivered"):
-        raise HTTPException(409, f"Shipment {sh.shipment_no} is already {sh.status}")
+    if sh.status not in _OPEN_SHIPMENT_STATUSES:
+        raise HTTPException(409, f"Shipment {sh.shipment_no} cannot be scanned from {sh.status}")
 
     raw_code = (payload.code or "").strip()
     if not raw_code:
@@ -882,9 +1579,11 @@ def scan_package(
             response=response,
         )
 
+    lock_ids = {pkg.id, *(row.package_id for row in sh.packages)}
+    locked_packages = db.query(Package).filter(Package.id.in_(lock_ids)).order_by(Package.id).with_for_update().populate_existing().all()
+    pkg = next(row for row in locked_packages if row.id == pkg.id)
+
     model = db.get(Model, pkg.model_id) if pkg.model_id else None
-    legacy_identity = package_legacy_identity(db, pkg) if not model else {}
-    package_model_code = model.code if model else legacy_identity.get("model_code")
     if pkg.status not in _READY_FOR_SHIPMENT_STATUSES:
         msg = f"Package {pkg.package_no} is in status '{pkg.status}' and is not ready for shipment."
         db.add(
@@ -904,11 +1603,46 @@ def scan_package(
             code=matched_code,
             message=msg,
             package=pkg,
-            package_model_code=package_model_code,
+            package_model_code=model.code if model else None,
             required_count=required_count,
             scanned_count=scanned_count,
             remaining_count=remaining_count,
             is_complete=is_complete,
+            previous_scan=_previous_package_scan(db, pkg.id, sh.id),
+        )
+        return _commit_scan_response(
+            db,
+            current=current,
+            idempotency_key=idempotency_key,
+            fingerprint_payload=fingerprint_payload,
+            response=response,
+        )
+
+    attachment_error = _package_attachment_error(db, sh, pkg)
+    if attachment_error:
+        db.add(
+            ShipmentScanLog(
+                shipment_id=sh.id,
+                package_id=pkg.id,
+                scanned_code=matched_code,
+                scan_result="mismatch",
+                message=attachment_error,
+                scanned_by=current.id,
+            )
+        )
+        required_count, scanned_count, remaining_count, is_complete, _, _ = _scan_progress(db, sh)
+        response = _scan_response(
+            ok=False,
+            sign="error",
+            code=matched_code,
+            message=attachment_error,
+            package=pkg,
+            package_model_code=model.code if model else None,
+            required_count=required_count,
+            scanned_count=scanned_count,
+            remaining_count=remaining_count,
+            is_complete=is_complete,
+            previous_scan=_previous_package_scan(db, pkg.id, sh.id),
         )
         return _commit_scan_response(
             db,
@@ -925,6 +1659,13 @@ def scan_package(
     )
 
     if sh.sales_order_id and not link:
+        pack_line = db.query(SalesOrderItem).filter_by(sales_order_id=sh.sales_order_id, model_id=pkg.model_id).filter(
+            SalesOrderItem.requested_pack_count.isnot(None)).first()
+        if pack_line:
+            scanned_model_count = db.query(Package.id).filter(Package.id.in_(
+                _matched_package_ids_for_shipment(db, sh.id)), Package.model_id == pkg.model_id).count()
+            if scanned_model_count >= pack_line.requested_pack_count:
+                raise HTTPException(409, "All requested packages for this model are already scanned")
         allowed_ids = {int(p.id) for p, _ in _ready_packages_for_sales_order(db, int(sh.sales_order_id))}
         if int(pkg.id) not in allowed_ids:
             replacement_link, replacement_error = _replace_unscanned_same_model_package(
@@ -938,6 +1679,10 @@ def scan_package(
             elif replacement_link:
                 link = replacement_link
                 msg = ""
+            elif pack_line and db.query(ShipmentPackage).join(Package, Package.id == ShipmentPackage.package_id).filter(
+                ShipmentPackage.shipment_id == sh.id, Package.model_id == pkg.model_id).count() < pack_line.requested_pack_count:
+                msg = _move_package_reservations(db, sales_order_id=sh.sales_order_id, from_package_id=-1,
+                                                 to_package=pkg, reserved_by=current.id) or ""
             else:
                 msg = f"Mismatch: package {pkg.package_no} does not match any remaining model in sales order #{sh.sales_order_id}."
             if msg:
@@ -958,7 +1703,7 @@ def scan_package(
                     code=matched_code,
                     message=msg,
                     package=pkg,
-                    package_model_code=package_model_code,
+                    package_model_code=model.code if model else None,
                     required_count=required_count,
                     scanned_count=scanned_count,
                     remaining_count=remaining_count,
@@ -972,23 +1717,12 @@ def scan_package(
                     response=response,
                 )
     if not link:
-        quantity = _shipment_quantity_for_package(db, shipment=sh, package=pkg)
-        if quantity <= 0:
-            raise HTTPException(409, "Package has no quantity reserved for this shipment")
-        db.add(ShipmentPackage(shipment_id=sh.id, package_id=pkg.id, quantity=quantity))
+        db.add(ShipmentPackage(shipment_id=sh.id, package_id=pkg.id, quantity=remaining_quantity(pkg)))
         db.flush()
+        db.expire(sh, ["packages"])
         log_action(db, current, "add_package_scan", "Shipment", sh.id, new_value={"package_id": pkg.id})
 
-    duplicate = (
-        db.query(ShipmentScanLog.id)
-        .filter(
-            ShipmentScanLog.shipment_id == sh.id,
-            ShipmentScanLog.package_id == pkg.id,
-            ShipmentScanLog.scan_result == "matched",
-        )
-        .first()
-        is not None
-    )
+    duplicate = pkg.id in _matched_package_ids_for_shipment(db, sh.id)
     if duplicate:
         msg = f"Package {pkg.package_no} was already scanned for this shipment."
         result = "duplicate"
@@ -1008,6 +1742,7 @@ def scan_package(
             scanned_by=current.id,
         )
     )
+    db.flush()
     required_count, scanned_count, remaining_count, is_complete, _, _ = _scan_progress(db, sh)
     response = _scan_response(
         ok=True,
@@ -1015,11 +1750,12 @@ def scan_package(
         code=matched_code,
         message=msg,
         package=pkg,
-        package_model_code=package_model_code,
+        package_model_code=model.code if model else None,
         required_count=required_count,
         scanned_count=scanned_count,
         remaining_count=remaining_count,
         is_complete=is_complete,
+        previous_scan=_previous_package_scan(db, pkg.id, sh.id) if duplicate else None,
     )
     return _commit_scan_response(
         db,
@@ -1028,6 +1764,19 @@ def scan_package(
         fingerprint_payload=fingerprint_payload,
         response=response,
     )
+
+
+@router.post("/{sid}/reopen", response_model=ShipmentOut)
+def return_to_preparation(
+    sid: int,
+    payload: ShipmentReopen,
+    db: DbSession,
+    current: User = Depends(require_permissions("storage.shipment", "*")),
+):
+    shipment = reopen_shipment(db, sid, payload, current)
+    response = _shipment_payload(db, shipment)
+    db.commit()
+    return response
 
 
 @router.post("/{sid}/ship", response_model=ShipmentOut)
@@ -1041,34 +1790,9 @@ def ship_all(
     replay = replay_idempotent_response(db, scope="shipments.ship", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
-    sh = db.get(Shipment, sid)
+    sh = locked_shipment(db, sid)
     if not sh: raise HTTPException(404, "Shipment not found")
-    if str(sh.status or "") in ("shipped", "delivered"):
-        raise HTTPException(409, f"Shipment {sh.shipment_no} is already {sh.status}")
-    required_count, scanned_count, remaining_count, _, attached_ids, scanned_attached = _scan_progress(db, sh)
-    if required_count <= 0:
-        raise HTTPException(400, "Shipment has no packages to ship")
-    if remaining_count > 0:
-        missing_ids = sorted(attached_ids - scanned_attached)
-        missing_rows = db.query(Package.package_no).filter(Package.id.in_(missing_ids)).all()
-        missing_nos = [str(no) for (no,) in missing_rows if no]
-        suffix = ", ".join(missing_nos[:10]) if missing_nos else f"{remaining_count} package(s)"
-        raise HTTPException(
-            409,
-            f"Scan all shipment packages before shipping. Missing scan for: {suffix}",
-        )
-    sh.status = "shipped"
-    sh.shipped_at = datetime.now(timezone.utc)
-    for sp in sh.packages:
-        pkg = db.get(Package, sp.package_id)
-        if pkg and pkg.status in _READY_FOR_SHIPMENT_STATUSES:
-            _ship_reserved_package_quantity(
-                db,
-                shipment=sh,
-                shipment_package=sp,
-                package=pkg,
-                user_id=current.id,
-            )
+    required_count, scanned_count = _ship_verified_packages(db, sh, current)
     log_action(
         db,
         current,
@@ -1102,26 +1826,18 @@ def mark_shipped(
     replay = replay_idempotent_response(db, scope="shipments.mark-shipped", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
-    sh = db.get(Shipment, sid)
+    sh = locked_shipment(db, sid)
     if not sh:
         raise HTTPException(404, "Shipment not found")
-    if str(sh.status or "") in ("shipped", "delivered"):
-        raise HTTPException(409, f"Shipment {sh.shipment_no} is already {sh.status}")
-    if not sh.packages:
-        raise HTTPException(400, "Shipment has no packages to ship")
-    sh.status = "shipped"
-    sh.shipped_at = datetime.now(timezone.utc)
-    for sp in sh.packages:
-        pkg = db.get(Package, sp.package_id)
-        if pkg and pkg.status in _READY_FOR_SHIPMENT_STATUSES:
-            _ship_reserved_package_quantity(
-                db,
-                shipment=sh,
-                shipment_package=sp,
-                package=pkg,
-                user_id=current.id,
-            )
-    log_action(db, current, "mark_shipped", "Shipment", sh.id)
+    required_count, scanned_count = _ship_verified_packages(db, sh, current)
+    log_action(
+        db,
+        current,
+        "mark_shipped",
+        "Shipment",
+        sh.id,
+        new_value={"required_scans": required_count, "verified_scans": scanned_count},
+    )
     db.flush()
     response = _shipment_payload(db, sh)
     store_idempotent_response(
@@ -1148,21 +1864,30 @@ def deliver(
     replay = replay_idempotent_response(db, scope="shipments.deliver", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
-    sh = db.get(Shipment, sid)
+    sh = locked_shipment(db, sid)
     if not sh: raise HTTPException(404, "Shipment not found")
+    if str(sh.status or "") != "shipped":
+        raise HTTPException(409, "Shipment must be shipped before it can be marked delivered")
+    if not sh.packages:
+        raise HTTPException(400, "Shipment has no packages to deliver")
     sh.status = "delivered"
     sh.delivered_at = datetime.now(timezone.utc)
     for sp in sh.packages:
         pkg = db.get(Package, sp.package_id)
         if pkg and pkg.status == "shipped":
+            if pkg.dispatched_quantities:
+                related = db.query(Shipment).join(ShipmentPackage).filter(
+                    ShipmentPackage.package_id == pkg.id, Shipment.id != sh.id, Shipment.status != "cancelled").all()
+                if any(other.status != "delivered" for other in related):
+                    continue
             mark_delivered(db, pkg, current.id)
-    inv = ensure_invoice_for_delivered_shipment(db, sales_order_id=sh.sales_order_id)
+    inv = invoice_for_frozen_delivery(db, sh, current)
     if inv:
         notify_department(
             db,
             department_code="FIN",
-            title="Shipment delivered - draft invoice created",
-            message=f"Shipment {sh.shipment_no} delivered. Invoice {inv.invoice_no} prepared.",
+            title="Shipment delivered - invoice reconciled",
+            message=f"Shipment {sh.shipment_no} delivered. Invoice {inv.invoice_no} is ready in Finance.",
             link="/finance",
             exclude_user_id=current.id,
         )

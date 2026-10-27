@@ -305,6 +305,83 @@ def test_branded_planning_order_groups_multiple_productions_and_is_searchable(cl
     assert all(row["ordered_for"] == "Besttex" for row in rows)
 
 
+def test_branded_order_history_includes_linked_model_metadata_when_picker_excludes_it(client, auth_headers):
+    suffix = uuid4().hex[:8].upper()
+    model_code = f"HISTORY-{suffix}"
+    model_image_url = f"/storage/model-files/history-model-{suffix}.jpg"
+    fabric_image_url = f"/storage/model-files/history-fabric-{suffix}.jpg"
+    created_model = client.post(
+        "/api/models",
+        headers=auth_headers,
+        json={
+            "code": model_code,
+            "name": "Historical linked model",
+            "status": "approved",
+            "details_json": {
+                "legacy_import": True,
+                "general": {"variant_fabric": "History fabric / Navy"},
+            },
+        },
+    )
+    assert created_model.status_code == 201, created_model.text
+    model_id = int(created_model.json()["id"])
+
+    for image_type, file_url, is_primary in (
+        ("model", model_image_url, True),
+        ("material", fabric_image_url, False),
+    ):
+        image = client.post(
+            f"/api/models/{model_id}/images",
+            headers=auth_headers,
+            json={
+                "file_url": file_url,
+                "file_name": file_url.rsplit("/", 1)[-1],
+                "content_type": "image/jpeg",
+                "image_type": image_type,
+                "is_primary": is_primary,
+            },
+        )
+        assert image.status_code == 201, image.text
+
+    picker = client.get("/api/models?status=approved", headers=auth_headers)
+    assert picker.status_code == 200, picker.text
+    assert all(int(row["id"]) != model_id for row in picker.json())
+
+    planning_order = client.post(
+        "/api/planning/branded-orders",
+        headers=auth_headers,
+        json={"ordered_for_type": "milana"},
+    )
+    assert planning_order.status_code == 201, planning_order.text
+    production = client.post(
+        "/api/planning/create-branded-production",
+        headers=auth_headers,
+        json={
+            "production_type": "branded_stock",
+            "planning_order_id": planning_order.json()["id"],
+            "model_id": model_id,
+            "planned_quantity": 10,
+            "items": [
+                {"model_id": model_id, "color": "Navy", "size": "M", "planned_quantity": 10},
+            ],
+        },
+    )
+    assert production.status_code == 201, production.text
+
+    history = client.get("/api/planning/branded-orders", headers=auth_headers)
+    assert history.status_code == 200, history.text
+    group = next(row for row in history.json() if int(row["id"]) == int(planning_order.json()["id"]))
+    linked_model = group["productions"][0]["model"]
+    assert linked_model == {
+        "id": model_id,
+        "code": model_code,
+        "name": "Historical linked model",
+        "primary_image_url": model_image_url,
+        "variant_fabric": "History fabric / Navy",
+        "fabric_image_url": fabric_image_url,
+    }
+
+
 def test_customer_profile_payment_persists_and_updates_order_status(client, auth_headers):
     model_id = _find_model_id(client, auth_headers)
     customer_id = _create_customer(client, auth_headers)

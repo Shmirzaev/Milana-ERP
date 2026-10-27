@@ -1,3 +1,4 @@
+from app.core.order_reference import order_reference_contains
 import os
 from collections import defaultdict
 from datetime import date, datetime, timezone
@@ -5,12 +6,13 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Depends, Header
 from fastapi import UploadFile, File
-from sqlalchemy import or_
+from sqlalchemy import and_, or_, func, literal
 from sqlalchemy.orm import joinedload
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.core.config import settings
 from app.core.dt import date_filter_bounds
+from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
 from app.core.signing import sign_path, strip_signature
 from app.core.uploads import (
     SAFE_DOCUMENT_EXTENSIONS,
@@ -19,26 +21,30 @@ from app.core.uploads import (
     safe_content_type,
     read_validated_upload_content,
 )
-from app.models import (
+from app.schemas import (
     SalesOrder, SalesOrderItem, FinishedGoodsStock, StockReservation,
     BrandedPlanningOrder, Customer, Model, User, ProductionOrder,
     CuttingRecord, PrintingRecord, SewingRecord, PackagingRecord, QualityCheck, Shipment, ShipmentPackage,
     Task, Department, Invoice, Payment, StockMovement, Item, StockBatch, MaterialReservation,
     Package, Bundle, FinishedGoodsStock, AuditLog,
 )
-from app.schemas.sales import (
+from app.libs.dto.sales.sales import (
     SalesOrderIn, SalesOrderUpdate, SalesOrderOut, SalesOrderDetail,
 )
-from app.services.audit import log_action
-from app.services.finished_goods import repair_missing_brand_metadata
-from app.services.numbering import next_sales_order_no
-from app.services.numbering import next_invoice_no
-from app.services.workflow import notify_department
-from app.services.idempotency import replay_idempotent_response, store_idempotent_response
-from app.services.legacy_stock import package_legacy_identity
-from app.services.model_images import material_preview_image_url, model_display_image_url
+from app.models.audit_service import log_action
+from app.models.finished_goods_service import repair_missing_brand_metadata
+from app.models.ready_stock_sales_service import ready_pack_candidates, reserve_ready_packs
+from app.models.numbering_service import next_sales_order_no
+from app.models.numbering_service import next_invoice_no
+from app.models.workflow_service import notify_department
+from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
+from app.models.model_images_service import model_variant_picture_url
 
 router = APIRouter(prefix="/sales-orders", tags=["sales"])
+_SHIPMENT_READY_PACKAGE_STATUSES = ("received_in_storage", "reserved")
+# Variants per stock round trip. Bounds the parameter list of the batched
+# eligibility query without changing which rows are eligible.
+_STOCK_VARIANT_QUERY_CHUNK_SIZE = 200
 
 
 def _attachments_for_storage(attachments) -> list[dict]:
@@ -61,20 +67,48 @@ def _sign_attachment_urls(payload: dict) -> dict:
     return payload
 
 
+def _customer_name_map(db: DbSession, customer_ids: set[int]) -> dict[int, str]:
+    """Read only the customer names a list payload renders.
+
+    Selecting the two display columns keeps the read bounded by the distinct
+    customers on the page, instead of hydrating one full ``Customer`` entity per
+    row. A customer whose name is NULL is still a key in the map, so callers can
+    tell "no such customer" apart from "customer without a name".
+    """
+    if not customer_ids:
+        return {}
+    rows = (
+        db.query(Customer.id, Customer.name)
+        .filter(Customer.id.in_(sorted({int(customer_id) for customer_id in customer_ids})))
+        .all()
+    )
+    return {int(customer_id): name for customer_id, name in rows}
+
+
 def _serialize_sales_order(
     db: DbSession,
     so: SalesOrder,
     *,
     include_items: bool = False,
+    customer_names: dict[int, str] | None = None,
 ) -> dict:
     """Shape sales-order payloads with customer/model names for frontend display."""
     schema_cls = SalesOrderDetail if include_items else SalesOrderOut
     payload = schema_cls.model_validate(so).model_dump()
 
-    customer = db.get(Customer, so.customer_id) if so.customer_id else None
-    if customer:
-        payload["customer_name"] = customer.name
-        payload["customer"] = {"id": customer.id, "name": customer.name}
+    customer_id = int(so.customer_id) if so.customer_id else None
+    if customer_names is not None:
+        # The bounded map is only a lookup: presence decides the shape of
+        # `customer`, and the stored name is passed through unchanged.
+        customer_found = customer_id is not None and customer_id in customer_names
+        customer_name = customer_names.get(customer_id) if customer_found else None
+    else:
+        customer = db.get(Customer, customer_id) if customer_id else None
+        customer_found = customer is not None
+        customer_name = customer.name if customer is not None else None
+    if customer_found:
+        payload["customer_name"] = customer_name
+        payload["customer"] = {"id": customer_id, "name": customer_name}
     else:
         payload["customer_name"] = None
         payload["customer"] = None
@@ -102,12 +136,8 @@ def _serialize_sales_order(
         }
         for item in payload.get("items", []):
             model_ref = model_map.get(int(item.get("model_id") or 0))
-            item["model_code"] = (
-                model_ref["code"] if model_ref else item.get("source_model_code")
-            )
-            item["model_name"] = (
-                model_ref["name"] if model_ref else item.get("source_model_name")
-            )
+            item["model_code"] = model_ref["code"] if model_ref else None
+            item["model_name"] = model_ref["name"] if model_ref else None
             item["model"] = model_ref
 
     return payload
@@ -186,7 +216,7 @@ def _history_products(db: DbSession, model_ids: set[int]) -> list[dict]:
             or general.get("variantNo")
             or (code_parts[1] if len(code_parts) > 1 else "")
         ).strip()
-        picture_url = material_preview_image_url(model) or model_display_image_url(model)
+        picture_url = model_variant_picture_url(model)
         if picture_url and str(picture_url).startswith("/storage/"):
             picture_url = sign_path(picture_url)
         products.append(
@@ -421,24 +451,9 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
         sewing_records = []
         packaging_records = []
 
-    reserved_package_ids = [
-        int(package_id)
-        for (package_id,) in (
-            db.query(StockReservation.package_id)
-            .filter(
-                StockReservation.sales_order_id == so.id,
-                StockReservation.package_id.isnot(None),
-            )
-            .distinct()
-            .all()
-        )
-        if package_id is not None
-    ]
     package_filters = [Package.sales_order_id == so.id]
     if po_ids:
         package_filters.append(Package.production_order_id.in_(po_ids))
-    if reserved_package_ids:
-        package_filters.append(Package.id.in_(reserved_package_ids))
     packages = (
         db.query(Package)
         .options(joinedload(Package.items))
@@ -638,28 +653,6 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
             product_model_ids.add(int(production_order.model_id))
         product_model_ids.update(int(item.model_id) for item in (production_order.items or []) if item.model_id)
 
-    history_products = _history_products(db, product_model_ids)
-    legacy_product_keys: set[tuple[int | None, str]] = set()
-    for item in sales_items:
-        code = str(item.source_model_code or "").strip()
-        if item.model_id is not None or not code:
-            continue
-        key = (item.finished_goods_stock_id, code)
-        if key in legacy_product_keys:
-            continue
-        legacy_product_keys.add(key)
-        history_products.append(
-            {
-                "model_id": None,
-                "finished_goods_stock_id": item.finished_goods_stock_id,
-                "model_no": code,
-                "variant_no": None,
-                "code": code,
-                "name": item.source_model_name,
-                "picture_url": None,
-            }
-        )
-
     row = {
         "id": so.id,
         "record_type": "sales_order",
@@ -675,7 +668,7 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
         "completed_at": completed_at,
         "last_activity_at": last_activity_at,
         "total_amount": _num(so.total_amount),
-        "products": history_products,
+        "products": _history_products(db, product_model_ids),
         "summary": summary,
     }
     customer = db.get(Customer, so.customer_id) if so.customer_id else None
@@ -690,8 +683,7 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
         model_ids.add(int(po.model_id))
         model_ids.update(int(item.model_id) for item in (po.items or []) if item.model_id)
     for pkg in packages:
-        if pkg.model_id:
-            model_ids.add(int(pkg.model_id))
+        model_ids.add(int(pkg.model_id))
         model_ids.update(int(item.model_id) for item in (pkg.items or []) if item.model_id)
     model_map = _model_refs(db, model_ids)
 
@@ -739,20 +731,7 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
             {
                 "id": item.id,
                 "model_id": item.model_id,
-                "finished_goods_stock_id": item.finished_goods_stock_id,
-                "model": model_map.get(int(item.model_id)) if item.model_id else None,
-                "model_code": (
-                    model_map[int(item.model_id)]["code"]
-                    if item.model_id and int(item.model_id) in model_map
-                    else item.source_model_code
-                ),
-                "model_name": (
-                    model_map[int(item.model_id)]["name"]
-                    if item.model_id and int(item.model_id) in model_map
-                    else item.source_model_name
-                ),
-                "source_model_code": item.source_model_code,
-                "source_model_name": item.source_model_name,
+                "model": model_map.get(int(item.model_id)),
                 "brand_id": item.brand_id,
                 "collection_id": item.collection_id,
                 "color": item.color,
@@ -861,17 +840,7 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
                 "production_order_id": pkg.production_order_id,
                 "production_batch_id": pkg.production_batch_id,
                 "model_id": pkg.model_id,
-                "model": model_map.get(int(pkg.model_id)) if pkg.model_id else None,
-                "model_code": (
-                    model_map[int(pkg.model_id)]["code"]
-                    if pkg.model_id and int(pkg.model_id) in model_map
-                    else package_legacy_identity(db, pkg).get("model_code")
-                ),
-                "model_name": (
-                    model_map[int(pkg.model_id)]["name"]
-                    if pkg.model_id and int(pkg.model_id) in model_map
-                    else package_legacy_identity(db, pkg).get("model_name")
-                ),
+                "model": model_map.get(int(pkg.model_id)),
                 "color": pkg.color,
                 "package_type": pkg.package_type,
                 "total_quantity": _int_qty(pkg.total_quantity),
@@ -899,7 +868,7 @@ def _sales_order_history(db: DbSession, so: SalesOrder, *, include_detail: bool 
                     {
                         "id": item.id,
                         "model_id": item.model_id,
-                        "model": model_map.get(int(item.model_id)) if item.model_id else None,
+                        "model": model_map.get(int(item.model_id)),
                         "color": item.color,
                         "size": item.size,
                         "quantity": _int_qty(item.quantity),
@@ -1173,54 +1142,205 @@ def _is_any_stock_token(value: str | None) -> bool:
     return token in {"", "*", "any", "mixed", "__any__", "pack60", "bag"}
 
 
-def _stock_variant_key(
-    model_id: int | None,
-    color: str,
-    size: str,
-    brand_id: int | None,
-    finished_goods_stock_id: int | None = None,
-) -> tuple[str, int, str, str, int | None]:
-    if finished_goods_stock_id is not None:
-        return ("stock", int(finished_goods_stock_id), "", "", None)
-    if model_id is None:
-        raise HTTPException(400, "A model or ready-stock product is required")
-    return (
-        "model",
-        int(model_id),
-        str(color or "").strip(),
-        str(size or "").strip(),
-        brand_id,
-    )
+def _stock_variant_key(model_id: int, color: str, size: str, brand_id: int | None) -> tuple[int, str, str, int | None]:
+    return (int(model_id), str(color or "").strip(), str(size or "").strip(), brand_id)
 
 
-def _stock_rows_for_variant(
+def _stock_rows_by_variant(
     db: DbSession,
+    variant_keys: list[tuple[int, str, str, int | None]],
     *,
-    model_id: int | None,
-    color: str,
-    size: str,
-    brand_id: int | None,
-    finished_goods_stock_id: int | None = None,
-) -> list[FinishedGoodsStock]:
-    qry = db.query(FinishedGoodsStock).filter(
-        FinishedGoodsStock.status == "available",
-        FinishedGoodsStock.available_qty > 0,
+    stock_kind: str = "standard",
+) -> dict[tuple[int, str, str, int | None], list[FinishedGoodsStock]]:
+    """Load the eligible stock for many requested variants in bounded batches.
+
+    One reserved line per variant used to run its own `SELECT ... FOR UPDATE`
+    and hydrate its own stock entities, so an order with many variants paid for
+    the same shared rows once per variant. This loads a whole chunk of variants
+    per round trip and splits the hydrated rows in Python.
+
+    Eligibility is unchanged: the same filters run in SQL, and the per-variant
+    colour/size/brand restrictions are re-applied in Python with the exact
+    comparisons the SQL used, so a batched row is admitted to a variant only
+    when the single-variant query would have returned it.
+
+    Locking is unchanged too: within a chunk the eligible packages are locked
+    first, ordered by package id, and the stock rows are locked only afterwards.
+    Variants are processed in a fixed sorted order so two reservations that
+    request the same variants in opposite line order take the same locks in the
+    same sequence.
+    """
+    unique_keys = sorted(
+        set(variant_keys),
+        key=lambda key: (key[0], key[1], key[2], -1 if key[3] is None else key[3]),
     )
-    if finished_goods_stock_id is not None:
-        qry = qry.filter(FinishedGoodsStock.id == finished_goods_stock_id)
-    else:
-        if model_id is None:
-            return []
-        qry = qry.filter(FinishedGoodsStock.model_id == model_id)
-        if not _is_any_stock_token(color):
-            qry = qry.filter(FinishedGoodsStock.color == color)
-        if not _is_any_stock_token(size):
-            qry = qry.filter(FinishedGoodsStock.size == size)
-        if brand_id is not None:
-            qry = qry.filter(FinishedGoodsStock.brand_id == brand_id)
-    if db.bind and db.bind.dialect.name == "postgresql":
-        qry = qry.with_for_update(of=FinishedGoodsStock)
-    return qry.order_by(FinishedGoodsStock.id.asc()).all()
+    rows_by_variant: dict[tuple[int, str, str, int | None], list[FinishedGoodsStock]] = {
+        key: [] for key in unique_keys
+    }
+    for offset in range(0, len(unique_keys), _STOCK_VARIANT_QUERY_CHUNK_SIZE):
+        chunk = unique_keys[offset:offset + _STOCK_VARIANT_QUERY_CHUNK_SIZE]
+        keys_by_model: dict[int, list[tuple[int, str, str, int | None]]] = defaultdict(list)
+        variant_predicates = []
+        for key in chunk:
+            model_id, color, size, brand_id = key
+            keys_by_model[model_id].append(key)
+            parts = [FinishedGoodsStock.model_id == model_id]
+            if not _is_any_stock_token(color):
+                parts.append(FinishedGoodsStock.color == color)
+            if not _is_any_stock_token(size):
+                parts.append(FinishedGoodsStock.size == size)
+            if brand_id is not None:
+                parts.append(FinishedGoodsStock.brand_id == brand_id)
+            variant_predicates.append(and_(*parts))
+
+        qry = (
+            db.query(FinishedGoodsStock)
+            .outerjoin(Package, Package.id == FinishedGoodsStock.package_id)
+            .filter(
+                FinishedGoodsStock.status == "available",
+                FinishedGoodsStock.available_qty > 0,
+                or_(
+                    FinishedGoodsStock.package_id.is_(None),
+                    Package.status.in_(_SHIPMENT_READY_PACKAGE_STATUSES),
+                ),
+                ~db.query(ShipmentPackage.id).join(Shipment, Shipment.id == ShipmentPackage.shipment_id).filter(
+                    ShipmentPackage.package_id == FinishedGoodsStock.package_id,
+                    Shipment.status != "cancelled",
+                ).exists(),
+                or_(*variant_predicates),
+            )
+            .filter(func.coalesce(Package.stock_kind, "standard") == stock_kind)
+        )
+        if db.bind and db.bind.dialect.name == "postgresql":
+            # Keep the same package -> stock lock order as warehouse dispatch.
+            package_ids = qry.with_entities(FinishedGoodsStock.package_id).filter(FinishedGoodsStock.package_id.isnot(None))
+            db.query(Package).filter(Package.id.in_(package_ids)).order_by(Package.id).with_for_update(key_share=True, of=Package).all()
+            qry = qry.with_for_update(key_share=True, of=FinishedGoodsStock)
+        for row in qry.order_by(FinishedGoodsStock.id.asc()).all():
+            for key in keys_by_model.get(int(row.model_id), ()):
+                _model_id, color, size, brand_id = key
+                if not _is_any_stock_token(color) and row.color != color:
+                    continue
+                if not _is_any_stock_token(size) and row.size != size:
+                    continue
+                if brand_id is not None and row.brand_id != brand_id:
+                    continue
+                rows_by_variant[key].append(row)
+    return rows_by_variant
+
+
+def _package_allocation_candidates(
+    db: DbSession,
+    stock_rows: list[FinishedGoodsStock],
+    *,
+    package_cache: dict[int, Package] | None = None,
+) -> tuple[dict[int, tuple[Package, list[FinishedGoodsStock]]], list[FinishedGoodsStock]]:
+    """Split physical whole bags from legacy stock that permits piece allocation.
+
+    `package_cache` reuses ``Package`` rows that a caller has already locked, so
+    a package referenced by several variants is not read and locked again. Only
+    the package identity is cached: the whole-bag eligibility tests below read
+    the mutable stock quantities (`available_qty`, `reserved_qty`, `sold_qty`),
+    so the groups are rebuilt from the current row state on every call and a
+    package consumed by an earlier allocation cannot be handed out twice.
+    """
+    rows_by_package: dict[int, list[FinishedGoodsStock]] = defaultdict(list)
+    for stock in stock_rows:
+        if stock.package_id is not None:
+            rows_by_package[int(stock.package_id)].append(stock)
+    if not rows_by_package:
+        return {}, [row for row in stock_rows if row.package_id is None]
+
+    packages = package_cache if package_cache is not None else {}
+    missing_package_ids = sorted(set(rows_by_package) - set(packages))
+    if missing_package_ids:
+        package_query = db.query(Package).filter(Package.id.in_(missing_package_ids))
+        if db.bind and db.bind.dialect.name == "postgresql":
+            package_query = package_query.with_for_update(key_share=True, of=Package)
+        packages.update({
+            int(package.id): package
+            for package in package_query.order_by(Package.id).all()
+        })
+
+    partial_rows = [
+        row
+        for row in stock_rows
+        if row.package_id is None
+        or (
+            int(row.package_id) in packages
+            and packages[int(row.package_id)].legacy_receipt_id is not None
+        )
+    ]
+
+    groups: dict[int, tuple[Package, list[FinishedGoodsStock]]] = {}
+    for package_id, rows in rows_by_package.items():
+        package = packages.get(package_id)
+        if not package or package.status not in _SHIPMENT_READY_PACKAGE_STATUSES:
+            continue
+        if package.legacy_receipt_id is not None:
+            continue
+        package_qty = int(package.total_quantity or 0)
+        if package_qty <= 0:
+            continue
+        if any(
+            int(row.available_qty or 0) != int(row.quantity or 0)
+            or int(row.reserved_qty or 0) != 0
+            or int(row.sold_qty or 0) != 0
+            for row in rows
+        ):
+            continue
+        if sum(int(row.available_qty or 0) for row in rows) != package_qty:
+            continue
+        groups[package_id] = (package, rows)
+    return groups, partial_rows
+
+
+def _select_whole_packages(
+    package_groups: dict[int, tuple[Package, list[FinishedGoodsStock]]],
+    target_qty: int,
+) -> list[int]:
+    """Choose complete packages with the greatest total not exceeding target."""
+    target = max(0, int(target_qty or 0))
+    if target <= 0:
+        return []
+
+    candidates = sorted(
+        (
+            (package_id, int(package.total_quantity or 0))
+            for package_id, (package, _rows) in package_groups.items()
+            if 0 < int(package.total_quantity or 0) <= target
+        ),
+        key=lambda row: (-row[1], row[0]),
+    )
+    exact = next((package_id for package_id, quantity in candidates if quantity == target), None)
+    if exact is not None:
+        return [exact]
+    if not candidates:
+        return []
+
+    # A bitset keeps subset selection bounded by the requested quantity while
+    # predecessor entries allow reconstructing the best physical-package set.
+    reachable = 1
+    predecessor: dict[int, tuple[int, int]] = {}
+    mask = (1 << (target + 1)) - 1
+    for package_id, quantity in candidates:
+        shifted = (reachable << quantity) & mask
+        newly_reachable = shifted & ~reachable
+        pending = newly_reachable
+        while pending:
+            bit = pending & -pending
+            total = bit.bit_length() - 1
+            predecessor[total] = (total - quantity, package_id)
+            pending ^= bit
+        reachable |= shifted
+
+    best_total = reachable.bit_length() - 1
+    selected: list[int] = []
+    while best_total > 0:
+        previous_total, package_id = predecessor[best_total]
+        selected.append(package_id)
+        best_total = previous_total
+    return selected
 
 
 def _notify_planning_shortage(
@@ -1242,14 +1362,7 @@ def _notify_planning_shortage(
         else None
     )
     if planning_user:
-        summary = ", ".join(
-            (
-                f"S{r['finished_goods_stock_id']}: {r['shortage']}"
-                if r.get("finished_goods_stock_id")
-                else f"M{r['model_id']} {r['color']}/{r['size']}: {r['shortage']}"
-            )
-            for r in shortages[:6]
-        )
+        summary = ", ".join(f"M{r['model_id']} {r['color']}/{r['size']}: {r['shortage']}" for r in shortages[:6])
         if len(shortages) > 6:
             summary += f" (+{len(shortages) - 6} more)"
         db.add(
@@ -1273,6 +1386,36 @@ def _notify_planning_shortage(
     )
 
 
+def _shipment_handoff_details(
+    db: DbSession,
+    *,
+    so: SalesOrder,
+    lines: list[SalesOrderItem],
+) -> tuple[int, str]:
+    model_ids = sorted({int(line.model_id) for line in lines if line.model_id})
+    model_rows = db.query(Model.id, Model.code, Model.name).filter(Model.id.in_(model_ids)).all() if model_ids else []
+    model_by_id = {
+        int(model_id): str(code or name or f"Model {model_id}")
+        for model_id, code, name in model_rows
+    }
+    item_parts: list[str] = []
+    total_qty = 0
+    for line in lines:
+        quantity = max(0, int(line.quantity or 0))
+        total_qty += quantity
+        model_label = model_by_id.get(int(line.model_id), f"Model {line.model_id}")
+        variant = " / ".join(part for part in (str(line.color or "").strip(), str(line.size or "").strip()) if part)
+        item_parts.append(f"{model_label}{f' ({variant})' if variant else ''} x {quantity}")
+
+    customer = db.get(Customer, so.customer_id) if so.customer_id else None
+    destination = str(customer.address or "").strip() if customer else ""
+    customer_name = str(customer.name or "").strip() if customer else ""
+    item_summary = "; ".join(item_parts) if item_parts else "No item lines"
+    destination_summary = destination or "Not specified"
+    customer_summary = f" for {customer_name}" if customer_name else ""
+    return total_qty, f"{item_summary}. Destination{customer_summary}: {destination_summary}."
+
+
 def _reserve_branded_stock(
     db: DbSession,
     *,
@@ -1283,18 +1426,50 @@ def _reserve_branded_stock(
     notify_shortage: bool = True,
     notify_storage_when_ready: bool = False,
 ) -> tuple[list[dict], list[dict]]:
-    repair_missing_brand_metadata(db)
     line_rows = lines if lines is not None else db.query(SalesOrderItem).filter(SalesOrderItem.sales_order_id == so.id).all()
-    requested_by_variant: dict[tuple[str, int, str, str, int | None], int] = defaultdict(int)
+    kinds = {line.source_type == "first_grade" for line in line_rows}
+    if len(kinds) > 1:
+        raise HTTPException(400, "FIRST_GRADE_SEPARATE_ORDER")
+    stock_kind = "first_grade" if True in kinds else "standard"
+    if any(line.requested_pack_count is not None for line in line_rows):
+        reservations = reserve_ready_packs(db, so=so, lines=line_rows, user_id=current.id)
+        if notify_storage_when_ready:
+            _total_qty, handoff_message = _shipment_handoff_details(db, so=so, lines=line_rows)
+            pack_count = sum(line.requested_pack_count for line in line_rows)
+            notify_department(
+                db, department_code="FGS", title=f"{so.order_no}: {pack_count} packs to prepare",
+                message=handoff_message, link=f"/departments/FGS#shipping-order-{so.id}",
+                exclude_user_id=current.id,
+            )
+        return reservations, []
+    requested_by_variant: dict[tuple[int, str, str, int | None], int] = defaultdict(int)
     for line in line_rows:
-        key = _stock_variant_key(
-            line.model_id,
-            line.color,
-            line.size,
-            line.brand_id,
-            line.finished_goods_stock_id,
-        )
+        key = _stock_variant_key(line.model_id, line.color, line.size, line.brand_id)
         requested_by_variant[key] += int(line.quantity or 0)
+
+    package_cache: dict[int, Package] = {}
+    if db.bind and db.bind.dialect.name == "postgresql":
+        # Lock across all lines before metadata repair or any stock lock, so
+        # opposite model-line ordering cannot invert the package lock order.
+        locked_packages = db.query(Package).filter(
+            Package.model_id.in_({key[0] for key in requested_by_variant}),
+            Package.status.in_(_SHIPMENT_READY_PACKAGE_STATUSES),
+            ~db.query(ShipmentPackage.id).join(Shipment, Shipment.id == ShipmentPackage.shipment_id).filter(
+                ShipmentPackage.package_id == Package.id, Shipment.status != "cancelled",
+            ).exists(),
+        ).order_by(Package.id).with_for_update(key_share=True, of=Package).all()
+        package_cache.update({int(package.id): package for package in locked_packages})
+
+    # Legacy rows need inferred metadata only when a requested brand must be
+    # matched. Keep that repair scoped to the models in this order instead of
+    # scanning the entire finished-goods warehouse on every submission.
+    branded_model_ids = {
+        int(model_id)
+        for model_id, _color, _size, brand_id in requested_by_variant
+        if brand_id is not None
+    }
+    if branded_model_ids:
+        repair_missing_brand_metadata(db, model_ids=branded_model_ids)
 
     existing_rows = (
         db.query(StockReservation, FinishedGoodsStock)
@@ -1303,25 +1478,21 @@ def _reserve_branded_stock(
         .all()
     )
 
-    outstanding_by_variant: dict[tuple[str, int, str, str, int | None], int] = {}
+    outstanding_by_variant: dict[tuple[int, str, str, int | None], int] = {}
     for key, requested_qty in requested_by_variant.items():
-        reference_type, reference_id, color, size, brand_id = key
+        model_id, color, size, brand_id = key
         any_color = _is_any_stock_token(color)
         any_size = _is_any_stock_token(size)
         already_reserved = 0
         for reservation, stock in existing_rows:
-            if reference_type == "stock":
-                if int(stock.id) != int(reference_id):
-                    continue
-            else:
-                if stock.model_id is None or int(stock.model_id) != int(reference_id):
-                    continue
-                if not any_color and str(stock.color or "").strip() != color:
-                    continue
-                if not any_size and str(stock.size or "").strip() != size:
-                    continue
-                if brand_id is not None and int(stock.brand_id or 0) != int(brand_id):
-                    continue
+            if int(stock.model_id) != int(model_id):
+                continue
+            if not any_color and str(stock.color or "").strip() != color:
+                continue
+            if not any_size and str(stock.size or "").strip() != size:
+                continue
+            if brand_id is not None and int(stock.brand_id or 0) != int(brand_id):
+                continue
             already_reserved += int(reservation.quantity or 0)
         outstanding_by_variant[key] = max(0, int(requested_qty) - already_reserved)
 
@@ -1329,27 +1500,32 @@ def _reserve_branded_stock(
         raise HTTPException(409, "Stock has already been fully reserved for this sales order")
 
     shortages_precheck: list[dict] = []
-    for (reference_type, reference_id, color, size, brand_id), requested_qty in outstanding_by_variant.items():
+    stock_rows_by_variant = _stock_rows_by_variant(
+        db,
+        [key for key, requested_qty in outstanding_by_variant.items() if requested_qty > 0],
+        stock_kind=stock_kind,
+    )
+    for key, requested_qty in outstanding_by_variant.items():
         if requested_qty <= 0:
             continue
-        model_id = reference_id if reference_type == "model" else None
-        stock_id = reference_id if reference_type == "stock" else None
+        model_id, color, size, brand_id = key
+        stock_rows = stock_rows_by_variant[key]
+        package_groups, partial_stocks = _package_allocation_candidates(
+            db,
+            stock_rows,
+            package_cache=package_cache,
+        )
         available_qty = sum(
+            int(package.total_quantity or 0)
+            for package, _rows in package_groups.values()
+        ) + sum(
             int(row.available_qty or 0)
-            for row in _stock_rows_for_variant(
-                db,
-                model_id=model_id,
-                color=color,
-                size=size,
-                brand_id=brand_id,
-                finished_goods_stock_id=stock_id,
-            )
+            for row in partial_stocks
         )
         if available_qty < requested_qty:
             shortages_precheck.append(
                 {
                     "model_id": model_id,
-                    "finished_goods_stock_id": stock_id,
                     "brand_id": brand_id,
                     "color": color,
                     "size": size,
@@ -1361,11 +1537,7 @@ def _reserve_branded_stock(
 
     if fail_on_shortage and shortages_precheck:
         summary = "; ".join(
-            (
-                f"S{s['finished_goods_stock_id']} need {s['requested']}, available {s['available']}"
-                if s.get("finished_goods_stock_id")
-                else f"M{s['model_id']} {s['color']}/{s['size']} need {s['requested']}, available {s['available']}"
-            )
+            f"M{s['model_id']} {s['color']}/{s['size']} need {s['requested']}, available {s['available']}"
             for s in shortages_precheck[:4]
         )
         if len(shortages_precheck) > 4:
@@ -1374,21 +1546,40 @@ def _reserve_branded_stock(
 
     reservations: list[dict] = []
     shortages: list[dict] = []
-    for (reference_type, reference_id, color, size, brand_id), requested_qty in outstanding_by_variant.items():
+    for key, requested_qty in outstanding_by_variant.items():
         if requested_qty <= 0:
             continue
-        model_id = reference_id if reference_type == "model" else None
-        stock_id = reference_id if reference_type == "stock" else None
+        model_id, color, size, brand_id = key
         needed = int(requested_qty)
-        stocks = _stock_rows_for_variant(
+        stocks = stock_rows_by_variant[key]
+        package_groups, partial_stocks = _package_allocation_candidates(
             db,
-            model_id=model_id,
-            color=color,
-            size=size,
-            brand_id=brand_id,
-            finished_goods_stock_id=stock_id,
+            stocks,
+            package_cache=package_cache,
         )
-        for s in stocks:
+        selected_package_ids = _select_whole_packages(package_groups, needed)
+        for package_id in selected_package_ids:
+            package, package_stocks = package_groups[package_id]
+            for s in package_stocks:
+                take = int(s.available_qty or 0)
+                s.available_qty = 0
+                s.reserved_qty = int(s.reserved_qty or 0) + take
+                s.status = "reserved"
+                db.add(
+                    StockReservation(
+                        sales_order_id=so.id,
+                        finished_goods_stock_id=s.id,
+                        package_id=package.id,
+                        quantity=take,
+                        reserved_by=current.id,
+                    )
+                )
+                reservations.append({"stock_id": s.id, "package_id": package.id, "qty": take})
+                needed -= take
+
+        # Legacy aggregate receipts and package-less rows retain their existing
+        # piece-level sales behavior. Factory-produced bags remain indivisible.
+        for s in partial_stocks:
             if needed <= 0:
                 break
             take = min(needed, int(s.available_qty or 0))
@@ -1407,13 +1598,12 @@ def _reserve_branded_stock(
                     reserved_by=current.id,
                 )
             )
-            reservations.append({"stock_id": s.id, "qty": take})
+            reservations.append({"stock_id": s.id, "package_id": None, "qty": take})
             needed -= take
         if needed > 0:
             shortages.append(
                 {
                     "model_id": model_id,
-                    "finished_goods_stock_id": stock_id,
                     "brand_id": brand_id,
                     "color": color,
                     "size": size,
@@ -1421,17 +1611,28 @@ def _reserve_branded_stock(
                 }
             )
 
-    if not shortages and reservations:
-        so.status = "ready"
-        auto_note = "[Auto route] Branded stock reserved and sent to storage team for shipment prep."
+    if reservations:
+        is_complete = not shortages
+        so.status = "ready" if is_complete else "reserved"
+        auto_note = (
+            "[Auto route] Branded stock reserved and sent to storage team for shipment prep."
+            if is_complete
+            else "[Auto route] Complete packages reserved; remaining quantity awaits another package."
+        )
         so.notes = f"{so.notes}\n{auto_note}".strip() if so.notes else auto_note
         if notify_storage_when_ready:
+            total_qty, handoff_message = _shipment_handoff_details(db, so=so, lines=line_rows)
+            reserved_qty = sum(int(row.get("qty") or 0) for row in reservations)
             notify_department(
                 db,
                 department_code="FGS",
-                title=f"{so.order_no} ready for shipment prep",
-                message="Branded stock order has been auto-reserved. Prepare shipment from ready-goods storage.",
-                link=f"/sales-orders/{so.id}",
+                title=(
+                    f"{so.order_no}: {total_qty} pcs ready to ship"
+                    if is_complete
+                    else f"{so.order_no}: {reserved_qty}/{total_qty} pcs ready to ship"
+                ),
+                message=handoff_message,
+                link=f"/departments/FGS#shipping-order-{so.id}",
                 exclude_user_id=current.id,
             )
 
@@ -1441,6 +1642,34 @@ def _reserve_branded_stock(
     return reservations, shortages
 
 
+@router.get("/first-grade-options")
+def first_grade_options(db: DbSession, current: User = Depends(require_permissions("sales.orders", "storage.packages", "*"))):
+    from app.models.ready_stock_sales_service import ready_pack_candidates
+    candidates = ready_pack_candidates(db, stock_kind="first_grade")
+    models = {m.id: m for m in db.query(Model).filter(Model.id.in_({p.model_id for p, _ in candidates})).all()}
+    grouped = {}
+    for package, rows in candidates:
+        for row in rows:
+            key = (row.model_id, row.color, row.size)
+            entry = grouped.setdefault(key, {"model_id": row.model_id, "model_code": models[row.model_id].code,
+                                             "color": row.color, "size": row.size, "available": 0})
+            entry["available"] += row.available_qty
+    return list(grouped.values())
+
+
+@router.get("/ready-stock-options")
+def ready_stock_options(db: DbSession, _: User = Depends(require_permissions("sales.orders", "*"))):
+    groups: dict[tuple[int, int | None], dict] = {}
+    for package, rows in ready_pack_candidates(db):
+        brands = {row.brand_id for row in rows}
+        brand_id = next(iter(brands)) if len(brands) == 1 else None
+        key = (package.model_id, brand_id)
+        group = groups.setdefault(key, {"model_id": package.model_id, "brand_id": brand_id, "pack_count": 0, "quantity": 0})
+        group["pack_count"] += 1
+        group["quantity"] += package.total_quantity
+    return list(groups.values())
+
+
 @router.post("/printing-attachments/upload", status_code=201)
 async def upload_printing_attachment(
     file: UploadFile = File(...),
@@ -1448,19 +1677,33 @@ async def upload_printing_attachment(
 ):
     _ = current
     ext = extension_for_upload(file, SAFE_IMAGE_EXTENSIONS | SAFE_DOCUMENT_EXTENSIONS)
-    os.makedirs(settings.SALES_ORDER_FILES_DIR, exist_ok=True)
-    safe_name = f"so_print_{uuid4().hex}{ext}"
-    abs_path = os.path.join(settings.SALES_ORDER_FILES_DIR, safe_name)
-    content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
-    with open(abs_path, "wb") as f:
-        f.write(content)
+    if ext in SAFE_IMAGE_EXTENSIONS:
+        from app.models.image_storage_service import store_uploaded_image
+
+        stored = await store_uploaded_image(
+            file,
+            target_dir=settings.SALES_ORDER_FILES_DIR,
+            file_url_base="/storage/sales-order-files",
+            name_prefix="so_print",
+            max_bytes=20 * 1024 * 1024,
+        )
+        safe_name = stored.file_name
+        content_type = stored.content_type
+    else:
+        os.makedirs(settings.SALES_ORDER_FILES_DIR, exist_ok=True)
+        safe_name = f"so_print_{uuid4().hex}{ext}"
+        abs_path = os.path.join(settings.SALES_ORDER_FILES_DIR, safe_name)
+        content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
+        with open(abs_path, "wb") as f:
+            f.write(content)
+        content_type = safe_content_type(ext)
     file_url = f"/storage/sales-order-files/{safe_name}"
     return {
         # Signed for immediate <img> preview; the bare path is what gets stored
         # when the order is saved (create/update strip the signature).
         "file_url": sign_path(file_url),
         "file_name": file.filename or safe_name,
-        "content_type": safe_content_type(ext),
+        "content_type": content_type,
     }
 
 
@@ -1479,13 +1722,28 @@ def list_sales_orders(
     if order_type: qry = qry.filter(SalesOrder.order_type == order_type)
     if customer_id: qry = qry.filter(SalesOrder.customer_id == customer_id)
     if q:
-        like = f"%{q.strip()}%"
+        term = q.strip()
+        like = f"%{term}%"
+        model_code_like = normalized_model_code_pattern(term)
+        model_match = (
+            db.query(SalesOrderItem.id)
+            .join(Model, Model.id == SalesOrderItem.model_id)
+            .filter(
+                SalesOrderItem.sales_order_id == SalesOrder.id,
+                (
+                    normalized_model_code_column(Model.code).ilike(model_code_like)
+                    | Model.name.ilike(like)
+                ),
+            )
+            .exists()
+        )
         qry = qry.filter(
             or_(
-                SalesOrder.order_no.ilike(like),
+                order_reference_contains(SalesOrder.order_no, like),
                 SalesOrder.status.ilike(like),
                 SalesOrder.order_type.ilike(like),
                 Customer.name.ilike(like),
+                model_match,
             )
         )
     start, end = date_filter_bounds(created_from, created_to)
@@ -1495,7 +1753,11 @@ def list_sales_orders(
     safe_page = max(1, page)
     safe_size = max(1, min(page_size, 500))
     rows = qry.order_by(SalesOrder.id.desc()).offset((safe_page - 1) * safe_size).limit(safe_size).all()
-    payload = [_serialize_sales_order(db, so, include_items=False) for so in rows]
+    customer_names = _customer_name_map(db, {so.customer_id for so in rows if so.customer_id})
+    payload = [
+        _serialize_sales_order(db, so, include_items=False, customer_names=customer_names)
+        for so in rows
+    ]
     if include_total:
         return {"rows": payload, "total": total, "page": safe_page, "page_size": safe_size}
     return payload
@@ -1556,39 +1818,102 @@ def list_sales_order_history(
             stock_qry = stock_qry.filter(BrandedPlanningOrder.order_no == term)
         else:
             like = f"%{term}%"
+            model_code_like = normalized_model_code_pattern(term)
+            sales_model_match = (
+                db.query(SalesOrderItem.id)
+                .join(Model, Model.id == SalesOrderItem.model_id)
+                .filter(
+                    SalesOrderItem.sales_order_id == SalesOrder.id,
+                    (
+                        normalized_model_code_column(Model.code).ilike(model_code_like)
+                        | Model.name.ilike(like)
+                    ),
+                )
+                .exists()
+            )
             qry = qry.filter(
                 or_(
-                    SalesOrder.order_no.ilike(like),
+                    order_reference_contains(SalesOrder.order_no, like),
                     SalesOrder.status.ilike(like),
                     SalesOrder.order_type.ilike(like),
                     Customer.name.ilike(like),
+                    sales_model_match,
                 )
             )
             stock_qry = stock_qry.filter(
                 or_(
-                    ProductionOrder.production_no.ilike(like),
+                    order_reference_contains(ProductionOrder.production_no, like),
                     ProductionOrder.status.ilike(like),
                     ProductionOrder.production_type.ilike(like),
-                    Model.code.ilike(like),
+                    normalized_model_code_column(Model.code).ilike(model_code_like),
                     Model.name.ilike(like),
-                    BrandedPlanningOrder.order_no.ilike(like),
+                    order_reference_contains(BrandedPlanningOrder.order_no, like),
                     BrandedPlanningOrder.ordered_for_name.ilike(like),
                 )
             )
     safe_page = max(1, page)
     safe_size = max(1, min(page_size, 200))
-    candidates = (
-        [(so.created_at, "sales", so) for so in qry.all()]
-        + [(po.created_at, "production", po) for po in stock_qry.all()]
+    # Count, order and page the candidate set in SQL, then hydrate only the ids
+    # on this page. Hydrating first meant every caller paid for the whole
+    # history - including the joined production children - to show ten rows.
+    # The ordering keys reproduce the previous Python sort exactly:
+    # `created_at` descending with `nullslast` matches the old `""` sort key
+    # for a missing timestamp, `row_id` descending matches the integer id, and
+    # the explicit kind rank reproduces list.sort's stability, which kept a
+    # sales row ahead of a production row when timestamp and id were equal.
+    sales_candidates = qry.enable_eagerloads(False).with_entities(
+        SalesOrder.created_at.label("created_at"),
+        literal("sales").label("kind"),
+        literal(0).label("kind_order"),
+        SalesOrder.id.label("row_id"),
     )
-    candidates.sort(key=lambda entry: ((entry[0].isoformat() if entry[0] else ""), int(entry[2].id)), reverse=True)
-    total = len(candidates)
+    production_candidates = stock_qry.enable_eagerloads(False).with_entities(
+        ProductionOrder.created_at.label("created_at"),
+        literal("production").label("kind"),
+        literal(1).label("kind_order"),
+        ProductionOrder.id.label("row_id"),
+    )
+    candidate_union = sales_candidates.union_all(production_candidates).subquery()
+    total = (
+        int(db.query(func.count()).select_from(candidate_union).scalar() or 0)
+        if include_total else 0
+    )
     start_index = (safe_page - 1) * safe_size
-    selected = candidates[start_index:start_index + safe_size]
+    selected = (
+        db.query(
+            candidate_union.c.created_at,
+            candidate_union.c.kind,
+            candidate_union.c.row_id,
+        )
+        .order_by(
+            candidate_union.c.created_at.desc().nullslast(),
+            candidate_union.c.row_id.desc(),
+            candidate_union.c.kind_order.asc(),
+        )
+        .offset(start_index)
+        .limit(safe_size)
+        .all()
+    )
+    sales_ids = [int(row_id) for _, kind, row_id in selected if kind == "sales"]
+    production_ids = [int(row_id) for _, kind, row_id in selected if kind == "production"]
+    selected_sales = {
+        row.id: row for row in db.query(SalesOrder).filter(SalesOrder.id.in_(sales_ids)).all()
+    } if sales_ids else {}
+    selected_production = {
+        row.id: row for row in db.query(ProductionOrder).options(
+            joinedload(ProductionOrder.planning_order),
+            joinedload(ProductionOrder.items),
+            joinedload(ProductionOrder.batches),
+            joinedload(ProductionOrder.work_orders),
+        ).filter(ProductionOrder.id.in_(production_ids)).all()
+    } if production_ids else {}
     payload = [
         _sales_order_history(db, entity, include_detail=False)
         if kind == "sales" else _stock_production_history(db, entity, include_detail=False)
-        for _, kind, entity in selected
+        for _, kind, row_id in selected
+        # A candidate deleted between the two statements leaves a short page
+        # rather than a failed request.
+        if (entity := (selected_sales if kind == "sales" else selected_production).get(int(row_id))) is not None
     ]
     if include_total:
         return {"rows": payload, "total": total, "page": safe_page, "page_size": safe_size}
@@ -1629,6 +1954,23 @@ def get_sales_order_history(sid: int, db: DbSession, _: CurrentUser):
 def create_sales_order(payload: SalesOrderIn, db: DbSession, current: User = Depends(require_permissions("sales.orders", "*"))):
     if payload.order_type not in ("client_order", "branded_stock_sale"):
         raise HTTPException(400, "Invalid order_type")
+    if payload.order_type == "branded_stock_sale" and not payload.items:
+        raise HTTPException(400, "A Ready stock order must have at least one line")
+    grade_lines = [item for item in payload.items if item.source_type == "first_grade"]
+    if grade_lines and (len(grade_lines) != len(payload.items) or payload.order_type != "branded_stock_sale"
+                        or any(item.requested_pack_count is not None or _is_any_stock_token(item.size)
+                               or _is_any_stock_token(item.color) or item.printing_required for item in grade_lines)):
+        raise HTTPException(400, "FIRST_GRADE_SEPARATE_ORDER")
+    pack_order = any(item.requested_pack_count is not None for item in payload.items)
+    if pack_order:
+        if payload.order_type != "branded_stock_sale" or any(item.requested_pack_count is None for item in payload.items):
+            raise HTTPException(400, "Pack counts require a Ready stock order with pack counts on every line")
+        if len({item.model_id for item in payload.items}) != len(payload.items):
+            raise HTTPException(400, "Use one pack-count line per model variant")
+        if any(item.quantity is not None or item.printing_required for item in payload.items):
+            raise HTTPException(400, "Ready stock pack quantities come from warehouse packages; printing is not supported")
+    elif any(item.quantity is None for item in payload.items):
+        raise HTTPException(400, "A piece quantity is required")
     if payload.customer_id and not db.get(Customer, payload.customer_id):
         raise HTTPException(404, "Customer not found")
     so = SalesOrder(
@@ -1645,55 +1987,33 @@ def create_sales_order(payload: SalesOrderIn, db: DbSession, current: User = Dep
     db.add(so); db.flush()
     total = 0.0
     created_lines: list[SalesOrderItem] = []
+    selected_model_ids = {int(item.model_id) for item in payload.items}
+    selected_models = {
+        model.id: model
+        for model in db.query(Model).filter(
+            Model.id.in_(selected_model_ids),
+            Model.catalog_scope == "standard",
+        ).all()
+    } if selected_model_ids else {}
     for item in payload.items:
-        if int(item.quantity or 0) <= 0:
-            raise HTTPException(400, "Sales order quantity must be greater than zero")
-        if float(item.unit_price or 0) < 0:
-            raise HTTPException(400, "Sales order unit price cannot be negative")
-
-        item_data = item.model_dump()
-        stock = None
-        source_model_code = None
-        source_model_name = None
-        if item.finished_goods_stock_id is not None:
-            if payload.order_type != "branded_stock_sale":
-                raise HTTPException(400, "Ready-stock selection only applies to stock sales")
-            stock = db.get(FinishedGoodsStock, int(item.finished_goods_stock_id))
-            if not stock:
-                raise HTTPException(404, f"Ready stock {item.finished_goods_stock_id} not found")
-            if stock.model_id is not None:
-                if item.model_id is not None and int(item.model_id) != int(stock.model_id):
-                    raise HTTPException(409, "Selected stock does not match the requested model")
-                item_data["model_id"] = int(stock.model_id)
-            elif item.model_id is not None:
-                raise HTTPException(409, "Model-less legacy stock cannot be assigned a model during sale")
-            else:
-                package = db.get(Package, stock.package_id) if stock.package_id else None
-                identity = package_legacy_identity(db, package)
-                source_model_code = identity.get("model_code")
-                source_model_name = identity.get("model_name")
-                if not package or not package.legacy_receipt_id or not source_model_code:
-                    raise HTTPException(409, "Model-less stock is missing its legacy receipt identity")
-                item_data["source_type"] = "legacy_stock"
-            if item_data.get("brand_id") is None and stock.brand_id is not None:
-                item_data["brand_id"] = int(stock.brand_id)
-            if item_data.get("collection_id") is None and stock.collection_id is not None:
-                item_data["collection_id"] = int(stock.collection_id)
-        else:
-            if item.model_id is None:
-                raise HTTPException(400, "Select a model or an old inventory product")
-            if not db.get(Model, item.model_id):
-                raise HTTPException(404, f"Model {item.model_id} not found")
-
+        model = selected_models.get(item.model_id)
+        if not model:
+            raise HTTPException(404, f"Model {item.model_id} not found")
+        unit_price = item.unit_price
+        if unit_price is None:
+            unit_price = float(model.selling_price) if model.selling_price is not None else 0.0
         line = SalesOrderItem(
             sales_order_id=so.id,
-            source_model_code=source_model_code,
-            source_model_name=source_model_name,
-            **item_data,
+            unit_price=unit_price,
+            **item.model_dump(exclude={"unit_price", "quantity", "color", "size", "source_type"}),
+            quantity=0 if pack_order else item.quantity,
+            color="mixed" if pack_order else item.color,
+            size="any" if pack_order else item.size,
+            source_type="from_stock" if pack_order else item.source_type,
         )
         db.add(line)
         created_lines.append(line)
-        total += float(item.unit_price) * item.quantity
+        total += float(unit_price) * line.quantity
     so.total_amount = total
     if payload.order_type == "branded_stock_sale":
         reservations, shortages = _reserve_branded_stock(
@@ -1731,6 +2051,11 @@ def update_sales_order(sid: int, payload: SalesOrderUpdate, db: DbSession, curre
     so = db.get(SalesOrder, sid)
     if not so: raise HTTPException(404, "Sales order not found")
     updates = payload.model_dump(exclude_unset=True)
+    if "status" in updates:
+        if updates.pop("status") != so.status:
+            raise HTTPException(409, "Order status is controlled by workflow commands, not general edits")
+        # A full-form resubmission may include the unchanged status. Never write
+        # that snapshot back over progress made by another workflow command.
     if "printing_attachments" in updates:
         updates["printing_attachments"] = _attachments_for_storage(updates["printing_attachments"])
     for k, v in updates.items():
@@ -1806,7 +2131,15 @@ def generate_invoice_for_order(
     db: DbSession,
     current: User = Depends(require_permissions("finance.invoice", "sales.orders", "*")),
 ):
-    so = db.get(SalesOrder, sid)
+    # Match finance.create_invoice: both entry points must serialize on the
+    # order before checking whether an invoice already exists.
+    so = (
+        db.query(SalesOrder)
+        .filter(SalesOrder.id == sid)
+        .populate_existing()
+        .with_for_update(of=SalesOrder, key_share=True)
+        .first()
+    )
     if not so:
         raise HTTPException(404, "Sales order not found")
     allowed = {"confirmed", "in_production", "cutting", "sewing", "packaging", "storage", "ready", "reserved", "shipped", "delivered", "planning", "planning_approved", "production"}

@@ -109,3 +109,4 @@ Use Traceability for:
 | Cannot move package | Status shipped/delivered/damaged | Do not move; review package history. |
 | Shipment scan mismatch | Wrong package scanned | Stop and compare shipment package list. |
 | Customer asks where goods are | Need shipment/package history | Use Traceability and Shipments. |
+

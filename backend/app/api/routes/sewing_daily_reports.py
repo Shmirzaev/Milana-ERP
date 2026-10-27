@@ -1,15 +1,34 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Annotated
+from fastapi import APIRouter, Depends, HTTPException, Header
+from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 from fastapi.responses import Response
-from sqlalchemy.orm import joinedload
+from sqlalchemy import func, case, or_
+from sqlalchemy.orm import joinedload, noload, selectinload
 
 from app.core.deps import DbSession, require_permissions
-from app.models import CuttingPassport, Model, SewingAssignment, SewingDailyReport, SewingFlow, User, WorkOrder, ProductionOrder, ProductionBatch
-from app.schemas.sewing_daily_report import (
+from app.schemas import (
+    Bundle,
+    CuttingPassport,
+    Item,
+    Model,
+    ModelBOM,
+    ModelImage,
+    ProductionBatch,
+    ProductionOrder,
+    SewingAssignment,
+    SewingDailyReport,
+    SewingFlow,
+    StockBatch,
+    User,
+    WorkOrder,
+)
+from app.libs.dto.production.sewing_daily_report import (
     SewingDailyLineContext,
     SewingDailyLineWorkOrder,
     SewingDailyModelInfo,
@@ -17,23 +36,33 @@ from app.schemas.sewing_daily_report import (
     SewingDailyReportListOut,
     SewingDailyReportOut,
     SewingDailyReportSummaryLine,
+    SewingDailyReportUpdate,
 )
-from app.services.audit import log_action
-from app.services.model_images import material_preview_image_url, model_preview_image_url
-from app.services.sewing_daily_report_exports import (
+from app.models.audit_service import log_action
+from app.models.model_images_service import material_preview_image_url, model_preview_image_url
+from app.models.sewing_daily_report_exports_service import (
     ReportLanguage,
     build_sewing_daily_report_pdf,
     build_sewing_daily_report_xlsx,
 )
+from app.models.sewing_scope_service import band_report_scope, require_sewing_flow_access, sewing_line_factory_scope
 
 router = APIRouter(prefix="/sewing-daily-reports", tags=["sewing-daily-reports"])
 
-SECTIONED_LINE_CODES = {"SEW-01", "SEW-06", "SEW-07", "SEW-09"}
+SECTIONED_LINE_CODES = {"SEW-01", "SEW-06", "SEW-07", "SEW-09", "SEW-10", "SEW-12", "SEW-13"}
 
 _ACTIVE_WO_STATUSES = ("waiting", "pending", "collected", "ready", "in_progress", "paused", "new", "planning")
 _ACTIVE_ASSIGN_STATUSES = ("planned", "in_progress")
 _ASSIGNMENT_MANAGED_STATUSES = ("planned", "in_progress", "completed")
-_REPORT_READ_PERMS = ("sewing.workspace",)
+_REPORT_READ_PERMS = ("sewing.workspace", "sewing.daily_reports.view")
+_READ_CHUNK_SIZE = 400
+
+
+def _uses_dynamic_sections(flow: SewingFlow) -> bool:
+    """Return whether a sewing line uses the multi-section daily report form."""
+    factory_code = str(flow.factory_code or "").strip().upper()
+    line_code = str(flow.code or "").strip().upper()
+    return factory_code in {"BST", "ECO"} or line_code in SECTIONED_LINE_CODES
 
 
 def _model_code_parts(model: Model | None) -> tuple[str | None, str | None]:
@@ -95,20 +124,301 @@ def _production_kroy_no(db, production_order_id: int | None, cache: dict[int, st
     return result
 
 
+def _read_chunks(values):
+    ordered = sorted({int(value) for value in values})
+    for offset in range(0, len(ordered), _READ_CHUNK_SIZE):
+        yield ordered[offset:offset + _READ_CHUNK_SIZE]
+
+
+def _model_read_options():
+    return (
+        selectinload(Model.images).load_only(
+            ModelImage.id,
+            ModelImage.model_id,
+            ModelImage.file_url,
+            ModelImage.file_name,
+            ModelImage.content_type,
+            ModelImage.image_type,
+            ModelImage.is_primary,
+        ),
+        selectinload(Model.bom)
+        .load_only(
+            ModelBOM.id,
+            ModelBOM.model_id,
+            ModelBOM.item_id,
+            ModelBOM.stock_batch_id,
+            ModelBOM.photo_url,
+        )
+        .options(
+            joinedload(ModelBOM.item).load_only(Item.id, Item.category, Item.image_url),
+            joinedload(ModelBOM.stock_batch).load_only(StockBatch.id, StockBatch.image_url),
+        ),
+    )
+
+
+def _production_model_info_cache(db, production_orders) -> dict[int, dict]:
+    orders = {int(order.id): order for order in production_orders}
+    model_ids = {int(order.model_id) for order in orders.values() if order.model_id}
+    models_by_id = {}
+    for chunk in _read_chunks(model_ids):
+        models_by_id.update({
+            int(model.id): model
+            for model in (
+                db.query(Model)
+                .options(*_model_read_options())
+                .filter(Model.id.in_(chunk))
+                .all()
+            )
+        })
+    return {
+        production_id: _model_info(models_by_id.get(int(order.model_id)))
+        for production_id, order in orders.items()
+    }
+
+
+def _production_kroy_cache(db, production_order_ids) -> dict[int, str | None]:
+    production_ids = sorted({int(value) for value in production_order_ids})
+    result = {production_id: None for production_id in production_ids}
+    for chunk in _read_chunks(production_ids):
+        rank = func.row_number().over(
+            partition_by=CuttingPassport.production_order_id,
+            order_by=(CuttingPassport.date.desc(), CuttingPassport.id.desc()),
+        ).label("latest_rank")
+        ranked = (
+            db.query(
+                CuttingPassport.production_order_id.label("production_order_id"),
+                CuttingPassport.passport_no.label("passport_no"),
+                rank,
+            )
+            .filter(CuttingPassport.production_order_id.in_(chunk))
+            .subquery()
+        )
+        for production_id, passport_no in (
+            db.query(ranked.c.production_order_id, ranked.c.passport_no)
+            .filter(ranked.c.latest_rank == 1)
+            .all()
+        ):
+            result[int(production_id)] = str(passport_no or "").strip() or None
+    return result
+
+
 def _report_model_info(
     db,
     report: SewingDailyReport,
     production_order: ProductionOrder | None,
     cache: dict[int, dict] | None = None,
 ) -> dict:
-    payload = dict(_production_model_info(db, production_order, cache))
     manual_model_no = str(report.manual_model_no or "").strip()
     manual_variant_no = str(report.manual_variant_no or "").strip()
     if manual_model_no:
-        payload["model_no"] = manual_model_no
-    if manual_variant_no:
-        payload["variant_no"] = manual_variant_no
+        return {
+            "model_id": None,
+            "model_code": None,
+            "model_no": manual_model_no,
+            "variant_no": manual_variant_no or None,
+            "model_name": None,
+            "model_image_url": None,
+            "fabric_image_url": None,
+        }
+    return dict(_production_model_info(db, production_order, cache))
+
+
+def _report_response(db, report: SewingDailyReport) -> dict:
+    production_order = (
+        db.get(ProductionOrder, int(report.production_order_id))
+        if report.production_order_id
+        else None
+    )
+    payload = SewingDailyReportOut.model_validate(report).model_dump()
+    payload.update(_report_model_info(db, report, production_order))
     return payload
+
+
+def _report_audit_values(report: SewingDailyReport) -> dict:
+    return {
+        "report_date": report.report_date,
+        "sewing_flow_id": report.sewing_flow_id,
+        "work_order_id": report.work_order_id,
+        "sewing_assignment_id": report.sewing_assignment_id,
+        "production_order_id": report.production_order_id,
+        "production_batch_id": report.production_batch_id,
+        "manual_model_no": report.manual_model_no,
+        "manual_variant_no": report.manual_variant_no,
+        "kroy_no": report.kroy_no,
+        "sewn_qty": report.sewn_qty,
+        "section_quantities": report.section_quantities,
+        "section_no": report.section_no,
+        "section_name": report.section_name,
+        "top_qty": report.top_qty,
+        "bottom_qty": report.bottom_qty,
+        "defective_qty": report.defective_qty,
+        "defect_reason": report.defect_reason,
+        "notes": report.notes,
+    }
+
+
+def _lock_report_order(db, work_order_id) -> WorkOrder | None:
+    """Serialize report writes after the work-order lock used by sewing writes."""
+    if work_order_id is None:
+        return None
+    work_order = (
+        db.query(WorkOrder)
+        .filter(WorkOrder.id == work_order_id)
+        .populate_existing()
+        .with_for_update(of=WorkOrder)
+        .first()
+    )
+    if not work_order:
+        return None
+    (
+        db.query(ProductionOrder)
+        .filter(ProductionOrder.id == work_order.production_order_id)
+        .populate_existing()
+        .with_for_update(of=ProductionOrder)
+        .first()
+    )
+    return work_order
+
+
+def _report_capacity(db, work_order, assignment=None, exclude_id=None):
+    order = work_order.production_order
+    batch_id = assignment.production_batch_id if assignment and assignment.production_batch_id else work_order.production_batch_id
+    bundles = db.query(func.sum(Bundle.quantity)).filter(
+        Bundle.production_order_id == order.id, Bundle.status != "cancelled",
+    )
+    actual = bundles.scalar()
+    limit = int(actual if actual is not None else order.planned_quantity or 0)
+    scopes = [(SewingDailyReport.production_order_id == order.id, limit)]
+    if batch_id:
+        batch = db.get(ProductionBatch, batch_id)
+        batch_actual = bundles.filter(Bundle.production_batch_id == batch_id).scalar()
+        scopes.append((SewingDailyReport.production_batch_id == batch_id,
+                       int(batch_actual if batch_actual is not None else batch.planned_quantity if batch else 0)))
+    if assignment:
+        scopes.append((SewingDailyReport.sewing_assignment_id == assignment.id, int(assignment.quantity or 0)))
+    top_remaining = bottom_remaining = limit
+    for condition, capacity in scopes:
+        # One-piece reports consume one garment; two-piece reports consume each
+        # component independently, even when recorded on different days.
+        query = db.query(
+            func.coalesce(func.sum(case((SewingDailyReport.top_qty.is_not(None), SewingDailyReport.top_qty), else_=SewingDailyReport.sewn_qty)), 0),
+            func.coalesce(func.sum(case((SewingDailyReport.bottom_qty.is_not(None), SewingDailyReport.bottom_qty), else_=SewingDailyReport.sewn_qty)), 0),
+        ).filter(condition)
+        if exclude_id is not None:
+            query = query.filter(SewingDailyReport.id != exclude_id)
+        top, bottom = query.one()
+        top_remaining = min(top_remaining, capacity - int(top))
+        bottom_remaining = min(bottom_remaining, capacity - int(bottom))
+    return max(0, top_remaining), max(0, bottom_remaining)
+
+
+def _validate_report_capacity(db, work_order, assignment, payload, exclude_id=None):
+    top_remaining, bottom_remaining = _report_capacity(db, work_order, assignment, exclude_id)
+    top = payload.top_qty if payload.top_qty is not None else payload.sewn_qty
+    bottom = payload.bottom_qty if payload.bottom_qty is not None else payload.sewn_qty
+    if top > top_remaining or bottom > bottom_remaining:
+        raise HTTPException(400, f"Daily sewing report exceeds the order quantity. Remaining: top {top_remaining}, bottom {bottom_remaining}.")
+
+
+def _line_context_capacity_maps(db, rows):
+    if not rows:
+        return {}, {}
+    production_ids = {int(work_order.production_order_id) for work_order, _ in rows}
+    batch_ids = {
+        int(assignment.production_batch_id if assignment and assignment.production_batch_id
+            else work_order.production_batch_id)
+        for work_order, assignment in rows
+        if assignment and assignment.production_batch_id or work_order.production_batch_id
+    }
+    assignment_ids = {int(assignment.id) for _, assignment in rows if assignment is not None}
+
+    order_bundle_totals = defaultdict(int)
+    batch_bundle_totals = defaultdict(int)
+    bundle_rows = (
+        db.query(Bundle.production_order_id, Bundle.production_batch_id, func.sum(Bundle.quantity))
+        .filter(Bundle.production_order_id.in_(production_ids), Bundle.status != "cancelled")
+        .group_by(Bundle.production_order_id, Bundle.production_batch_id)
+        .all()
+    )
+    for production_id, batch_id, quantity in bundle_rows:
+        order_bundle_totals[int(production_id)] += int(quantity or 0)
+        if batch_id is not None:
+            batch_bundle_totals[(int(production_id), int(batch_id))] += int(quantity or 0)
+
+    batches = {
+        int(batch.id): batch
+        for batch in db.query(ProductionBatch).filter(ProductionBatch.id.in_(batch_ids)).all()
+    } if batch_ids else {}
+
+    usage = {
+        "order": defaultdict(lambda: [0, 0]),
+        "batch": defaultdict(lambda: [0, 0]),
+        "assignment": defaultdict(lambda: [0, 0]),
+    }
+    top_value = case(
+        (SewingDailyReport.top_qty.is_not(None), SewingDailyReport.top_qty),
+        else_=SewingDailyReport.sewn_qty,
+    )
+    bottom_value = case(
+        (SewingDailyReport.bottom_qty.is_not(None), SewingDailyReport.bottom_qty),
+        else_=SewingDailyReport.sewn_qty,
+    )
+    conditions = [SewingDailyReport.production_order_id.in_(production_ids)]
+    if batch_ids:
+        conditions.append(SewingDailyReport.production_batch_id.in_(batch_ids))
+    if assignment_ids:
+        conditions.append(SewingDailyReport.sewing_assignment_id.in_(assignment_ids))
+    report_rows = (
+        db.query(
+            SewingDailyReport.production_order_id,
+            SewingDailyReport.production_batch_id,
+            SewingDailyReport.sewing_assignment_id,
+            func.sum(top_value),
+            func.sum(bottom_value),
+        )
+        .filter(or_(*conditions))
+        .group_by(
+            SewingDailyReport.production_order_id,
+            SewingDailyReport.production_batch_id,
+            SewingDailyReport.sewing_assignment_id,
+        )
+        .all()
+    )
+    for production_id, batch_id, assignment_id, top, bottom in report_rows:
+        for scope, scope_id in (
+            ("order", production_id), ("batch", batch_id), ("assignment", assignment_id),
+        ):
+            if scope_id is not None:
+                usage[scope][int(scope_id)][0] += int(top or 0)
+                usage[scope][int(scope_id)][1] += int(bottom or 0)
+
+    capacities = {}
+    for work_order, assignment in rows:
+        production_id = int(work_order.production_order_id)
+        order = work_order.production_order
+        order_limit = order_bundle_totals.get(production_id, int(order.planned_quantity or 0))
+        order_used = usage["order"][production_id]
+        top_remaining = min(order_limit, order_limit - order_used[0])
+        bottom_remaining = min(order_limit, order_limit - order_used[1])
+        batch_id = assignment.production_batch_id if assignment and assignment.production_batch_id else work_order.production_batch_id
+        if batch_id:
+            batch_id = int(batch_id)
+            batch = batches.get(batch_id)
+            batch_limit = batch_bundle_totals.get(
+                (production_id, batch_id), int(batch.planned_quantity if batch else 0),
+            )
+            batch_used = usage["batch"][batch_id]
+            top_remaining = min(top_remaining, batch_limit - batch_used[0])
+            bottom_remaining = min(bottom_remaining, batch_limit - batch_used[1])
+        assignment_id = int(assignment.id) if assignment is not None else None
+        if assignment_id is not None:
+            assignment_used = usage["assignment"][assignment_id]
+            top_remaining = min(top_remaining, int(assignment.quantity or 0) - assignment_used[0])
+            bottom_remaining = min(bottom_remaining, int(assignment.quantity or 0) - assignment_used[1])
+        capacities[(int(work_order.id), assignment_id)] = (
+            max(0, top_remaining), max(0, bottom_remaining),
+        )
+    return capacities, batches
 
 
 def _work_order_context(
@@ -117,9 +427,13 @@ def _work_order_context(
     *,
     sewing_assignment: SewingAssignment | None = None,
     kroy_cache: dict[int, str | None] | None = None,
+    model_cache: dict[int, dict] | None = None,
+    capacity_cache: dict[tuple[int, int | None], tuple[int, int]] | None = None,
+    batch_cache: dict[int, ProductionBatch] | None = None,
 ) -> SewingDailyLineWorkOrder:
     batch_id = sewing_assignment.production_batch_id if sewing_assignment and sewing_assignment.production_batch_id else work_order.production_batch_id
-    batch = db.get(ProductionBatch, int(batch_id)) if batch_id else None
+    batch = ((batch_cache or {}).get(int(batch_id)) if batch_cache is not None
+             else db.get(ProductionBatch, int(batch_id))) if batch_id else None
     if sewing_assignment is not None:
         planned = int(sewing_assignment.quantity or 0)
         completed = int(sewing_assignment.completed_qty or 0)
@@ -128,6 +442,9 @@ def _work_order_context(
         planned = max(int(work_order.planned_input_qty or 0), int(work_order.planned_output_qty or 0))
         completed = int(work_order.passed_qty or 0) + int(work_order.failed_qty or 0)
         assignment_id = None
+    capacity_key = (int(work_order.id), int(sewing_assignment.id) if sewing_assignment is not None else None)
+    report_top, report_bottom = (capacity_cache[capacity_key] if capacity_cache is not None
+                                 else _report_capacity(db, work_order, sewing_assignment))
     return SewingDailyLineWorkOrder(
         work_order_id=int(work_order.id),
         sewing_assignment_id=assignment_id,
@@ -145,12 +462,13 @@ def _work_order_context(
         remaining_qty=max(0, planned - completed),
         deadline=work_order.deadline,
         kroy_no=_production_kroy_no(db, work_order.production_order_id, kroy_cache),
-        **_production_model_info(db, work_order.production_order),
+        report_remaining_top_qty=report_top,
+        report_remaining_bottom_qty=report_bottom,
+        **_production_model_info(db, work_order.production_order, model_cache),
     )
 
 
 def _line_context(db, flow: SewingFlow) -> SewingDailyLineContext:
-    kroy_cache: dict[int, str | None] = {}
     order_ref_load = joinedload(WorkOrder.production_order).joinedload(ProductionOrder.sales_order)
     assignment_order_ref_load = (
         joinedload(SewingAssignment.work_order)
@@ -168,8 +486,8 @@ def _line_context(db, flow: SewingFlow) -> SewingDailyLineContext:
         .order_by(SewingAssignment.status.desc(), SewingAssignment.updated_at.desc(), SewingAssignment.id.desc())
         .all()
     )
-    active = [
-        _work_order_context(db, assignment.work_order, sewing_assignment=assignment, kroy_cache=kroy_cache)
+    context_rows = [
+        (assignment.work_order, assignment)
         for assignment in split_assignments
         if assignment.work_order is not None
     ]
@@ -197,7 +515,24 @@ def _line_context(db, flow: SewingFlow) -> SewingDailyLineContext:
         completed = int(work_order.passed_qty or 0) + int(work_order.failed_qty or 0)
         if planned > 0 and completed >= planned:
             continue
-        active.append(_work_order_context(db, work_order, kroy_cache=kroy_cache))
+        context_rows.append((work_order, None))
+
+    production_orders = {
+        int(work_order.production_order_id): work_order.production_order
+        for work_order, _ in context_rows
+        if work_order.production_order is not None
+    }
+    model_cache = _production_model_info_cache(db, production_orders.values())
+    kroy_cache = _production_kroy_cache(db, production_orders)
+    capacity_cache, batch_cache = _line_context_capacity_maps(db, context_rows)
+    active = [
+        _work_order_context(
+            db, work_order, sewing_assignment=assignment, kroy_cache=kroy_cache,
+            model_cache=model_cache,
+            capacity_cache=capacity_cache, batch_cache=batch_cache,
+        )
+        for work_order, assignment in context_rows
+    ]
 
     active.sort(key=lambda row: (row.status != "in_progress", row.work_order_id))
     return SewingDailyLineContext(
@@ -212,14 +547,20 @@ def _line_context(db, flow: SewingFlow) -> SewingDailyLineContext:
 def line_context(
     sewing_flow_id: int,
     db: DbSession,
-    _: User = Depends(require_permissions(*_REPORT_READ_PERMS)),
+    current: User = Depends(require_permissions(*_REPORT_READ_PERMS)),
 ):
     flow = db.get(SewingFlow, sewing_flow_id)
     if not flow:
         raise HTTPException(404, "Sewing line not found")
+    require_sewing_flow_access(current, flow)
     if not flow.is_active:
         raise HTTPException(400, "Sewing line is inactive")
-    return _line_context(db, flow)
+    result = _line_context(db, flow)
+    if current.sewing_band_id:
+        from app.models.sewing_band_progress_service import band_board
+        active_ids = {j["id"] for j in band_board(db, [flow.id])[0]["jobs"] if not j["line_finished"]}
+        result.active_work_orders = [w for w in result.active_work_orders if w.sewing_assignment_id in active_ids]
+    return result
 
 
 @router.post("", response_model=SewingDailyReportOut, status_code=201)
@@ -227,21 +568,23 @@ def create_report(
     payload: SewingDailyReportCreate,
     db: DbSession,
     current: User = Depends(require_permissions("sewing.workspace")),
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ):
     flow = db.get(SewingFlow, payload.sewing_flow_id)
     if not flow:
         raise HTTPException(404, "Sewing line not found")
+    require_sewing_flow_access(current, flow)
     if not flow.is_active:
         raise HTTPException(400, "Sewing line is inactive")
+    if current.sewing_band_id and (payload.work_order_id is None or payload.sewing_assignment_id is None):
+        raise HTTPException(403, "Select work assigned to your band")
+    replay = replay_idempotent_response(db, scope="sewing.daily-report", key=idempotency_key, payload=payload.model_dump())
+    if replay is not None:
+        return replay
     work_order = None
     assignment = None
     if payload.work_order_id is not None:
-        work_order = (
-            db.query(WorkOrder)
-            .options(joinedload(WorkOrder.production_order).joinedload(ProductionOrder.sales_order))
-            .filter(WorkOrder.id == payload.work_order_id)
-            .first()
-        )
+        work_order = _lock_report_order(db, payload.work_order_id)
         if not work_order or work_order.operation != "sewing":
             raise HTTPException(404, "Sewing work order not found")
         if payload.sewing_assignment_id is not None:
@@ -250,16 +593,24 @@ def create_report(
                 not assignment
                 or assignment.work_order_id != work_order.id
                 or assignment.sewing_flow_id != flow.id
+                or assignment.status not in ("planned", "in_progress", "completed")
             ):
                 raise HTTPException(400, "Selected assignment does not belong to this sewing line and order")
         elif work_order.sewing_flow_id != flow.id:
             raise HTTPException(400, "Selected work order is not assigned to this sewing line")
+
+    if current.sewing_band_id and assignment:
+        if assignment.line_finished_at or assignment.status not in ("planned", "in_progress"):
+            raise HTTPException(409, "This line assignment is finished")
 
     report_batch_id = (
         assignment.production_batch_id
         if assignment and assignment.production_batch_id
         else work_order.production_batch_id if work_order else None
     )
+    uses_sections = _uses_dynamic_sections(flow)
+    if work_order:
+        _validate_report_capacity(db, work_order, assignment, payload if uses_sections else payload.model_copy(update={"top_qty": None, "bottom_qty": None}))
     report = SewingDailyReport(
         report_date=payload.report_date,
         sewing_flow_id=flow.id,
@@ -279,11 +630,11 @@ def create_report(
             work_order.production_order_id if work_order else None,
         ),
         sewn_qty=payload.sewn_qty,
-        section_quantities=(payload.section_quantities if flow.code in SECTIONED_LINE_CODES else None),
-        section_no=(payload.section_no if flow.code in SECTIONED_LINE_CODES else None),
-        section_name=(payload.section_name if flow.code in SECTIONED_LINE_CODES else None),
-        top_qty=(payload.top_qty if flow.code in SECTIONED_LINE_CODES else None),
-        bottom_qty=(payload.bottom_qty if flow.code in SECTIONED_LINE_CODES else None),
+        section_quantities=(payload.section_quantities if uses_sections else None),
+        section_no=(payload.section_no if uses_sections else None),
+        section_name=(payload.section_name if uses_sections else None),
+        top_qty=(payload.top_qty if uses_sections else None),
+        bottom_qty=(payload.bottom_qty if uses_sections else None),
         defective_qty=payload.defective_qty,
         defect_reason=(payload.defect_reason or "").strip() or None,
         notes=(payload.notes or "").strip() or None,
@@ -303,19 +654,114 @@ def create_report(
             "work_order_id": work_order.id if work_order else None,
             "kroy_no": report.kroy_no,
             "sewn_qty": payload.sewn_qty,
-            "section_quantities": payload.section_quantities if flow.code in SECTIONED_LINE_CODES else None,
-            "section_no": payload.section_no if flow.code in SECTIONED_LINE_CODES else None,
-            "section_name": payload.section_name if flow.code in SECTIONED_LINE_CODES else None,
-            "top_qty": payload.top_qty if flow.code in SECTIONED_LINE_CODES else None,
-            "bottom_qty": payload.bottom_qty if flow.code in SECTIONED_LINE_CODES else None,
+            "section_quantities": payload.section_quantities if uses_sections else None,
+            "section_no": payload.section_no if uses_sections else None,
+            "section_name": payload.section_name if uses_sections else None,
+            "top_qty": payload.top_qty if uses_sections else None,
+            "bottom_qty": payload.bottom_qty if uses_sections else None,
             "defective_qty": payload.defective_qty,
         },
     )
+    if idempotency_key:
+        store_idempotent_response(db, scope="sewing.daily-report", key=idempotency_key, payload=payload.model_dump(), response=_report_response(db, report), user=current, status_code=201)
     db.commit()
     db.refresh(report)
-    response_payload = SewingDailyReportOut.model_validate(report).model_dump()
-    response_payload.update(_report_model_info(db, report, work_order.production_order if work_order else None))
-    return response_payload
+    return _report_response(db, report)
+
+
+@router.patch("/{report_id}", response_model=SewingDailyReportOut)
+def update_report(
+    report_id: int,
+    payload: SewingDailyReportUpdate,
+    db: DbSession,
+    current: User = Depends(require_permissions("sewing.workspace")),
+):
+    report = db.get(SewingDailyReport, report_id)
+    if not report:
+        raise HTTPException(404, "Daily sewing report entry not found")
+    locked_work_order = _lock_report_order(db, report.work_order_id)
+    report = db.query(SewingDailyReport).filter(SewingDailyReport.id == report_id).populate_existing().with_for_update().first()
+    if not report:
+        raise HTTPException(404, "Daily sewing report entry not found")
+    flow = db.get(SewingFlow, int(report.sewing_flow_id))
+    if not flow:
+        raise HTTPException(400, "The saved sewing line no longer exists")
+    require_sewing_flow_access(current, flow)
+    if current.sewing_band_id:
+        assignment = db.get(SewingAssignment, report.sewing_assignment_id) if report.sewing_assignment_id else None
+        if not assignment or assignment.sewing_flow_id != current.sewing_band_id:
+            raise HTTPException(403, "Only a manager can correct reports for transferred or unassigned work")
+    if report.work_order_id is None and not payload.manual_model_no:
+        raise HTTPException(400, "Model number is required when no sewing order is attached")
+
+    if current.sewing_band_id and payload.manual_model_no:
+        raise HTTPException(403, "Band reports must remain linked to assigned work")
+    old_value = _report_audit_values(report)
+    if report.work_order_id and not payload.manual_model_no:
+        work_order = locked_work_order
+        assignment = db.get(SewingAssignment, report.sewing_assignment_id) if report.sewing_assignment_id else None
+        _validate_report_capacity(db, work_order, assignment, payload if _uses_dynamic_sections(flow) else payload.model_copy(update={"top_qty": None, "bottom_qty": None}), report.id)
+    uses_sections = _uses_dynamic_sections(flow)
+    report.report_date = payload.report_date
+    report.manual_model_no = payload.manual_model_no
+    report.manual_variant_no = payload.manual_variant_no
+    if payload.manual_model_no:
+        report.work_order_id = None
+        report.sewing_assignment_id = None
+        report.production_order_id = None
+        report.production_batch_id = None
+        report.order_no = None
+        report.production_no = None
+        report.sales_order_no = None
+    report.kroy_no = payload.kroy_no or _production_kroy_no(db, report.production_order_id)
+    report.sewn_qty = payload.sewn_qty
+    report.section_quantities = payload.section_quantities if uses_sections else None
+    report.section_no = payload.section_no if uses_sections else None
+    report.section_name = payload.section_name if uses_sections else None
+    report.top_qty = payload.top_qty if uses_sections else None
+    report.bottom_qty = payload.bottom_qty if uses_sections else None
+    report.defective_qty = payload.defective_qty
+    report.defect_reason = (payload.defect_reason or "").strip() or None
+    report.notes = (payload.notes or "").strip() or None
+    db.flush()
+    log_action(
+        db,
+        current,
+        "update",
+        "SewingDailyReport",
+        report.id,
+        old_value=old_value,
+        new_value=_report_audit_values(report),
+    )
+    db.commit()
+    db.refresh(report)
+    return _report_response(db, report)
+
+
+@router.delete("/{report_id}", status_code=204)
+def delete_report(
+    report_id: int,
+    db: DbSession,
+    current: User = Depends(require_permissions("sewing.workspace")),
+):
+    report = db.get(SewingDailyReport, report_id)
+    if not report:
+        raise HTTPException(404, "Daily sewing report entry not found")
+    _lock_report_order(db, report.work_order_id)
+    report = db.query(SewingDailyReport).filter(SewingDailyReport.id == report_id).populate_existing().with_for_update().first()
+    if not report:
+        raise HTTPException(404, "Daily sewing report entry not found")
+    flow = db.get(SewingFlow, report.sewing_flow_id)
+    if not flow:
+        raise HTTPException(400, "The saved sewing line no longer exists")
+    require_sewing_flow_access(current, flow)
+    if current.sewing_band_id:
+        assignment = db.get(SewingAssignment, report.sewing_assignment_id) if report.sewing_assignment_id else None
+        if not assignment or assignment.sewing_flow_id != current.sewing_band_id:
+            raise HTTPException(403, "Only a manager can correct reports for transferred or unassigned work")
+    log_action(db, current, "delete", "SewingDailyReport", report.id, old_value=_report_audit_values(report))
+    db.delete(report)
+    db.commit()
 
 
 def _report_date_range(
@@ -345,23 +791,32 @@ def _report_list(
     *,
     from_date: date,
     to_date: date,
+    factory_code: str,
     sewing_flow_id: int | None = None,
 ) -> SewingDailyReportListOut:
-    qry = db.query(SewingDailyReport).filter(SewingDailyReport.report_date >= from_date, SewingDailyReport.report_date <= to_date)
+    qry = db.query(SewingDailyReport).join(
+        SewingFlow,
+        SewingFlow.id == SewingDailyReport.sewing_flow_id,
+    ).filter(
+        SewingDailyReport.report_date >= from_date,
+        SewingDailyReport.report_date <= to_date,
+        SewingFlow.factory_code == factory_code,
+    )
     if sewing_flow_id:
         qry = qry.filter(SewingDailyReport.sewing_flow_id == sewing_flow_id)
     rows = qry.order_by(SewingDailyReport.report_date.desc(), SewingDailyReport.line_code.asc(), SewingDailyReport.created_at.desc()).all()
 
     production_ids = sorted({int(row.production_order_id) for row in rows if row.production_order_id})
-    production_orders = (
-        db.query(ProductionOrder)
-        .filter(ProductionOrder.id.in_(production_ids))
-        .all()
-        if production_ids
-        else []
-    )
+    production_orders = []
+    for chunk in _read_chunks(production_ids):
+        production_orders.extend(
+            db.query(ProductionOrder)
+            .options(noload(ProductionOrder.materials))
+            .filter(ProductionOrder.id.in_(chunk))
+            .all()
+        )
     production_by_id = {int(row.id): row for row in production_orders}
-    model_cache: dict[int, dict] = {}
+    model_cache = _production_model_info_cache(db, production_orders)
     row_payloads: list[dict] = []
     summary_map: dict[int, dict] = {}
     for row in rows:
@@ -443,14 +898,18 @@ def download_report_excel(
     from_date: date | None = None,
     to_date: date | None = None,
     sewing_flow_id: int | None = None,
+    factory_code: str | None = None,
     lang: ReportLanguage = "uz",
-    _: User = Depends(require_permissions(*_REPORT_READ_PERMS)),
+    current: User = Depends(require_permissions(*_REPORT_READ_PERMS)),
 ):
+    sewing_flow_id = band_report_scope(current, sewing_flow_id)
+    factory = sewing_line_factory_scope(current, factory_code)
     resolved_from, resolved_to = _report_date_range(report_date, from_date, to_date)
     report = _report_list(
         db,
         from_date=resolved_from,
         to_date=resolved_to,
+        factory_code=factory,
         sewing_flow_id=sewing_flow_id,
     )
     generated_label, filename_timestamp = _report_generated_labels()
@@ -473,14 +932,18 @@ def download_report_pdf(
     from_date: date | None = None,
     to_date: date | None = None,
     sewing_flow_id: int | None = None,
+    factory_code: str | None = None,
     lang: ReportLanguage = "uz",
-    _: User = Depends(require_permissions(*_REPORT_READ_PERMS)),
+    current: User = Depends(require_permissions(*_REPORT_READ_PERMS)),
 ):
+    sewing_flow_id = band_report_scope(current, sewing_flow_id)
+    factory = sewing_line_factory_scope(current, factory_code)
     resolved_from, resolved_to = _report_date_range(report_date, from_date, to_date)
     report = _report_list(
         db,
         from_date=resolved_from,
         to_date=resolved_to,
+        factory_code=factory,
         sewing_flow_id=sewing_flow_id,
     )
     generated_label, filename_timestamp = _report_generated_labels()
@@ -499,16 +962,20 @@ def download_report_pdf(
 @router.get("", response_model=SewingDailyReportListOut)
 def list_reports(
     db: DbSession,
-    _: User = Depends(require_permissions(*_REPORT_READ_PERMS)),
+    current: User = Depends(require_permissions(*_REPORT_READ_PERMS)),
     report_date: date | None = None,
     from_date: date | None = None,
     to_date: date | None = None,
     sewing_flow_id: int | None = None,
+    factory_code: str | None = None,
 ):
+    sewing_flow_id = band_report_scope(current, sewing_flow_id)
+    factory = sewing_line_factory_scope(current, factory_code)
     resolved_from, resolved_to = _report_date_range(report_date, from_date, to_date)
     return _report_list(
         db,
         from_date=resolved_from,
         to_date=resolved_to,
+        factory_code=factory,
         sewing_flow_id=sewing_flow_id,
     )

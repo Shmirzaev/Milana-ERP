@@ -1,0 +1,56 @@
+{
+  "erp_base_url": "https://erp.milanapremium.uz",
+  "initial_event_days": 30,
+  "people_sync_hours": 24,
+  "page_size": 30,
+  "devices": [
+    {
+      "hikvision_base_url": "https://10.100.50.73",
+      "hikvision_cert_sha256": "REPLACE_WITH_CONFIRMED_DEVICE_CERTIFICATE_FINGERPRINT",
+      "device_key": "turnstile-73",
+      "device_name": "Turnstile 1",
+      "state_path": "state.turnstile-73.json",
+      "sync_photos": false
+    },
+    {
+      "hikvision_base_url": "https://10.100.50.31",
+      "hikvision_cert_sha256": "REPLACE_WITH_CONFIRMED_DEVICE_CERTIFICATE_FINGERPRINT",
+      "device_key": "turnstile-31",
+      "device_name": "Turnstile 2",
+      "state_path": "state.turnstile-31.json",
+      "sync_photos": false
+    },
+    {
+      "hikvision_base_url": "https://10.100.50.91",
+      "hikvision_cert_sha256": "REPLACE_WITH_CONFIRMED_DEVICE_CERTIFICATE_FINGERPRINT",
+      "device_key": "turnstile-91",
+      "device_name": "Turnstile 3",
+      "state_path": "state.turnstile-91.json",
+      "sync_photos": false
+    },
+    {
+      "hikvision_base_url": "https://10.100.50.41",
+      "hikvision_cert_sha256": "REPLACE_WITH_CONFIRMED_DEVICE_CERTIFICATE_FINGERPRINT",
+      "device_key": "turnstile-41",
+      "device_name": "Turnstile 4",
+      "state_path": "state.turnstile-41.json",
+      "sync_photos": true
+    },
+    {
+      "hikvision_base_url": "https://10.100.50.115",
+      "hikvision_cert_sha256": "REPLACE_WITH_CONFIRMED_DEVICE_CERTIFICATE_FINGERPRINT",
+      "device_key": "turnstile-115",
+      "device_name": "Turnstile 5",
+      "state_path": "state.turnstile-115.json",
+      "sync_photos": false
+    },
+    {
+      "hikvision_base_url": "https://10.100.50.104",
+      "hikvision_cert_sha256": "REPLACE_WITH_CONFIRMED_DEVICE_CERTIFICATE_FINGERPRINT",
+      "device_key": "turnstile-104",
+      "device_name": "Turnstile 6",
+      "state_path": "state.turnstile-104.json",
+      "sync_photos": false
+    }
+  ]
+}

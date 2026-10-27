@@ -4,7 +4,6 @@ def _harden_runtime_settings(monkeypatch):
     monkeypatch.setattr(settings, "ENV", "production")
     monkeypatch.setattr(settings, "DEBUG", False)
     monkeypatch.setattr(settings, "JWT_SECRET", "jwt-secret-for-startup-tests-abcdefghijklmnopqrstuvwxyz")
-    monkeypatch.setattr(settings, "JWT_ALGORITHM", "HS256")
     monkeypatch.setattr(settings, "FILE_SIGNING_SECRET", "file-secret-for-startup-tests-abcdefghijklmnopqrstuvwxyz")
     monkeypatch.setattr(settings, "DATABASE_URL", "postgresql+psycopg2://erp_user:secret@db:5432/erp")
     monkeypatch.setattr(settings, "CORS_ORIGINS", "https://erp.example.com")
@@ -15,6 +14,8 @@ def _harden_runtime_settings(monkeypatch):
     monkeypatch.setattr(settings, "REDIS_URL", "")
     monkeypatch.setattr(settings, "ALLOW_INSECURE_DEFAULT_ADMIN_LOGIN", False)
     monkeypatch.setattr(settings, "ALLOW_DEMO_RESET", False)
+    monkeypatch.setenv("TRUSTED_PROXY_CIDRS", "127.0.0.1/32")
+    monkeypatch.setenv("FORWARDED_ALLOW_IPS", "")
 
 
 def test_production_startup_verifies_alembic_without_schema_sync(monkeypatch):
@@ -46,15 +47,3 @@ def test_production_startup_rejects_schema_sync(monkeypatch):
 
     with pytest.raises(RuntimeError, match="STARTUP_SCHEMA_SYNC"):
         main._run_startup()
-
-
-def test_production_runtime_security_rejects_non_hmac_jwt_algorithm(monkeypatch):
-    import pytest
-
-    from app.core.config import settings
-
-    _harden_runtime_settings(monkeypatch)
-    monkeypatch.setattr(settings, "JWT_ALGORITHM", "ES256")
-
-    with pytest.raises(RuntimeError, match="JWT_ALGORITHM must be HS256"):
-        settings.validate_runtime_security()
