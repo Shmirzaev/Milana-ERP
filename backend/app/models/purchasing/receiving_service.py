@@ -64,6 +64,11 @@ def receive_purchase_order(
     # borrowed across any of them.
     scope = f"purchasing.receive:{selected_factory_code(current)}:{current.id}:{order_id}"
     fingerprint_payload = payload.model_dump(mode="json")
+    # The empty spelling historically stored "passed" but was fingerprinted
+    # as "". Preserve it so already-committed retries remain replayable.
+    for line, fingerprint_line in zip(payload.lines, fingerprint_payload["lines"]):
+        if line.raw_qc_status is not None:
+            fingerprint_line["qc_status"] = line.raw_qc_status
     replay = replay_idempotent_response(
         db, scope=scope, key=idempotency_key, payload=fingerprint_payload,
     )

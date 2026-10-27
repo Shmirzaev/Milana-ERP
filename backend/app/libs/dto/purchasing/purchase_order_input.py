@@ -2,10 +2,11 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator
 
 from app.libs.dto.common import StoredUnitCost
 from app.libs.dto.purchasing.purchase_quantity import PurchaseQuantity, PurchaseReceiptQuantity
+from app.libs.enums.inventory import StockBatchQcStatus
 
 
 class PurchaseOrderLineIn(BaseModel):
@@ -45,7 +46,29 @@ class PurchaseOrderReceiveLineIn(BaseModel):
     piece_count: Optional[int] = None
     roll_weights_kg: list[float] = Field(default_factory=list, max_length=1000)
     processes: Optional[str] = None
-    qc_status: str = "passed"
+    qc_status: StockBatchQcStatus = StockBatchQcStatus.PASSED
+    _raw_qc_status: str | None = PrivateAttr(default=None)
+
+    @field_validator("qc_status", mode="before")
+    @classmethod
+    def _empty_qc_means_passed(cls, value):
+        # The old receipt path stored an empty string as "passed".
+        return StockBatchQcStatus.PASSED if value == "" else value
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _keep_receipt_qc_for_replay(cls, data, handler):
+        raw = data.get("qc_status") if isinstance(data, dict) else None
+        model = handler(data)
+        if isinstance(raw, StockBatchQcStatus):
+            model._raw_qc_status = raw.value
+        elif isinstance(raw, str):
+            model._raw_qc_status = raw
+        return model
+
+    @property
+    def raw_qc_status(self) -> str | None:
+        return self._raw_qc_status
 
 
 class PurchaseOrderReceiveIn(BaseModel):

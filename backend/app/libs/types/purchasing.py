@@ -10,6 +10,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import NotRequired, TypedDict
 
+from app.libs.enums.inventory import StockBatchQcStatus
 from app.libs.enums.purchasing import PurchaseOrderStatus, PurchaseRequestStatus
 
 
@@ -102,3 +103,31 @@ class PurchaseRequestConversionCommand(TypedDict):
 
     expected_date: datetime
     lines: list[PurchaseRequestConversionLineCommand]
+
+
+class PurchaseOrderReceiptLineCommand(TypedDict):
+    """Validated HTTP receipt fields; the core also has legacy dict callers."""
+
+    purchase_order_line_id: int
+    received_quantity: float
+    batch_no: str
+    warehouse_id: int | None
+    supplier_id: int | None
+    cost_per_unit: Decimal | None
+    color: str | None
+    old_code: str | None
+    color_code: str | None
+    color_status: str | None
+    order_no: str | None
+    width: float | None
+    gsm: float | None
+    piece_count: int | None
+    roll_weights_kg: list[float]
+    processes: str | None
+    qc_status: StockBatchQcStatus
+
+
+class PurchaseOrderReceiptCommand(TypedDict):
+    supplier_id: int | None
+    close_order: bool
+    lines: list[PurchaseOrderReceiptLineCommand]

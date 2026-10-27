@@ -22,9 +22,11 @@ from app.schemas import (
     ProductionOrder,
 )
 from app.libs.dto.purchasing.purchase_quantity import MAX_PURCHASE_QUANTITY
+from app.libs.enums.inventory import StockBatchQcStatus
 from app.libs.enums.purchasing import PurchaseOrderStatus, PurchaseRequestStatus
 from app.libs.types.purchasing import (
     PurchaseOrderCreateCommand,
+    PurchaseOrderReceiptCommand,
     PurchaseRequestApprovalCommand,
     PurchaseRequestApprovalTransition,
     PurchaseRequestConversionCommand,
@@ -632,7 +634,7 @@ def _purchase_order_status(order: PurchaseOrder) -> str:
     return order.status
 
 
-def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: User) -> PurchaseOrder:
+def receive_purchase_order(db: Session, *, order_id: int, data: PurchaseOrderReceiptCommand, current: User) -> PurchaseOrder:
     order_query = db.query(PurchaseOrder).options(
         lazyload(PurchaseOrder.purchase_request), lazyload(PurchaseOrder.supplier),
     ).filter(PurchaseOrder.id == order_id).populate_existing()
@@ -726,7 +728,10 @@ def receive_purchase_order(db: Session, *, order_id: int, data: dict, current: U
             cost_per_unit=cost_per_unit,
             image_url=str(line.photo_url or item.image_url or "").strip() or None,
             warehouse_id=warehouse_id,
-            qc_status=raw.get("qc_status") or "passed",
+            # Route inputs now carry the canonical member. Existing direct
+            # core callers still supply legacy strings and retain their rules.
+            qc_status=(raw["qc_status"].value if isinstance(raw.get("qc_status"), StockBatchQcStatus)
+                       else raw.get("qc_status") or StockBatchQcStatus.PASSED.value),
         )
         db.add(batch)
         db.flush()

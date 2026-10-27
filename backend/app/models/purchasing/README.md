@@ -95,6 +95,14 @@ gates. This extraction does not complete Purchasing or its remaining operations.
 
 Inventory owns stock facts. Receiving coordinates both changes under one transaction; do not create a second independent stock-writing implementation.
 
+Receipt QC uses `StockBatchQcStatus` in the HTTP contract and validated command;
+storage stays a plain string. Empty input retains the historical `passed`
+fallback and its original idempotency fingerprint. Unsupported nonempty QC
+values now receive 422 at request validation rather than failing a later
+database CHECK; direct legacy core callers still retain their old string path.
+Receipt stock, movement and order-line/header mapped writes remain a separate
+schema-owned persistence migration. This enum change does not complete that work.
+
 Verify partial/repeated receiving, kg versus metre quantities, item access, totals and rollback. Visually check purchase request approval, order receiving and the resulting stock batch.
 
 ## Migration steps

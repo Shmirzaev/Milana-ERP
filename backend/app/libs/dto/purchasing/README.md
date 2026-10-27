@@ -28,6 +28,12 @@ Reuse shared bases from ../common.py and existing fixed values. Test validation,
 serialization, denied/privileged fields and the consuming workflow; then perform
 the required visual and release acceptance checks.
 
+Purchase receipt lines use `StockBatchQcStatus`; the omitted and empty-string
+inputs both store `passed`. The original empty spelling is retained for receipt
+idempotency fingerprints. Nonempty unsupported, padded or case-changed values
+now fail request validation with 422 instead of reaching the stock-batch CHECK
+later; this is an intentional validation/OpenAPI change. Null remains invalid.
+
 See [DTO rules](../README.md), [business services](../../../models/README.md),
 [database definitions](../../../schemas/README.md) and
 [ownership](../../../../../docs/TEAM_OWNERSHIP.md).
