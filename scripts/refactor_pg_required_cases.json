@@ -92,8 +92,8 @@
       ]
     },
     "test_purchase_conversion_postgres": {
-      "revision": "29166bb524baca93b9d477cc95dcceade46f4a8b",
-      "git_blob_sha256": "2d702a14fa04bc479219d24b82d26fca0d6ae367d75dc28ae625ac80f80e2233",
+      "revision": "dff3cf4f718e139bc9dfb8ff73b74a378312b5e5",
+      "git_blob_sha256": "8e99a51861f10448c358f7a54a329ca5d935cd71e3af63dd84418dd4a254485f",
       "selected_functions": [
         "test_pg_conversion_typed_snapshot_matches_persisted_and_timezone",
         "test_pg_deferred_audit_failure_rolls_back_every_participant_then_retry",
