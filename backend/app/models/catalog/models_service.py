@@ -102,7 +102,7 @@ from app.schemas import (
     StockBatch,
     User,
 )
-from app.schemas.catalog.bom_persistence import insert_model_bom, update_model_bom
+from app.schemas.catalog.bom_persistence import delete_model_bom, insert_model_bom, update_model_bom
 
 # A model's details_json is per-model modelling metadata: identity, costing and
 # paid operations. Sizes, measurements, BOM and images live in their own tables,
@@ -2834,7 +2834,7 @@ def delete_bom(
     mid: int,
     bom_id: int,
     catalog_scope: str = "standard",
-):
+) -> None:
     if not _catalog_model(db, mid, catalog_scope):
         raise HTTPException(404, "Model not found")
     b = db.query(ModelBOM).filter(ModelBOM.id == bom_id, ModelBOM.model_id == mid).first()
@@ -2849,7 +2849,7 @@ def delete_bom(
         "size": b.size,
         "color": b.color,
     }
-    db.delete(b)
+    delete_model_bom(db, b)
     log_action(db, current, "delete", "ModelBOM", bom_id, new_value=old_value)
     db.commit()
 

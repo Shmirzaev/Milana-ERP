@@ -1,9 +1,10 @@
 """Schema-owned persistence for the catalog BOM rows.
 
-These helpers own the mapped construction, add and flush for BOM creation, and
-the mapped assignments for BOM updates. Update assignment deliberately does not
-flush so the service retains its existing audit/commit ordering. The business
-decisions, main-material uniqueness check, real audit and outer commit stay in
+These helpers own mapped construction, add and flush for BOM creation,
+mapped assignments for BOM updates, and mapped deletion. Update and delete
+helpers do not flush, preserving the service's audit/commit ordering. Business
+decisions, uniqueness checks, linked-cutting refusals, real audit and the outer
+transaction stay in
 `app/models/catalog/models_service.py`.
 """
 
@@ -59,3 +60,12 @@ def update_model_bom(
             value = value.value
         setattr(row, key, value)
     return row
+
+
+def delete_model_bom(db: Session, row: ModelBOM) -> None:
+    """Mark one already-checked BOM row for deletion in the caller's session.
+
+    The catalog service owns lookup, refusal policy, audit and commit. This
+    helper performs no query, flush, commit or rollback.
+    """
+    db.delete(row)

@@ -42,6 +42,9 @@ classes out of mixed files is a separate approved change.
    inserts, updates, deletes and mapped mutations belong in schema-owned
    operations using the supplied Session; helpers never commit independently.
    Follow the [engineering workflow](../../../../docs/ENGINEERING_WORKFLOW.md).
+   BOM insertion and the row deletion for the existing Catalog delete operation
+   are focused examples in [bom_persistence.py](bom_persistence.py); the service
+   keeps lookup, linked-cutting refusal, audit and the outer commit.
 5. Update callers, model registration and Alembic discovery together. Require one
    mapping per table and no database-schema difference for a source-only move.
 6. Check contracts and PostgreSQL behavior, visually exercise the affected factory

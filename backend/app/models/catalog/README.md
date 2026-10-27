@@ -84,6 +84,13 @@ three DTOs for every table or expose privileged fields through generic updates.
 
 Sales uses customer/product references; Purchasing uses supplier/material references; Planning reads BOM. Finance owns payment posting. Model images use existing storage helpers.
 
+`delete_bom` is the transaction owner for both the standard Catalog and Usluga
+routes. It preserves model/BOM lookup and cutting-use refusal order, writes the
+existing `ModelBOM` delete audit, then commits once. The mapped deletion itself
+uses `schemas/catalog/bom_persistence.delete_model_bom` with the already-checked
+row and the same Session; that helper does not query, flush, or commit. Existing
+scope normalization and route authorization remain at their current boundaries.
+
 Verify variant uniqueness, BOM quantities, image scope, approval rules and linked-record deletion guards. Visually check catalog editing, images, sizes/colors and downstream order selection.
 
 ## Migration steps
