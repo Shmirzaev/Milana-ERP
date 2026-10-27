@@ -26,19 +26,6 @@ permissions:
 jobs:
   backend:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_HOST_AUTH_METHOD: trust
-          POSTGRES_DB: first_grade_qa_ci
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -49,6 +36,19 @@ jobs:
             backend/requirements.txt
             backend/requirements-dev.txt
       - run: python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+      - name: Start job-owned loopback PostgreSQL 16
+        run: |
+          docker run --detach --cidfile "$RUNNER_TEMP/ci-postgres.cid" --name milana-ci-postgres \
+            --network host --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --env POSTGRES_DB=first_grade_qa_ci postgres:16-alpine \
+            postgres -h 127.0.0.1 -p 5432
+          for attempt in $(seq 1 30); do
+            if docker exec milana-ci-postgres pg_isready -h 127.0.0.1 -p 5432 -U postgres; then
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
       - name: Verify one Alembic head
         working-directory: backend
         run: python -c "from alembic.config import Config; from alembic.script import ScriptDirectory; heads=ScriptDirectory.from_config(Config('alembic.ini')).get_heads(); assert len(heads)==1, heads; print(heads[0])"
@@ -138,6 +138,12 @@ jobs:
         run: |
           python scripts/test_first_grade_postgres.py
           python scripts/test_model_numbering_postgres.py
+      - name: Remove only this job's owned PostgreSQL container
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/ci-postgres.cid" ]; then
+            docker rm --force "$(cat "$RUNNER_TEMP/ci-postgres.cid")"
+          fi
 
   frontend:
     runs-on: ubuntu-latest
@@ -181,6 +187,56 @@ jobs:
           NEXT_PUBLIC_API_URL: https://erp.milanapremium.uz
           API_URL: http://172.16.10.4:8000
         run: npm run build
+      - name: Clear generated production build for isolated QA build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025'
+        working-directory: frontend
+        run: |
+          test -d .next
+          test ! -L .next
+          rm -rf -- .next
+      - name: Build loopback-only QA frontend
+        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025'
+        timeout-minutes: 5
+        working-directory: frontend
+        env:
+          NODE_ENV: production
+          NEXT_PUBLIC_API_URL: ''
+          API_URL: http://127.0.0.1:8107
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: npm run build
+      - name: Stage bounded QA frontend runtime
+        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025'
+        timeout-minutes: 2
+        working-directory: frontend
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_SHA: ${{ github.sha }}
+          RUNNER_TEMP: ${{ runner.temp }}
+          NODE_ENV: production
+          NEXT_PUBLIC_API_URL: ''
+          API_URL: http://127.0.0.1:8107
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: python3 scripts/stage_qa_runtime.py
+      - name: Upload QA-only frontend runtime
+        id: qa_upload
+        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025'
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-frontend-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/finance-qa-runtime-${{ github.sha }}/runtime.zip
+            ${{ runner.temp }}/finance-qa-runtime-${{ github.sha }}/manifest.json
+          if-no-files-found: error
+          retention-days: 1
+      - name: Report QA artifact identity
+        if: steps.qa_upload.outcome == 'success'
+        env:
+          ARTIFACT_ID: ${{ steps.qa_upload.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.qa_upload.outputs.artifact-digest }}
+        run: |
+          printf 'QA artifact id: %s\n' "$ARTIFACT_ID" >> "$GITHUB_STEP_SUMMARY"
+          printf 'QA artifact digest: %s\n' "$ARTIFACT_DIGEST" >> "$GITHUB_STEP_SUMMARY"
 
   release:
     if: github.event_name == 'workflow_dispatch'
