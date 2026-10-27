@@ -1,6 +1,6 @@
 {
-  "release": "20261026_055538",
-  "source_manifest_sha256": "a9354a9f08cfc1f9e72c4362796330509f57adbe3368b46aa1806a0c95305a12",
+  "release": "20261026_085306",
+  "source_manifest_sha256": "9511b57bf62fd3142c865f3bb07aaf3e2f1053629f90c8521a652cd6da9139e2",
   "database_revision": "0149_besttex_cutting_access",
-  "git_baseline_commit": "dc8d1aea60ace79ff15dfb1900a1b96b2e5108f6"
+  "git_baseline_commit": "439555a77ef583b1b212398e16ecd52ced786e45"
 }

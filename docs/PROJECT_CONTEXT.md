@@ -1,6 +1,26 @@
 # Milana ERP Project Context
 
-Last updated: 2026-10-26
+Last updated: 2026-10-27
+
+## Label printing and payroll corrections release preparation (2026-10-27)
+
+- Verified live source is green `20261026_085306` on both roles, exact application
+  `439555a77ef583b1b212398e16ecd52ced786e45`, manifest
+  `9511b57bf62fd3142c865f3bb07aaf3e2f1053629f90c8521a652cd6da9139e2`;
+  blue `20261026_055538` is rollback and Alembic is `0149_besttex_cutting_access`.
+  This supersedes older live-state entries below.
+- An isolated patch removes package-label Page footers, displays selected cutting
+  clients and permits audited, factory-scoped correction of saved payroll splits.
+  Original QR identities/history persist; closed/paid/returned/nested, stale and
+  wrong-total edits refuse. There is no schema migration or production data repair.
+- The owner authorized Codex implementation and deployment and explicitly waived
+  30-minute monitoring. Immediate immutable-artifact, backup, candidate, performance,
+  health and rollback gates remain required. Refactoring work remains untouched.
+- The exact production-port affected suite passes 208 cases without skips,
+  including real PostgreSQL races. Frontend lint/types/build and connected-browser
+  save/reopen, translations and permission checks pass. Full exact-commit CI and
+  production postflight remain release gates. See
+  [the preparation and release record](archive/LABEL_PAYROLL_RELEASE_2026-10-27.md).
 
 ## Besttex Cut orders styling deployed (2026-10-26)
 

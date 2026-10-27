@@ -26,7 +26,8 @@ import { formatBatchSerial } from "@/lib/batchSerial";
 import { orderReference, formatOrderReference } from "@/lib/orderRef";
 import { parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 import { buildOperationLabelTokens, buildIssuedOperationNumbers, correctedOperationIdentityNeedsReview } from "@/lib/processQrLabelIdentity";
-import { useMe } from "@/lib/auth";
+import { can, useMe } from "@/lib/auth";
+import SplitAllocationEditor from "@/components/payroll/SplitAllocationEditor";
 import {
   clonePaidOperations,
   createPaidOperation,
@@ -803,6 +804,7 @@ export default function ProcessQrPage() {
   const [issuingLabels, setIssuingLabels] = useState(false);
   const [deletingSize, setDeletingSize] = useState<string | null>(null);
   const [labelCorrection, setLabelCorrection] = useState<LabelCorrectionForm | null>(null);
+  const [splitCorrectionLabelId, setSplitCorrectionLabelId] = useState<number | null>(null);
   const [savingLabelCorrection, setSavingLabelCorrection] = useState(false);
   const [editedLabelIds, setEditedLabelIds] = useState<number[]>([]);
   const [printError, setPrintError] = useState("");
@@ -1543,6 +1545,10 @@ export default function ProcessQrPage() {
   }
 
   function openLabelCorrection(label: IssuedLabelRow) {
+    if (label.split_from_label_id && label.status === "scanned" && can(me, "payroll.manage")) {
+      setSplitCorrectionLabelId(label.id);
+      return;
+    }
     if (!canCorrectIssuedLabel(label)) return;
     const initialSplit = equalSplitQuantities(Math.max(1, Number(label.quantity)), 2);
     setPrintError("");
@@ -2736,7 +2742,7 @@ export default function ProcessQrPage() {
                       label={label}
                       operationNumber={operationNumberForLabel(label, issuedOperationNumbers)}
                       onEdit={() => openLabelCorrection(label)}
-                      editable={canCorrectIssuedLabel(label)}
+                      editable={canCorrectIssuedLabel(label) || Boolean(label.split_from_label_id && label.status === "scanned" && can(me, "payroll.manage"))}
                       editDisabledReason={t("page.processQr.editLabelBlocked")}
                     />
                   ))}
@@ -2754,6 +2760,7 @@ export default function ProcessQrPage() {
         )}
       </section>
 
+      {splitCorrectionLabelId !== null && <SplitAllocationEditor labelId={splitCorrectionLabelId} onClose={() => setSplitCorrectionLabelId(null)} onSaved={() => { void mutateIssuedLabels(); }} />}
       <Modal
         open={Boolean(labelCorrection)}
         onClose={() => { if (!savingLabelCorrection) setLabelCorrection(null); }}

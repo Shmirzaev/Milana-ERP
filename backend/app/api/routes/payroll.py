@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
-from sqlalchemy import Date, String, and_, case, cast, func, or_, text
+from sqlalchemy import Date, String, and_, case, cast, func, or_
 from sqlalchemy.orm import load_only, object_session
 
 from app.core.deps import DbSession, require_permissions, is_admin, user_permissions
@@ -75,6 +75,10 @@ from app.schemas.payroll import (
 )
 from app.models.order_reference import BusinessOrderAlias
 from app.services.process_qr_export import ProcessQrExportIn, build_process_qr_xlsx
+from app.schemas.payroll_split_correction import SplitAllocationOut, SplitAllocationUpdate
+from app.services.payroll_split_correction import correct_split_allocation, read_split_allocation
+from app.services.payroll_period_lock import lock_period_schedule as _lock_period_schedule
+from app.services.payroll_operation import is_control_operation as _is_control_operation
 from app.services.audit import log_action
 from app.services.factory_scope import require_factory_access, selected_factory_code
 from app.services.paid_operations import filter_operation_rows, paid_operations_from_details
@@ -594,16 +598,6 @@ def _period_no_for(db: DbSession, start_date: datetime, factory_code: str) -> st
 def _validate_period_dates(start_date: datetime, end_date: datetime) -> None:
     if as_utc(end_date) < as_utc(start_date):
         raise HTTPException(400, "Payroll period end_date must be after start_date")
-
-
-def _lock_period_schedule(db: DbSession, factory_code: str) -> None:
-    # A row lock cannot protect an empty date range from concurrent inserts.
-    # Take this before any period row lock in create/update to keep lock order.
-    if db.get_bind().dialect.name == "postgresql":
-        db.execute(
-            text("SELECT pg_advisory_xact_lock(1297107635, hashtext(:resource))"),
-            {"resource": f"payroll-periods:{factory_code}"},
-        )
 
 
 def _assert_period_dates_available(
@@ -2866,17 +2860,6 @@ def _qr_label_scan_payload(label: PayrollQrLabel) -> dict[str, Any]:
     }
 
 
-def _is_control_operation(value: PayrollQrLabel | dict[str, Any]) -> bool:
-    aliases = {"control", "kontrol", "контроль", "nazorat", "qc"}
-    # A qualified operation (e.g. Tepa kontrol) is ordinary paid work.
-    # Prefer its name over a legacy code so a generic QC code cannot override it.
-    def field(name):
-        return value.get(name) if isinstance(value, dict) else getattr(value, name, None)
-    name = str(field("operation_name") or "").strip().casefold()
-    code = str(field("operation_code") or "").strip().casefold()
-    return (name or code) in aliases
-
-
 def _control_review_token(label: PayrollQrLabel, employee_id: int) -> str:
     snapshot = _qr_label_scan_payload(label)
     snapshot.pop("label_status", None)  # Successful confirmation/retry keeps its identity.
@@ -3858,6 +3841,18 @@ def create_records_bulk(
         "created_count": created_count,
         "duplicate_count": duplicate_count,
     }
+
+
+@router.get("/qr-labels/{label_id}/split-allocation", response_model=SplitAllocationOut)
+def get_split_allocation(label_id: int, db: DbSession,
+                         current: User = Depends(require_permissions("payroll.manage", "*"))):
+    return read_split_allocation(db, actor=current, label_id=label_id)
+
+
+@router.patch("/qr-labels/{label_id}/split-allocation", response_model=SplitAllocationOut)
+def patch_split_allocation(label_id: int, payload: SplitAllocationUpdate, db: DbSession,
+                           current: User = Depends(require_permissions("payroll.manage", "*"))):
+    return correct_split_allocation(db, actor=current, label_id=label_id, payload=payload)
 
 
 @router.post("/records/{record_id}/split", response_model=list[PayrollRecordOut])

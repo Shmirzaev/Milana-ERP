@@ -13,6 +13,7 @@ import { api, fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { removePayrollScanHistoryForLabel } from "@/lib/payrollScanStorage";
+import SplitAllocationEditor, { splitCorrectionText } from "@/components/payroll/SplitAllocationEditor";
 
 type QrLabel = {
   id: number;
@@ -47,6 +48,7 @@ type QrLabel = {
   last_scanned_at?: string | null;
   returned_at?: string | null;
   return_count: number;
+  split_from_label_id?: number | null;
 };
 
 type QrControlResponse = {
@@ -116,6 +118,7 @@ export default function PayrollQrControlPage() {
   const [printRows, setPrintRows] = useState<PrintableLabel[]>([]);
   const [message, setMessage] = useState("");
   const [actionError, setActionError] = useState("");
+  const [correctingLabelId, setCorrectingLabelId] = useState<number | null>(null);
 
   useEffect(() => setPage(0), [search, status]);
 
@@ -227,6 +230,7 @@ export default function PayrollQrControlPage() {
 
   return (
     <div className="payroll-qr-control-page">
+      {correctingLabelId !== null && <SplitAllocationEditor labelId={correctingLabelId} onClose={() => setCorrectingLabelId(null)} onSaved={() => { void mutate(); }} />}
       <PageHeader
         title={t("page.payrollQrControl.title")}
         subtitle={t("page.payrollQrControl.subtitle")}
@@ -357,6 +361,7 @@ export default function PayrollQrControlPage() {
                       </td>
                       <td className="whitespace-nowrap" title={formatDateTime(row.last_scanned_at)}>{formatCompactDateTime(row.last_scanned_at)}</td>
                       <td>
+                        {row.split_from_label_id && row.status === "scanned" && canReturn && <button type="button" className="btn" onClick={() => setCorrectingLabelId(row.id)}>{splitCorrectionText[lang].edit}</button>}
                         {row.status === "scanned" && canReturn ? (
                           <button
                             type="button"
