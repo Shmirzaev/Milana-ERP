@@ -4,11 +4,13 @@ The suite only runs against this worker's own disposable database on the
 identity-pinned instance. Every connection is checked against the pinned
 identity before the schema is used.
 """
-import os
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
+import sqlalchemy as sa
 from alembic import command
+from alembic.config import Config
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
@@ -19,41 +21,40 @@ from app.libs.enums.inventory import (
     StockMovementType,
 )
 from app.models.inventory import transfers_service
+from app.models.idempotency_service import bind_idempotency_identity
 from app.schemas import AuditLog, Item, Role, StockBatch, StockMovement, User, Warehouse
 from app.schemas.inventory import material_reservation_persistence, stock_movement_persistence
-from app.tests.test_fresh_migration_bootstrap import postgres_migrations  # noqa: F401
-
-PINNED_HOST = "127.0.0.1"
-PINNED_PORT = 51716
-PINNED_VERSION = "PostgreSQL 17.11"
-PINNED_SYSTEM_IDENTIFIER = "7700371345869473300"
-PINNED_DATA_DIRECTORY_SUFFIX = "work/finance-visual-qa-5aafe01d69/data"
-OWNED_DATABASE = os.environ.get("REVIEW_MM_INVENTORY_DATABASE", "")
-
-
-@pytest.fixture(autouse=True)
-def _the_instance_is_the_approved_one(postgres_migrations):
-    """Refuse any server that is not the identity-pinned instance."""
-    url = postgres_migrations.engine.url
-    assert url.host == PINNED_HOST, url
-    assert url.port == PINNED_PORT, url
-    assert OWNED_DATABASE.startswith("review_mm_inventory_"), OWNED_DATABASE
-    assert OWNED_DATABASE in str(url), url
-    with postgres_migrations.engine.connect() as connection:
-        system_identifier = connection.exec_driver_sql(
-            "SELECT system_identifier::text FROM pg_control_system()"
-        ).scalar()
-        version = connection.exec_driver_sql("SELECT version()").scalar()
-        data_directory = connection.exec_driver_sql("SELECT current_setting('data_directory')").scalar()
-    assert system_identifier == PINNED_SYSTEM_IDENTIFIER, system_identifier
-    assert version.startswith(PINNED_VERSION), version
-    assert data_directory.replace("\\", "/").endswith(PINNED_DATA_DIRECTORY_SUFFIX), data_directory
+from app.tests.pg_approved_instance import (
+    ApprovedInstanceUnavailable, create_target_database, finalize_target,
+    load_approved_instance, require_or_skip, target_engine,
+)
 
 
 @pytest.fixture
-def pg(postgres_migrations):
-    command.upgrade(postgres_migrations.config, "head")
-    return sessionmaker(bind=postgres_migrations.engine, expire_on_commit=False)
+def pg_engine():
+    """Migrate a fresh owned database using only its identity-checked engine."""
+    try:
+        instance = load_approved_instance()
+    except ApprovedInstanceUnavailable as error:
+        require_or_skip(error)
+    target = create_target_database(instance)
+    engine = None
+    try:
+        engine = target_engine(target, options="-cstatement_timeout=20000 -clock_timeout=10000")
+        from app.core.config import settings
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(settings, "DATABASE_URL", engine.url.render_as_string(hide_password=False))
+            patch.setattr(sa, "engine_from_config", lambda *args, **kwargs: engine)
+            config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+            command.upgrade(config, "head")
+        yield engine
+    finally:
+        finalize_target(target, engine)
+
+
+@pytest.fixture
+def pg(pg_engine):
+    return sessionmaker(bind=pg_engine, expire_on_commit=False)
 
 
 @pytest.fixture
@@ -83,21 +84,23 @@ def stock(pg):
 
 def _check_definitions(engine, table: str) -> dict[str, str]:
     with engine.connect() as connection:
-        rows = connection.exec_driver_sql(
-            "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint "
-            "WHERE conrelid = :table::regclass AND contype = 'c'",
+        rows = connection.execute(
+            text(
+                "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint "
+                "WHERE conrelid = CAST(:table AS regclass) AND contype = 'c'"
+            ),
             {"table": table},
         ).all()
     return {name: definition for name, definition in rows}
 
 
-def test_postgres_constraints_match_the_canonical_vocabularies(postgres_migrations):
-    definitions = _check_definitions(postgres_migrations.engine, "stock_movements")
+def test_postgres_constraints_match_the_canonical_vocabularies(pg_engine):
+    definitions = _check_definitions(pg_engine, "stock_movements")
     movement = definitions["ck_stock_movements_type"]
     for member in StockMovementType:
         assert f"'{member.value}'" in movement, movement
 
-    definitions = _check_definitions(postgres_migrations.engine, "material_reservations")
+    definitions = _check_definitions(pg_engine, "material_reservations")
     for name, members in (
         ("ck_material_reservations_status", MaterialReservationStatus),
         ("ck_material_reservations_type", MaterialReservationType),
@@ -147,7 +150,7 @@ def test_transfer_conserves_quantity_and_moves_the_batch_location(pg, stock):
             ),
             actor,
         )
-        assert response["movement_type"] == "transfer"
+        assert response.movement_type == StockMovementType.TRANSFER
         db.refresh(db.get(StockBatch, stock["batch"]))
         batch = db.get(StockBatch, stock["batch"])
         assert float(batch.quantity) == 10
@@ -191,12 +194,13 @@ def test_retry_with_the_same_key_replays_without_a_second_movement(pg, stock):
     key = f"movement-{uuid4().hex}"
     with pg() as db:
         actor = db.get(User, stock["user"])
+        bind_idempotency_identity(db, actor)
         payload = StockMovementIn(
             movement_type="issue", item_id=stock["item"], batch_id=stock["batch"],
             from_warehouse_id=stock["source"], quantity=1, unit="kg",
         )
         first = transfers_service.transfer_stock(db, payload, actor, idempotency_key=key)
-        assert first["movement_type"] == "issue"
+        assert first.movement_type == StockMovementType.ISSUE
         replay = transfers_service.transfer_stock(db, payload, actor, idempotency_key=key)
         assert replay == first
         assert db.query(StockMovement).filter_by(batch_id=stock["batch"]).count() == 1
