@@ -43,7 +43,9 @@ def pg_engine():
         engine = target_engine(target, options="-cstatement_timeout=20000 -clock_timeout=10000")
         from app.core.config import settings
         with pytest.MonkeyPatch.context() as patch:
-            patch.setattr(settings, "DATABASE_URL", engine.url.render_as_string(hide_password=False))
+            # Alembic's ConfigParser interpolates percent signs in URL escapes.
+            url_for_config = engine.url.render_as_string(hide_password=False).replace("%", "%%")
+            patch.setattr(settings, "DATABASE_URL", url_for_config)
             patch.setattr(sa, "engine_from_config", lambda *args, **kwargs: engine)
             config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
             command.upgrade(config, "head")
