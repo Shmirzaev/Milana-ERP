@@ -256,7 +256,8 @@ def test_commit_integrityerror_without_duplicate_rolls_back_and_retry_succeeds(s
     "2026-09-11T18:59:59+00:00",
     "2026-09-11T23:59:59+05:30",
 ])
-def test_row_datetime_json_keeps_datetime_isoformat_spelling(scanned_at: str):`r`n    scanned_at = datetime.fromisoformat(scanned_at)
+def test_row_datetime_json_keeps_datetime_isoformat_spelling(scanned_at: str):
+    scanned_at = datetime.fromisoformat(scanned_at)
     row = FabricScanRowOut(
         id=7, report_date=datetime(2026, 9, 11).date(), direction=FabricScanDirection.RECEIVED,
         fabric_name="Independent snapshot", batch_no="B-7", color=None,
