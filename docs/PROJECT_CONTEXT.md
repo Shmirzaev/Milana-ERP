@@ -2,6 +2,20 @@
 
 Last updated: 2026-10-27
 
+## Returned divided payroll labels follow-up (2026-10-27)
+
+- The owner reported returned child `200125542` still had no edit action. Returned
+  children have no current earning assignment; the previous recorded-only editor
+  correctly refused that state but missed the requested metadata correction.
+- The isolated follow-up permits manager-only returned-label pieces, names and
+  rates while preserving all historical payroll columns and QR/return identities.
+  Scanned siblings are read-only; normal scanning assigns employees and creates
+  the next earning. Closed historical periods are not rewritten. No schema change.
+- Current live remains blue `20261027_104106` / application `1d2bfe3d5a5035d925720017766432693177d30f`
+  at preparation. Deployment is authorized with timed 30-minute monitoring waived;
+  all immediate gates remain. Refactoring is untouched. See
+  [the follow-up record](archive/RETURNED_SPLIT_EDIT_2026-10-27.md).
+
 ## Label printing and payroll corrections deployed (2026-10-27)
 
 - Both roles are blue `20261027_104106`, application `1d2bfe3d5a5035d925720017766432693177d30f`, manifest

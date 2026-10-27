@@ -10,16 +10,16 @@ import { useMe } from "@/lib/auth";
 import { removePayrollScanHistoryForLabel } from "@/lib/payrollScanStorage";
 
 export const splitCorrectionText = {
-  en: { edit: "Edit split allocation", hint: "Correct the saved employees, pieces, operation names and rates. Total pieces must stay the same. Saving recalculates credited payroll; closed or paid work cannot be changed.", pieces: "Pieces", operation: "Operation name", rate: "Rate per piece", total: "Allocated pieces", reason: "Reason for correction", save: "Save payroll correction", saved: "Correction saved. Reprint the updated stickers.", print: "Print updated stickers", cancel: "Close", reload: "Reload allocations", loading: "Loading allocations…", employee: "Employee" },
-  ru: { edit: "Изменить распределение", hint: "Исправьте сотрудников, количество, названия операций и расценки. Общее количество должно остаться прежним. Сохранение пересчитает начисления; закрытую или оплаченную работу изменить нельзя.", pieces: "Штук", operation: "Название операции", rate: "Расценка за штуку", total: "Распределено штук", reason: "Причина исправления", save: "Сохранить исправление начислений", saved: "Исправление сохранено. Напечатайте обновлённые наклейки.", print: "Печать обновлённых наклеек", cancel: "Закрыть", reload: "Обновить распределение", loading: "Загрузка распределения…", employee: "Сотрудник" },
-  uz: { edit: "Taqsimotni tahrirlash", hint: "Saqlangan xodimlar, donalar, operatsiya nomlari va narxlarni tuzating. Jami dona o‘zgarmasligi kerak. Saqlash hisoblangan ish haqini qayta hisoblaydi; yopilgan yoki to‘langan ishni o‘zgartirib bo‘lmaydi.", pieces: "Dona", operation: "Operatsiya nomi", rate: "Dona uchun narx", total: "Taqsimlangan dona", reason: "Tuzatish sababi", save: "Ish haqi tuzatishini saqlash", saved: "Tuzatish saqlandi. Yangilangan stikerlarni chop eting.", print: "Yangilangan stikerlarni chop etish", cancel: "Yopish", reload: "Taqsimotni yangilash", loading: "Taqsimot yuklanmoqda…", employee: "Xodim" },
+  en: { returnedHint: "Returned labels remain unassigned until scanned again. Correct their pieces, operation names and rates. Total pieces must stay the same. Previous payroll and return history stay unchanged.", unassigned: "Unassigned", readonly: "Scanned allocation — read-only", saveLabels: "Save label correction", edit: "Edit split allocation", hint: "Correct the saved employees, pieces, operation names and rates. Total pieces must stay the same. Saving recalculates credited payroll; closed or paid work cannot be changed.", pieces: "Pieces", operation: "Operation name", rate: "Rate per piece", total: "Allocated pieces", reason: "Reason for correction", save: "Save payroll correction", saved: "Correction saved. Reprint the updated stickers.", print: "Print updated stickers", cancel: "Close", reload: "Reload allocations", loading: "Loading allocations…", employee: "Employee" },
+  ru: { returnedHint: "Возвращённые этикетки остаются без сотрудника до повторного сканирования. Исправьте количество, названия операций и расценки. Общее количество должно остаться прежним. История начислений и возвратов сохраняется.", unassigned: "Не назначен", readonly: "Сканированная часть — только просмотр", saveLabels: "Сохранить исправление этикеток", edit: "Изменить распределение", hint: "Исправьте сотрудников, количество, названия операций и расценки. Общее количество должно остаться прежним. Сохранение пересчитает начисления; закрытую или оплаченную работу изменить нельзя.", pieces: "Штук", operation: "Название операции", rate: "Расценка за штуку", total: "Распределено штук", reason: "Причина исправления", save: "Сохранить исправление начислений", saved: "Исправление сохранено. Напечатайте обновлённые наклейки.", print: "Печать обновлённых наклеек", cancel: "Закрыть", reload: "Обновить распределение", loading: "Загрузка распределения…", employee: "Сотрудник" },
+  uz: { returnedHint: "Qaytarilgan yorliqlar qayta skanerlanguncha xodimga biriktirilmaydi. Dona, operatsiya nomi va narxlarni tuzating. Jami dona o‘zgarmasligi kerak. Oldingi ish haqi va qaytarish tarixi saqlanadi.", unassigned: "Biriktirilmagan", readonly: "Skanerlangan qism — faqat ko‘rish", saveLabels: "Yorliq tuzatishini saqlash", edit: "Taqsimotni tahrirlash", hint: "Saqlangan xodimlar, donalar, operatsiya nomlari va narxlarni tuzating. Jami dona o‘zgarmasligi kerak. Saqlash hisoblangan ish haqini qayta hisoblaydi; yopilgan yoki to‘langan ishni o‘zgartirib bo‘lmaydi.", pieces: "Dona", operation: "Operatsiya nomi", rate: "Dona uchun narx", total: "Taqsimlangan dona", reason: "Tuzatish sababi", save: "Ish haqi tuzatishini saqlash", saved: "Tuzatish saqlandi. Yangilangan stikerlarni chop eting.", print: "Yangilangan stikerlarni chop etish", cancel: "Yopish", reload: "Taqsimotni yangilash", loading: "Taqsimot yuklanmoqda…", employee: "Xodim" },
 };
 
 type Part = {
-  label_id: number; label_uid: string; employee_id: number; employee_name: string; quantity: number;
-  operation_name: string; rate_per_piece: string; total_amount: string; currency: string;
+  label_id: number; label_uid: string; employee_id: number | null; editable: boolean; employee_name: string; quantity: number;
+  operation_name: string; rate_per_piece: string; total_amount: string | null; currency: string;
 };
-type Allocation = { revision: string; original_record_id: number; total_quantity: number; parts: Part[] };
+type Allocation = { mode: "recorded" | "returned"; revision: string; original_record_id: number; total_quantity: number; parts: Part[] };
 
 export default function SplitAllocationEditor({ labelId, onClose, onSaved }: {
   labelId: number; onClose: () => void; onSaved: () => void;
@@ -53,9 +53,9 @@ function AllocationForm({ initial, endpoint, setBusy, onSaved, onClose, onReload
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
   const total = parts.reduce((sum, part) => sum + Number(part.quantity), 0);
-  const valid = total === view.total_quantity && reason.trim().length >= 3 && parts.every(part =>
+  const valid = total === view.total_quantity && reason.trim().length >= 3 && parts.every(part => !part.editable || (
     Number.isInteger(Number(part.quantity)) && Number(part.quantity) > 0 && part.operation_name.trim()
-    && Number.isFinite(Number(part.rate_per_piece)) && Number(part.rate_per_piece) >= 0,
+    && Number.isFinite(Number(part.rate_per_piece)) && Number(part.rate_per_piece) >= 0),
   );
   function update(index: number, patch: Partial<Part>) {
     setParts(current => current.map((part, i) => i === index ? { ...part, ...patch } : part));
@@ -70,7 +70,7 @@ function AllocationForm({ initial, endpoint, setBusy, onSaved, onClose, onReload
       const result = await api.patch<Allocation>(endpoint, {
         revision: view.revision, reason: reason.trim(), parts: parts.map(part => ({
           label_id: part.label_id, employee_id: part.employee_id, quantity: Number(part.quantity),
-          operation_name: part.operation_name.trim(), rate_per_piece: part.rate_per_piece,
+          operation_name: part.editable ? part.operation_name.trim() : part.operation_name, rate_per_piece: part.rate_per_piece,
         })),
       });
       setView(result); setParts(result.parts); setDirty(false); setSaved(true);
@@ -81,15 +81,16 @@ function AllocationForm({ initial, endpoint, setBusy, onSaved, onClose, onReload
     } catch (err: unknown) { setError(err instanceof Error ? err.message : String(err)); }
     finally { working(false); }
   }}>
-    <p className="mb-4 text-sm">{c.hint}</p>
+    <p className="mb-4 text-sm">{view.mode === "returned" ? c.returnedHint : c.hint}</p>
     <fieldset disabled={busy} className="space-y-4">
       {parts.map((part, index) => <div key={part.label_id} className="border-t pt-3">
-        <p className="text-sm"><b>{c.employee} {index + 1}: {part.employee_name}</b></p>
-        <PayrollEmployeeSearch inputId={`correct-split-${part.label_id}`} disabled={busy} onSelect={employee => update(index, { employee_id: employee.employee_id, employee_name: employee.employee_name })} />
+        <p className="text-sm"><b>{c.employee} {index + 1}: {part.employee_name || c.unassigned}</b></p>
+        {view.mode === "recorded" && <PayrollEmployeeSearch inputId={`correct-split-${part.label_id}`} disabled={busy} onSelect={employee => update(index, { employee_id: employee.employee_id, employee_name: employee.employee_name })} />}
+        {!part.editable && <p className="mt-1 text-sm">{c.readonly}</p>}
         <div className="mt-3 grid gap-3 sm:grid-cols-[5rem_1fr_8rem]">
-          <label className="label">{c.pieces}<input className="input" type="number" min={1} max={view.total_quantity} step={1} required value={part.quantity || ""} onChange={event => update(index, { quantity: Number(event.target.value) })} /></label>
-          <label className="label">{c.operation}<input className="input" required maxLength={255} value={part.operation_name} onChange={event => update(index, { operation_name: event.target.value })} /></label>
-          <label className="label">{c.rate} ({part.currency})<input className="input" required type="number" min={0} max="9999999999.9999" step="0.0001" value={part.rate_per_piece} onChange={event => update(index, { rate_per_piece: event.target.value })} /></label>
+          <label className="label">{c.pieces}<input className="input" disabled={!part.editable} type="number" min={1} max={view.total_quantity} step={1} required value={part.quantity || ""} onChange={event => update(index, { quantity: Number(event.target.value) })} /></label>
+          <label className="label">{c.operation}<input className="input" disabled={!part.editable} required maxLength={255} value={part.operation_name} onChange={event => update(index, { operation_name: event.target.value })} /></label>
+          <label className="label">{c.rate} ({part.currency})<input className="input" disabled={!part.editable} required type="number" min={0} max="9999999999.9999" step="0.0001" value={part.rate_per_piece} onChange={event => update(index, { rate_per_piece: event.target.value })} /></label>
         </div>
       </div>)}
       <p role="status" className="text-sm">{c.total}: <b>{total} / {view.total_quantity}</b></p>
@@ -101,11 +102,11 @@ function AllocationForm({ initial, endpoint, setBusy, onSaved, onClose, onReload
       <button type="button" className="btn" disabled={busy} onClick={onClose}>{c.cancel}</button>
       <button type="button" className="btn" disabled={busy || dirty} onClick={async () => {
         working(true); setError("");
-        try { await api.openLabel(`/api/payroll/records/${view.original_record_id}/split-labels/print`); }
+        try { await api.openLabel(`${endpoint}/print`); }
         catch (err: unknown) { setError(err instanceof Error ? err.message : String(err)); }
         finally { working(false); }
       }}>{c.print}</button>
-      <button type="submit" className="btn btn-primary" disabled={busy || !valid || !dirty}>{c.save}</button>
+      <button type="submit" className="btn btn-primary" disabled={busy || !valid || !dirty}>{view.mode === "returned" ? c.saveLabels : c.save}</button>
     </div>
   </form>;
 }

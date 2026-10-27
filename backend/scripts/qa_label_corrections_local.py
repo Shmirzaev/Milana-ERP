@@ -14,7 +14,7 @@ from app.db.seed import seed
 from app.main import app
 from app.models import Customer, CuttingRecord, Department, Employee, ModelImage, ProductionOrder, SalesOrder, WorkOrder
 from app.tests.test_package_label_query_growth import _package_case
-from app.tests.test_payroll_split_corrections import setup_split
+from app.tests.test_payroll_returned_split_corrections import _returned_group
 from app.tests.test_payroll import _create_user_with_permissions
 from app.tests.test_production_flow import _VALID_PNG
 from app.services.print_response import warehouse_print_response
@@ -30,8 +30,9 @@ client = TestClient(app)
 login = client.post("/api/auth/token", data={"username": "admin@example.com", "password": "test-admin-password-123!"})
 assert login.status_code == 200
 headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
-employees, original, records, endpoint = setup_split(client, headers)
-scanner_headers = _create_user_with_permissions(client, headers, email="scanner@label-qa.invalid", permissions=["payroll.view", "payroll.scan"])
+group = _returned_group(client, headers)
+employees, original, records, endpoint = (group[key] for key in ("employees", "original", "records", "endpoint"))
+scanner_headers = _create_user_with_permissions(client, headers, email="scanner-label-qa@example.com", permissions=["payroll.view", "payroll.scan"])
 with TestSessionLocal() as db:
     for row, name in zip(employees, ("QA Alice", "QA Bob", "QA Carol")):
         db.get(Employee, row["id"]).full_name = name

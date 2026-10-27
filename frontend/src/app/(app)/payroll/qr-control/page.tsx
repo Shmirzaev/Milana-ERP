@@ -361,7 +361,7 @@ export default function PayrollQrControlPage() {
                       </td>
                       <td className="whitespace-nowrap" title={formatDateTime(row.last_scanned_at)}>{formatCompactDateTime(row.last_scanned_at)}</td>
                       <td>
-                        {row.split_from_label_id && row.status === "scanned" && canReturn && <button type="button" className="btn" onClick={() => setCorrectingLabelId(row.id)}>{splitCorrectionText[lang].edit}</button>}
+                        {row.split_from_label_id && (row.status === "scanned" || (row.status === "available" && Number(row.return_count || 0) > 0)) && canReturn && <button type="button" className="btn" onClick={() => setCorrectingLabelId(row.id)}>{splitCorrectionText[lang].edit}</button>}
                         {row.status === "scanned" && canReturn ? (
                           <button
                             type="button"

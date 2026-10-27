@@ -76,7 +76,8 @@ from app.schemas.payroll import (
 from app.models.order_reference import BusinessOrderAlias
 from app.services.process_qr_export import ProcessQrExportIn, build_process_qr_xlsx
 from app.schemas.payroll_split_correction import SplitAllocationOut, SplitAllocationUpdate
-from app.services.payroll_split_correction import correct_split_allocation, read_split_allocation
+from app.services.payroll_split_correction import correct_split_allocation, read_split_allocation, render_split_allocation_labels
+from app.services.payroll_labels import split_labels_print_response
 from app.services.payroll_period_lock import lock_period_schedule as _lock_period_schedule
 from app.services.payroll_operation import is_control_operation as _is_control_operation
 from app.services.audit import log_action
@@ -3853,6 +3854,13 @@ def get_split_allocation(label_id: int, db: DbSession,
 def patch_split_allocation(label_id: int, payload: SplitAllocationUpdate, db: DbSession,
                            current: User = Depends(require_permissions("payroll.manage", "*"))):
     return correct_split_allocation(db, actor=current, label_id=label_id, payload=payload)
+
+
+@router.get("/qr-labels/{label_id}/split-allocation/print")
+def print_split_allocation(label_id: int, db: DbSession,
+                           current: User = Depends(require_permissions("payroll.manage", "*"))):
+    return split_labels_print_response(render_split_allocation_labels(
+        db, actor=current, label_id=label_id, token_for_label=_work_qr_token))
 
 
 @router.post("/records/{record_id}/split", response_model=list[PayrollRecordOut])

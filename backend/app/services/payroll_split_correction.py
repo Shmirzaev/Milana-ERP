@@ -74,10 +74,20 @@ def _view(db: Session, parent, labels, records, original) -> SplitAllocationOut:
 
 
 def read_split_allocation(db: Session, *, actor: User, label_id: int) -> SplitAllocationOut:
+    if _is_returned(db, actor, label_id):
+        from app.services.payroll_returned_split_correction import read_returned_split_allocation
+        return read_returned_split_allocation(db, actor=actor, label_id=label_id)
     return _view(db, *_group(db, label_id, selected_factory_code(actor)))
 
 
 def correct_split_allocation(db: Session, *, actor: User, label_id: int, payload: SplitAllocationUpdate) -> SplitAllocationOut:
+    if _is_returned(db, actor, label_id):
+        from app.services.payroll_returned_split_correction import correct_returned_split_allocation
+        return correct_returned_split_allocation(db, actor=actor, label_id=label_id, payload=payload)
+    for part in payload.parts:
+        part.operation_name = part.operation_name.strip()
+    if any(not part.operation_name for part in payload.parts):
+        raise HTTPException(422, "Operation name is required")
     factory = selected_factory_code(actor)
     lock_period_schedule(db, factory)
     parent, labels, records, original = _group(db, label_id, factory)
@@ -146,3 +156,17 @@ def correct_split_allocation(db: Session, *, actor: User, label_id: int, payload
     result = _view(db, parent, labels, records, original)
     db.commit()
     return result
+
+
+def _is_returned(db: Session, actor: User, label_id: int) -> bool:
+    label = db.query(PayrollQrLabel).filter_by(id=label_id, factory_code=selected_factory_code(actor)).first()
+    return bool(label and label.status == "available" and label.return_count)
+
+
+def render_split_allocation_labels(db: Session, *, actor: User, label_id: int, token_for_label) -> str:
+    from app.services.payroll_labels import split_label_card, split_labels_html
+    view = read_split_allocation(db, actor=actor, label_id=label_id)
+    cards = [split_label_card(db.get(PayrollQrLabel, part.label_id),
+                              db.get(Employee, part.employee_id) if part.employee_id else None,
+                              token_for_label(part.label_id)) for part in view.parts]
+    return split_labels_html(cards)

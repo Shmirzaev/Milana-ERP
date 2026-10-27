@@ -7,6 +7,14 @@ from app.schemas.payroll_split_correction import SplitAllocationPartUpdate
 from app.models import Employee, PayrollQrLabel, PayrollRecord
 
 
+def apply_returned_split_part(db: Session, *, label: PayrollQrLabel, part: SplitAllocationPartUpdate) -> None:
+    """Change future label metadata only; never restore or rewrite earnings."""
+    label.quantity = part.quantity
+    label.operation_name = part.operation_name
+    label.rate_per_piece = part.rate_per_piece
+    label.payload = None
+
+
 def apply_split_part_correction(
     db: Session, *, label: PayrollQrLabel, record: PayrollRecord,
     employee: Employee, department_name: str | None, part: SplitAllocationPartUpdate, amount: Decimal,

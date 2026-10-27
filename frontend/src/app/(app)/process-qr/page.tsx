@@ -1545,7 +1545,7 @@ export default function ProcessQrPage() {
   }
 
   function openLabelCorrection(label: IssuedLabelRow) {
-    if (label.split_from_label_id && label.status === "scanned" && can(me, "payroll.manage")) {
+    if (label.split_from_label_id && (label.status === "scanned" || (label.status === "available" && Number(label.return_count || 0) > 0)) && can(me, "payroll.manage")) {
       setSplitCorrectionLabelId(label.id);
       return;
     }
@@ -2742,7 +2742,7 @@ export default function ProcessQrPage() {
                       label={label}
                       operationNumber={operationNumberForLabel(label, issuedOperationNumbers)}
                       onEdit={() => openLabelCorrection(label)}
-                      editable={canCorrectIssuedLabel(label) || Boolean(label.split_from_label_id && label.status === "scanned" && can(me, "payroll.manage"))}
+                      editable={canCorrectIssuedLabel(label) || Boolean(label.split_from_label_id && (label.status === "scanned" || (label.status === "available" && Number(label.return_count || 0) > 0)) && can(me, "payroll.manage"))}
                       editDisabledReason={t("page.processQr.editLabelBlocked")}
                     />
                   ))}

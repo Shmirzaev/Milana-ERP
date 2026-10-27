@@ -9,6 +9,10 @@
   technical gates pass; the owner waived timed observation. Existing refactoring
   and production business data were preserved. No merge or human closure is claimed.
 - [Tests, deployment identities and operator editing steps](../docs/archive/LABEL_PAYROLL_RELEASE_2026-10-27.md).
+- Returned-child follow-up: returned labels had no edit action. Manager metadata
+  correction now preserves all historical earnings and leaves scanned siblings
+  read-only. [Follow-up evidence](../docs/archive/RETURNED_SPLIT_EDIT_2026-10-27.md).
+  Production deployment/acceptance remain separate gates.
 
 > Current workflow, 2026-10-24: active work and items awaiting production verification live here. Human-approved production fixes move to [finished_bugs.md](finished_bugs.md). See [the refactor plan](../docs/REFACTOR_PLAN.md).
 >

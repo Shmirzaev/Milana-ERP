@@ -80,6 +80,7 @@ jobs:
           backend/app/tests/test_besttex_cutting_postgres.py
           backend/app/tests/test_payroll_overlap_repair.py
           backend/app/tests/test_payroll_split_correction_races.py
+          backend/app/tests/test_payroll_returned_split_races.py
           backend/app/tests/test_payroll_qr_return_races.py
           backend/app/tests/test_payroll_period_races.py
       - name: Deployment observation regression suite

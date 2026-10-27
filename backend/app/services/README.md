@@ -100,6 +100,13 @@ Neither pattern requires microservices or a long-lived Git branch.
 
 ## Verification after each change
 
+Returned payroll split metadata uses `payroll_returned_split_correction` through
+the existing split-allocation service. It locks period, label and historical
+record rows in that order but writes only available returned label metadata via
+`models/payroll_split_correction.apply_returned_split_part`. Historical earnings
+are immutable in this path; current scanned siblings are read-only. Normal scan
+remains the only writer that assigns returned labels and creates new earnings.
+
 Follow [the shared verification gates](../../../docs/VERIFICATION.md) for every completed runtime migration,
 bug fix and feature: validate AI-written tests, run relevant automated checks,
 visually exercise actual end-to-end behavior, then challenge it with bounded
