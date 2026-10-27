@@ -13,7 +13,7 @@ const stubs = {
   "@/components/sewing/BandOrder": `export default function Band(){return null}`,
   "@/components/WorkOrderProductInfo": `export default function Product(){return null}`,
   "@/components/PageHeader": `export default function Header(){return null}`,
-  "@/lib/api": `export const fetcher=async u=>(await fetch(u)).json();export const api={post:async(u,b)=>{const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});if(!r.ok)throw Error('Fixture rejection');return r.json()}};`,
+  "@/lib/api": `export const API_TIMEOUT_EVENT='milana:api-timeout';export const fetcher=async u=>(await fetch(u)).json();export const api={post:async(u,b)=>{const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});if(!r.ok)throw Error('Fixture rejection');return r.json()}};`,
 };
 const bundled = await build({ stdin: { resolveDir: root, loader: "tsx", contents: `
 import React from 'react';import{createRoot}from'react-dom/client';

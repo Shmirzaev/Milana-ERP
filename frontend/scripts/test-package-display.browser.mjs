@@ -7,7 +7,7 @@ import tailwind from 'tailwindcss';
 import autoprefixer from 'autoprefixer';
 const stubs={
  '@/lib/auth':`export const useMe=()=>({me:{permissions:[]}});export const can=()=>false;`,
- '@/lib/api':`export const fetcher=async url=>url.includes('print-runs')?window.runs:{cells:[]};export const api={get:async url=>url.includes('resolve')?null:window.pkg,openLabel:async()=>{},post:async()=>{throw Error('Unexpected write')},del:async()=>{throw Error('Unexpected write')}};`,
+ '@/lib/api':`export const API_TIMEOUT_EVENT='milana:api-timeout';export const fetcher=async url=>url.includes('print-runs')?window.runs:{cells:[]};export const api={get:async url=>url.includes('resolve')?null:window.pkg,openLabel:async()=>{},post:async()=>{throw Error('Unexpected write')},del:async()=>{throw Error('Unexpected write')}};`,
  '@/components/WarehouseMap':`export default function Map(){return null}`,
  '@/components/ManualPackageReceipt':`export default function Receipt(){return null}`,
  'next/navigation':`export const useRouter=()=>({push(){}});export const usePathname=()=>'/packages/scan';`,
