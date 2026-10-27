@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.dt import as_utc
 from app.libs.enums.finance import InvoiceStatus
 from app.schemas import Invoice, Payment, SalesOrder
+from app.schemas.finance.customer_advance_persistence import insert_customer_advance
 from app.schemas.finance.invoice_payment_persistence import insert_invoice_payment, set_invoice_status
 
 
@@ -89,14 +90,11 @@ def create_customer_advance_payment(
     paid_at: datetime | None = None,
     notes: str | None = None,
 ) -> Payment:
-    payment = Payment(
-        invoice_id=None,
+    return insert_customer_advance(
+        db,
         customer_id=customer_id,
         amount=money_decimal(amount),
         payment_method=payment_method,
         paid_at=as_utc(paid_at) or datetime.now(timezone.utc),
         notes=notes,
     )
-    db.add(payment)
-    db.flush()
-    return payment
