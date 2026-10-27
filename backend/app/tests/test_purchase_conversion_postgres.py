@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Event
+from time import monotonic
 from uuid import uuid4
 
 import pytest
@@ -14,7 +15,7 @@ import sqlalchemy as sa
 from alembic import command
 from alembic.config import Config
 from fastapi import HTTPException
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
 from app.libs.dto.purchasing.purchase_order_output import PurchaseOrderCreationOut, PurchaseOrderOut
@@ -240,41 +241,82 @@ def test_pg_late_missing_reference_rolls_back(pg_case, monkeypatch, missing):
         assert db.get(PurchaseRequest, pg_case["id"]).status == "approved"
 
 
-def test_pg_concurrent_conversion_serializes_and_refuses_second(pg_case, monkeypatch):
-    original = core._locked_purchase_request
-    locked, release, second_started, second_attempt, second_finished = Event(), Event(), Event(), Event(), Event()
-    first_call = {"claimed": False}
-    def hold_first(db, request_id):
-        if first_call["claimed"]:
-            second_attempt.set()
-        request = original(db, request_id)
-        if not first_call["claimed"]:
-            first_call["claimed"] = True
-            locked.set()
-            assert release.wait(8), "test did not release first lock"
-        return request
-    def second():
-        second_started.set()
+class _GateSession(Session):
+    def __init__(self, *args, reached, release, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.reached, self.release = reached, release
+
+    def commit(self):
+        self.reached.set()
+        assert self.release.wait(15), "first conversion commit gate timed out"
+        return super().commit()
+
+
+def _wait_for_block(sessions, waiter, holder, contender, *, timeout=5):
+    deadline = monotonic() + timeout
+    while monotonic() < deadline:
+        if contender.done():
+            raise AssertionError("contender finished without waiting on the first conversion")
+        with sessions() as observer:
+            blockers = observer.execute(
+                sa.text("SELECT pg_blocking_pids(:pid)"), {"pid": waiter}
+            ).scalar_one()
+        if holder in blockers:
+            return
+        Event().wait(0.02)
+    raise AssertionError("contender did not wait on the first conversion backend")
+
+
+def test_pg_concurrent_conversion_serializes_and_refuses_second(pg_case):
+    reached, release, second_ready = Event(), Event(), Event()
+    pids = {}
+    def worker(role):
+        if role == "first":
+            db = _GateSession(bind=Sessions.kw["bind"], autoflush=False,
+                              expire_on_commit=False, reached=reached, release=release)
+        else:
+            db = Sessions()
+        with db:
+            pids[role] = db.execute(sa.text("SELECT pg_backend_pid()")).scalar_one()
+            if role == "second":
+                second_ready.set()
+            return requests_service.convert_purchase_request_to_order(
+                db, request_id=pg_case["id"], current=db.get(User, pg_case["actor"]),
+                payload=PurchaseRequestOrderIn.model_validate(
+                    {"expected_date": EXPECTED, "lines": pg_case["lines"]}),
+            )
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first_future = pool.submit(worker, "first")
+        second_future = None
         try:
-            return _convert(pg_case)
+            assert reached.wait(8), "first conversion did not reach its commit gate"
+            second_future = pool.submit(worker, "second")
+            assert second_ready.wait(8), "second conversion did not obtain a backend"
+            assert pids["first"] != pids["second"]
+            _wait_for_block(Sessions, pids["second"], pids["first"], second_future)
         finally:
-            second_finished.set()
-    with monkeypatch.context() as patch:
-        patch.setattr(core, "_locked_purchase_request", hold_first)
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            first_future = pool.submit(_convert, pg_case)
-            try:
-                assert locked.wait(8), "first request did not acquire lock"
-                second_future = pool.submit(second)
-                assert second_started.wait(8)
-                assert second_attempt.wait(8), "second request did not attempt the row lock"
-                assert not second_finished.wait(0.5), "second conversion bypassed held request lock"
-            finally:
-                release.set()
-            assert first_future.result(timeout=15).status is PurchaseOrderStatus.SENT
-            with pytest.raises(HTTPException) as error:
-                second_future.result(timeout=15)
-            assert error.value.status_code == 409
+            release.set()
+        result = first_future.result(timeout=15)
+        assert result.status is PurchaseOrderStatus.SENT
+        assert second_future is not None
+        with pytest.raises(HTTPException) as error:
+            second_future.result(timeout=15)
+        assert error.value.status_code == 409
     with Sessions() as db:
         assert db.get(PurchaseRequest, pg_case["id"]).status == "converted"
-        assert db.query(PurchaseOrder).filter_by(purchase_request_id=pg_case["id"]).count() == 1
+        orders = db.query(PurchaseOrder).filter_by(purchase_request_id=pg_case["id"]).all()
+        assert len(orders) == 1 and orders[0].id == result.id
+        lines = db.query(PurchaseOrderLine).filter_by(purchase_order_id=result.id).all()
+        assert len(lines) == 2
+        assert sorted(float(line.ordered_quantity) for line in lines) == [10, 11]
+        order_audits = db.query(AuditLog).filter_by(entity_type="PurchaseOrder", entity_id=result.id).all()
+        request_audits = db.query(AuditLog).filter_by(entity_type="PurchaseRequest", entity_id=pg_case["id"]).all()
+        assert len(order_audits) == len(request_audits) == 1
+        assert order_audits[0].action == "create" and request_audits[0].action == "convert_to_order"
+        assert order_audits[0].entry_hash and request_audits[0].entry_hash
+        notices = db.query(Notification).filter_by(
+            title="Purchase order ready for receiving: " + result.po_no).all()
+        recipients = db.query(User.id).join(Department, User.department_id == Department.id).filter(
+            Department.code == "STR", User.is_active.is_(True), User.id != pg_case["actor"]).all()
+        assert {row.user_id for row in notices} == {row[0] for row in recipients}
+        assert len(notices) == len(recipients)

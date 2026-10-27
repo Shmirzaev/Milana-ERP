@@ -1,6 +1,6 @@
 """Offline fixture lifecycle checks; never creates a PostgreSQL engine."""
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import pytest
 import sqlalchemy as sa
@@ -51,3 +51,25 @@ def test_conversion_fixture_guarded_migration_and_finalization(monkeypatch, fail
         assert calls[3] == "migrate"
     assert calls[-1] == ("finalize", target, None if failure == "engine" else engine)
     sessions.configure.assert_any_call(bind=None)
+
+
+@pytest.mark.parametrize("blockers,finished,accept", [
+    ([101], False, True),
+    ([], False, False),
+    ([999], False, False),
+    ([101], True, False),
+])
+def test_block_observer_requires_the_holder_and_a_live_contender(blockers, finished, accept):
+    observer = MagicMock()
+    observer.execute.return_value.scalar_one.return_value = blockers
+    observer.__enter__ = Mock(return_value=observer)
+    observer.__exit__ = Mock(return_value=False)
+    contender = Mock()
+    contender.done.return_value = finished
+    sessions = lambda: observer
+    if accept:
+        subject._wait_for_block(sessions, 202, 101, contender, timeout=0.1)
+        assert observer.execute.call_args.args[1] == {"pid": 202}
+    else:
+        with pytest.raises(AssertionError):
+            subject._wait_for_block(sessions, 202, 101, contender, timeout=0.01)
