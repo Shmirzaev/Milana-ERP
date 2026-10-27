@@ -2,6 +2,28 @@
 
 Last updated: 2026-10-27
 
+## Returned divided payroll label editing deployed (2026-10-27)
+
+- Both roles are green `20261027_115452`, exact application `ed47ab8d0484878f7b5638825beda2ce62a08f5d`;
+  retained blue `20261027_104106` is healthy for rollback. Source manifest
+  `8b8be7776fece64fc01163052efafc76370516faa4b186f5509fbcc1357a8f90`; Alembic remains `0149_besttex_cutting_access`.
+- Managers can edit returned divided-label pieces, operation and rate. Returned
+  labels stay unassigned until normal scanning. Scanned siblings are read-only;
+  total pieces, QR/return identities and every historical payroll column persist.
+  Closed historical periods stay unchanged. Ordinary recorded corrections remain.
+- Exact immutable CI, full backend, 40 real PostgreSQL races, independent review,
+  disposable source-fault detection, actual EN/RU/UZ save/reload and phone/tablet
+  checks pass. A normal rescan creates only the corrected new earning. Bounded
+  20 corrections plus 20 retries preserve active and voided history exactly.
+- Fresh verified backup, read-only candidate/public API and actual Next page QA,
+  unchanged fixed-origin performance budgets, all four health checks, runtime,
+  worker/database/source identities and retained rollback pass. No production
+  payroll, manufacturing or permission data was changed by QA or deployment.
+  Refactoring was untouched; branch remains unmerged. The owner waived timed
+  30-minute monitoring; none was run. Human factory acceptance remains separate.
+- [Release evidence and editing steps](archive/RETURNED_SPLIT_EDIT_2026-10-27.md).
+
+
 ## Returned divided payroll labels follow-up (2026-10-27)
 
 - The owner reported returned child `200125542` still had no edit action. Returned

@@ -12,7 +12,8 @@
 - Returned-child follow-up: returned labels had no edit action. Manager metadata
   correction now preserves all historical earnings and leaves scanned siblings
   read-only. [Follow-up evidence](../docs/archive/RETURNED_SPLIT_EDIT_2026-10-27.md).
-  Production deployment/acceptance remain separate gates.
+  Deployed `20261027_115452` / `ed47ab8d0484878f7b5638825beda2ce62a08f5d`; all immediate technical gates pass.
+  Human production acceptance remains pending; no timed monitoring was run.
 
 > Current workflow, 2026-10-24: active work and items awaiting production verification live here. Human-approved production fixes move to [finished_bugs.md](finished_bugs.md). See [the refactor plan](../docs/REFACTOR_PLAN.md).
 >
