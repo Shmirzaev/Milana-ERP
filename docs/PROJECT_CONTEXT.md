@@ -22,11 +22,19 @@ not appended here. This summary does not replace live release verification.
   Use separate engineer work directories and one landing queue coordinated by Mirshoir.
 - [DEPLOYMENT.md](../DEPLOYMENT.md) is the only supported release procedure.
   Before release reconcile Git, production-base.json, both manifests and runtime slots.
-- Verified 2026-10-24 at 16:16 Tashkent: both VMs serve blue `20261024_093619`;
-  retained healthy rollback is green `20261024_032622`. Deployed application commit
-  `1fce86b5b9156fac050ca5c98433198323b20929`, manifest
-  `e424f9a6f135b0ebf3851e0355c39d546bd3466eafcb4ddba6ef27c2b3bd4d31`;
-  database remains `0148_second_grade_packages`. See [the deployment record](archive/SEWING_LATER_NASTIL_2026-10-24.md#production-activation--2026-10-24).
+- Verified 2026-10-26: both VMs serve green `20261026_085306`;
+  retained healthy blue rollback is `20261026_055538`. Deployed application commit
+  `439555a77ef583b1b212398e16ecd52ced786e45`, manifest
+  `9511b57bf62fd3142c865f3bb07aaf3e2f1053629f90c8521a652cd6da9139e2`;
+  database remains `0149_besttex_cutting_access`. Invoice customer/transport text
+  is 11 pt and the product table 9 pt, with separated SVG branding and matching Excel.
+  The release preserves newer factory fixes and excludes the pending namespace work.
+  This integration head is not the released artifact. See [the invoice release record](archive/INVOICE_READABILITY_2026-10-26.md).
+  Exact CI and four health checks passed. The initial public performance failure
+  caused rollback; one corrected comparison with a fixed client origin passed the
+  original budgets. Public-path tail variation also occurs on the previous release
+  and remains unresolved. All attempts are retained; no 30-minute observation or
+  refactoring job was added. The invoice port is draft PR #310, awaiting human review.
 - The earlier `20261024_032622` deployment recorded an initial performance failure and rollback, followed
   by reactivation of the same images; public-path tail variation remains unresolved.
   The owner waived the timed observation period. The archive preserves all attempts.
