@@ -52,7 +52,7 @@ assert.ok(!productionPolicy.includes(cspHash("alert(1)")));
 const backendBundlePath = path.join(root, "../backend/app/api/routes/bundles.py");
 if (fs.existsSync(backendBundlePath)) {
   assert.ok(fs.readFileSync(backendBundlePath, "utf8").includes(`_LABEL_PRINT_SCRIPT = '${printScript}'`));
-  assert.ok(fs.readFileSync(path.join(root, "../backend/app/services/print_response.py"), "utf8").includes('sha256(b"window.print()")'));
+  assert.ok(fs.readFileSync(path.join(root, "../backend/app/models/print_response_service.py"), "utf8").includes('sha256(b"window.print()")'));
 }
 assert.ok(!scriptDirective.includes("'unsafe-inline'"));
 assert.ok(!scriptDirective.includes("'unsafe-eval'"));
