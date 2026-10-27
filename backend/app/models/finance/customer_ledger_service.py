@@ -37,6 +37,7 @@ from app.models.payments_service import (
     money_decimal,
 )
 from app.schemas import Customer, Invoice, Payment, SalesOrder, Shipment, User
+from app.schemas.finance.invoice_persistence import insert_order_invoice
 
 # Candidate invoice ids per grouped paid-sum read. Bounded so a single payment
 # never builds an unbounded IN list, and small enough to stay well inside the
@@ -145,15 +146,14 @@ def record_customer_payment(
     if sales_order:
         invoice = _find_payable_invoice(db, sales_order)
         if not invoice and not _order_has_invoices(db, sales_order):
-            invoice = Invoice(
+            invoice = insert_order_invoice(
+                db,
                 sales_order_id=sales_order.id,
                 invoice_no=next_invoice_no(db),
                 amount=money_decimal(sales_order.total_amount),
                 status=InvoiceStatus.UNPAID,
                 issued_at=datetime.now(timezone.utc),
             )
-            db.add(invoice)
-            db.flush()
 
         if invoice:
             invoice_balance = max(money_decimal(invoice.amount) - invoice_paid_total(db, int(invoice.id)), Decimal(0))
