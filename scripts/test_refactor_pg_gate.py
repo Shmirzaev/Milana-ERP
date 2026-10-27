@@ -20,9 +20,8 @@ class RequiredPGGateTests(unittest.TestCase):
     def report(self):
         tree = ET.Element('testsuites')
         suite = ET.SubElement(tree, 'testsuite')
-        for module, (minimum, names) in gate.GROUPS.items():
-            for i in range(minimum):
-                name = names[i % len(names)] + f'[{i}]' if names else f'test_case_{i}'
+        for module, names in gate.REQUIRED_CASES.items():
+            for name in names:
                 ET.SubElement(suite, 'testcase', classname=f'app.tests.{module}', name=name)
         return tree
 
@@ -64,6 +63,33 @@ class RequiredPGGateTests(unittest.TestCase):
         cases[1].attrib.update(cases[0].attrib)
         with self.assertRaisesRegex(ValueError, 'duplicate'):
             gate.check_report(self.write_report(tree))
+
+    def test_unrelated_case_cannot_replace_any_required_case(self):
+        for module in gate.REQUIRED_CASES:
+            tree = self.report()
+            selected = [case for case in tree.iter('testcase')
+                        if case.get('classname') == f'app.tests.{module}']
+            selected[0].set('name', 'unrelated_replacement_case')
+            with self.subTest(module=module), self.assertRaises(ValueError):
+                gate.check_report(self.write_report(tree))
+
+    def test_one_rollback_parameter_cannot_replace_another(self):
+        tree = self.report()
+        for case in tree.iter('testcase'):
+            if case.get('name') == 'test_pg_edit_and_audit_rollback_together_then_retry[audit_finalized]':
+                case.set('name', 'test_pg_edit_and_audit_rollback_together_then_retry[unrelated]')
+                break
+        else:
+            self.fail('frozen rollback parameter not present')
+        with self.assertRaisesRegex(ValueError, 'case identities missing'):
+            gate.check_report(self.write_report(tree))
+
+    def test_additional_cases_are_allowed(self):
+        tree = self.report()
+        ET.SubElement(next(tree.iter('testsuite')), 'testcase',
+                      classname='app.tests.test_bom_add_characterization', name='new_case')
+        counts = gate.check_report(self.write_report(tree))
+        self.assertEqual(counts['test_bom_add_characterization'], 55)
 
     def test_empty_and_malformed_evidence_fail(self):
         with self.assertRaisesRegex(ValueError, 'no test cases'):

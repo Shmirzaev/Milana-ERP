@@ -37,6 +37,9 @@ GROUPS = {
     )),
     "test_customer_invoice_creation_race": (10, ()),
 }
+REQUIRED_CASES = json.loads(
+    Path(__file__).with_name("refactor_pg_required_cases.json").read_text(encoding="utf-8")
+)["cases"]
 
 
 def required_nodes() -> list[str]:
@@ -69,6 +72,10 @@ def check_report(report: Path) -> dict[str, int]:
         for name in names:
             if not any(case.get("name", "").split("[", 1)[0] == name for case in selected):
                 raise ValueError(f"required PG function missing: {module}.{name}")
+        actual_names = {case.get("name", "") for case in selected}
+        missing = set(REQUIRED_CASES[module]) - actual_names
+        if missing:
+            raise ValueError(f"required PG case identities missing in {module}: {sorted(missing)}")
     return counts
 
 
