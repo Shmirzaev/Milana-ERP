@@ -4,7 +4,7 @@ Contract for the purchase order operations:
 * input: a validated `PurchaseOrderIn` and the acting user for the creation; a
   status filter, a page window and a receivable-only flag for the directory
 * output: one page of purchase orders plus the exact filtered total, or a typed
-  snapshot of the flushed order validated before the single commit
+  snapshot refreshed from the flushed order and validated before the single commit
 * refusals: the 400/404 messages the core operation raises, plus 403 when the
   caller may not reach one of the order's items
 * records: purchase order rows and their lines, the audit rows and the
@@ -118,6 +118,7 @@ def create_purchase_order(db: Session, *, payload: PurchaseOrderIn, current: Use
         db, data=_purchase_order_command(payload), current=current
     )
     purchasing_core.require_purchase_item_access(db, current, order.lines)
+    db.refresh(order)
     result = PurchaseOrderCreationOut.model_validate(order)
     db.commit()
     return result

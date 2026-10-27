@@ -4,7 +4,7 @@ Uses the suite's isolated SessionLocal database. No application participant is
 replaced in success/rollback cases; spies delegate to the real implementation.
 """
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import get_type_hints
 from uuid import uuid4
 
@@ -332,6 +332,60 @@ def test_create_result_and_legacy_unknown_status(conversion_case):
     assert PurchaseOrderOut.model_validate(raw).status == "historical_custom"
     with pytest.raises(ValidationError):
         PurchaseOrderCreationOut.model_validate(raw)
+
+
+@pytest.mark.parametrize("operation", ["create", "convert"])
+def test_result_json_matches_fresh_order_including_offset_date(conversion_case, operation):
+    from app.libs.dto.purchasing.purchase_order_input import PurchaseOrderIn
+    offset_date = datetime(2026, 11, 1, 16, 30, tzinfo=timezone(timedelta(hours=5, minutes=30)))
+    with SessionLocal() as db:
+        actor = db.get(User, conversion_case["actor"])
+        if operation == "create":
+            request = db.get(PurchaseRequest, conversion_case["id"])
+            command = PurchaseOrderIn.model_validate({
+                "expected_date": offset_date,
+                "lines": [{"item_id": request.lines[0].item_id, "ordered_quantity": 5}],
+            })
+            result = orders_public.create_purchase_order(db, payload=command, current=actor)
+        else:
+            command = PurchaseRequestOrderIn.model_validate({
+                "expected_date": offset_date, "lines": conversion_case["lines"],
+            })
+            result = public.convert_purchase_request_to_order(
+                db, request_id=conversion_case["id"], payload=command, current=actor)
+    with SessionLocal() as db:
+        fresh = PurchaseOrderOut.model_validate(db.get(PurchaseOrder, result.id))
+        assert result.model_dump(mode="json") == fresh.model_dump(mode="json")
+
+
+def test_refresh_and_validation_precede_the_single_commit(conversion_case, monkeypatch):
+    calls = []
+    original_refresh = Session.refresh
+    original_validate = PurchaseOrderCreationOut.model_validate
+
+    def refresh(db, instance, *args, **kwargs):
+        if isinstance(instance, PurchaseOrder):
+            assert object_session(instance) is db
+            calls.append(("refresh", id(db)))
+        return original_refresh(db, instance, *args, **kwargs)
+
+    def validate(instance, *args, **kwargs):
+        calls.append(("validate", id(object_session(instance))))
+        return original_validate(instance, *args, **kwargs)
+
+    def before_commit(db):
+        calls.append(("commit", id(db)))
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Session, "refresh", refresh)
+        patch.setattr(PurchaseOrderCreationOut, "model_validate", validate)
+        event.listen(Session, "before_commit", before_commit)
+        try:
+            convert(conversion_case)
+        finally:
+            event.remove(Session, "before_commit", before_commit)
+    assert [action for action, _ in calls] == ["refresh", "validate", "commit"]
+    assert len({session for _, session in calls}) == 1
 
 
 def test_duplicate_conversion_line_is_refused_without_effects(conversion_case):

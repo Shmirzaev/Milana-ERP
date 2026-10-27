@@ -165,6 +165,7 @@ def convert_purchase_request_to_order(
         db, request_id=request_id, data=_purchase_request_conversion_command(payload), current=current
     )
     purchasing_core.require_purchase_item_access(db, current, order.lines)
+    db.refresh(order)
     result = PurchaseOrderCreationOut.model_validate(order)
     db.commit()
     return result
