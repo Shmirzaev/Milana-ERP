@@ -1,10 +1,28 @@
 """Mapped insert for stock movements; the caller owns audit and commit."""
 from decimal import Decimal
+from datetime import datetime
 
 from sqlalchemy.orm import Session
 
 from app.libs.enums.inventory import StockMovementType
-from app.schemas.inventory.inventory import StockMovement
+from app.schemas.inventory.inventory import StockBatch, StockMovement
+
+
+def set_batch_quantity(db: Session, batch: StockBatch, quantity: Decimal) -> None:
+    """Apply a service-calculated quantity in the caller's transaction."""
+    batch.quantity = quantity
+
+
+def set_batch_warehouse(db: Session, batch: StockBatch, warehouse_id: int) -> None:
+    """Apply a service-approved batch relocation."""
+    batch.warehouse_id = warehouse_id
+
+
+def archive_batch(db: Session, batch: StockBatch, *, archived_at: datetime, user_id: int | None) -> None:
+    """Apply the archive fields after the service has decided to archive."""
+    batch.quantity = 0
+    batch.archived_at = archived_at
+    batch.archived_by = user_id
 
 
 def insert_stock_movement(

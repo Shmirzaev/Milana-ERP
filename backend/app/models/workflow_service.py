@@ -7,6 +7,7 @@ from sqlalchemy import case, func
 from sqlalchemy.orm import Session, lazyload
 
 from app.schemas.core_persistence import add_notification_row
+from app.schemas.inventory import stock_movement_persistence
 
 from app.schemas import (
     Department,
@@ -51,9 +52,9 @@ def archive_depleted_material_batch(
     item = item_cache.get(int(batch.item_id)) if item_cache is not None else db.get(Item, int(batch.item_id))
     if not item or str(item.category or "").strip().lower() not in _MATERIAL_BATCH_CATEGORIES:
         return False
-    batch.quantity = 0
-    batch.archived_at = datetime.now(timezone.utc)
-    batch.archived_by = user_id
+    stock_movement_persistence.archive_batch(
+        db, batch, archived_at=datetime.now(timezone.utc), user_id=user_id,
+    )
     user = db.get(User, user_id) if user_id else None
     log_action(
         db,
