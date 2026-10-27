@@ -12,6 +12,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import admin
+from app.core.deps import user_permissions
 from app.core.security import verify_password
 from app.db.base import Base
 from app.schemas import PasswordResetToken, User
@@ -182,6 +183,59 @@ def test_concurrent_membership_removals_keep_one_admin(membership_postgres_sessi
     assert sorted(results) == ["protected", "removed"]
     with membership_postgres_sessions() as db:
         assert db.query(User).filter(User.id.in_(target_ids), User.is_active.is_(True)).count() == 1
+
+
+def test_concurrent_factory_move_and_deactivation_keep_one_admin(membership_postgres_sessions, monkeypatch):
+    from app.libs.dto.catalog.catalog import UserUpdate
+
+    actor_id, [mover_id, other_id] = _create_membership_case(membership_postgres_sessions, 2)
+    with membership_postgres_sessions.begin() as db:
+        mover = db.get(User, mover_id)
+        mover.access_policy = {"BST": {"allow": [], "deny": ["finance.view"]}}
+        assert "*" in user_permissions(mover)
+
+    move_checked = Event()
+    deactivation_started = Event()
+    deactivation_finished = Event()
+    original_count = admin._count_active_admins
+
+    def hold_move_after_count(db, exclude_user_id=None):
+        count = original_count(db, exclude_user_id=exclude_user_id)
+        if exclude_user_id == mover_id:
+            move_checked.set()
+            assert deactivation_started.wait(5)
+            deactivation_finished.wait(2)
+        return count
+
+    monkeypatch.setattr(admin, "_count_active_admins", hold_move_after_count)
+
+    def change(user_id, payload):
+        with membership_postgres_sessions() as db:
+            actor = db.get(User, actor_id)
+            if user_id == other_id:
+                deactivation_started.set()
+            try:
+                admin.update_user(user_id, payload, db, actor)
+                return "changed"
+            except HTTPException as exc:
+                db.rollback()
+                assert exc.status_code == 400
+                return "protected"
+            finally:
+                if user_id == other_id:
+                    deactivation_finished.set()
+
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        move = workers.submit(change, mover_id, UserUpdate(factory_code="BST"))
+        assert move_checked.wait(10)
+        deactivate = workers.submit(change, other_id, UserUpdate(is_active=False))
+        results = [move.result(timeout=20), deactivate.result(timeout=20)]
+
+    assert sorted(results) == ["changed", "protected"]
+    with membership_postgres_sessions() as db:
+        mover = db.get(User, mover_id)
+        other = db.get(User, other_id)
+        assert sum(user.is_active and "*" in user_permissions(user) for user in (mover, other)) == 1
 
 
 def test_membership_patch_does_not_block_audit_actor_key_share(membership_postgres_sessions):
