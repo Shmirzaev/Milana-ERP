@@ -31,7 +31,7 @@ from alembic.config import Config
 from starlette.responses import JSONResponse
 from app.tests.pg_approved_instance import (
     ApprovedInstanceUnavailable, create_target_database, drop_target_database,
-    load_approved_instance, target_engine,
+    load_approved_instance, target_engine, finalize_target, require_or_skip,
 )
 
 # Bound only after the module fixture has created its isolated owned database.
@@ -44,7 +44,7 @@ def bom_database():
     try:
         instance = load_approved_instance()
     except ApprovedInstanceUnavailable as error:
-        pytest.skip(f"required PostgreSQL gate BLOCKED: {error}")
+        require_or_skip(error)
     target = create_target_database(instance)
     engine = None
     try:
@@ -60,11 +60,11 @@ def bom_database():
         Sessions.configure(bind=engine)
         yield engine
     finally:
-        Sessions.configure(bind=None)
-        if engine is not None:
-            engine.dispose()
-        engine = None
-        drop_target_database(target)
+        try:
+            Sessions.configure(bind=None)
+        finally:
+            target_connection_engine, engine = engine, None
+            finalize_target(target, target_connection_engine)
 
 @pytest.fixture(autouse=True)
 def case(bom_database):
