@@ -95,6 +95,17 @@ Verify variant uniqueness, BOM quantities, image scope, approval rules and linke
 
 ## Migration steps
 
+### Remaining operation and type coverage
+
+The combined BOM update/delete source is a candidate awaiting its own combined
+technical checks, actual browser/readback evidence and human acceptance. Its
+presence does not complete Catalog or the system-wide enum migration.
+
+`Model.status` remains an unresolved fixed-vocabulary audit item, not an approved
+free-form field. Ismail owns the table/writer/DTO/consumer inventory; Mirshoir
+reviews its eventual contract and action subsets. This integration does not add
+an enum or change its stored values, defaults, permissions or transitions.
+
 Follow [the shared sequence](../README.md#migration-sequence): study route/DB/rules
 and callers -> agree one operation -> capture baseline tests -> extract -> test
 old/new separately -> test the real UI on isolated data -> reviewed switch -> human

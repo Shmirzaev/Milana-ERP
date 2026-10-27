@@ -17,10 +17,12 @@ class CollectionStatus(str, Enum):
 
 
 class CatalogScope(str, Enum):
-    """The fixed, non-persisted catalogue scope discriminator.
+    """The fixed catalogue scope vocabulary, including persisted Model scope.
 
     It selects the owning paid-process table and the Eco Cotton access rule.
-    It is not a database column, so it needs no schema and no migration.
+    Model.catalog_scope stores these values in its existing String(16) column,
+    with a CHECK constraint and the standard default. This enum does not alter
+    that storage, its constraints or its values; no migration is introduced.
     """
 
     STANDARD = "standard"
