@@ -3,7 +3,6 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
-from fastapi.encoders import jsonable_encoder
 
 from app.libs.dto.sales.customer_order_output import CustomerOrderLedgerOut
 from app.libs.enums.finance import CustomerOrderPaymentStatus, InvoiceStatus
@@ -21,6 +20,7 @@ from app.models.finance.customer_ledger_service import _serialize_customer_order
         (SalesOrderStatus.DRAFT, False, "0", [InvoiceStatus.VOID, InvoiceStatus.VOID], "0", "0", CustomerOrderPaymentStatus.VOID),
         (SalesOrderStatus.DRAFT, False, "0", [InvoiceStatus.CANCELLED], "0", "0", CustomerOrderPaymentStatus.CANCELLED),
         (SalesOrderStatus.DRAFT, False, "0", [InvoiceStatus.VOID, InvoiceStatus.CANCELLED], "0", "0", CustomerOrderPaymentStatus.CANCELLED),
+        (SalesOrderStatus.DRAFT, False, "100", [InvoiceStatus.UNPAID], "100", "0", CustomerOrderPaymentStatus.UNPAID),
         (SalesOrderStatus.DRAFT, False, "60", [InvoiceStatus.UNPAID], "100", "40", CustomerOrderPaymentStatus.PARTIAL),
         (SalesOrderStatus.DRAFT, False, "0", [InvoiceStatus.UNPAID], "100", "100", CustomerOrderPaymentStatus.PAID),
     ],
@@ -201,46 +201,38 @@ def test_customer_order_response_model_matches_legacy_datetime_json_encoding(mon
 
     assert response.status_code == 200, response.text
     assert query_calls == [(db, 7)]
-    # The pre-DTO route returned dictionaries; FastAPI's jsonable_encoder used
-    # datetime.isoformat(), retaining naive, UTC and nonzero-offset spellings.
-    legacy_row = {
-        "id": row.id,
-        "order_no": row.order_no,
-        "date": row.date,
-        "total": row.total,
-        "status": row.status,
-        "invoice_total": row.invoice_total,
-        "paid_total": row.paid_total,
-        "balance_due": row.balance_due,
-        "payment_status": row.payment_status,
-        "last_payment_at": row.last_payment_at,
+    # Golden JSON reflects the 6f dictionary serializer contract independently
+    # of the candidate DTO. Datetimes use the old datetime.isoformat() spelling.
+    legacy_json = [{
+        "id": 7,
+        "order_no": "SO-7",
+        "date": order_date.isoformat(),
+        "total": 100.0,
+        "status": "shipped",
+        "invoice_total": 100.0,
+        "paid_total": 40.0,
+        "balance_due": 60.0,
+        "payment_status": "partial",
+        "last_payment_at": utc_payment_date.isoformat(),
         "invoices": [
             {
-                "id": invoice.id,
-                "invoice_no": invoice.invoice_no,
-                "amount": invoice.amount,
-                "status": invoice.status,
-                "issued_at": invoice.issued_at,
-                "due_date": invoice.due_date,
-                "paid_amount": invoice.paid_amount,
-                "raw_paid_amount": invoice.raw_paid_amount,
-                "advance_amount": invoice.advance_amount,
-                "balance_due": invoice.balance_due,
+                "id": 8,
+                "invoice_no": "INV-8",
+                "amount": 100.0,
+                "status": "partially_paid",
+                "issued_at": offset_invoice_date.isoformat(),
+                "due_date": None,
+                "paid_amount": 40.0,
+                "raw_paid_amount": 40.0,
+                "advance_amount": 0.0,
+                "balance_due": 60.0,
                 "payments": [
-                    {
-                        "id": payment.id,
-                        "amount": payment.amount,
-                        "payment_method": payment.payment_method,
-                        "paid_at": payment.paid_at,
-                        "notes": payment.notes,
-                    }
-                    for payment in invoice.payments
+                    {"id": 9, "amount": 20.0, "payment_method": "legacy custom method", "paid_at": None, "notes": None},
+                    {"id": 10, "amount": 20.0, "payment_method": None, "paid_at": offset_receipt_date.isoformat(), "notes": None},
                 ],
             }
-            for invoice in row.invoices
         ],
-    }
-    legacy_json = jsonable_encoder([legacy_row])
+    }]
     assert response.json() == legacy_json
     assert response.json()[0]["payment_status"] == "partial"
     assert response.json()[0]["invoices"][0]["status"] == "partially_paid"
