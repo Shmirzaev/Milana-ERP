@@ -1,10 +1,7 @@
-from typing import Literal
-
 from pydantic import BaseModel
 
-
-RecommendationStatus = Literal["open", "accepted", "dismissed", "converted"]
+from app.libs.enums.planning import ForecastRecommendationStatus
 
 
 class ForecastRecommendationPatch(BaseModel):
-    status: RecommendationStatus
+    status: ForecastRecommendationStatus

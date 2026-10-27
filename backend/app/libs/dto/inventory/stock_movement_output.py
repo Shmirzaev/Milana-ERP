@@ -4,11 +4,12 @@ from datetime import datetime
 from typing import Optional
 
 from app.libs.dto.common import ORMModel
+from app.libs.enums.inventory import StockMovementType
 
 
 class StockMovementOut(ORMModel):
     id: int
-    movement_type: str
+    movement_type: StockMovementType
     item_id: int
     batch_id: Optional[int] = None
     from_warehouse_id: Optional[int] = None

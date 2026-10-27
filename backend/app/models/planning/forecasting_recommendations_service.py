@@ -27,6 +27,8 @@ from app.models.audit_service import log_action
 from app.schemas import Brand, Collection, ForecastRecommendation, Item, Model, User
 from app.schemas.planning.forecast_recommendation_persistence import (
     ForecastRecommendationInsert,
+    ForecastRecommendationReview,
+    apply_forecast_recommendation_review,
     insert_forecast_recommendation,
 )
 
@@ -173,13 +175,19 @@ def update_recommendation(
     if not row:
         raise HTTPException(404, "Forecast recommendation not found")
     old_value = {"status": row.status}
-    row.status = payload.status
-    row.reviewed_by = current.id
-    row.reviewed_at = datetime.now(timezone.utc)
+    apply_forecast_recommendation_review(
+        db,
+        ForecastRecommendationReview(
+            status=payload.status,
+            reviewed_by=current.id,
+            reviewed_at=datetime.now(timezone.utc),
+        ),
+        row,
+    )
     log_action(
         db,
         current,
-        f"{payload.status}_forecast_recommendation",
+        f"{payload.status.value}_forecast_recommendation",
         "ForecastRecommendation",
         row.id,
         old_value=old_value,

@@ -21,7 +21,11 @@ from app.libs.dto.purchasing.purchase_request_input import (
     PurchaseRequestIn,
     PurchaseRequestOrderIn,
 )
-from app.libs.types.purchasing import PurchaseRequestApprovalCommand, PurchaseRequestCreateCommand
+from app.libs.types.purchasing import (
+    PurchaseRequestApprovalCommand,
+    PurchaseRequestConversionCommand,
+    PurchaseRequestCreateCommand,
+)
 from app.models import inventory_access_service as inventory_access
 from app.models import purchasing_service as purchasing_core
 from app.models.image_storage_service import store_uploaded_image
@@ -132,12 +136,32 @@ def reject_purchase_request(db: Session, *, request_id: int, current: User) -> P
     return request
 
 
+def _purchase_request_conversion_command(
+    payload: PurchaseRequestOrderIn,
+) -> PurchaseRequestConversionCommand:
+    """The HTTP payload as the shared internal conversion command.
+
+    The command carries only what the caller decides: the expected date and
+    the quantity it orders for each request line.
+    """
+    return {
+        "expected_date": payload.expected_date,
+        "lines": [
+            {
+                "purchase_request_line_id": line.purchase_request_line_id,
+                "ordered_quantity": line.ordered_quantity,
+            }
+            for line in payload.lines
+        ],
+    }
+
+
 def convert_purchase_request_to_order(
     db: Session, *, request_id: int, payload: PurchaseRequestOrderIn, current: User
 ) -> PurchaseOrder:
     """Convert an approved purchase request into a purchase order."""
     order = purchasing_core.convert_purchase_request_to_order(
-        db, request_id=request_id, data=payload.model_dump(), current=current
+        db, request_id=request_id, data=_purchase_request_conversion_command(payload), current=current
     )
     purchasing_core.require_purchase_item_access(db, current, order.lines)
     db.commit()

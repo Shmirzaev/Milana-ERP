@@ -21,6 +21,13 @@ import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
 import { prepareModelImageUpload } from "@/lib/imageUpload";
 import { GARMENT_SIZE_OPTIONS, garmentSizeRange, garmentSizeRangeEndOptions } from "@/lib/garmentSizes";
 import { parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
+import {
+  BOM_MATERIAL_ROLE_MAIN,
+  BOM_MATERIAL_ROLE_SECONDARY,
+  type BomCreatePayload,
+  type BomCreateResult,
+  type BomMaterialRole,
+} from "@/lib/modelBom";
 import VerticalModelPhoto from "@/components/VerticalModelPhoto";
 import VariantColorSelect from "@/components/VariantColorSelect";
 import PaidOperationsEditor from "@/components/PaidOperationsEditor";
@@ -87,7 +94,7 @@ type BomSection = "material" | "accessory";
 type BomFormState = {
   item_id: number;
   material_name: string;
-  material_role: "main" | "secondary";
+  material_role: BomMaterialRole;
   stock_batch_id: number;
   size: string;
   color: string;
@@ -167,7 +174,7 @@ function normalizeSizeToken(value: unknown): string {
 }
 
 function emptyBomRow(): BomFormState {
-  return { item_id: 0, material_name: "", material_role: "main", stock_batch_id: 0, size: "", color: "", photo_url: "", quantity_per_piece: 1, unit: "kg", waste_percent: 5 };
+  return { item_id: 0, material_name: "", material_role: BOM_MATERIAL_ROLE_MAIN, stock_batch_id: 0, size: "", color: "", photo_url: "", quantity_per_piece: 1, unit: "kg", waste_percent: 5 };
 }
 
 export default function ModelDetail() {
@@ -406,7 +413,7 @@ export default function ModelDetail() {
     setBomRow({
       item_id: isUsluga && section === "material" ? 0 : Number(row.item_id || 0),
       material_name: isUsluga && section === "material" ? String(row.material_name || row.item?.name || "") : "",
-      material_role: isUsluga && section === "material" && row.material_role === "secondary" ? "secondary" : "main",
+      material_role: isUsluga && section === "material" && row.material_role === BOM_MATERIAL_ROLE_SECONDARY ? BOM_MATERIAL_ROLE_SECONDARY : BOM_MATERIAL_ROLE_MAIN,
       stock_batch_id: section === "material" ? 0 : Number(row.stock_batch_id || 0),
       size: row.size || "",
       color: row.color || "",
@@ -884,7 +891,7 @@ export default function ModelDetail() {
         return;
       }
     }
-    const payload: Record<string, unknown> = {
+    const payload: BomCreatePayload = {
       item_id: isManualUslugaMaterial ? null : bomRow.item_id,
       stock_batch_id: target === "material" ? null : (bomRow.stock_batch_id || null),
       size: bomRow.size || null,
@@ -900,7 +907,7 @@ export default function ModelDetail() {
     if (activeEdit) {
       await api.patch(`${modelApiBase}/${id}/bom/${activeEdit.id}`, payload);
     } else {
-      await api.post(`${modelApiBase}/${id}/bom`, payload);
+      await api.post<BomCreateResult>(`${modelApiBase}/${id}/bom`, payload);
     }
     resetBomForm();
     setMsg(activeEdit ? t("page.modelDetail.msg.updatedBom") : target === "material" ? t("page.modelDetail.msg.addedToFabrics") : t("page.modelDetail.msg.addedToAccessories"));
@@ -1366,7 +1373,7 @@ export default function ModelDetail() {
                   {materialRows.map((r: any) => (
                     <tr key={r.id}>
                       <td>{r.material_name || r.item?.name || "-"}</td>
-                      {isUsluga && <td>{r.material_role === "main" ? t("usluga.mainFabric") : t("usluga.secondaryFabric")}</td>}
+                      {isUsluga && <td>{r.material_role === BOM_MATERIAL_ROLE_MAIN ? t("usluga.mainFabric") : t("usluga.secondaryFabric")}</td>}
                       <td className="max-w-[260px] text-xs text-[#56503f]">{formatComposition(r.item?.composition) || "-"}</td>
                       <td>{r.size || t("common.all")} / {r.color || t("common.all")}</td>
                       <td>{n(r.quantity_per_piece).toFixed(4)} {r.unit} (+{n(r.waste_percent).toFixed(1)}%)</td>
@@ -1413,10 +1420,10 @@ export default function ModelDetail() {
                   <select
                     className="input"
                     value={bomRow.material_role}
-                    onChange={(e) => setBomRow({ ...bomRow, material_role: e.target.value === "secondary" ? "secondary" : "main" })}
+                    onChange={(e) => setBomRow({ ...bomRow, material_role: e.target.value === BOM_MATERIAL_ROLE_SECONDARY ? BOM_MATERIAL_ROLE_SECONDARY : BOM_MATERIAL_ROLE_MAIN })}
                   >
-                    <option value="main">{t("usluga.mainFabric")}</option>
-                    <option value="secondary">{t("usluga.secondaryFabric")}</option>
+                    <option value={BOM_MATERIAL_ROLE_MAIN}>{t("usluga.mainFabric")}</option>
+                    <option value={BOM_MATERIAL_ROLE_SECONDARY}>{t("usluga.secondaryFabric")}</option>
                   </select>
                 )}
                 <input className="input" placeholder={t("page.modelDetail.colorOptional")} value={bomRow.color} onChange={(e) => setBomRow({ ...bomRow, color: e.target.value })} />

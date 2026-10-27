@@ -7,9 +7,10 @@ create operation needs; it does not validate it.
 
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 from typing import NotRequired, TypedDict
 
-from app.libs.enums.purchasing import PurchaseRequestStatus
+from app.libs.enums.purchasing import PurchaseOrderStatus, PurchaseRequestStatus
 
 
 class PurchaseRequestLineCommand(TypedDict):
@@ -58,3 +59,46 @@ class PurchaseRequestApprovalTransition:
     status: PurchaseRequestStatus
     approved_by: int
     approved_at: datetime
+
+
+class PurchaseOrderLineCommand(TypedDict):
+    item_id: int
+    ordered_quantity: float
+    unit: str | None
+    unit_cost: Decimal | float
+    warehouse_id: int | None
+    supplier_id: int | None
+    material_name: str | None
+    photo_url: str | None
+    notes: str | None
+
+
+class PurchaseOrderCreateCommand(TypedDict):
+    """The internal shape order creation consumes.
+
+    `status` is the canonical member. Callers that cannot choose a status send
+    `PurchaseOrderStatus.DRAFT`; the conversion operation sends `SENT`.
+    """
+
+    purchase_request_id: int | None
+    supplier_id: int | None
+    status: PurchaseOrderStatus
+    expected_date: datetime | None
+    notes: str | None
+    lines: list[PurchaseOrderLineCommand]
+
+
+class PurchaseRequestConversionLineCommand(TypedDict):
+    purchase_request_line_id: int
+    ordered_quantity: float
+
+
+class PurchaseRequestConversionCommand(TypedDict):
+    """What one request-to-order conversion needs from its caller.
+
+    The request lines themselves are read by the operation; a caller only
+    names the quantity it orders for each of them.
+    """
+
+    expected_date: datetime
+    lines: list[PurchaseRequestConversionLineCommand]

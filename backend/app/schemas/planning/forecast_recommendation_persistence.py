@@ -1,5 +1,6 @@
-"""Forecast creation writes using the business service's supplied Session."""
+"""Forecast creation and review writes using the business service's supplied Session."""
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
@@ -48,5 +49,25 @@ def insert_forecast_recommendation(
         created_by=command.created_by,
     )
     db.add(row)
+    db.flush()
+    return row
+
+
+@dataclass(frozen=True)
+class ForecastRecommendationReview:
+    status: ForecastRecommendationStatus
+    reviewed_by: int
+    reviewed_at: datetime
+
+
+def apply_forecast_recommendation_review(
+    db: Session,
+    command: ForecastRecommendationReview,
+    row: ForecastRecommendation,
+) -> ForecastRecommendation:
+    """Apply the mapped review writes; the service owns policy, audit and commit."""
+    row.status = command.status.value
+    row.reviewed_by = command.reviewed_by
+    row.reviewed_at = command.reviewed_at
     db.flush()
     return row

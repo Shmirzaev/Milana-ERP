@@ -12,7 +12,6 @@ from app.core.costs import round_unit_cost
 from app.schemas import (
     Item,
     PurchaseOrder,
-    PurchaseOrderLine,
     PurchaseRequest,
     SalesOrder,
     StockBatch,
@@ -23,10 +22,12 @@ from app.schemas import (
     ProductionOrder,
 )
 from app.libs.dto.purchasing.purchase_quantity import MAX_PURCHASE_QUANTITY
-from app.libs.enums.purchasing import PurchaseRequestStatus
+from app.libs.enums.purchasing import PurchaseOrderStatus, PurchaseRequestStatus
 from app.libs.types.purchasing import (
+    PurchaseOrderCreateCommand,
     PurchaseRequestApprovalCommand,
     PurchaseRequestApprovalTransition,
+    PurchaseRequestConversionCommand,
     PurchaseRequestCreateCommand,
     PurchaseRequestLineCommand,
 )
@@ -36,6 +37,11 @@ from app.models.material_rolls_service import normalize_material_roll_weights
 from app.models.numbering_service import next_purchase_order_no, next_purchase_request_no
 from app.models.planning_service import material_requirements_for_sales_order
 from app.models.workflow_service import notify_department
+from app.schemas.purchasing.purchase_order_persistence import (
+    add_purchase_order_line_row,
+    add_purchase_order_row,
+    apply_purchase_request_conversion,
+)
 from app.schemas.purchasing.purchase_request_persistence import (
     add_purchase_request_line_row,
     add_purchase_request_row,
@@ -52,7 +58,10 @@ REQUEST_APPROVABLE_STATUSES: frozenset[PurchaseRequestStatus] = frozenset({
     PurchaseRequestStatus.PENDING_APPROVAL,
 })
 REQUEST_REJECTABLE_STATUSES = {"draft", "pending_approval", "approved"}
-ORDER_CREATE_STATUSES = {"draft", "sent"}
+ORDER_CREATE_STATUSES: frozenset[PurchaseOrderStatus] = frozenset({
+    PurchaseOrderStatus.DRAFT,
+    PurchaseOrderStatus.SENT,
+})
 ORDER_RECEIVABLE_STATUSES = {"sent", "approved", "partially_received"}
 
 # One bound parameter per id, so keep each batch well under the driver's limit.
@@ -424,7 +433,28 @@ def reject_purchase_request(db: Session, *, request_id: int, current: User) -> P
     return request
 
 
-def create_purchase_order(db: Session, *, data: dict, current: User) -> PurchaseOrder:
+def _order_create_status(raw_status) -> PurchaseOrderStatus:
+    """Resolve the creation status member, refusing anything outside the subset.
+
+    A caller that names a value the order lifecycle does not know is refused
+    with the message this operation always used, instead of being stored
+    verbatim or raising a parse error.
+    """
+    value = (
+        raw_status.value
+        if isinstance(raw_status, PurchaseOrderStatus)
+        else str(raw_status or PurchaseOrderStatus.DRAFT.value)
+    )
+    try:
+        status = PurchaseOrderStatus(value)
+    except ValueError:
+        raise HTTPException(400, "Purchase order status must be draft or sent") from None
+    if status not in ORDER_CREATE_STATUSES:
+        raise HTTPException(400, "Purchase order status must be draft or sent")
+    return status
+
+
+def create_purchase_order(db: Session, *, data: PurchaseOrderCreateCommand, current: User) -> PurchaseOrder:
     purchase_request_id = data.get("purchase_request_id")
     request = db.get(PurchaseRequest, int(purchase_request_id)) if purchase_request_id else None
     if purchase_request_id and not request:
@@ -461,18 +491,16 @@ def create_purchase_order(db: Session, *, data: dict, current: User) -> Purchase
     # service callers must not retain partial writes if they catch the error.
     line_costs = [_stored_cost(raw.get("unit_cost", 0), "unit_cost") for raw in line_inputs]
 
-    order = PurchaseOrder(
+    order = add_purchase_order_row(
+        db,
         po_no=next_purchase_order_no(db),
         purchase_request_id=purchase_request_id,
         supplier_id=supplier_id,
-        status=str(data.get("status") or "draft"),
+        status=_order_create_status(data.get("status")),
         ordered_by=current.id,
         expected_date=data.get("expected_date"),
         notes=data.get("notes"),
     )
-    if order.status not in ORDER_CREATE_STATUSES:
-        raise HTTPException(400, "Purchase order status must be draft or sent")
-    db.add(order)
     db.flush()
 
     for raw, unit_cost in zip(line_inputs, line_costs):
@@ -486,20 +514,19 @@ def create_purchase_order(db: Session, *, data: dict, current: User) -> Purchase
         unit = str(raw.get("unit") or item.unit or "").strip() or item.unit
         line_supplier_id = raw.get("supplier_id") or supplier_id
         _require_mapped_supplier(db, suppliers, int(line_supplier_id) if line_supplier_id else None)
-        db.add(
-            PurchaseOrderLine(
-                purchase_order_id=order.id,
-                item_id=item.id,
-                ordered_quantity=ordered_quantity,
-                received_quantity=0,
-                unit=unit,
-                unit_cost=unit_cost,
-                warehouse_id=warehouse_id,
-                supplier_id=line_supplier_id,
-                material_name=str(raw.get("material_name") or item.name or "").strip() or item.name,
-                photo_url=str(raw.get("photo_url") or item.image_url or "").strip() or None,
-                notes=raw.get("notes"),
-            )
+        add_purchase_order_line_row(
+            db,
+            purchase_order_id=order.id,
+            item_id=item.id,
+            ordered_quantity=ordered_quantity,
+            received_quantity=0,
+            unit=unit,
+            unit_cost=unit_cost,
+            warehouse_id=warehouse_id,
+            supplier_id=line_supplier_id,
+            material_name=str(raw.get("material_name") or item.name or "").strip() or item.name,
+            photo_url=str(raw.get("photo_url") or item.image_url or "").strip() or None,
+            notes=raw.get("notes"),
         )
 
     db.flush()
@@ -522,11 +549,13 @@ def create_purchase_order(db: Session, *, data: dict, current: User) -> Purchase
     return order
 
 
-def convert_purchase_request_to_order(db: Session, *, request_id: int, data: dict, current: User) -> PurchaseOrder:
+def convert_purchase_request_to_order(
+    db: Session, *, request_id: int, data: PurchaseRequestConversionCommand, current: User
+) -> PurchaseOrder:
     request = _locked_purchase_request(db, request_id)
     if not request:
         raise HTTPException(404, "Purchase request not found")
-    if request.status != "approved":
+    if request.status != PurchaseRequestStatus.APPROVED:
         raise HTTPException(409, f"Only approved purchase requests can be converted (current: '{request.status}')")
     if not request.lines:
         raise HTTPException(400, "Purchase request has no lines")
@@ -559,7 +588,7 @@ def convert_purchase_request_to_order(db: Session, *, request_id: int, data: dic
         data={
             "purchase_request_id": request.id,
             "supplier_id": supplier_id,
-            "status": "sent",
+            "status": PurchaseOrderStatus.SENT,
             "expected_date": expected_date,
             "notes": f"Converted from {request.request_no}",
             "lines": [
@@ -580,7 +609,7 @@ def convert_purchase_request_to_order(db: Session, *, request_id: int, data: dic
         current=current,
     )
     old_status = request.status
-    request.status = "converted"
+    apply_purchase_request_conversion(request, status=PurchaseRequestStatus.CONVERTED)
     log_action(
         db,
         current,

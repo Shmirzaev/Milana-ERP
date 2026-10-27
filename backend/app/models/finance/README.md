@@ -64,7 +64,7 @@ transaction.
 | File | Operation | Input | Output | Refusals | Transaction owner |
 | --- | --- | --- | --- | --- | --- |
 | [invoices_service.py](invoices_service.py) | `create_order_invoice` | `Session`, `InvoiceIn`, actor | the `Invoice` row | 404 sales order not found; 422 amount not representable in `invoices.amount` | this operation (invoice row, audit row, commit) |
-| [invoices_service.py](invoices_service.py) | `generate_order_invoice` | `Session`, sales order id, actor | invoice envelope dict | 404 sales order not found; 400 order status not invoiceable | this operation (invoice row, audit row, commit) |
+| [invoices_service.py](invoices_service.py) | `generate_order_invoice` | `Session`, sales order id, actor | `InvoiceGenerationOut` envelope | 404 sales order not found; 400 order status not invoiceable | this operation (invoice row, audit row, commit) |
 | [invoices_service.py](invoices_service.py) | `storable_invoice_amount`, `lock_sales_order` | value / session | bounded `Decimal` / locked order row | 422 from the amount guard | none (helpers of the operations above) |
 | [payments_service.py](payments_service.py) | `record_invoice_payment` | `Session`, `PaymentIn`, actor, idempotency key | `PaymentOut` snapshot dict | 404 invoice not found; 409 key reused with another payload or owner | this operation (payment row, audit row, idempotency row, commit) |
 | [customer_ledger_service.py](customer_ledger_service.py) | `list_customer_orders` | `Session`, customer id | order ledger rows | 404 customer not found | read-only |

@@ -79,3 +79,34 @@ class StockMovementType(str, Enum):
     PRODUCE = "produce"
     WASTE = "waste"
     SHIPMENT = "shipment"
+
+
+class MaterialReservationStatus(str, Enum):
+    """`material_reservations.status` - the lifecycle state of a reservation.
+
+    The five members are exactly the values the column's CHECK constraint
+    allows. The reservation plan's own readiness status ("ready", "shortage",
+    "partial") is a different concept and stays a plain string.
+    """
+
+    RESERVED = "reserved"
+    PARTIALLY_CONSUMED = "partially_consumed"
+    CONSUMED = "consumed"
+    RELEASED = "released"
+    CANCELLED = "cancelled"
+
+
+class MaterialReservationType(str, Enum):
+    """`material_reservations.reservation_type` - what the reservation covers."""
+
+    MATERIAL = "material"
+    ACCESSORY = "accessory"
+    PACKAGING = "packaging"
+
+
+class MaterialReservationSource(str, Enum):
+    """`material_reservations.source` - which writer created the reservation."""
+
+    MANUAL = "manual"
+    AUTO_BOM = "auto_bom"
+    PLANNING = "planning"

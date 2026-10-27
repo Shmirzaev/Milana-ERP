@@ -1,8 +1,10 @@
-"""Schema-owned insert for the manual Finance invoice operation.
+"""Schema-owned insert for the Finance invoice operations.
 
-The authoritative Invoice mapping remains in schemas.sales.sales. Finance's
-service decides the amount, status, number and time and owns the parent lock,
-audit and outer commit. This helper uses that same Session and only flushes.
+Both issuance entry points - the manual Finance invoice and the sales
+generation - write through this helper. The authoritative Invoice mapping
+remains in schemas.sales.sales. Finance's service decides the amount, status,
+number and time and owns the parent lock, audit and outer commit. This helper
+uses that same Session and only flushes.
 """
 from datetime import datetime
 from decimal import Decimal

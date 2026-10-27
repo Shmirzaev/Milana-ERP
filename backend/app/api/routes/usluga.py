@@ -9,6 +9,8 @@ from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import selectinload
 
 from app.core.deps import DbSession, require_permissions
+from app.libs.dto.catalog.model_bom_output import ModelBOMCreateOut
+from app.libs.enums.catalog import CatalogScope
 from app.schemas import (
     Bundle,
     CuttingRecord,
@@ -582,7 +584,7 @@ def add_usluga_model_color(
     return models_service.add_color(current, db, mid, payload, "usluga")
 
 
-@router.post("/models/{mid}/bom", status_code=201)
+@router.post("/models/{mid}/bom", status_code=201, response_model=ModelBOMCreateOut)
 def add_usluga_model_bom(
     mid: int,
     payload: ModelBOMIn,
@@ -590,7 +592,7 @@ def add_usluga_model_bom(
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)
-    return models_service.add_bom(current, db, mid, payload, "usluga")
+    return models_service.add_bom(current, db, mid, payload, CatalogScope.USLUGA)
 
 
 @router.post("/models/{mid}/bom-photo/upload", status_code=201)

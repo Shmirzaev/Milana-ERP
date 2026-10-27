@@ -44,3 +44,18 @@ class PaidProcessSection(str, Enum):
 
 
 PAID_PROCESS_SECTION_VALUES = frozenset(section.value for section in PaidProcessSection)
+
+
+class BomMaterialRole(str, Enum):
+    """The fixed BOM material-role vocabulary.
+
+    A manual Usluga fabric is either the main material or a secondary one. The
+    stored column stays `String`; the role is written only for a manual material,
+    so an inventory-linked row keeps a null role.
+    """
+
+    MAIN = "main"
+    SECONDARY = "secondary"
+
+
+BOM_MATERIAL_ROLE_VALUES = frozenset(role.value for role in BomMaterialRole)

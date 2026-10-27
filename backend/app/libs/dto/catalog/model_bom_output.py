@@ -1,7 +1,19 @@
 from typing import Optional
 
+from pydantic import BaseModel
+
 from app.libs.dto.common import ORMModel
 from app.libs.dto.inventory.item_output import ItemOut
+
+
+class ModelBOMCreateOut(BaseModel):
+    """The ID-only result of one BOM create.
+
+    The create operation returns the new row id and nothing else; the full row
+    stays in the read contract.
+    """
+
+    id: int
 
 
 class ModelBOMOut(ORMModel):

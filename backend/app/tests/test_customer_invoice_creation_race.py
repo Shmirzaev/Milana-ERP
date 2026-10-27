@@ -4,7 +4,6 @@ Real PostgreSQL only: SQLite cannot prove row-lock serialization. Gates pause
 real operations, and pg_blocking_pids proves the contender reached a database
 lock before release. No query result or application policy is mocked.
 """
-import os
 import threading
 import time
 from decimal import Decimal
@@ -12,7 +11,6 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import create_engine, event, text
-from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.base import Base
@@ -22,26 +20,28 @@ from app.models.finance import customer_ledger_service as ledger
 from app.models.finance import invoices_service as issuance
 from app.models.idempotency_service import bind_idempotency_identity
 from app.schemas import AuditLog, Customer, IdempotencyRecord, Invoice, Payment, SalesOrder, User
+from app.tests.pg_approved_instance import (
+    ApprovedInstanceUnavailable,
+    create_target_database,
+    drop_target_database,
+    load_approved_instance,
+    verify_approved_instance,
+)
 
 
 @pytest.fixture(scope="module")
 def receipt_race_sessions():
-    url = os.environ.get("FN04_TEST_PG_ADMIN_URL")
-    if not url:
-        pytest.skip("Set FN04_TEST_PG_ADMIN_URL for the required PostgreSQL race checks")
-    parsed = make_url(url)
-    # Never create/drop databases on a non-local server or use an application DB.
-    assert parsed.host in {"127.0.0.1", "localhost"} and parsed.database == "postgres"
-    database = "review_receipt_invoice_" + uuid4().hex
-    admin = create_engine(parsed, isolation_level="AUTOCOMMIT")
-    engine = None
-    created = False
     try:
-        with admin.connect() as conn:
-            conn.exec_driver_sql(f'CREATE DATABASE "{database}"')
-        created = True
+        instance = load_approved_instance()
+        verify_approved_instance(instance)
+    except ApprovedInstanceUnavailable as error:
+        pytest.skip(str(error))
+
+    database = create_target_database(instance)
+    engine = None
+    try:
         engine = create_engine(
-            parsed.set(database=database),
+            instance.admin_url.set(database=database),
             connect_args={"options": "-cstatement_timeout=20000 -clock_timeout=10000"},
         )
         Base.metadata.create_all(engine)
@@ -49,10 +49,7 @@ def receipt_race_sessions():
     finally:
         if engine is not None:
             engine.dispose()
-        if created:
-            with admin.connect() as conn:
-                conn.exec_driver_sql(f'DROP DATABASE "{database}" WITH (FORCE)')
-        admin.dispose()
+        drop_target_database(instance, database)
 
 
 @pytest.fixture

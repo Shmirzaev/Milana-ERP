@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import defer, lazyload
 
 from app.libs.dto.inventory.eco_fabric_transfer_input import ReturnIn, ScanIn, SendIn
+from app.libs.enums.inventory import StockMovementType
 from app.libs.dto.inventory.stock_movement_input import StockMovementIn
 from app.libs.dto.inventory.stock_movement_output import StockMovementOut
 from app.models import inventory_access_service as inventory_access
@@ -27,6 +28,7 @@ from app.models.inventory_service import (
 )
 from app.models.inventory.stock_service import _locked_stock_batch_statement
 from app.models.workflow_service import archive_depleted_material_batch
+from app.schemas.inventory import stock_movement_persistence
 from app.schemas import (
     EcoFabricDispatch,
     EcoFabricRoll,
@@ -35,6 +37,22 @@ from app.schemas import (
     StockMovement,
     User,
     Warehouse,
+)
+
+
+# The movement kinds this operation accepts. The canonical vocabulary is
+# larger; the other kinds keep their own writers.
+_TRANSFER_MOVEMENT_TYPES = (
+    StockMovementType.TRANSFER,
+    StockMovementType.ISSUE,
+    StockMovementType.CONSUME,
+    StockMovementType.ADJUSTMENT,
+    StockMovementType.RETURN,
+)
+_OUTGOING_MOVEMENT_TYPES = (
+    StockMovementType.ISSUE,
+    StockMovementType.CONSUME,
+    StockMovementType.TRANSFER,
 )
 
 
@@ -51,7 +69,7 @@ def transfer_stock(
     replay = replay_idempotent_response(db, scope="inventory.transfer", key=idempotency_key, payload=fingerprint_payload)
     if replay:
         return replay
-    if payload.movement_type not in ("transfer", "issue", "consume", "adjustment", "return"):
+    if payload.movement_type not in _TRANSFER_MOVEMENT_TYPES:
         raise HTTPException(400, "Invalid movement_type")
     quantity = Decimal(str(payload.quantity))
     if not quantity.is_finite() or quantity <= 0 or quantity >= Decimal("10000000000"):
@@ -86,7 +104,7 @@ def transfer_stock(
         if db.query(EcoFabricRoll.id).filter_by(batch_id=batch.id, returned_at=None).first():
             raise HTTPException(409, "Return outstanding fabric through the Eco Cotton register before changing this batch")
 
-        outgoing = payload.movement_type in ("issue", "consume", "transfer")
+        outgoing = payload.movement_type in _OUTGOING_MOVEMENT_TYPES
         warehouse_field = "from_warehouse_id" if outgoing else "to_warehouse_id"
         movement_warehouse_id = movement_data[warehouse_field]
         if movement_warehouse_id is not None and movement_warehouse_id != batch.warehouse_id:
@@ -108,7 +126,7 @@ def transfer_stock(
             )
             if quantity > min(batch.quantity - reserved, item_capacity):
                 raise HTTPException(409, "Movement quantity exceeds available batch stock")
-            if payload.movement_type == "transfer":
+            if payload.movement_type is StockMovementType.TRANSFER:
                 if payload.to_warehouse_id is None:
                     raise HTTPException(400, "Destination warehouse is required")
                 if payload.to_warehouse_id == batch.warehouse_id:
@@ -125,7 +143,7 @@ def transfer_stock(
             if batch.quantity + quantity >= Decimal("10000000000"):
                 raise HTTPException(400, "Resulting batch quantity is too large")
             batch.quantity += quantity
-    elif payload.movement_type in ("issue", "consume", "transfer"):
+    elif payload.movement_type in _OUTGOING_MOVEMENT_TYPES:
         db.execute(
             select(Item).where(Item.id == item.id)
             .with_for_update(of=Item, key_share=True)
@@ -137,9 +155,20 @@ def transfer_stock(
         if quantity > available:
             raise HTTPException(409, "Movement quantity exceeds available item stock")
 
-    mv = StockMovement(**movement_data, created_by=current.id)
-    db.add(mv); db.flush()
-    log_action(db, current, payload.movement_type, "StockMovement", mv.id)
+    mv = stock_movement_persistence.insert_stock_movement(
+        db,
+        movement_type=payload.movement_type,
+        item_id=payload.item_id,
+        batch_id=payload.batch_id,
+        from_warehouse_id=movement_data["from_warehouse_id"],
+        to_warehouse_id=movement_data["to_warehouse_id"],
+        quantity=quantity,
+        unit=payload.unit,
+        reference_type=payload.reference_type,
+        reference_id=payload.reference_id,
+        created_by=current.id,
+    )
+    log_action(db, current, payload.movement_type.value, "StockMovement", mv.id)
     response = StockMovementOut.model_validate(mv).model_dump(mode="json")
     store_idempotent_response(
         db,

@@ -70,12 +70,14 @@ database/browser verification and independent AI/human acceptance remain separat
 - transaction owner: `create_recommendation` and `update_recommendation`
 
 Creation calls the focused schema-owned forecast insertion with the supplied
-Session and validates its controlled result before the outer commit. Existing
-audit hooks, permissions and flush timing remain intact. Confidence and object
-metadata stay extensible; malformed legacy source roots project to null without
-storage repair. Status-patch persistence, historical response vocabularies and
-raw list-status filtering remain separate follow-up work. Scoped reorder
-suggestions remain excluded; both creation types require an attributed model.
+Session and validates its controlled result before the outer commit. The review
+patch uses the canonical status enum with the same four accepted values and its
+mapped write is schema-owned; the service keeps scope, audit and the commit.
+Existing audit hooks, permissions and flush timing remain intact. Confidence and
+object metadata stay extensible; malformed legacy source roots project to null
+without storage repair. Historical response vocabularies and raw list-status
+filtering remain separate follow-up work. Scoped reorder suggestions remain
+excluded; both creation types require an attributed model.
 
 ### costing_service.py
 

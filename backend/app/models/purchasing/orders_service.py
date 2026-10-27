@@ -16,6 +16,8 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.libs.dto.purchasing.purchase_order_input import PurchaseOrderIn
 from app.libs.dto.purchasing.purchase_order_output import PurchaseOrderOut
+from app.libs.enums.purchasing import PurchaseOrderStatus
+from app.libs.types.purchasing import PurchaseOrderCreateCommand
 from app.models import inventory_access_service as inventory_access
 from app.models import purchasing_service as purchasing_core
 from app.schemas import Item, PurchaseOrder, PurchaseOrderLine, User
@@ -80,9 +82,40 @@ def list_purchase_orders(
     }
 
 
+def _purchase_order_command(payload: PurchaseOrderIn) -> PurchaseOrderCreateCommand:
+    """The HTTP payload as the shared internal order command.
+
+    The HTTP contract exposes no order status, so the command carries the
+    creation default this operation has always used.
+    """
+    return {
+        "purchase_request_id": payload.purchase_request_id,
+        "supplier_id": payload.supplier_id,
+        "status": PurchaseOrderStatus.DRAFT,
+        "expected_date": payload.expected_date,
+        "notes": payload.notes,
+        "lines": [
+            {
+                "item_id": line.item_id,
+                "ordered_quantity": line.ordered_quantity,
+                "unit": line.unit,
+                "unit_cost": line.unit_cost,
+                "warehouse_id": line.warehouse_id,
+                "supplier_id": line.supplier_id,
+                "material_name": line.material_name,
+                "photo_url": line.photo_url,
+                "notes": line.notes,
+            }
+            for line in payload.lines
+        ],
+    }
+
+
 def create_purchase_order(db: Session, *, payload: PurchaseOrderIn, current: User) -> PurchaseOrder:
     """Create a purchase order and commit it once its lines are authorized."""
-    order = purchasing_core.create_purchase_order(db, data=payload.model_dump(), current=current)
+    order = purchasing_core.create_purchase_order(
+        db, data=_purchase_order_command(payload), current=current
+    )
     purchasing_core.require_purchase_item_access(db, current, order.lines)
     db.commit()
     db.refresh(order)

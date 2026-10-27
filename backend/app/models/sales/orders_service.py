@@ -12,6 +12,7 @@ Contract for the order operations:
 """
 import os
 from datetime import date
+from typing import Iterable, cast
 from uuid import uuid4
 
 from fastapi import HTTPException, UploadFile
@@ -30,11 +31,12 @@ from app.core.uploads import (
     safe_content_type,
     read_validated_upload_content,
 )
-from app.libs.dto.sales.sales_order_input import SalesOrderIn
+from app.libs.dto.sales.sales_order_input import SalesOrderIn, SalesOrderPrintingAttachment
 from app.libs.dto.sales.sales_order_output import SalesOrderDetail, SalesOrderListRow, SalesOrderOut
 from app.libs.dto.sales.sales_stock_output import SalesStockReservationOut
 from app.libs.dto.sales.sales_order_update import SalesOrderUpdate
 from app.libs.enums.sales import SalesOrderItemSourceType, SalesOrderStatus, SalesOrderType
+from app.libs.types.sales_order import SalesOrderHeaderChanges, StoredSalesAttachment
 from app.models.audit_service import log_action
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 from app.models.numbering_service import next_sales_order_no
@@ -46,17 +48,20 @@ from app.schemas import (
     Customer, Model, ProductionOrder, SalesOrder, SalesOrderItem, Shipment, StockReservation, User,
 )
 from app.schemas.sales.sales_order_persistence import (
+    apply_sales_order_header_changes,
     create_sales_order_item,
     create_sales_order_row,
     set_sales_order_total,
 )
 
 
-def _attachments_for_storage(attachments) -> list[dict]:
+def _attachments_for_storage(
+    attachments: Iterable[SalesOrderPrintingAttachment] | None,
+) -> list[StoredSalesAttachment]:
     """Persist the bare storage path (no signature) so it never expires at rest."""
-    out: list[dict] = []
+    out: list[StoredSalesAttachment] = []
     for a in attachments or []:
-        d = a.model_dump() if hasattr(a, "model_dump") else dict(a)
+        d = cast(StoredSalesAttachment, a.model_dump())
         if d.get("file_url"):
             d["file_url"] = strip_signature(d["file_url"])
         out.append(d)
@@ -375,22 +380,36 @@ def get_sales_order(sid: int, db: Session):
     return _serialize_sales_order(db, so, include_items=True)
 
 
-def update_sales_order(sid: int, payload: SalesOrderUpdate, db: Session, current: User):
+def update_sales_order(
+    sid: int, payload: SalesOrderUpdate, db: Session, current: User
+) -> SalesOrderOut:
+    """Update sales order header fields. Line items are managed separately."""
     so = db.get(SalesOrder, sid)
     if not so: raise HTTPException(404, "Sales order not found")
-    updates = payload.model_dump(exclude_unset=True)
-    if "status" in updates:
-        if updates.pop("status") != so.status:
+    supplied = payload.model_fields_set
+    if "status" in supplied:
+        supplied_status = payload.status
+        if supplied_status is None or supplied_status.value != so.status:
             raise HTTPException(409, "Order status is controlled by workflow commands, not general edits")
         # A full-form resubmission may include the unchanged status. Never write
         # that snapshot back over progress made by another workflow command.
-    if "printing_attachments" in updates:
-        updates["printing_attachments"] = _attachments_for_storage(updates["printing_attachments"])
-    for k, v in updates.items():
-        setattr(so, k, v)
+    # Key presence is the supplied/not-supplied signal: an omitted header field
+    # stays untouched, an explicit null clears it.
+    changes: SalesOrderHeaderChanges = {}
+    if "customer_id" in supplied:
+        changes["customer_id"] = payload.customer_id
+    if "deadline" in supplied:
+        changes["deadline"] = payload.deadline
+    if "printing_instructions" in supplied:
+        changes["printing_instructions"] = payload.printing_instructions
+    if "printing_attachments" in supplied:
+        changes["printing_attachments"] = _attachments_for_storage(payload.printing_attachments)
+    if "notes" in supplied:
+        changes["notes"] = payload.notes
+    apply_sales_order_header_changes(db, so, changes)
     log_action(db, current, "update", "SalesOrder", so.id)
     db.commit(); db.refresh(so)
-    return _serialize_sales_order(db, so, include_items=False)
+    return SalesOrderOut.model_validate(_serialize_sales_order(db, so, include_items=False))
 
 
 def confirm_sales_order(sid: int, db: Session, current: User):

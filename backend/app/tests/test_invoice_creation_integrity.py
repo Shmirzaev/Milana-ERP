@@ -15,12 +15,11 @@ SQLite silently ignores ``FOR UPDATE``/``FOR NO KEY UPDATE``; a green SQLite run
 only proves the non-concurrent paths still work and proves nothing about the
 race itself.
 """
-import os
 import threading
 import uuid
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.routes import finance as finance_routes
@@ -29,6 +28,13 @@ from app.db.base import Base
 from app.db.session import SessionLocal
 from app.schemas import AuditLog, Invoice, SalesOrder, User
 from app.libs.dto.sales.sales import InvoiceIn
+from app.tests.pg_approved_instance import (
+    ApprovedInstanceUnavailable,
+    create_target_database,
+    drop_target_database,
+    load_approved_instance,
+    verify_approved_instance,
+)
 
 import app.schemas  # noqa: F401  — registers every table on Base.metadata
 
@@ -163,58 +169,28 @@ def test_sales_entry_point_issues_its_own_invoice_policy(client, auth_headers):
 # Concurrency — real PostgreSQL, two independent connections.
 # --------------------------------------------------------------------------
 
-_PG_ADMIN_URL = os.environ.get(
-    "FN04_TEST_PG_ADMIN_URL", "postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/postgres"
-)
 _GATE_TIMEOUT = 30.0        # how long we hold the first caller's commit open
 _SECOND_CALLER_WAIT = 2.0  # grace period for the second caller to race in
 
 
-def _pg_reachable() -> bool:
-    try:
-        eng = create_engine(_PG_ADMIN_URL, connect_args={"connect_timeout": 5}, future=True)
-        try:
-            with eng.connect() as conn:
-                conn.execute(text("select 1"))
-        finally:
-            eng.dispose()
-        return True
-    except Exception:
-        return False
-
-
-_pg_unavailable = (
-    "PostgreSQL is required for the FN04 concurrency proof (SQLite does not implement "
-    "FOR NO KEY UPDATE). Set FN04_TEST_PG_ADMIN_URL to a reachable admin DSN."
-)
-
-
 @pytest.fixture(scope="module")
 def pg_sessionmaker():
-    if not _pg_reachable():
-        pytest.skip(_pg_unavailable)
-
-    import psycopg2
-
-    name = "fn04_test_" + uuid.uuid4().hex[:10]
-    admin = psycopg2.connect(_PG_ADMIN_URL.replace("postgresql+psycopg2://", "postgresql://"))
-    admin.autocommit = True
-    with admin.cursor() as cur:
-        cur.execute(f'create database "{name}"')
-    admin.close()
-
-    engine = create_engine(_PG_ADMIN_URL.rsplit("/", 1)[0] + "/" + name, future=True)
-    Base.metadata.create_all(engine)
-    maker = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, future=True)
     try:
-        yield maker
+        instance = load_approved_instance()
+        verify_approved_instance(instance)
+    except ApprovedInstanceUnavailable as error:
+        pytest.skip(str(error))
+
+    database = create_target_database(instance)
+    engine = None
+    try:
+        engine = create_engine(instance.admin_url.set(database=database), future=True)
+        Base.metadata.create_all(engine)
+        yield sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, future=True)
     finally:
-        engine.dispose()
-        admin = psycopg2.connect(_PG_ADMIN_URL.replace("postgresql+psycopg2://", "postgresql://"))
-        admin.autocommit = True
-        with admin.cursor() as cur:
-            cur.execute(f'drop database if exists "{name}" with (force)')
-        admin.close()
+        if engine is not None:
+            engine.dispose()
+        drop_target_database(instance, database)
 
 
 class _GatedSession(Session):

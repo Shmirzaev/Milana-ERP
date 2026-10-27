@@ -8,6 +8,7 @@ from app.libs.dto.catalog.brand_output import BrandOut
 from app.libs.dto.catalog.collection_input import CollectionCreateIn, CollectionIn
 from app.libs.dto.catalog.collection_output import CollectionCreateOut, CollectionOut
 from app.libs.dto.catalog.model_bom_input import ModelBOMIn
+from app.libs.dto.catalog.model_bom_output import ModelBOMCreateOut
 from app.libs.dto.catalog.model_bom_update import ModelBOMUpdate
 from app.libs.dto.catalog.model_color_input import ModelColorIn
 from app.libs.dto.catalog.model_image_input import ModelImageIn
@@ -25,6 +26,7 @@ from app.libs.dto.catalog.model_output import (
 )
 from app.libs.dto.catalog.model_size_input import ModelSizeIn
 from app.libs.dto.inventory.item_output import ItemOut
+from app.libs.enums.catalog import CatalogScope
 from app.models.catalog import collections_service, models_service
 from app.schemas import User
 
@@ -402,7 +404,7 @@ def add_color(
     return models_service.add_color(current, db, mid, payload, catalog_scope)
 
 
-@router.post("/models/{mid}/bom", status_code=201)
+@router.post("/models/{mid}/bom", status_code=201, response_model=ModelBOMCreateOut)
 def add_bom(
     mid: int,
     payload: ModelBOMIn,
@@ -410,7 +412,7 @@ def add_bom(
     current: User = Depends(require_permissions("modeling.bom", "*")),
     catalog_scope: str = Depends(_standard_catalog_scope),
 ):
-    return models_service.add_bom(current, db, mid, payload, catalog_scope)
+    return models_service.add_bom(current, db, mid, payload, CatalogScope(catalog_scope))
 
 
 @router.post("/models/{mid}/bom-photo/upload", status_code=201)

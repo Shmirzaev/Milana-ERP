@@ -50,6 +50,8 @@ from app.libs.dto.catalog.model_input import ModelIn, ModelPaidOperationsIn, Mod
 from app.libs.dto.catalog.model_size_input import ModelSizeIn
 from app.libs.dto.catalog.model_output import ModelDetail, ModelImageOut, ModelOut, ModelSummaryOut
 from app.libs.dto.catalog.process_qr_sizes_input import ProcessQrSizesIn
+from app.libs.enums.catalog import BomMaterialRole, CatalogScope
+from app.libs.types.catalog import NormalizedBomCreate
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import selected_factory_code
 from app.models.image_storage_service import (
@@ -99,6 +101,7 @@ from app.schemas import (
     StockBatch,
     User,
 )
+from app.schemas.catalog.bom_persistence import insert_model_bom
 
 # A model's details_json is per-model modelling metadata: identity, costing and
 # paid operations. Sizes, measurements, BOM and images live in their own tables,
@@ -2665,20 +2668,61 @@ def add_color(
     return {"id": c.id}
 
 
+def _catalog_scope_value(catalog_scope: CatalogScope | str) -> str:
+    """Serialize the scope for the unchanged shared helpers.
+
+    The shared helpers read their argument with `str()`, and a str-Enum member
+    would reach them as a qualified name. A plain string keeps its existing
+    normalization and its existing refusal.
+    """
+    if isinstance(catalog_scope, CatalogScope):
+        return catalog_scope.value
+    return _normalize_catalog_scope(catalog_scope)
+
+
+def _bom_payload_for_legacy_normalizers(payload: ModelBOMIn) -> dict:
+    """Serialize the canonical role for the unchanged shared normalizers."""
+    data = payload.model_dump()
+    role = data.get("material_role")
+    data["material_role"] = role.value if isinstance(role, BomMaterialRole) else role
+    return data
+
+
+def _normalized_bom_create(data: dict) -> NormalizedBomCreate:
+    """Restore the typed create contract after the shared normalization.
+
+    The shared normalizer leaves the role as the stored string, or as nothing at
+    all for an inventory-linked material.
+    """
+    role = data.get("material_role")
+    return NormalizedBomCreate(
+        item_id=data.get("item_id"),
+        material_name=data.get("material_name"),
+        material_role=BomMaterialRole(role) if role else None,
+        stock_batch_id=data.get("stock_batch_id"),
+        size=data.get("size"),
+        color=data.get("color"),
+        photo_url=data.get("photo_url"),
+        quantity_per_piece=data.get("quantity_per_piece"),
+        unit=data.get("unit"),
+        waste_percent=data.get("waste_percent"),
+    )
+
+
 def add_bom(
     current: User,
     db: Session,
     mid: int,
     payload: ModelBOMIn,
-    catalog_scope: str = "standard",
+    catalog_scope: CatalogScope = CatalogScope.STANDARD,
 ):
-    if not _catalog_model(db, mid, catalog_scope): raise HTTPException(404, "Model not found")
-    data = _normalize_bom_fields(db, payload.model_dump(), catalog_scope)
+    scope = _catalog_scope_value(catalog_scope)
+    if not _catalog_model(db, mid, scope): raise HTTPException(404, "Model not found")
+    data = _normalize_bom_fields(db, _bom_payload_for_legacy_normalizers(payload), scope)
     _ensure_unique_usluga_main_material(db, mid, data)
     if data.get("photo_url"):
         data["photo_url"] = _validate_file_url(data["photo_url"])
-    b = ModelBOM(model_id=mid, **data)
-    db.add(b); db.flush()
+    b = insert_model_bom(db, model_id=mid, create=_normalized_bom_create(data))
     log_action(db, current, "create", "ModelBOM", b.id, new_value={"model_id": mid})
     db.commit(); db.refresh(b)
     return {"id": b.id}

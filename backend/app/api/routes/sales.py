@@ -3,6 +3,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, File, Header, UploadFile
 
 from app.core.deps import CurrentUser, DbSession, require_permissions
+from app.libs.dto.sales.invoice_generation_output import InvoiceGenerationOut
 from app.libs.dto.sales.sales_order_input import SalesOrderIn
 from app.libs.dto.sales.sales_order_output import SalesOrderDetail, SalesOrderOut
 from app.libs.dto.sales.sales_stock_output import SalesStockReservationOut
@@ -99,7 +100,12 @@ def get_sales_order(sid: int, db: DbSession, _: CurrentUser):
 
 
 @router.patch("/{sid}", response_model=SalesOrderOut)
-def update_sales_order(sid: int, payload: SalesOrderUpdate, db: DbSession, current: User = Depends(require_permissions("sales.orders", "*"))):
+def update_sales_order(
+    sid: int,
+    payload: SalesOrderUpdate,
+    db: DbSession,
+    current: User = Depends(require_permissions("sales.orders", "*")),
+) -> SalesOrderOut:
     return orders_service.update_sales_order(sid, payload, db, current)
 
 
@@ -119,12 +125,12 @@ def reserve_stock(
     return orders_service.reserve_stock(sid, db, current, idempotency_key)
 
 
-@router.post("/{sid}/generate-invoice")
+@router.post("/{sid}/generate-invoice", response_model=InvoiceGenerationOut)
 def generate_invoice_for_order(
     sid: int,
     db: DbSession,
     current: User = Depends(require_permissions("finance.invoice", "sales.orders", "*")),
-):
+) -> InvoiceGenerationOut:
     return generate_order_invoice(db, sid, current)
 
 

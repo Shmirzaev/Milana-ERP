@@ -7,6 +7,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.libs.dto.common import ORMModel
 from app.libs.dto.inventory.item_input import ItemComposition
+from app.libs.enums.inventory import (
+    MaterialReservationSource,
+    MaterialReservationStatus,
+    MaterialReservationType,
+)
 
 
 class MaterialReservationOut(ORMModel):
@@ -25,9 +30,9 @@ class MaterialReservationOut(ORMModel):
     consumed_quantity: float
     released_quantity: float
     unit: str
-    status: str
-    reservation_type: str
-    source: str
+    status: MaterialReservationStatus
+    reservation_type: MaterialReservationType
+    source: MaterialReservationSource
     reserved_by: Optional[int] = None
     reserved_at: datetime
     notes: Optional[str] = None
@@ -54,7 +59,7 @@ class MaterialReservationPlanRow(BaseModel):
     item_image_url: Optional[str] = None
     composition: list[ItemComposition] = Field(default_factory=list)
     category: str
-    reservation_type: str
+    reservation_type: MaterialReservationType
     unit: str
     stock_batch_id: Optional[int] = None
     stock_batch_no: Optional[str] = None

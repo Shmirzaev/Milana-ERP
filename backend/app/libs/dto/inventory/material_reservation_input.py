@@ -4,6 +4,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from app.libs.enums.inventory import MaterialReservationType
+
 
 class MaterialReservationIn(BaseModel):
     production_order_id: int
@@ -14,7 +16,7 @@ class MaterialReservationIn(BaseModel):
         gt=0, le=9_999_999_999.9999, allow_inf_nan=False,
     )
     unit: str
-    reservation_type: str = "material"
+    reservation_type: MaterialReservationType = MaterialReservationType.MATERIAL
     notes: Optional[str] = None
 
 

@@ -7,6 +7,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.libs.enums.planning import ForecastRecommendationType
 
+# `forecast_recommendations.suggested_quantity` is Numeric(14,4). PostgreSQL
+# rounds to four decimals, so 0.00005 is the smallest accepted quantity that
+# still stores a positive value; anything below it rounds to zero, a quantity
+# this contract refuses to accept in the first place.
+STORAGE_MIN_POSITIVE_QUANTITY = Decimal("0.00005")
+
 
 class ForecastRecommendationIn(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
@@ -19,7 +25,7 @@ class ForecastRecommendationIn(BaseModel):
     color: str | None = None
     size: str | None = None
     suggested_quantity: Decimal = Field(
-        gt=0,
+        ge=STORAGE_MIN_POSITIVE_QUANTITY,
         le=Decimal("9999999999.9999"),
         allow_inf_nan=False,
     )

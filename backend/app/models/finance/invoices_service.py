@@ -12,7 +12,7 @@ Contract for `create_order_invoice`:
 
 Contract for `generate_order_invoice`:
 * input: a sales order id plus the acting user
-* output: the invoice response envelope of that sales order
+* output: the `InvoiceGenerationOut` envelope of that sales order
 * refusals: 404 when the sales order does not exist, 400 when the order status
   is not invoiceable
 * records: one `invoices` row and one `Invoice` audit row
@@ -26,6 +26,7 @@ from decimal import Decimal, InvalidOperation
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.libs.dto.sales.invoice_generation_output import InvoiceGenerationOut
 from app.libs.dto.sales.invoice_input import InvoiceIn
 from app.libs.enums.finance import InvoiceStatus
 from app.models.audit_service import log_action
@@ -117,7 +118,7 @@ def create_order_invoice(db: Session, payload: InvoiceIn, actor: User) -> Invoic
     return inv
 
 
-def generate_order_invoice(db: Session, sales_order_id: int, actor: User) -> dict:
+def generate_order_invoice(db: Session, sales_order_id: int, actor: User) -> InvoiceGenerationOut:
     """Issue the invoice of one sales order from the sales entry point.
 
     An existing invoice is returned as it is, including a reversed one, and no
@@ -132,35 +133,30 @@ def generate_order_invoice(db: Session, sales_order_id: int, actor: User) -> dic
         raise HTTPException(400, f"Cannot generate invoice for order in status '{so.status}'")
     existing = db.query(Invoice).filter(Invoice.sales_order_id == sales_order_id).order_by(Invoice.id.desc()).first()
     if existing:
-        return {
-            "id": existing.id,
-            "sales_order_id": existing.sales_order_id,
-            "invoice_no": existing.invoice_no,
-            "amount": float(existing.amount or 0),
-            "status": existing.status.value,
-            "issued_at": existing.issued_at,
-            "due_date": existing.due_date,
-            "created_existing": True,
-        }
-    inv = Invoice(
+        return _invoice_generation_result(existing, created_existing=True)
+    inv = insert_order_invoice(
+        db,
         sales_order_id=sales_order_id,
         invoice_no=next_invoice_no(db),
-        amount=float(so.total_amount or 0),
+        amount=storable_invoice_amount(so.total_amount),
         status=InvoiceStatus.UNPAID,
         issued_at=datetime.now(timezone.utc),
     )
-    db.add(inv)
-    db.flush()
     log_action(db, actor, "generate_invoice", "Invoice", inv.id, new_value={"sales_order_id": sales_order_id, "amount": float(inv.amount or 0)})
     db.commit()
     db.refresh(inv)
-    return {
-        "id": inv.id,
-        "sales_order_id": inv.sales_order_id,
-        "invoice_no": inv.invoice_no,
-        "amount": float(inv.amount or 0),
-        "status": inv.status.value,
-        "issued_at": inv.issued_at,
-        "due_date": inv.due_date,
-        "created_existing": False,
-    }
+    return _invoice_generation_result(inv, created_existing=False)
+
+
+def _invoice_generation_result(invoice: Invoice, *, created_existing: bool) -> InvoiceGenerationOut:
+    """Shape one invoice the way the sales entry point returns it."""
+    return InvoiceGenerationOut(
+        id=invoice.id,
+        sales_order_id=invoice.sales_order_id,
+        invoice_no=invoice.invoice_no,
+        amount=float(invoice.amount or 0),
+        status=invoice.status,
+        issued_at=invoice.issued_at,
+        due_date=invoice.due_date,
+        created_existing=created_existing,
+    )
