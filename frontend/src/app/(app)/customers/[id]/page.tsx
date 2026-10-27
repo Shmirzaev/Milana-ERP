@@ -15,9 +15,9 @@ import Modal from "@/components/Modal";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 import { type InvoiceStatus } from "@/lib/invoiceStatus";
+import { type CustomerOrderPaymentStatus } from "@/lib/customerOrderPaymentStatus";
 import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 
-type PaymentStatus = "paid" | "partial" | "unpaid" | "no_invoice" | "void" | "cancelled";
 type PaymentRow = {
   id: number;
   amount: number;
@@ -56,7 +56,7 @@ type CustomerOrder = {
   invoice_total: number;
   paid_total: number;
   balance_due: number;
-  payment_status: PaymentStatus;
+  payment_status: CustomerOrderPaymentStatus;
   last_payment_at?: string | null;
   invoices: InvoiceRow[];
 };
@@ -71,7 +71,7 @@ function money(value: number) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
 
-function paymentStatusLabel(status: PaymentStatus, t: (key: string) => string) {
+function paymentStatusLabel(status: CustomerOrderPaymentStatus, t: (key: string) => string) {
   if (status === "paid") return t("payment.status.paid");
   if (status === "partial") return t("payment.status.partial");
   if (status === "unpaid") return t("payment.status.unpaid");
@@ -80,7 +80,7 @@ function paymentStatusLabel(status: PaymentStatus, t: (key: string) => string) {
   return t("payment.status.noInvoice");
 }
 
-function paymentStatusClass(status: PaymentStatus) {
+function paymentStatusClass(status: CustomerOrderPaymentStatus) {
   if (status === "paid") return "badge-green";
   if (status === "partial") return "badge-blue";
   if (status === "unpaid") return "badge-red";

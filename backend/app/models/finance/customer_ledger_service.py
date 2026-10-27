@@ -23,7 +23,9 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.libs.dto.sales.customer_payment_input import CustomerPaymentIn
-from app.libs.enums.finance import InvoiceStatus
+from app.libs.dto.sales.customer_order_output import CustomerOrderLedgerOut
+from app.libs.enums.finance import CustomerOrderPaymentStatus, InvoiceStatus
+from app.libs.enums.sales import SalesOrderStatus
 from app.models.audit_service import log_action
 from app.models.finance.invoices_service import lock_sales_order
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
@@ -45,7 +47,7 @@ from app.schemas.finance.invoice_persistence import insert_order_invoice
 _PAID_SUM_BATCH_SIZE = 400
 
 
-def list_customer_orders(db: Session, cid: int) -> list[dict]:
+def list_customer_orders(db: Session, cid: int) -> list[CustomerOrderLedgerOut]:
     """The customer's sales orders with their invoice and payment ledger."""
     if not db.get(Customer, cid):
         raise HTTPException(404, "Customer not found")
@@ -275,13 +277,44 @@ def _serialize_customer_payment(payment: Payment, invoice: Invoice | None, sales
     }
 
 
+def _customer_order_payment_status(
+    *,
+    order_status: SalesOrderStatus,
+    has_shipped_goods: bool,
+    balance_due: Decimal,
+    invoices: list[Invoice],
+    invoice_total: Decimal,
+    paid_total: Decimal,
+) -> CustomerOrderPaymentStatus:
+    if not invoices:
+        if order_status is SalesOrderStatus.CANCELLED:
+            return CustomerOrderPaymentStatus.CANCELLED
+        return (
+            CustomerOrderPaymentStatus.UNPAID
+            if has_shipped_goods and balance_due > 0
+            else CustomerOrderPaymentStatus.NO_INVOICE
+        )
+    active_invoices = [inv for inv in invoices if inv.status not in REVERSED_INVOICE_STATUSES]
+    if not active_invoices:
+        has_cancelled = any(inv.status == InvoiceStatus.CANCELLED for inv in invoices)
+        return (
+            CustomerOrderPaymentStatus.CANCELLED
+            if has_cancelled
+            else CustomerOrderPaymentStatus.VOID
+        )
+    status = invoice_payment_status(invoice_total, paid_total)
+    if status is InvoiceStatus.PARTIALLY_PAID:
+        return CustomerOrderPaymentStatus.PARTIAL
+    return CustomerOrderPaymentStatus(status.value)
+
+
 def _serialize_customer_order(
     so: SalesOrder,
     invoices: list[Invoice],
     payments_by_invoice: dict[int, list[Payment]],
     *,
     has_shipped_goods: bool = False,
-) -> dict:
+) -> CustomerOrderLedgerOut:
     invoice_payloads: list[dict] = []
     invoice_total = Decimal(0)
     paid_total = Decimal(0)
@@ -330,19 +363,7 @@ def _serialize_customer_order(
 
     balance_due = max((invoice_total if invoices else money_decimal(so.total_amount)) - paid_total, 0)
 
-    def payment_status() -> str:
-        if not invoices:
-            if so.status == "cancelled":
-                return "cancelled"
-            return "unpaid" if has_shipped_goods and balance_due > 0 else "no_invoice"
-        active_invoices = [inv for inv in invoices if inv.status not in REVERSED_INVOICE_STATUSES]
-        if not active_invoices:
-            has_cancelled = any(inv.status == InvoiceStatus.CANCELLED for inv in invoices)
-            return InvoiceStatus.CANCELLED.value if has_cancelled else InvoiceStatus.VOID.value
-        status = invoice_payment_status(invoice_total, paid_total)
-        return "partial" if status == InvoiceStatus.PARTIALLY_PAID else status.value
-
-    return {
+    return CustomerOrderLedgerOut.model_validate({
         "id": so.id,
         "order_no": so.order_no,
         "date": so.created_at,
@@ -351,7 +372,14 @@ def _serialize_customer_order(
         "invoice_total": float(round(invoice_total, 2)),
         "paid_total": float(round(paid_total, 2)),
         "balance_due": float(round(balance_due, 2)),
-        "payment_status": payment_status(),
+        "payment_status": _customer_order_payment_status(
+            order_status=SalesOrderStatus(so.status),
+            has_shipped_goods=has_shipped_goods,
+            balance_due=balance_due,
+            invoices=invoices,
+            invoice_total=invoice_total,
+            paid_total=paid_total,
+        ),
         "last_payment_at": last_payment_at,
         "invoices": invoice_payloads,
-    }
+    })

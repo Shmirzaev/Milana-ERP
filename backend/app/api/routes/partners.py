@@ -11,6 +11,7 @@ from app.core.deps import (
 from app.libs.dto.catalog.party_input import PartyIn
 from app.libs.dto.catalog.party_output import PartyOut
 from app.libs.dto.sales.customer_payment_input import CustomerPaymentIn
+from app.libs.dto.sales.customer_order_output import CustomerOrderLedgerOut
 from app.models.catalog import partners_service
 from app.models.finance.customer_ledger_service import (
     list_customer_orders,
@@ -47,7 +48,7 @@ def get_customer(cid: int, db: DbSession, _: User = Depends(require_permissions(
     return partners_service.get_customer(_, db, cid)
 
 
-@router.get("/customers/{cid}/orders")
+@router.get("/customers/{cid}/orders", response_model=list[CustomerOrderLedgerOut])
 def get_customer_orders(cid: int, db: DbSession, _: User = Depends(require_permissions(*CUSTOMER_READ_PERMISSIONS))):
     return list_customer_orders(db, cid)
 

@@ -13,3 +13,14 @@ class InvoiceStatus(str, Enum):
     PAID = "paid"
     VOID = "void"
     CANCELLED = "cancelled"
+
+
+class CustomerOrderPaymentStatus(str, Enum):
+    """Customer-facing payment summary for a sales order's invoice ledger."""
+
+    PAID = "paid"
+    PARTIAL = "partial"
+    UNPAID = "unpaid"
+    NO_INVOICE = "no_invoice"
+    VOID = "void"
+    CANCELLED = "cancelled"
