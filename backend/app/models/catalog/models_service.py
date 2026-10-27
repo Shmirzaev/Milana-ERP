@@ -21,6 +21,7 @@ import os
 from pathlib import Path
 import re
 from types import SimpleNamespace
+from typing import cast
 from uuid import uuid4
 from fastapi import HTTPException, UploadFile
 from sqlalchemy import and_, func, literal_column, or_, select
@@ -51,7 +52,7 @@ from app.libs.dto.catalog.model_size_input import ModelSizeIn
 from app.libs.dto.catalog.model_output import ModelDetail, ModelImageOut, ModelOut, ModelSummaryOut
 from app.libs.dto.catalog.process_qr_sizes_input import ProcessQrSizesIn
 from app.libs.enums.catalog import BomMaterialRole, CatalogScope
-from app.libs.types.catalog import NormalizedBomCreate
+from app.libs.types.catalog import NormalizedBomCreate, NormalizedBomUpdate
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import selected_factory_code
 from app.models.image_storage_service import (
@@ -101,7 +102,7 @@ from app.schemas import (
     StockBatch,
     User,
 )
-from app.schemas.catalog.bom_persistence import insert_model_bom
+from app.schemas.catalog.bom_persistence import insert_model_bom, update_model_bom
 
 # A model's details_json is per-model modelling metadata: identity, costing and
 # paid operations. Sizes, measurements, BOM and images live in their own tables,
@@ -2785,6 +2786,9 @@ def update_bom(
     if not b:
         raise HTTPException(404, "BOM row not found")
     data = payload.model_dump(exclude_unset=True)
+    role = data.get("material_role")
+    if isinstance(role, BomMaterialRole):
+        data["material_role"] = role.value
     identity_fields = {"item_id", "material_name", "material_role", "stock_batch_id"}
     if identity_fields.intersection(data) and db.query(CuttingRecord.id).filter(CuttingRecord.model_bom_id == b.id).first():
         raise HTTPException(409, "Fabric name and role cannot be changed after a cutting batch has used it")
@@ -2815,8 +2819,10 @@ def update_bom(
     _ensure_unique_usluga_main_material(db, mid, data, exclude_bom_id=b.id)
     if "photo_url" in data and data["photo_url"]:
         data["photo_url"] = _validate_file_url(data["photo_url"])
-    for key, value in data.items():
-        setattr(b, key, value)
+    write_values = cast(NormalizedBomUpdate, dict(data))
+    if "material_role" in write_values and write_values["material_role"] is not None:
+        write_values["material_role"] = BomMaterialRole(write_values["material_role"])
+    update_model_bom(db, row=b, values=write_values)
     log_action(db, current, "update", "ModelBOM", b.id, new_value={"model_id": mid, **data})
     db.commit(); db.refresh(b)
     return {"id": b.id}

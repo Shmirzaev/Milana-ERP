@@ -1,14 +1,15 @@
 """Schema-owned persistence for the catalog BOM rows.
 
-These helpers own the mapped construction, the add and the flush of the row the
-catalog BOM create operation writes. The business decisions, the main-material
-uniqueness check, the real audit and the outer commit stay in
+These helpers own the mapped construction, add and flush for BOM creation, and
+the mapped assignments for BOM updates. Update assignment deliberately does not
+flush so the service retains its existing audit/commit ordering. The business
+decisions, main-material uniqueness check, real audit and outer commit stay in
 `app/models/catalog/models_service.py`.
 """
 
 from sqlalchemy.orm import Session
 
-from app.libs.types.catalog import NormalizedBomCreate
+from app.libs.types.catalog import NormalizedBomCreate, NormalizedBomUpdate
 from app.schemas.catalog.catalog import ModelBOM
 
 
@@ -38,4 +39,23 @@ def insert_model_bom(db: Session, *, model_id: int, create: NormalizedBomCreate)
     row = build_model_bom(model_id, create)
     db.add(row)
     db.flush()
+    return row
+
+
+def update_model_bom(
+    db: Session,
+    *,
+    row: ModelBOM,
+    values: NormalizedBomUpdate,
+) -> ModelBOM:
+    """Apply service-decided fields to a BOM row in the caller's transaction.
+
+    No flush or transaction control belongs here. Missing keys stay untouched;
+    present ``None`` values clear nullable columns. Enum values are serialized
+    at the mapped string-column boundary.
+    """
+    for key, value in values.items():
+        if key == "material_role" and value is not None:
+            value = value.value
+        setattr(row, key, value)
     return row
