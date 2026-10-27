@@ -12,10 +12,3 @@ class InvoiceGenerationOut(InvoiceOut):
     """One issued invoice and whether it was reused from an earlier issuance."""
 
     created_existing: bool = False
-
-    def __getitem__(self, key: str):
-        """Read a field by key, the way the previous mapping result was read."""
-        try:
-            return getattr(self, key)
-        except AttributeError:
-            raise KeyError(key) from None

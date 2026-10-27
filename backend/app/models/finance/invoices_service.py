@@ -14,7 +14,7 @@ Contract for `generate_order_invoice`:
 * input: a sales order id plus the acting user
 * output: the `InvoiceGenerationOut` envelope of that sales order
 * refusals: 404 when the sales order does not exist, 400 when the order status
-  is not invoiceable
+  is not invoiceable, 422 when the resolved total is not representable in cents
 * records: one `invoices` row and one `Invoice` audit row
 * lock order: the parent `sales_orders` row under NO KEY UPDATE, taken before
   the invoice existence check
@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 from app.libs.dto.sales.invoice_generation_output import InvoiceGenerationOut
 from app.libs.dto.sales.invoice_input import InvoiceIn
 from app.libs.enums.finance import InvoiceStatus
+from app.libs.enums.sales import SalesOrderStatus
 from app.models.audit_service import log_action
 from app.models.numbering_service import next_invoice_no
 from app.models.payments_service import invoice_payment_status
@@ -41,21 +42,15 @@ INVOICE_AMOUNT_MAX = Decimal("999999999999.99")
 INVOICE_AMOUNT_CENT = Decimal("0.01")
 
 # Sales-order statuses the sales entry point may invoice from.
-INVOICEABLE_ORDER_STATUSES = {
-    "confirmed",
-    "in_production",
-    "cutting",
-    "sewing",
-    "packaging",
-    "storage",
-    "ready",
-    "reserved",
-    "shipped",
-    "delivered",
-    "planning",
-    "planning_approved",
-    "production",
-}
+INVOICEABLE_ORDER_STATUSES: frozenset[SalesOrderStatus] = frozenset({
+    SalesOrderStatus.CONFIRMED, SalesOrderStatus.IN_PRODUCTION,
+    SalesOrderStatus.CUTTING, SalesOrderStatus.SEWING,
+    SalesOrderStatus.PACKAGING, SalesOrderStatus.STORAGE,
+    SalesOrderStatus.READY, SalesOrderStatus.RESERVED,
+    SalesOrderStatus.SHIPPED, SalesOrderStatus.DELIVERED,
+    SalesOrderStatus.PLANNING, SalesOrderStatus.PLANNING_APPROVED,
+    SalesOrderStatus.PRODUCTION,
+})
 
 
 def lock_sales_order(db: Session, sales_order_id: int) -> SalesOrder | None:
@@ -79,7 +74,8 @@ def storable_invoice_amount(value: object) -> Decimal:
     `InvoiceIn.amount` is already storage-bounded, but an omitted amount falls back
     to the stored `sales_orders.total_amount`, which is a database value rather than
     a validated request field. Both paths go through this check so a nonfinite,
-    out-of-column or sub-cent total is rejected before any write.
+    out-of-column or sub-cent total is rejected before the invoice insert. The
+    Sales generator resolves the invoice number first in the same transaction.
     """
     try:
         amount = Decimal(str(value if value is not None else 0))
@@ -129,7 +125,13 @@ def generate_order_invoice(db: Session, sales_order_id: int, actor: User) -> Inv
     so = lock_sales_order(db, sales_order_id)
     if not so:
         raise HTTPException(404, "Sales order not found")
-    if str(so.status or "") not in INVOICEABLE_ORDER_STATUSES:
+    # SalesOrder.status remains a mapped string. Keep its old normalization and
+    # refusal message at this boundary, including for unknown stored values.
+    try:
+        order_status = SalesOrderStatus(str(so.status or ""))
+    except ValueError:
+        order_status = None
+    if order_status not in INVOICEABLE_ORDER_STATUSES:
         raise HTTPException(400, f"Cannot generate invoice for order in status '{so.status}'")
     existing = db.query(Invoice).filter(Invoice.sales_order_id == sales_order_id).order_by(Invoice.id.desc()).first()
     if existing:

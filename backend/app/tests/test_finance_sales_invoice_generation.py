@@ -116,6 +116,19 @@ def test_sales_generation_returns_the_typed_envelope(client, auth_headers):
         assert audits[0].new_value_json == {"sales_order_id": sid, "amount": 123.45}
 
 
+@pytest.mark.parametrize("total", ["0.00", "0.50"])
+def test_sales_generation_keeps_zero_and_subunit_unpaid(client, auth_headers, total):
+    sid, _ = _seed_order(SessionLocal, total=total)
+    response = client.post(f"/api/sales-orders/{sid}/generate-invoice", headers=auth_headers)
+    assert response.status_code == 200, response.text
+    assert response.json()["amount"] == float(total)
+    assert response.json()["status"] == "unpaid"
+    with SessionLocal() as db:
+        row = db.get(Invoice, response.json()["id"])
+        assert row.amount == Decimal(total)
+        assert row.status is InvoiceStatus.UNPAID
+
+
 def test_sales_generation_reuses_the_existing_invoice_without_writing(client, auth_headers):
     sid, _ = _seed_order(SessionLocal)
     first = client.post(f"/api/sales-orders/{sid}/generate-invoice", headers=auth_headers)
@@ -147,10 +160,8 @@ def test_sales_generation_service_writes_through_the_schema_owned_insert(monkeyp
         assert isinstance(result, InvoiceGenerationOut)
         assert result.status is InvoiceStatus.UNPAID
         assert result.created_existing is False
-        # The previous mapping result is still readable by key.
-        assert result["id"] == result.id
-        assert result["invoice_no"] == result.invoice_no
-        assert result["status"] == result.status
+        assert result.id > 0
+        assert result.invoice_no.startswith("INV-")
     assert len(calls) == 1
     assert calls[0]["sales_order_id"] == sid
     assert calls[0]["status"] is InvoiceStatus.UNPAID

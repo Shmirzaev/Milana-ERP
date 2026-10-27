@@ -64,7 +64,7 @@ transaction.
 | File | Operation | Input | Output | Refusals | Transaction owner |
 | --- | --- | --- | --- | --- | --- |
 | [invoices_service.py](invoices_service.py) | `create_order_invoice` | `Session`, `InvoiceIn`, actor | the `Invoice` row | 404 sales order not found; 422 amount not representable in `invoices.amount` | this operation (invoice row, audit row, commit) |
-| [invoices_service.py](invoices_service.py) | `generate_order_invoice` | `Session`, sales order id, actor | `InvoiceGenerationOut` envelope | 404 sales order not found; 400 order status not invoiceable | this operation (invoice row, audit row, commit) |
+| [invoices_service.py](invoices_service.py) | `generate_order_invoice` | `Session`, sales order id, actor | `InvoiceGenerationOut` envelope | 404 sales order not found; 400 order status not invoiceable; 422 resolved total not finite or representable in nonnegative NUMERIC(14,2) cents | this operation (invoice row, audit row, commit) |
 | [invoices_service.py](invoices_service.py) | `storable_invoice_amount`, `lock_sales_order` | value / session | bounded `Decimal` / locked order row | 422 from the amount guard | none (helpers of the operations above) |
 | [payments_service.py](payments_service.py) | `record_invoice_payment` | `Session`, `PaymentIn`, actor, idempotency key | `PaymentOut` snapshot dict | 404 invoice not found; 409 key reused with another payload or owner | this operation (payment row, audit row, idempotency row, commit) |
 | [customer_ledger_service.py](customer_ledger_service.py) | `list_customer_orders` | `Session`, customer id | order ledger rows | 404 customer not found | read-only |
@@ -104,6 +104,13 @@ Shavkat confirms business outcomes. The existing PostgreSQL race regression is
 `test_invoice_creation_integrity.py`; money bounds, delivery reconciliation and
 payment/idempotency cases need their own baseline comparisons. This trace does
 not authorize changing those policies.
+
+The typed Sales generation response deliberately serializes UTC datetimes with
+`Z` instead of the previous `+00:00` spelling. Its invalid resolved total guard
+deliberately responds 422 for nonfinite, negative, out-of-range or sub-cent
+values; no valid stored NUMERIC regression has been demonstrated. The generator
+continues to issue UNPAID for zero and subunit totals. Existing invoices are
+checked after the order-status guard and reused even when reversed.
 
 ### RF-008 slice 1 — finance invoice issuance (extracted)
 
