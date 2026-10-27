@@ -1,8 +1,8 @@
 """Warehouse creation is a subset of the source-recognized vocabulary."""
 from typing import Annotated, Any
 
-from pydantic import BeforeValidator, WithJsonSchema
-from pydantic_core import PydanticCustomError
+from pydantic import AfterValidator, ValidationError, WithJsonSchema
+from pydantic_core import PydanticCustomError, core_schema
 
 from app.libs.enums.inventory import WarehouseType
 
@@ -21,7 +21,6 @@ WAREHOUSE_CREATE_TYPES = (
 )
 
 _CREATE_VALUES = tuple(member.value for member in WAREHOUSE_CREATE_TYPES)
-_MEMBER_BY_VALUE = {member.value: member for member in WarehouseType}
 # The refusal names exactly the values this action accepts, so the error and the
 # published subset cannot drift apart and offer a value the API then refuses.
 _EXPECTED = "{}, or {}".format(
@@ -29,30 +28,42 @@ _EXPECTED = "{}, or {}".format(
 )
 
 
-def require_creatable_warehouse_type(value: Any) -> WarehouseType:
-    """Return the canonical member for an accepted value, else refuse.
+def warehouse_enum_refusal(value: Any, handler) -> WarehouseType:
+    """Keep core enum conversion and translate only its enum refusal."""
+    try:
+        return handler(value)
+    except ValidationError as exc:
+        if all(error["type"] == "enum" for error in exc.errors()):
+            raise PydanticCustomError("enum", "Input should be {expected}", {"expected": _EXPECTED}) from exc
+        raise
 
-    A canonical member outside the creation subset keeps its own refusal. Any
-    other value is refused with the accepted subset, never with the wider
-    source-recognized vocabulary.
-    """
-    if isinstance(value, WarehouseType):
-        if value in WAREHOUSE_CREATE_TYPES:
-            return value
+
+class WarehouseEnumRefusal:
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source, handler):
+        enum_schema = handler(source)
+        return core_schema.json_or_python_schema(
+            json_schema=core_schema.custom_error_schema(
+                enum_schema, custom_error_type="enum",
+                custom_error_context={"expected": _EXPECTED},
+            ),
+            python_schema=core_schema.no_info_wrap_validator_function(
+                warehouse_enum_refusal, enum_schema,
+            ),
+        )
+
+
+def require_creatable_warehouse_type(value: WarehouseType) -> WarehouseType:
+    if value not in WAREHOUSE_CREATE_TYPES:
         raise ValueError("Warehouse type is not permitted for creation")
-    if isinstance(value, str):
-        member = _MEMBER_BY_VALUE.get(value)
-        if member is not None:
-            if member in WAREHOUSE_CREATE_TYPES:
-                return member
-            raise ValueError("Warehouse type is not permitted for creation")
-    raise PydanticCustomError("enum", "Input should be {expected}", {"expected": _EXPECTED})
+    return value
 
 
 # Runtime values are canonical enum members, while OpenAPI truthfully describes
 # this action's eleven accepted values rather than the full legacy vocabulary.
 WarehouseCreateType = Annotated[
     WarehouseType,
-    BeforeValidator(require_creatable_warehouse_type),
+    WarehouseEnumRefusal,
+    AfterValidator(require_creatable_warehouse_type),
     WithJsonSchema({"type": "string", "enum": [value.value for value in WAREHOUSE_CREATE_TYPES]}),
 ]
