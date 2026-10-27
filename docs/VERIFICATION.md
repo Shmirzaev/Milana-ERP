@@ -125,6 +125,17 @@ correct isolated process/environment. SQLite cannot prove PostgreSQL row locking
 Do not invent credentials or print secrets. Report collected, passed, failed and
 skipped tests; a required skipped test leaves its gate BLOCKED, not PASS.
 
+For local PostgreSQL coverage, install the backend test dependencies and run
+`python3 scripts/run_local_postgres_tests.py` from the repository root. The runner
+requires a local Unix-socket Docker daemon. It starts a disposable PostgreSQL 16
+container on a random loopback port, sets `STABILIZATION_POSTGRES_URL` for the
+default backend suite and `S06_POSTGRES_URL` for the separately collected
+`backend/tests/test_stock_adjustment_postgres.py`, then removes the container.
+Both URLs point to its isolated `milana_test` database; neither can target a
+serving database. The child processes also receive this local `DATABASE_URL` so
+an inherited application URL cannot redirect their imports. Report the two test
+results and any remaining skips separately.
+
 ## 3. Visually exercise the real end-to-end workflow
 
 After technical checks, use the connected browser/computer tool against the exact
