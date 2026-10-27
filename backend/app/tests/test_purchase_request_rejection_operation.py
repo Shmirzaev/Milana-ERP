@@ -192,17 +192,39 @@ def test_schema_writer_failure_does_not_append_audit_or_commit(reject_case, monk
 def test_schema_writer_only_mutates_attached_row_without_transaction_actions(reject_case):
     with reject_case["factory"]() as db:
         request = db.get(PurchaseRequest, reject_case["request_id"])
-        actions = []
-        db.flush = lambda *args, **kwargs: actions.append("flush")
-        db.commit = lambda *args, **kwargs: actions.append("commit")
-        db.rollback = lambda *args, **kwargs: actions.append("rollback")
-        persistence.apply_purchase_request_rejection(
-            db, request, status=PurchaseRequestStatus.REJECTED
-        )
-        assert object_session(request) is db and request.status == "rejected"
-        assert actions == []
-        db.rollback = Session.rollback.__get__(db, Session)
-        db.rollback()
+        def unexpected(*args, **kwargs):
+            pytest.fail("schema rejection writer must not manage Session operations")
+        with pytest.MonkeyPatch.context() as patch:
+            for name in ("add", "begin", "begin_nested", "flush", "commit", "rollback"):
+                patch.setattr(db, name, unexpected)
+            persistence.apply_purchase_request_rejection(
+                db, request, status=PurchaseRequestStatus.REJECTED
+            )
+            assert object_session(request) is db and request.status == "rejected"
+
+
+def test_repeated_rejection_refusals_leave_one_audit(reject_case):
+    with reject_case["factory"]() as db:
+        actor = db.get(User, reject_case["actor_id"])
+        public.reject_purchase_request(db, request_id=reject_case["request_id"], current=actor)
+
+    for _ in range(3):
+        with reject_case["factory"]() as db:
+            actor = db.get(User, reject_case["actor_id"])
+            with pytest.raises(HTTPException) as error:
+                public.reject_purchase_request(db, request_id=reject_case["request_id"], current=actor)
+            assert error.value.status_code == 409
+            assert error.value.detail == "Cannot reject purchase request in status 'rejected'"
+            db.rollback()
+            request = db.get(PurchaseRequest, reject_case["request_id"])
+            assert request.status == "rejected"
+            assert db.query(AuditLog).filter_by(
+                entity_type="PurchaseRequest", entity_id=request.id
+            ).count() == 1
+    assert state(reject_case) == (
+        "rejected", [("reject", {"status": "pending_approval"},
+                      {"status": "rejected", "request_no": reject_case["request_no"]})]
+    )
 
 
 def test_reject_route_keeps_real_permission_dependency(reject_case):
