@@ -4,6 +4,7 @@ from time import monotonic, sleep
 import pytest
 
 from app import main
+from app.core.config import Settings
 
 
 @pytest.fixture(autouse=True)
@@ -12,6 +13,8 @@ def isolated_readiness_slot(monkeypatch):
 
 
 def test_readiness_reports_healthy_postgresql_without_shared_store(client, monkeypatch):
+    monkeypatch.setenv("RELEASE_ID", "20261027_120000")
+    monkeypatch.setattr(main, "settings", Settings(_env_file=None))
     monkeypatch.setattr(main, "_probe_postgresql", lambda: None)
 
     def forbidden_shared_store():
@@ -22,10 +25,13 @@ def test_readiness_reports_healthy_postgresql_without_shared_store(client, monke
     response = client.get("/ready")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ready", "checks": {"postgresql": "ok"}}
+    assert response.json() == {
+        "status": "ready", "checks": {"postgresql": "ok"}, "release": "20261027_120000",
+    }
 
 
 def test_readiness_returns_503_for_database_failure_without_secrets(client, monkeypatch):
+    monkeypatch.setattr(main.settings, "RELEASE_ID", "20261027_120000", raising=False)
     leaked_url = "postgresql://erp:do-not-leak@private-db.internal:5432/erp"
 
     def fail_probe():
@@ -39,6 +45,7 @@ def test_readiness_returns_503_for_database_failure_without_secrets(client, monk
     assert response.json() == {
         "status": "not_ready",
         "checks": {"postgresql": "unavailable"},
+        "release": "20261027_120000",
     }
     assert "do-not-leak" not in response.text
     assert "private-db.internal" not in response.text
@@ -58,10 +65,15 @@ def test_readiness_database_timeout_is_bounded(client, monkeypatch):
 
 
 def test_health_remains_liveness_when_database_is_unavailable(client, monkeypatch):
+    monkeypatch.setattr(main.settings, "RELEASE_ID", "20261027_120000", raising=False)
     monkeypatch.setattr(main, "_probe_postgresql", lambda: (_ for _ in ()).throw(RuntimeError("database down")))
+    monkeypatch.setattr(main, "get_shared_counter_store", lambda: pytest.fail("health queried shared store"))
 
     assert client.get("/ready").status_code == 503
+    monkeypatch.setattr(main, "_postgresql_ready_within", lambda *_: pytest.fail("health queried PostgreSQL"))
     health = client.get("/health")
 
     assert health.status_code == 200
-    assert health.json() == {"status": "ok", "app": main.settings.APP_NAME}
+    assert health.json() == {
+        "status": "ok", "app": main.settings.APP_NAME, "release": "20261027_120000",
+    }

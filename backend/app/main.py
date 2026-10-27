@@ -491,16 +491,16 @@ def serve_sales_order_file(name: str, exp: str | None = None, sig: str | None = 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "app": settings.APP_NAME}
+    return {"status": "ok", "app": settings.APP_NAME, "release": settings.RELEASE_ID}
 
 
 @app.get("/ready", response_model=None)
 def readiness() -> dict[str, object] | JSONResponse:
     if _postgresql_ready_within(_READINESS_TIMEOUT_SECONDS):
-        return {"status": "ready", "checks": {"postgresql": "ok"}}
+        return {"status": "ready", "checks": {"postgresql": "ok"}, "release": settings.RELEASE_ID}
     return JSONResponse(
         status_code=503,
-        content={"status": "not_ready", "checks": {"postgresql": "unavailable"}},
+        content={"status": "not_ready", "checks": {"postgresql": "unavailable"}, "release": settings.RELEASE_ID},
     )
 
 

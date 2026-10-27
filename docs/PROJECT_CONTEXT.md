@@ -11,13 +11,18 @@ present or verified on `clone_main`. The shared checkout still contains
 legacy/root services and mixed DTO files. Schema-owned writers and full
 enum/type adoption remain incomplete across the ERP.
 
-Updated 2026-10-26. Keep this file short: current decisions, release pointers and
+Updated 2026-10-27. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
 ## Source and production
 
 - Shared integration/production branch: clone_main. origin/main is stale for this work.
+- Pending platform change: staged backend containers will receive `RELEASE_ID` from
+  `slotctl.py` and report it in `/health` and `/ready`. The backend VM's shared
+  slot manager must be updated from the reviewed release before staging. Existing
+  deployed slots have no process release ID until restaged; the observer still
+  checks status only.
 - Continue a suitable isolated worktree; preserve the legacy C:\ERP checkout.
   Use separate engineer work directories and one landing queue coordinated by Mirshoir.
 - [DEPLOYMENT.md](../DEPLOYMENT.md) is the only supported release procedure.
