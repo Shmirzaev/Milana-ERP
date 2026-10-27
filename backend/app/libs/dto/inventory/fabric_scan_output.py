@@ -1,0 +1,43 @@
+"""Typed responses for the daily fabric scan register."""
+
+from datetime import date, datetime
+
+from app.libs.dto.common import SchemaModel
+from app.libs.enums.inventory import FabricScanDepartment, FabricScanDirection
+
+
+class FabricScanRowOut(SchemaModel):
+    id: int
+    report_date: date
+    direction: FabricScanDirection
+    fabric_name: str
+    batch_no: str
+    color: str | None
+    roll_number: int
+    operator_name: str
+    scanned_at: datetime
+
+
+class FabricScanResultOut(SchemaModel):
+    duplicate: bool
+    row: FabricScanRowOut
+
+
+class FabricScanSummaryOut(SchemaModel):
+    fabric_name: str
+    batch_no: str
+    color: str | None
+    received: int
+    returned: int
+
+
+class FabricScanReportOut(SchemaModel):
+    report_date: date
+    department: FabricScanDepartment
+    total: int
+    received: int
+    returned: int
+    summary: list[FabricScanSummaryOut]
+    rows: list[FabricScanRowOut]
+    page: int
+    page_size: int

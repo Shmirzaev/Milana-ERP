@@ -110,3 +110,17 @@ class MaterialReservationSource(str, Enum):
     MANUAL = "manual"
     AUTO_BOM = "auto_bom"
     PLANNING = "planning"
+
+
+class FabricScanDirection(str, Enum):
+    """The received/returned direction stored by the daily fabric scan register."""
+
+    RECEIVED = "received"
+    RETURNED = "returned"
+
+
+class FabricScanDepartment(str, Enum):
+    """Fixed department snapshot values accepted by the fabric scan table."""
+
+    CUT = "CUT"
+    ECT = "ECT"

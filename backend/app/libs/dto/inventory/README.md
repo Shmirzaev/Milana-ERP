@@ -25,7 +25,8 @@ One entity per file. Each file holds the contracts of a single entity:
 - [material_reservation_input.py](material_reservation_input.py) — reservation create, auto and consume inputs
 - [material_reservation_output.py](material_reservation_output.py) — reservation, plan and status outputs
 - [eco_fabric_transfer_input.py](eco_fabric_transfer_input.py) — Eco Cotton scan, send and return
-- [fabric_scan_input.py](fabric_scan_input.py) — daily fabric scan
+- [fabric_scan_input.py](fabric_scan_input.py) — daily fabric scan request
+- [fabric_scan_output.py](fabric_scan_output.py) — daily scan result and report
 - [warehouse_stocktake_input.py](warehouse_stocktake_input.py) — count start, scan and deletions
 - [waste_input.py](waste_input.py) — `WasteIn`
 - [waste_output.py](waste_output.py) — `WasteOut`
@@ -38,6 +39,12 @@ These describe accepted inputs and returned data. They do not execute database
 writes, implement permissions or manage transactions. Class names, fields and
 validators are unchanged by the split, so the published OpenAPI component names
 did not move; only the file each class lives in changed.
+
+The daily fabric scan request and response use the fixed
+`FabricScanDirection` vocabulary (`received`, `returned`); register and report
+department snapshots use `FabricScanDepartment` (`CUT`, `ECT`). The existing
+department scope guard remains in the service and runs before the scan code is
+parsed. Response models preserve the existing scan-row and paged-report fields.
 
 `StockBatchIn`, `StockBatchUpdate` and `StockBatchOut` use the canonical
 `StockBatchQcStatus` enum. Input normalization still trims and lowercases text;

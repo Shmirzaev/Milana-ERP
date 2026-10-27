@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Query
 
 from app.core.deps import DbSession, require_permissions
 from app.libs.dto.inventory.fabric_scan_input import ScanInput
+from app.libs.dto.inventory.fabric_scan_output import FabricScanReportOut, FabricScanResultOut
 from app.models.inventory.fabric_scans_service import fabric_scan_report, scan_fabric_roll
 from app.schemas import User
 
@@ -13,12 +14,12 @@ scan_access = require_permissions("cutting.records", "cutting.bundles", "storage
 report_access = require_permissions("cutting.records", "cutting.bundles", "storage.receive", "storage.items", "planning.production", "management.view")
 
 
-@router.post("")
+@router.post("", response_model=FabricScanResultOut)
 def scan(payload: ScanInput, db: DbSession, user: User = Depends(scan_access)):
     return scan_fabric_roll(db, payload, user)
 
 
-@router.get("")
+@router.get("", response_model=FabricScanReportOut)
 def report(db: DbSession, user: User = Depends(report_access),
            report_date: date | None = None, page: int = Query(1, ge=1),
            page_size: int = Query(50, ge=1, le=200)):
