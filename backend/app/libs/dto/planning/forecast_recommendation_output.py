@@ -41,3 +41,9 @@ class ForecastRecommendationCreatedOut(ForecastRecommendationOut):
 
     recommendation_type: ForecastRecommendationType
     status: ForecastRecommendationStatus
+
+
+class ForecastRecommendationReviewedOut(ForecastRecommendationOut):
+    """Review controls status but may operate on a historical recommendation type."""
+
+    status: ForecastRecommendationStatus

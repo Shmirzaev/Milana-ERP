@@ -3,8 +3,7 @@
 Contract per operation:
 * input: the validated payload, the acting user and the factory scope the user
   may act in
-* output: a typed ForecastRecommendationCreatedOut for creation; legacy listing
-  and review retain their existing dictionary payloads
+* output: typed creation and review results; legacy listing retains its dictionary payload
 * refusals: 400 for a dangling reference, 403 when the recommendation has no
   factory-attributed model or the model is outside the user's factory scope,
   404 when the recommendation does not exist in that scope
@@ -20,7 +19,9 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.libs.dto.planning.forecast_recommendation_input import ForecastRecommendationIn
-from app.libs.dto.planning.forecast_recommendation_output import ForecastRecommendationCreatedOut
+from app.libs.dto.planning.forecast_recommendation_output import (
+    ForecastRecommendationCreatedOut, ForecastRecommendationReviewedOut,
+)
 from app.libs.dto.planning.forecast_recommendation_update import ForecastRecommendationPatch
 from app.libs.enums.planning import ForecastRecommendationStatus
 from app.models.audit_service import log_action
@@ -167,7 +168,7 @@ def update_recommendation(
     payload: ForecastRecommendationPatch,
     factory_codes: list[str],
     current: User,
-) -> dict:
+) -> ForecastRecommendationReviewedOut:
     """Review one forecast recommendation inside the user's factory scope."""
     row = recommendation_query_for_factories(db, factory_codes).filter(
         ForecastRecommendation.id == recommendation_id
@@ -184,6 +185,7 @@ def update_recommendation(
         ),
         row,
     )
+    ForecastRecommendationReviewedOut.model_validate(recommendation_payload(row))
     log_action(
         db,
         current,
@@ -195,4 +197,4 @@ def update_recommendation(
     )
     db.commit()
     db.refresh(row)
-    return recommendation_payload(row)
+    return ForecastRecommendationReviewedOut.model_validate(recommendation_payload(row))

@@ -60,8 +60,9 @@ database/browser verification and independent AI/human acceptance remain separat
 
 - input: the validated `ForecastRecommendationIn` / `ForecastRecommendationPatch`
   payload, the acting user and the factory scope the user may act in
-- output: creation returns enum-typed `ForecastRecommendationCreatedOut`;
-  historical list/review keep their string-valued response contract
+- output: creation returns `ForecastRecommendationCreatedOut`; review returns
+  `ForecastRecommendationReviewedOut` with canonical status and legacy type;
+  historical list retains its string-valued response contract
 - refusals: 400 for a dangling reference, 403 when the recommendation has no
   factory-attributed model or the model is outside the factory scope, 404 when
   the recommendation does not exist in that scope

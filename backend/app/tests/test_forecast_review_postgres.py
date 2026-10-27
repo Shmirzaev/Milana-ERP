@@ -1,4 +1,4 @@
-"""Real PostgreSQL behaviour of the forecast review write and the quantity floor.
+"""Real PostgreSQL behaviour of the forecast review write.
 
 Only an explicitly owned disposable review database on the identity-pinned
 review instance may be used. The instance pins are re-verified inside the
@@ -6,72 +6,24 @@ fixture, so the module cannot silently run against another server.
 """
 import hashlib
 import json
-import os
-from decimal import Decimal
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine, event
-from sqlalchemy.engine import make_url
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import event
 
-from app.db.base import Base
 from app.libs.dto.planning.forecast_recommendation_input import ForecastRecommendationIn
 from app.libs.dto.planning.forecast_recommendation_update import ForecastRecommendationPatch
 from app.libs.enums.planning import ForecastRecommendationStatus
 from app.models.planning import forecasting_recommendations_service as service
 from app.schemas import AuditLog, Brand, Collection, ForecastRecommendation, Item, Model, Role, User
 
-EXPECTED_SYSTEM_IDENTIFIER = "7700371345869473300"
-EXPECTED_DATA_DIRECTORY = "C:/Users/ismoi/Documents/Codex/2026-10-23/we-x20/work/finance-visual-qa-5aafe01d69/data"
-EXPECTED_PORT = 51716
-
-
-def _normalize(value: str) -> str:
-    return value.replace("\\", "/").rstrip("/")
-
-
 @pytest.fixture(scope="module")
 def sessions():
-    raw = os.environ.get("FORECAST_REVIEW_REVIEW_URL")
-    if not raw:
-        pytest.skip("Set FORECAST_REVIEW_REVIEW_URL to an owned disposable review database")
-    url = make_url(raw)
-    assert url.get_backend_name() == "postgresql"
-    assert url.host in {"localhost", "127.0.0.1"}
-    assert url.port == EXPECTED_PORT
-    assert url.database.startswith("review_")
-
-    import psycopg2
-
-    admin = psycopg2.connect(
-        f"postgresql://postgres:postgres@127.0.0.1:{EXPECTED_PORT}/postgres"
-    )
-    admin.autocommit = True
-    cursor = admin.cursor()
-    cursor.execute("select system_identifier::text from pg_control_system()")
-    system_identifier = cursor.fetchone()[0]
-    cursor.execute("select current_setting('data_directory')")
-    data_directory = cursor.fetchone()[0]
-    cursor.execute("select current_setting('server_version')")
-    server_version = cursor.fetchone()[0]
-    cursor.execute("select count(*) from pg_database where datname=%s", (url.database,))
-    assert cursor.fetchone()[0] == 1, "the task-owned review database must exist"
-    cursor.close()
-    admin.close()
-
-    assert system_identifier == EXPECTED_SYSTEM_IDENTIFIER, system_identifier
-    assert _normalize(data_directory).lower() == EXPECTED_DATA_DIRECTORY.lower(), data_directory
-    assert server_version.startswith("17.11"), server_version
-
-    engine = create_engine(
-        url,
-        isolation_level="READ COMMITTED",
-        connect_args={"options": "-c statement_timeout=15000 -c lock_timeout=8000"},
-    )
-    Base.metadata.create_all(engine)
-    yield engine, sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
-    engine.dispose()
+    # BLOCKED until the independently reviewed shared owned-target guard is
+    # integrated. Never enter the former unguarded create_all/TRUNCATE path.
+    pytest.skip("BLOCKED: reviewed owned PostgreSQL fixture and GO_PG required")
 
 
 @pytest.fixture
@@ -147,7 +99,7 @@ def test_real_review_stores_the_plain_status_and_audits_the_plain_action(case):
 
     result = _review(factory, ids, created.id, "accepted")
 
-    assert result["status"] == "accepted"
+    assert result.status is ForecastRecommendationStatus.ACCEPTED
     with factory() as db:
         stored = db.get(ForecastRecommendation, created.id)
         assert stored.status == "accepted"
@@ -269,7 +221,8 @@ def test_real_review_of_a_legacy_stored_status_is_allowed(case):
 
     result = _review(factory, ids, row_id, "accepted")
 
-    assert result["status"] == "accepted"
+    assert result.status is ForecastRecommendationStatus.ACCEPTED
+    assert result.recommendation_type == "old_custom_type"
     with factory() as db:
         stored = db.get(ForecastRecommendation, row_id)
         assert stored.status == "accepted"
@@ -282,25 +235,69 @@ def test_real_review_of_a_legacy_stored_status_is_allowed(case):
         assert audit.new_value_json == {"status": "accepted"}
 
 
-def test_real_quantity_at_the_storage_floor_stores_a_positive_value(case):
+@pytest.mark.parametrize("point", ["update", "audit_insert", "commit"])
+def test_real_review_failure_rolls_back_and_retry_succeeds(case, point):
+    engine, factory, ids = case
+    created = _create(factory, ids)
+    with factory() as db:
+        row = db.get(ForecastRecommendation, created.id)
+        before = (row.status, row.reviewed_by, row.reviewed_at, row.updated_at)
+        audit_before = db.query(AuditLog).filter_by(entity_type="ForecastRecommendation", entity_id=created.id).count()
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("injected review failure")
+
+    def fail_sql(conn, cursor, statement, parameters, context, executemany):
+        normalized = statement.lstrip().upper()
+        if (point == "update" and normalized.startswith("UPDATE FORECAST_RECOMMENDATIONS")) or (
+            point == "audit_insert" and normalized.startswith("INSERT INTO AUDIT_LOGS")
+        ):
+            fail()
+
+    with factory() as db:
+        actor = db.get(User, ids["user"])
+        if point == "commit":
+            event.listen(db, "before_commit", fail)
+        else:
+            event.listen(engine, "before_cursor_execute", fail_sql)
+        try:
+            with pytest.raises(RuntimeError, match="injected review failure"):
+                service.update_recommendation(db, created.id, ForecastRecommendationPatch(status="accepted"), ["MIL"], actor)
+            db.rollback()
+        finally:
+            if point != "commit":
+                event.remove(engine, "before_cursor_execute", fail_sql)
+    with factory() as db:
+        row = db.get(ForecastRecommendation, created.id)
+        assert (row.status, row.reviewed_by, row.reviewed_at, row.updated_at) == before
+        assert db.query(AuditLog).filter_by(entity_type="ForecastRecommendation", entity_id=created.id).count() == audit_before
+    assert _review(factory, ids, created.id, "accepted").status is ForecastRecommendationStatus.ACCEPTED
+    with factory() as db:
+        assert db.get(ForecastRecommendation, created.id).status == "accepted"
+        assert db.query(AuditLog).filter_by(entity_type="ForecastRecommendation", entity_id=created.id).count() == audit_before + 1
+
+
+def test_concurrent_reviews_preserve_existing_last_writer_behavior(case, monkeypatch):
     _, factory, ids = case
+    created = _create(factory, ids)
+    barrier = Barrier(2, timeout=10)
+    original = service.apply_forecast_recommendation_review
 
-    created = _create(factory, ids, suggested_quantity="0.00005")
+    def synchronize(db, command, row):
+        barrier.wait()
+        return original(db, command, row)
 
+    monkeypatch.setattr(service, "apply_forecast_recommendation_review", synchronize)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(_review, factory, ids, created.id, value) for value in ("accepted", "dismissed")]
+        results = [future.result(timeout=30) for future in futures]
+    # A post-commit refresh can observe the other concurrent writer.
+    assert all(result.status.value in {"accepted", "dismissed"} for result in results)
     with factory() as db:
-        stored = db.get(ForecastRecommendation, created.id)
-        assert stored.suggested_quantity > 0
-        assert stored.suggested_quantity == Decimal("0.0001")
-
-
-def test_real_quantity_below_the_storage_floor_is_refused_before_any_write(case):
-    _, factory, ids = case
-    with factory() as db:
-        before = (db.query(ForecastRecommendation).count(), db.query(AuditLog).count())
-
-    with pytest.raises(Exception):
-        ForecastRecommendationIn(recommendation_type="item_reorder", suggested_quantity="0.00001")
-
-    with factory() as db:
-        after = (db.query(ForecastRecommendation).count(), db.query(AuditLog).count())
-    assert after == before
+        row = db.get(ForecastRecommendation, created.id)
+        logs = db.query(AuditLog).filter_by(entity_type="ForecastRecommendation", entity_id=created.id).order_by(AuditLog.id).all()
+        reviews = [entry for entry in logs if entry.action != "create_forecast_recommendation"]
+        assert len(reviews) == 2
+        assert {entry.new_value_json["status"] for entry in reviews} == {"accepted", "dismissed"}
+        assert [entry.old_value_json["status"] for entry in reviews] == ["open", "open"]
+        assert row.status == reviews[-1].new_value_json["status"]

@@ -5,6 +5,7 @@ The stored value, the audit action name and the legacy response contract are
 unchanged; only the typed vocabulary and the location of the mapped write moved.
 """
 from decimal import Decimal
+from typing import get_type_hints
 from uuid import uuid4
 
 import pytest
@@ -13,13 +14,12 @@ from sqlalchemy import event
 
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
-from app.libs.dto.planning.forecast_recommendation_input import (
-    STORAGE_MIN_POSITIVE_QUANTITY,
-    ForecastRecommendationIn,
-)
+from app.libs.dto.planning.forecast_recommendation_input import ForecastRecommendationIn
+from app.libs.dto.planning.forecast_recommendation_output import ForecastRecommendationReviewedOut
 from app.libs.dto.planning.forecast_recommendation_update import ForecastRecommendationPatch
 from app.libs.enums.planning import ForecastRecommendationStatus
 from app.main import app
+from app.api.routes.forecasting import update_forecast_recommendation
 from app.models.planning import forecasting_recommendations_service as service
 from app.schemas import AuditLog, ForecastRecommendation, Model, Role, User
 
@@ -27,10 +27,10 @@ from app.schemas import AuditLog, ForecastRecommendation, Model, Role, User
 ACCEPTED_STATUSES = ["open", "accepted", "dismissed", "converted"]
 
 
-def _review_headers() -> tuple[dict[str, str], int]:
+def _review_headers(permissions=None) -> tuple[dict[str, str], int]:
     marker = uuid4().hex[:8]
     with SessionLocal() as db:
-        role = Role(name=f"Forecast review {marker}", permissions=["forecasting.view", "forecasting.manage"])
+        role = Role(name=f"Forecast review {marker}", permissions=permissions if permissions is not None else ["forecasting.view", "forecasting.manage"])
         db.add(role)
         db.flush()
         user = User(
@@ -48,7 +48,7 @@ def _review_headers() -> tuple[dict[str, str], int]:
     return {"Authorization": f"Bearer {token}"}, user_id
 
 
-def _recommendation(status: str = "open") -> int:
+def _recommendation(status: str = "open", recommendation_type: str = "item_reorder") -> int:
     marker = uuid4().hex[:8].upper()
     with SessionLocal() as db:
         model = Model(
@@ -60,7 +60,7 @@ def _recommendation(status: str = "open") -> int:
         db.add(model)
         db.flush()
         row = ForecastRecommendation(
-            recommendation_type="item_reorder",
+            recommendation_type=recommendation_type,
             status=status,
             model_id=model.id,
             suggested_quantity=10,
@@ -154,10 +154,12 @@ def test_the_schema_owned_review_write_uses_the_supplied_session_and_never_commi
 
     monkeypatch.setattr(service, "apply_forecast_recommendation_review", observe)
     with SessionLocal() as db:
-        service.update_recommendation(
+        result = service.update_recommendation(
             db, row_id, ForecastRecommendationPatch(status="accepted"), ["MIL"], db.get(User, user_id)
         )
         assert observed == [db]
+        assert isinstance(result, ForecastRecommendationReviewedOut)
+        assert result.status is ForecastRecommendationStatus.ACCEPTED
 
 
 def test_the_review_commits_exactly_once(monkeypatch):
@@ -220,6 +222,9 @@ def test_review_rejects_an_unknown_status_before_any_write(client):
 
 
 def test_the_review_openapi_uses_the_canonical_status_enum():
+    assert get_type_hints(service.update_recommendation)["return"] is ForecastRecommendationReviewedOut
+    assert get_type_hints(update_forecast_recommendation)["return"] is ForecastRecommendationReviewedOut
+    assert ForecastRecommendationReviewedOut.model_fields["status"].annotation is ForecastRecommendationStatus
     schema = app.openapi()
     definitions = schema["components"]["schemas"]
     patch = schema["paths"]["/api/forecasting/recommendations/{recommendation_id}"]["patch"]
@@ -230,45 +235,93 @@ def test_the_review_openapi_uses_the_canonical_status_enum():
     )
     assert definitions["ForecastRecommendationStatus"]["enum"] == ACCEPTED_STATUSES
     assert definitions["ForecastRecommendationOut"]["properties"]["status"]["type"] == "string"
+    output = patch["responses"]["200"]["content"]["application/json"]["schema"]
+    assert output["$ref"].endswith("/ForecastRecommendationReviewedOut")
+    assert definitions["ForecastRecommendationReviewedOut"]["properties"]["status"]["$ref"].endswith("/ForecastRecommendationStatus")
+    assert definitions["ForecastRecommendationReviewedOut"]["properties"]["recommendation_type"]["type"] == "string"
 
 
-def test_the_quantity_floor_matches_the_storage_resolution():
-    assert STORAGE_MIN_POSITIVE_QUANTITY == Decimal("0.00005")
-    for quantity in ["0.00001", "0.00004"]:
+def test_create_preserves_the_original_positive_input_boundary():
+    for quantity in ["0", "-0.00001"]:
         with pytest.raises(ValidationError):
             ForecastRecommendationIn(recommendation_type="item_reorder", suggested_quantity=quantity)
-    for quantity in ["0.00005", "0.0001", "12.34567", "9999999999.9999"]:
+    for quantity in ["0.00001", "0.00004", "0.00005", "0.0001", "12.34567", "9999999999.9999"]:
         assert ForecastRecommendationIn(
             recommendation_type="item_reorder", suggested_quantity=quantity
         ).suggested_quantity == Decimal(quantity)
 
 
-def test_a_create_below_the_storage_floor_is_refused_without_any_write(client):
-    headers, user_id = _review_headers()
-    marker = uuid4().hex[:8].upper()
+def test_review_preserves_custom_type_and_checks_denied_and_missing_inputs(client):
+    headers, _ = _review_headers()
+    denied_headers, _ = _review_headers(["forecasting.view"])
+    row_id = _recommendation(recommendation_type="old_custom_type")
+    for body in [{}, {"status": None}]:
+        assert client.patch(f"/api/forecasting/recommendations/{row_id}", json=body, headers=headers).status_code == 422
+    assert client.patch(f"/api/forecasting/recommendations/{row_id}", json={"status": "accepted"}, headers=denied_headers).status_code == 403
     with SessionLocal() as db:
-        model = Model(
-            code=f"FC-FLOOR-{marker}",
-            name=f"Forecast floor model {marker}",
-            factory_code="MIL",
-            status="approved",
-        )
-        db.add(model)
-        db.commit()
-        model_id = int(model.id)
-        before = (db.query(ForecastRecommendation).count(), db.query(AuditLog).count())
+        assert db.get(ForecastRecommendation, row_id).status == "open"
+        assert db.query(AuditLog).filter_by(entity_type="ForecastRecommendation", entity_id=row_id).count() == 0
+    response = client.patch(f"/api/forecasting/recommendations/{row_id}", json={"status": "accepted"}, headers=headers)
+    assert response.status_code == 200
+    assert response.json()["recommendation_type"] == "old_custom_type"
+    assert response.json()["status"] == "accepted"
 
-    refused = client.post(
-        "/api/forecasting/recommendations",
-        json={
-            "recommendation_type": "item_reorder",
-            "model_id": model_id,
-            "suggested_quantity": "0.00001",
-        },
-        headers=headers,
-    )
 
-    assert refused.status_code == 422, refused.text
+@pytest.mark.parametrize("point", ["update", "audit", "result", "commit"])
+def test_review_failure_rolls_back_and_retry_succeeds(monkeypatch, point):
+    _, user_id = _review_headers()
+    row_id = _recommendation()
     with SessionLocal() as db:
-        after = (db.query(ForecastRecommendation).count(), db.query(AuditLog).count())
-    assert after == before
+        row = db.get(ForecastRecommendation, row_id)
+        before = (row.status, row.reviewed_by, row.reviewed_at, row.updated_at)
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("injected review failure")
+
+    with monkeypatch.context() as scoped, SessionLocal() as db:
+        actor = db.get(User, user_id)
+        if point == "update":
+            def fail_update(conn, cursor, statement, parameters, context, executemany):
+                if statement.lstrip().upper().startswith("UPDATE FORECAST_RECOMMENDATIONS"):
+                    fail()
+            event.listen(db.bind, "before_cursor_execute", fail_update)
+        elif point == "audit":
+            original = service.log_action
+            def fail_after_audit(*args, **kwargs):
+                original(*args, **kwargs)
+                fail()
+            scoped.setattr(service, "log_action", fail_after_audit)
+        elif point == "result":
+            scoped.setattr(service.ForecastRecommendationReviewedOut, "model_validate", fail)
+        else:
+            event.listen(db, "before_commit", fail)
+        try:
+            with pytest.raises(RuntimeError, match="injected review failure"):
+                service.update_recommendation(db, row_id, ForecastRecommendationPatch(status="accepted"), ["MIL"], actor)
+            db.rollback()
+        finally:
+            if point == "update":
+                event.remove(db.bind, "before_cursor_execute", fail_update)
+    with SessionLocal() as db:
+        row = db.get(ForecastRecommendation, row_id)
+        assert (row.status, row.reviewed_by, row.reviewed_at, row.updated_at) == before
+        assert db.query(AuditLog).filter_by(entity_type="ForecastRecommendation", entity_id=row_id).count() == 0
+        result = service.update_recommendation(db, row_id, ForecastRecommendationPatch(status="accepted"), ["MIL"], db.get(User, user_id))
+        assert result.status is ForecastRecommendationStatus.ACCEPTED
+    with SessionLocal() as db:
+        assert db.get(ForecastRecommendation, row_id).status == "accepted"
+        assert db.query(AuditLog).filter_by(entity_type="ForecastRecommendation", entity_id=row_id).count() == 1
+
+
+def test_repeated_review_reopen_and_conversion_are_audited():
+    _, user_id = _review_headers()
+    row_id = _recommendation()
+    for value in ("accepted", "accepted", "open", "converted"):
+        with SessionLocal() as db:
+            service.update_recommendation(db, row_id, ForecastRecommendationPatch(status=value), ["MIL"], db.get(User, user_id))
+    with SessionLocal() as db:
+        logs = db.query(AuditLog).filter_by(entity_type="ForecastRecommendation", entity_id=row_id).order_by(AuditLog.id).all()
+        assert [(entry.old_value_json["status"], entry.new_value_json["status"]) for entry in logs] == [
+            ("open", "accepted"), ("accepted", "accepted"), ("accepted", "open"), ("open", "converted")
+        ]
+        assert db.get(ForecastRecommendation, row_id).status == "converted"

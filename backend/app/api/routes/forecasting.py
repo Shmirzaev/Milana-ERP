@@ -7,6 +7,7 @@ from app.libs.dto.planning.forecast_recommendation_input import ForecastRecommen
 from app.libs.dto.planning.forecast_recommendation_output import (
     ForecastRecommendationCreatedOut,
     ForecastRecommendationOut,
+    ForecastRecommendationReviewedOut,
 )
 from app.libs.dto.planning.forecast_recommendation_update import ForecastRecommendationPatch
 from app.models.forecasting_service import (
@@ -77,13 +78,13 @@ def list_forecast_recommendations(
     )
 
 
-@router.patch("/recommendations/{recommendation_id}", response_model=ForecastRecommendationOut)
+@router.patch("/recommendations/{recommendation_id}", response_model=ForecastRecommendationReviewedOut)
 def update_forecast_recommendation(
     recommendation_id: int,
     payload: ForecastRecommendationPatch,
     db: DbSession,
     current: User = Depends(require_permissions("forecasting.manage", "*")),
-):
+) -> ForecastRecommendationReviewedOut:
     return forecasting_recommendations_service.update_recommendation(
         db,
         recommendation_id,
