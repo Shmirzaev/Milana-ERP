@@ -1,6 +1,9 @@
 # Milana ERP
 
 Read and follow [AGENTS.md](AGENTS.md) for repository instructions.
+Read the [engineering workflow](docs/ENGINEERING_WORKFLOW.md) before implementation
+or review: route -> dedicated service -> schema-model persistence, canonical
+enum-typed contracts, and operation-level tests -> visual checks -> AI review -> human approval.
 For refactoring, use /milana-refactor and read the canonical
 [shared skill](.agents/skills/milana-refactor/SKILL.md).
 The [team plan](docs/REFACTOR_PLAN.md) records decisions and ownership.

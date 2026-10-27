@@ -1,10 +1,13 @@
-# Schemas: SQLAlchemy database definitions
+# Schemas: SQLAlchemy definitions and owned persistence
 
 **Coordination owner:** Mirshoir. **Reviewer:** Ismail.
 
 These are persistence models: columns, relationships, indexes, constraints and
-defaults. Business services in models/ use them with a Session to read/write.
-Pydantic input/update/output DTOs live in libs/dto/, not here.
+defaults. Ismail's latest schema-first requirement also places insert/update/delete
+operations in the owning schema domain. Business services in models/ decide what
+is allowed, then call those persistence operations with the existing Session.
+Pydantic input/update/output DTOs live in libs/dto/, not here. Current direct service
+writes are migration debt; moving mapped definitions did not complete this boundary.
 
 The 26 existing definition files were moved with callers and registration, without
 changing mapped fields or tables. schemas/__init__.py registers all mapped classes
@@ -36,8 +39,12 @@ and finance/ remain guides because their definitions still share those files.
 
 1. Trace the existing table and every writer; agree the feature owner and fields.
 2. Reuse its mapped class and existing Base. Use a descriptive snake_case.py file.
-3. Keep workflow rules, queries, permissions and transaction commits in services.
-   Create/update/read validation belongs in DTOs; database defaults are distinct.
+3. Keep workflow rules, permissions and the outer transaction owner in services.
+   Put inserts, updates, deletes and mapped-field mutations behind explicit typed
+   operations in the owning schema domain. These operations use the supplied
+   Session and never commit independently, import services or routes, or obtain
+   request dependencies. Reads may remain in services. DTO validation, service
+   transition checks and database constraints/defaults remain distinct safeguards.
 4. Register a new mapping in schemas/__init__.py and update all direct imports.
 5. A source-only move must preserve metadata exactly. A real storage change needs
    an explicitly reviewed Alembic migration, compatibility and rollback plan.
@@ -46,3 +53,37 @@ and finance/ remain guides because their definitions still share those files.
 
 See [DTO conventions](../libs/dto/README.md), [service discipline](../models/README.md),
 [source map](../../../docs/REFACTOR_MAP.md) and [team ownership](../../../docs/TEAM_OWNERSHIP.md).
+
+### Verify runtime types across persistence
+
+An ORM annotation must describe the value actually returned after database loading.
+`Mapped[SomeEnum]` on a plain `String` column and an enum-valued default do not prove
+that fresh-session, refresh or expired-attribute reads return enum members. Test those
+paths and raw stored values. Keep raw storage annotations truthful and convert at an
+explicit boundary, or use a reviewed conversion that preserves existing storage;
+the used business interfaces and DTOs must still carry the canonical enum. A cast,
+`Any` or `Enum | str` does not implement conversion. Check all consumers, including
+`str(member)` and `.value`, and preserve VARCHAR length, values, CHECKs and defaults.
+
+## Incremental enforcement of the write boundary
+
+Trace one business operation from route through service and every affected table,
+including shared helpers, bulk/raw SQL, attribute assignments, audit and notifications.
+Move its persistence mechanics behind schema-owned operations while preserving
+one transaction, current values, lock order, error behavior and side effects. Do not
+create a second mapped class, copy an entire business service into schemas, or add
+generic CRUD machinery merely to satisfy directory names. Register and test any
+new imports without changing metadata as an incidental refactor.
+
+The reviewer tool `backend/scripts/audit_refactor_boundaries.py --root backend/app
+--path models/<group> --schema-writes` flags obvious direct write calls and reports
+transaction/SQL sites for manual review. It cannot prove mapped-attribute or indirect
+write coverage. Its nonzero result is evidence of open migration work, not permission
+to delete checks. Required behavior tests, PostgreSQL checks, actual browser vision,
+readback and bounded stress precede AI_VERIFIED_AWAITING_HUMAN; human approval stays
+separate. Do not label a whole table, service or area complete from a partial pass.
+
+The boundary-audit script is versioned at
+[backend/scripts/audit_refactor_boundaries.py](../../scripts/audit_refactor_boundaries.py).
+Check tool availability explicitly in older checkouts; missing automation does not
+waive manual writer tracing or permit a claim that the gate passed.

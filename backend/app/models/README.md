@@ -1,15 +1,31 @@
 # Models: business services and working discipline
 
+## Guidance publication and runtime scope
+
+26 October 2026: these engineering rules are published on `clone_main`.
+This documentation-only update does not integrate the runtime candidate in
+[draft PR #308](https://github.com/Shmirzaev/Milana-ERP/pull/308). References
+below to its six grouped-service extractions, entity-named DTOs, InvoiceStatus
+or candidate test results describe that separate branch, not code newly
+present or verified on `clone_main`. The shared checkout still contains
+legacy/root services and mixed DTO files. Schema-owned writers and full
+enum/type adoption remain incomplete across the ERP.
+
 **Coordination owner:** Mirshoir. **Reviewer:** Ismail.
 
 This is the business-service layer, following Pizza House's models/*.service.ts
 convention. Its Python equivalents are *_service.py: business decisions,
-authorized CRUD and workflow coordination. There is no separate services/ folder.
+authorization and workflow coordination. Writes run through schema-owned operations
+with the supplied Session. There is no separate services/ folder. Follow the
+[engineering workflow](../../../docs/ENGINEERING_WORKFLOW.md) for the layer contract.
 
-The existing service/helper implementations moved here as *_service.py with their
-callers. All twelve group directories are documentation scaffolds; grouping their
-implementations and extracting business logic from routers remain future work.
-Database definitions now live in schemas/ and DTOs in libs/dto/.
+The separate PR #308 candidate contains extracted service modules for the six
+Ismail groups below: catalog, purchasing, sales, inventory, planning and finance. Schema-owned
+writes and system-wide enum-typed contracts remain unfinished. Existing
+shared helpers remain at this directory's root where their callers require them.
+The other groups retain their guides for separately approved extractions.
+Database definitions live in schemas/ and DTOs in libs/dto/. Current verification
+and remaining acceptance are recorded in the plan; a source move is not a release.
 Start with the relevant group below, then read only its affected code.
 The complete source inventory is [the refactor map](../../../docs/REFACTOR_MAP.md).
 
@@ -38,9 +54,12 @@ See [team ownership](../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordinat
    a requirement to create every file or one class per table.
 2. Write a short contract: input/actor, allowed behavior, output, known refusals,
    affected records, lock order, transaction owner and external side effects.
-3. Use `snake_case_service.py` and explicit typed functions. A service may call SQLAlchemy
-   directly. It accepts a Session and actor/context; it does not obtain them from
-   FastAPI Depends or import HTTP handlers. Prefer the smallest useful public API.
+3. Use `snake_case_service.py` and explicit typed functions. Under Ismail's latest
+   schema-first requirement, services call schema-owned persistence operations for
+   inserts, updates and deletes; direct Session writes or mapped-field mutations
+   in services are migration debt. Services retain business rules, authorization
+   and workflow coordination. They accept a Session and actor/context, not
+   FastAPI Depends, and never import HTTP handlers. Prefer a small explicit API.
 4. Reuse the SQLAlchemy definitions in [schemas](../schemas/README.md) and the
    Pydantic contracts in [libs/dto](../libs/dto/README.md). Use [enums](../libs/enums/README.md)
    for fixed vocabulary and [types](../libs/types/README.md) only for a distinct
@@ -93,7 +112,12 @@ the mapped classes; models/__init__.py does not export ORM classes.
 
 Import services from app.models.<name>_service and mapped classes from app.schemas
 or their specific module. Never duplicate a mapped class or change table names to
-match Python folders. Services use those classes and the existing Session for CRUD.
+match Python folders. Services use those classes for reads and call persistence
+operations owned by the schema domain for writes, using the same existing Session.
+The outer business operation owns the transaction; schema helpers must not commit
+independently. This is the required target, not a claim that current services meet it.
+Migrate one complete operation with all its writers, including audit/notification
+participants; preserve atomicity, lock order, idempotency and refusal behavior.
 
 Service-group directories remain guides until an operation's package conversion
 is approved and all callers are updated. Their old ORM filename collisions have

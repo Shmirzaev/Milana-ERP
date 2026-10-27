@@ -1,6 +1,17 @@
 # Milana ERP: current working context
 
-Updated 2026-10-24. Keep this file short: current decisions, release pointers and
+## Guidance publication and runtime scope
+
+26 October 2026: these engineering rules are published on `clone_main`.
+This documentation-only update does not integrate the runtime candidate in
+[draft PR #308](https://github.com/Shmirzaev/Milana-ERP/pull/308). References
+below to its six grouped-service extractions, entity-named DTOs, InvoiceStatus
+or candidate test results describe that separate branch, not code newly
+present or verified on `clone_main`. The shared checkout still contains
+legacy/root services and mixed DTO files. Schema-owned writers and full
+enum/type adoption remain incomplete across the ERP.
+
+Updated 2026-10-26. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
@@ -11,11 +22,19 @@ not appended here. This summary does not replace live release verification.
   Use separate engineer work directories and one landing queue coordinated by Mirshoir.
 - [DEPLOYMENT.md](../DEPLOYMENT.md) is the only supported release procedure.
   Before release reconcile Git, production-base.json, both manifests and runtime slots.
-- Verified 2026-10-24 at 16:16 Tashkent: both VMs serve blue `20261024_093619`;
-  retained healthy rollback is green `20261024_032622`. Deployed application commit
-  `1fce86b5b9156fac050ca5c98433198323b20929`, manifest
-  `e424f9a6f135b0ebf3851e0355c39d546bd3466eafcb4ddba6ef27c2b3bd4d31`;
-  database remains `0148_second_grade_packages`. See [the deployment record](archive/SEWING_LATER_NASTIL_2026-10-24.md#production-activation--2026-10-24).
+- Verified 2026-10-26: both VMs serve green `20261026_085306`;
+  retained healthy blue rollback is `20261026_055538`. Deployed application commit
+  `439555a77ef583b1b212398e16ecd52ced786e45`, manifest
+  `9511b57bf62fd3142c865f3bb07aaf3e2f1053629f90c8521a652cd6da9139e2`;
+  database remains `0149_besttex_cutting_access`. Invoice customer/transport text
+  is 11 pt and the product table 9 pt, with separated SVG branding and matching Excel.
+  The release preserves newer factory fixes and excludes the pending namespace work.
+  This integration head is not the released artifact. See [the invoice release record](archive/INVOICE_READABILITY_2026-10-26.md).
+  Exact CI and four health checks passed. The initial public performance failure
+  caused rollback; one corrected comparison with a fixed client origin passed the
+  original budgets. Public-path tail variation also occurs on the previous release
+  and remains unresolved. All attempts are retained; no 30-minute observation or
+  refactoring job was added. The invoice port is draft PR #310, awaiting human review.
 - The earlier `20261024_032622` deployment recorded an initial performance failure and rollback, followed
   by reactivation of the same images; public-path tail variation remains unresolved.
   The owner waived the timed observation period. The archive preserves all attempts.
@@ -39,8 +58,33 @@ not appended here. This summary does not replace live release verification.
 
 ## Architecture and migration state
 
+- Scope correction, 26 October: the six-area service/DTO extraction is complete
+  in the draft candidate, but Ismail's full assignment remains incomplete.
+  RF-011 has only centralized InvoiceStatus so far. The remaining fixed-value
+  inventory, enum callers and compatibility checks are active work; the earlier
+  overall completion claim was too broad. Production/business acceptance remains separate.
+- The owner's required unit is one business operation: study old behavior and
+  callers, classify all relevant table/field/type candidates, implement, then
+  automated checks -> actual visual E2E -> persisted readback/bounded stress ->
+  independent AI review -> `AI_VERIFIED_AWAITING_HUMAN`. Follow the
+  [task packet and operation ledger](VERIFICATION.md#0-study-the-old-behavior-and-give-the-agent-a-verifiable-task)
+  and [table audit](../backend/app/libs/enums/README.md#table-by-table-audit).
+  Human visual/technical approval, merge and production acceptance are separate.
+  Synthetic QA values do not establish the complete production vocabulary.
+- The owner's system-wide mentor-discipline goal requires actual enum-typed
+  DTOs/internal contracts and consistent schema/service consumers. Default-only
+  string fields do not satisfy it. Intentional OpenAPI/validation changes needed
+  for enum typing must be explicit and tested; keep business rules and operation
+  subsets. The six Ismail pilots are incremental work, not whole-ERP completion;
+  Identity/People/Production/Packaging/Fulfillment/platform coverage remains owned
+  and pending in the system-wide ledger.
 - Keep the FastAPI/SQLAlchemy/PostgreSQL monolith. Router -> feature service ->
-  SQLAlchemy schema models + Session -> database. No microservice/ORM replacement.
+  schema-owned persistence operations + supplied Session -> database. Services
+  retain business rules, permissions and one outer transaction. Ismail explicitly
+  requires writes/updates behind schema models; this boundary remains unfinished
+  despite the completed namespace move. Include audit/notification/idempotency and
+  mapped mutations, preserve locks/hooks, and verify one complete operation first.
+  No microservice/ORM replacement.
 - Target: api/routes/ for HTTP, models/ for business services, schemas/ for
   database schema models, libs/dto/<feature>/ for input/update/output contracts,
   libs/enums/ for fixed vocabulary, libs/types/ for distinct internal contracts.
@@ -49,9 +93,18 @@ not appended here. This summary does not replace live release verification.
   files are now in libs/dto/ and 26 SQLAlchemy definition files in schemas/, with
   all callers and ORM registration updated. Table definitions and business rules
   are unchanged. See the plan's verification record for actual checks/limitations.
-- Twelve service-group directories remain guides for later approved extraction.
-  Schema/DTO groups with implementations are active packages; mixed source files
-  remain intact. Route business logic extraction has not started through this task.
+- The owner authorized all six Ismail areas (catalog, purchasing, sales, inventory,
+  planning, finance) as parallel candidate work. The draft PR branch combines their
+  grouped services and entity-named DTOs for draft PR #308. The current modules
+  are listed in [the source map](https://github.com/Shmirzaev/Milana-ERP/blob/3cdd6808ff7ced0717f337d17d4e530719d4a86f/docs/REFACTOR_MAP.md#service-destinations). Existing
+  shared helpers remain at models/ root. Finance/Purchasing/Sales passed 397
+  tests with zero skips; Planning/Finance paging passed 206, including real PG.
+  Final affected coverage passed 694 cases plus 18 recovered from Windows temp
+  permission setup errors, with zero skips, and two separate PG stock races passed.
+  Actual six-area UI flows, persisted readback and bounded stress passed; see
+  [the candidate record and human checklist](https://github.com/Shmirzaev/Milana-ERP/blob/3cdd6808ff7ced0717f337d17d4e530719d4a86f/docs/archive/ISMAIL_SIX_AREA_REFACTOR_2026-10-25.md).
+  The full API and table DDL are identical (577 routes, 475 paths, 97 tables). Mirshoir's
+  review and Shavkat's business acceptance remain; no merge or deployment is claimed.
 - Humans decide business policy, interfaces and cutover; AI implements approved
   scope. Multitenancy is deferred. No deletion quota or table-per-service requirement.
 

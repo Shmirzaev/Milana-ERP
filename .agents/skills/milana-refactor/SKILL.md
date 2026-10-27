@@ -5,6 +5,9 @@ description: Plan and carry out approved Milana ERP monolith refactors using rev
 
 # Milana refactor discipline
 
+Apply the [engineering workflow](../../../docs/ENGINEERING_WORKFLOW.md) for layer
+responsibilities, schema-owned writes, enum-typed contracts and acceptance gates.
+
 Keep the factory working while simplifying one business operation at a time.
 Read the repository's AGENTS.md and the relevant folder's README.md. For scope,
 ownership and sequence, read the relevant sections of [the team plan](../../../docs/REFACTOR_PLAN.md).
@@ -33,26 +36,62 @@ review, migrations or operations. An AI's own test result is not human approval.
 
 For folder purpose and how to write files, use [the backend guide](../../../backend/app/README.md).
 Use [the source/model map](../../../docs/REFACTOR_MAP.md) to locate a group; load only
-the needed section. The twelve documentation folders are authorized scaffolding;
-do not treat their proposed operation names as implementation approval.
+the needed section. The six Ismail groups contain implemented candidate services;
+other group guides retain proposals. A proposed name alone is not implementation
+approval; the current owner-authorized batch covers all six Ismail groups.
 
-## Read a small, complete context
+## Study the complete affected old behavior
 
 Start with the task ID, current source commit, its route, service, DTO, ORM model,
 direct callers and relevant tests. Search for imports, callers and writes before
-moving code. Expand into adjacent workflows only when a dependency requires it.
-Do not preload the entire repository or historical bug archive. Folder count and
+moving code. Include alternate entry points, database defaults/constraints and
+stored vocabularies, permissions, side effects, UI and department handoffs. Study
+the actual old behavior before selecting the seam; include recent working fixes.
+Read source in bounded slices and record coverage rather than preloading the
+entire repository or historical bug archive. Folder count and
 line count are not quality goals; minimize unrelated context and hidden coupling.
-Keep a short task record with approved decisions, exact revision, changed paths,
-checks, rollback mechanism and next step so another session can resume accurately.
+Use the [task packet and operation ledger](../../../docs/VERIFICATION.md#0-study-the-old-behavior-and-give-the-agent-a-verifiable-task):
+direct user scope/corrections, decisions, exact source, changed paths, converted/
+retained/unresolved types, checks, rollback and next action. At handoff or context
+compaction, reread that record and the current rules; do not inherit a "done" claim.
+
+Ismail requires one business operation at a time: study -> approved move -> code
+checks -> real visual/browser checks -> database readback and bounded stress ->
+independent AI verification -> human visual approval. Freeze an operation-sized
+patch/candidate and pass its gates before marking it AI-verified or moving that
+worker to the next implementation step. Preserve already-mixed later changes in
+separate slices. Parallel work is permitted only on isolated disjoint operations;
+overlapping files/operations have one writer and require combined verification.
 
 ## Architecture contract
 
-`HTTP router -> models/*_service.py -> SQLAlchemy schema + Session -> PostgreSQL`
+`HTTP router -> models/<group>/*_service.py -> schema-owned persistence + supplied Session -> PostgreSQL`
+
+26 October 2026: the owner's explicit target puts write/update/delete mechanics in
+schema-model operations. The namespace move is complete, but this write boundary
+is not. Services retain business decisions, permissions, calculations and the outer
+transaction. Use focused persistence functions in the existing schema domain or
+methods on its mapped class; do not duplicate mappings or add a generic repository.
+Include mapped field/relationship mutation and shared audit/notification/idempotency
+writes in the same operation. Helpers use the supplied Session without hidden commits,
+new transactions, business-policy changes or service/route imports. Preserve locks,
+flush timing, audit-chain hooks and rollback; shared persistence has one writer.
+Complete the first operation's gates before mass enum/type adoption. A shared enum
+must serve its real schema/contract/service consumers; six workers do not prove
+system-wide coverage or full mentor alignment.
+
+For the owner's system-wide enum/type goal, fixed-vocabulary DTO input/update/output
+and real internal contracts use canonical Enum annotations, not only enum-valued
+defaults on str, Any or Enum|str. Keep business normalization, defaults and legal
+action subsets explicit. Preserve behavior where possible with validators/adapters;
+document and test intentional OpenAPI/validation changes needed for actual enum
+typing. Do not use byte-identical OpenAPI as an excuse to omit the required types.
+Genuinely configurable/free-form fields remain data. Reconcile every relevant
+domain/consumer in the ownership ledger; the six pilots do not complete the ERP.
 
 - Routers bind/validate HTTP inputs, obtain authenticated context/session, call the
   service and map results/errors to HTTP. No new business calculations or ORM writes.
-- Business services live in models/*_service.py, following Pizza House's service
+- Business services live in models/<group>/*_service.py, following Pizza House's service
   layer under models/. Do not recreate a parallel services/ folder.
   Services own business rules, object/factory authorization and coordinated CRUD.
   They accept the session/context explicitly. No service imports a router or calls
@@ -64,7 +103,8 @@ checks, rollback mechanism and next step so another session can resume accuratel
   Keep the existing Base, one mapping per table, field/default/constraint semantics
   and public DTO contracts. Pure source moves require no database-schema diff.
   Some mapped files still span business groups; consult the map before splitting.
-  Service-group directories remain guides for approved operation extraction.
+  Place new domain operations in their existing business group. Reuse shared
+  legacy helpers at models/ root rather than duplicating them or adding forwarders.
 - DTO filenames include their entity: user_input.py, user_update.py, user_output.py.
   Use explicit class imports, e.g. from app.libs.dto.user.user_input import UserIn.
   Retain existing mixed DTO files until an approved extraction updates every caller.
@@ -72,6 +112,12 @@ checks, rollback mechanism and next step so another session can resume accuratel
   Keep API DTOs in libs/dto/; libs contains no services or persistence operations.
 - Enums preserve existing string values. Configurable roles/permissions/factories
   remain data. Enums do not implement RBAC or legal state transitions.
+- Audit the assigned database [table by table and field by field](../../../backend/app/libs/enums/README.md#table-by-table-audit),
+  reconciling schema, actual authorized snapshot values, writers, readers, DTOs
+  and UI. Account for every type candidate as converted, retained with a reason,
+  or unresolved with an owner. Reconcile newly discovered fixed values before
+  closing the operation. An enum file or a generic lifecycle set is not proof
+  that every caller or action-specific subset has been migrated correctly.
 - One outer operation owns the transaction; helpers cannot commit part of it.
   Inspect SQLAlchemy autobegin and existing auth/session use before changing scope.
   Preserve locking, audit, retries, idempotency and external side-effect timing.
@@ -93,6 +139,12 @@ Use isolated test data/infrastructure. Missing browser access or a required test
 environment is BLOCKED, never PASS. Repeat invalidated checks after further edits;
 no cleanup/readiness claim before required gates pass. Human production acceptance
 remains separate. Documentation-only work records runtime gates as NOT APPLICABLE.
+Use **AI_VERIFIED_AWAITING_HUMAN** only after the independent verification role
+has checked all required evidence on the exact candidate. Give the human a local
+visual checklist with roles, records, steps and expected saved results. Wait for
+their recorded technical and visual/business approval of that candidate; do not
+translate an AI pass into human approval, merge/deployment authority or permission
+to retire the old path. Follow [the state/evidence rules](../../../docs/VERIFICATION.md#5-record-evidence-and-completion).
 
 ## Study -> extract -> prove -> switch -> retire
 
@@ -126,6 +178,10 @@ change using the same prove/switch/accept discipline. Preserve omitted-vs-null u
 behavior, allowed fields, defaults, enum serialization and response shapes. Pure
 source cleanup should not require a database migration. Any necessary storage change
 needs its own compatibility/backfill/rollback plan and approval.
+Keep creation and lifecycle vocabularies distinct: a user/order may have states
+that are not permitted creation inputs. Record whether a change centralizes values,
+adds a DTO/internal type, or deliberately changes validation. Do not silently narrow
+free-form inputs or widen an action's accepted subset by using the full enum.
 
 ## Shared branch and completion
 
