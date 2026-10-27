@@ -21,8 +21,11 @@ See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordi
 | [purchasing_service.py](../purchasing_service.py) | The core operations the three modules above call: request create/approve/reject/convert, order creation, receipt. |
 
 The core operations stay in `purchasing_service.py`; the group modules own the
-outer operation each route used to orchestrate - the query, the per-line
-access check, the single commit and the refresh. The group modules call the
+outer operation each route used to orchestrate, including per-line access checks
+and the single commit. Order creation and conversion validate a typed snapshot
+of the flushed order before committing and return it after the commit succeeds.
+PostgreSQL commit-time effects and response parity require separate verification.
+Other operations retain their own refresh behavior. The group modules call the
 core operations; they never re-implement them.
 
 ## Other source pointers

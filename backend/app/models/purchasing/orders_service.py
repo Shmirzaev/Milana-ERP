@@ -3,14 +3,15 @@
 Contract for the purchase order operations:
 * input: a validated `PurchaseOrderIn` and the acting user for the creation; a
   status filter, a page window and a receivable-only flag for the directory
-* output: one page of purchase orders plus the exact filtered total, or the
-  persisted `PurchaseOrder`
+* output: one page of purchase orders plus the exact filtered total, or a typed
+  snapshot of the flushed order validated before the single commit
 * refusals: the 400/404 messages the core operation raises, plus 403 when the
   caller may not reach one of the order's items
 * records: purchase order rows and their lines, the audit rows and the
   department notification the core operation writes
 * transaction owner: `create_purchase_order`; it commits once, after the
-  caller's access to every line has been checked
+  caller's access to every line has been checked and the result validated.
+  PostgreSQL commit-time effects and response parity require separate verification.
 """
 from sqlalchemy.orm import Session, joinedload
 

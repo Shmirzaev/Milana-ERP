@@ -73,7 +73,7 @@ def convert_request_to_order(
     payload: PurchaseRequestOrderIn,
     db: DbSession,
     current: User = Depends(require_permissions("purchasing.order", "*")),
-):
+) -> PurchaseOrderCreationOut:
     return requests_service.convert_purchase_request_to_order(
         db, request_id=request_id, payload=payload, current=current
     )
@@ -112,7 +112,7 @@ def create_order(
     payload: PurchaseOrderIn,
     db: DbSession,
     current: User = Depends(require_permissions("purchasing.order", "*")),
-):
+) -> PurchaseOrderCreationOut:
     return orders_service.create_purchase_order(db, payload=payload, current=current)
 
 

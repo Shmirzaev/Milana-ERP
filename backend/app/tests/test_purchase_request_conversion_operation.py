@@ -289,7 +289,8 @@ def test_order_creation_default_status_is_draft(conversion_case):
 
 
 def test_operation_result_contract_and_legacy_status():
-    from app.api.routes.purchasing import router
+    from app.api.routes.purchasing import router, create_order, convert_request_to_order
+    from app.main import app
     assert get_type_hints(PurchaseOrderCreationOut)["status"] is PurchaseOrderStatus
     assert get_type_hints(PurchaseOrderOut)["status"] is str
     assert get_type_hints(public.convert_purchase_request_to_order)["return"] is PurchaseOrderCreationOut
@@ -301,6 +302,15 @@ def test_operation_result_contract_and_legacy_status():
     assert routes[("/purchasing/orders", "POST")].response_model is PurchaseOrderCreationOut
     assert routes[("/purchasing/requests/{request_id}/convert-to-order", "POST")].response_model is PurchaseOrderCreationOut
     assert routes[("/purchasing/orders/{order_id}/receive", "POST")].response_model is PurchaseOrderOut
+    assert get_type_hints(create_order)["return"] is PurchaseOrderCreationOut
+    assert get_type_hints(convert_request_to_order)["return"] is PurchaseOrderCreationOut
+    openapi = app.openapi()
+    for path in ("/api/purchasing/orders", "/api/purchasing/requests/{request_id}/convert-to-order"):
+        response = openapi["paths"][path]["post"]["responses"]["201"]["content"]["application/json"]["schema"]
+        assert response == {"$ref": "#/components/schemas/PurchaseOrderCreationOut"}
+    schemas = openapi["components"]["schemas"]
+    assert schemas["PurchaseOrderCreationOut"]["properties"]["status"] == {"$ref": "#/components/schemas/PurchaseOrderStatus"}
+    assert set(schemas["PurchaseOrderStatus"]["enum"]) == {status.value for status in PurchaseOrderStatus}
 
 
 def test_create_result_and_legacy_unknown_status(conversion_case):
