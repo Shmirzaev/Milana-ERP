@@ -1,4 +1,7 @@
+from app.api.routes import warehouse_reservations, usluga_packaging
+from app.api.routes import eco_transfers, sewing_corrections
 from fastapi import APIRouter
+from app.api.routes import sewing_bands
 
 from app.api.routes import (
     auth, admin, partners, catalog, inventory, sales, planning, purchasing, production,
@@ -8,10 +11,14 @@ from app.api.routes import (
     traceability,
     forecasting,
     payroll,
+    attendance, usluga, hr_workspace, price_calculation, stocktake,
+    packaging_reports, paid_processes, process_qr_setup, fabric_scans,
 )
 
 api_router = APIRouter(prefix="/api")
+api_router.include_router(sewing_bands.router)
 api_router.include_router(auth.router)
+api_router.include_router(auth.session_router)
 api_router.include_router(admin.router)
 api_router.include_router(partners.router)
 api_router.include_router(catalog.router)
@@ -28,6 +35,7 @@ api_router.include_router(waste.router)
 api_router.include_router(finance.router)
 api_router.include_router(dashboards.router)
 api_router.include_router(hr.router)
+api_router.include_router(hr_workspace.router)
 api_router.include_router(barcode.router)
 api_router.include_router(tasks.router)
 api_router.include_router(notifications.router)
@@ -43,3 +51,18 @@ api_router.include_router(traceability.router)
 api_router.include_router(forecasting.router)
 api_router.include_router(super_data.router)
 api_router.include_router(payroll.router)
+api_router.include_router(attendance.router)
+api_router.include_router(usluga.router)
+api_router.include_router(price_calculation.router)
+api_router.include_router(packaging_reports.router)
+api_router.include_router(stocktake.router)
+
+api_router.include_router(paid_processes.router)
+api_router.include_router(process_qr_setup.router)
+api_router.include_router(fabric_scans.router)
+
+api_router.include_router(eco_transfers.router)
+api_router.include_router(sewing_corrections.router)
+
+api_router.include_router(warehouse_reservations.router)
+api_router.include_router(usluga_packaging.router)

@@ -1,16 +1,25 @@
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import joinedload
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile
+from sqlalchemy.orm import joinedload, lazyload, selectinload
 
 from app.core.deps import DbSession, require_permissions
-from app.models import PurchaseOrder, PurchaseRequest, User
-from app.schemas.purchasing import (
+from app.core.config import settings
+from app.schemas import Item, PurchaseOrder, PurchaseOrderLine, PurchaseRequest, PurchaseRequestLine, User
+from app.models import inventory_access_service as inventory_access
+from app.models.factory_scope_service import selected_factory_code
+from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
+from app.libs.dto.purchasing.purchasing import (
     PurchaseOrderIn,
     PurchaseOrderOut,
     PurchaseOrderReceiveIn,
+    PurchaseRequestApprovalIn,
     PurchaseRequestIn,
+    PurchaseRequestOrderIn,
     PurchaseRequestOut,
 )
-from app.services.purchasing import (
+from app.models.purchasing_service import (
     approve_purchase_request,
     convert_purchase_request_to_order,
     create_purchase_order,
@@ -30,6 +39,9 @@ def list_purchase_requests(
 ):
     return (
         db.query(PurchaseRequest)
+        .filter(~PurchaseRequest.lines.any(PurchaseRequestLine.item_id.in_(
+            db.query(Item.id).filter(Item.category.notin_(inventory_access.MATERIAL_CATEGORIES))
+        )) if inventory_access.materials_only(_) else True)
         .options(joinedload(PurchaseRequest.lines))
         .order_by(PurchaseRequest.id.desc())
         .all()
@@ -43,6 +55,8 @@ def create_request(
     current: User = Depends(require_permissions("purchasing.request", "*")),
 ):
     request = create_purchase_request(db, data=payload.model_dump(), current=current)
+    for line in request.lines:
+        inventory_access.require_item(db, current, line.item_id)
     db.commit()
     db.refresh(request)
     return request
@@ -55,6 +69,8 @@ def create_request_from_sales_order(
     current: User = Depends(require_permissions("purchasing.request", "*")),
 ):
     request = create_purchase_request_from_sales_order(db, sales_order_id=sales_order_id, current=current)
+    for line in request.lines:
+        inventory_access.require_item(db, current, line.item_id)
     db.commit()
     db.refresh(request)
     return request
@@ -63,10 +79,13 @@ def create_request_from_sales_order(
 @router.post("/requests/{request_id}/approve", response_model=PurchaseRequestOut)
 def approve_request(
     request_id: int,
+    payload: PurchaseRequestApprovalIn,
     db: DbSession,
     current: User = Depends(require_permissions("purchasing.approve", "*")),
 ):
-    request = approve_purchase_request(db, request_id=request_id, current=current)
+    request = approve_purchase_request(db, request_id=request_id, data=payload.model_dump(), current=current)
+    for line in request.lines:
+        inventory_access.require_item(db, current, line.item_id)
     db.commit()
     db.refresh(request)
     return request
@@ -79,6 +98,8 @@ def reject_request(
     current: User = Depends(require_permissions("purchasing.approve", "*")),
 ):
     request = reject_purchase_request(db, request_id=request_id, current=current)
+    for line in request.lines:
+        inventory_access.require_item(db, current, line.item_id)
     db.commit()
     db.refresh(request)
     return request
@@ -87,26 +108,93 @@ def reject_request(
 @router.post("/requests/{request_id}/convert-to-order", response_model=PurchaseOrderOut, status_code=201)
 def convert_request_to_order(
     request_id: int,
+    payload: PurchaseRequestOrderIn,
     db: DbSession,
     current: User = Depends(require_permissions("purchasing.order", "*")),
 ):
-    order = convert_purchase_request_to_order(db, request_id=request_id, current=current)
+    order = convert_purchase_request_to_order(db, request_id=request_id, data=payload.model_dump(), current=current)
+    for line in order.lines:
+        inventory_access.require_item(db, current, line.item_id)
     db.commit()
     db.refresh(order)
     return order
 
 
-@router.get("/orders", response_model=list[PurchaseOrderOut])
+@router.post("/request-photo/upload", status_code=201)
+async def upload_request_photo(
+    file: UploadFile = File(...),
+    _: User = Depends(require_permissions("purchasing.request", "purchasing.approve", "*")),
+):
+    from app.models.image_storage_service import store_uploaded_image
+
+    stored = await store_uploaded_image(
+        file,
+        target_dir=settings.MODEL_FILES_DIR,
+        file_url_base="/storage/model-files",
+        name_prefix="purchase",
+        max_bytes=10 * 1024 * 1024,
+        prebuild_thumbnails=True,
+    )
+    return {"file_url": stored.file_url}
+
+
+def _purchase_orders_query(db: DbSession, user: User):
+    """Base query for the order directory, shared by the page and its count.
+
+    The count MUST be derived from this same query or `total` stops describing
+    the list the UI is showing.
+    """
+    return db.query(PurchaseOrder).filter(
+        ~PurchaseOrder.lines.any(PurchaseOrderLine.item_id.in_(
+            db.query(Item.id).filter(Item.category.notin_(inventory_access.MATERIAL_CATEGORIES))
+        )) if inventory_access.materials_only(user) else True
+    )
+
+
+PURCHASE_ORDER_LIST_MAX_LIMIT = 200
+
+
+@router.get("/orders")
 def list_purchase_orders(
     db: DbSession,
     _: User = Depends(require_permissions("purchasing.view", "*")),
+    status: str | None = Query(None, max_length=32),
+    limit: int = Query(50, ge=1, le=PURCHASE_ORDER_LIST_MAX_LIMIT),
+    offset: int = Query(0, ge=0),
+    receivable_only: Annotated[bool, Query()] = False,
 ):
-    return (
-        db.query(PurchaseOrder)
-        .options(joinedload(PurchaseOrder.lines))
+    """One page of purchase orders plus the exact filtered total.
+
+    `total` is the true count for the same filters, not the page length, so the
+    receiving screen can page instead of silently showing a truncated list.
+    Ordering is unchanged (`PurchaseOrder.id.desc()`).
+    """
+    query = _purchase_orders_query(db, _)
+    term = str(status or "").strip()
+    if term:
+        query = query.filter(PurchaseOrder.status == term)
+    if receivable_only:
+        # Match the receiving queue without loading every order or counting
+        # its outstanding lines more than once. The page and total share scope.
+        query = query.filter(
+            PurchaseOrder.status.in_(("sent", "approved", "partially_received")),
+            PurchaseOrder.lines.any(PurchaseOrderLine.ordered_quantity > PurchaseOrderLine.received_quantity),
+        )
+
+    total = int(query.with_entities(PurchaseOrder.id).count())
+    orders = (
+        query.options(joinedload(PurchaseOrder.lines))
         .order_by(PurchaseOrder.id.desc())
+        .limit(limit)
+        .offset(offset)
         .all()
     )
+    return {
+        "items": [PurchaseOrderOut.model_validate(order) for order in orders],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @router.post("/orders", response_model=PurchaseOrderOut, status_code=201)
@@ -116,6 +204,8 @@ def create_order(
     current: User = Depends(require_permissions("purchasing.order", "*")),
 ):
     order = create_purchase_order(db, data=payload.model_dump(), current=current)
+    for line in order.lines:
+        inventory_access.require_item(db, current, line.item_id)
     db.commit()
     db.refresh(order)
     return order
@@ -127,8 +217,57 @@ def receive_order(
     payload: PurchaseOrderReceiveIn,
     db: DbSession,
     current: User = Depends(require_permissions("purchasing.receive", "*")),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
+    # Lock and refresh the order before any replay check. Serializing here is
+    # what makes a retry observe the first receipt's replay record instead of
+    # racing past it and creating a second stock batch for the same receipt.
+    # Eager joins are disabled so PostgreSQL locks only the purchase order row.
+    order_query = (
+        db.query(PurchaseOrder)
+        .options(lazyload("*"), selectinload(PurchaseOrder.lines))
+        .filter(PurchaseOrder.id == order_id)
+        .populate_existing()
+    )
+    if db.bind and db.bind.dialect.name == "postgresql":
+        order_query = order_query.with_for_update(of=PurchaseOrder)
+    locked_order = order_query.one_or_none()
+    if not locked_order:
+        raise HTTPException(404, "Purchase order not found")
+
+    # Authorize before replay: a stored response must not bypass the caller's
+    # current inventory access to the order's items.
+    for line in locked_order.lines:
+        inventory_access.require_item(db, current, line.item_id)
+
+    # Replay is scoped to factory, caller and order, so a key cannot be
+    # borrowed across any of them.
+    scope = f"purchasing.receive:{selected_factory_code(current)}:{current.id}:{order_id}"
+    fingerprint_payload = payload.model_dump(mode="json")
+    replay = replay_idempotent_response(
+        db, scope=scope, key=idempotency_key, payload=fingerprint_payload,
+    )
+    if replay is not None:
+        return replay
+
     order = receive_purchase_order(db, order_id=order_id, data=payload.model_dump(), current=current)
+    # No second authorization pass here. The loop above already checked every
+    # line of this order against the caller's current inventory access, and
+    # receive_purchase_order only updates received quantity, cost and
+    # warehouse on existing lines: it neither adds a line nor changes item_id,
+    # so re-reading the same references could not reach a different verdict.
+    # Flush so the database evaluates updated_at (onupdate=func.now()), then
+    # read it back. Without this the response, and the replay record stored
+    # from it, would carry the pre-receipt timestamp. Refreshing only this
+    # column keeps the loaded lines and preserves the single commit below.
+    db.flush()
+    db.refresh(order, ["updated_at"])
+    # The receipt, its stock, its audit trail and the replay record are written
+    # by one commit; a failure here must leave no stock and no replay row.
+    response = PurchaseOrderOut.model_validate(order).model_dump(mode="json")
+    store_idempotent_response(
+        db, scope=scope, key=idempotency_key, payload=fingerprint_payload,
+        response=response, user=current, status_code=200,
+    )
     db.commit()
-    db.refresh(order)
-    return order
+    return response

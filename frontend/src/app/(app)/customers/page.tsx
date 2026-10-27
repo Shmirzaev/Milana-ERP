@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import useSWR from "swr";
+import useLoadMore from "@/lib/useLoadMore";
 import { fetcher, api } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
@@ -21,7 +21,7 @@ export default function CustomersPage() {
   const { me } = useMe();
   const { t } = useT();
   const dialogs = useDialogs();
-  const isAdmin = can(me, "*");
+  const canManage = can(me, "sales.customers");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [createdFrom, setCreatedFrom] = useState("");
@@ -35,7 +35,8 @@ export default function CustomersPage() {
   if (createdFrom) customersParams.set("created_from", createdFrom);
   if (createdTo) customersParams.set("created_to", createdTo);
   const customersUrl = `/api/customers?${customersParams.toString()}`;
-  const { data: pageData, mutate } = useSWR<any>(customersUrl, fetcher);
+  const listPager = useLoadMore<any>(customersUrl, fetcher);
+  const { data: pageData, mutate } = listPager;
   const data: Customer[] = pageData?.rows || [];
   const [form, setForm] = useState(EMPTY);
   const [err, setErr] = useState("");
@@ -110,14 +111,14 @@ export default function CustomersPage() {
             <tr>
               <th>{t("common.name")}</th><th>{t("field.phone")}</th>
               <th>{t("field.email")}</th><th>{t("field.address")}</th>
-              {isAdmin && <th>{t("field.actions")}</th>}
+              {canManage && <th>{t("field.actions")}</th>}
             </tr>
           </thead>
           <tbody>
             {data?.map((c) => (
               <tr key={c.id}>
                 <td><Link className="text-brand-600 hover:underline" href={`/customers/${c.id}`}>{c.name}</Link></td><td>{c.phone}</td><td>{c.email}</td><td>{c.address}</td>
-                {isAdmin && (
+                {canManage && (
                   <td className="flex gap-2">
                     <button type="button" className="text-brand-600 hover:underline" onClick={() => openEdit(c)}>{t("btn.edit")}</button>
                     <button type="button" className="text-red-600 hover:underline" onClick={() => deleteCustomer(c)}>{t("btn.delete")}</button>
@@ -127,7 +128,7 @@ export default function CustomersPage() {
             ))}
           </tbody>
         </table>
-        <PaginationControls
+        <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()}
           page={page}
           pageSize={pageSize}
           total={Number(pageData?.total || data.length)}

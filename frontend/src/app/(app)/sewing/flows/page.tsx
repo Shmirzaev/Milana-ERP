@@ -1,7 +1,10 @@
 "use client";
+import { formatVariantNumber } from "@/lib/variantDisplay";
+import { ApiError } from "@/lib/errorMessages";
 import { useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
@@ -10,11 +13,17 @@ import { statusLabel } from "@/components/StagePipeline";
 import { orderReference } from "@/lib/orderRef";
 import { formatBatchLabel } from "@/lib/batchSerial";
 import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
-import { FAST_LIVE_DATA_SWR_OPTIONS, LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
+import { can, useMe } from "@/lib/auth";
+import BandOutput from "@/components/sewing/BandOutput";
+import { type BandJob } from "@/lib/sewingBandText";
+import BandProgress from "@/components/sewing/BandProgress";
+import { sewingBandText, type Band } from "@/lib/sewingBandText";
+import { useDialogs } from "@/components/DialogProvider";
 
 type Flow = {
   id: number;
+  factory_code: string;
   name: string;
   code: string;
   description: string | null;
@@ -48,6 +57,7 @@ type WO = {
   assigned_qty?: number;
   assignable_qty?: number;
   model_no?: string | null;
+  variant_no?: string | null;
   model_image_url?: string | null;
   material_image_url?: string | null;
   deadline: string | null;
@@ -99,6 +109,8 @@ function WorkOrderMiniRow({
   showActions = false,
   isBusy = false,
   onAssign,
+  onMove,
+  onReturn,
   showImage = false,
   showReceivedQty = false,
 }: {
@@ -106,6 +118,8 @@ function WorkOrderMiniRow({
   showActions?: boolean;
   isBusy?: boolean;
   onAssign?: (wo: WO) => void;
+  onMove?: (wo: WO) => void;
+  onReturn?: (wo: WO) => void;
   showImage?: boolean;
   showReceivedQty?: boolean;
 }) {
@@ -115,23 +129,22 @@ function WorkOrderMiniRow({
   const qtyPlanned = showReceivedQty ? effectiveSewingQty(workOrder) : Number(workOrder.planned_output_qty || workOrder.planned_input_qty || 0);
   if (showImage) {
     return (
-      <div className="grid grid-cols-[48px_minmax(74px,1fr)_minmax(68px,0.7fr)_minmax(70px,0.7fr)_82px] items-center gap-2 border-b border-[#ecebe3] px-2 py-3 text-xs last:border-b-0">
+      <div className="grid min-w-[390px] grid-cols-[48px_minmax(74px,1fr)_minmax(68px,0.7fr)_minmax(70px,0.7fr)_82px] items-center gap-2 border-b border-[#ecebe3] px-2 py-3 text-xs last:border-b-0">
         <FabricThumb workOrder={workOrder} />
         <div className="min-w-0">
           <Link
             href={`/production-orders/${workOrder.production_order_id}`}
-            className="block min-w-0 truncate font-medium text-brand-600 hover:underline"
+            className="block min-w-0 break-words font-medium text-brand-600 hover:underline"
             title={orderReference(workOrder, `#${workOrder.production_order_id}`)}
           >
             {orderReference(workOrder, `#${workOrder.production_order_id}`)}
           </Link>
-          {workOrder.model_no && (
-            <div className="mt-1 truncate text-[11px] font-medium text-[#494538]">
-              {t("field.modelNo")}: {workOrder.model_no}
-            </div>
-          )}
-          {batchLabel && <div className="mt-1 truncate text-[11px] text-[#6d6655]">{batchLabel}</div>}
-          <span className="badge mt-1 max-w-full justify-center truncate px-2 py-1 leading-tight">{statusLabel(workOrder.status, t)}</span>
+          <div className="mt-1 break-words text-xs font-medium text-[#494538]">
+            <div>{t("field.modelNo")}: {workOrder.model_no || "—"}</div>
+            <div>{t("field.variantNo")}: {formatVariantNumber(workOrder.variant_no) || "—"}</div>
+          </div>
+          {batchLabel && <div className="mt-1 break-words text-[11px] text-[#6d6655]">{batchLabel}</div>}
+          <span className="badge mt-1 max-w-full justify-center px-2 py-1 leading-tight">{statusLabel(workOrder.status, t)}</span>
         </div>
         <div className="text-right tabular-nums text-[#14110b]">
           {qtyDone} / {qtyPlanned}
@@ -140,6 +153,16 @@ function WorkOrderMiniRow({
           {formatDeadline(workOrder.deadline)}
         </div>
         <div className="flex flex-col gap-1">
+          {workOrder.sewing_assignment_id && onMove && (
+            <button
+              type="button"
+              className="btn h-7 w-full px-2 text-[11px]"
+              onClick={() => onMove(workOrder)}
+              disabled={isBusy}
+            >
+              {isBusy ? t("common.loading") : t("btn.move")}
+            </button>
+          )}
           {showActions && (
             <button
               type="button"
@@ -150,6 +173,12 @@ function WorkOrderMiniRow({
               {isBusy ? t("common.loading") : t("btn.assign")}
             </button>
           )}
+          {workOrder.sewing_assignment_id && onReturn && (
+            <button type="button" className="btn h-auto min-h-7 w-full whitespace-normal px-2 text-[11px]"
+              onClick={() => onReturn(workOrder)} disabled={isBusy}>
+              {t("sewingReturn.button")}
+            </button>
+          )}
           <Link href={`/work-orders/${workOrder.id}/sewing`} className="btn h-7 w-full px-2 text-[11px]">
             {t("btn.open")}
           </Link>
@@ -158,19 +187,23 @@ function WorkOrderMiniRow({
     );
   }
   return (
-    <div className="grid grid-cols-[minmax(64px,0.9fr)_minmax(70px,0.8fr)_minmax(64px,0.8fr)_minmax(72px,0.75fr)_82px] items-center gap-2 border-b border-[#ecebe3] px-2 py-3 text-xs last:border-b-0">
+    <div className="grid min-w-[390px] grid-cols-[minmax(64px,0.9fr)_minmax(70px,0.8fr)_minmax(64px,0.8fr)_minmax(72px,0.75fr)_82px] items-center gap-2 border-b border-[#ecebe3] px-2 py-3 text-xs last:border-b-0">
       <div className="min-w-0">
         <Link
           href={`/production-orders/${workOrder.production_order_id}`}
-          className="block min-w-0 truncate font-medium text-brand-600 hover:underline"
+          className="block min-w-0 break-words font-medium text-brand-600 hover:underline"
           title={orderReference(workOrder, `#${workOrder.production_order_id}`)}
         >
           {orderReference(workOrder, `#${workOrder.production_order_id}`)}
         </Link>
-        {batchLabel && <div className="mt-1 min-w-0 truncate text-[11px] text-[#6d6655]">{batchLabel}</div>}
+        <div className="mt-1 break-words text-xs font-medium text-[#494538]">
+          <div>{t("field.modelNo")}: {workOrder.model_no || "—"}</div>
+          <div>{t("field.variantNo")}: {formatVariantNumber(workOrder.variant_no) || "—"}</div>
+        </div>
+        {batchLabel && <div className="mt-1 min-w-0 break-words text-[11px] text-[#6d6655]">{batchLabel}</div>}
       </div>
       <div className="min-w-0">
-        <span className="badge max-w-full justify-center truncate px-2 py-1 leading-tight">{statusLabel(workOrder.status, t)}</span>
+        <span className="badge max-w-full justify-center px-2 py-1 leading-tight">{statusLabel(workOrder.status, t)}</span>
       </div>
       <div className="text-right tabular-nums text-[#14110b]">
         {qtyDone} / {qtyPlanned}
@@ -179,6 +212,16 @@ function WorkOrderMiniRow({
         {formatDeadline(workOrder.deadline)}
       </div>
       <div className="flex flex-col gap-1">
+        {workOrder.sewing_assignment_id && onMove && (
+          <button
+            type="button"
+            className="btn h-7 w-full px-2 text-[11px]"
+            onClick={() => onMove(workOrder)}
+            disabled={isBusy}
+          >
+            {isBusy ? t("common.loading") : t("btn.move")}
+          </button>
+        )}
         {showActions && (
           <button
             type="button"
@@ -187,6 +230,12 @@ function WorkOrderMiniRow({
             disabled={isBusy}
           >
             {isBusy ? t("common.loading") : t("btn.assign")}
+          </button>
+        )}
+        {workOrder.sewing_assignment_id && onReturn && (
+          <button type="button" className="btn h-auto min-h-7 w-full whitespace-normal px-2 text-[11px]"
+            onClick={() => onReturn(workOrder)} disabled={isBusy}>
+            {t("sewingReturn.button")}
           </button>
         )}
         <Link href={`/work-orders/${workOrder.id}/sewing`} className="btn h-7 w-full px-2 text-[11px]">
@@ -220,7 +269,7 @@ function WorkOrderMiniHeader({ showImage = false, showReceivedQty = false }: { s
   const { t } = useT();
   if (showImage) {
     return (
-      <div className="grid grid-cols-[48px_minmax(74px,1fr)_minmax(68px,0.7fr)_minmax(70px,0.7fr)_82px] gap-2 bg-[#f1efe8] px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a8472]">
+      <div className="grid min-w-[390px] grid-cols-[48px_minmax(74px,1fr)_minmax(68px,0.7fr)_minmax(70px,0.7fr)_82px] gap-2 bg-[#f1efe8] px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a8472]">
         <div>{t("field.picture")}</div>
         <div className="min-w-0">{t("field.orderNo")}</div>
         <div className="text-right">{showReceivedQty ? t("field.received") : t("field.passed")}/{t("page.sewingFlows.plannedUnits")}</div>
@@ -230,7 +279,7 @@ function WorkOrderMiniHeader({ showImage = false, showReceivedQty = false }: { s
     );
   }
   return (
-    <div className="grid grid-cols-[minmax(64px,0.9fr)_minmax(70px,0.8fr)_minmax(64px,0.8fr)_minmax(72px,0.75fr)_82px] gap-2 bg-[#f1efe8] px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a8472]">
+    <div className="grid min-w-[390px] grid-cols-[minmax(64px,0.9fr)_minmax(70px,0.8fr)_minmax(64px,0.8fr)_minmax(72px,0.75fr)_82px] gap-2 bg-[#f1efe8] px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a8472]">
       <div className="min-w-0">{t("field.orderNo")}</div>
       <div>{t("common.status")}</div>
       <div className="text-right">{t("field.passed")}/{t("page.sewingFlows.plannedUnits")}</div>
@@ -241,20 +290,28 @@ function WorkOrderMiniHeader({ showImage = false, showReceivedQty = false }: { s
 }
 
 export default function SewingFlowsPage() {
-  const { t } = useT();
-  const { data: flows } = useSWR<Flow[]>(
-    "/api/sewing-flows",
-    fetcher,
-    FAST_LIVE_DATA_SWR_OPTIONS,
-  );
+  const { t, lang } = useT();
+  const bandText = sewingBandText(lang);
+  const { me } = useMe();
+  const searchParams = useSearchParams();
+  const requestedFactory = (searchParams.get("factory") || me?.factory_code || "MIL").toUpperCase();
+  const factoryCode = requestedFactory === "BST" || requestedFactory === "ECO" ? requestedFactory : "MIL";
+  const factoryName = factoryCode === "BST" ? "Besttex" : factoryCode === "ECO" ? "Eco Cotton" : "Milana";
+  const flowsUrl = `/api/sewing-flows?factory_code=${factoryCode}`;
+  const { data: flows } = useSWR<Flow[]>(me && !me.sewing_band_id ? flowsUrl : null, fetcher, { refreshInterval: 10_000 });
+  const { data: bands, mutate: refreshBands } = useSWR<Band[]>(factoryCode === "ECO" ? "/api/sewing-bands" : null, fetcher, { refreshInterval: 10000 });
+  const [filter, setFilter] = useState("");
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
-  const visibleFlows = flows || [];
+  const [output, setOutput] = useState<BandJob | null>(null);
+  const visibleFlows: Flow[] = me?.sewing_band_id ? (bands || []).map(b => ({ id: b.id, name: b.name, code: b.code, factory_code: "ECO", is_active: true, description: null, capacity_per_day: 0, active_work_orders: b.jobs.filter(j => !j.line_finished).length, planned_units: b.jobs.reduce((sum, j) => sum + j.quantity, 0), completed_units: b.jobs.reduce((sum, j) => sum + j.actual_qty, 0) })) : flows || [];
+  const filteredFlows = visibleFlows.filter(f => !filter || `${f.name} ${f.code} ${(bands?.find(b => b.id === f.id)?.jobs || []).map(j => j.order_no).join(" ")}`.toLowerCase().includes(filter.toLowerCase()));
 
   return (
     <div>
-      <PageHeader title={t("page.sewingFlows.title")} subtitle={t("page.sewingFlows.subtitle")} />
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-        {visibleFlows.map((f) => {
+      <PageHeader title={`${factoryName} - ${t("page.sewingFlows.title")}`} subtitle={t("page.sewingFlows.subtitle")} />
+      {factoryCode === "ECO" && <label className="mb-4 block">{bandText.filter}<input className="input ml-2" value={filter} onChange={e => setFilter(e.target.value)} /></label>}
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
+        {filteredFlows.map((f) => {
           const isExpanded = !!expanded[f.id];
           const pctDone = f.planned_units > 0 ? Math.min(100, Math.round((100 * f.completed_units) / f.planned_units)) : 0;
           return (
@@ -268,6 +325,7 @@ export default function SewingFlowsPage() {
                   {f.is_active ? t("field.active") : t("field.inactive")}
                 </span>
               </div>
+              {factoryCode === "ECO" ? (bands ? <BandProgress jobs={bands.find(b => b.id === f.id)?.jobs || []} manager={!me?.sewing_band_id && can(me, "sewing.flows", "planning.production")} onOutput={me?.sewing_band_id ? setOutput : undefined} refresh={() => { void refreshBands(); }} /> : <p>{t("common.loading")}</p>) : <>
               <dl className="mb-3 space-y-1 text-sm">
                 <div className="flex justify-between">
                   <dt className="text-slate-500">{t("page.sewingFlows.activeWOs")}</dt>
@@ -285,40 +343,63 @@ export default function SewingFlowsPage() {
               <div className="mb-2 h-2 w-full overflow-hidden rounded bg-slate-100" title={`${pctDone}% done`}>
                 <div className="h-full bg-brand-500" style={{ width: `${pctDone}%` }} />
               </div>
-              <button
+              </>}
+              {!me?.sewing_band_id && <button
                 type="button"
                 className="btn w-full justify-center"
                 onClick={() => setExpanded((prev) => ({ ...prev, [f.id]: !prev[f.id] }))}
               >
                 {isExpanded
                   ? t("btn.cancel")
-                  : (f.active_work_orders > 0 ? t("page.sewingFlows.assigned") : t("page.sewingFlows.readyForWork"))}
-              </button>
-              {isExpanded && <FlowDetail flowId={f.id} />}
+                  : ((factoryCode === "ECO" ? bands?.find(b => b.id === f.id)?.jobs.some(j => !j.line_finished) : f.active_work_orders > 0) ? t("page.sewingFlows.assigned") : t("page.sewingFlows.readyForWork"))}
+              </button>}
+              {!me?.sewing_band_id && isExpanded && (
+                <FlowDetail
+                  flow={f}
+                  flows={visibleFlows}
+                  factoryCode={factoryCode}
+                  flowsUrl={flowsUrl}
+                />
+              )}
             </div>
           );
         })}
       </div>
+      <BandOutput job={output} onClose={() => setOutput(null)} onSaved={() => { void refreshBands(); }} />
     </div>
   );
 }
 
-function FlowDetail({ flowId }: { flowId: number }) {
+function FlowDetail({
+  flow,
+  flows,
+  factoryCode,
+  flowsUrl,
+}: {
+  flow: Flow;
+  flows: Flow[];
+  factoryCode: string;
+  flowsUrl: string;
+}) {
   const { t } = useT();
+  const { me } = useMe();
+  const { ask } = useDialogs();
+  const canReturn = can(me, "planning.production", "sewing.flows", "sewing.records");
   const { mutate: mutateGlobal } = useSWRConfig();
-  const { data: wos, mutate: mutateAssigned } = useSWR<WO[]>(
-    `/api/sewing-flows/${flowId}/work-orders?only_active=true`,
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
+  const flowId = flow.id;
+  const assignedUrl = `/api/sewing-flows/${flowId}/work-orders?only_active=true`;
+  const { data: wos, mutate: mutateAssigned } = useSWR<WO[]>(assignedUrl, fetcher);
   const { data: availableWos, mutate: mutateAvailableWos } = useSWR<WO[]>(
-    "/api/work-orders?operation=sewing&only_active=true&only_received_sewing=true",
+    `/api/work-orders?operation=sewing&only_active=true&only_received_sewing=true&sewing_factory_code=${factoryCode}`,
     fetcher,
-    LIVE_DATA_SWR_OPTIONS,
   );
   const [claimingKey, setClaimingKey] = useState<string | null>(null);
   const [loadingPickKey, setLoadingPickKey] = useState<string | null>(null);
+  const [movingAssignmentId, setMovingAssignmentId] = useState<number | null>(null);
+  const [returningAssignmentId, setReturningAssignmentId] = useState<number | null>(null);
+  const [returnMsg, setReturnMsg] = useState("");
   const [msg, setMsg] = useState("");
+  const [moveMsg, setMoveMsg] = useState("");
   const [pick, setPick] = useState<{
     wo: WO | null;
     qty: NumberInputValue;
@@ -326,6 +407,70 @@ function FlowDetail({ flowId }: { flowId: number }) {
     productionBatchId: number | null;
     batchLabel: string;
   }>({ wo: null, qty: "", maxQty: 0, productionBatchId: null, batchLabel: "" });
+  const [movePick, setMovePick] = useState<{ wo: WO | null; destinationFlowId: number | null }>({
+    wo: null,
+    destinationFlowId: null,
+  });
+  const destinationFlows = flows.filter((candidate) => candidate.is_active && candidate.id !== flowId);
+
+  async function returnWork(wo: WO) {
+    if (!wo.sewing_assignment_id || returningAssignmentId || movingAssignmentId) return;
+    const confirmed = await ask({
+      title: t("sewingReturn.button"),
+      message: t("sewingReturn.confirm", { order: orderReference(wo), batch: sewingBatchLabel(wo) || "", line: flow.name }),
+      confirmText: t("sewingReturn.button"),
+    });
+    if (!confirmed) return;
+    setReturnMsg("");
+    setReturningAssignmentId(wo.sewing_assignment_id);
+    try {
+      await api.post(`/api/sewing-assignments/${wo.sewing_assignment_id}/return`, { sewing_flow_id: flowId });
+      await Promise.all([mutateAssigned(), mutateAvailableWos(), mutateGlobal(flowsUrl),
+        mutateGlobal(`/api/work-orders/${wo.id}/assignments`)]);
+    } catch (error: unknown) {
+      const message = error instanceof ApiError ? error.rawDetail : error instanceof Error ? error.message : "";
+      setReturnMsg(t(message.includes("SEWING_RETURN_HAS_OUTPUT") ? "sewingReturn.hasOutput"
+        : message.includes("SEWING_RETURN_MOVED") ? "sewingReturn.moved"
+          : message.includes("SEWING_RETURN_INACTIVE") ? "sewingReturn.inactive" : "sewingReturn.failed"));
+    } finally {
+      setReturningAssignmentId(null);
+    }
+  }
+
+  function closeMove() {
+    setMovePick({ wo: null, destinationFlowId: null });
+    setMoveMsg("");
+  }
+
+  function openMove(wo: WO) {
+    if (!wo.sewing_assignment_id) return;
+    setMoveMsg("");
+    setMovePick({ wo, destinationFlowId: null });
+  }
+
+  async function moveWork() {
+    const assignmentId = movePick.wo?.sewing_assignment_id;
+    const destinationFlowId = movePick.destinationFlowId;
+    if (!assignmentId || !destinationFlowId) return;
+    setMoveMsg("");
+    setMovingAssignmentId(assignmentId);
+    try {
+      await api.patch(`/api/sewing-assignments/${assignmentId}`, {
+        sewing_flow_id: destinationFlowId,
+      });
+      closeMove();
+      await Promise.all([
+        mutateAssigned(),
+        mutateAvailableWos(),
+        mutateGlobal(`/api/sewing-flows/${destinationFlowId}/work-orders?only_active=true`),
+        mutateGlobal(flowsUrl),
+      ]);
+    } catch (e: any) {
+      setMoveMsg(e.message);
+    } finally {
+      setMovingAssignmentId(null);
+    }
+  }
 
   async function openPick(wo: WO) {
     const rowKey = workOrderRowKey(wo);
@@ -393,7 +538,7 @@ function FlowDetail({ flowId }: { flowId: number }) {
         planned_end: nextDay.toISOString(),
       });
       setPick({ wo: null, qty: "", maxQty: 0, productionBatchId: null, batchLabel: "" });
-      await Promise.all([mutateAssigned(), mutateAvailableWos(), mutateGlobal("/api/sewing-flows")]);
+      await Promise.all([mutateAssigned(), mutateAvailableWos(), mutateGlobal(flowsUrl)]);
     } catch (e: any) {
       setMsg(e.message);
     } finally {
@@ -405,11 +550,19 @@ function FlowDetail({ flowId }: { flowId: number }) {
 
   return (
     <div className="mt-3 space-y-3">
+      {returnMsg && <div role="alert" className="text-xs text-red-600">{returnMsg}</div>}
       {wos.length > 0 ? (
-        <div className="overflow-hidden rounded-md border border-[#e3dfd3]">
+        <div className="overflow-x-auto rounded-md border border-[#e3dfd3]">
           <WorkOrderMiniHeader showImage />
           {wos.map((w) => (
-            <WorkOrderMiniRow key={workOrderRowKey(w)} workOrder={w} showImage />
+            <WorkOrderMiniRow
+              key={workOrderRowKey(w)}
+              workOrder={w}
+              showImage
+              isBusy={!!movingAssignmentId || !!returningAssignmentId}
+              onMove={openMove}
+              onReturn={canReturn ? returnWork : undefined}
+            />
           ))}
         </div>
       ) : (
@@ -421,7 +574,7 @@ function FlowDetail({ flowId }: { flowId: number }) {
         {availableWos.length === 0 ? (
           <div className="text-xs text-slate-400">{t("page.sewingFlows.noUnassignedWork")}</div>
         ) : (
-          <div className="overflow-hidden rounded-md border border-[#e3dfd3]">
+          <div className="overflow-x-auto rounded-md border border-[#e3dfd3]">
             <WorkOrderMiniHeader showImage showReceivedQty />
             {availableWos.map((w) => {
               const rowKey = workOrderRowKey(w);
@@ -473,6 +626,50 @@ function FlowDetail({ flowId }: { flowId: number }) {
             <button type="button" className="btn" onClick={() => setPick({ wo: null, qty: "", maxQty: 0, productionBatchId: null, batchLabel: "" })}>{t("btn.cancel")}</button>
             <button type="button" className="btn btn-primary" onClick={takeWork} disabled={!!claimingKey}>
               {claimingKey ? t("common.loading") : t("btn.assign")}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={!!movePick.wo} onClose={closeMove} title={t("btn.move")}>
+        <div className="space-y-3">
+          <div className="text-xs text-slate-500">
+            {movePick.wo ? orderReference(movePick.wo, `#${movePick.wo.production_order_id}`) : ""}
+          </div>
+          <div className="text-xs text-slate-500">
+            {t("field.line")}: {flow.name} ({flow.code})
+          </div>
+          <div>
+            <label className="label" htmlFor={`move-destination-${movePick.wo?.sewing_assignment_id || flowId}`}>
+              {t("field.line")}
+            </label>
+            <select
+              id={`move-destination-${movePick.wo?.sewing_assignment_id || flowId}`}
+              className="input"
+              value={movePick.destinationFlowId ?? ""}
+              onChange={(event) => {
+                const value = Number(event.target.value || 0);
+                setMovePick((current) => ({ ...current, destinationFlowId: value > 0 ? value : null }));
+              }}
+            >
+              <option value="">-</option>
+              {destinationFlows.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.name} ({candidate.code})
+                </option>
+              ))}
+            </select>
+          </div>
+          {moveMsg && <div className="text-xs text-red-600">{moveMsg}</div>}
+          <div className="flex justify-end gap-2 pt-1">
+            <button type="button" className="btn" onClick={closeMove}>{t("btn.cancel")}</button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={moveWork}
+              disabled={!movePick.destinationFlowId || !!movingAssignmentId}
+            >
+              {movingAssignmentId ? t("common.loading") : t("btn.move")}
             </button>
           </div>
         </div>

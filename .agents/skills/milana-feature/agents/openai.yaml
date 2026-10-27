@@ -1,0 +1,4 @@
+interface:
+  display_name: "Milana Feature"
+  short_description: "Build features with shared monolith discipline"
+  default_prompt: "Use $milana-feature to implement the approved feature with its assigned owner, existing boundaries, regression tests and visual acceptance."

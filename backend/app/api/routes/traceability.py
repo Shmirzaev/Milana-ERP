@@ -2,14 +2,17 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
-from urllib.parse import unquote
+from urllib.parse import parse_qs, unquote, urlparse
 
 from app.core.deps import DbSession, require_permissions
-from app.models import Bundle, Package, ProductionOrder, Shipment
-from app.services.traceability import (
+from app.core.order_reference import resolve_order_id
+from app.models.bundles_service import find_bundle_by_scanned_code
+from app.schemas import Bundle, Package, ProductionBatch, ProductionOrder, Shipment
+from app.models.traceability_service import (
     bundle_traceability,
     package_traceability,
     passport_html,
+    production_batch_traceability,
     production_order_traceability,
     shipment_traceability,
 )
@@ -53,17 +56,7 @@ def _find_bundle(db: DbSession, key: str) -> Bundle | None:
         bundle = db.get(Bundle, int(decoded))
         if bundle:
             return bundle
-    candidates = [decoded]
-    if "|" in decoded:
-        candidates.extend([part.strip() for part in decoded.split("|") if part.strip()])
-    if decoded.upper().startswith("BUNDLE:"):
-        payload = decoded.split(":", 1)[1]
-        candidates.extend([part.strip() for part in payload.split("|") if part.strip()])
-    for candidate in dict.fromkeys(candidates):
-        bundle = db.query(Bundle).filter((Bundle.barcode == candidate) | (Bundle.bundle_no == candidate)).first()
-        if bundle:
-            return bundle
-    return None
+    return find_bundle_by_scanned_code(db, decoded)
 
 
 def _find_production_order(db: DbSession, key: str) -> ProductionOrder | None:
@@ -72,7 +65,45 @@ def _find_production_order(db: DbSession, key: str) -> ProductionOrder | None:
         po = db.get(ProductionOrder, int(decoded))
         if po:
             return po
-    return db.query(ProductionOrder).filter(ProductionOrder.production_no == decoded).first()
+    order_id = resolve_order_id(db, "PO", decoded)
+    return db.get(ProductionOrder, order_id) if order_id is not None else None
+
+
+def _find_production_batch(db: DbSession, key: str) -> ProductionBatch | None:
+    decoded = _decode(key)
+    if not decoded:
+        return None
+    try:
+        parsed = urlparse(decoded)
+        query_batch = (parse_qs(parsed.query).get("batch") or [None])[0]
+        if query_batch:
+            decoded = str(query_batch).strip()
+    except ValueError:
+        pass
+
+    candidates = [decoded]
+    if "|" in decoded:
+        candidates.extend(part.strip() for part in decoded.split("|") if part.strip())
+    for candidate in dict.fromkeys(candidates):
+        upper = candidate.upper()
+        if upper.startswith("BATCH_ID:"):
+            candidate = candidate.split(":", 1)[1].strip()
+        if candidate.isdigit():
+            batch = db.get(ProductionBatch, int(candidate))
+            if batch:
+                return batch
+    for candidate in dict.fromkeys(candidates):
+        if candidate.upper().startswith("BATCH:"):
+            candidate = candidate.split(":", 1)[1].strip()
+        batch = (
+            db.query(ProductionBatch)
+            .filter(ProductionBatch.batch_no == candidate)
+            .order_by(ProductionBatch.id.desc())
+            .first()
+        )
+        if batch:
+            return batch
+    return None
 
 
 def _find_shipment(db: DbSession, key: str) -> Shipment | None:
@@ -130,6 +161,21 @@ def get_production_order_traceability(
     if not po:
         raise HTTPException(404, "Production order not found")
     return production_order_traceability(db, po)
+
+
+@router.get("/production-batch/{batch_id}")
+def get_production_batch_traceability(
+    batch_id: str,
+    db: DbSession,
+    _: object = Depends(require_permissions("traceability.view", "*")),
+):
+    batch = _find_production_batch(db, batch_id)
+    if not batch:
+        raise HTTPException(404, "Production batch not found")
+    try:
+        return production_batch_traceability(db, batch)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc))
 
 
 @router.get("/shipment/{shipment_id}")

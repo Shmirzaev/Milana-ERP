@@ -1,5 +1,6 @@
 "use client";
 
+import { formatVariantNumber } from "@/lib/variantDisplay";
 import { useMemo, useState } from "react";
 import { Check, ChevronDown, ImageIcon } from "lucide-react";
 
@@ -73,7 +74,7 @@ export function SewingModelCell({ model, small = true }: { model: SewingModelIde
       <div className="min-w-0">
         <div className="font-semibold text-[#14110b]">{modelNumber}</div>
         <div className="text-xs text-[#6b6251]">
-          {t("field.variantNo")}: <span className="font-medium text-[#14110b]">{model.variant_no || "-"}</span>
+          {t("field.variantNo")}: <span className="font-medium text-[#14110b]">{formatVariantNumber(model.variant_no) || "-"}</span>
         </div>
         {model.model_name && <div className="truncate text-[11px] text-[#8a8472]">{model.model_name}</div>}
       </div>
@@ -111,10 +112,11 @@ export default function SewingWorkPicker({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-2">
             <span className="font-semibold text-[#14110b]">{selected.model_no || selected.model_code || "-"}</span>
-            <span className="text-sm text-[#56503f]">{t("field.variantNo")}: {selected.variant_no || "-"}</span>
+            <span className="text-sm text-[#56503f]">{t("field.variantNo")}: {formatVariantNumber(selected.variant_no) || "-"}</span>
           </div>
-          <div className="mt-0.5 truncate text-xs text-[#8a8472]">
-            {[batchLabel(selected), `${selected.remaining_qty} ${t("field.remaining").toLowerCase()}`].filter(Boolean).join(" · ")}
+          <div className="mt-0.5 break-words text-xs text-[#8a8472]">{batchLabel(selected)}</div>
+          <div className="mt-0.5 break-words text-xs text-[#8a8472]">
+            {selected.remaining_qty} {t("field.remaining").toLowerCase()}
           </div>
         </div>
         <ChevronDown className={`h-4 w-4 shrink-0 text-[#8a8472] transition-transform ${open ? "rotate-180" : ""}`} />
@@ -139,10 +141,11 @@ export default function SewingWorkPicker({
                 <div className="min-w-0 flex-1">
                   <div className="font-medium text-[#14110b]">
                     {work.model_no || work.model_code || "-"}
-                    <span className="ml-2 font-normal text-[#56503f]">{t("field.variantNo")}: {work.variant_no || "-"}</span>
+                    <span className="ml-2 font-normal text-[#56503f]">{t("field.variantNo")}: {formatVariantNumber(work.variant_no) || "-"}</span>
                   </div>
-                  <div className="truncate text-xs text-[#8a8472]">
-                    {[work.model_name, batchLabel(work), `${work.remaining_qty} ${t("field.remaining").toLowerCase()}`].filter(Boolean).join(" · ")}
+                  {work.model_name && <div className="break-words text-xs text-[#8a8472]">{work.model_name}</div>}
+                  <div className="break-words text-xs text-[#8a8472]">
+                    {[batchLabel(work), `${work.remaining_qty} ${t("field.remaining").toLowerCase()}`].filter(Boolean).join(" · ")}
                   </div>
                 </div>
                 <Check className={`h-4 w-4 shrink-0 ${active ? "text-[#14110b]" : "text-transparent"}`} />

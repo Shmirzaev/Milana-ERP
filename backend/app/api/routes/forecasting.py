@@ -4,15 +4,15 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.core.deps import DbSession, require_permissions
-from app.models import ForecastRecommendation, User
-from app.schemas.forecasting import (
+from app.core.deps import DbSession, factory_codes_with_permission, require_permissions
+from app.schemas import Brand, Collection, ForecastRecommendation, Item, Model, User
+from app.libs.dto.planning.forecasting import (
     ForecastRecommendationIn,
     ForecastRecommendationOut,
     ForecastRecommendationPatch,
 )
-from app.services.audit import log_action
-from app.services.forecasting import (
+from app.models.audit_service import log_action
+from app.models.forecasting_service import (
     branded_stock_suggestions,
     forecasting_dashboard,
     item_reorder_suggestions,
@@ -36,7 +36,7 @@ def _recommendation_payload(row: ForecastRecommendation) -> dict:
         "unit": row.unit,
         "confidence": row.confidence,
         "reason": row.reason,
-        "source_json": row.source_json,
+        "source_json": row.source_json if isinstance(row.source_json, dict) else None,
         "created_by": int(row.created_by) if row.created_by else None,
         "reviewed_by": int(row.reviewed_by) if row.reviewed_by else None,
         "reviewed_at": row.reviewed_at,
@@ -45,28 +45,74 @@ def _recommendation_payload(row: ForecastRecommendation) -> dict:
     }
 
 
+def _validate_recommendation_references(payload: ForecastRecommendationIn, db: DbSession) -> None:
+    """Reject dangling references before creating a recommendation.
+
+    These are existence checks only; visibility and cross-entity business rules
+    remain the responsibility of the forecasting policy layer.
+    """
+    references = (
+        ("model_id", Model, payload.model_id),
+        ("item_id", Item, payload.item_id),
+        ("brand_id", Brand, payload.brand_id),
+        ("collection_id", Collection, payload.collection_id),
+    )
+    for field, entity, value in references:
+        if value is not None and db.get(entity, value) is None:
+            raise HTTPException(400, f"{field} references a missing record")
+
+
+def _recommendation_query_for_factories(db: DbSession, factory_codes: list[str]):
+    return (
+        db.query(ForecastRecommendation)
+        .join(Model, Model.id == ForecastRecommendation.model_id)
+        .filter(Model.factory_code.in_(factory_codes))
+    )
+
+
+def _require_recommendation_factory_access(
+    model_id: int | None,
+    *,
+    factory_codes: list[str],
+    db: DbSession,
+) -> None:
+    if model_id is None:
+        raise HTTPException(403, "A factory-attributed model is required for this recommendation")
+    if not factory_codes or db.query(Model.id).filter(
+        Model.id == model_id,
+        Model.factory_code.in_(factory_codes),
+    ).first() is None:
+        raise HTTPException(403, "Not authorized for this recommendation's factory")
+
+
 @router.get("/dashboard")
 def get_forecasting_dashboard(
     db: DbSession,
-    _: object = Depends(require_permissions("forecasting.view", "*")),
+    current: User = Depends(require_permissions("forecasting.view", "*")),
 ):
-    return forecasting_dashboard(db)
+    return forecasting_dashboard(db, factory_codes=factory_codes_with_permission(current, "forecasting.view"))
 
 
 @router.get("/branded-stock-suggestions")
 def get_branded_stock_suggestions(
     db: DbSession,
-    _: object = Depends(require_permissions("forecasting.view", "*")),
+    current: User = Depends(require_permissions("forecasting.view", "*")),
 ):
-    return branded_stock_suggestions(db)
+    return branded_stock_suggestions(
+        db,
+        factory_codes=factory_codes_with_permission(current, "forecasting.view"),
+    )
 
 
 @router.get("/item-reorder-suggestions")
 def get_item_reorder_suggestions(
     db: DbSession,
-    _: object = Depends(require_permissions("forecasting.view", "*")),
+    current: User = Depends(require_permissions("forecasting.view", "*")),
 ):
-    return item_reorder_suggestions(db)
+    return item_reorder_suggestions(
+        db,
+        factory_codes=factory_codes_with_permission(current, "forecasting.view"),
+    )
 
 
 @router.post("/recommendations", response_model=ForecastRecommendationOut, status_code=201)
@@ -75,6 +121,12 @@ def create_forecast_recommendation(
     db: DbSession,
     current: User = Depends(require_permissions("forecasting.manage", "*")),
 ):
+    _validate_recommendation_references(payload, db)
+    _require_recommendation_factory_access(
+        payload.model_id,
+        factory_codes=factory_codes_with_permission(current, "forecasting.manage"),
+        db=db,
+    )
     row = ForecastRecommendation(
         recommendation_type=payload.recommendation_type,
         status="open",
@@ -112,10 +164,10 @@ def create_forecast_recommendation(
 @router.get("/recommendations", response_model=list[ForecastRecommendationOut])
 def list_forecast_recommendations(
     db: DbSession,
-    _: object = Depends(require_permissions("forecasting.view", "*")),
+    current: User = Depends(require_permissions("forecasting.view", "*")),
     status: str | None = None,
 ):
-    qry = db.query(ForecastRecommendation)
+    qry = _recommendation_query_for_factories(db, factory_codes_with_permission(current, "forecasting.view"))
     if status:
         qry = qry.filter(ForecastRecommendation.status == status)
     rows = qry.order_by(ForecastRecommendation.id.desc()).limit(500).all()
@@ -129,7 +181,10 @@ def update_forecast_recommendation(
     db: DbSession,
     current: User = Depends(require_permissions("forecasting.manage", "*")),
 ):
-    row = db.get(ForecastRecommendation, recommendation_id)
+    factory_codes = factory_codes_with_permission(current, "forecasting.manage")
+    row = _recommendation_query_for_factories(db, factory_codes).filter(
+        ForecastRecommendation.id == recommendation_id
+    ).first()
     if not row:
         raise HTTPException(404, "Forecast recommendation not found")
     old_value = {"status": row.status}

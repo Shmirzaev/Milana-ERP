@@ -1,12 +1,15 @@
 "use client";
+import { formatOrderReference } from "@/lib/orderRef";
 
+import { useSearchParams } from "next/navigation";
 import { useMemo, useRef, useState, type FormEvent } from "react";
 import { CheckCircle2, QrCode, RefreshCw, Search } from "lucide-react";
 import useSWR from "swr";
 
 import PageHeader from "@/components/PageHeader";
 import { api, fetcher } from "@/lib/api";
-import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
+import { useMe } from "@/lib/auth";
+import { packagingDepartmentForSession } from "@/lib/access";
 import { useT } from "@/lib/i18n";
 import { parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 
@@ -52,7 +55,7 @@ function latestBundleCode(raw: string) {
 }
 
 function orderLabel(row: { order_no?: string | null; production_no?: string | null; production_order_id: number }) {
-  return row.order_no || row.production_no || `#${row.production_order_id}`;
+  return formatOrderReference(row.order_no || row.production_no || `#${row.production_order_id}`);
 }
 
 function batchLabel(row: { batch_no?: string | null; batch_name?: string | null }) {
@@ -65,6 +68,12 @@ function modelLabel(row: { model_code?: string | null; model_name?: string | nul
 
 export default function PackagingReceivePage() {
   const { t } = useT();
+  const searchParams = useSearchParams();
+  const { me } = useMe();
+  const requestedDepartment = searchParams.get("packaging_department");
+  const packagingDepartment = packagingDepartmentForSession(me, requestedDepartment);
+  const isEcoCotton = packagingDepartment === "ECP";
+  const factoryLabel = isEcoCotton ? "Eco Cotton" : packagingDepartment === "BPK" ? "Besttex" : "Milana";
   const scanInputRef = useRef<HTMLInputElement>(null);
   const [scanCode, setScanCode] = useState("");
   const [scanBusy, setScanBusy] = useState(false);
@@ -77,19 +86,13 @@ export default function PackagingReceivePage() {
 
   const optionsUrl = useMemo(() => {
     const params = new URLSearchParams({ limit: "200" });
+    params.set("packaging_department_code", packagingDepartment);
     if (search) params.set("q", search);
     return `/api/packaging/receive-options?${params.toString()}`;
-  }, [search]);
-  const { data: options = [], mutate: mutateOptions, isLoading } = useSWR<ReceiveOption[]>(
-    optionsUrl,
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
-  const { data: receipts = [], mutate: mutateReceipts } = useSWR<Receipt[]>(
-    "/api/packaging/receipts?limit=50",
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
+  }, [packagingDepartment, search]);
+  const { data: options = [], mutate: mutateOptions, isLoading } = useSWR<ReceiveOption[]>(optionsUrl, fetcher);
+  const receiptsUrl = `/api/packaging/receipts?limit=50&packaging_department_code=${packagingDepartment}`;
+  const { data: receipts = [], mutate: mutateReceipts } = useSWR<Receipt[]>(receiptsUrl, fetcher);
 
   function focusScan() {
     window.requestAnimationFrame(() => {
@@ -109,7 +112,10 @@ export default function PackagingReceivePage() {
     setScanBusy(true);
     setScanMessage(null);
     try {
-      const receipt = await api.post<Receipt>("/api/packaging/receive-from-sewing", { bundle_code: code });
+      const receipt = await api.post<Receipt>("/api/packaging/receive-from-sewing", {
+        bundle_code: code,
+        packaging_department_code: packagingDepartment,
+      });
       setScanCode("");
       setScanMessage({
         tone: "success",
@@ -147,6 +153,7 @@ export default function PackagingReceivePage() {
         work_order_id: option.work_order_id,
         production_batch_id: option.production_batch_id || null,
         quantity,
+        packaging_department_code: packagingDepartment,
       });
       setQuantities((current) => {
         const next = { ...current };
@@ -168,7 +175,7 @@ export default function PackagingReceivePage() {
   return (
     <div>
       <PageHeader
-        title={t("page.packagingReceive.title")}
+        title={`${factoryLabel} - ${t("page.packagingReceive.title")}`}
         subtitle={t("page.packagingReceive.subtitle")}
         actions={(
           <button type="button" className="btn" onClick={refreshData}>
@@ -251,7 +258,7 @@ export default function PackagingReceivePage() {
                   <tr key={key}>
                     <td>
                       <div className="font-medium text-[#14110b]">{orderLabel(option)}</div>
-                      <div className="text-xs text-[#8a8472]">{option.production_no || "-"}</div>
+                      <div className="text-xs text-[#8a8472]">{formatOrderReference(option.production_no || "-")}</div>
                     </td>
                     <td>{modelLabel(option)}</td>
                     <td>{batchLabel(option)}</td>

@@ -1,20 +1,26 @@
 "use client";
-import { useMemo, useState } from "react";
-import useSWR from "swr";
-import { Plus, Search, Pencil, Trash2, BookOpen } from "lucide-react";
-import { fetcher, api } from "@/lib/api";
+import { formatModelVariantCode, formatVariantNumber } from "@/lib/variantDisplay";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import useSWR, { useSWRConfig } from "swr";
+import SearchableSelect from "@/components/SearchableSelect";
+import { Plus, Search, Pencil, Trash2, BookOpen, Download } from "lucide-react";
+import CuttingPassportDashboard from "@/components/CuttingPassportDashboard";
+import { fetcher, api, fetchResponse } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
-import { orderReference } from "@/lib/orderRef";
+import { formatOrderReference, orderReference, rawOrderReference } from "@/lib/orderRef";
 import { modelCodeParts } from "@/lib/modelCode";
 import { useDialogs } from "@/components/DialogProvider";
 import { storageThumbnailUrl } from "@/lib/modelImages";
 import { useT } from "@/lib/i18n";
-import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
+import { can, useMe } from "@/lib/auth";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type Passport = {
+  stock_batch_id?: number;
+  materials?: Array<Partial<Passport> & { stock_batch_id: number }>;
   id: number;
   passport_no: string;
   date: string;
@@ -31,6 +37,8 @@ type Passport = {
   lot_no: string | null;
   size_range: string | null;
   rolls_count: number | null;
+  tepa_pass: boolean;
+  meter_mode: boolean;
   layer_weight_kg: number | null;
   total_layers: number | null;
   planned_kg: number | null;
@@ -63,6 +71,9 @@ type Passport = {
 };
 
 type MaterialDefault = {
+  source_type?: string;
+  can_add_material?: boolean;
+  materials?: Array<MaterialDefault & { stock_batch_id: number }>;
   production_order_no: string | null;
   order_no: string | null;
   sales_order_no: string | null;
@@ -75,6 +86,7 @@ type MaterialDefault = {
   has_print: boolean | null;
   size_range: string | null;
   sizes: string[];
+  available_sizes?: string[];
   size_count: number | null;
   pieces: number | null;
   planned_kg: number | null;
@@ -105,6 +117,8 @@ const EXCEL_EXAMPLE = {
   operator_name_manual: "musi",
   fabric_type: "",
   has_print: false,
+  tepa_pass: false,
+  meter_mode: false,
   order_no: "1588",
   lot_no: "D#11C#4",
   size_range: "44-52",
@@ -136,6 +150,8 @@ const EMPTY_FORM = {
   operator_name_manual: "",
   fabric_type: "",
   has_print: false,
+  tepa_pass: false,
+  meter_mode: false,
   order_no: "",
   lot_no: "",
   size_range: "",
@@ -175,8 +191,8 @@ function compute(f: typeof EMPTY_FORM, sizeCount: number) {
   const AC = R * AD;
   const P = M * N + AB + X;
   const piecesPerLayer = N ? R / N : 0;
-  const AE = sizeCount ? S * T * V / sizeCount + Y + AA : 0;
-  const Q = AE ? AE * R + AB : 0;
+  const AE = sizeCount ? (f.meter_mode ? T / sizeCount + Y + AA : S * T * V / sizeCount + Y + AA) : 0;
+  const Q = f.meter_mode ? (sizeCount ? AE * R + AB : 0) : (AE ? AE * R + AB : 0);
   const AF = R ? P / R : 0;
   const AG = R ? O / R : 0;
 
@@ -201,6 +217,8 @@ function uniqueSizes(values: unknown[]) {
 function expandSizeSelection(value: string | null | undefined) {
   const raw = cleanSize(value);
   if (!raw) return [];
+  // Doubled layups store the exact model labels, including combined sizes.
+  if (raw.endsWith(" ×2")) return uniqueSizes(raw.slice(0, -3).split(","));
   const rangeMatch = raw.match(/^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)$/);
   if (!rangeMatch) return uniqueSizes(raw.split(","));
 
@@ -232,10 +250,24 @@ function sizeRangeLabel(sizes: string[]) {
 function sizeCountForSelection(value: string | number, sizes: string[]) {
   const selected = cleanSize(value);
   if (!selected) return 0;
+  const doubled = selected.endsWith(" ×2");
+  const raw = doubled ? selected.slice(0, -3) : selected;
   const choices = uniqueSizes(sizes);
-  if (choices.length === 1 && selected === choices[0]) return 1;
-  if (selected === sizeRangeLabel(choices)) return choices.length;
-  return expandSizeSelection(selected).length || (choices.includes(selected) ? 1 : 0);
+  const multiplier = doubled ? 2 : 1;
+  if (choices.length) {
+    if (choices.includes(raw)) return multiplier;
+    if (raw.includes(",")) {
+      const requested = uniqueSizes(raw.split(","));
+      return choices.filter((size) => requested.includes(size)).length * multiplier;
+    }
+    const range = raw.match(/^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)$/);
+    if (range) {
+      return choices.filter((size) => /^\d+(?:\.\d+)?$/.test(size)
+        && Number(size) >= Number(range[1]) && Number(size) <= Number(range[2])).length * multiplier;
+    }
+    return 0;
+  }
+  return expandSizeSelection(selected).length * multiplier;
 }
 
 function modelQolipNo(model: any): string {
@@ -254,44 +286,67 @@ function modelQolipNo(model: any): string {
 
 export default function CuttingPassportsPage() {
   const dialogs = useDialogs();
-  const { t } = useT();
-  const { data: passports = [], mutate } = useSWR<Passport[]>(
-    "/api/cutting-passports?formula_version=20260706_ishlangan_kg",
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
-  const { data: prodOrders = [] } = useSWR<any[]>("/api/production-orders?page_size=500", fetcher);
-  const { data: models = [] } = useSWR<any[]>("/api/models?page_size=500", fetcher);
-  const { data: users = [] } = useSWR<any[]>("/api/users", fetcher);
-
+  const { t, lang } = useT();
+  const { me } = useMe();
+  const canReport = can(me, "cutting.records", "cutting.bundles", "planning.production");
+  const searchParams = useSearchParams();
+  const cuttingDepartment = searchParams.get("cutting_department") === "ECT" ? "ECT" : "CUT";
+  const factoryName = cuttingDepartment === "ECT" ? t("factory.ecoCotton") : t("factory.milana");
   const [q, setQ] = useState("");
+  const [view, setView] = useState<"passports" | "dashboard">("passports");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  function selectPeriod(period: "today" | "thisWeek" | "thisMonth") {
+    const today = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Tashkent", year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(new Date());
+    // Calculate calendar boundaries in UTC after resolving the factory's local day.
+    const start = new Date(`${today}T00:00:00Z`);
+    if (period === "thisWeek") start.setUTCDate(start.getUTCDate() - (start.getUTCDay() + 6) % 7);
+    if (period === "thisMonth") start.setUTCDate(1);
+    setDateFrom(start.toISOString().slice(0, 10));
+    setDateTo(today);
+  }
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
+  const invalidPeriod = !!dateFrom && !!dateTo && dateFrom > dateTo;
+  const reportParams = new URLSearchParams({ cutting_department_code: cuttingDepartment });
+  if (dateFrom) reportParams.set("date_from", dateFrom);
+  if (dateTo) reportParams.set("date_to", dateTo);
+  if (q.trim()) reportParams.set("q", q.trim());
+  const reportQuery = reportParams.toString();
+  const passportSearch = q.trim();
+  const passportUrl = `/api/cutting-passports?formula_version=20260706_ishlangan_kg&limit=500&cutting_department_code=${cuttingDepartment}${
+    passportSearch ? `&q=${encodeURIComponent(passportSearch)}` : ""
+  }${dateFrom ? `&date_from=${dateFrom}` : ""}${dateTo ? `&date_to=${dateTo}` : ""}`;
+  const { data: passports = [], mutate, error: listError, isLoading: listLoading } = useSWR<Passport[]>(invalidPeriod ? null : passportUrl, fetcher);
+  const { data: prodOrders = [] } = useSWR<any[]>("/api/production-orders?page_size=500", fetcher);
+  const { data: users = [] } = useSWR<any[]>("/api/cutting-passports/operators", fetcher);
+
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Passport | null>(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
+  const [materialForms, setMaterialForms] = useState<Array<typeof EMPTY_FORM & { stock_batch_id: number }>>([]);
+  const orderRequest = useRef(0);
+  const { mutate: refreshCache } = useSWRConfig();
+  const [additionalMaterials, setAdditionalMaterials] = useState<Array<{ stock_batch_id: number; estimated_quantity: number; unit: string }>>([]);
+  const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
+  const [materialSearch, setMaterialSearch] = useState("");
+  const [selectedMaterial, setSelectedMaterial] = useState<any>(null);
+  const [materialAmount, setMaterialAmount] = useState("");
+  const [materialPickerBusy, setMaterialPickerBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const { data: materialBatches = [], error: materialBatchError, isLoading: materialBatchLoading } = useSWR<any[]>(
+    materialPickerOpen ? `/api/inventory/batches?group=materials&hide_empty=true&page_size=100&q=${encodeURIComponent(materialSearch)}` : null, fetcher,
+  );
+  const resetMaterialPicker = () => { setAdditionalMaterials([]); setMaterialPickerOpen(false); setSelectedMaterial(null); setMaterialAmount(""); setMaterialSearch(""); };
+
   const [sizeChoices, setSizeChoices] = useState<string[]>([]);
   const [err, setErr] = useState("");
 
-  const rows = useMemo(() => {
-    if (!q.trim()) return passports;
-    const lq = q.toLowerCase();
-    return passports.filter((p) =>
-      (p.passport_no || "").toLowerCase().includes(lq) ||
-      (p.lot_no || "").toLowerCase().includes(lq) ||
-      (p.model_code || "").toLowerCase().includes(lq) ||
-      (p.model_name || "").toLowerCase().includes(lq) ||
-      (p.order_no || "").toLowerCase().includes(lq) ||
-      (p.production_order_no || "").toLowerCase().includes(lq) ||
-      (p.operator_name || "").toLowerCase().includes(lq) ||
-      (p.variant || "").toLowerCase().includes(lq)
-    );
-  }, [passports, q]);
+  const rows = passports.flatMap((p) => p.materials?.length ? p.materials.map((row) => ({ ...p, ...row, operator_name: row.operator_name_manual || p.operator_name })) : [p]);
 
-  const selectedSizeCount = useMemo(
-    () => sizeCountForSelection(form.size_range, sizeChoices),
-    [form.size_range, sizeChoices],
-  );
-  const calc = compute(form, selectedSizeCount);
-  const sizeSelectOptions = useMemo(() => {
+  function sizeOptions(selection: string) {
     const choices = uniqueSizes(sizeChoices);
     const range = sizeRangeLabel(choices);
     const options: { value: string; label: string }[] = [];
@@ -301,12 +356,16 @@ export default function CuttingPassportsPage() {
         value: range,
         label: choices.length > 1 ? t("page.cuttingPassports.sizeUnit", { count: choices.length, size: range }) : range,
       });
+      options.push({
+        value: `${choices.join(", ")} ×2`,
+        label: t("page.cuttingPassports.sizeUnit", { count: choices.length * 2, size: `${range} ×2` }),
+      });
     }
     for (const size of choices) {
       if (size !== range) options.push({ value: size, label: size });
     }
 
-    const current = cleanSize(form.size_range);
+    const current = cleanSize(selection);
     if (current && !options.some((option) => option.value === current)) {
       const count = sizeCountForSelection(current, choices);
       options.unshift({
@@ -316,9 +375,12 @@ export default function CuttingPassportsPage() {
     }
 
     return options;
-  }, [form.size_range, sizeChoices, t]);
+  }
 
   function openCreate() {
+    orderRequest.current += 1;
+    resetMaterialPicker();
+    setMaterialForms([]);
     setForm({ ...EMPTY_FORM, date: new Date().toISOString().slice(0, 10) });
     setSizeChoices([]);
     setEditing(null);
@@ -327,7 +389,20 @@ export default function CuttingPassportsPage() {
   }
 
   function openEdit(p: Passport) {
+    const request = ++orderRequest.current;
+    resetMaterialPicker();
+    setMaterialForms((p.materials || []).map((row) => ({ ...EMPTY_FORM, ...Object.fromEntries(Object.entries(row).map(([key, value]) => [key, value ?? ""])), stock_batch_id: row.stock_batch_id, size_range: row.size_range ?? p.size_range ?? "" })));
     setSizeChoices(expandSizeSelection(p.size_range));
+    // A saved single-size layup is a selection, not the order's size catalogue.
+    if (p.production_order_id) {
+      void api.get<MaterialDefault>(`/api/cutting-passports/material-defaults?production_order_id=${p.production_order_id}`)
+        .then((defaults) => {
+          if (request !== orderRequest.current) return;
+          setSizeChoices(defaults.sizes?.length ? defaults.sizes : defaults.available_sizes?.length ? defaults.available_sizes : expandSizeSelection(defaults.size_range || p.size_range));
+        }).catch((error) => {
+          if (request === orderRequest.current) setErr(error.message);
+        });
+    }
     setForm({
       passport_no: p.passport_no,
       date: p.date.slice(0, 10),
@@ -340,6 +415,8 @@ export default function CuttingPassportsPage() {
       operator_name_manual: p.operator_name_manual ?? "",
       fabric_type: p.fabric_type ?? "",
       has_print: p.has_print,
+      tepa_pass: p.tepa_pass ?? false,
+      meter_mode: p.meter_mode ?? false,
       order_no: p.order_no ?? p.production_order_no ?? "",
       lot_no: p.lot_no ?? "",
       size_range: p.size_range ?? "",
@@ -363,12 +440,33 @@ export default function CuttingPassportsPage() {
     setShowForm(true);
   }
 
+  function openNewBatch(row: Passport) {
+    const passport = passports.find((item) => item.id === row.id) || row;
+    openEdit(passport);
+    setEditing(null);
+    setForm((current) => ({
+      ...EMPTY_FORM, date: new Date().toISOString().slice(0, 10),
+      production_order_id: current.production_order_id, model_code: current.model_code,
+      variant: current.variant, mold_no: current.mold_no, image_ref: current.image_ref,
+      meter_mode: current.meter_mode,
+      has_print: current.has_print, order_no: current.order_no,
+      fabric_type: current.fabric_type, lot_no: current.lot_no, size_range: current.size_range,
+    }));
+    setMaterialForms((current) => current.map((material) => ({
+      ...EMPTY_FORM, stock_batch_id: material.stock_batch_id,
+      meter_mode: material.meter_mode, size_range: material.size_range,
+      fabric_type: material.fabric_type, lot_no: material.lot_no,
+      fabric_width_m: material.fabric_width_m, gramage: material.gramage,
+    })));
+  }
+
   function num(v: string | number) {
     const n = Number(v);
     return isNaN(n) || v === "" ? null : n;
   }
 
-  function buildPayload() {
+  function buildPayload(formValues = form) {
+    const form = formValues;
     return {
       passport_no: form.passport_no,
       date: new Date(form.date).toISOString(),
@@ -381,6 +479,8 @@ export default function CuttingPassportsPage() {
       operator_name_manual: form.operator_name_manual || null,
       fabric_type: form.fabric_type || null,
       has_print: form.has_print,
+      tepa_pass: form.tepa_pass,
+      meter_mode: form.meter_mode,
       order_no: form.order_no || null,
       lot_no: form.lot_no || null,
       size_range: form.size_range || null,
@@ -401,20 +501,46 @@ export default function CuttingPassportsPage() {
     };
   }
 
+  async function exportPassports() {
+    if (exporting || invalidPeriod) return;
+    setExporting(true);
+    setExportError("");
+    try {
+      const response = await fetchResponse(`/api/cutting-passports/export.xlsx?${reportQuery}&lang=${lang}`, { credentials: "include" });
+      if (!response.ok) throw new Error(t("passportReport.exportError"));
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `cutting-passports-${dateFrom || "all"}-${dateTo || "all"}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch {
+      setExportError(t("passportReport.exportError"));
+    } finally { setExporting(false); }
+  }
+
   async function save(e: React.FormEvent) {
     e.preventDefault();
+    if (saving) return;
     setErr("");
-    if (!form.passport_no) { setErr(t("page.cuttingPassports.error.passportRequired")); return; }
+    setSaving(true);
     try {
+      const payload = { ...buildPayload(), additional_materials: additionalMaterials.map((row) => ({ ...row, estimated_quantity: ["kg", "m"].includes(row.unit.toLowerCase()) ? Number(materialForms.find((material) => material.stock_batch_id === row.stock_batch_id)?.planned_kg || 0) : row.estimated_quantity })), materials: materialForms.map((row) => ({ ...buildPayload(row), stock_batch_id: row.stock_batch_id })) };
       if (editing) {
-        await api.patch(`/api/cutting-passports/${editing.id}`, buildPayload());
+        await api.patch(`/api/cutting-passports/${editing.id}`, payload);
       } else {
-        await api.post("/api/cutting-passports", buildPayload());
+        await api.post("/api/cutting-passports", payload);
       }
       await mutate();
+      await refreshCache((key) => typeof key === "string" && (key.startsWith("/api/cutting-passports/dashboard") || key.startsWith("/api/inbox") || key.startsWith("/api/production-orders") || key.startsWith("/api/inventory/reservations") || key.startsWith("/api/inventory/batches")), undefined, { revalidate: true });
+      resetMaterialPicker();
       setShowForm(false);
     } catch (e: any) {
       setErr(e.message || t("page.cuttingPassports.error.saveFailed"));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -424,42 +550,54 @@ export default function CuttingPassportsPage() {
     mutate();
   }
 
-  const prodOrdersArr: any[] = Array.isArray(prodOrders) ? prodOrders : (prodOrders as any)?.rows ?? [];
-  const modelsArr: any[] = Array.isArray(models) ? models : (models as any)?.rows ?? [];
-  const modelMap = new Map(modelsArr.map((m: any) => [m.id, m]));
+  const allProdOrders: any[] = Array.isArray(prodOrders) ? prodOrders : (prodOrders as any)?.rows ?? [];
+  const prodOrdersArr = allProdOrders.filter((row: any) => (
+    cuttingDepartment === "ECT"
+      ? row.cutting_department_code === "ECT"
+      : row.cutting_department_code !== "ECT"
+  ));
   const usersArr: any[] = Array.isArray(users) ? users : [];
   const f = form;
   const sf = (k: keyof typeof EMPTY_FORM) => (e: React.ChangeEvent<any>) =>
     setForm((prev) => ({ ...prev, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value }));
 
-  async function selectProductionOrder(e: React.ChangeEvent<HTMLSelectElement>) {
-    const value = e.target.value;
+  async function selectProductionOrder(value: string) {
+    resetMaterialPicker();
+    const request = ++orderRequest.current;
+    setMaterialForms([]);
     setSizeChoices([]);
     const po = prodOrdersArr.find((row: any) => String(row.id) === value);
-    const model = po ? modelMap.get(po.model_id) : null;
-    const parts = model ? modelCodeParts(model) : null;
-    const qolipNo = modelQolipNo(model);
     setForm((prev) => ({
       ...prev,
       production_order_id: value,
-      order_no: po ? orderReference(po, po.production_no || prev.order_no) : "",
-      model_code: parts?.code || model?.code || po?.model_code || "",
-      variant: parts?.variantNo || "",
-      mold_no: qolipNo,
+      order_no: po ? rawOrderReference(po, po.production_no || prev.order_no) : "",
+      model_code: po?.model_code || "",
+      variant: "",
+      mold_no: "",
       pieces: po?.planned_quantity ?? prev.pieces,
       planned_kg: po?.estimated_material_amount ?? prev.planned_kg,
     }));
     if (!value) return;
     try {
-      const defaults = await api.get<MaterialDefault>(`/api/cutting-passports/material-defaults?production_order_id=${value}`);
-      setSizeChoices(defaults.sizes?.length ? defaults.sizes : expandSizeSelection(defaults.size_range));
+      const [defaults, model] = await Promise.all([
+        api.get<MaterialDefault>(`/api/cutting-passports/material-defaults?production_order_id=${value}`),
+        po?.model_id ? api.get<any>(`/api/models/${po.model_id}`).catch(() => null) : Promise.resolve(null),
+      ]);
+      if (request !== orderRequest.current) return;
+      setMaterialForms((defaults.materials || []).map((row) => ({
+        ...EMPTY_FORM, stock_batch_id: row.stock_batch_id, size_range: defaults.size_range || "", fabric_type: row.fabric_type || "", lot_no: row.lot_no || "",
+        pieces: row.pieces ?? "", planned_kg: row.planned_kg ?? "", fabric_width_m: row.fabric_width_m ?? "", gramage: row.gramage ?? "",
+      })));
+      const parts = model ? modelCodeParts(model) : null;
+      const qolipNo = modelQolipNo(model);
+      setSizeChoices(defaults.sizes?.length ? defaults.sizes : defaults.available_sizes?.length ? defaults.available_sizes : expandSizeSelection(defaults.size_range));
       setForm((prev) => {
         if (String(prev.production_order_id) !== value) return prev;
         return {
           ...prev,
           order_no: defaults.order_no || defaults.sales_order_no || defaults.production_order_no || prev.order_no,
-          model_code: defaults.model_code || defaults.model_no || prev.model_code,
-          variant: defaults.variant || prev.variant,
+          model_code: defaults.model_code || defaults.model_no || parts?.code || model?.code || prev.model_code,
+          variant: defaults.variant || parts?.variantNo || prev.variant,
           mold_no: defaults.mold_no || qolipNo,
           image_ref: defaults.image_ref || prev.image_ref,
           fabric_type: defaults.fabric_type || defaults.material_item_name || prev.fabric_type,
@@ -477,8 +615,63 @@ export default function CuttingPassportsPage() {
     }
   }
 
+  const openedRequest = useRef("");
+  const requestedOrder = searchParams.get("production_order_id");
+  const requestedPassport = searchParams.get("passport_id");
+  useEffect(() => {
+    const key = `${cuttingDepartment}:${requestedOrder || ""}:${requestedPassport || ""}`;
+    if (openedRequest.current === key || (!requestedOrder && !requestedPassport)) return;
+    openedRequest.current = key;
+    if (requestedPassport && /^\d+$/.test(requestedPassport)) {
+      void api.get<Passport>(`/api/cutting-passports/${requestedPassport}`).then(openEdit).catch((error) => setErr(error.message));
+    } else if (requestedOrder && /^\d+$/.test(requestedOrder)) {
+      openCreate();
+      void selectProductionOrder(requestedOrder);
+    }
+    // URL navigation initializes once; cache refreshes must not reset entered details.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cuttingDepartment, requestedOrder, requestedPassport]);
+
+  async function openMaterialPicker() {
+    if (!form.production_order_id) return;
+    const request = orderRequest.current;
+    setMaterialPickerBusy(true);
+    setErr("");
+    try {
+      const defaults = await api.get<MaterialDefault>(`/api/cutting-passports/material-defaults?production_order_id=${form.production_order_id}`);
+      if (request !== orderRequest.current) return;
+      if (defaults.source_type === "usluga" || defaults.can_add_material === false) throw new Error(t("passportMaterial.openOrderOnly"));
+      setMaterialForms((current) => {
+        const byBatch = new Map(current.map((row) => [row.stock_batch_id, row]));
+        const assigned = (defaults.materials || []).map((row, index) => byBatch.get(row.stock_batch_id) || ({
+          ...EMPTY_FORM, ...(current.length === 0 && index === 0 ? form : {}),
+          stock_batch_id: row.stock_batch_id, size_range: form.size_range, fabric_type: row.fabric_type || "", lot_no: row.lot_no || "",
+          planned_kg: current.length === 0 && index === 0 ? (form.planned_kg || row.planned_kg || "") : row.planned_kg ?? "",
+          pieces: current.length === 0 && index === 0 ? form.pieces : row.pieces ?? "",
+          fabric_width_m: current.length === 0 && index === 0 ? form.fabric_width_m : row.fabric_width_m ?? "", gramage: current.length === 0 && index === 0 ? form.gramage : row.gramage ?? "",
+        }));
+        return [...assigned, ...current.filter((row) => !assigned.some((item) => item.stock_batch_id === row.stock_batch_id))];
+      });
+      setMaterialPickerOpen(true);
+    } catch (error: any) { setErr(error.message || t("passportMaterial.loadError")); }
+    finally { setMaterialPickerBusy(false); }
+  }
+
+  function addMaterial() {
+    const amount = Number(materialAmount);
+    if (!selectedMaterial || !Number.isFinite(amount) || amount <= 0) { setErr(t("passportMaterial.amountRequired")); return; }
+    if (materialForms.some((row) => row.stock_batch_id === selectedMaterial.id)) { setErr(t("passportMaterial.duplicate")); return; }
+    setMaterialForms((rows) => [...rows, {
+      ...EMPTY_FORM, stock_batch_id: selectedMaterial.id, size_range: materialForms[0]?.size_range ?? form.size_range, fabric_type: selectedMaterial.item_name || "",
+      lot_no: selectedMaterial.batch_no || selectedMaterial.internal_batch_no || "", pieces: form.pieces,
+      planned_kg: amount, fabric_width_m: selectedMaterial.width ?? "", gramage: selectedMaterial.gsm ?? "",
+    }]);
+    setAdditionalMaterials((rows) => [...rows, { stock_batch_id: selectedMaterial.id, estimated_quantity: amount, unit: selectedMaterial.unit }]);
+    setSelectedMaterial(null); setMaterialAmount(""); setMaterialPickerOpen(false); setErr("");
+  }
+
   function imageValue(p: Passport) {
-    return p.image_ref || storageThumbnailUrl(p.model_image_url, 160) || "";
+    return storageThumbnailUrl(p.model_image_url, 160) || p.image_ref || "";
   }
 
   function looksLikeImage(value: string) {
@@ -488,16 +681,30 @@ export default function CuttingPassportsPage() {
   return (
     <div>
       <PageHeader
-        title={t("page.cuttingPassports.title")}
+        title={`${factoryName} - ${t("page.cuttingPassports.title")}`}
         subtitle={t("page.cuttingPassports.subtitle")}
       />
 
+      {canReport && <div role="tablist" aria-label={t("page.cuttingPassports.title")} className="mb-4 flex gap-5 border-b border-slate-200">
+        {(["passports", "dashboard"] as const).map((tab) => <button key={tab} type="button" role="tab" aria-selected={view === tab} onClick={() => setView(tab)} className={`border-b-2 px-1 py-3 text-sm ${view === tab ? "border-[#8d8151] font-semibold text-[#524a30]" : "border-transparent text-slate-500"}`}>{t(`passportReport.${tab}`)}</button>)}
+      </div>}
+      <div className="mb-4 flex flex-wrap items-end gap-3">
+        <label className="text-sm">{t("passportReport.from")}<input className="input mt-1" type="date" value={dateFrom} max={dateTo || undefined} onChange={(e) => setDateFrom(e.target.value)} /></label>
+        <label className="text-sm">{t("passportReport.to")}<input className="input mt-1" type="date" value={dateTo} min={dateFrom || undefined} onChange={(e) => setDateTo(e.target.value)} /></label>
+        {(["today", "thisWeek", "thisMonth"] as const).map((period) => <button key={period} type="button" className="btn" onClick={() => selectPeriod(period)}>{t(`passportReport.${period}`)}</button>)}
+        <button type="button" className="btn" onClick={() => { setDateFrom(""); setDateTo(""); }}>{t("passportReport.allTime")}</button>
+        {canReport && <button type="button" className="btn flex items-center gap-2" disabled={exporting || invalidPeriod} onClick={() => void exportPassports()}><Download className="h-4 w-4" />{t(exporting ? "passportReport.exporting" : "passportReport.export")}</button>}
+      </div>
+      {invalidPeriod && <p role="alert" className="mb-4 text-sm text-red-600">{t("passportReport.invalidPeriod")}</p>}
+      {exportError && <p role="alert" className="mb-4 text-sm text-red-600">{exportError}</p>}
+
       {/* Toolbar */}
-      <div className="mb-4 flex items-center gap-3">
+      <div className="mb-4 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
           <input
             className="input pl-8"
+            style={{ paddingLeft: "2rem" }}
             placeholder={t("page.cuttingPassports.searchPlaceholder")}
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -508,14 +715,19 @@ export default function CuttingPassportsPage() {
         </button>
       </div>
 
+      {canReport && view === "dashboard" && <CuttingPassportDashboard query={reportQuery} invalid={invalidPeriod} />}
+      {view === "passports" && listError && <p role="alert" className="mb-4 text-sm text-red-600">{t("passportReport.loadError")}</p>}
+      {view === "passports" && listLoading && <p role="status" className="mb-4 text-sm">{t("common.loading")}</p>}
+      {view === "passports" && passports.length === 500 && <p className="mb-4 text-sm text-slate-600">{t("passportReport.listLimit")}</p>}
       {/* Table */}
+      {view === "passports" && !invalidPeriod && (
       <div className="card p-0 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-max text-xs border-collapse">
             <thead>
               {/* Column group row */}
               <tr className="text-[10px] font-bold uppercase tracking-widest">
-                <th colSpan={3} className="sticky left-0 z-30 bg-slate-700 text-white px-3 py-1.5 text-left border-r-2 border-slate-500">
+                <th colSpan={3} className="bg-slate-700 text-white px-3 py-1.5 text-left border-r-2 border-slate-500 lg:sticky lg:left-0 lg:z-30">
                   {t("page.cuttingPassports.group.basic")}
                 </th>
                 <th colSpan={8} className="bg-slate-600 text-slate-200 px-3 py-1.5 text-left border-r border-slate-500">
@@ -533,14 +745,14 @@ export default function CuttingPassportsPage() {
                 <th colSpan={3} className="bg-green-700 text-green-100 px-3 py-1.5 text-center border-r border-green-500">
                   {t("page.cuttingPassports.group.result")}
                 </th>
-                <th className="sticky right-0 z-30 bg-slate-700 px-2 py-1.5" />
+                <th className="bg-slate-700 px-2 py-1.5 lg:sticky lg:right-0 lg:z-30" />
               </tr>
               {/* Column headers */}
               <tr className="border-b-2 border-slate-200 bg-slate-50 text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
                 {/* Frozen left */}
-                <th className="sticky left-0 z-20 bg-slate-50 px-3 py-2 text-left whitespace-nowrap min-w-[88px] shadow-[2px_0_0_0_#e2e8f0]">{t("page.cuttingPassports.field.passportNo")}</th>
-                <th className="sticky left-[88px] z-20 bg-slate-50 px-3 py-2 text-left whitespace-nowrap min-w-[90px]">{t("page.cuttingPassports.field.date")}</th>
-                <th className="sticky left-[178px] z-20 bg-slate-50 px-3 py-2 text-left whitespace-nowrap min-w-[120px] shadow-[2px_0_6px_-1px_rgba(0,0,0,0.12)]">{t("page.cuttingPassports.field.model")}</th>
+                <th className="bg-slate-50 px-3 py-2 text-left whitespace-nowrap min-w-[88px] lg:sticky lg:left-0 lg:z-20 lg:shadow-[2px_0_0_0_#e2e8f0]">{t("page.cuttingPassports.field.passportNo")}</th>
+                <th className="bg-slate-50 px-3 py-2 text-left whitespace-nowrap min-w-[90px] lg:sticky lg:left-[88px] lg:z-20">{t("page.cuttingPassports.field.date")}</th>
+                <th className="bg-slate-50 px-3 py-2 text-left whitespace-nowrap min-w-[120px] lg:sticky lg:left-[178px] lg:z-20 lg:shadow-[2px_0_6px_-1px_rgba(0,0,0,0.12)]">{t("page.cuttingPassports.field.model")}</th>
                 {/* Scrollable cols */}
                 <th className="px-3 py-2 text-left whitespace-nowrap">{t("page.cuttingPassports.field.variant")}</th>
                 <th className="px-3 py-2 text-left whitespace-nowrap">{t("page.cuttingPassports.field.moldNo")}</th>
@@ -551,11 +763,11 @@ export default function CuttingPassportsPage() {
                 <th className="px-3 py-2 text-left whitespace-nowrap">{t("page.cuttingPassports.field.order")}</th>
                 <th className="px-3 py-2 text-left whitespace-nowrap">{t("page.cuttingPassports.field.lotNo")}</th>
                 <th className="px-3 py-2 text-right whitespace-nowrap">{t("page.cuttingPassports.field.rolls")}</th>
-                <th className="px-3 py-2 text-right whitespace-nowrap">{t("page.cuttingPassports.field.layerWeight")}</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">{t("page.cuttingPassports.field.layerWeight")}{rows.some((row) => row.meter_mode) ? " / m" : ""}</th>
                 <th className="px-3 py-2 text-right whitespace-nowrap">{t("page.cuttingPassports.field.totalLayers")}</th>
-                <th className="px-3 py-2 text-right whitespace-nowrap">{t("page.cuttingPassports.field.plannedKg")}</th>
-                <th className="px-3 py-2 text-right bg-amber-50 text-amber-700 whitespace-nowrap">{t("page.cuttingPassports.field.actualKg")}</th>
-                <th className="px-3 py-2 text-right bg-amber-50 text-amber-700 whitespace-nowrap">{t("page.cuttingPassports.field.processedKg")}</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">{t("page.cuttingPassports.field.plannedKg")}{rows.some((row) => row.meter_mode) ? " / m" : ""}</th>
+                <th className="px-3 py-2 text-right bg-amber-50 text-amber-700 whitespace-nowrap">{t("page.cuttingPassports.field.actualKg")}{rows.some((row) => row.meter_mode) ? " / m" : ""}</th>
+                <th className="px-3 py-2 text-right bg-amber-50 text-amber-700 whitespace-nowrap">{t("page.cuttingPassports.field.processedKg")}{rows.some((row) => row.meter_mode) ? " / m" : ""}</th>
                 <th className="px-3 py-2 text-right whitespace-nowrap">{t("page.cuttingPassports.field.piecesCount")}</th>
                 <th className="px-3 py-2 text-right whitespace-nowrap">{t("page.cuttingPassports.field.fabricWidth")}</th>
                 <th className="px-3 py-2 text-right whitespace-nowrap">{t("page.cuttingPassports.field.layLength")}</th>
@@ -566,14 +778,14 @@ export default function CuttingPassportsPage() {
                 <th className="px-3 py-2 text-right whitespace-nowrap">{t("page.cuttingPassports.field.bindingPerPiece")}</th>
                 <th className="px-3 py-2 text-right bg-amber-50 text-amber-700 whitespace-nowrap">{t("page.cuttingPassports.field.otherBindingTotal")}</th>
                 <th className="px-3 py-2 text-right whitespace-nowrap">{t("page.cuttingPassports.field.otherBindingPerPiece")}</th>
-                <th className="px-3 py-2 text-right whitespace-nowrap">{t("page.cuttingPassports.field.scrapKg")}</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">{t("page.cuttingPassports.field.scrapKg")}{rows.some((row) => row.meter_mode) ? " / m" : ""}</th>
                 <th className="px-3 py-2 text-right bg-amber-50 text-amber-700 whitespace-nowrap">{t("page.cuttingPassports.field.ribanaTotal")}</th>
                 <th className="px-3 py-2 text-right whitespace-nowrap">{t("page.cuttingPassports.field.ribanaPerPiece")}</th>
-                <th className="px-3 py-2 text-right bg-green-50 text-green-700 whitespace-nowrap">{t("page.cuttingPassports.field.perPieceGr")}</th>
-                <th className="px-3 py-2 text-right bg-green-50 text-green-700 whitespace-nowrap">{t("page.cuttingPassports.field.layerGr")}</th>
-                <th className="px-3 py-2 text-right bg-green-50 text-green-700 whitespace-nowrap">{t("page.cuttingPassports.field.grossGr")}</th>
+                <th className="px-3 py-2 text-right bg-green-50 text-green-700 whitespace-nowrap">{t("page.cuttingPassports.field.perPieceGr")}{rows.some((row) => row.meter_mode) ? " / m" : ""}</th>
+                <th className="px-3 py-2 text-right bg-green-50 text-green-700 whitespace-nowrap">{t("page.cuttingPassports.field.layerGr")}{rows.some((row) => row.meter_mode) ? " / m" : ""}</th>
+                <th className="px-3 py-2 text-right bg-green-50 text-green-700 whitespace-nowrap">{t("page.cuttingPassports.field.grossGr")}{rows.some((row) => row.meter_mode) ? " / m" : ""}</th>
                 {/* Frozen right: actions */}
-                <th className="sticky right-0 z-20 bg-slate-50 px-2 py-2 shadow-[-2px_0_6px_-1px_rgba(0,0,0,0.12)]" />
+                <th className="bg-slate-50 px-2 py-2 lg:sticky lg:right-0 lg:z-20 lg:shadow-[-2px_0_6px_-1px_rgba(0,0,0,0.12)]" />
               </tr>
             </thead>
             <tbody>
@@ -585,13 +797,13 @@ export default function CuttingPassportsPage() {
                 </tr>
               )}
               {rows.map((p) => (
-                <tr key={p.id} className="border-b border-slate-100 hover:bg-stone-50 group">
+                <tr key={`${p.id}-${p.stock_batch_id || 0}`} className="border-b border-slate-100 hover:bg-stone-50 group">
                   {/* Frozen left */}
-                  <td className="sticky left-0 z-10 bg-white group-hover:bg-stone-50 px-3 py-2 font-mono font-semibold whitespace-nowrap min-w-[88px] shadow-[2px_0_0_0_#f1f5f9]">{p.passport_no}</td>
-                  <td className="sticky left-[88px] z-10 bg-white group-hover:bg-stone-50 px-3 py-2 whitespace-nowrap min-w-[90px]">{p.date.slice(0, 10)}</td>
-                  <td className="sticky left-[178px] z-10 bg-white group-hover:bg-stone-50 px-3 py-2 whitespace-nowrap min-w-[120px] shadow-[2px_0_6px_-1px_rgba(0,0,0,0.08)]" title={p.model_name ?? ""}>{p.model_code ?? p.model_name ?? "—"}</td>
+                  <td className="bg-white group-hover:bg-stone-50 px-3 py-2 font-mono font-semibold whitespace-nowrap min-w-[88px] lg:sticky lg:left-0 lg:z-10 lg:shadow-[2px_0_0_0_#f1f5f9]">{p.passport_no}</td>
+                  <td className="bg-white group-hover:bg-stone-50 px-3 py-2 whitespace-nowrap min-w-[90px] lg:sticky lg:left-[88px] lg:z-10">{p.date.slice(0, 10)}</td>
+                  <td className="bg-white group-hover:bg-stone-50 px-3 py-2 whitespace-nowrap min-w-[120px] lg:sticky lg:left-[178px] lg:z-10 lg:shadow-[2px_0_6px_-1px_rgba(0,0,0,0.08)]" title={p.model_name ?? ""}>{formatModelVariantCode(p.model_code) || p.model_name || "—"}</td>
                   {/* Scrollable */}
-                  <td className="px-3 py-2">{p.variant ?? "—"}</td>
+                  <td className="px-3 py-2">{formatVariantNumber(p.variant) || "—"}</td>
                   <td className="px-3 py-2">{p.mold_no ?? "—"}</td>
                   <td className="px-3 py-2">
                     {imageValue(p) ? (
@@ -605,14 +817,14 @@ export default function CuttingPassportsPage() {
                   <td className="px-3 py-2">{p.operator_name ?? "—"}</td>
                   <td className="px-3 py-2">{p.fabric_type ?? "—"}</td>
                   <td className="px-3 py-2 text-center">{p.has_print ? "✓" : ""}</td>
-                  <td className="px-3 py-2 font-mono">{p.order_no ?? p.production_order_no ?? "—"}</td>
+                  <td className="px-3 py-2 font-mono">{formatOrderReference(p.order_no ?? p.production_order_no ?? "—")}</td>
                   <td className="px-3 py-2 font-mono">{p.lot_no ?? "—"}</td>
                   <td className="px-3 py-2 text-right">{p.rolls_count ?? "—"}</td>
-                  <td className="px-3 py-2 text-right">{d3(p.layer_weight_kg)}</td>
+                  <td className="px-3 py-2 text-right">{d3(p.layer_weight_kg)}{p.meter_mode ? " m" : ""}</td>
                   <td className="px-3 py-2 text-right">{p.total_layers ?? "—"}</td>
-                  <td className="px-3 py-2 text-right">{d2(p.planned_kg)}</td>
-                  <td className="px-3 py-2 text-right bg-amber-50 font-medium">{d3(p.actual_kg)}</td>
-                  <td className="px-3 py-2 text-right bg-amber-50 font-medium" title={t("page.cuttingPassports.formula.processedKg")}>{d3(p.theoretical_kg)}</td>
+                  <td className="px-3 py-2 text-right">{d2(p.planned_kg)}{p.meter_mode ? " m" : ""}</td>
+                  <td className="px-3 py-2 text-right bg-amber-50 font-medium">{d3(p.actual_kg)}{p.meter_mode ? " m" : ""}</td>
+                  <td className="px-3 py-2 text-right bg-amber-50 font-medium" title={t(p.meter_mode ? "passportMeters.formula.processedKg" : "page.cuttingPassports.formula.processedKg")}>{d3(p.theoretical_kg)}{p.meter_mode ? " m" : ""}</td>
                   <td className="px-3 py-2 text-right">{p.pieces ?? "—"}</td>
                   <td className="px-3 py-2 text-right">{p.fabric_width_m ?? "—"}</td>
                   <td className="px-3 py-2 text-right">{p.lay_length_m ?? "—"}</td>
@@ -620,22 +832,23 @@ export default function CuttingPassportsPage() {
                     {p.size_range ?? "—"}
                     {p.size_count ? <span className="ml-1 text-[11px] text-slate-500">{t("page.cuttingPassports.sizeCount", { count: p.size_count })}</span> : null}
                   </td>
-                  <td className="px-3 py-2 text-right">{p.gramage ?? "—"}</td>
+                  <td className="px-3 py-2 text-right">{p.meter_mode ? "M" : p.gramage ?? "—"}</td>
                   <td className="px-3 py-2 text-right">{p.waste_pct ?? "—"}</td>
-                  <td className="px-3 py-2 text-right bg-amber-50">{d4(p.total_beka_kg)}</td>
-                  <td className="px-3 py-2 text-right">{d6(p.beka_per_piece_kg)}</td>
-                  <td className="px-3 py-2 text-right bg-amber-50">{d4(p.other_beka_kg)}</td>
-                  <td className="px-3 py-2 text-right">{d6(p.other_beka_per_piece_kg)}</td>
-                  <td className="px-3 py-2 text-right">{d3(p.scrap_kg)}</td>
-                  <td className="px-3 py-2 text-right bg-amber-50">{d4(p.total_ribana_kg)}</td>
-                  <td className="px-3 py-2 text-right">{d6(p.ribana_per_piece_kg)}</td>
-                  <td className="px-3 py-2 text-right bg-green-50 font-semibold text-green-900">{d6(p.per_piece_weight_kg)}</td>
-                  <td className="px-3 py-2 text-right bg-green-50 font-semibold text-green-900">{d6(p.actual_kg_per_piece)}</td>
-                  <td className="px-3 py-2 text-right bg-green-50 font-semibold text-green-900">{d6(p.gross_kg_per_piece)}</td>
+                  <td className="px-3 py-2 text-right bg-amber-50">{d4(p.total_beka_kg)}{p.meter_mode ? " m" : ""}</td>
+                  <td className="px-3 py-2 text-right">{d6(p.beka_per_piece_kg)}{p.meter_mode ? " m" : ""}</td>
+                  <td className="px-3 py-2 text-right bg-amber-50">{d4(p.other_beka_kg)}{p.meter_mode ? " m" : ""}</td>
+                  <td className="px-3 py-2 text-right">{d6(p.other_beka_per_piece_kg)}{p.meter_mode ? " m" : ""}</td>
+                  <td className="px-3 py-2 text-right">{d3(p.scrap_kg)}{p.meter_mode ? " m" : ""}</td>
+                  <td className="px-3 py-2 text-right bg-amber-50">{d4(p.total_ribana_kg)}{p.meter_mode ? " m" : ""}</td>
+                  <td className="px-3 py-2 text-right">{d6(p.ribana_per_piece_kg)}{p.meter_mode ? " m" : ""}</td>
+                  <td className="px-3 py-2 text-right bg-green-50 font-semibold text-green-900">{d6(p.per_piece_weight_kg)}{p.meter_mode ? " m" : ""}</td>
+                  <td className="px-3 py-2 text-right bg-green-50 font-semibold text-green-900">{d6(p.actual_kg_per_piece)}{p.meter_mode ? " m" : ""}</td>
+                  <td className="px-3 py-2 text-right bg-green-50 font-semibold text-green-900">{d6(p.gross_kg_per_piece)}{p.meter_mode ? " m" : ""}</td>
                   {/* Frozen right */}
-                  <td className="sticky right-0 z-10 bg-white group-hover:bg-stone-50 px-2 py-2 shadow-[-2px_0_6px_-1px_rgba(0,0,0,0.08)]">
+                  <td className="bg-white group-hover:bg-stone-50 px-2 py-2 lg:sticky lg:right-0 lg:z-10 lg:shadow-[-2px_0_6px_-1px_rgba(0,0,0,0.08)]">
                     <div className="flex gap-1">
-                      <button className="btn btn-ghost p-1" onClick={() => openEdit(p)}>
+                      <button type="button" className="btn btn-ghost p-1 whitespace-nowrap" onClick={() => openNewBatch(p)}><Plus className="h-3.5 w-3.5" />{t("passportBatch.add")}</button>
+                      <button className="btn btn-ghost p-1" onClick={() => openEdit(passports.find((item) => item.id === p.id) || p)}>
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
                       <button className="btn btn-ghost p-1 text-red-500" onClick={() => del(p)}>
@@ -650,29 +863,36 @@ export default function CuttingPassportsPage() {
         </div>
       </div>
 
+      )}
       {/* Form modal */}
       <Modal
         open={showForm}
         onClose={() => setShowForm(false)}
         title={editing ? t("page.cuttingPassports.editTitle", { passport: editing.passport_no }) : t("page.cuttingPassports.createTitle")}
         wide
+        closeOnOutsideClick={false}
       >
-        <form onSubmit={save} className="max-h-[80vh] overflow-y-auto pr-1 space-y-5">
+        <form onSubmit={save} className="space-y-5">
+          <p className="text-sm text-[#6f684f]">{t("passportBatch.help")}</p>
+          <div className="border-b border-slate-200 pb-4">
+            <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={form.tepa_pass} onChange={(event) => setForm((current) => ({ ...current, tepa_pass: event.target.checked }))} />Tepa pass</label>
+            <p className="mt-1 text-sm text-slate-600">{t("passportReport.tepaHint")}</p>
+          </div>
 
           {!editing && (
             <div className="flex items-center gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">
               <BookOpen className="h-3.5 w-3.5 shrink-0" />
               <span>{t("page.cuttingPassports.exampleLabel")}</span>
-              <button type="button" className="font-semibold underline" onClick={() => setForm({ ...EXCEL_EXAMPLE })}>
+              <button type="button" className="font-semibold underline" onClick={() => { orderRequest.current += 1; resetMaterialPicker(); setMaterialForms([]); setForm({ ...EXCEL_EXAMPLE }); }}>
                 {t("page.cuttingPassports.exampleLoad")}
               </button>
             </div>
           )}
 
           <Sec label={t("page.cuttingPassports.section.basicInfo")}>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label={t("page.cuttingPassports.field.passportNoRequired")}>
-                <input className="input" placeholder={t("page.cuttingPassports.placeholder.exampleNumber")} value={f.passport_no} onChange={sf("passport_no")} required />
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field label={t("page.cuttingPassports.field.passportNo")}>
+                <input className="input" placeholder={t("page.cuttingPassports.placeholder.exampleNumber")} value={f.passport_no} onChange={sf("passport_no")} />
               </Field>
               <Field label={t("page.cuttingPassports.field.date")}>
                 <input className="input" type="date" value={f.date} onChange={sf("date")} />
@@ -681,15 +901,14 @@ export default function CuttingPassportsPage() {
           </Sec>
 
           <Sec label={t("page.cuttingPassports.section.modelIdentification")}>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
               <Field label={t("page.cuttingPassports.field.erpOrderModel")}>
-                <select className="input" value={f.production_order_id} onChange={selectProductionOrder}>
+                <select className="input" value={f.production_order_id} onChange={(event) => void selectProductionOrder(event.target.value)}>
                   <option value="">{t("page.cuttingPassports.placeholder.chooseNone")}</option>
                   {prodOrdersArr.map((po: any) => {
-                    const model = modelMap.get(po.model_id);
                     return (
                       <option key={po.id} value={po.id}>
-                        {orderReference(po, po.production_no)}{model?.code ? ` · ${model.code}` : ""}
+                        {orderReference(po, po.production_no)}{po.model_code ? ` · ${po.model_code}` : ""}
                       </option>
                     );
                   })}
@@ -707,20 +926,9 @@ export default function CuttingPassportsPage() {
               <Field label={t("page.cuttingPassports.field.image")}>
                 <input className="input" placeholder={t("page.cuttingPassports.placeholder.imageRef")} value={f.image_ref} onChange={sf("image_ref")} />
               </Field>
-              <Field label={t("page.cuttingPassports.field.operatorErp")}>
-                <select className="input" value={f.operator_id} onChange={sf("operator_id")}>
-                  <option value="">{t("page.cuttingPassports.placeholder.chooseNone")}</option>
-                  {usersArr.map((u: any) => (
-                    <option key={u.id} value={u.id}>{u.name}</option>
-                  ))}
-                </select>
-              </Field>
-              <Field label={t("page.cuttingPassports.field.operatorExcel")}>
-                <input className="input" placeholder={t("page.cuttingPassports.placeholder.exampleOperator")} value={f.operator_name_manual} onChange={sf("operator_name_manual")} />
-              </Field>
-              <Field label={t("page.cuttingPassports.field.fabric")}>
-                <input className="input" placeholder={t("page.cuttingPassports.placeholder.fabricType")} value={f.fabric_type} onChange={sf("fabric_type")} />
-              </Field>
+
+
+
               <Field label={t("page.cuttingPassports.field.printing")}>
                 <label className="flex h-9 items-center gap-2">
                   <input type="checkbox" className="h-4 w-4" checked={f.has_print} onChange={sf("has_print")} />
@@ -730,30 +938,86 @@ export default function CuttingPassportsPage() {
               <Field label={t("page.cuttingPassports.field.order")}>
                 <input className="input" placeholder={t("page.cuttingPassports.placeholder.exampleOrder")} value={f.order_no} onChange={sf("order_no")} />
               </Field>
-              <Field label={t("page.cuttingPassports.field.lotNumber")}>
-                <input className="input" placeholder={t("page.cuttingPassports.placeholder.exampleLot")} value={f.lot_no} onChange={sf("lot_no")} />
-              </Field>
+
             </div>
           </Sec>
 
+              <Field label={t("page.cuttingPassports.field.operatorErp")}>
+                <select className="input" value={f.operator_id} onChange={sf("operator_id")}>
+                  <option value="">{t("page.cuttingPassports.placeholder.chooseNone")}</option>
+                  {usersArr.map((u: any) => (
+                    <option key={u.id} value={u.id}>{u.name}</option>
+                  ))}
+                </select>
+              </Field>
+          {form.production_order_id && prodOrdersArr.find((order) => String(order.id) === String(form.production_order_id))?.source_type !== "usluga" && (
+            <div className="space-y-3 border-t border-[#e3e0d5] pt-4">
+              <button type="button" className="btn" disabled={saving || materialPickerBusy} onClick={openMaterialPicker}><Plus className="mr-1 h-4 w-4" />{t("passportMaterial.add")}</button>
+              <p className="text-sm text-[#6f684f]">{t("passportMaterial.help")}</p>
+              {materialPickerOpen && <div className="space-y-3">
+                <SearchableSelect<number>
+                  value={selectedMaterial?.id}
+                  options={[...(selectedMaterial ? [selectedMaterial] : []), ...materialBatches.filter((row) => row.id !== selectedMaterial?.id)].filter((row) => !materialForms.some((material) => material.stock_batch_id === row.id)).map((row) => ({ value: row.id, label: `${row.item_name} · ${row.batch_no || row.internal_batch_no || ""}`, metaText: `${row.available_quantity ?? row.quantity} ${row.unit} · ${row.warehouse_name || ""}` }))}
+                  onChange={(value) => setSelectedMaterial(materialBatches.find((row) => row.id === value) || selectedMaterial)}
+                  placeholder={t("passportMaterial.search")} noResultsText={t("passportMaterial.noResults")}
+                  serverFilter onSearchChange={setMaterialSearch} loading={materialBatchLoading}
+                />
+                {materialBatchError && <p className="text-sm text-red-600">{t("passportMaterial.loadError")}</p>}
+                <Field label={`${t("page.cutting.plannedAmount")} (${selectedMaterial?.unit || "kg"})`}>
+                  <input className="input" type="number" min={0} step="0.001" value={materialAmount} onChange={(event) => setMaterialAmount(event.target.value)} />
+                </Field>
+                <div className="flex gap-2"><button type="button" className="btn" onClick={addMaterial}>{t("passportMaterial.add")}</button><button type="button" className="btn" onClick={() => setMaterialPickerOpen(false)}>{t("common.cancel")}</button></div>
+              </div>}
+            </div>
+          )}
+
+          {(materialForms.length ? materialForms : [{ ...form, stock_batch_id: 0 }]).map((material, index) => {
+            const f = materialForms.length ? { ...form, ...material } : form;
+            const selectedSizeCount = sizeCountForSelection(f.size_range, sizeChoices);
+            const sizeSelectOptions = sizeOptions(f.size_range);
+            const calc = compute(f, selectedSizeCount);
+            const sf = (key: keyof typeof EMPTY_FORM) => (e: React.ChangeEvent<any>) => {
+              const value = e.target.type === "checkbox" ? e.target.checked : e.target.value;
+              if (!materialForms.length) setForm((prev) => ({ ...prev, [key]: value }));
+              else setMaterialForms((rows) => rows.map((row, i) => i === index ? { ...row, [key]: value } : row));
+            };
+            return <div key={material.stock_batch_id} className="space-y-4 border-t border-[#e3e0d5] pt-4">
+              {additionalMaterials.some((row) => row.stock_batch_id === material.stock_batch_id) && <button type="button" className="btn" onClick={() => { setMaterialForms((rows) => rows.filter((row) => row.stock_batch_id !== material.stock_batch_id)); setAdditionalMaterials((rows) => rows.filter((row) => row.stock_batch_id !== material.stock_batch_id)); }}>{t("common.remove")}</button>}
+              {materialForms.length > 0 && <h3 className="font-medium">{material.fabric_type} · {material.lot_no}</h3>}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <Field label={t("page.cuttingPassports.field.operatorExcel")}>
+                <input className="input" placeholder={t("page.cuttingPassports.placeholder.exampleOperator")} value={f.operator_name_manual} onChange={sf("operator_name_manual")} />
+              </Field>
+              <Field label={t("page.cuttingPassports.field.fabric")}>
+                <input className="input" placeholder={t("page.cuttingPassports.placeholder.fabricType")} value={f.fabric_type} onChange={sf("fabric_type")} />
+              </Field>
+              <Field label={t("page.cuttingPassports.field.lotNumber")}>
+                <input className="input" placeholder={t("page.cuttingPassports.placeholder.exampleLot")} value={f.lot_no} onChange={sf("lot_no")} />
+              </Field>
+              </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={f.meter_mode} onChange={sf("meter_mode")} />
+            {t("passportMeters.enabled")}
+          </label>
+          {f.meter_mode && <p className="text-sm text-slate-600">{t("passportMeters.hint")}</p>}
           <Sec label={t("page.cuttingPassports.section.layupInfo")}>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
               <Field label={t("page.cuttingPassports.field.rollsCount")}>
                 <input className="input" type="number" placeholder="0" value={f.rolls_count} onChange={sf("rolls_count")} />
               </Field>
-              <Field label={t("page.cuttingPassports.field.layerWeightKg")}>
+              <Field label={t(f.meter_mode ? "passportMeters.layerWeightKg" : "page.cuttingPassports.field.layerWeightKg")}>
                 <input className="input" type="number" step="0.001" placeholder="2.400" value={f.layer_weight_kg} onChange={sf("layer_weight_kg")} />
               </Field>
               <Field label={t("page.cuttingPassports.field.totalLayers")}>
                 <input className="input" type="number" placeholder="48" value={f.total_layers} onChange={sf("total_layers")} />
               </Field>
-              <Field label={t("page.cuttingPassports.field.plannedKgLong")}>
+              <Field label={t(f.meter_mode ? "passportMeters.plannedKgLong" : "page.cuttingPassports.field.plannedKgLong")}>
                 <input className="input" type="number" step="0.001" placeholder="115" value={f.planned_kg} onChange={sf("planned_kg")} />
               </Field>
-              <CalcBox label={t("page.cuttingPassports.field.actualKgLong")} formula={t("page.cuttingPassports.formula.actualKg")}>
+              <CalcBox label={t(f.meter_mode ? "passportMeters.actualKgLong" : "page.cuttingPassports.field.actualKgLong")} formula={t("page.cuttingPassports.formula.actualKg")}>
                 {calc.P ? calc.P.toFixed(3) : "—"}
               </CalcBox>
-              <CalcBox label={t("page.cuttingPassports.field.processedKg")} formula={t("page.cuttingPassports.formula.processedKg")}>
+              <CalcBox label={t(f.meter_mode ? "passportMeters.processedKg" : "page.cuttingPassports.field.processedKg")} formula={t(f.meter_mode ? "passportMeters.formula.processedKg" : "page.cuttingPassports.formula.processedKg")}>
                 {calc.Q ? calc.Q.toFixed(3) : "—"}
               </CalcBox>
               <Field label={t("page.cuttingPassports.field.piecesDetails")}>
@@ -763,7 +1027,7 @@ export default function CuttingPassportsPage() {
           </Sec>
 
           <Sec label={t("page.cuttingPassports.section.fabricMeasurements")}>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
               <Field label={t("page.cuttingPassports.field.fabricWidthM")}>
                 <input className="input" type="number" step="0.01" placeholder="1.80" value={f.fabric_width_m} onChange={sf("fabric_width_m")} />
               </Field>
@@ -783,8 +1047,8 @@ export default function CuttingPassportsPage() {
                   </div>
                 )}
               </Field>
-              <Field label={t("page.cuttingPassports.field.gramageKgM2")}>
-                <input className="input" type="number" step="0.001" placeholder="0.191" value={f.gramage} onChange={sf("gramage")} />
+              <Field label={t(f.meter_mode ? "page.cuttingPassports.field.gramage" : "page.cuttingPassports.field.gramageKgM2")}>
+                {f.meter_mode ? <input className="input" value="M" readOnly aria-label={t("passportMeters.enabled")} /> : <input className="input" type="number" step="0.001" placeholder="0.191" value={f.gramage} onChange={sf("gramage")} />}
               </Field>
               <Field label={t("page.cuttingPassports.field.wastePct")}>
                 <input className="input" type="number" step="0.1" placeholder="15" value={f.waste_pct} onChange={sf("waste_pct")} />
@@ -793,44 +1057,47 @@ export default function CuttingPassportsPage() {
           </Sec>
 
           <Sec label={t("page.cuttingPassports.section.bindingRibanaPerPiece")}>
-            <div className="grid grid-cols-3 gap-3">
-              <CalcBox label={t("page.cuttingPassports.field.bindingTotal")} formula={t("page.cuttingPassports.formula.bindingTotal")}>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
+              <CalcBox label={t(f.meter_mode ? "passportMeters.bindingTotal" : "page.cuttingPassports.field.bindingTotal")} formula={t("page.cuttingPassports.formula.bindingTotal")}>
                 {calc.X ? calc.X.toFixed(4) : "—"}
               </CalcBox>
-              <Field label={t("page.cuttingPassports.field.bindingPerPieceKg")}>
+              <Field label={t(f.meter_mode ? "passportMeters.bindingPerPieceKg" : "page.cuttingPassports.field.bindingPerPieceKg")}>
                 <input className="input" type="number" step="0.0001" placeholder="0.0050" value={f.beka_per_piece_kg} onChange={sf("beka_per_piece_kg")} />
               </Field>
-              <CalcBox label={t("page.cuttingPassports.field.otherBindingTotal")} formula={t("page.cuttingPassports.formula.otherBindingTotal")}>
+              <CalcBox label={t(f.meter_mode ? "passportMeters.otherBindingTotal" : "page.cuttingPassports.field.otherBindingTotal")} formula={t("page.cuttingPassports.formula.otherBindingTotal")}>
                 {calc.Z ? calc.Z.toFixed(4) : "—"}
               </CalcBox>
-              <Field label={t("page.cuttingPassports.field.otherBindingPerPieceKg")}>
+              <Field label={t(f.meter_mode ? "passportMeters.otherBindingPerPieceKg" : "page.cuttingPassports.field.otherBindingPerPieceKg")}>
                 <input className="input" type="number" step="0.0001" placeholder="0.0000" value={f.other_beka_per_piece_kg} onChange={sf("other_beka_per_piece_kg")} />
               </Field>
-              <Field label={t("page.cuttingPassports.field.scrapCuttingKg")}>
+              <Field label={t(f.meter_mode ? "passportMeters.scrapCuttingKg" : "page.cuttingPassports.field.scrapCuttingKg")}>
                 <input className="input" type="number" step="0.001" placeholder="0.000" value={f.scrap_kg} onChange={sf("scrap_kg")} />
               </Field>
-              <CalcBox label={t("page.cuttingPassports.field.ribanaTotal")} formula={t("page.cuttingPassports.formula.ribanaTotal")}>
+              <CalcBox label={t(f.meter_mode ? "passportMeters.ribanaTotal" : "page.cuttingPassports.field.ribanaTotal")} formula={t("page.cuttingPassports.formula.ribanaTotal")}>
                 {calc.AC ? calc.AC.toFixed(4) : "—"}
               </CalcBox>
-              <Field label={t("page.cuttingPassports.field.ribanaPerPieceKg")}>
+              <Field label={t(f.meter_mode ? "passportMeters.ribanaPerPieceKg" : "page.cuttingPassports.field.ribanaPerPieceKg")}>
                 <input className="input" type="number" step="0.0001" placeholder="0.0000" value={f.ribana_per_piece_kg} onChange={sf("ribana_per_piece_kg")} />
               </Field>
             </div>
           </Sec>
 
           <Sec label={t("page.cuttingPassports.section.results")}>
-            <div className="grid grid-cols-3 gap-3">
-              <CalcBox label={t("page.cuttingPassports.field.perPieceGr")} formula={t("page.cuttingPassports.formula.perPieceGr")} highlight>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
+              <CalcBox label={t(f.meter_mode ? "passportMeters.perPieceGr" : "page.cuttingPassports.field.perPieceGr")} formula={t(f.meter_mode ? "passportMeters.formula.perPieceGr" : "page.cuttingPassports.formula.perPieceGr")} highlight>
                 {calc.AE ? calc.AE.toFixed(6) : "—"}
               </CalcBox>
-              <CalcBox label={t("page.cuttingPassports.field.layerGrLong")} formula={t("page.cuttingPassports.formula.layerGr")} highlight>
+              <CalcBox label={t(f.meter_mode ? "passportMeters.layerGrLong" : "page.cuttingPassports.field.layerGrLong")} formula={t(f.meter_mode ? "passportMeters.formula.layerGr" : "page.cuttingPassports.formula.layerGr")} highlight>
                 {calc.AF ? calc.AF.toFixed(6) : "—"}
               </CalcBox>
-              <CalcBox label={t("page.cuttingPassports.field.grossGr")} formula={t("page.cuttingPassports.formula.grossGr")} highlight>
+              <CalcBox label={t(f.meter_mode ? "passportMeters.grossGr" : "page.cuttingPassports.field.grossGr")} formula={t(f.meter_mode ? "passportMeters.formula.grossGr" : "page.cuttingPassports.formula.grossGr")} highlight>
                 {calc.AG ? calc.AG.toFixed(6) : "—"}
               </CalcBox>
             </div>
           </Sec>
+
+            </div>;
+          })}
 
           <Field label={t("page.cuttingPassports.field.notes")}>
             <textarea className="input" rows={2} placeholder={t("page.cuttingPassports.placeholder.notes")} value={f.notes} onChange={sf("notes")} />
@@ -838,9 +1105,9 @@ export default function CuttingPassportsPage() {
 
           {err && <p className="text-sm text-red-600">{err}</p>}
 
-          <div className="flex justify-end gap-2 pt-1">
+          <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
             <button type="button" className="btn" onClick={() => setShowForm(false)}>{t("common.cancel")}</button>
-            <button type="submit" className="btn btn-primary">
+            <button type="submit" className="btn btn-primary" disabled={saving || materialPickerBusy}>
               {editing ? t("common.save") : t("common.create")}
             </button>
           </div>
