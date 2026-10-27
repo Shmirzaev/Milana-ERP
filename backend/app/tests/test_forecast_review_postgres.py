@@ -12,7 +12,9 @@ from threading import Barrier
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import event
+from sqlalchemy.orm import sessionmaker
 
+from app.db.base import Base
 from app.libs.dto.planning.forecast_recommendation_input import ForecastRecommendationIn
 from app.libs.dto.planning.forecast_recommendation_update import ForecastRecommendationPatch
 from app.libs.enums.planning import ForecastRecommendationStatus
@@ -21,9 +23,26 @@ from app.schemas import AuditLog, Brand, Collection, ForecastRecommendation, Ite
 
 @pytest.fixture(scope="module")
 def sessions():
-    # BLOCKED until the independently reviewed shared owned-target guard is
-    # integrated. Never enter the former unguarded create_all/TRUNCATE path.
-    pytest.skip("BLOCKED: reviewed owned PostgreSQL fixture and GO_PG required")
+    from app.tests.pg_approved_instance import (
+        ApprovedInstanceUnavailable, create_target_database, finalize_target,
+        load_approved_instance, require_or_skip, target_engine,
+    )
+
+    try:
+        instance = load_approved_instance()
+    except ApprovedInstanceUnavailable as error:
+        require_or_skip(error)
+        raise AssertionError("require_or_skip must not return")
+    target = create_target_database(instance)
+    engine = None
+    try:
+        engine = target_engine(
+            target, options="-c statement_timeout=15000 -c lock_timeout=8000"
+        )
+        Base.metadata.create_all(engine)
+        yield engine, sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    finally:
+        finalize_target(target, engine)
 
 
 @pytest.fixture
