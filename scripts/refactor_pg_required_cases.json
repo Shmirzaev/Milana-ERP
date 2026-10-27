@@ -219,5 +219,25 @@
       "test_pg_late_missing_reference_rolls_back[supplier]",
       "test_pg_concurrent_conversion_serializes_and_refuses_second"
     ]
-  }
+  },
+  "isolated_supplemental_cases": [
+    "backend/app/tests/test_purchase_request_reject_postgres_followup.py::test_real_postgres_reject_commits_one_canonical_audit[draft]",
+    "backend/app/tests/test_purchase_request_reject_postgres_followup.py::test_real_postgres_reject_commits_one_canonical_audit[pending_approval]",
+    "backend/app/tests/test_purchase_request_reject_postgres_followup.py::test_real_postgres_reject_commits_one_canonical_audit[approved]",
+    "backend/app/tests/test_purchase_request_reject_postgres_followup.py::test_real_postgres_converted_and_missing_requests_refuse_without_effects",
+    "backend/app/tests/test_purchase_request_reject_postgres_followup.py::test_unknown_locked_status_refuses_before_enum_conversion",
+    "backend/app/tests/test_purchase_request_reject_postgres_followup.py::test_real_route_permission_denial_preserves_postgres_state",
+    "backend/app/tests/test_purchase_request_reject_postgres_followup.py::test_queued_real_audit_failure_rolls_back_then_retry_has_one_audit",
+    "backend/app/tests/test_fabric_scan_postgres_followup.py::test_pg_concurrent_same_day_duplicate_uses_unique_violation_recovery",
+    "backend/app/tests/test_fabric_scan_postgres_followup.py::test_pg_tashkent_midnight_route_payload_and_history",
+    "backend/app/tests/test_fabric_scan_postgres_followup.py::test_pg_duplicate_replay_precedes_missing_batch_lookup",
+    "backend/app/tests/test_fabric_scan_postgres_followup.py::test_pg_factory_scope_cut_ect_and_bad_factory_guard[MIL-CUT]",
+    "backend/app/tests/test_fabric_scan_postgres_followup.py::test_pg_factory_scope_cut_ect_and_bad_factory_guard[ECO-ECT]",
+    "backend/app/tests/test_fabric_scan_postgres_followup.py::test_pg_factory_scope_cut_ect_and_bad_factory_guard[BST-None]",
+    "backend/app/tests/test_fabric_scan_postgres_followup.py::test_timestamp_projection_has_literal_legacy_oracles[naive-2026-09-11T18:59:59+00:00]",
+    "backend/app/tests/test_fabric_scan_postgres_followup.py::test_timestamp_projection_has_literal_legacy_oracles[utc-2026-09-11T18:59:59+00:00]",
+    "backend/app/tests/test_fabric_scan_postgres_followup.py::test_timestamp_projection_has_literal_legacy_oracles[offset-2026-09-11T18:59:59+05:30]",
+    "backend/app/tests/test_fabric_scan_postgres_followup.py::test_timestamp_dto_rejects_null_projection_only"
+  ]
+
 }

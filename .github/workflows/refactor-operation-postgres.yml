@@ -40,12 +40,18 @@ jobs:
             --ci-identity "$RUNNER_TEMP/refactor-pg-identity.json" --github-env "$GITHUB_ENV"
       - name: Run every required operation case; fail skipped or missing evidence
         run: python scripts/run_refactor_pg_gate.py --report "$RUNNER_TEMP/refactor-pg-gate.xml"
-      - name: Preserve exact test report
+      - name: Run isolated Purchasing and Fabric PG cases; fail skipped or missing evidence
+        run: >-
+          python scripts/run_refactor_pg_supplement_gate.py
+          --report "$RUNNER_TEMP/purchasing-fabric-pg-gate.xml"
+      - name: Preserve exact test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: refactor-operation-postgres-report
-          path: ${{ runner.temp }}/refactor-pg-gate.xml
+          path: |
+            ${{ runner.temp }}/refactor-pg-gate.xml
+            ${{ runner.temp }}/purchasing-fabric-pg-gate.xml
           if-no-files-found: warn
       - name: Remove only this job's owned container
         if: always()
