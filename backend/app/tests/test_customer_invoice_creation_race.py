@@ -26,6 +26,7 @@ from app.tests.pg_approved_instance import (
     drop_target_database,
     load_approved_instance,
     verify_approved_instance,
+    target_engine,
 )
 
 
@@ -40,16 +41,13 @@ def receipt_race_sessions():
     database = create_target_database(instance)
     engine = None
     try:
-        engine = create_engine(
-            instance.admin_url.set(database=database),
-            connect_args={"options": "-cstatement_timeout=20000 -clock_timeout=10000"},
-        )
+        engine = target_engine(database, options="-cstatement_timeout=20000 -clock_timeout=10000")
         Base.metadata.create_all(engine)
         yield sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     finally:
         if engine is not None:
             engine.dispose()
-        drop_target_database(instance, database)
+        drop_target_database(database)
 
 
 @pytest.fixture
@@ -71,7 +69,7 @@ def _manual(db, entry, ids):
     actor = db.get(User, uid)
     if entry == "finance":
         return issuance.create_order_invoice(db, InvoiceIn(sales_order_id=oid), actor).id
-    return issuance.generate_order_invoice(db, oid, actor)["id"]
+    return issuance.generate_order_invoice(db, oid, actor).id
 
 
 def _receipt(db, ids, amount="25.00", key=None):

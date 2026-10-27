@@ -34,6 +34,7 @@ from app.tests.pg_approved_instance import (
     drop_target_database,
     load_approved_instance,
     verify_approved_instance,
+    target_engine,
 )
 
 import app.schemas  # noqa: F401  — registers every table on Base.metadata
@@ -184,13 +185,13 @@ def pg_sessionmaker():
     database = create_target_database(instance)
     engine = None
     try:
-        engine = create_engine(instance.admin_url.set(database=database), future=True)
+        engine = target_engine(database)
         Base.metadata.create_all(engine)
         yield sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, future=True)
     finally:
         if engine is not None:
             engine.dispose()
-        drop_target_database(instance, database)
+        drop_target_database(database)
 
 
 class _GatedSession(Session):
@@ -246,7 +247,7 @@ def _call_entry_point(entry, db, order_id, user_id):
 def _identity(result):
     if isinstance(result, dict):
         return result["id"], result["invoice_no"], result.get("created_existing")
-    return result.id, result.invoice_no, None
+    return result.id, result.invoice_no, getattr(result, "created_existing", None)
 
 
 def _race(pg_sessionmaker, order_id, user_id, first_entry, second_entry):

@@ -125,3 +125,100 @@ def test_the_cleanup_templates_never_widen_the_boundary():
     assert "like" not in drop
     assert "pg_terminate_backend" not in drop
     assert name in drop
+
+@pytest.mark.parametrize("field,value", [
+    ("admin_dsn", "postgresql+psycopg2://postgres@192.0.2.1:51716/postgres"),
+    ("admin_dsn", "postgresql+psycopg2://postgres@127.0.0.1:51716/other"),
+    ("admin_dsn", "postgresql+psycopg2://postgres@127.0.0.1:51716/postgres?host=other"),
+    ("admin_dsn", "postgresql+psycopg2://postgres@127.0.0.1:51717/postgres"),
+    ("target_prefix", 'review_"evil_'), ("target_prefix", "a" * 52 + "_"),
+])
+def test_unsafe_configuration_is_rejected_before_connect(monkeypatch, field, value):
+    _set_config(monkeypatch, {**APPROVED, field: value})
+    with pytest.raises(ApprovedInstanceUnavailable): load_approved_instance()
+
+@pytest.mark.parametrize("name", ['x";DROP DATABASE other;--', "x" * 64, "UPPER", "x-y"])
+def test_sql_rejects_untrusted_identifiers(name):
+    with pytest.raises(ApprovedInstanceUnavailable): create_database_sql(name)
+    with pytest.raises(ApprovedInstanceUnavailable): drop_database_sql(name)
+
+def test_owned_lifecycle_checks_each_admin_connection_and_refuses_unowned(monkeypatch):
+    from app.tests import pg_approved_instance as guard
+    _set_config(monkeypatch, APPROVED); instance = load_approved_instance(); records = []
+    class Result:
+        def one(self): return _Row(**{**LIVE.__dict__, "database": "postgres"})
+    class Connection:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def execute(self, statement): records.append("preflight"); return Result()
+        def exec_driver_sql(self, sql): records.append(sql)
+    class Engine:
+        def connect(self): return Connection()
+        def dispose(self): records.append("dispose")
+    def engine(*args, **kwargs):
+        assert kwargs["connect_args"]["connect_timeout"] == 5
+        return Engine()
+    monkeypatch.setattr(guard, "create_engine", engine)
+    target = guard.create_target_database(instance); name = guard.owned_target_name(target)
+    guard.drop_target_database(target)
+    assert records == ["preflight", f'CREATE DATABASE "{name}"', "dispose", "preflight", f'DROP DATABASE "{name}"', "dispose"]
+    with pytest.raises(ApprovedInstanceUnavailable): guard.drop_target_database(target)
+    with pytest.raises(ApprovedInstanceUnavailable): guard.drop_target_database(guard.OwnedTarget())
+
+def test_wrong_actual_database_prevents_mutation(monkeypatch):
+    from app.tests import pg_approved_instance as guard
+    _set_config(monkeypatch, APPROVED); instance = load_approved_instance()
+    class Result:
+        def one(self): return _Row(**{**LIVE.__dict__, "database": "wrong"})
+    class Connection:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def execute(self, statement): return Result()
+        def exec_driver_sql(self, sql): pytest.fail("mutated wrong database")
+    class Engine:
+        def connect(self): return Connection()
+        def dispose(self): pass
+    monkeypatch.setattr(guard, "create_engine", lambda *a, **k: Engine())
+    with pytest.raises(ApprovedInstanceUnavailable): guard.create_target_database(instance)
+
+def test_target_engine_checks_every_checkout(monkeypatch):
+    from app.tests import pg_approved_instance as guard
+    _set_config(monkeypatch, APPROVED); instance = load_approved_instance()
+    target = guard.OwnedTarget(); guard._owned_targets[target] = (instance, "review_mm_catalog_0123456789ab")
+    listeners = []
+    class Engine: pass
+    monkeypatch.setattr(guard, "create_engine", lambda *a, **k: Engine())
+    monkeypatch.setattr(guard.event, "listens_for", lambda engine, name: lambda fn: listeners.append(fn) or fn)
+    guard.target_engine(target)
+    class Result:
+        def __init__(self, database): self.database = database
+        def one(self): return _Row(**{**LIVE.__dict__, "database": self.database})
+    class Connection:
+        def __init__(self, database): self.database, self.rolled_back = database, False
+        def execute(self, statement): return Result(self.database)
+        def rollback(self): self.rolled_back = True
+    good = Connection("review_mm_catalog_0123456789ab"); listeners[0](good); assert good.rolled_back
+    bad = Connection("review_mm_catalog_deadbeef1234")
+    with pytest.raises(ApprovedInstanceUnavailable): listeners[0](bad)
+    assert bad.rolled_back
+    del guard._owned_targets[target]
+    with pytest.raises(ApprovedInstanceUnavailable): listeners[0](good)
+
+def test_drop_failure_retains_ownership_and_never_issues_ddl(monkeypatch):
+    from app.tests import pg_approved_instance as guard
+    _set_config(monkeypatch, APPROVED); instance = load_approved_instance()
+    target = guard.OwnedTarget(); guard._owned_targets[target] = (instance, "review_mm_catalog_0123456789ab")
+    class Result:
+        def one(self): return _Row(**{**LIVE.__dict__, "host": "127.0.0.2", "database": "postgres"})
+    class Connection:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def execute(self, statement): return Result()
+        def exec_driver_sql(self, sql): pytest.fail("drop on mismatched server")
+    class Engine:
+        def connect(self): return Connection()
+        def dispose(self): pass
+    monkeypatch.setattr(guard, "create_engine", lambda *a, **k: Engine())
+    with pytest.raises(ApprovedInstanceUnavailable): guard.drop_target_database(target)
+    assert guard.owned_target_name(target) == "review_mm_catalog_0123456789ab"
+    del guard._owned_targets[target]
