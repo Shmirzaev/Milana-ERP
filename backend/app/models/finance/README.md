@@ -12,6 +12,8 @@ pending writers; do not consolidate their differing policies implicitly.
 See the [operation packet](../../../../docs/archive/FINANCE_MANUAL_INVOICE_CREATE_2026-10-27.md)
 for the type ledger and outstanding independent/visual/human gates.
 
+Candidate customer-order projection: the service helper returns canonical `CustomerOrderPaymentStatus`, the response DTO uses that actual type, and the customer page consumes the corresponding dedicated frontend vocabulary. This read-only summary preserves amount and payment-policy decisions, including partial-payment projection, and remains distinct from invoice status and payment status vocabularies. It introduces no persistence operation or invoice lifecycle policy. Combined frontend/browser and applicable backend checks must be recorded for the candidate before AI verification; human acceptance follows separately.
+
 Business-service group guide, relocated into models/ on 24 October 2026. The
 approved extractions now live here as `invoices_service.py`,
 `payments_service.py` and `customer_ledger_service.py`. The shared money,

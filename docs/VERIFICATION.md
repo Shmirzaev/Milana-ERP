@@ -122,6 +122,32 @@ pilot is not system-wide completion.
   independent expected values and per-operation allowed/forbidden cases; deriving
   every expected value from the new enum can conceal a missing or misspelled member.
 
+### Preserve the literal response contract before introducing DTO serialization
+
+Before binding a route's `response_model` or replacing a returned dictionary with
+a Pydantic DTO, record an independent pre-change literal JSON golden from the
+actual response serialization path. Cover naive datetimes, UTC datetimes,
+nonzero-offset datetimes and nulls. Include the exact timestamp strings: legacy
+UTC `+00:00` and Pydantic's default `Z` are different wire values even when they
+describe the same instant. Preserve the existing offset and naive/null behavior
+unless an intentional contract change is explicitly documented and tested.
+
+Expected JSON must not be generated from the candidate DTO, `model_dump`, or the
+candidate object's attributes. That is a circular oracle which can accept the
+same serialization defect in both expected and actual output. Keep literal
+pre-change expectations independent and exercise the actual response path.
+If compatibility needs a serializer, scope it to the affected field or response
+contract and test it; do not add a blanket global base-model override merely to
+make one endpoint match. Document and test intentional canonical-enum HTTP 422
+and OpenAPI changes separately rather than forcing old string-schema parity.
+
+This response-contract gate does not move business services out of `models` or
+permit route-owned persistence. Schema-model operations still share the supplied
+Session, and the service owns the one outer transaction. Automated contract
+evidence precedes actual AI browser/visual verification and persisted readback;
+human visual approval remains a separate later gate. No DTO conversion alone
+completes a module or earns an acceptance badge.
+
 ## 2. Run the right automated checks
 
 Run relevant unit/contract tests, API/integration tests and affected workflow

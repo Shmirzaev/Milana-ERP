@@ -30,6 +30,8 @@ moves its insert into schema-owned persistence and types its actual UI response.
 Existing policies are preserved; independent review, candidate visual checks and
 human acceptance remain separate. It does not complete Finance or the refactor.
 
+The isolated three-operation candidate `1d4f00da` combines Sales confirmation persistence, typed Catalog BOM PATCH persistence and the typed Finance customer-order payment projection. It preserves the complete reviewed author chains and records all source bytes in the integration freeze. The BOM PG ledger still requires 54 cases with the updated canonical-role PATCH node. Source review and individual author tests do not substitute for renewed combined application, PostgreSQL, frontend and actual browser evidence. Human acceptance remains separate. Serving `6f280c6d` does not include these three additions.
+
 ## Source and production
 
 - Shared integration/production branch: clone_main. origin/main is stale for this work.

@@ -25,6 +25,8 @@ See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordi
 The route module is now HTTP-only: it binds input and permissions, calls one
 service function and returns its result.
 
+Candidate operation: `confirm_sales_order` sends the mapped status change through the existing `schemas.sales.sales_order_persistence.set_sales_order_status` operation using `SalesOrderStatus.CONFIRMED`. The service retains its existing business decisions and outer transaction, including its notification and audit participants on the supplied Session. This bounded operation does not certify other Sales writers. Combined PostgreSQL, browser/readback and human acceptance evidence must name the candidate source.
+
 ## Existing code to study first
 
 - Routes: [sales.py](../../api/routes/sales.py).

@@ -3,6 +3,8 @@
 Collection creation's typed status, persistence boundary and retained legacy
 contracts are recorded in [COLLECTION_CREATE_CONTRACT.md](../../../../docs/COLLECTION_CREATE_CONTRACT.md).
 
+Candidate BOM PATCH contract: `ModelBomUpdate.material_role` and the used normalized partial-write type carry `BomMaterialRole | None`. The service preserves omitted fields, existing domain checks and legacy read projection, then calls the Catalog schema persistence helper for assignments on the same row and Session. The helper adds no flush or commit; the existing service owns audit and commit. Padded/case-varied supported roles normalize, while unsupported nonempty roles and blank roles are deliberately rejected by DTO validation with HTTP 422. Historical stored roles remain readable and are not rewritten by unrelated scalar edits. Renewed combined PG/browser checks remain pending; this is not completion of all Catalog operations.
+
 Business-service group guide, relocated into models/ on 24 October 2026. The
 approved product/model extraction now lives here as the service modules below;
 the remaining proposed files describe later approved operation extractions.
