@@ -52,6 +52,7 @@ from app.schemas.sales.sales_order_persistence import (
     create_sales_order_item,
     create_sales_order_row,
     set_sales_order_total,
+    set_sales_order_status,
 )
 
 
@@ -419,7 +420,7 @@ def confirm_sales_order(sid: int, db: Session, current: User):
     if not so: raise HTTPException(404, "Sales order not found")
     if so.status != "draft":
         raise HTTPException(400, f"Cannot confirm order in status '{so.status}'")
-    so.status = "confirmed"
+    set_sales_order_status(db, so, SalesOrderStatus.CONFIRMED)
     notify_department(
         db,
         department_code="PLN",
