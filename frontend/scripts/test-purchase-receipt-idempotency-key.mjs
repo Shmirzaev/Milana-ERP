@@ -16,7 +16,7 @@ const pageSource = readFileSync(PAGE, "utf8");
 // ---------------------------------------------------------------------------
 // Landed backend contract.
 // backend/app/api/routes/purchasing.py:169-225
-// backend/app/services/idempotency.py:14-79
+// backend/app/models/idempotency_service.py
 // ---------------------------------------------------------------------------
 
 const KEY_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
