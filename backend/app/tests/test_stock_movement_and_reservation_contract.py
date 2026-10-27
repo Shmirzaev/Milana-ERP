@@ -25,7 +25,7 @@ from app.libs.enums.inventory import (
     MaterialReservationType,
     StockMovementType,
 )
-from app.schemas import Item, StockBatch, StockMovement, Warehouse
+from app.schemas import Item, StockMovement, Warehouse
 from app.schemas.inventory import material_reservation_persistence, stock_movement_persistence
 
 

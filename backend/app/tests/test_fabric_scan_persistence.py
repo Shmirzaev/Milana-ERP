@@ -2,7 +2,7 @@
 
 Run explicitly with pytest --noconftest. The fixture owns its SQLite database.
 """
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from uuid import uuid4
 
 import pytest

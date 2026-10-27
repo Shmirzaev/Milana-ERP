@@ -19,7 +19,6 @@ import threading
 import uuid
 
 import pytest
-from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.routes import finance as finance_routes
@@ -31,7 +30,6 @@ from app.libs.dto.sales.sales import InvoiceIn
 from app.tests.pg_approved_instance import (
     ApprovedInstanceUnavailable,
     create_target_database,
-    drop_target_database,
     load_approved_instance,
     verify_approved_instance,
     target_engine,

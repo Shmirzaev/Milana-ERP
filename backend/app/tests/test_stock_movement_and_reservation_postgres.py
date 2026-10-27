@@ -23,7 +23,7 @@ from app.libs.enums.inventory import (
 from app.models.inventory import transfers_service
 from app.models.idempotency_service import bind_idempotency_identity
 from app.schemas import AuditLog, Item, Role, StockBatch, StockMovement, User, Warehouse
-from app.schemas.inventory import material_reservation_persistence, stock_movement_persistence
+from app.schemas.inventory import stock_movement_persistence
 from app.tests.pg_approved_instance import (
     ApprovedInstanceUnavailable, create_target_database, finalize_target,
     load_approved_instance, require_or_skip, target_engine,

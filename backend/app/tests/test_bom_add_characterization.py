@@ -30,7 +30,7 @@ from alembic import command
 from alembic.config import Config
 from starlette.responses import JSONResponse
 from app.tests.pg_approved_instance import (
-    ApprovedInstanceUnavailable, create_target_database, drop_target_database,
+    ApprovedInstanceUnavailable, create_target_database,
     load_approved_instance, target_engine, finalize_target, require_or_skip,
 )
 

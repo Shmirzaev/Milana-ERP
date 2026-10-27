@@ -30,7 +30,7 @@ from app.models import inventory_access_service as inventory_access
 from app.libs.dto.purchasing.purchase_order_output import PurchaseOrderCreationOut
 from app.models import purchasing_service as purchasing_core
 from app.models.image_storage_service import store_uploaded_image
-from app.schemas import Item, PurchaseOrder, PurchaseRequest, PurchaseRequestLine, User
+from app.schemas import Item, PurchaseRequest, PurchaseRequestLine, User
 
 def list_purchase_requests(db: Session, *, user: User) -> list[PurchaseRequest]:
     """The purchase requests the caller may see, newest first.

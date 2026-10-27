@@ -1,6 +1,5 @@
 """Purchasing receipt QC typing, old retry fingerprints, and persisted values."""
 from copy import deepcopy
-from decimal import Decimal
 from typing import get_type_hints
 
 import pytest
@@ -8,13 +7,13 @@ from pydantic import BaseModel, Field
 from app.libs.dto.common import StoredUnitCost
 from app.libs.dto.purchasing.purchase_quantity import PurchaseReceiptQuantity
 
-from app.libs.dto.purchasing.purchase_order_input import PurchaseOrderReceiveIn, PurchaseOrderReceiveLineIn
+from app.libs.dto.purchasing.purchase_order_input import PurchaseOrderReceiveLineIn
 from app.libs.enums.inventory import StockBatchQcStatus
 from app.libs.types.purchasing import PurchaseOrderReceiptLineCommand
 from app.models.idempotency_service import request_fingerprint
 from app.schemas import IdempotencyRecord, StockBatch
 from app.db import session as session_module
-from app.tests.test_purchase_receipt_idempotency import receipt_order, receive, receipt_state
+from app.tests.test_purchase_receipt_idempotency import receipt_order as receipt_order, receive, receipt_state
 
 # Recreate the previous input's string field independently from the new enum.
 class LegacyLine(BaseModel):

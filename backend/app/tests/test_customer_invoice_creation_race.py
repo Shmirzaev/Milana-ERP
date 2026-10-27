@@ -10,7 +10,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import event, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.base import Base
@@ -23,7 +23,6 @@ from app.schemas import AuditLog, Customer, IdempotencyRecord, Invoice, Payment,
 from app.tests.pg_approved_instance import (
     ApprovedInstanceUnavailable,
     create_target_database,
-    drop_target_database,
     load_approved_instance,
     verify_approved_instance,
     target_engine,
