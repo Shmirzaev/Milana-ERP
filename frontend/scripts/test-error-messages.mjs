@@ -19,7 +19,7 @@ for (const lang of ["ru", "uz"]) {
   }
 }
 // Every warehouse deletion conflict must reach the user with its specific reason.
-const deletionSource = fs.readFileSync("../backend/app/services/warehouse_packages.py", "utf8").split("def delete_warehouse_package")[1];
+const deletionSource = fs.readFileSync("../backend/app/models/warehouse_packages_service.py", "utf8").split("def delete_warehouse_package")[1];
 const deletionReasons = [...deletionSource.matchAll(/"((?:Package |Only packages )[^"\n]+)"/g)]
   .map(match => match[1]).filter(reason => reason !== "Package not found");
 assert.equal(deletionReasons.length, 17);
