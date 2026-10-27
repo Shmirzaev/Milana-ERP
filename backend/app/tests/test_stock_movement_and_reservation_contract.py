@@ -4,12 +4,15 @@ The vocabularies are checked against the column CHECK constraints they belong
 to, so the enum and the stored column cannot drift apart.
 """
 from datetime import datetime, timezone
+from inspect import signature
+from typing import Any, get_args, get_type_hints
 from uuid import uuid4
 
 import pytest
 
 from app.db.session import SessionLocal
 from app.libs.dto.inventory.material_reservation_input import MaterialReservationIn
+from app.libs.dto.inventory.reservation_type_selection import DeferredReservationType
 from app.libs.dto.inventory.material_reservation_output import (
     MaterialReservationOut,
     MaterialReservationPlanRow,
@@ -51,10 +54,67 @@ def test_reservation_vocabularies_are_the_column_check_constraints():
 def test_used_contracts_carry_the_enum_classes():
     assert StockMovementIn.model_fields["movement_type"].annotation is StockMovementType
     assert StockMovementOut.model_fields["movement_type"].annotation is StockMovementType
-    assert MaterialReservationIn.model_fields["reservation_type"].annotation is MaterialReservationType
+    _assert_reservation_type_annotation(MaterialReservationIn.model_fields["reservation_type"].annotation)
     assert MaterialReservationOut.model_fields["status"].annotation is MaterialReservationStatus
     assert MaterialReservationOut.model_fields["reservation_type"].annotation is MaterialReservationType
     assert MaterialReservationOut.model_fields["source"].annotation is MaterialReservationSource
+
+
+def _assert_reservation_type_annotation(annotation):
+    assert annotation == MaterialReservationType | None
+    assert set(get_args(annotation)) == {MaterialReservationType, type(None)}
+
+
+@pytest.mark.parametrize("annotation", [str, Any, str | None, MaterialReservationType | str, MaterialReservationType | Any])
+def test_reservation_type_annotation_guard_rejects_string_and_any(annotation, monkeypatch):
+    monkeypatch.setattr(MaterialReservationIn.model_fields["reservation_type"], "annotation", annotation)
+    with pytest.raises(AssertionError):
+        test_used_contracts_carry_the_enum_classes()
+
+
+@pytest.mark.parametrize("raw,expected", [
+    (" material ", MaterialReservationType.MATERIAL),
+    (" accessory ", MaterialReservationType.ACCESSORY),
+    (" packaging ", MaterialReservationType.PACKAGING),
+])
+def test_reservation_input_preserves_raw_retry_value_and_yields_enum(raw, expected):
+    payload = MaterialReservationIn(production_order_id=1, item_id=2, reserved_quantity=1, unit="kg", reservation_type=raw)
+    assert payload.reservation_type is expected
+    assert payload.reservation_type_selection() is expected
+    assert payload.legacy_request_payload(mode="json")["reservation_type"] == raw
+
+
+def test_reservation_input_default_fallback_and_invalid_are_distinct():
+    from fastapi import HTTPException
+    from pydantic import ValidationError
+    from app.models.inventory_service import _reservation_type_member
+
+    base = dict(production_order_id=1, item_id=2, reserved_quantity=1, unit="kg")
+    default = MaterialReservationIn(**base)
+    assert default.reservation_type is MaterialReservationType.MATERIAL
+    assert default.legacy_request_payload(mode="json")["reservation_type"] == "material"
+    fallback = MaterialReservationIn(**base, reservation_type="")
+    invalid = MaterialReservationIn(**base, reservation_type="unknown")
+    assert fallback.reservation_type is None and invalid.reservation_type is None
+    assert fallback.reservation_type_selection() is DeferredReservationType.FALLBACK
+    assert invalid.reservation_type_selection() is DeferredReservationType.INVALID
+    assert fallback.legacy_request_payload(mode="json")["reservation_type"] == ""
+    assert invalid.legacy_request_payload(mode="json")["reservation_type"] == "unknown"
+    assert _reservation_type_member(fallback.reservation_type_selection(), "accessory") is MaterialReservationType.ACCESSORY
+    with pytest.raises(HTTPException) as error:
+        _reservation_type_member(invalid.reservation_type_selection(), "accessory")
+    assert (error.value.status_code, error.value.detail) == (400, "Invalid reservation_type")
+    with pytest.raises(ValidationError):
+        MaterialReservationIn(**base, reservation_type=None)
+
+
+def test_reservation_schema_insert_requires_canonical_type_annotation():
+    from app.models.inventory_service import _ReservationCreateValues
+
+    assert signature(material_reservation_persistence.insert_material_reservation).parameters["reservation_type"].annotation is MaterialReservationType
+    assert get_type_hints(_ReservationCreateValues)["reservation_type"] is MaterialReservationType
+    assert get_type_hints(_ReservationCreateValues)["status"] is MaterialReservationStatus
+    assert get_type_hints(_ReservationCreateValues)["source"] is MaterialReservationSource
 
 
 def test_plan_readiness_status_is_not_the_reservation_status():
@@ -123,6 +183,8 @@ def test_material_reservation_schema_insert_stores_the_plain_canonical_values():
         assert reservation.reservation_type == "material"
         assert reservation.source == "manual"
         assert type(reservation.status) is str
+        assert type(reservation.reservation_type) is str
+        assert type(reservation.source) is str
         db.rollback()
 
 
