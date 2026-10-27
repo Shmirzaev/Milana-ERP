@@ -9,7 +9,7 @@ from app.libs.enums.catalog import BomMaterialRole
 class ModelBOMUpdate(BaseModel):
     item_id: Optional[int] = None
     material_name: Optional[str] = Field(None, max_length=255)
-    material_role: Optional[BomMaterialRole] = Field(None, max_length=16)
+    material_role: Optional[BomMaterialRole] = None
     stock_batch_id: Optional[int] = None
     size: Optional[str] = None
     color: Optional[str] = None

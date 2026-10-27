@@ -163,7 +163,7 @@ def test_patch_audit_commit_refresh_order_and_raw_role_value(seeded, session_fac
 
         monkeypatch.setattr(db, "commit", commit)
         monkeypatch.setattr(db, "refresh", refresh)
-        model_id, bom_id = seeded
+        model_id, bom_id, *_ = seeded
         model = db.get(Model, model_id)
         model.catalog_scope = "usluga"
         model.factory_code = "ECO"
@@ -217,6 +217,10 @@ def test_update_role_null_and_unknown_extra_fields_keep_legacy_shape():
     schema = ModelBOMUpdate.model_json_schema()
     role_schema = schema["$defs"]["BomMaterialRole"]
     assert role_schema["enum"] == ["main", "secondary"]
+    assert schema["properties"]["material_role"]["anyOf"] == [
+        {"$ref": "#/$defs/BomMaterialRole"},
+        {"type": "null"},
+    ]
     assert "additionalProperties" not in schema
 
 
@@ -469,7 +473,7 @@ def test_service_cannot_bypass_schema_owned_setter(seeded, session_factory, monk
 def test_schema_setter_assigns_only_present_fields_and_serializes_enum(
     seeded, session_factory, monkeypatch
 ):
-    _, bom_id = seeded
+    _, bom_id, *_ = seeded
     with session_factory() as db:
         row = db.get(ModelBOM, bom_id)
         values: NormalizedBomUpdate = {"material_role": BomMaterialRole.SECONDARY, "color": None}
