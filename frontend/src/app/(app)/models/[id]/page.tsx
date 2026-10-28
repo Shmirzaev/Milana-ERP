@@ -1,8 +1,11 @@
 "use client";
+import { formatVariantNumber } from "@/lib/variantDisplay";
+import { errorDetail, localizeError } from "@/lib/errorMessages";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import { Edit3, Plus, Trash2 } from "lucide-react";
 import { fetcher, api } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
@@ -15,14 +18,31 @@ import { compositionTotal, formatComposition, type MaterialComposition } from "@
 import { formatModelComposition } from "@/lib/modelComposition";
 import { oldErpModelInfoFromDetails } from "@/lib/oldErpModelInfo";
 import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
-import { MATERIAL_COLOR_OPTIONS } from "@/lib/materialColors";
+import { prepareModelImageUpload } from "@/lib/imageUpload";
+import { GARMENT_SIZE_OPTIONS, garmentSizeRange, garmentSizeRangeEndOptions } from "@/lib/garmentSizes";
 import { parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 import {
+  BOM_MATERIAL_ROLE_MAIN,
+  BOM_MATERIAL_ROLE_SECONDARY,
+  type BomCreatePayload,
+  type BomCreateResult,
+  type BomMaterialRole,
+} from "@/lib/modelBom";
+import VerticalModelPhoto from "@/components/VerticalModelPhoto";
+import VariantColorSelect from "@/components/VariantColorSelect";
+import PaidOperationsEditor from "@/components/PaidOperationsEditor";
+import { useMe } from "@/lib/auth";
+import {
   createPaidOperation,
+  materializeLegacyPaidOperations,
+  PAID_OPERATION_FACTORIES,
+  paidOperationFactoryFromDepartmentCode,
   paidOperationsFromDetails,
   serializePaidOperations,
+  samePaidProcess,
   withPaidOperations,
   type PaidOperation,
+  type PaidOperationFactory,
   type SectionCode,
 } from "@/lib/modelPaidOperations";
 
@@ -73,6 +93,8 @@ type ImageUploadType = "model" | "pattern";
 type BomSection = "material" | "accessory";
 type BomFormState = {
   item_id: number;
+  material_name: string;
+  material_role: BomMaterialRole;
   stock_batch_id: number;
   size: string;
   color: string;
@@ -104,11 +126,14 @@ type FabricVariant = {
   variant_no?: string | null;
   fabric?: string | null;
   picture_url?: string | null;
+  print_picture_url?: string | null;
   fabric_item_id?: number | null;
   color?: string | null;
+  selling_price?: number | null;
+  selling_price_currency?: string | null;
 };
 
-const MODEL_SIZE_OPTIONS = ["44", "46", "48", "50", "52", "54", "56", "58", "60", "62", "64"];
+const MODEL_SIZE_OPTIONS = GARMENT_SIZE_OPTIONS;
 
 const TAB_KEYS = [
   "page.modelDetail.tab.general",
@@ -149,36 +174,81 @@ function normalizeSizeToken(value: unknown): string {
 }
 
 function emptyBomRow(): BomFormState {
-  return { item_id: 0, stock_batch_id: 0, size: "", color: "", photo_url: "", quantity_per_piece: 1, unit: "kg", waste_percent: 5 };
+  return { item_id: 0, material_name: "", material_role: BOM_MATERIAL_ROLE_MAIN, stock_batch_id: 0, size: "", color: "", photo_url: "", quantity_per_piece: 1, unit: "kg", waste_percent: 5 };
 }
 
 export default function ModelDetail() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const { t, lang } = useT();
   const dialogs = useDialogs();
+  const { me } = useMe();
+  const isUsluga = pathname.startsWith("/usluga/models");
+  const modelApiBase = isUsluga ? "/api/usluga/models" : "/api/models";
+  const modelPageBase = isUsluga ? "/usluga/models" : "/models";
+  const visiblePaidOperationFactories = useMemo<PaidOperationFactory[]>(() => {
+    if (isUsluga) return ["eco_cotton"];
+    const scopedFactory = (me?.role || "").trim().toLowerCase().includes("sewing") && !me?.permissions.includes("*")
+      ? paidOperationFactoryFromDepartmentCode(me?.department_code)
+      : undefined;
+    return scopedFactory ? [scopedFactory] : [...PAID_OPERATION_FACTORIES];
+  }, [isUsluga, me?.department_code, me?.permissions, me?.role]);
   const isNewModel = String(id || "") === "new";
   const isEditable = isNewModel || searchParams.get("mode") === "edit";
   const isNumericId = /^\d+$/.test(String(id || ""));
-  const { data: loadedModel, error: modelError, isLoading: modelLoading, mutate } = useSWR<any>(isNumericId ? `/api/models/${id}` : null, fetcher);
-  const { data: variantsData, mutate: mutateVariants } = useSWR<any[]>(isNumericId ? `/api/models/${id}/variants` : null, fetcher);
-  const { data: items } = useSWR<any[]>("/api/inventory/items", fetcher);
-  const { data: brands } = useSWR<any[]>("/api/brands", fetcher);
-  const { data: seasons } = useSWR<string[]>("/api/collections/seasons", fetcher);
-  const { data: employees } = useSWR<any[]>("/api/employees", fetcher);
-  const { data: depts } = useSWR<any[]>("/api/departments", fetcher);
+  const { data: loadedModel, error: modelError, isLoading: modelLoading, mutate } = useSWR<any>(isNumericId ? `${modelApiBase}/${id}` : null, fetcher);
+  const {
+    data: variantPages,
+    mutate: mutateVariants,
+    size: variantPageCount,
+    setSize: setVariantPageCount,
+    isValidating: variantsLoading,
+  } = useSWRInfinite<any[]>(
+    (pageIndex, previousPage) => {
+      if (!isNumericId) return null;
+      if (previousPage && previousPage.length < 50) return null;
+      return `${modelApiBase}/${id}/variants?page=${pageIndex + 1}&page_size=50`;
+    },
+    fetcher,
+  );
   const tabs = TAB_KEYS.map((k) => t(k));
 
   const [tab, setTab] = useState(1);
+  // BOM items and seasons were fetched on every page load, including for the tabs that
+  // never render them. SWR skips a null key, so these are requested only for the tabs
+  // that read them. Tab 3 is "materials" and tab 6 is "other", which is the second place
+  // that splits BOM rows into fabrics and accessories - gating on tab 3 alone would leave
+  // that panel showing every row as a fabric.
+  const needsBomItems = tab === 3 || tab === 6;
+  const { data: items } = useSWR<any[]>(needsBomItems ? `${modelApiBase}/bom-items` : null, fetcher);
+  const { data: brands } = useSWR<any[]>("/api/brands", fetcher);
+  // The season picker is rendered in the general tab only.
+  const { data: seasons } = useSWR<string[]>(tab === 1 ? "/api/collections/seasons" : null, fetcher);
+  // Employees stay unconditional: saveModel resolves the already-selected constructor
+  // and designer from this list, so deferring it could clear a value the operator never
+  // edited. Bounding this list needs a searchable endpoint, which is PERF35-HR.
+  const { data: employees } = useSWR<any[]>("/api/employees", fetcher);
+  const { data: depts } = useSWR<any[]>("/api/departments", fetcher);
+
   const [msg, setMsg] = useState("");
   const [isCloning, setIsCloning] = useState(false);
   const [showVariantForm, setShowVariantForm] = useState(false);
+  const [loadingVariantNumber, setLoadingVariantNumber] = useState(false);
   const [savingVariant, setSavingVariant] = useState(false);
   const [editingVariantId, setEditingVariantId] = useState<number | null>(null);
   const [deletingVariantId, setDeletingVariantId] = useState<number | null>(null);
-  const [variantForm, setVariantForm] = useState({ variant_no: "", fabric_item_id: 0, color: "", picture_url: "" });
+  const [variantForm, setVariantForm] = useState({ variant_no: "", color: "", picture_url: "", print_picture_url: "" });
+  const [suggestedVariantNo, setSuggestedVariantNo] = useState("");
+  const [automaticModelPrefix, setAutomaticModelPrefix] = useState("");
+  const [modelNumberPrefixes, setModelNumberPrefixes] = useState<string[]>([]);
+  const { data: modelNumberPreview, error: modelNumberError } = useSWR<{ model_no: string; prefixes: string[] }>(
+    isNewModel ? `${modelApiBase}/next-number?prefix=${encodeURIComponent(automaticModelPrefix || "XJ")}` : null,
+    fetcher,
+  );
+  const [variantPrintFile, setVariantPrintFile] = useState<File | null>(null);
   const [variantPictureFile, setVariantPictureFile] = useState<File | null>(null);
 
   const [modelForm, setModelForm] = useState<ModelFormState>({
@@ -198,6 +268,12 @@ export default function ModelDetail() {
     sam_minutes: "",
   });
   const [details, setDetails] = useState<ModelDetails>({});
+
+  useEffect(() => {
+    if (modelNumberPreview) setModelNumberPrefixes(modelNumberPreview.prefixes);
+    if (!isNewModel || !automaticModelPrefix || !modelNumberPreview || modelNumberError) return;
+    setModelForm((current) => ({ ...current, model_no: modelNumberPreview.model_no, variant_no: "" }));
+  }, [isNewModel, automaticModelPrefix, modelNumberPreview, modelNumberError]);
 
   const [bomRow, setBomRow] = useState<BomFormState>(() => emptyBomRow());
   const [editingBom, setEditingBom] = useState<{ id: number; section: BomSection } | null>(null);
@@ -223,7 +299,7 @@ export default function ModelDetail() {
     description: "",
     status: "draft",
     sam_minutes: "",
-    details_json: {},
+    details_json: { paid_operations: [] },
     images: [],
     sizes: [],
     colors: [],
@@ -271,8 +347,13 @@ export default function ModelDetail() {
         mold_no: existingQolipNo,
       };
     }
+    nextDetails.paid_operations = serializePaidOperations(materializeLegacyPaidOperations(
+      withoutModelQuantities(paidOperationsFromDetails(nextDetails, !isUsluga)),
+      visiblePaidOperationFactories,
+    ));
+    delete nextDetails.paidOperations;
     setDetails(nextDetails);
-  }, [m]);
+  }, [m, visiblePaidOperationFactories, isUsluga]);
 
   const measurementJson = useMemo(() => buildMeasurementJson(measurementFields), [measurementFields]);
 
@@ -301,9 +382,6 @@ export default function ModelDetail() {
       }))
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [materialItems]);
-  const selectedVariantFabric = useMemo(() => {
-    return materialItems.find((item: any) => Number(item.id) === Number(variantForm.fabric_item_id)) || null;
-  }, [materialItems, variantForm.fabric_item_id]);
   const selectedVariantPictureUrl = variantForm.picture_url || "";
   const accessoryItems = useMemo(() => {
     return (items || []).filter((item: any) => ["accessory", "packaging"].includes(String(item.category || "").toLowerCase()));
@@ -333,7 +411,9 @@ export default function ModelDetail() {
   function editBom(row: any, section: BomSection) {
     setEditingBom({ id: Number(row.id), section });
     setBomRow({
-      item_id: Number(row.item_id || 0),
+      item_id: isUsluga && section === "material" ? 0 : Number(row.item_id || 0),
+      material_name: isUsluga && section === "material" ? String(row.material_name || row.item?.name || "") : "",
+      material_role: isUsluga && section === "material" && row.material_role === BOM_MATERIAL_ROLE_SECONDARY ? BOM_MATERIAL_ROLE_SECONDARY : BOM_MATERIAL_ROLE_MAIN,
       stock_batch_id: section === "material" ? 0 : Number(row.stock_batch_id || 0),
       size: row.size || "",
       color: row.color || "",
@@ -372,7 +452,14 @@ export default function ModelDetail() {
   const netCost = baseCostPerPiece + laborCost + electricityCost + otherCost;
   const targetPrice = netCost * (1 + marginPct / 100);
 
-  const variants = useMemo<FabricVariant[]>(() => (Array.isArray(variantsData) ? variantsData : []), [variantsData]);
+  const variants = useMemo<FabricVariant[]>(() => {
+    const byId = new Map<number, FabricVariant>();
+    for (const page of variantPages || []) {
+      for (const variant of page || []) byId.set(Number(variant.model_id || variant.id), variant);
+    }
+    return Array.from(byId.values());
+  }, [variantPages]);
+  const variantsHaveMore = Boolean(variantPages?.length && variantPages[variantPages.length - 1]?.length === 50);
   const modelingDepartmentIds = useMemo(() => {
     return new Set(
       (depts || [])
@@ -407,7 +494,7 @@ export default function ModelDetail() {
   })), [accessoryItems]);
   const sizeRows = m?.sizes || [];
   const colorRows = m?.colors || [];
-  const primaryImage = (m?.images || []).find((img: any) => img.image_type === "model") || (m?.images || []).find((img: any) => img.is_primary) || (m?.images || [])[0];
+  const primaryImage = m?.primary_image;
   const translatedName = details.translation?.[lang] || (lang === "ru" ? details.translation?.ru : "") || m?.name || "";
   const qolipNoValue = String(
     details.general?.qolip_no
@@ -422,7 +509,7 @@ export default function ModelDetail() {
     () => (m?.images || []).filter((img: any) => String(img.image_type || "").toLowerCase() === "pattern"),
     [m?.images],
   );
-  const paidOperations = useMemo(() => withoutModelQuantities(paidOperationsFromDetails(details)), [details]);
+  const paidOperations = useMemo(() => withoutModelQuantities(paidOperationsFromDetails(details, !isUsluga)), [details, isUsluga]);
   const modelCompositionRows = useMemo(
     () => (details.composition || []).length ? details.composition || [] : [{ name: "", percentage: "" }],
     [details.composition],
@@ -434,11 +521,8 @@ export default function ModelDetail() {
   const oldErpGeneralRows = oldErpModelInfo.general
     ? [
         [t("page.modelDetail.oldErpSourceDate"), oldErpModelInfo.general.sourceDate],
-        [t("page.modelDetail.oldErpSewModelCode"), oldErpModelInfo.general.sewModelCode],
-        [t("page.modelDetail.oldErpProduct"), oldErpModelInfo.general.product],
         [t("page.modelDetail.oldErpOriginalName"), oldErpModelInfo.general.originalName],
-        [t("page.modelDetail.oldErpModelVariant"), oldErpModelInfo.general.modelVariant],
-        [t("page.modelDetail.oldErpDescription"), oldErpModelInfo.general.description],
+        [t("page.modelDetail.oldErpProduct"), oldErpModelInfo.general.product],
         [t("page.modelDetail.oldErpStyle"), oldErpModelInfo.general.style],
         [t("page.modelDetail.oldErpCompany"), oldErpModelInfo.general.company],
         [t("page.modelDetail.oldErpPlanningType"), oldErpModelInfo.general.planningType],
@@ -472,24 +556,29 @@ export default function ModelDetail() {
 
   function updatePaidOperation(id: string, patch: Partial<PaidOperation>) {
     setDetails((current) => {
-      const rows = withoutModelQuantities(paidOperationsFromDetails(current)).map((operation) => (
+      const rows = withoutModelQuantities(paidOperationsFromDetails(current, !isUsluga)).map((operation) => (
         operation.id === id ? { ...operation, ...patch } : operation
       ));
       return withPaidOperations(current, rows);
     });
   }
 
-  function addPaidOperation() {
+  function addPaidOperation(sewingFactory: PaidOperationFactory, template?: { name: string; code: string; section: SectionCode }) {
     setDetails((current) => {
-      const rows = [...withoutModelQuantities(paidOperationsFromDetails(current)), createPaidOperation("model-op")];
+      const existing = withoutModelQuantities(paidOperationsFromDetails(current, !isUsluga));
+      if (template && existing.some(operation => operation.sewingFactory === sewingFactory && samePaidProcess(operation, template))) return current;
+      const rows = [
+        ...existing,
+        { ...createPaidOperation("model-op", 0, sewingFactory),
+          ...(template ? { name: template.name, code: template.code, section: template.section } : {}) },
+      ];
       return withPaidOperations(current, rows);
     });
   }
 
   function removePaidOperation(id: string) {
     setDetails((current) => {
-      const rows = withoutModelQuantities(paidOperationsFromDetails(current));
-      if (rows.length <= 1) return current;
+      const rows = withoutModelQuantities(paidOperationsFromDetails(current, !isUsluga));
       return withPaidOperations(current, rows.filter((operation) => operation.id !== id));
     });
   }
@@ -520,6 +609,10 @@ export default function ModelDetail() {
   }
 
   async function saveModel() {
+    if (isNewModel && automaticModelPrefix && (!modelNumberPreview || modelNumberError)) {
+      await dialogs.notify(t("page.modelDetail.loadError"));
+      return;
+    }
     const selectedBrand = (brands || []).find((b) => Number(b.id) === Number(modelForm.brand_id));
     const constructor = (employees || []).find((e) => Number(e.id) === Number(modelForm.constructor_employee_id));
     const designer = (employees || []).find((e) => Number(e.id) === Number(modelForm.designer_employee_id));
@@ -545,24 +638,30 @@ export default function ModelDetail() {
         ?? details.general?.patternNo
         ?? "",
     ).trim();
+    const normalizedVariantNo = modelForm.variant_no.trim();
+    const normalizedGeneral = {
+      ...details.general,
+      model_no: modelForm.model_no.trim(),
+      variant_no: normalizedVariantNo || undefined,
+      brand: selectedBrand?.name || "",
+      brand_id: modelForm.brand_id || undefined,
+      product_type: modelForm.product_type || "",
+      season: modelForm.season || "",
+      constructor: constructor?.full_name || "",
+      constructor_employee_id: modelForm.constructor_employee_id || undefined,
+      designer: designer?.full_name || "",
+      designer_employee_id: modelForm.designer_employee_id || undefined,
+      qolip_no: normalizedQolipNo,
+      mold_no: normalizedQolipNo,
+    };
+    if (!normalizedVariantNo) {
+      delete normalizedGeneral.variant_no;
+      delete (normalizedGeneral as Record<string, unknown>).variantNo;
+    }
     const normalizedDetails: ModelDetails = {
       ...details,
       composition: normalizedComposition,
-      general: {
-        ...details.general,
-        model_no: modelForm.model_no.trim(),
-        variant_no: modelForm.variant_no.trim(),
-        brand: selectedBrand?.name || "",
-        brand_id: modelForm.brand_id || undefined,
-        product_type: modelForm.product_type || "",
-        season: modelForm.season || "",
-        constructor: constructor?.full_name || "",
-        constructor_employee_id: modelForm.constructor_employee_id || undefined,
-        designer: designer?.full_name || "",
-        designer_employee_id: modelForm.designer_employee_id || undefined,
-        qolip_no: normalizedQolipNo,
-        mold_no: normalizedQolipNo,
-      },
+      general: normalizedGeneral,
       sewing: details.sewing
         ? {
             ...details.sewing,
@@ -586,6 +685,7 @@ export default function ModelDetail() {
     };
     const payload = {
       code: nextCode,
+      ...(isNewModel && automaticModelPrefix ? { automatic_model_prefix: automaticModelPrefix } : {}),
       name: modelForm.name,
       category: modelForm.category || null,
       description: modelForm.description || null,
@@ -600,12 +700,12 @@ export default function ModelDetail() {
       sam_minutes: n(modelForm.sam_minutes),
     };
     if (isNewModel) {
-      const created = await api.post<any>("/api/models", payload);
+      const created = await api.post<any>(modelApiBase, payload);
       setDetails(normalizedDetails);
-      router.replace(`/models/${created.id}?mode=edit`);
+      router.replace(`${modelPageBase}/${created.id}?mode=edit`);
       return;
     }
-    await api.patch(`/api/models/${id}`, payload);
+    await api.patch(`${modelApiBase}/${id}`, payload);
     setModelForm((current) => ({ ...current, code: nextCode }));
     setDetails(normalizedDetails);
     setMsg(t("msg.saved"));
@@ -617,8 +717,8 @@ export default function ModelDetail() {
     if (isNewModel) return;
     setIsCloning(true);
     try {
-      const cloned = await api.post<any>(`/api/models/${id}/clone`);
-      router.push(`/models/${cloned.id}?mode=edit`);
+      const cloned = await api.post<any>(`${modelApiBase}/${id}/clone`);
+      router.push(`${modelPageBase}/${cloned.id}?mode=edit`);
     } catch (e: any) {
       await dialogs.notify(e.message);
     } finally {
@@ -627,22 +727,54 @@ export default function ModelDetail() {
   }
 
   function resetVariantForm() {
-    setVariantForm({ variant_no: "", fabric_item_id: 0, color: "", picture_url: "" });
+    setVariantForm({ variant_no: "", color: "", picture_url: "", print_picture_url: "" });
+    setSuggestedVariantNo("");
     setVariantPictureFile(null);
+    setVariantPrintFile(null);
     setEditingVariantId(null);
     setShowVariantForm(false);
+  }
+
+  async function openNewVariantForm() {
+    if (isNewModel) {
+      await dialogs.notify(t("page.modelDetail.saveGeneralFirst"));
+      setTab(1);
+      return;
+    }
+    setLoadingVariantNumber(true);
+    try {
+      const next = await api.get<{ variant_no: string }>(`${modelApiBase}/${id}/variants/next-number`);
+      const nextVariantNo = String(next.variant_no || "").trim();
+      setVariantForm({
+        variant_no: nextVariantNo,
+        color: "",
+        picture_url: "",
+        print_picture_url: "",
+      });
+      setSuggestedVariantNo(nextVariantNo);
+      setVariantPictureFile(null);
+      setVariantPrintFile(null);
+      setEditingVariantId(null);
+      setShowVariantForm(true);
+    } catch (e: any) {
+      await dialogs.notify(e.message);
+    } finally {
+      setLoadingVariantNumber(false);
+    }
   }
 
   function startEditVariant(variant: FabricVariant) {
     const variantId = Number(variant.model_id || variant.id || 0);
     if (!variantId) return;
+    setSuggestedVariantNo("");
     setVariantForm({
       variant_no: String(variant.variant_no || "").trim(),
-      fabric_item_id: Number(variant.fabric_item_id || 0),
       color: String(variant.color || "").trim(),
       picture_url: String(variant.picture_url || ""),
+      print_picture_url: String(variant.print_picture_url || ""),
     });
     setVariantPictureFile(null);
+    setVariantPrintFile(null);
     setEditingVariantId(variantId);
     setShowVariantForm(true);
   }
@@ -655,37 +787,51 @@ export default function ModelDetail() {
       return;
     }
     const variantNo = variantForm.variant_no.trim();
-    const fabricItemId = Number(variantForm.fabric_item_id || 0);
-    if (!variantNo || (!editingVariantId && !fabricItemId)) {
+    if (!variantNo) {
       await dialogs.notify(t("page.modelDetail.variantRequired"));
       return;
     }
     setSavingVariant(true);
     try {
+      let createdVariantId: number | null = null;
       let uploadedPictureUrl = "";
       if (variantPictureFile) {
         const form = new FormData();
         form.append("file", variantPictureFile);
         const uploadModelId = editingVariantId || Number(id);
-        const uploaded = await api.postForm<{ file_url: string }>(`/api/models/${uploadModelId}/bom-photo/upload`, form);
+        const uploaded = await api.postForm<{ file_url: string }>(`${modelApiBase}/${uploadModelId}/bom-photo/upload`, form);
         uploadedPictureUrl = String(uploaded.file_url || "").trim();
       }
-      const payload: { variant_no: string; fabric_item_id?: number; color?: string; picture_url?: string } = {
-        variant_no: variantNo,
-      };
-      if (fabricItemId) payload.fabric_item_id = fabricItemId;
+      const payload: { variant_no?: string; color?: string; picture_url?: string; print_picture_url?: string } = {};
+      const useAutomaticVariantNumber = !editingVariantId && variantNo === suggestedVariantNo;
+      if (!useAutomaticVariantNumber) payload.variant_no = variantNo;
       if (variantForm.color.trim()) payload.color = variantForm.color.trim();
       if (uploadedPictureUrl) payload.picture_url = uploadedPictureUrl;
+      if (variantPrintFile) {
+        const printForm = new FormData();
+        printForm.append("file", variantPrintFile);
+        const uploaded = await api.postForm<{ file_url: string }>(`${modelApiBase}/${editingVariantId || Number(id)}/bom-photo/upload`, printForm);
+        payload.print_picture_url = uploaded.file_url;
+      }
       if (editingVariantId) {
-        await api.patch(`/api/models/${id}/variants/${editingVariantId}`, payload);
+        await api.patch(`${modelApiBase}/${id}/variants/${editingVariantId}`, payload);
       } else {
-        await api.post(`/api/models/${id}/variants`, payload);
+        const created = await api.post<{ id: number }>(`${modelApiBase}/${id}/variants`, payload);
+        createdVariantId = Number(created.id || 0) || null;
       }
       const wasEditing = Boolean(editingVariantId);
+      const editedCurrentModel = editingVariantId === Number(id);
       resetVariantForm();
       setMsg(wasEditing ? t("page.modelDetail.variantUpdated") : t("page.modelDetail.variantCreated"));
       mutateVariants();
-      mutate();
+      if (!wasEditing && isUsluga && createdVariantId) {
+        router.push(`${modelPageBase}/${createdVariantId}?mode=edit`);
+        return;
+      }
+      // Creating or editing a sibling changes only the bounded variant table.
+      // Reload the much larger model detail payload only when this page's own
+      // variant identity was edited.
+      if (editedCurrentModel) mutate();
     } catch (e: any) {
       await dialogs.notify(e.message);
     } finally {
@@ -699,7 +845,7 @@ export default function ModelDetail() {
     if (!(await dialogs.ask({ message: t("page.modelDetail.deleteVariantConfirm"), tone: "danger" }))) return;
     setDeletingVariantId(variantId);
     try {
-      await api.del(`/api/models/${id}/variants/${variantId}`);
+      await api.del(`${modelApiBase}/${id}/variants/${variantId}`);
       if (editingVariantId === variantId) resetVariantForm();
       setMsg(t("page.modelDetail.variantDeleted"));
       if (Number(id) === variantId) {
@@ -717,28 +863,37 @@ export default function ModelDetail() {
 
   async function addBom(e?: { preventDefault?: () => void }, expectedCategory?: BomSection) {
     e?.preventDefault?.();
+    setMsg("");
     if (isNewModel) {
       await dialogs.notify(t("page.modelDetail.saveGeneralFirst"));
       setTab(1);
       return;
     }
-    const item = itemMap.get(bomRow.item_id);
-    const category = String(item?.category || "").toLowerCase();
-    if (!bomRow.item_id) {
-      await dialogs.notify(t("page.modelDetail.alert.pickItemFirst"));
-      return;
-    }
     const target: BomSection = expectedCategory || "material";
-    if (target === "material" && !["fabric", "semi_finished"].includes(category)) {
-      await dialogs.notify(t("page.modelDetail.alert.materialItemType"));
-      return;
+    const isManualUslugaMaterial = isUsluga && target === "material";
+    if (isManualUslugaMaterial) {
+      if (!bomRow.material_name.trim()) {
+        await dialogs.notify(t("page.modelDetail.alert.enterFabricName"));
+        return;
+      }
+    } else {
+      const item = itemMap.get(bomRow.item_id);
+      const category = String(item?.category || "").toLowerCase();
+      if (!bomRow.item_id) {
+        await dialogs.notify(t("page.modelDetail.alert.pickItemFirst"));
+        return;
+      }
+      if (target === "material" && !["fabric", "semi_finished"].includes(category)) {
+        await dialogs.notify(t("page.modelDetail.alert.materialItemType"));
+        return;
+      }
+      if (target === "accessory" && !["accessory", "packaging"].includes(category)) {
+        await dialogs.notify(t("page.modelDetail.alert.accessoryItemType"));
+        return;
+      }
     }
-    if (target === "accessory" && !["accessory", "packaging"].includes(category)) {
-      await dialogs.notify(t("page.modelDetail.alert.accessoryItemType"));
-      return;
-    }
-    const payload = {
-      item_id: bomRow.item_id,
+    const payload: BomCreatePayload = {
+      item_id: isManualUslugaMaterial ? null : bomRow.item_id,
       stock_batch_id: target === "material" ? null : (bomRow.stock_batch_id || null),
       size: bomRow.size || null,
       color: bomRow.color || null,
@@ -747,11 +902,18 @@ export default function ModelDetail() {
       unit: bomRow.unit,
       waste_percent: n(bomRow.waste_percent),
     };
+    if (isManualUslugaMaterial) payload.material_name = bomRow.material_name.trim();
+    if (isManualUslugaMaterial) payload.material_role = bomRow.material_role;
     const activeEdit = editingBom?.section === target ? editingBom : null;
-    if (activeEdit) {
-      await api.patch(`/api/models/${id}/bom/${activeEdit.id}`, payload);
-    } else {
-      await api.post(`/api/models/${id}/bom`, payload);
+    try {
+      if (activeEdit) {
+        await api.patch(`${modelApiBase}/${id}/bom/${activeEdit.id}`, payload);
+      } else {
+        await api.post<BomCreateResult>(`${modelApiBase}/${id}/bom`, payload);
+      }
+    } catch (error: unknown) {
+      await dialogs.notify(errorDetail(error) || localizeError(""));
+      return;
     }
     resetBomForm();
     setMsg(activeEdit ? t("page.modelDetail.msg.updatedBom") : target === "material" ? t("page.modelDetail.msg.addedToFabrics") : t("page.modelDetail.msg.addedToAccessories"));
@@ -766,7 +928,7 @@ export default function ModelDetail() {
       setTab(1);
       return;
     }
-    await api.post(`/api/models/${id}/sizes`, {
+    await api.post(`${modelApiBase}/${id}/sizes`, {
       size: size.size,
       measurement_json: Object.keys(measurementJson).length ? measurementJson : null,
     });
@@ -782,14 +944,12 @@ export default function ModelDetail() {
       setTab(1);
       return;
     }
-    const startIdx = MODEL_SIZE_OPTIONS.indexOf(modelSizeFrom);
-    const endIdx = MODEL_SIZE_OPTIONS.indexOf(modelSizeTo);
-    if (startIdx < 0 || endIdx < 0 || startIdx > endIdx) {
+    const selectedSizes = garmentSizeRange(modelSizeFrom, modelSizeTo);
+    if (!selectedSizes.length) {
       await dialogs.notify(t("newso.invalidSizeRange"));
       return;
     }
 
-    const selectedSizes = MODEL_SIZE_OPTIONS.slice(startIdx, endIdx + 1);
     const existingSizes = new Set(sizeRows.map((row: any) => normalizeSizeToken(row.size)));
     const missingSizes = selectedSizes.filter((value) => !existingSizes.has(normalizeSizeToken(value)));
     const collapsedRange = `${modelSizeFrom}-${modelSizeTo}`;
@@ -805,11 +965,11 @@ export default function ModelDetail() {
     try {
       await Promise.all(
         [
-          ...missingSizes.map((value) => api.post(`/api/models/${id}/sizes`, {
+          ...missingSizes.map((value) => api.post(`${modelApiBase}/${id}/sizes`, {
             size: value,
             measurement_json: null,
           })),
-          ...collapsedRows.map((row: any) => api.del(`/api/models/${id}/sizes/${row.id}`)),
+          ...collapsedRows.map((row: any) => api.del(`${modelApiBase}/${id}/sizes/${row.id}`)),
         ],
       );
       setMsg(t("page.modelDetail.sizeRangeAdded", {
@@ -838,21 +998,23 @@ export default function ModelDetail() {
     if (imageFile) {
       setUploadingImageType(imageType);
       try {
+        const uploadFile = imageType === "model" ? await prepareModelImageUpload(imageFile) : imageFile;
         const form = new FormData();
-        form.append("file", imageFile);
+        form.append("file", uploadFile);
         form.append("image_type", imageType);
-        await api.postForm(`/api/models/${id}/images/upload`, form);
+        await api.postForm(`${modelApiBase}/${id}/images/upload`, form);
+        setImageFiles((prev) => ({ ...prev, [imageType]: null }));
+        setImageForms((prev) => ({ ...prev, [imageType]: { file_url: "" } }));
+        await Promise.all([mutate(), mutateVariants()]);
+      } catch (error: any) {
+        await dialogs.notify(String(error?.message || localizeError("Image upload failed")));
       } finally {
         setUploadingImageType(null);
       }
-      setImageFiles((prev) => ({ ...prev, [imageType]: null }));
-      setImageForms((prev) => ({ ...prev, [imageType]: { file_url: "" } }));
-      mutate();
-      mutateVariants();
       return;
     }
     if (!imageForm.file_url.trim()) return;
-    await api.post(`/api/models/${id}/images`, {
+    await api.post(`${modelApiBase}/${id}/images`, {
       file_url: imageForm.file_url,
       image_type: imageType,
       is_primary: imageType === "model",
@@ -864,21 +1026,21 @@ export default function ModelDetail() {
 
   async function deleteImage(imageId: number) {
     if (!(await dialogs.ask({ message: t("page.modelDetail.deletePatternConfirm"), tone: "danger" }))) return;
-    await api.del(`/api/models/${id}/images/${imageId}`);
+    await api.del(`${modelApiBase}/${id}/images/${imageId}`);
     mutate();
     mutateVariants();
   }
 
   async function deleteSize(sizeId: number) {
     if (!(await dialogs.ask({ message: t("page.modelDetail.deleteSizeConfirm"), tone: "danger" }))) return;
-    await api.del(`/api/models/${id}/sizes/${sizeId}`);
+    await api.del(`${modelApiBase}/${id}/sizes/${sizeId}`);
     mutate();
     mutateVariants();
   }
 
   async function deleteBom(row: any) {
     if (!(await dialogs.ask({ message: t("page.modelDetail.deleteBomConfirm"), tone: "danger" }))) return;
-    await api.del(`/api/models/${id}/bom/${row.id}`);
+    await api.del(`${modelApiBase}/${id}/bom/${row.id}`);
     if (editingBom?.id === Number(row.id)) resetBomForm();
     setMsg(t("page.modelDetail.msg.deletedBom"));
     mutate();
@@ -947,14 +1109,18 @@ export default function ModelDetail() {
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-[140px_140px_auto] sm:items-end">
           <div>
             <label className="label">{t("newso.sizeFrom")}</label>
-            <select className="input" value={modelSizeFrom} onChange={(e) => setModelSizeFrom(e.target.value)}>
+            <select className="input" aria-label={t("newso.sizeFrom")} value={modelSizeFrom} onChange={(e) => {
+              const next = e.target.value;
+              setModelSizeFrom(next);
+              if (!garmentSizeRangeEndOptions(next).includes(modelSizeTo)) setModelSizeTo(next);
+            }}>
               {MODEL_SIZE_OPTIONS.map((value) => <option key={value} value={value}>{value}</option>)}
             </select>
           </div>
           <div>
             <label className="label">{t("newso.sizeTo")}</label>
-            <select className="input" value={modelSizeTo} onChange={(e) => setModelSizeTo(e.target.value)}>
-              {MODEL_SIZE_OPTIONS.map((value) => <option key={value} value={value}>{value}</option>)}
+            <select className="input" aria-label={t("newso.sizeTo")} value={modelSizeTo} onChange={(e) => setModelSizeTo(e.target.value)}>
+              {garmentSizeRangeEndOptions(modelSizeFrom).map((value) => <option key={value} value={value}>{value}</option>)}
             </select>
           </div>
           <button type="button" className="btn btn-primary" onClick={generateModelSizeRange} disabled={generatingSizeRange}>
@@ -981,20 +1147,21 @@ export default function ModelDetail() {
         subtitle={pageSubtitle}
         actions={(
           <>
-            <Link href="/models" className="btn">{t("page.modelDetail.backToModels")}</Link>
+            <Link href={modelPageBase} className="btn">{isUsluga ? t("usluga.backToModels") : t("page.modelDetail.backToModels")}</Link>
             {!isNewModel && (
               <>
                 <button type="button" className="btn" onClick={cloneModel} disabled={isCloning}>
                   {isCloning ? t("page.models.cloning") : t("btn.clone")}
                 </button>
                 {isEditable
-                  ? <Link href={`/models/${id}`} className="btn">{t("btn.view")}</Link>
-                  : <Link href={`/models/${id}?mode=edit`} className="btn btn-primary">{t("btn.edit")}</Link>}
+                  ? <Link href={`${modelPageBase}/${id}`} className="btn">{t("btn.view")}</Link>
+                  : <Link href={`${modelPageBase}/${id}?mode=edit`} className="btn btn-primary">{t("btn.edit")}</Link>}
               </>
             )}
           </>
         )}
       />
+      {isUsluga && <div className="mb-4 border-y border-[#dedbd0] bg-[#fbfaf6] px-4 py-3 text-sm text-[#56503f]">{t("usluga.modelBoundary")}</div>}
       <div className="card p-4 space-y-4">
         <div className="flex flex-wrap gap-1 border-b border-[#ecebe3] pb-2">
           {tabs.map((label, i) => {
@@ -1011,7 +1178,26 @@ export default function ModelDetail() {
         {tab === 1 && (
           <div className="space-y-3">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div><label className="label">{t("field.modelNo")}</label><input className="input" value={modelForm.model_no} onChange={(e) => setModelForm({ ...modelForm, model_no: e.target.value })} /></div>
+              <div>
+                <label className="label">{t("field.modelNo")}</label>
+                <div className={isNewModel ? "grid grid-cols-[6rem_minmax(0,1fr)] gap-2" : ""}>
+                  {isNewModel && (
+                    <select className="input" aria-label={lang === "ru" ? "Нумерация модели" : lang === "uz" ? "Model raqamlash" : "Model numbering"}
+                      value={automaticModelPrefix} onChange={(e) => {
+                        setAutomaticModelPrefix(e.target.value);
+                        if (e.target.value) setModelForm((current) => ({ ...current, model_no: "", variant_no: "" }));
+                      }}>
+                      <option value="">{lang === "ru" ? "Вручную" : lang === "uz" ? "Qo‘lda" : "Manual"}</option>
+                      {modelNumberPrefixes.map(prefix => <option key={prefix} value={prefix}>{prefix}</option>)}
+                    </select>
+                  )}
+                  <input className="input" aria-label={t("field.modelNo")} readOnly={isNewModel && Boolean(automaticModelPrefix)}
+                    aria-busy={isNewModel && Boolean(automaticModelPrefix) && !modelNumberPreview && !modelNumberError}
+                    placeholder={isNewModel && automaticModelPrefix && !modelNumberPreview && !modelNumberError ? t("common.loading") : undefined}
+                    value={modelForm.model_no} onChange={(e) => setModelForm({ ...modelForm, model_no: e.target.value })} />
+                </div>
+                {isNewModel && automaticModelPrefix && modelNumberError && <div role="alert" className="text-sm text-red-700">{t("page.modelDetail.loadError")}</div>}
+              </div>
               <div><label className="label">{t("common.name")}</label><input className="input" value={modelForm.name} onChange={(e) => setModelForm({ ...modelForm, name: e.target.value })} /></div>
               <div><label className="label">{t("field.category")}</label><input className="input" value={modelForm.category} onChange={(e) => setModelForm({ ...modelForm, category: e.target.value })} /></div>
             </div>
@@ -1079,16 +1265,18 @@ export default function ModelDetail() {
                   href={imagePreviewHref(primaryImage.file_url, primaryImage.file_name || modelForm.name || t("field.picture"))}
                   target="_blank"
                   rel="noreferrer"
-                  className="block h-[72px] w-[72px] overflow-hidden rounded-md border border-[#ded9ca] bg-white"
+                  className="block w-[72px] overflow-hidden rounded-md border border-[#ded9ca] bg-white"
                 >
-                  <img
-                    src={storageThumbnailUrl(primaryImage.file_url, 160)}
+                  <VerticalModelPhoto
+                    src={storageThumbnailUrl(primaryImage.file_url, 320)}
                     alt={primaryImage.file_name || modelForm.name || t("field.picture")}
-                    className="h-full w-full object-cover"
+                    className="w-full"
+                    width={120}
+                    height={160}
                   />
                 </a>
               ) : (
-                <div className="flex h-[72px] w-[72px] items-center justify-center rounded-md border border-dashed border-[#ded9ca] bg-[#f8f6ef] text-[10px] text-[#8a8472]">
+                <div className="flex aspect-[3/4] w-[72px] items-center justify-center rounded-md border border-dashed border-[#ded9ca] bg-[#f8f6ef] text-[10px] text-[#8a8472]">
                   {t("page.models.noPreview")}
                 </div>
               )}
@@ -1184,12 +1372,14 @@ export default function ModelDetail() {
                 <h3 className="font-semibold">{t("page.modelDetail.fabrics")}</h3>
                 <button className="btn btn-primary" type="button" onClick={resetBomForm}>+ {t("page.modelDetail.addToFabrics")}</button>
               </div>
-              <table className="table">
-                <thead><tr><th>{t("common.name")}</th><th>{t("field.composition")}</th><th>{t("page.modelDetail.sizeColor")}</th><th>{t("field.usage")}</th><th>{t("field.unitCost")}</th><th>{t("page.modelDetail.costPerPiece")}</th>{isEditable && <th className="text-right">{t("field.actions")}</th>}</tr></thead>
+              <div className="overflow-x-auto">
+                <table className="table">
+                <thead><tr><th>{t("common.name")}</th>{isUsluga && <th>{t("usluga.fabricRole")}</th>}<th>{t("field.composition")}</th><th>{t("page.modelDetail.sizeColor")}</th><th>{t("field.usage")}</th><th>{t("field.unitCost")}</th><th>{t("page.modelDetail.costPerPiece")}</th>{isEditable && <th className="text-right">{t("field.actions")}</th>}</tr></thead>
                 <tbody>
                   {materialRows.map((r: any) => (
                     <tr key={r.id}>
-                      <td>{r.item?.name || "-"}</td>
+                      <td>{r.material_name || r.item?.name || "-"}</td>
+                      {isUsluga && <td>{r.material_role === BOM_MATERIAL_ROLE_MAIN ? t("usluga.mainFabric") : t("usluga.secondaryFabric")}</td>}
                       <td className="max-w-[260px] text-xs text-[#56503f]">{formatComposition(r.item?.composition) || "-"}</td>
                       <td>{r.size || t("common.all")} / {r.color || t("common.all")}</td>
                       <td>{n(r.quantity_per_piece).toFixed(4)} {r.unit} (+{n(r.waste_percent).toFixed(1)}%)</td>
@@ -1210,16 +1400,38 @@ export default function ModelDetail() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
-              <form onSubmit={(e) => addBom(e, "material")} className="grid grid-cols-1 gap-2 mt-2 md:grid-cols-[minmax(220px,2fr)_repeat(5,minmax(86px,1fr))_auto_auto]">
-                <SearchableSelect
-                  value={selectedMaterialBomValue || null}
-                  options={materialBomOptions}
-                  onChange={(optionValue) => selectMaterialBomOption(Number(optionValue))}
-                  placeholder={t("page.modelDetail.selectItem")}
-                  noResultsText={t("page.search.noMatches")}
-                  required
-                />
+                </table>
+              </div>
+              <form onSubmit={(e) => addBom(e, "material")} className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(220px,2fr)_repeat(6,minmax(86px,1fr))_auto_auto]">
+                {isUsluga ? (
+                  <input
+                    className="input"
+                    value={bomRow.material_name}
+                    onChange={(e) => setBomRow({ ...bomRow, material_name: e.target.value })}
+                    placeholder={t("page.modelDetail.manualFabricName")}
+                    maxLength={255}
+                    required
+                  />
+                ) : (
+                  <SearchableSelect
+                    value={selectedMaterialBomValue || null}
+                    options={materialBomOptions}
+                    onChange={(optionValue) => selectMaterialBomOption(Number(optionValue))}
+                    placeholder={t("page.modelDetail.selectItem")}
+                    noResultsText={t("page.search.noMatches")}
+                    required
+                  />
+                )}
+                {isUsluga && (
+                  <select
+                    className="input"
+                    value={bomRow.material_role}
+                    onChange={(e) => setBomRow({ ...bomRow, material_role: e.target.value === BOM_MATERIAL_ROLE_SECONDARY ? BOM_MATERIAL_ROLE_SECONDARY : BOM_MATERIAL_ROLE_MAIN })}
+                  >
+                    <option value={BOM_MATERIAL_ROLE_MAIN}>{t("usluga.mainFabric")}</option>
+                    <option value={BOM_MATERIAL_ROLE_SECONDARY}>{t("usluga.secondaryFabric")}</option>
+                  </select>
+                )}
                 <input className="input" placeholder={t("page.modelDetail.colorOptional")} value={bomRow.color} onChange={(e) => setBomRow({ ...bomRow, color: e.target.value })} />
                 <input className="input" placeholder={t("page.modelDetail.sizeOptional")} value={bomRow.size} onChange={(e) => setBomRow({ ...bomRow, size: e.target.value })} />
                 <input className="input" type="number" step="0.0001" placeholder={t("page.modelDetail.qtyPerPieceShort")} value={bomRow.quantity_per_piece} onChange={(e) => setBomRow({ ...bomRow, quantity_per_piece: parseNumberInput(e.target.value) })} required />
@@ -1234,7 +1446,8 @@ export default function ModelDetail() {
                 <h3 className="font-semibold">{t("page.modelDetail.accessories")}</h3>
                 <button className="btn" type="button" onClick={resetBomForm}>+ {t("page.modelDetail.addToAccessories")}</button>
               </div>
-              <table className="table">
+              <div className="overflow-x-auto">
+                <table className="table">
                 <thead><tr><th>{t("common.code")}</th><th>{t("common.name")}</th><th>{t("page.modelDetail.sizeColor")}</th><th>{t("field.usage")}</th><th>{t("field.unitCost")}</th><th>{t("page.modelDetail.costPerPiece")}</th>{isEditable && <th className="text-right">{t("field.actions")}</th>}</tr></thead>
                 <tbody>
                   {accessoryRows.map((r: any) => (
@@ -1260,10 +1473,11 @@ export default function ModelDetail() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+                </table>
+              </div>
             </div>
 
-            <form onSubmit={(e) => addBom(e, "accessory")} className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(220px,2fr)_repeat(5,minmax(86px,1fr))_auto_auto]">
+            <form onSubmit={(e) => addBom(e, "accessory")} className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(220px,2fr)_repeat(5,minmax(86px,1fr))_auto_auto]">
               <SearchableSelect
                 value={bomRow.item_id || null}
                 options={accessoryItemOptions}
@@ -1315,44 +1529,22 @@ export default function ModelDetail() {
             {isEditable && (
               <div className="rounded-md border border-[#ecebe3] bg-[#fdfcf8] p-3">
                 {showVariantForm ? (
-                  <form onSubmit={submitVariant} className="grid grid-cols-1 gap-2 md:grid-cols-2 md:items-end xl:grid-cols-[150px_minmax(220px,1fr)_180px_minmax(220px,1fr)_64px_auto_auto]">
+                  <form onSubmit={submitVariant} className="grid grid-cols-1 gap-2 md:grid-cols-2 md:items-end xl:grid-cols-[150px_180px_minmax(220px,1fr)_64px_auto_auto]">
                     <div>
                       <label className="label">{t("field.variantNo")}</label>
                       <input
                         className="input"
                         value={variantForm.variant_no}
                         onChange={(e) => setVariantForm((prev) => ({ ...prev, variant_no: e.target.value }))}
-                        placeholder="V-2146"
-                      />
-                    </div>
-                    <div>
-                      <label className="label" htmlFor="variant-fabric-item">{t("page.cuttingPassports.field.fabric")}</label>
-                      <SearchableSelect
-                        inputId="variant-fabric-item"
-                        value={variantForm.fabric_item_id || null}
-                        options={materialBomOptions}
-                        onChange={(fabricItemId) => {
-                          setVariantForm((prev) => ({ ...prev, fabric_item_id: Number(fabricItemId), picture_url: "" }));
-                          setVariantPictureFile(null);
-                        }}
-                        placeholder={t("page.modelDetail.selectItem")}
-                        noResultsText={t("page.search.noMatches")}
-                        required
+                        placeholder="V-5648"
                       />
                     </div>
                     <div>
                       <label className="label" htmlFor="variant-material-color">{t("field.materialColor")}</label>
-                      <select
-                        id="variant-material-color"
-                        className="input"
+                      <VariantColorSelect
                         value={variantForm.color}
-                        onChange={(event) => setVariantForm((prev) => ({ ...prev, color: event.target.value }))}
-                      >
-                        <option value="">{t("page.receiveStock.selectMaterialColor")}</option>
-                        {MATERIAL_COLOR_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>{t(option.labelKey)}</option>
-                        ))}
-                      </select>
+                        onChange={(color) => setVariantForm((prev) => ({ ...prev, color }))}
+                      />
                     </div>
                     <div>
                       <label className="label" htmlFor="variant-material-picture">{t("page.modelDetail.variantMaterialPicture")}</label>
@@ -1368,15 +1560,15 @@ export default function ModelDetail() {
                       <label className="label">{t("field.picture")}</label>
                       {selectedVariantPictureUrl ? (
                         <a
-                          href={imagePreviewHref(selectedVariantPictureUrl, selectedVariantFabric?.name || t("field.picture"))}
+                          href={imagePreviewHref(selectedVariantPictureUrl, variantForm.variant_no || t("field.picture"))}
                           target="_blank"
                           rel="noreferrer"
                           className="block h-10 w-10 overflow-hidden rounded-md border border-[#ded9ca] bg-white"
                         >
                           <img
                             src={storageThumbnailUrl(selectedVariantPictureUrl, 160)}
-                            alt={selectedVariantFabric?.name || t("field.picture")}
-                            className="h-full w-full object-cover"
+                            alt={variantForm.variant_no || t("field.picture")}
+                            className="h-full w-full object-contain p-1"
                           />
                         </a>
                       ) : (
@@ -1384,6 +1576,17 @@ export default function ModelDetail() {
                           {t("page.models.noPreview")}
                         </div>
                       )}
+                    </div>
+                    <div>
+                      <label className="btn cursor-pointer">
+                        {t("page.modelDetail.addPrint")}
+                        <input type="file" className="sr-only" accept="image/png,image/jpeg,image/webp,image/gif"
+                          disabled={savingVariant} onChange={(event) => setVariantPrintFile(event.target.files?.[0] || null)} />
+                      </label>
+                      {variantPrintFile && <span className="ml-2 text-sm">{variantPrintFile.name}</span>}
+                      {variantForm.print_picture_url && <a href={imagePreviewHref(variantForm.print_picture_url, t("page.modelDetail.printPicture"))} target="_blank" rel="noreferrer">
+                        <img src={storageThumbnailUrl(variantForm.print_picture_url, 160)} alt={t("page.modelDetail.printPicture")} className="h-14 w-14 object-contain" />
+                      </a>}
                     </div>
                     <button className="btn btn-primary" type="submit" disabled={savingVariant}>
                       {savingVariant ? t("common.saving") : editingVariantId ? t("page.modelDetail.saveVariant") : t("page.modelDetail.createVariant")}
@@ -1396,15 +1599,11 @@ export default function ModelDetail() {
                   <button
                     className="btn btn-primary"
                     type="button"
-                    onClick={() => {
-                      setVariantForm({ variant_no: "", fabric_item_id: 0, color: "", picture_url: "" });
-                      setVariantPictureFile(null);
-                      setEditingVariantId(null);
-                      setShowVariantForm(true);
-                    }}
+                    onClick={openNewVariantForm}
+                    disabled={loadingVariantNumber}
                   >
                     <Plus className="h-4 w-4" />
-                    <span>{t("page.modelDetail.addVariant")}</span>
+                    <span>{loadingVariantNumber ? t("common.loading") : t("page.modelDetail.addVariant")}</span>
                   </button>
                 )}
               </div>
@@ -1414,8 +1613,10 @@ export default function ModelDetail() {
                 <thead>
                   <tr>
                     <th>{t("field.picture")}</th>
+                    <th>{t("page.modelDetail.printPicture")}</th>
                     <th>{t("field.variantNo")}</th>
                     <th>{t("page.cuttingPassports.field.fabric")}</th>
+                    <th>{t("page.priceCalculation.sellingPrice")}</th>
                     {isEditable && <th className="text-right">{t("field.actions")}</th>}
                   </tr>
                 </thead>
@@ -1427,8 +1628,8 @@ export default function ModelDetail() {
                       <tr key={variantId || v.code}>
                         <td>
                           {imageUrl ? (
-                            <a href={imagePreviewHref(v.picture_url, v.variant_no || v.code || "")} target="_blank" rel="noreferrer" className="block h-14 w-14 overflow-hidden rounded-md border border-[#ded9ca] bg-white">
-                              <img src={imageUrl} alt={v.variant_no || v.code || t("field.picture")} className="h-full w-full object-cover" />
+                            <a href={imagePreviewHref(v.picture_url, formatVariantNumber(v.variant_no) || v.code || "")} target="_blank" rel="noreferrer" className="block h-14 w-14 overflow-hidden rounded-md border border-[#ded9ca] bg-white">
+                              <img src={imageUrl} alt={formatVariantNumber(v.variant_no) || v.code || t("field.picture")} className="h-full w-full object-contain p-1" />
                             </a>
                           ) : (
                             <div className="flex h-14 w-14 items-center justify-center rounded-md border border-dashed border-[#ded9ca] bg-[#f8f6ef] text-[10px] text-[#8a8472]">
@@ -1436,16 +1637,24 @@ export default function ModelDetail() {
                             </div>
                           )}
                         </td>
+                        <td>{v.print_picture_url ? <a href={imagePreviewHref(v.print_picture_url, t("page.modelDetail.printPicture"))} target="_blank" rel="noreferrer">
+                          <img src={storageThumbnailUrl(v.print_picture_url, 160)} alt={t("page.modelDetail.printPicture")} className="h-14 w-14 object-contain" />
+                        </a> : "-"}</td>
                         <td>
                           {variantId ? (
-                            <Link href={`/models/${variantId}`} className="font-medium text-brand-600 hover:underline">
-                              {v.variant_no || v.code || "-"}
+                            <Link href={`${modelPageBase}/${variantId}`} className="font-medium text-brand-600 hover:underline">
+                              {formatVariantNumber(v.variant_no) || v.code || "-"}
                             </Link>
                           ) : (
-                            v.variant_no || v.code || "-"
+                            formatVariantNumber(v.variant_no) || v.code || "-"
                           )}
                         </td>
                         <td>{v.fabric || "-"}</td>
+                        <td className="font-medium tabular-nums">
+                          {v.selling_price === null || v.selling_price === undefined
+                            ? "-"
+                            : `${v.selling_price_currency === "USD" ? "$" : `${v.selling_price_currency || ""} `}${Number(v.selling_price).toFixed(2)}`}
+                        </td>
                         {isEditable && (
                           <td>
                             <div className="flex justify-end gap-2">
@@ -1476,11 +1685,23 @@ export default function ModelDetail() {
                   })}
                   {variants.length === 0 && (
                     <tr>
-                      <td colSpan={isEditable ? 4 : 3} className="text-sm text-slate-500">{t("page.models.empty")}</td>
+                      <td colSpan={isEditable ? 5 : 4} className="text-sm text-slate-500">{t("page.models.empty")}</td>
                     </tr>
                   )}
                 </tbody>
               </table>
+              {variantsHaveMore && (
+                <div className="border-t border-[#ece8dc] p-3 text-center">
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={variantsLoading}
+                    onClick={() => setVariantPageCount(variantPageCount + 1)}
+                  >
+                    {variantsLoading ? t("common.loading") : t("common.loadMore")}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1497,7 +1718,8 @@ export default function ModelDetail() {
               />
             </div>
             {imageUploadForm("pattern")}
-            <table className="table">
+            <div className="overflow-x-auto">
+              <table className="table">
               <thead><tr><th>{t("field.preview")}</th><th>{t("page.workOrder.imageType")}</th><th>{t("field.filename")}</th><th>{t("field.uploaded")}</th><th>{t("field.actions")}</th></tr></thead>
               <tbody>
                 {patternFiles.map((img: any) => {
@@ -1508,7 +1730,7 @@ export default function ModelDetail() {
                       <td>
                         {isImage ? (
                           <a href={imagePreviewHref(img.file_url, name)} target="_blank" rel="noreferrer" className="block h-14 w-14 overflow-hidden rounded">
-                            <img src={storageThumbnailUrl(img.file_url, 160)} alt={name} className="h-full w-full object-cover" />
+                            <img src={storageThumbnailUrl(img.file_url, 160)} alt={name} className="h-full w-full object-contain p-1" />
                           </a>
                         ) : (
                           <span className="badge">{t("page.modelDetail.file")}</span>
@@ -1526,7 +1748,8 @@ export default function ModelDetail() {
                 })}
                 {patternFiles.length === 0 && <tr><td colSpan={5} className="text-sm text-slate-500">{t("page.modelDetail.noPatternFiles")}</td></tr>}
               </tbody>
-            </table>
+              </table>
+            </div>
           </div>
         )}
 
@@ -1539,11 +1762,11 @@ export default function ModelDetail() {
 
         {tab === 7 && (
           <div className="max-w-3xl rounded-md border border-[#ded9ca] bg-white p-5 shadow-sm print:shadow-none">
-            <div className="grid grid-cols-[140px_1fr] gap-5">
-              <div className="h-40 rounded-md border border-[#ecebe3] bg-[#f8f6ef]">
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-[140px_minmax(0,1fr)]">
+              <div className="aspect-[3/4] rounded-md border border-[#ecebe3] bg-[#f8f6ef]">
                 {primaryImage ? (
                   <a href={imagePreviewHref(primaryImage.file_url, translatedName)} target="_blank" rel="noreferrer" className="block h-full w-full overflow-hidden rounded-md">
-                    <img src={storageThumbnailUrl(primaryImage.file_url, 320)} alt={translatedName} className="h-full w-full object-cover" />
+                    <VerticalModelPhoto src={storageThumbnailUrl(primaryImage.file_url, 640)} alt={translatedName} className="h-full w-full" width={480} height={640} />
                   </a>
                 ) : (
                   <div className="flex h-full items-center justify-center text-xs text-slate-400">{t("page.models.noPreview")}</div>
@@ -1552,7 +1775,7 @@ export default function ModelDetail() {
               <div className="space-y-3">
                 <div>
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    {t("field.modelNo")} {modelForm.model_no || "-"} / {t("field.variantNo")} {modelForm.variant_no || "-"}
+                    {t("field.modelNo")} {modelForm.model_no || "-"} / {t("field.variantNo")} {formatVariantNumber(modelForm.variant_no) || "-"}
                   </div>
                   <div className="text-2xl font-semibold text-[#14110b]">{translatedName}</div>
                   <div className="text-sm text-slate-600">{modelForm.category || "-"} · {modelForm.product_type || "-"}</div>
@@ -1572,7 +1795,7 @@ export default function ModelDetail() {
                     <div>
                       <div className="font-medium">{t("page.modelDetail.fabrics")}</div>
                       <ul className="mt-1 space-y-1">
-                        {materialRows.map((r: any) => <li key={r.id}>{r.item?.name || "-"} · {n(r.quantity_per_piece).toFixed(4)} {r.unit}</li>)}
+                        {materialRows.map((r: any) => <li key={r.id}>{r.material_name || r.item?.name || "-"} · {n(r.quantity_per_piece).toFixed(4)} {r.unit}</li>)}
                         {materialRows.length === 0 && <li className="text-slate-400">-</li>}
                       </ul>
                     </div>
@@ -1593,7 +1816,7 @@ export default function ModelDetail() {
         {tab === 8 && (
           <div className="space-y-2">
             {modelSizeRangeHelper()}
-            <form onSubmit={addSize} className="grid grid-cols-1 md:grid-cols-7 gap-2">
+            <form onSubmit={addSize} className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-7">
               <input className="input" placeholder={t("page.modelDetail.sizeExample")} value={size.size} onChange={(e) => setSize({ ...size, size: e.target.value })} required />
               <input className="input" placeholder={t("page.modelDetail.measurement.chest")} value={measurementFields.chest} onChange={(e) => setMeasurementFields({ ...measurementFields, chest: e.target.value })} />
               <input className="input" placeholder={t("page.modelDetail.measurement.waist")} value={measurementFields.waist} onChange={(e) => setMeasurementFields({ ...measurementFields, waist: e.target.value })} />
@@ -1602,7 +1825,8 @@ export default function ModelDetail() {
               <input className="input" placeholder={t("page.modelDetail.measurement.sleeve")} value={measurementFields.sleeve} onChange={(e) => setMeasurementFields({ ...measurementFields, sleeve: e.target.value })} />
               <button className="btn btn-primary" type="submit">{t("btn.add")}</button>
             </form>
-            <table className="table">
+            <div className="overflow-x-auto">
+              <table className="table">
               <thead><tr><th>{t("field.size")}</th><th>{t("page.modelDetail.measurement.chest")}</th><th>{t("page.modelDetail.measurement.waist")}</th><th>{t("page.modelDetail.measurement.hip")}</th><th>{t("page.modelDetail.measurement.length")}</th><th>{t("page.modelDetail.measurement.sleeve")}</th><th>{t("field.actions")}</th></tr></thead>
               <tbody>
                 {(m.sizes || []).map((s: any) => (
@@ -1617,7 +1841,8 @@ export default function ModelDetail() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+              </table>
+            </div>
           </div>
         )}
 
@@ -1634,167 +1859,15 @@ export default function ModelDetail() {
         )}
 
         {tab === 10 && (
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="font-semibold">{t("page.modelDetail.paidOperations")}</h3>
-              <button type="button" className="btn" onClick={addPaidOperation}>
-                <Plus className="h-4 w-4" />
-                <span>{t("page.modelDetail.addPaidOperation")}</span>
-              </button>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="table min-w-[1540px]">
-                <thead>
-                  <tr>
-                    <th className="w-12">{t("common.use")}</th>
-                    <th>{t("page.modelDetail.sourceOrder")}</th>
-                    <th>{t("page.modelDetail.operationSection")}</th>
-                    <th>{t("page.modelDetail.sourceStage")}</th>
-                    <th>{t("common.code")}</th>
-                    <th>{t("page.modelDetail.operationName")}</th>
-                    <th>{t("page.modelDetail.operationDuration")}</th>
-                    <th>{t("page.modelDetail.ratePerPiece")}</th>
-                    <th>{t("page.modelDetail.operationCurrency")}</th>
-                    <th>{t("page.modelDetail.changeDirection")}</th>
-                    <th>{t("page.modelDetail.finalOperation")}</th>
-                    <th>{t("page.modelDetail.copies")}</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {paidOperations.map((operation) => (
-                    <tr key={operation.id}>
-                      <td>
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4"
-                          checked={operation.selected}
-                          onChange={(e) => updatePaidOperation(operation.id, { selected: e.target.checked })}
-                        />
-                      </td>
-                      <td>
-                        <input
-                          className="input w-20"
-                          type="number"
-                          min={1}
-                          step={1}
-                          value={operation.sourceOrder ?? ""}
-                          onChange={(e) => {
-                            const value = parseNumberInput(e.target.value);
-                            updatePaidOperation(operation.id, {
-                              sourceOrder: value === "" ? undefined : value,
-                            });
-                          }}
-                        />
-                      </td>
-                      <td>
-                        <select
-                          className="input min-w-[130px]"
-                          value={operation.section}
-                          onChange={(e) => updatePaidOperation(operation.id, { section: e.target.value as SectionCode })}
-                        >
-                          <option value="sewing">{t("page.modelDetail.sectionSewing")}</option>
-                          <option value="pressing">{t("page.modelDetail.sectionPressing")}</option>
-                          <option value="packaging">{t("page.modelDetail.sectionPackaging")}</option>
-                        </select>
-                      </td>
-                      <td>
-                        <input
-                          className="input min-w-[120px]"
-                          value={operation.sourceStage || ""}
-                          onChange={(e) => updatePaidOperation(operation.id, { sourceStage: e.target.value })}
-                        />
-                      </td>
-                      <td>
-                        <input
-                          className="input min-w-[120px] font-mono"
-                          value={operation.code}
-                          onChange={(e) => updatePaidOperation(operation.id, { code: e.target.value.toUpperCase() })}
-                        />
-                      </td>
-                      <td>
-                        <input
-                          className="input min-w-[190px]"
-                          value={operation.name}
-                          onChange={(e) => updatePaidOperation(operation.id, { name: e.target.value })}
-                        />
-                      </td>
-                      <td>
-                        <input
-                          className="input w-24"
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={operation.duration || ""}
-                          onChange={(e) => updatePaidOperation(operation.id, { duration: e.target.value })}
-                        />
-                      </td>
-                      <td>
-                        <input
-                          className="input min-w-[110px]"
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          placeholder="0"
-                          value={operation.rate}
-                          onChange={(e) => updatePaidOperation(operation.id, { rate: e.target.value })}
-                        />
-                      </td>
-                      <td>
-                        <input
-                          className="input w-24"
-                          value={operation.currency || ""}
-                          onChange={(e) => updatePaidOperation(operation.id, { currency: e.target.value })}
-                        />
-                      </td>
-                      <td>
-                        <input
-                          className="input min-w-[150px]"
-                          value={operation.changeDirection || ""}
-                          onChange={(e) => updatePaidOperation(operation.id, { changeDirection: e.target.value })}
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4"
-                          checked={operation.finalOperation === true}
-                          onChange={(e) => updatePaidOperation(operation.id, { finalOperation: e.target.checked })}
-                        />
-                      </td>
-                      <td>
-                        <input
-                          className="input w-20"
-                          type="number"
-                          min={1}
-                          value={operation.copies}
-                          onChange={(e) => updatePaidOperation(operation.id, { copies: parseNumberInput(e.target.value) })}
-                        />
-                      </td>
-                      <td>
-                        <button
-                          type="button"
-                          className="icon-btn"
-                          title={t("page.modelDetail.removePaidOperation")}
-                          onClick={() => removePaidOperation(operation.id)}
-                          disabled={paidOperations.length <= 1}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {paidOperations.length === 0 && (
-                    <tr>
-                      <td colSpan={13} className="py-6 text-center text-sm text-slate-500">
-                        {t("page.modelDetail.noPaidOperations")}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <PaidOperationsEditor
+            catalogScope={isUsluga ? "usluga" : "standard"}
+            key={id}
+            operations={paidOperations}
+            visibleFactories={visiblePaidOperationFactories}
+            onAdd={addPaidOperation}
+            onUpdate={updatePaidOperation}
+            onRemove={removePaidOperation}
+          />
         )}
 
         {tab === 11 && (
@@ -1832,4 +1905,5 @@ export default function ModelDetail() {
     </div>
   );
 }
+
 

@@ -422,8 +422,8 @@ const text: Record<Lang, PresentationText> = {
         },
         {
           name: "Finance",
-          scope: "Connect revenue, invoices, payments, order profit, costs, branded-stock value, waste value, and 1C sync.",
-          tools: ["Finance dashboard", "Payments", "Profit", "1C sync"],
+          scope: "Connect revenue, invoices, payments, order profit, costs, branded-stock value, and waste value.",
+          tools: ["Finance dashboard", "Payments", "Profit"],
         },
         {
           name: "HR and payroll",
@@ -750,8 +750,8 @@ const text: Record<Lang, PresentationText> = {
         },
         {
           name: "Финансы",
-          scope: "Выручка, счета, оплаты, прибыль заказа, затраты, стоимость брендов, отходы и синхронизация 1C.",
-          tools: ["Finance dashboard", "Payments", "Profit", "1C sync"],
+          scope: "Выручка, счета, оплаты, прибыль заказа, затраты, стоимость брендов и отходов.",
+          tools: ["Finance dashboard", "Payments", "Profit"],
         },
         {
           name: "HR и зарплата",
@@ -1078,8 +1078,8 @@ const text: Record<Lang, PresentationText> = {
         },
         {
           name: "Moliya",
-          scope: "Tushum, hisob-faktura, to'lov, buyurtma foydasi, xarajat, brend ombor qiymati, chiqindi va 1C sync ulanadi.",
-          tools: ["Finance dashboard", "Payments", "Profit", "1C sync"],
+          scope: "Tushum, hisob-faktura, to'lov, buyurtma foydasi, xarajat, brend ombor qiymati va chiqindi ulanadi.",
+          tools: ["Finance dashboard", "Payments", "Profit"],
         },
         {
           name: "HR va ish haqi",

@@ -68,7 +68,7 @@ def create_access_token(subject: str | int, extra: dict[str, Any] | None = None)
     now = datetime.now(timezone.utc)
     payload: dict[str, Any] = {
         "sub": str(subject),
-        "iat": int(now.timestamp()),
+        "iat": now.timestamp(),
         "exp": int((now + timedelta(minutes=settings.JWT_EXPIRES_MINUTES)).timestamp()),
     }
     if extra:

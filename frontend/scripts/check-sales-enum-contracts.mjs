@@ -1,0 +1,185 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+import ts from "typescript";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+export const expectedStatus = ["draft", "pending_sales_approval", "confirmed", "planning", "planning_approved", "in_production", "production", "cutting", "printing", "sewing", "packaging", "storage", "ready_to_ship", "ready", "reserved", "shipped", "delivered", "closed", "cancelled"];
+const expectedType = ["client_order", "branded_stock_sale", "branded_stock"];
+const expectedSource = ["produce_new", "from_stock", "first_grade"];
+export const sourcePaths = {
+  enums: "src/lib/salesOrderEnums.ts", contracts: "src/lib/salesOrderContracts.ts",
+  list: "src/app/(app)/sales-orders/page.tsx", create: "src/app/(app)/sales-orders/new/page.tsx",
+  grade: "src/app/(app)/sales-orders/first-grade/page.tsx", detail: "src/app/(app)/sales-orders/[id]/page.tsx",
+  history: "src/app/(app)/order-history/page.tsx", customer: "src/app/(app)/customers/[id]/page.tsx",
+};
+export function readSalesSources() {
+  return Object.fromEntries(Object.entries(sourcePaths).map(([key, file]) => [key, readFileSync(path.join(root, file), "utf8")]));
+}
+export function transpile(source) {
+  return ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
+}
+export function enumExports(source) {
+  const exports = {};
+  new Function("exports", transpile(source))(exports);
+  return exports;
+}
+function file(source) { return ts.createSourceFile("source.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX); }
+function declaration(source, name) {
+  const tree = file(source);
+  let found;
+  function visit(node) {
+    if ((ts.isVariableDeclaration(node) || ts.isFunctionDeclaration(node) || ts.isTypeAliasDeclaration(node)) && node.name?.getText(tree) === name) found = node;
+    ts.forEachChild(node, visit);
+  }
+  visit(tree);
+  assert.ok(found, `Missing actual declaration ${name}`);
+  return { node: found, tree };
+}
+function property(source, type, name) {
+  const { node, tree } = declaration(source, type);
+  assert.ok(ts.isTypeLiteralNode(node.type), `${type} must expose its fields`);
+  const member = node.type.members.find((member) => member.name?.getText(tree) === name);
+  assert.ok(member?.type, `Missing ${type}.${name}`);
+  return member.type.getText(tree);
+}
+function assertSalesOrderListRow(source) {
+  const { node, tree } = declaration(source, "SalesOrderListRow");
+  assert.ok(ts.isTypeAliasDeclaration(node), "SalesOrderListRow must be an explicit type alias");
+  const parts = ts.isIntersectionTypeNode(node.type) ? node.type.types : [node.type];
+  assert.equal(parts.length, 2,
+    "SalesOrderListRow must contain only the canonical summary and its list-only shape");
+  const summaries = parts.filter((part) => ts.isTypeReferenceNode(part)
+    && part.typeName.getText(tree) === "SalesOrderSummary");
+  assert.equal(summaries.length, 1,
+  "SalesOrderListRow must inherit the canonical SalesOrderSummary fields");
+  const shapes = parts.filter(ts.isTypeLiteralNode);
+  assert.equal(shapes.length, 1,
+    "SalesOrderListRow must add its fields in one explicit list-only shape");
+  const fields = shapes[0].members.filter(ts.isPropertySignature);
+  const fieldName = (member) => {
+    assert.ok(member.name && (ts.isIdentifier(member.name) || ts.isStringLiteralLike(member.name)),
+      "List field names must be explicit to prove canonical enum inheritance");
+    return member.name.text;
+  };
+  assert.equal(fields.filter((member) => fieldName(member) === "status").length, 0,
+    "SalesOrderListRow must not shadow the inherited Sales status");
+  assert.equal(fields.filter((member) => fieldName(member) === "order_type").length, 0,
+    "SalesOrderListRow must not shadow the inherited Sales order type");
+  const total = fields.find((member) => fieldName(member) === "total_quantity");
+  assert.ok(total?.type, "SalesOrderListRow must retain its stored total_quantity field");
+  assert.equal(total.type.kind, ts.SyntaxKind.NumberKeyword,
+    "SalesOrderListRow.total_quantity must be numeric");
+}
+function assertProductionHistoryBoundary(source) {
+  const { node: history, tree } = declaration(source, "HistoryRow");
+  const branches = [];
+  function visit(node) {
+    if (ts.isTypeLiteralNode(node)) {
+      const tag = node.members.find((member) => member.name?.getText(tree) === "record_type");
+      if (tag?.type && ts.isLiteralTypeNode(tag.type) && ts.isStringLiteral(tag.type.literal)
+          && tag.type.literal.text === "production_order") branches.push(node);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(history.type);
+  assert.equal(branches.length, 1, "History must retain its production_order discriminator");
+
+  // Production may adopt its own enums. Forbid borrowing Sales types rather
+  // than permanently requiring the current unfinished string annotations.
+  const aliases = new Map(tree.statements.filter(ts.isTypeAliasDeclaration).map((node) => [node.name.text, node.type]));
+  const salesNames = new Set(["SalesOrderStatus", "SalesOrderType", "SalesOrderItemSourceType", "SalesOrderCreateType"]);
+  const salesNamespaces = new Set();
+  for (const node of tree.statements) {
+    if (!ts.isImportDeclaration(node) || node.moduleSpecifier.text !== "@/lib/salesOrderEnums") continue;
+    const bindings = node.importClause?.namedBindings;
+    if (bindings && ts.isNamespaceImport(bindings)) salesNamespaces.add(bindings.name.text);
+    if (bindings && ts.isNamedImports(bindings)) {
+      for (const entry of bindings.elements) {
+        if (salesNames.has((entry.propertyName ?? entry.name).text)) salesNames.add(entry.name.text);
+      }
+    }
+  }
+  function borrowsSalesType(node, seen = new Set()) {
+    if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)
+        && ts.isStringLiteral(node.argument.literal)
+        && node.argument.literal.text === "@/lib/salesOrderEnums") return true;
+    if (ts.isTypeReferenceNode(node)) {
+      const name = node.typeName.getText(tree);
+      if (salesNames.has(name)) return true;
+      if (ts.isQualifiedName(node.typeName) && salesNamespaces.has(node.typeName.left.getText(tree))) return true;
+      if (aliases.has(name) && !seen.has(name)
+          && borrowsSalesType(aliases.get(name), new Set([...seen, name]))) return true;
+    }
+    return Boolean(ts.forEachChild(node, (child) => borrowsSalesType(child, seen) || undefined));
+  }
+  for (const name of ["order_type", "status"]) {
+    const member = branches[0].members.find((field) => field.name?.getText(tree) === name);
+    assert.ok(member?.type, `Production history must retain ${name}`);
+    assert.ok(!borrowsSalesType(member.type), `Production history ${name} must not borrow Sales enum types`);
+  }
+}
+export function listFunctions(sources) {
+  const names = ["PRODUCTION_TAB_STATUSES", "INACTIVE_SALES_STATUSES", "matchesTab", "statusClass"];
+  const body = names.map((name) => {
+    const { node, tree } = declaration(sources.list, name);
+    return ts.isFunctionDeclaration(node) ? node.getText(tree) : `const ${node.getText(tree)};`;
+  }).join("\n");
+  return new Function("enums", `const {SalesOrderStatus, SalesOrderType} = enums; ${transpile(body)}; return {${names.join(",")}};`)(enumExports(sources.enums));
+}
+export function creationPayload(source, scope) {
+  const { node, tree } = declaration(source, "payload");
+  const exports = {};
+  new Function("exports", ...Object.keys(scope), transpile(`export const result = (${node.initializer.getText(tree)});`))(exports, ...Object.values(scope));
+  return exports.result;
+}
+export function assertSalesEnumContract(sources) {
+  const enums = enumExports(sources.enums);
+  assert.deepEqual(Object.values(enums.SalesOrderStatus), expectedStatus, "Sales status vocabulary drift");
+  assert.deepEqual(Object.values(enums.SalesOrderType), expectedType, "Sales type vocabulary drift");
+  assert.deepEqual(Object.values(enums.SalesOrderItemSourceType), expectedSource, "Sales line source vocabulary drift");
+  assert.deepEqual(enums.SALES_ORDER_CREATE_TYPES, expectedType.slice(0, 2), "Create must not offer shipment-only branded_stock");
+  assert.equal(declaration(sources.enums, "SALES_ORDER_CREATE_TYPES").node.type.getText(), "readonly SalesOrderCreateType[]");
+  for (const raw of ["client_order", "branded_stock_sale"]) assert.equal(enums.salesOrderCreateType(raw), raw);
+  for (const raw of ["branded_stock", "", " CLIENT_ORDER ", "unknown"]) assert.equal(enums.salesOrderCreateType(raw), null);
+  for (const [type, field, wanted] of [
+    ["SalesOrderSummary", "status", "SalesOrderStatus"], ["SalesOrderSummary", "order_type", "SalesOrderType"],
+    ["SalesOrderItem", "source_type", "SalesOrderItemSourceType"], ["SalesOrderItemInput", "source_type", "SalesOrderItemSourceType"],
+    ["SalesOrderCreateInput", "order_type", "SalesOrderCreateType"],
+  ]) assert.equal(property(sources.contracts, type, field), wanted, `${type}.${field} must use its canonical type`);
+  assertSalesOrderListRow(sources.contracts);
+  assert.match(sources.list, /useLoadMore<\{ rows: SO\[\]; total: number \}>/);
+  assert.match(sources.list, /type SO = SalesOrderListRow;/,
+    "Sales list rows must use the typed list contract that adds total_quantity");
+  assert.match(sources.detail, /useSWR<SalesOrderDetailContract>/);
+  assert.match(sources.create, /useState<SalesOrderCreateType>\(SalesOrderType.CLIENT_ORDER\)/);
+  for (const key of ["create", "grade"]) assert.equal(declaration(sources[key], "payload").node.type.getText(), "SalesOrderCreateInput");
+  for (const key of ["list", "create", "grade", "detail", "history", "customer"]) assert.match(sources[key], /from "@\/lib\/salesOrderEnums";/, `${key} must import its canonical Sales vocabulary`);
+  for (const name of ["PRODUCTION_TAB_STATUSES", "INACTIVE_SALES_STATUSES"]) assert.equal(declaration(sources.list, name).node.type.getText(), "readonly SalesOrderStatus[]");
+  for (const name of ["INVOICE_ACTION_STATUSES", "RESERVED_SALES_STATUSES"]) assert.equal(declaration(sources.detail, name).node.type.getText(), "readonly SalesOrderStatus[]");
+  assert.equal(property(sources.customer, "CustomerOrder", "status"), "SalesOrderStatus");
+  assert.match(sources.history, /record_type: "sales_order"; order_type: SalesOrderType; status: SalesOrderStatus/);
+  assertProductionHistoryBoundary(sources.history);
+  for (const key of ["history", "customer"]) assert.equal(property(sources[key], "InvoiceRow", "status"), "InvoiceStatus", "Invoice remains Finance-owned");
+  const funcs = listFunctions(sources);
+  assert.deepEqual(funcs.PRODUCTION_TAB_STATUSES, ["production", "planning", "confirmed"]);
+  assert.deepEqual(funcs.INACTIVE_SALES_STATUSES, ["closed", "cancelled", "delivered"]);
+  for (const status of [...expectedStatus, "late", "legacy_unknown"]) {
+    const expected = { all: true, production: ["production", "planning", "confirmed"].includes(status), late: status === "late", shipping: status === "ready", draft: status === "draft" };
+    for (const [tab, match] of Object.entries(expected)) assert.equal(funcs.matchesTab({status}, tab), match, `${status}/${tab}`);
+  }
+  for (const orderType of ["client_order", "branded_stock_sale"]) {
+    const scope = { ...enums, customerId: "", orderType, deadline: "", hasPrintingSelected: false, printingInstructions: "untouched", printingAttachments: [], notes: "n", isBrandedOrder: orderType === "branded_stock_sale", BRANDED_PACK_COLOR: "mixed", brandedPackSize: "any", brandId: "", linePacks: row => row.pack_count, linePieces: row => row.quantity, numberOrZero: Number,
+      lines: [{model_id: 2, color: "blue", size: "46", quantity: 3, pack_count: 2, unit_price: "", printing_required: true}] };
+    const payload = creationPayload(sources.create, scope);
+    const pack = orderType === "branded_stock_sale";
+    assert.deepEqual(payload, { customer_id: null, order_type: orderType, deadline: null, printing_instructions: null, printing_attachments: [], notes: "n", items: [{ model_id: 2, color: pack ? "mixed" : "blue", size: pack ? "any" : "46", ...(pack ? {requested_pack_count: 2} : {quantity: 3}), unit_price: null, printing_required: !pack, brand_id: null }] }, "Create payload changed defaults, count policy or omitted source type");
+  }
+  assert.deepEqual(creationPayload(sources.grade, {...enums, customer: "4", selected: [{model_id: 2, color: "blue", size: "46", quantity: "3", price: "0"}]}), {order_type: "branded_stock_sale", customer_id: 4, items: [{model_id: 2, color: "blue", size: "46", quantity: 3, unit_price: 0, source_type: "first_grade"}]});
+  return {status_values: 19, order_types: 3, item_sources: 3, list_policy_cases: 105, creation_payload_cases: 3};
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  console.log(JSON.stringify({result: "PASS", ...assertSalesEnumContract(readSalesSources())}));
+}

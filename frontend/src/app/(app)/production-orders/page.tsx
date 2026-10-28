@@ -1,8 +1,11 @@
 "use client";
-import { useState } from "react";
+import { formatModelVariantCode } from "@/lib/variantDisplay";
+import { useDeferredValue, useState } from "react";
 import Link from "next/link";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import { api, fetcher } from "@/lib/api";
+import { modelOptionsByIdsFetcher, modelOptionsByIdsKey } from "@/lib/useModelOptions";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import { productionTypeLabel, statusLabel } from "@/components/StagePipeline";
@@ -10,7 +13,6 @@ import { useMe, can } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 import { orderReference } from "@/lib/orderRef";
-import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 
 type PO = {
   id: number; production_no: string; order_no?: string | null; sales_order_no?: string | null; production_type: string;
@@ -18,21 +20,33 @@ type PO = {
   deadline: string | null;
 };
 
-const STATUSES = [
-  "new", "planning", "waiting_material", "cutting", "printing", "sewing",
-  "packaging", "finished_storage", "delivered", "closed", "cancelled",
-];
+
+type ProductionOrderPage = { rows: PO[]; total: number; page: number; page_size: number; has_more: boolean };
 
 export default function ProductionOrdersPage() {
   const { me } = useMe();
   const { t } = useT();
   const isAdmin = can(me, "*");
-  const { data, mutate } = useSWR<PO[]>(
-    "/api/production-orders",
+  const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search.trim());
+  const {
+    data: pages,
+    size,
+    setSize,
+    mutate,
+    isValidating,
+  } = useSWRInfinite<ProductionOrderPage>(
+    (index, previousPage) => previousPage && !previousPage.has_more
+      ? null
+      : `/api/production-orders?page=${index + 1}&page_size=50&include_total=true&q=${encodeURIComponent(deferredSearch)}`,
     fetcher,
-    LIVE_DATA_SWR_OPTIONS,
+    { persistSize: false },
   );
-  const { data: models } = useSWR<any[]>("/api/models", fetcher);
+  const data = pages?.flatMap((page) => page.rows) ?? [];
+  const total = pages?.[0]?.total ?? 0;
+  const hasMore = pages?.at(-1)?.has_more ?? false;
+  const modelOptionsKey = modelOptionsByIdsKey(data.map((row) => row.model_id));
+  const { data: models } = useSWR<any[]>(modelOptionsKey, modelOptionsByIdsFetcher);
   const modelMap = new Map((models ?? []).map((m) => [m.id, m]));
 
   const [editing, setEditing] = useState<PO | null>(null);
@@ -50,7 +64,6 @@ export default function ProductionOrdersPage() {
     setEditMsg("");
     try {
       await api.patch(`/api/production-orders/${editing.id}`, {
-        status: edit.status,
         planned_quantity: numberOrZero(edit.planned_quantity),
         deadline: edit.deadline ? new Date(edit.deadline).toISOString() : null,
       });
@@ -62,6 +75,17 @@ export default function ProductionOrdersPage() {
   return (
     <div>
       <PageHeader title={t("page.po.title")} />
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <input
+          className="input h-9 min-w-48 flex-1"
+          aria-label={`${t("common.search")} ${t("page.po.title")}`}
+          placeholder={t("common.search")}
+          maxLength={100}
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+        <span className="text-xs text-slate-500">{data.length} / {total}</span>
+      </div>
       <div className="card overflow-x-auto">
         <table className="table">
           <thead>
@@ -77,7 +101,7 @@ export default function ProductionOrdersPage() {
                 <td className="font-medium">{orderReference(p, p.production_no)}</td>
                 <td><span className="badge badge-blue">{productionTypeLabel(p.production_type, t)}</span></td>
                 <td>
-                  <div className="font-medium text-sm">{modelMap.get(p.model_id)?.code ?? p.model_id}</div>
+                  <div className="font-medium text-sm">{formatModelVariantCode(modelMap.get(p.model_id)?.code) || p.model_id}</div>
                   <div className="text-xs text-slate-500">{modelMap.get(p.model_id)?.name ?? ""}</div>
                 </td>
                 <td>{p.planned_quantity}</td>
@@ -94,14 +118,21 @@ export default function ProductionOrdersPage() {
           </tbody>
         </table>
       </div>
+      {hasMore && (
+        <button
+          className="btn btn-secondary mt-3"
+          disabled={isValidating}
+          onClick={() => setSize(size + 1)}
+        >
+          {isValidating ? t("common.loading") : t("common.loadMore")}
+        </button>
+      )}
 
       <Modal open={!!editing} onClose={() => setEditing(null)} title={t("page.po.editTitle", { productionNo: orderReference(editing, editing?.production_no ?? ""), orderNo: orderReference(editing, editing?.production_no ?? "") })} wide>
         <form onSubmit={saveEdit} className="space-y-3">
           <div>
             <label className="label">{t("field.status")}</label>
-            <select className="input" value={edit.status} onChange={(e) => setEdit({ ...edit, status: e.target.value })}>
-              {STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s, t)}</option>)}
-            </select>
+            <div className="input">{statusLabel(edit.status, t)}</div>
           </div>
           <div>
             <label className="label">{t("field.plannedQty")}</label>

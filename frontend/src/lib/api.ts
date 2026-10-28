@@ -1,3 +1,15 @@
+import { ApiError, errorDetail } from "./errorMessages";
+
+// Downloads retain their existing fetch options and timeout behavior.
+// Browser network failures use the same localized messages as JSON requests.
+export async function fetchResponse(url: string, init: RequestInit = {}): Promise<Response> {
+  try { return await fetch(url, init); }
+  catch (error) {
+    if (error instanceof TypeError) throw new ApiError(0, "Failed to fetch");
+    throw error;
+  }
+}
+
 function resolveUrl(path: string): string {
   if (path.startsWith("http")) return path;
   const normalized = path.startsWith("/") ? path : `/${path}`;
@@ -5,30 +17,44 @@ function resolveUrl(path: string): string {
 }
 
 
-async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 12_000) {
+async function fetchWithTimeout<T>(
+  url: string, init: RequestInit, timeoutMs: number, consume: (response: Response) => Promise<T>,
+): Promise<T> {
   const controller = new AbortController();
+  const callerSignal = init.signal;
+  const abortFromCaller = () => controller.abort(callerSignal?.reason);
+  if (callerSignal?.aborted) abortFromCaller();
+  else callerSignal?.addEventListener("abort", abortFromCaller, { once: true });
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const cacheOptions =
-      (init.method || "GET").toUpperCase() === "GET" && init.cache === undefined
-        ? { cache: "no-store" as RequestCache }
-        : {};
-    return await fetch(url, {
-      credentials: "same-origin",
-      ...cacheOptions,
-      ...init,
-      signal: controller.signal,
-    });
+    const response = await fetch(url, { credentials: "same-origin", ...init, signal: controller.signal });
+    // fetch resolves at headers. Keep cancellation active until the body is read.
+    const result = await consume(response);
+    controller.signal.throwIfAborted();
+    return result;
   } catch (err: any) {
-    if (err?.name === "AbortError") {
-      throw new Error(
-        `Backend is not responding. Check backend server and frontend API proxy settings (NEXT_PUBLIC_API_URL/API_URL). Request: ${url}`
-      );
+    if (controller.signal.aborted || err?.name === "AbortError") {
+      if (callerSignal?.aborted) callerSignal.throwIfAborted();
+      throw new ApiError(504, "Request timed out");
     }
+    if (err instanceof TypeError) throw new ApiError(0, "Failed to fetch");
     throw err;
   } finally {
     clearTimeout(timeout);
+    callerSignal?.removeEventListener("abort", abortFromCaller);
   }
+}
+
+async function readJson<T>(res: Response): Promise<T> {
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      detail = errorDetail(await res.json()) || detail || "Request failed";
+    } catch {}
+    throw new ApiError(res.status, detail);
+  }
+  if (res.status === 204) return undefined as T;
+  return res.json();
 }
 
 function sleep(ms: number) {
@@ -38,7 +64,7 @@ function sleep(ms: number) {
 function isTransientNetworkError(message: string): boolean {
   const m = (message || "").toLowerCase();
   return (
-    m.includes("backend is not responding") ||
+    m.includes("backend is not responding") || m.includes("request timed out") ||
     m.includes("failed to fetch") ||
     m.includes("networkerror") ||
     m.includes("network error") ||
@@ -72,48 +98,37 @@ async function request<T = any>(path: string, init: RequestInit = {}, timeoutMs 
 
   // Use Next.js rewrite proxy: paths starting with /api or /storage are proxied
   const url = resolveUrl(path);
-  const res = await fetchWithTimeout(url, { ...init, headers }, timeoutMs);
-  if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const body = await res.json();
-      detail = body.detail || JSON.stringify(body);
-    } catch {}
-    throw new Error(`${res.status}: ${detail}`);
-  }
-  if (res.status === 204) return undefined as any;
-  return res.json();
+  return fetchWithTimeout(url, { ...init, headers }, timeoutMs, readJson<T>);
 }
 
 export const api = {
   get: <T = any>(p: string, timeoutMs?: number) => request<T>(p, { method: "GET" }, timeoutMs),
+  getWithSignal: <T = any>(p: string, signal: AbortSignal, timeoutMs?: number) =>
+    request<T>(p, { method: "GET", signal }, timeoutMs),
   post: <T = any>(p: string, body?: any, timeoutMs?: number) =>
     request<T>(p, { method: "POST", body: body !== undefined ? JSON.stringify(body) : undefined }, timeoutMs),
-  postForm: async <T = any>(p: string, form: FormData): Promise<T> => {
-    const res = await fetchWithTimeout(resolveUrl(p), { method: "POST", body: form });
-    if (!res.ok) {
-      let detail = res.statusText;
-      try {
-        const body = await res.json();
-        detail = body.detail || JSON.stringify(body);
-      } catch {}
-      throw new Error(`${res.status}: ${detail}`);
-    }
-    if (res.status === 204) return undefined as any;
-    return res.json();
+  // Additive: a POST that can carry request headers, for endpoints whose
+  // contract is header-based rather than body-based (e.g. Idempotency-Key on
+  // purchase receipt). `request` already merges init.headers, so this cannot
+  // change the behaviour of any existing caller.
+  postWithHeaders: <T = any>(p: string, body?: any, headers?: Record<string, string>, timeoutMs?: number) =>
+    request<T>(
+      p,
+      { method: "POST", headers, body: body !== undefined ? JSON.stringify(body) : undefined },
+      timeoutMs,
+    ),
+  postForm: async <T = any>(p: string, form: FormData, timeoutMs = 60_000): Promise<T> => {
+    return fetchWithTimeout(resolveUrl(p), { method: "POST", body: form }, timeoutMs, readJson<T>);
   },
   patch: <T = any>(p: string, body?: any) =>
     request<T>(p, { method: "PATCH", body: body !== undefined ? JSON.stringify(body) : undefined }),
   put: <T = any>(p: string, body?: any) =>
     request<T>(p, { method: "PUT", body: body !== undefined ? JSON.stringify(body) : undefined }),
-  del: <T = any>(p: string) => request<T>(p, { method: "DELETE" }),
+  del: <T = any>(p: string, body?: unknown) => request<T>(p, { method: "DELETE", body: body !== undefined ? JSON.stringify(body) : undefined }),
 
-  async login(email: string, password: string): Promise<void> {
-    const form = new URLSearchParams();
-    form.set("username", email);
-    form.set("password", password);
+  async login(email: string, password: string, factoryCode: "MIL" | "BST" | "ECO"): Promise<void> {
     const loginEndpoints = [
-      resolveUrl("/api/auth/login"),
+      resolveUrl("/api/auth/login-json"),
     ];
     const maxAttempts = 3;
     let lastTransientError = "";
@@ -124,27 +139,32 @@ export const api = {
             endpoint,
             {
               method: "POST",
-              headers: { "Content-Type": "application/x-www-form-urlencoded" },
-              body: form.toString(),
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email, password, factory_code: factoryCode }),
             },
             20_000,
+            async (response) => {
+              let msg = "Login failed";
+              if (response.ok) {
+                await response.arrayBuffer();
+              } else {
+                try {
+                  if ((response.headers.get("content-type") || "").includes("application/json")) {
+                    msg = errorDetail(await response.json()) || msg;
+                  } else {
+                    msg = (await response.text()).trim().slice(0, 300) || msg;
+                  }
+                } catch {}
+              }
+              return { ok: response.ok, status: response.status, msg };
+            },
           );
           if (res.ok) {
             clearLegacyToken();
             return;
           }
 
-          let msg = "Login failed";
-          try {
-            const contentType = res.headers.get("content-type") || "";
-            if (contentType.includes("application/json")) {
-              const b = await res.json();
-              msg = b.detail || b.message || JSON.stringify(b) || msg;
-            } else {
-              const text = (await res.text()).trim();
-              if (text) msg = text.slice(0, 300);
-            }
-          } catch {}
+          const msg = res.msg;
 
           const shouldRetry =
             res.status === 500 || res.status === 502 || res.status === 503 || res.status === 504;
@@ -152,9 +172,9 @@ export const api = {
             lastTransientError = `${res.status}: ${msg}`;
             continue;
           }
-          throw new Error(msg);
+          throw new ApiError(res.status, msg);
         } catch (err: any) {
-          const message = String(err?.message || "");
+          const message = err instanceof ApiError ? err.rawDetail : String(err?.message || "");
           if (isTransientNetworkError(message)) {
             lastTransientError = message;
             continue;
@@ -164,13 +184,11 @@ export const api = {
       }
       if (attempt < maxAttempts) await sleep(1200 * attempt);
     }
-    throw new Error(
-      lastTransientError ? `Backend is not responding (${lastTransientError})` : "Login failed",
-    );
+    throw new ApiError(503, lastTransientError || "Login failed");
   },
 
   async forgotPassword(email: string): Promise<{ message: string }> {
-    const res = await fetchWithTimeout(
+    return fetchWithTimeout(
       resolveUrl("/api/auth/forgot-password"),
       {
         method: "POST",
@@ -178,20 +196,12 @@ export const api = {
         body: JSON.stringify({ email }),
       },
       60_000,
+      readJson<{ message: string }>,
     );
-    if (!res.ok) {
-      let msg = "Could not send reset request";
-      try {
-        const body = await res.json();
-        msg = body.detail || body.message || msg;
-      } catch {}
-      throw new Error(`${res.status}: ${msg}`);
-    }
-    return res.json();
   },
 
   async resetPassword(token: string, newPassword: string, confirmNewPassword: string): Promise<{ message: string }> {
-    const res = await fetchWithTimeout(
+    return fetchWithTimeout(
       resolveUrl("/api/auth/reset-password"),
       {
         method: "POST",
@@ -203,22 +213,14 @@ export const api = {
         }),
       },
       60_000,
+      readJson<{ message: string }>,
     );
-    if (!res.ok) {
-      let msg = "Could not reset password";
-      try {
-        const body = await res.json();
-        msg = body.detail || body.message || msg;
-      } catch {}
-      throw new Error(`${res.status}: ${msg}`);
-    }
-    return res.json();
   },
 
   async logout() {
     clearToken();
     try {
-      await fetchWithTimeout(resolveUrl("/api/auth/logout"), { method: "POST" }, 8_000);
+      await fetchWithTimeout(resolveUrl("/api/auth/logout"), { method: "POST" }, 8_000, async (res) => { await res.arrayBuffer(); });
     } catch {}
   },
 
@@ -227,17 +229,11 @@ export const api = {
    * new window for printing. We pull the HTML ourselves and inject it into a
    * child window via a Blob URL so the print view does not need bearer tokens.
    */
-  async openLabel(path: string): Promise<void> {
-    const res = await fetchWithTimeout(resolveUrl(path));
-    if (!res.ok) {
-      let detail = res.statusText;
-      try {
-        const body = await res.json();
-        detail = body.detail || JSON.stringify(body);
-      } catch {}
-      throw new Error(`${res.status}: ${detail}`);
-    }
-    const html = await res.text();
+  async openLabel(path: string, method: "GET" | "POST" = "GET"): Promise<void> {
+    const html = await fetchWithTimeout(resolveUrl(path), { method }, 12_000, async (res) => {
+      if (!res.ok) await readJson(res);
+      return res.text();
+    });
     const blob = new Blob([html], { type: "text/html" });
     const url = URL.createObjectURL(blob);
     const win = window.open(url, "_blank", "width=600,height=700");

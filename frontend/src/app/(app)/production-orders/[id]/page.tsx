@@ -2,16 +2,19 @@
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import Link from "next/link";
 import { PackageCheck, RotateCcw } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
+import ModelAsyncSelect from "@/components/ModelAsyncSelect";
+import ProductionOrderSizePlan from "@/components/ProductionOrderSizePlan";
 import { formatBatchLabel } from "@/lib/batchSerial";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import { operationLabel, productionTypeLabel, statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 import { useMe, can } from "@/lib/auth";
-import { orderReference } from "@/lib/orderRef";
+import { formatOrderReference, orderReference } from "@/lib/orderRef";
 import { useDialogs } from "@/components/DialogProvider";
 import { formatComposition, type MaterialComposition } from "@/lib/materialComposition";
 import { formatModelComposition } from "@/lib/modelComposition";
@@ -78,11 +81,21 @@ type ModelSummary = {
   material_composition?: MaterialComposition[] | null;
 };
 
+type ProductionOrderPageContext = {
+  production_order: any;
+  model: ModelSummary | null;
+};
+
 type SalesOrderSummary = {
   id: number;
   order_no?: string | null;
   customer_name?: string | null;
   customer?: { name?: string | null } | null;
+};
+
+type SalesOrderOptionPage = {
+  rows: SalesOrderSummary[];
+  total: number;
 };
 
 type ReservationPlanRow = {
@@ -176,7 +189,7 @@ function modelLabel(model: ModelSummary | undefined, id?: number | null) {
 function salesOrderLabel(order: SalesOrderSummary | undefined, id?: number | null) {
   if (!order) return id ? `#${id}` : "-";
   const customer = order.customer?.name || order.customer_name;
-  return [order.order_no || `#${order.id}`, customer].filter(Boolean).join(" - ");
+  return [formatOrderReference(order.order_no || `#${order.id}`), customer].filter(Boolean).join(" - ");
 }
 
 function SummaryImage({ label, imageUrl }: { label: string; imageUrl?: string | null }) {
@@ -208,30 +221,51 @@ export default function ProductionOrderDetail() {
   const isAdmin = can(me, "*");
   const id = params.id;
   const isNumericId = /^\d+$/.test(String(id || ""));
-  const { data: po, error: poError, isLoading: poLoading, mutate } = useSWR<any>(isNumericId ? `/api/production-orders/${id}` : null, fetcher);
+  const [editing, setEditing] = useState<WO | null>(null);
+  const [openAssignments, setOpenAssignments] = useState<number | null>(null);
+  const { data: pageContext, error: poError, isLoading: poLoading, mutate } = useSWR<ProductionOrderPageContext>(
+    isNumericId ? `/api/production-orders/${id}/page-context` : null,
+    fetcher,
+  );
+  const po = pageContext?.production_order;
   const { data: reservationStatus, mutate: mutateReservationStatus } = useSWR<ReservationStatus>(
     isNumericId ? `/api/production-orders/${id}/material-reservation-status` : null,
     fetcher,
   );
   const { data: flows } = useSWR<Flow[]>("/api/sewing-flows", fetcher);
-  const { data: flowUtil } = useSWR<FlowUtil[]>("/api/sewing-flows/utilization-snapshot", fetcher, { refreshInterval: 60_000 });
-  const { data: users } = useSWR<any[]>(canPlan ? "/api/users" : null, fetcher);
-  const { data: models } = useSWR<ModelSummary[]>("/api/models", fetcher);
-  const { data: salesOrders } = useSWR<SalesOrderSummary[]>("/api/sales-orders?page_size=500", fetcher);
+  const flowUtilKey = editing?.operation === "sewing" || openAssignments !== null
+    ? "/api/sewing-flows/utilization-snapshot"
+    : null;
+  const { data: flowUtil } = useSWR<FlowUtil[]>(flowUtilKey, fetcher, { refreshInterval: 60_000 });
+  const { data: users } = useSWR<any[]>(canPlan && editing ? "/api/users" : null, fetcher);
+  const selectedModelDetail = pageContext?.model || undefined;
   const utilByFlow = new Map((flowUtil || []).map((u) => [u.flow_id, u]));
   const batchById = new Map<number, BatchMeta>(((po?.batches || []) as BatchMeta[]).map((b) => [b.id, b]));
-  const modelById = new Map((models || []).map((m) => [m.id, m]));
-  const salesOrderById = new Map((salesOrders || []).map((so) => [so.id, so]));
-  const selectedModel = modelById.get(Number(po?.model_id));
+  const selectedModel = selectedModelDetail || (
+    po?.model_id && (po?.model_code || po?.model_name)
+      ? { id: Number(po.model_id), code: po.model_code, name: po.model_name }
+      : undefined
+  );
   const selectedModelComposition = formatModelComposition(selectedModel);
   const workOrders = (po?.work_orders || []) as WO[];
   const cuttingWO = workOrders.find((w) => w.operation === "cutting");
   const canEditSummary = canPlan && (!cuttingWO || PRE_CUTTING_EDIT_STATUSES.has(String(cuttingWO.status || "")));
 
-  const [editing, setEditing] = useState<WO | null>(null);
   const [edit, setEdit] = useState({ deadline: "", sewing_flow_id: 0, assigned_to: 0 });
   const [editMsg, setEditMsg] = useState("");
   const [summaryEditing, setSummaryEditing] = useState(false);
+  const [salesOrderSearch, setSalesOrderSearch] = useState("");
+  const [selectedSalesOrderOption, setSelectedSalesOrderOption] = useState<SalesOrderSummary | null>(null);
+  const { data: salesOrderPages, size: salesOrderPageCount, setSize: setSalesOrderPageCount, isValidating: salesOrderPagesValidating } = useSWRInfinite<SalesOrderOptionPage>(
+    (index, previous) => {
+      if (!canEditSummary || !summaryEditing || (previous && (index * 50 >= previous.total))) return null;
+      return `/api/sales-orders?page=${index + 1}&page_size=50&include_total=true&q=${encodeURIComponent(salesOrderSearch)}`;
+    },
+    fetcher,
+  );
+  const salesOrders = salesOrderPages?.flatMap((page) => page.rows) || [];
+  const salesOrderTotal = salesOrderPages?.[0]?.total || 0;
+  const salesOrderById = new Map(salesOrders.map((so) => [so.id, so]));
   const [summaryDraft, setSummaryDraft] = useState({
     model_id: "",
     sales_order_id: "",
@@ -243,7 +277,6 @@ export default function ProductionOrderDetail() {
   });
   const [summaryMsg, setSummaryMsg] = useState("");
   const [summarySaving, setSummarySaving] = useState(false);
-  const [openAssignments, setOpenAssignments] = useState<number | null>(null);
   const [repairing, setRepairing] = useState(false);
   const [repairMsg, setRepairMsg] = useState("");
   const [reservationBusy, setReservationBusy] = useState("");
@@ -353,6 +386,11 @@ export default function ProductionOrderDetail() {
         : String(po.estimated_material_amount),
       estimated_material_unit: po?.estimated_material_unit || "kg",
     });
+    setSalesOrderSearch("");
+    setSelectedSalesOrderOption(po?.sales_order_id ? {
+      id: Number(po.sales_order_id),
+      order_no: po.sales_order_no || po.order_no,
+    } : null);
     setSummaryMsg("");
     setSummaryEditing(true);
   }
@@ -449,18 +487,22 @@ export default function ProductionOrderDetail() {
       {repairMsg && <div className="mb-3 text-sm text-slate-600">{repairMsg}</div>}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        <div className="card p-4">
-          <h3 className="font-medium mb-2">{t("page.poDetail.plan")}</h3>
-          <table className="table">
-            <thead>
-              <tr>
-                <th>{t("field.color")}</th><th>{t("field.size")}</th>
-                <th>{t("page.poDetail.planned")}</th><th>{t("page.poDetail.completed")}</th>
-              </tr>
-            </thead>
-            <tbody>{po.items?.map((i: any) => <tr key={i.id}><td>{i.color}</td><td>{i.size}</td><td>{i.planned_quantity}</td><td>{i.completed_quantity}</td></tr>)}</tbody>
-          </table>
-        </div>
+        <ProductionOrderSizePlan
+          key={id}
+          items={po.items || []}
+          canEdit={canEditSummary && po.source_type !== "usluga"
+            && PRE_CUTTING_EDIT_STATUSES.has(String(po.status || ""))
+            && workOrders.filter((wo) => wo.operation === "cutting").every((wo) => PRE_CUTTING_EDIT_STATUSES.has(wo.status))
+            && !Number(po.actual_cut_quantity || 0) && !Number(po.actual_bundle_count || 0)
+            && !(po.items || []).some((item: { completed_quantity: number }) => item.completed_quantity > 0)}
+          onSave={async (items) => {
+            const updated = await api.patch(`/api/production-orders/${id}/sizes`, { items });
+            await mutate(
+              pageContext ? { ...pageContext, production_order: updated } : undefined,
+              { revalidate: false },
+            );
+          }}
+        />
         <div className="card p-4">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
@@ -479,35 +521,47 @@ export default function ProductionOrderDetail() {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="label">{t("field.model")}</label>
-                  <select
-                    className="input"
-                    value={summaryDraft.model_id}
-                    onChange={(e) => setSummaryDraft({ ...summaryDraft, model_id: e.target.value })}
-                  >
-                    <option value="">{t("newso.selectModel")}</option>
-                    {po?.model_id && !modelById.has(Number(po.model_id)) && (
-                      <option value={po.model_id}>{modelLabel(undefined, po.model_id)}</option>
-                    )}
-                    {models?.map((m) => (
-                      <option key={m.id} value={m.id}>{modelLabel(m, m.id)}</option>
-                    ))}
-                  </select>
+                  <ModelAsyncSelect
+                    value={Number(summaryDraft.model_id) || null}
+                    onChange={(modelId) => setSummaryDraft({ ...summaryDraft, model_id: String(modelId) })}
+                    placeholder={t("newso.selectModel")}
+                    noResultsText={t("page.search.noMatches")}
+                    loadingText={t("common.loading")}
+                    loadMoreText={t("common.loadMore")}
+                  />
                 </div>
                 <div>
                   <label className="label">{t("page.poDetail.salesOrder")}</label>
+                  <input
+                    className="input mb-2"
+                    value={salesOrderSearch}
+                    onChange={(e) => setSalesOrderSearch(e.target.value)}
+                    placeholder={t("common.search")}
+                    aria-label={t("common.search")}
+                  />
                   <select
                     className="input"
                     value={summaryDraft.sales_order_id}
-                    onChange={(e) => setSummaryDraft({ ...summaryDraft, sales_order_id: e.target.value })}
+                    onChange={(e) => {
+                      setSummaryDraft({ ...summaryDraft, sales_order_id: e.target.value });
+                      setSelectedSalesOrderOption(salesOrderById.get(Number(e.target.value)) || null);
+                    }}
                   >
                     <option value="">{t("page.poDetail.noSalesOrder")}</option>
-                    {po?.sales_order_id && !salesOrderById.has(Number(po.sales_order_id)) && (
-                      <option value={po.sales_order_id}>{salesOrderLabel(undefined, po.sales_order_id)}</option>
+                    {summaryDraft.sales_order_id && !salesOrderById.has(Number(summaryDraft.sales_order_id)) && (
+                      <option value={summaryDraft.sales_order_id}>
+                        {salesOrderLabel(selectedSalesOrderOption || undefined, Number(summaryDraft.sales_order_id))}
+                      </option>
                     )}
-                    {salesOrders?.map((so) => (
+                    {salesOrders.map((so) => (
                       <option key={so.id} value={so.id}>{salesOrderLabel(so, so.id)}</option>
                     ))}
                   </select>
+                  {salesOrders.length < salesOrderTotal && (
+                    <button type="button" className="mt-2 text-sm underline" disabled={salesOrderPagesValidating} onClick={() => void setSalesOrderPageCount(salesOrderPageCount + 1)}>
+                      {t("common.loadMore")} ({salesOrders.length} / {salesOrderTotal})
+                    </button>
+                  )}
                 </div>
                 <div>
                   <label className="label">{t("page.poDetail.plannedQty")}</label>
@@ -568,10 +622,10 @@ export default function ProductionOrderDetail() {
             </form>
           ) : (
           <>
-          {(po.model_image_url || po.variant_picture_url) && (
+          {(po.model_image_url || po.material_image_url) && (
             <div className="mb-3 grid grid-cols-2 gap-3">
               <SummaryImage label={t("page.workOrder.modelPicture")} imageUrl={po.model_image_url} />
-              <SummaryImage label={t("page.workOrder.variantPicture")} imageUrl={po.variant_picture_url} />
+              <SummaryImage label={t("page.workOrder.materialPicture")} imageUrl={po.material_image_url} />
             </div>
           )}
           <dl className="text-sm space-y-1">
@@ -914,7 +968,8 @@ function SewingAssignmentsPanel({
       <div className="text-xs font-medium text-slate-500 uppercase mb-2">
         {t("page.poDetail.splitSummary", { committed, planned: plannedQty, remaining })}
       </div>
-      <table className="table text-xs">
+      <div className="overflow-x-auto">
+        <table className="table text-xs">
         <thead>
           <tr><th>{t("field.line")}</th><th>{t("field.qty")}</th><th>{t("page.poDetail.done")}</th><th>{t("field.plannedStart")}</th><th>{t("field.plannedEnd")}</th><th>{t("common.status")}</th><th></th></tr>
         </thead>
@@ -931,8 +986,9 @@ function SewingAssignmentsPanel({
             </tr>
           ))}
         </tbody>
-      </table>
-      <form onSubmit={add} className="grid grid-cols-1 md:grid-cols-6 gap-2 mt-3">
+        </table>
+      </div>
+      <form onSubmit={add} className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-6">
         <select className="input" value={draft.sewing_flow_id} onChange={(e) => setDraft({ ...draft, sewing_flow_id: Number(e.target.value) })} required>
           <option value={0}>{t("ph.pickLine")}</option>
           {flows.map((f) => {
@@ -948,13 +1004,13 @@ function SewingAssignmentsPanel({
         <input className="input" type="number" placeholder={t("field.qty")} value={draft.quantity} onChange={(e) => setDraft({ ...draft, quantity: parseNumberInput(e.target.value) })} required />
         <input className="input" type="date" value={draft.planned_start} onChange={(e) => setDraft({ ...draft, planned_start: e.target.value })} />
         <input className="input" type="date" value={draft.planned_end} onChange={(e) => setDraft({ ...draft, planned_end: e.target.value })} />
-        <button className="btn btn-primary md:col-span-2" disabled={draft.sewing_flow_id > 0 && !!utilByFlow.get(draft.sewing_flow_id)?.is_full}>
+        <button className="btn btn-primary sm:col-span-2" disabled={draft.sewing_flow_id > 0 && !!utilByFlow.get(draft.sewing_flow_id)?.is_full}>
           {t("btn.addAssignment")}
         </button>
         {draft.sewing_flow_id > 0 && utilByFlow.get(draft.sewing_flow_id)?.is_full && (
-          <div className="text-sm text-red-600 md:col-span-6">{t("msg.selectedLineFull")}</div>
+          <div className="text-sm text-red-600 sm:col-span-2 xl:col-span-6">{t("msg.selectedLineFull")}</div>
         )}
-        {msg && <div className="text-sm text-red-600 md:col-span-6">{msg}</div>}
+        {msg && <div className="text-sm text-red-600 sm:col-span-2 xl:col-span-6">{msg}</div>}
       </form>
     </div>
   );

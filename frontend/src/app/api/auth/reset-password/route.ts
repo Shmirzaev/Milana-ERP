@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { readBoundedResetJson, ResetProxyInputError } from "../reset-proxy";
 
 const LOCAL_API_URL = "http://localhost:8000";
 
@@ -19,10 +20,16 @@ function apiBaseUrl(): string {
 }
 
 export async function POST(request: Request) {
+  const controller = new AbortController();
+  const deadline = setTimeout(() => controller.abort(), 15_000);
   let payload: unknown;
   try {
-    payload = await request.json();
-  } catch {
+    payload = await readBoundedResetJson(request, controller.signal);
+  } catch (error) {
+    clearTimeout(deadline);
+    if (error instanceof ResetProxyInputError) {
+      return NextResponse.json({ detail: error.message }, { status: error.status });
+    }
     return NextResponse.json({ detail: "Invalid JSON" }, { status: 400 });
   }
 
@@ -33,12 +40,14 @@ export async function POST(request: Request) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
       cache: "no-store",
+      signal: controller.signal,
     });
 
     let body: unknown = null;
     try {
       body = await res.json();
-    } catch {
+    } catch (error) {
+      if (controller.signal.aborted) throw error;
       body = { detail: res.statusText || "Password reset failed" };
     }
 
@@ -51,5 +60,7 @@ export async function POST(request: Request) {
       { detail: "Password reset service is unavailable" },
       { status: 503 },
     );
+  } finally {
+    clearTimeout(deadline);
   }
 }
