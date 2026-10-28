@@ -25,12 +25,22 @@ jobs:
             sleep 2
           done
           exit 1
+      - name: PostgreSQL held and closed connection controls
+        id: controls
+        continue-on-error: true
+        env:
+          PUR_APPROVAL_PG_ADMIN_URL: postgresql://postgres@127.0.0.1:55433/postgres
+        run: |
+          mkdir -p "$RUNNER_TEMP/pur-diag-results"
+          python backend/scripts/test_purchase_approval_cleanup_pg_control.py > "$RUNNER_TEMP/pur-diag-results/control.log" 2>&1
+          cat "$RUNNER_TEMP/pur-diag-results/control.log"
       - name: Run three bounded independent owned-target diagnostics
         env:
           PUR_APPROVAL_PG_ADMIN_URL: postgresql://postgres@127.0.0.1:55433/postgres
         run: |
           mkdir -p "$RUNNER_TEMP/pur-diag-results"
           failed=0
+          if [ '${{ steps.controls.outcome }}' != 'success' ]; then failed=1; fi
           for run in 1 2 3; do
             set +e
             python backend/scripts/test_purchase_request_approval_postgres.py > "$RUNNER_TEMP/pur-diag-results/run-${run}.log" 2>&1
