@@ -8,10 +8,17 @@ SQLAlchemy definitions now live under app/schemas/; Pydantic DTOs live in
 app/libs/dto/. The links below show the authoritative definitions for this group's
 records. Business services live in models/*_service.py.
 
-Brand creation uses `brand_persistence.insert_brand` with the caller's Session;
-it flushes for the audit entity ID and does not commit. The Catalog service owns
-name checks, audit, commit and refresh. This candidate does not migrate brand
-updates, seed/import writers, or alter the existing duplicate-name race behavior.
+Brand creation uses `brand_persistence.insert_brand`; Brand update uses
+`apply_brand_update` with the omitted/null-aware `BrandUpdateCommand`. Customer
+and Supplier creation use `partners_persistence.insert_customer` and
+`insert_supplier`. Customer update uses `apply_customer_update` with the
+omitted/null-aware `CustomerUpdateCommand`. These helpers use the supplied Session and do not commit;
+create helpers flush for audit IDs. Services retain validation/policy, audit,
+outer commit and refresh. This source also uses `apply_supplier_update` with the
+omitted/null-aware `SupplierUpdateCommand`; its verification is separate from the
+dated integration checkpoint. The independent shipment customer creator and
+seed/import writers remain separate paths. These helpers do not change the
+existing duplicate-name race behavior.
 
 ## Authoritative definitions
 
