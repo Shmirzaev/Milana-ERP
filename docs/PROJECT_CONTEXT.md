@@ -39,13 +39,22 @@ human acceptance remain separate. It does not complete Finance or the refactor.
 
 The isolated three-operation candidate `1d4f00da` combines Sales confirmation persistence, typed Catalog BOM PATCH persistence and the typed Finance customer-order payment projection. It preserves the complete reviewed author chains and records all source bytes in the integration freeze. The BOM PG ledger still requires 54 cases with the updated canonical-role PATCH node. Source review and individual author tests do not substitute for renewed combined application, PostgreSQL, frontend and actual browser evidence. Human acceptance remains separate. Serving `6f280c6d` does not include these three additions.
 
-## Isolated manual packaging candidate (28 October)
+## Manual Packaging and combined release (28 October)
 
-The owner authorized reconciling live `20261027_115452` (`ed47ab8d`) into this
-isolated candidate. Both VM manifests verified as `8b8be7776fece64fc01163052efafc76370516faa4b186f5509fbcc1357a8f90`.
-Rollback is recorded as `20261027_104106`; no deployment is authorized or performed.
-The shared refactoring checkout and branch are untouched. See the imported
-[release evidence](archive/RETURNED_SPLIT_EDIT_2026-10-27.md).
+Last updated 2026-10-28. Active blue `20261028_123531`, exact runtime
+`a0cb9d8b9fdab64dd751e7f3da7a1fa832779780`, verified on both VMs. Retained green rollback
+`20261027_115452` remains running. Database stays `0149_besttex_cutting_access`.
+The release combines reviewed clone_main through `61b1a702`, reconciled live
+fixes, manual Packaging pack creation/reprinting/cancellation, and a narrow
+Finance unlinked-BOM crash correction. Shared refactoring work was untouched;
+this does not complete its operation/type ledger or human acceptance.
+Fresh backup, exact CI/PostgreSQL, actual connected-browser/read-only QA,
+fixed-origin paired/public performance, all four health checks and immediate
+runtime/source/rollback postflight passed. Owner waived timed monitoring only.
+No QA business data was created. Physical print visual acceptance is pending
+after browser blob inspection was refused. See the detailed
+[release record](archive/MANUAL_PACKAGING_RELEASE_2026-10-28.md) for immutable
+images, backup hashes, failed earlier attempts and honest verification limits.
 
 Owner-authorized employee-master correction applied on 28 October: the two MIL
 employees formerly reporting to Akbarova Dilafruz #503 now report to #321.
@@ -55,7 +64,7 @@ live rollback rehearsal before apply. Own-transaction attribution verified only
 two employee manager/timestamp updates plus audit entries 144572/144573, with
 95 other business tables untouched by the transaction. Fresh persisted readback
 and all four health checks passed. Backup and full evidence are in
-[the task record](archive/MANUAL_PACKAGING_2026-10-28.md). No runtime deployment.
+[the task record](archive/MANUAL_PACKAGING_2026-10-28.md). This data correction preceded the runtime promotion above.
 
 ## Source and production
 
@@ -81,7 +90,7 @@ and all four health checks passed. Backup and full evidence are in
   reconciled with frozen refactor candidate `d0920f6367b702f63c88d5940cf1b44155b34aec`.
   This successor candidate is **not deployed, not AI-verified and not human-approved**.
   The prior invoice-only production release does not accept or deploy the refactor.
-- `deploy/production-base.json` carries the imported release assertion above.
+- `deploy/production-base.json` now records the verified 28 October runtime above. The following describes older integration evidence.
   Local successor merge `02c25ecf2c8acad55418d86cf5b067fc89307162` has actual
   parents `034cb788` and recorded production `439555`; all 36 released paths were
   reconciled, retaining reviewed namespace ports and both historical release records.

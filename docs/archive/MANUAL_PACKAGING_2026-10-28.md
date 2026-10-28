@@ -6,7 +6,8 @@ Owner request: add manual pack creation/label printing in Packaging like the
 physical warehouse pack form; inspect duplicate Akbarova Dilafruz names; base on
 clone_main. Owner correction: keep employee numbers 321 and 503 separate, find
 another duplicate; reconcile live production into an isolated candidate; do not
-interrupt ongoing refactoring. No shared-branch landing or deployment authorized.
+interrupt ongoing refactoring. Deployment was initially unauthorized; the later
+explicit blue/green release authorization and outcome are recorded below.
 
 Worktree: `C:/ERP/.codex-work/manual-packaging-20261028`.
 Branch: `codex/manual-packaging-20261028`; integration base `c22c88e2`.
@@ -81,7 +82,8 @@ restore these two links after checking for later edits, never restore the whole 
 ## Packaging checks and remaining gate
 
 Status: IMPLEMENTED, print visual gate BLOCKED; not AI-verified, not human-approved,
-not pushed/merged/deployed. Independent review found no remaining code blocker.
+initially not pushed/merged/deployed. The later production release below
+supersedes publication/deployment status. Independent review found no remaining code blocker.
 Earlier recovery, repeat-entry and pending cancellation defects were resolved.
 Cancellation is available from persisted list rows after reload, preserves source
 evidence, retires every label of that run, and refuses received/used/cross-factory
@@ -118,4 +120,12 @@ was created. Shared refactor checkout/branch remain untouched.
 
 Human checklist:inspect label preview/physical output; repeat manual creation,
 reload, scan/receipt and mistaken-run cancellation on isolated data; record visual
-and business acceptance. Merge and deployment need separate authorization.
+and business acceptance. The owner later explicitly authorized deployment; no shared-branch merge or
+human/operator acceptance is claimed.
+
+## Later authorized deployment
+
+Manual Packaging is included in active blue `20261028_123531` (`a0cb9d8b9fdab64dd751e7f3da7a1fa832779780`).
+Green `20261027_115452` remains ready for rollback. Full combined validation and
+verification limits are in [the release record](MANUAL_PACKAGING_RELEASE_2026-10-28.md).
+The shared refactor line was preserved; label physical-output acceptance remains pending.

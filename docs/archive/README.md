@@ -22,3 +22,7 @@ Start with [current context](../PROJECT_CONTEXT.md) for active work.
 Older audit reports remain in ../audit-evidence/ because existing records/tests
 refer to them. No historical business or release evidence was deleted in this cleanup.
 New detailed dated events belong here; current summaries link to the relevant record.
+
+- [Combined manual Packaging release, 28 October 2026](MANUAL_PACKAGING_RELEASE_2026-10-28.md):
+  verified blue promotion, retained green rollback, exact CI/backup/QA and print acceptance limits.
+- [Manual Packaging and employee master correction, 28 October 2026](MANUAL_PACKAGING_2026-10-28.md).
