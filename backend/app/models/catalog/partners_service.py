@@ -17,6 +17,7 @@ from app.libs.dto.catalog.party_input import PartyIn
 from app.libs.dto.catalog.party_output import PartyOut
 from app.models.audit_service import log_action
 from app.schemas import Customer, PurchaseOrder, PurchaseRequestLine, SalesOrder, Shipment, StockBatch, Supplier, User
+from app.schemas.catalog.partners_persistence import insert_customer
 
 
 def list_customers(
@@ -54,9 +55,7 @@ def create_customer(
     db: Session,
     payload: PartyIn,
 ):
-    c = Customer(**payload.model_dump())
-    db.add(c)
-    db.flush()
+    c = insert_customer(db, **payload.model_dump())
     log_action(db, current, "create", "Customer", c.id)
     db.commit()
     db.refresh(c)
