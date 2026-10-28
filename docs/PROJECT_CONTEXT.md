@@ -47,6 +47,16 @@ Rollback is recorded as `20261027_104106`; no deployment is authorized or perfor
 The shared refactoring checkout and branch are untouched. See the imported
 [release evidence](archive/RETURNED_SPLIT_EDIT_2026-10-27.md).
 
+Owner-authorized employee-master correction applied on 28 October: the two MIL
+employees formerly reporting to Akbarova Dilafruz #503 now report to #321.
+Both Dilafruz records remain distinct; no payroll or attendance history moved.
+The exact reviewed script `fe4bc0f8` passed a real PostgreSQL commit test and a
+live rollback rehearsal before apply. Own-transaction attribution verified only
+two employee manager/timestamp updates plus audit entries 144572/144573, with
+95 other business tables untouched by the transaction. Fresh persisted readback
+and all four health checks passed. Backup and full evidence are in
+[the task record](archive/MANUAL_PACKAGING_2026-10-28.md). No runtime deployment.
+
 ## Source and production
 
 - Shared integration/production branch: clone_main. origin/main is stale for this work.

@@ -1,5 +1,20 @@
 # Team bug tracker — clone_main
 
+## PACK-MANUAL-20261028 — manual Packaging packs and labels
+
+- **Local candidate; print visual gate BLOCKED.** Mirshoir owns Packaging;
+  Ismail is the human reviewer. Dedicated worktree/branch, no shared refactoring
+  edits or push/merge/deployment. Manual creation uses approved models, per-pack
+  quantities, immutable evidence, exact print runs, safe recovery and cancellation
+  before receipt. Warehouse acceptance remains separate.
+- 146 affected backend tests and 26 real PostgreSQL tests pass; optimized frontend
+  build passes. Actual browser creation/reload/warehouse receipt and persisted
+  quantities pass. Browser policy blocks inspection of the generated blob print tab;
+  visual print and human acceptance remain open. [Evidence and local checklist](../docs/archive/MANUAL_PACKAGING_2026-10-28.md).
+- Separately authorized employee-master correction is applied: exactly two links
+  #503 -> #321, preserving both Dilafruz identities/history, backed up and audited.
+  This is not a merge or runtime deployment and does not close this feature gate.
+
 ## LABEL-PAYROLL-20261027 — package footer, cutting client and split-payroll editing
 
 - **P2 · Awaiting production verification.** Packaging/cutting: Mirshoir, reviewer

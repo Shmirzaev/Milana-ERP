@@ -11,9 +11,9 @@ from fastapi import HTTPException
 
 from app.api.routes import payroll
 from app.schemas import AuditLog, PayrollPeriod, PayrollQrLabel, PayrollRecord, User
-from app.schemas.payroll import PayrollRecordIn
+from app.libs.dto.people.payroll import PayrollRecordIn
 from app.libs.dto.people.payroll_split_correction import SplitAllocationUpdate
-from app.services import payroll_split_correction as correction
+from app.models import payroll_split_correction_service as correction
 from app.tests.test_payroll_split_correction_races import (
     STAMP, _pause, _race, _run, _seed,
     split_postgres_sessions,  # noqa: F401 - shared loopback-only isolated PostgreSQL fixture

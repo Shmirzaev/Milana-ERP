@@ -16,11 +16,11 @@ from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import payroll
 from app.db.base import Base
-from app.schemas.payroll import (
+from app.libs.dto.people.payroll import (
     PayrollPeriodIn, PayrollPeriodUpdate, PayrollRecordIn, PayrollScanSplitIn,
 )
 from app.libs.dto.people.payroll_split_correction import SplitAllocationUpdate
-from app.services import payroll_split_correction as correction
+from app.models import payroll_split_correction_service as correction
 from app.schemas import AuditLog, Employee, PayrollPeriod, PayrollQrLabel, PayrollRecord, User
 
 
