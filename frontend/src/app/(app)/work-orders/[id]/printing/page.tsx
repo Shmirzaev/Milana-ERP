@@ -3,6 +3,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
+import { modelOptionsByIdsFetcher, modelOptionsByIdsKey } from "@/lib/useModelOptions";
 import { formatBatchLabel, formatBatchSerial } from "@/lib/batchSerial";
 import { operationLabel, statusLabel } from "@/components/StagePipeline";
 import PageHeader from "@/components/PageHeader";
@@ -11,7 +12,7 @@ import WorkOrderProductInfo from "@/components/WorkOrderProductInfo";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
-import { orderReference } from "@/lib/orderRef";
+import { formatOrderReference, orderReference } from "@/lib/orderRef";
 
 type PrintingAttachment = { file_url: string; file_name?: string | null; content_type?: string | null };
 type PrintingForm = {
@@ -56,7 +57,8 @@ export default function PrintingPage() {
     ? po.items.map((item: any) => ({ ...item, quantity: item.quantity ?? item.planned_quantity }))
     : [];
   const orderItems = so ? soItems : poItems;
-  const { data: models } = useSWR<any[]>(orderItems.length > 0 ? "/api/models" : null, fetcher);
+  const printingModelOptionsKey = modelOptionsByIdsKey(orderItems.map((row: any) => row.model_id));
+  const { data: models } = useSWR<any[]>(printingModelOptionsKey, modelOptionsByIdsFetcher);
   const printSource = so || po;
   const printFiles: PrintingAttachment[] = Array.isArray(printSource?.printing_attachments) ? printSource.printing_attachments : [];
   const customerName = customers?.find((c) => Number(c.id) === Number(so?.customer_id))?.name;
@@ -191,7 +193,7 @@ export default function PrintingPage() {
       {printSource && (orderItemsForPrint.length > 0 || so?.notes) && (
         <div className="card mb-4 max-w-2xl space-y-3 p-4">
           {so && <dl className="hidden">
-            <div className="flex justify-between gap-3 rounded-md bg-[#f8f7f3] px-3 py-2"><dt className="text-[#8a8472]">{t("field.orderNo")}</dt><dd className="font-medium">{so.order_no || "—"}</dd></div>
+            <div className="flex justify-between gap-3 rounded-md bg-[#f8f7f3] px-3 py-2"><dt className="text-[#8a8472]">{t("field.orderNo")}</dt><dd className="font-medium">{formatOrderReference(so.order_no || "—")}</dd></div>
             <div className="flex justify-between gap-3 rounded-md bg-[#f8f7f3] px-3 py-2"><dt className="text-[#8a8472]">{t("field.customer")}</dt><dd className="font-medium">{customerName || so.customer_id || "—"}</dd></div>
             <div className="flex justify-between gap-3 rounded-md bg-[#f8f7f3] px-3 py-2"><dt className="text-[#8a8472]">{t("field.deadline")}</dt><dd className="font-medium">{so.deadline ? new Date(so.deadline).toLocaleDateString() : "—"}</dd></div>
             <div className="flex justify-between gap-3 rounded-md bg-[#f8f7f3] px-3 py-2 sm:col-span-2"><dt className="text-[#8a8472]">{t("field.plannedQty")}</dt><dd className="font-medium">{wo?.planned_output_qty ?? po?.planned_quantity ?? "—"}</dd></div>

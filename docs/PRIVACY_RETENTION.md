@@ -8,7 +8,7 @@ This is a draft for business/legal review. The application contains employee, cu
 - Employee data: name, department, position, phone, salary, status.
 - Customer and supplier data: names, contact details, order/payment history.
 - Production data: sales orders, production orders, work orders, bundles, packages, shipments.
-- Finance data: invoices, payments, profitability reports, 1C integration data.
+- Finance data: invoices, payments, profitability reports, historical import identifiers.
 - Uploaded files: model images and sales-order printing attachments.
 - Audit data: user actions, before/after payloads, timestamps.
 

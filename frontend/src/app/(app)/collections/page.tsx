@@ -9,7 +9,9 @@ import { statusLabel } from "@/components/StagePipeline";
 import { useMe, can } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { numberOrFallback, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
+import type { CollectionCreateIn, CollectionCreateOut } from "@/lib/collectionCreate";
 
+// Reads/edits deliberately preserve historical statuses outside the create enum.
 type Collection = {
   id: number; brand_id: number; name: string;
   season?: string | null; year?: number | null; description?: string | null; status: string;
@@ -31,7 +33,8 @@ export default function CollectionsPage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    await api.post("/api/collections", { ...form, year: numberOrFallback(form.year, 2025) });
+    const payload: CollectionCreateIn = { ...form, year: numberOrFallback(form.year, 2025) };
+    await api.post<CollectionCreateOut>("/api/collections", payload);
     setForm({ brand_id: 0, name: "", season: "", year: 2025 });
     mutate();
   }
@@ -70,7 +73,7 @@ export default function CollectionsPage() {
   return (
     <div>
       <PageHeader title={t("page.collections.title")} />
-      <form onSubmit={submit} className="card p-4 mb-6 grid grid-cols-1 md:grid-cols-5 gap-3">
+      <form onSubmit={submit} className="card mb-6 grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 xl:grid-cols-5">
         <select className="input" value={form.brand_id} onChange={(e) => setForm({ ...form, brand_id: Number(e.target.value) })} required>
           <option value={0}>{t("ph.brand")}</option>
           {brands?.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
@@ -80,7 +83,7 @@ export default function CollectionsPage() {
         <input className="input" type="number" placeholder={t("field.year")} value={form.year} onChange={(e) => setForm({ ...form, year: parseNumberInput(e.target.value) })} required />
         <button className="btn btn-primary">{t("btn.create")}</button>
       </form>
-      <div className="card">
+      <div className="card overflow-x-auto">
         <table className="table">
           <thead>
             <tr>

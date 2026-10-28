@@ -24,13 +24,13 @@ def test_active_sewing_lines_use_consolidated_names(client, auth_headers):
     by_code = {row["code"]: row for row in response.json()}
 
     expected_names = {
-        "SEW-01": "Bozorova",
-        "SEW-06": "Shaxnoza opa",
-        "SEW-07": "Jalilova",
-        "SEW-09": "Dilafruz opa",
-        "SEW-10": "Nargiza opa",
-        "SEW-12": "Muxlisa",
-        "SEW-13": "Sevara",
+        "SEW-01": "Bozorova Nargiza",
+        "SEW-06": "Botirova Shaxnoza",
+        "SEW-07": "Jalolova Nargiza",
+        "SEW-09": "Akbarova Dilafruz",
+        "SEW-10": "Maxmudova Nargiza - 1",
+        "SEW-12": "Botirova Muxlisa",
+        "SEW-13": "Maxmudova Nargiza - 2",
     }
     assert {code: by_code[code]["name"] for code in expected_names} == expected_names
     assert not {"SEW-02", "SEW-03", "SEW-04", "SEW-05", "SEW-08", "SEW-11"}.intersection(by_code)

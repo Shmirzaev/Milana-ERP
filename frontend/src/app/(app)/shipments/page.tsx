@@ -1,319 +1,344 @@
 "use client";
+
+import { localizeError } from "@/lib/errorMessages";
 import Link from "next/link";
+import ShipmentAddClient from "@/components/ShipmentAddClient";
+import SearchableSelect from "@/components/SearchableSelect";
+import { packageWorkflowCopy, pendingPackageWorkflow, postPackageWorkflow } from "@/lib/packageWorkflow";
+import { manualShipmentText } from "@/lib/manualShipmentText";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 
+import ShipmentWorkspaceTable, { type ShipmentWorkspaceRow } from "@/components/ShipmentWorkspaceTable";
+import PageHeader from "@/components/PageHeader";
+import ShipmentPreparationWorkspace, {
+  type ShipmentPreparation,
+  type ShipmentSummary,
+} from "@/components/ShipmentPreparationWorkspace";
+import { useDialogs } from "@/components/DialogProvider";
 import { api, fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
-import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
-import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
-import { statusLabel } from "@/components/StagePipeline";
-import { useDialogs } from "@/components/DialogProvider";
+import { ShipmentTransportFields, normalizeTransportDetails, type TransportDetails } from "@/components/ShipmentTransportDetails";
+import { shipmentTransportText } from "@/lib/shipmentTransportText";
+import { previousShipmentScanMessage, successfulShipmentScanMessage, type ShipmentScanResult } from "@/lib/shipmentScan";
 
-export default function ShipmentsPage() {
-  const { t } = useT();
+type ShipmentRow = ShipmentSummary & {
+  shipment_type?: "sales_order" | "warehouse_exit" | "manual";
+  shipped_at?: string | null;
+  delivered_at?: string | null;
+  created_at?: string | null;
+  required_count?: number | null;
+  scanned_count?: number | null;
+  remaining_count?: number | null;
+  is_complete?: boolean;
+};
+
+type EligibleOrder = {
+  id: number;
+  order_no: string;
+  customer_id?: number | null;
+  customer_name?: string | null;
+  status: string;
+  ready_qty?: number | null;
+};
+
+type ShipmentOrder = EligibleOrder & {
+  shipment?: ShipmentRow | null;
+  is_scanned: boolean;
+};
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  return localizeError("Action failed.");
+}
+
+function ShipmentOrderWorkspace({
+  order,
+  canTraceability,
+  onChanged,
+}: {
+  order: ShipmentOrder;
+  canTraceability: boolean;
+  onChanged: () => Promise<unknown>;
+}) {
+  const { t, lang } = useT();
   const dialogs = useDialogs();
-  const { me } = useMe();
-  const canTraceability = can(me, "traceability.view");
-  const searchParams = useSearchParams();
-  const { data, mutate } = useSWR<any[]>(
-    "/api/shipments",
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
-  const { data: orders, mutate: mutateOrders } = useSWR<any[]>(
-    "/api/shipments/eligible-orders",
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
-
-  const [salesOrderId, setSoId] = useState(0);
-  const [activeShip, setActive] = useState(0);
+  const shipmentId = Number(order.shipment?.id || 0);
+  const preparationKey = shipmentId > 0
+    ? `/api/shipments/${shipmentId}/preparation`
+    : `/api/shipments/sales-order/${order.id}/preparation`;
+  const { data: preparation, isLoading, mutate } = useSWR<ShipmentPreparation>(preparationKey, fetcher);
   const [scanCode, setScanCode] = useState("");
-  const [err, setErr] = useState("");
-  const [scanResult, setScanResult] = useState<any | null>(null);
-  const [msg, setMsg] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [scanWarning, setScanWarning] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
 
-  useEffect(() => {
-    const so = Number(searchParams.get("so_id") || 0);
-    const sh = Number(searchParams.get("shipment_id") || 0);
-    if (so > 0) setSoId(so);
-    if (sh > 0) setActive(sh);
-  }, [searchParams]);
-
-  const shipmentCandidateOrders = useMemo(
-    () => (orders || []).slice().sort((a, b) => Number(b.id || 0) - Number(a.id || 0)),
-    [orders],
-  );
-
-  useEffect(() => {
-    if (!orders || !salesOrderId) return;
-    const stillEligible = shipmentCandidateOrders.some((order) => Number(order.id) === Number(salesOrderId));
-    if (!stillEligible) setSoId(0);
-  }, [orders, salesOrderId, shipmentCandidateOrders]);
-
-  const activeShipment = useMemo(
-    () => (data || []).find((s) => Number(s.id) === Number(activeShip)) || null,
-    [data, activeShip],
-  );
-
-  useEffect(() => {
-    if (!Array.isArray(data) || data.length === 0) return;
-    const exists = data.some((s) => Number(s.id) === Number(activeShip));
-    if (!exists) {
-      setActive(Number(data[0].id || 0));
-    }
-  }, [data, activeShip]);
-
-  const { data: scanStatus, mutate: mutateScanStatus } = useSWR<any>(
-    activeShip > 0 ? `/api/shipments/${activeShip}/scan-status` : null,
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
-  const shipBlockedByScan = Number(scanStatus?.remaining_count || 0) > 0;
-
-  function messageFromError(error: unknown): string {
-    if (error instanceof Error && error.message) return error.message;
-    return "Action failed.";
+  async function refresh() {
+    await Promise.all([mutate(), onChanged()]);
   }
 
-  async function create() {
-    if (!salesOrderId) return;
-    setErr("");
-    setMsg("");
+  async function createShipment(transportDetails: TransportDetails | null) {
+    if (shipmentId || isCreating) return;
+    setError("");
+    setScanWarning("");
+    setMessage("");
+    setIsCreating(true);
     try {
-      const sh = await api.post("/api/shipments", { sales_order_id: salesOrderId || null });
-      setActive(sh.id);
-      setSoId(0);
-      setMsg(`Shipment ${sh.shipment_no} created with ${sh.packages_count || 0} package(s).`);
-      setScanResult(null);
-      setScanCode("");
-      await mutate();
-      await mutateOrders();
-      await mutateScanStatus();
-    } catch (error) {
-      setErr(messageFromError(error));
+      const shipment = await api.post<ShipmentRow>("/api/shipments", { sales_order_id: order.id, notes: null, transport_details: transportDetails });
+      setMessage(t("page.shipments.salesShipmentCreated", {
+        shipment: shipment.shipment_no,
+        count: Number(shipment.packages_count || 0),
+      }));
+      await onChanged();
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setIsCreating(false);
     }
   }
 
   async function addAllReady() {
-    setErr("");
-    setMsg("");
+    if (!shipmentId) return;
+    setError("");
+    setScanWarning("");
+    setMessage("");
     try {
-      await api.post(`/api/shipments/${activeShip}/add-ready-packages`);
-      setMsg(t("page.shipments.allReadyAdded"));
-      await mutate();
-      await mutateScanStatus();
-    } catch (error) {
-      setErr(messageFromError(error));
+      await api.post(`/api/shipments/${shipmentId}/add-ready-packages`);
+      setMessage(t("page.shipments.allReadyAdded"));
+      await refresh();
+    } catch (caught) {
+      setError(errorMessage(caught));
     }
   }
 
-  async function scanPkg() {
-    if (!activeShip || !scanCode.trim()) return;
-    setErr("");
-    setMsg("");
+  async function scanPackage() {
+    if (!shipmentId || !scanCode.trim()) return;
+    setError("");
+    setScanWarning("");
+    setMessage("");
     try {
-      const result = await api.post(`/api/shipments/${activeShip}/scan-package`, { code: scanCode.trim() });
-      setScanResult(result);
-      if (String(result?.sign || "") === "error") {
-        setErr(String(result?.message || "Scanned package does not match this shipment."));
+      const result = await api.post<ShipmentScanResult>(`/api/shipments/${shipmentId}/scan-package`, {
+        code: scanCode.trim(),
+      });
+      const previousScan = previousShipmentScanMessage(result, lang);
+      if (result.sign === "error") {
+        const reason = result.message ? localizeError(result.message, 400) : t("page.shipments.scanMismatch");
+        setError(previousScan ? `${reason} ${previousScan}` : reason);
+      } else if (result.sign === "warning") {
+        setScanWarning(previousScan || localizeError(result.message || "", 400) || t("page.shipments.scanMismatch"));
       } else {
-        setMsg(String(result?.message || "Scan processed."));
+        setMessage(successfulShipmentScanMessage(result, lang) || t("page.shipments.scanProcessed"));
       }
       setScanCode("");
-      await mutate();
-      await mutateScanStatus();
-    } catch (error) {
-      setErr(messageFromError(error));
+      await refresh();
+    } catch (caught) {
+      setError(errorMessage(caught));
     }
   }
 
   async function ship() {
-    setErr("");
-    setMsg("");
-    if (!(await dialogs.ask({ message: t("page.shipments.confirmMarkShipped") }))) return;
+    if (!shipmentId || !(await dialogs.ask({ message: order.shipment?.shipment_type === "manual" ? manualShipmentText[lang].confirm : t("page.shipments.confirmMarkShipped") }))) return;
+    setError("");
+    setScanWarning("");
+    setMessage("");
     try {
-      await api.post(`/api/shipments/${activeShip}/mark-shipped`);
-      setMsg(t("page.shipments.markedShipped"));
-      await mutate();
-      await mutateScanStatus();
-    } catch (error) {
-      setErr(messageFromError(error));
+      await api.post(`/api/shipments/${shipmentId}/ship`);
+      setMessage(t("page.shipments.markedShipped"));
+      await refresh();
+    } catch (caught) {
+      setError(errorMessage(caught));
     }
   }
 
   async function deliver() {
-    setErr("");
-    setMsg("");
-    if (!(await dialogs.ask({ message: t("page.shipments.confirmMarkDelivered") }))) return;
+    if (!shipmentId || !(await dialogs.ask({ message: t("page.shipments.confirmMarkDelivered") }))) return;
+    setError("");
+    setScanWarning("");
+    setMessage("");
     try {
-      await api.post(`/api/shipments/${activeShip}/deliver`);
-      setMsg(t("page.shipments.markedDelivered"));
-      await mutate();
-      await mutateScanStatus();
-    } catch (error) {
-      setErr(messageFromError(error));
+      await api.post(`/api/shipments/${shipmentId}/deliver`);
+      setMessage(t("page.shipments.markedDelivered"));
+      await refresh();
+    } catch (caught) {
+      setError(errorMessage(caught));
     }
   }
 
-  function selectShipment(sh: any) {
-    setActive(Number(sh.id || 0));
-    setScanResult(null);
-    setScanCode("");
-    setErr("");
-    setSoId(0);
-    setMsg(`Selected ${sh.shipment_no}`);
+  return (
+    <article id={order.id ? `shipment-order-${order.id}` : `shipment-${shipmentId}`} className="scroll-mt-4">
+      {message ? <div role="status" className="border-x border-t border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">{message}</div> : null}
+      {error ? <div className="border-x border-t border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-800">{error}</div> : null}
+      {scanWarning ? <div role="status" className="border-x border-t border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">{scanWarning}</div> : null}
+      <ShipmentPreparationWorkspace
+        preparation={preparation}
+        isLoading={isLoading}
+        scanCode={scanCode}
+        onScanCodeChange={setScanCode}
+        onScan={scanPackage}
+        onAddReadyPackages={addAllReady}
+        onShip={ship}
+        onDeliver={deliver}
+        onCreate={createShipment}
+        isCreating={isCreating}
+        canTraceability={canTraceability}
+        onReviewChanged={refresh}
+      />
+    </article>
+  );
+}
+
+export default function ShipmentsPage() {
+  const { t, lang } = useT();
+  const { me } = useMe();
+  const canTraceability = can(me, "traceability.view");
+  const searchParams = useSearchParams();
+  const { data, mutate } = useSWR<ShipmentRow[]>("/api/shipments", fetcher);
+  const { data: orders, mutate: mutateOrders } = useSWR<EligibleOrder[]>("/api/shipments/eligible-orders", fetcher);
+  const [orderQuery, setOrderQuery] = useState("");
+  const [createdShipmentId, setCreatedShipmentId] = useState<number | null>(null);
+  const manualText = manualShipmentText[lang];
+  const { data: customers, mutate: mutateCustomers } = useSWR<Array<{ id: number; name: string }>>(can(me, "storage.shipment") ? "/api/shipments/customers" : null, fetcher);
+  const [customerId, setCustomerId] = useState<number | null>(null);
+  const [pendingManual, setPendingManual] = useState<Record<string, any> | null>(null);
+  useEffect(() => {
+    if (!me?.id) return;
+    const pending = pendingPackageWorkflow("/api/shipments", me.id);
+    if (pending) { setPendingManual(pending.body); setCustomerId(pending.body.customer_id); }
+  }, [me?.id]);
+  const [warehouseTransport, setWarehouseTransport] = useState<TransportDetails>({});
+  const [warehouseCreating, setWarehouseCreating] = useState(false);
+  const [warehouseMessage, setWarehouseMessage] = useState("");
+  const [warehouseError, setWarehouseError] = useState("");
+
+  const shipmentOrders = useMemo<ShipmentOrder[]>(() => {
+    const byOrder = new Map<number, ShipmentOrder>();
+    for (const shipment of data || []) {
+      const orderId = Number(shipment.sales_order_id || 0);
+      if (!orderId || !["draft", "created"].includes(String(shipment.status || "")) || byOrder.has(orderId)) continue;
+      byOrder.set(orderId, {
+        id: orderId,
+        order_no: shipment.sales_order_no || `#${orderId}`,
+        customer_name: shipment.customer_name,
+        status: shipment.status,
+        ready_qty: shipment.total_qty,
+        shipment,
+        is_scanned: Boolean(shipment.is_complete),
+      });
+    }
+    for (const order of orders || []) {
+      if (byOrder.has(Number(order.id))) continue;
+      byOrder.set(Number(order.id), { ...order, shipment: null, is_scanned: false });
+    }
+    return Array.from(byOrder.values()).sort((a, b) => Number(b.id) - Number(a.id));
+  }, [data, orders]);
+
+  const filteredOrders = useMemo(() => {
+    const query = orderQuery.trim().toLocaleLowerCase();
+    if (!query) return shipmentOrders;
+    return shipmentOrders.filter((order) => [order.order_no, order.customer_name, order.shipment?.shipment_no]
+      .some((value) => String(value || "").toLocaleLowerCase().includes(query)));
+  }, [orderQuery, shipmentOrders]);
+
+
+  async function refreshOrders() {
+    await Promise.all([mutate(), mutateOrders()]);
   }
 
-  async function markRowShipped(sh: any) {
-    if (!(await dialogs.ask({ message: `Mark ${sh.shipment_no} as shipped?` }))) return;
-    await api.post(`/api/shipments/${sh.id}/mark-shipped`);
-    mutate();
-    if (Number(activeShip) === Number(sh.id)) mutateScanStatus();
+  async function createWarehouseExit() {
+    if (!customerId || warehouseCreating) return;
+    setWarehouseError("");
+    setWarehouseMessage("");
+    setWarehouseCreating(true);
+    try {
+      const shipment = await postPackageWorkflow<ShipmentRow>("/api/shipments", pendingManual || { manual: true, customer_id: customerId, transport_details: normalizeTransportDetails(warehouseTransport) }, me!.id);
+      setCreatedShipmentId(shipment.id);
+      setPendingManual(null);
+      setCustomerId(null);
+      setWarehouseTransport({});
+      setWarehouseMessage(`${manualText.created}: ${shipment.shipment_no}`);
+      await mutate();
+    } catch (caught) {
+      setWarehouseError(errorMessage(caught));
+      setPendingManual(pendingPackageWorkflow("/api/shipments", me!.id)?.body || null);
+    } finally {
+      setWarehouseCreating(false);
+    }
   }
 
-  async function markRowDelivered(sh: any) {
-    if (!(await dialogs.ask({ message: `Mark ${sh.shipment_no} as delivered?` }))) return;
-    await api.post(`/api/shipments/${sh.id}/deliver`);
-    mutate();
-    if (Number(activeShip) === Number(sh.id)) mutateScanStatus();
+  const requestedShipmentId = createdShipmentId || Number(searchParams.get("shipment_id") || 0);
+  const requestedOrderId = Number(searchParams.get("so_id") || 0);
+  const standalone = (data || []).filter(shipment =>
+    !shipmentOrders.some(order => order.shipment?.id === shipment.id) && (
+      (!shipment.sales_order_id && ["draft", "created"].includes(shipment.status)) ||
+      (shipment.shipment_type === "manual" && shipment.status === "shipped") ||
+      (shipment.id === requestedShipmentId && shipment.status !== "cancelled")
+    )).filter(shipment => !orderQuery.trim() || [shipment.shipment_no, shipment.sales_order_no, shipment.customer_name]
+      .some(value => String(value || "").toLocaleLowerCase().includes(orderQuery.trim().toLocaleLowerCase())));
+  function workspaceRow(order: ShipmentOrder): ShipmentWorkspaceRow {
+    const shipment = order.shipment;
+    return {
+      key: shipment ? `shipment-${shipment.id}` : `order-${order.id}`,
+      reference: shipment?.shipment_no || order.order_no,
+      order: order.order_no || shipment?.sales_order_no || "",
+      customer: order.customer_name || shipment?.customer_name || "",
+      status: shipment?.status || "draft",
+      packages: Number(shipment?.packages_count || 0),
+      quantity: Number(shipment?.total_qty || order.ready_qty || 0),
+      workspace: <ShipmentOrderWorkspace order={order} canTraceability={canTraceability} onChanged={refreshOrders} />,
+    };
   }
+  const workspaceRows = [
+    ...filteredOrders.map(workspaceRow),
+    ...standalone.map(shipment => workspaceRow({ id: 0, order_no: "", status: shipment.status, shipment, is_scanned: !!shipment.is_complete })),
+  ];
+  const requestedOrder = shipmentOrders.find(order => order.id === requestedOrderId);
+  const requestedKey = requestedShipmentId ? `shipment-${requestedShipmentId}` : requestedOrder
+    ? requestedOrder.shipment ? `shipment-${requestedOrder.shipment.id}` : `order-${requestedOrder.id}` : undefined;
 
   return (
     <div>
-      <PageHeader title={t("page.shipments.title")} />
-      <div className="max-w-5xl space-y-4">
-        <div className="card flex flex-wrap items-end gap-3 p-4">
-          <div>
-            <label className="label">{t("page.shipments.salesOrder")}</label>
-            <select className="input" value={salesOrderId} onChange={(e) => setSoId(Number(e.target.value))}>
-              <option value={0}>-</option>
-              {shipmentCandidateOrders.map((o) => <option key={o.id} value={o.id}>{o.order_no} - {o.customer_name || o.customer_id || "-"} ({statusLabel(o.status, t)})</option>)}
-            </select>
-          </div>
-          <button className="btn btn-primary" onClick={create} disabled={!salesOrderId}>{t("btn.createShipment")}</button>
-          {activeShip > 0 && (
-            <>
-              <button className="btn" onClick={addAllReady}>{t("page.shipments.addAllReady")}</button>
-              <div className="min-w-[320px]">
-                <label className="label">{t("page.shipments.scanPackageBeforeShipping")}</label>
-                <div className="flex gap-2">
-                  <input
-                    className="input w-[230px]"
-                    value={scanCode}
-                    onChange={(e) => setScanCode(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        scanPkg();
-                      }
-                    }}
-                    placeholder={t("ph.packageBarcode")}
-                  />
-                  <button className="btn" onClick={scanPkg} disabled={!scanCode.trim()}>{t("btn.scan")}</button>
-                </div>
+      <PageHeader title={t("page.shipments.title")} actions={<Link className="btn" href="/shipments/history">{t("page.shipments.history")}</Link>} />
+      <div className="max-w-[1440px] space-y-4">
+        <section className="card overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5">
+            <div>
+              <h2 className="app-card-title">{t("page.shipments.orderFloorTitle", { count: shipmentOrders.length })}</h2>
+              <p className="mt-1 text-xs text-[#6f6a5b]">{t("page.shipments.orderFloorHint")}</p>
+            </div>
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+              <div className="flex items-center gap-3 text-xs text-[#56503f]" aria-label={t("page.shipments.orderSelectorHint")}>
+                <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 border border-[#ded9ca] bg-white" />{t("page.shipments.notScanned")}</span>
+                <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 border border-emerald-200 bg-emerald-50" />{t("page.shipments.scanned")}</span>
               </div>
-              <button className="btn" onClick={ship} disabled={shipBlockedByScan}>{t("btn.ship")}</button>
-              <button
-                className="btn btn-primary"
-                onClick={deliver}
-                disabled={!activeShipment || String(activeShipment.status || "") === "delivered"}
-              >
-                {t("btn.markDelivered")}
-              </button>
-            </>
-          )}
-          {msg && <div className="w-full text-sm text-emerald-700">{msg}</div>}
-          {err && <div className="w-full text-sm text-rose-700">{err}</div>}
-          {activeShip > 0 && scanStatus && (
-            <div className={`w-full text-xs ${scanStatus.remaining_count > 0 ? "text-amber-700" : "text-emerald-700"}`}>
-              {t("page.shipments.scanCheck", { scanned: scanStatus.scanned_count, required: scanStatus.required_count })}
-              {scanStatus.remaining_count > 0 ? `, ${t("page.shipments.remaining", { count: scanStatus.remaining_count })}` : "."}
+              <input className="input w-full sm:w-72" value={orderQuery} onChange={(event) => setOrderQuery(event.target.value)} placeholder={t("page.shipments.orderFloorSearch")} aria-label={t("page.shipments.orderFloorSearch")} />
             </div>
-          )}
-          {scanResult && (
-            <div
-              className={`w-full text-xs ${
-                String(scanResult.sign || "") === "error"
-                  ? "text-rose-700"
-                  : String(scanResult.sign || "") === "warning"
-                    ? "text-amber-700"
-                    : "text-emerald-700"
-              }`}
-            >
-              {scanResult.message}
-              {scanResult.package_no ? ` (${scanResult.package_no})` : ""}
-            </div>
-          )}
-          {activeShipment && (
-            <div className="w-full text-xs text-slate-600">
-              {t("page.shipments.activeShipment")} <span className="font-medium">{activeShipment.shipment_no}</span> ({statusLabel(String(activeShipment.status || ""), t)})
-            </div>
-          )}
-        </div>
+          </div>
+        </section>
 
-        <div className="card overflow-x-auto">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>{t("field.shipmentNo")}</th>
-                <th>{t("field.salesOrderShort")}</th>
-                <th>{t("field.customer")}</th>
-                <th>{t("field.packages")}</th>
-                <th>{t("field.totalQty")}</th>
-                <th>{t("field.status")}</th>
-                <th>{t("field.shipped")}</th>
-                <th>{t("field.delivered")}</th>
-                <th>{t("field.actions")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data?.map((s) => (
-                <tr
-                  key={s.id}
-                  className={`${s.id === activeShip ? "bg-yellow-50" : ""} cursor-pointer`}
-                  onClick={() => selectShipment(s)}
-                >
-                  <td>{s.shipment_no}</td>
-                  <td>{s.sales_order_no || s.sales_order_id || "-"}</td>
-                  <td>{s.customer_name || s.customer_id || "-"}</td>
-                  <td>{Number(s.packages_count || 0)}</td>
-                  <td>{Number(s.total_qty || 0)}</td>
-                  <td><span className="badge">{statusLabel(s.status, t)}</span></td>
-                  <td>{s.shipped_at ? new Date(s.shipped_at).toLocaleString() : "-"}</td>
-                  <td>{s.delivered_at ? new Date(s.delivered_at).toLocaleString() : "-"}</td>
-                  <td className="flex flex-wrap gap-2">
-                    <button className="btn h-7 px-2 text-[11px]" onClick={(e) => { e.stopPropagation(); selectShipment(s); }}>
-                      {Number(s.id) === Number(activeShip) ? t("page.shipments.selected") : t("page.shipments.select")}
-                    </button>
-                    {canTraceability && (
-                      <Link
-                        className="btn h-7 px-2 text-[11px]"
-                        href={`/traceability?shipment=${encodeURIComponent(s.shipment_no || s.id)}`}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {t("page.shipments.traceability")}
-                      </Link>
-                    )}
-                    {String(s.status || "") !== "shipped" && String(s.status || "") !== "delivered" && (
-                      <button className="btn h-7 px-2 text-[11px]" onClick={(e) => { e.stopPropagation(); markRowShipped(s); }}>
-                        {t("page.shipments.markAsShipped")}
-                      </button>
-                    )}
-                    {String(s.status || "") !== "delivered" && (
-                      <button className="btn h-7 px-2 text-[11px]" onClick={(e) => { e.stopPropagation(); markRowDelivered(s); }}>
-                        {t("page.shipments.markAsDelivered")}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ShipmentWorkspaceTable rows={workspaceRows} requestedKey={requestedKey} />
+
+        {can(me, "storage.shipment") && <section id="warehouse-exit" className="card p-4 sm:p-5">
+          <div className="mb-3"><h2 className="app-card-title">{manualText.title}</h2><p className="mt-1 text-xs text-[#6f6a5b]">{manualText.hint}</p></div>
+          {warehouseMessage ? <div className="mb-3 border-l-2 border-emerald-600 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{warehouseMessage}</div> : null}
+          {pendingManual && <p role="status" className="mb-3 text-sm">{packageWorkflowCopy[lang].pendingRequest}</p>}
+          {warehouseError ? <div className="mb-3 border-l-2 border-rose-600 bg-rose-50 px-3 py-2 text-sm text-rose-800">{warehouseError}</div> : null}
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="min-w-0 flex-1"><SearchableSelect value={customerId} options={(customers || []).map(customer => ({ value: customer.id, label: customer.name }))} onChange={value => setCustomerId(Number(value))} placeholder={manualText.choose} noResultsText={manualText.none} disabled={warehouseCreating || !!pendingManual} /></div>
+            <ShipmentAddClient disabled={warehouseCreating || !!pendingManual} onCreated={client => { void mutateCustomers([...(customers || []), client], false); setCustomerId(client.id); }} />
+            <button type="button" className="btn btn-primary" onClick={createWarehouseExit} disabled={warehouseCreating || !customerId}>{manualText.title}</button>
+          </div>
+          {can(me, "storage.shipment") && <details className="mt-3">
+            <summary className="cursor-pointer text-sm font-medium">{shipmentTransportText[lang].optional}</summary>
+            <div className="mt-3"><ShipmentTransportFields value={warehouseTransport} onChange={setWarehouseTransport} disabled={warehouseCreating || !!pendingManual} /></div>
+          </details>}
+        </section>}
+
+
+
+
       </div>
     </div>
   );

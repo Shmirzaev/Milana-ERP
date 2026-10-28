@@ -1,0 +1,42 @@
+2026-10-27T13:02:48.308214990Z
+2026-10-27T13:02:48.308249573Z > erp-frontend@0.1.0 dev
+2026-10-27T13:02:48.308252823Z > next dev --hostname 0.0.0.0 --port 3000
+2026-10-27T13:02:48.308254365Z
+2026-10-27T13:02:48.927906302Z ▲ Next.js 16.3.8 (Turbopack)
+2026-10-27T13:02:48.928426014Z - Local:         http://localhost:3000
+2026-10-27T13:02:48.928488140Z - Network:       http://0.0.0.0:3000
+2026-10-27T13:02:48.928889184Z ✓ Ready in 500ms
+2026-10-27T13:02:48.956517221Z ✓ Running next.config.js took 26ms
+2026-10-27T13:02:49.706503946Z - Experiments (use with caution):
+2026-10-27T13:02:49.706681405Z   · proxyClientMaxBodySize: "25mb"
+2026-10-27T13:02:49.706952699Z
+2026-10-27T13:02:52.916399011Z ○ Compiling /login ...
+2026-10-27T13:02:53.656227681Z  GET /login 200 in 3.9s (next.js: 3.5s, proxy.ts: 185ms, application-code: 233ms)
+2026-10-27T13:02:53.706177964Z  GET /login 200 in 41ms (next.js: 3ms, proxy.ts: 5ms, application-code: 33ms)
+2026-10-27T13:02:54.351932441Z  GET /presentation 200 in 644ms (next.js: 558ms, proxy.ts: 4ms, application-code: 82ms)
+2026-10-27T13:02:54.393062534Z  GET /login 200 in 39ms (next.js: 3ms, proxy.ts: 4ms, application-code: 32ms)
+2026-10-27T13:02:54.455072655Z  GET /presentation 200 in 60ms (next.js: 2ms, proxy.ts: 6ms, application-code: 52ms)
+2026-10-27T13:02:54.486079381Z  GET /login 200 in 29ms (next.js: 2ms, proxy.ts: 2ms, application-code: 24ms)
+2026-10-27T13:02:54.538876059Z  GET /presentation 200 in 51ms (next.js: 1.9ms, proxy.ts: 2ms, application-code: 47ms)
+2026-10-27T13:02:56.744131595Z  GET /login 200 in 132ms (next.js: 16ms, proxy.ts: 17ms, application-code: 99ms)
+2026-10-27T13:02:58.060583410Z  GET /login 200 in 54ms (next.js: 9ms, proxy.ts: 5ms, application-code: 40ms)
+2026-10-27T13:02:58.095182495Z  GET /login 200 in 32ms (next.js: 1.8ms, proxy.ts: 3ms, application-code: 28ms)
+2026-10-27T13:02:58.135786499Z  GET /login 200 in 28ms (next.js: 1.9ms, proxy.ts: 2ms, application-code: 24ms)
+2026-10-27T13:02:58.351228445Z  GET /login 200 in 42ms (next.js: 3ms, proxy.ts: 7ms, application-code: 33ms)
+2026-10-27T13:02:58.739217189Z  GET /login 200 in 50ms (next.js: 4ms, proxy.ts: 8ms, application-code: 39ms)
+2026-10-27T13:02:58.908091462Z  GET /login 200 in 46ms (next.js: 4ms, proxy.ts: 6ms, application-code: 36ms)
+2026-10-27T13:02:59.205985965Z  GET /login 200 in 43ms (next.js: 3ms, proxy.ts: 4ms, application-code: 36ms)
+2026-10-27T13:02:59.468003372Z  GET /login 200 in 47ms (next.js: 4ms, proxy.ts: 8ms, application-code: 35ms)
+2026-10-27T13:03:00.023058664Z  GET /login 200 in 50ms (next.js: 4ms, proxy.ts: 6ms, application-code: 40ms)
+2026-10-27T13:03:00.251884620Z  GET /login 200 in 33ms (next.js: 2ms, proxy.ts: 4ms, application-code: 26ms)
+2026-10-27T13:03:00.289708186Z  GET /login 200 in 29ms (next.js: 1.3ms, proxy.ts: 2ms, application-code: 26ms)
+2026-10-27T13:03:00.575943810Z  GET /login 200 in 47ms (next.js: 1.8ms, proxy.ts: 3ms, application-code: 42ms)
+2026-10-27T13:03:00.771976944Z  GET /login 200 in 31ms (next.js: 3ms, proxy.ts: 1.9ms, application-code: 26ms)
+2026-10-27T13:03:00.907621431Z  GET /login 200 in 19ms (next.js: 1.3ms, proxy.ts: 1.4ms, application-code: 17ms)
+2026-10-27T13:03:01.104326986Z  GET /login 200 in 21ms (next.js: 1.8ms, proxy.ts: 1.9ms, application-code: 17ms)
+2026-10-27T13:03:01.637089732Z  GET /login 200 in 27ms (next.js: 1.9ms, proxy.ts: 1.6ms, application-code: 24ms)
+2026-10-27T13:03:01.863114208Z  GET /login 200 in 31ms (next.js: 2ms, proxy.ts: 3ms, application-code: 25ms)
+2026-10-27T13:03:02.165118110Z  GET /login 200 in 21ms (next.js: 1.4ms, proxy.ts: 3ms, application-code: 17ms)
+2026-10-27T13:03:02.585051825Z  GET /login 200 in 21ms (next.js: 1.2ms, proxy.ts: 3ms, application-code: 17ms)
+2026-10-27T13:03:06.602509302Z  GET /login 200 in 19ms (next.js: 1.2ms, proxy.ts: 1.7ms, application-code: 16ms)
+2026-10-27T13:03:07.351163421Z  GET /login 200 in 34ms (next.js: 3ms, proxy.ts: 3ms, application-code: 29ms)

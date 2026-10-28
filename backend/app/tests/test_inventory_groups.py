@@ -30,6 +30,37 @@ def test_inventory_item_groups_follow_same_split(client, auth_headers):
     assert accessory_categories <= {"accessory", "packaging"}
 
 
+def test_inventory_receiving_rejects_crossed_storage_groups(client, auth_headers):
+    material_items = client.get("/api/inventory/items?group=materials", headers=auth_headers).json()
+    accessory_items = client.get("/api/inventory/items?group=accessories", headers=auth_headers).json()
+    warehouses = client.get("/api/inventory/warehouses", headers=auth_headers).json()
+    fabric = next(row for row in material_items if row["category"] == "fabric")
+    accessory = next(row for row in accessory_items if row["category"] == "accessory")
+    fabric_storage = next(row for row in warehouses if row["type"] == "fabric_storage")
+    accessory_storage = next(row for row in warehouses if row["type"] == "accessory_storage")
+
+    cases = (
+        (fabric, accessory_storage, "Fabric Storage"),
+        (accessory, fabric_storage, "Accessory Storage"),
+    )
+    for index, (item, warehouse, expected_storage) in enumerate(cases, start=1):
+        response = client.post(
+            "/api/inventory/receive",
+            json={
+                "item_id": item["id"],
+                "batch_no": f"CROSSED-STORAGE-{index}",
+                "quantity": 1,
+                "unit": item["unit"],
+                "cost_per_unit": 1,
+                "warehouse_id": warehouse["id"],
+                "qc_status": "passed",
+            },
+            headers=auth_headers,
+        )
+        assert response.status_code == 400, response.text
+        assert expected_storage in response.json()["detail"]
+
+
 def test_inventory_stock_search_filters_within_group(client, auth_headers):
     material_response = client.get("/api/inventory/stock?group=materials&q=cot", headers=auth_headers)
     accessory_response = client.get("/api/inventory/stock?group=accessories&q=zip", headers=auth_headers)

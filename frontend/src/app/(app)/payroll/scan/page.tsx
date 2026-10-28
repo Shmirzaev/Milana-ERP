@@ -1,23 +1,30 @@
 "use client";
 
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  CheckCircle2,
   Calculator,
   Download,
   RefreshCw,
-  Save,
   ScanLine,
   Trash2,
   UserCheck,
 } from "lucide-react";
+import ScanSplit, { scanAllocationText } from "@/components/payroll/ScanSplit";
 import PageHeader from "@/components/PageHeader";
+import PayrollEmployeeSearch from "@/components/PayrollEmployeeSearch";
+import ControlScanReview, { controlScanMessages, isControlWork, type ControlPreview } from "@/components/payroll/ControlScanReview";
 import { api } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { useDialogs } from "@/components/DialogProvider";
 import { parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 import { normalizeBatchSerial } from "@/lib/batchSerial";
+import { formatOrderReference } from "@/lib/orderRef";
 import { useT, type CtxT } from "@/lib/i18n";
+import {
+  payrollScanStorageKey,
+  payrollScanRecordMatchesLabel,
+} from "@/lib/payrollScanStorage";
 
 type EmployeePayload = {
   v?: number;
@@ -25,6 +32,7 @@ type EmployeePayload = {
   source?: string;
   badge_id?: string | null;
   employee_id: number;
+  employee_no?: string | null;
   user_id?: number | null;
   employee_name: string;
   department_id?: number | null;
@@ -66,11 +74,15 @@ type WorkPayload = {
   sewing_line_name?: string | null;
   cutting_passport_id?: number | null;
   cutting_passport_no?: string | null;
+  label_status?: "available" | "scanned" | null;
+  requires_control_confirmation?: boolean;
 };
 
 type PayrollRecord = {
   id: string;
   scannedAt: string;
+  workDate?: string;
+  totalAmount?: number;
   employeeId: number;
   employeeName: string;
   departmentName: string;
@@ -101,10 +113,24 @@ type BackendPayrollRecord = {
   scan_uid?: string | null;
   status: string;
   duplicate?: boolean;
+  scanned_at?: string;
+  total_amount?: string;
+};
+
+type NumericWorkScanResponse = {
+  work: Record<string, unknown>;
+  record: BackendPayrollRecord | null;
+  control_preview?: ControlPreview | null;
+};
+
+type IdleWindow = Window & {
+  requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+  cancelIdleCallback?: (handle: number) => void;
 };
 
 type EmployeeSummary = {
   employeeId: number;
+  employeeNo: string;
   employeeName: string;
   departmentName: string;
   position: string;
@@ -130,11 +156,11 @@ type PayrollSessionStats = {
   currency: string;
 };
 
-const STORAGE_KEY = "milana_payroll_scan_records_v2";
 const LEGACY_STORAGE_KEYS = ["milana_payroll_scan_records_v1"];
 const EMPTY_RECORDS: PayrollRecord[] = [];
 const HISTORY_RENDER_LIMIT = 100;
 const AUTO_SUBMIT_DELAY_MS = 140;
+const NUMERIC_AUTO_SUBMIT_DELAY_MS = 0;
 const PAYROLL_WORK_UNITS = new Set(["piece", "work_unit"]);
 
 function newId(): string {
@@ -249,6 +275,7 @@ function normalizeScanPayload(value: unknown): EmployeePayload | WorkPayload | n
       source: optionalString(parsed.src) || "milana_erp",
       badge_id: optionalString(parsed.id ?? parsed.badge_id),
       employee_id: employeeId,
+      employee_no: optionalString(parsed.en ?? parsed.employee_no),
       user_id: optionalNumber(parsed.u ?? parsed.user_id),
       employee_name: optionalString(parsed.n ?? parsed.employee_name) || `Employee ${employeeId}`,
       department_id: optionalNumber(parsed.did ?? parsed.department_id),
@@ -346,13 +373,28 @@ function parseScanPayload(raw: string, t: CtxT): EmployeePayload | WorkPayload {
 
 async function resolveScanPayload(raw: string, t: CtxT): Promise<EmployeePayload | WorkPayload> {
   const trimmed = raw.replace(/[\u0000-\u001f\u007f]/g, "").trim();
+  if (!trimmed) throw new Error(t("page.payrollScan.scanEmpty"));
   if (/^[12]\d{8}$/.test(trimmed)) {
     const resolved = await api.get<Record<string, unknown>>(`/api/payroll/qr/resolve/${trimmed}`, 10_000);
     const payload = normalizeScanPayload(resolved);
     if (!payload) throw new Error(t("page.payrollScan.unknownQr"));
     return payload;
   }
-  return parseScanPayload(trimmed, t);
+  try {
+    return parseScanPayload(trimmed, t);
+  } catch {
+    try {
+      const resolved = await api.get<Record<string, unknown>>(
+        `/api/payroll/employees/resolve?employee_no=${encodeURIComponent(trimmed)}`,
+        10_000,
+      );
+      const payload = normalizeScanPayload(resolved);
+      if (payload?.type === "employee_payroll") return payload;
+    } catch {
+      // Use the same localized scanner error for an unknown QR and employee number.
+    }
+    throw new Error(t("page.payrollScan.unknownQr"));
+  }
 }
 
 function buildWorkKey(payload: WorkPayload): string {
@@ -451,6 +493,7 @@ function payrollPayloadFromRecord(record: PayrollRecord) {
     employee: record.rawEmployee,
     work: record.rawWork,
     scanned_at: record.scannedAt,
+    work_date: record.workDate,
     employee_id: record.employeeId,
     employee_user_id: record.rawEmployee.user_id ?? null,
     production_order_id: record.rawWork.production_order_id ?? null,
@@ -493,29 +536,54 @@ function looksCompleteScan(value: string): boolean {
 }
 
 export default function PayrollScanPage() {
+  const { me } = useMe();
+  if (!me) return null;
+  return <PayrollScanWorkspace key={me.factory_code} factoryCode={me.factory_code} />;
+}
+
+function PayrollScanWorkspace({ factoryCode }: { factoryCode: string }) {
+  const STORAGE_KEY = payrollScanStorageKey(factoryCode);
   const dialogs = useDialogs();
   const { t, lang } = useT();
   const { me } = useMe();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const recordsRef = useRef<PayrollRecord[]>([]);
+  const employeeSessionRef = useRef(0);
+  const [sessionRecordIds, setSessionRecordIds] = useState<Set<string>>(new Set());
   const currentEmployeeRef = useRef<EmployeePayload | null>(null);
   const workRecordByKeyRef = useRef<Map<string, PayrollRecord>>(new Map());
   const autoSubmitTimerRef = useRef<number | null>(null);
+  const restoredAutoSaveAttemptedRef = useRef(false);
+  const saveRecordsToPayrollRef = useRef<(records: PayrollRecord[], automatic?: boolean) => Promise<void>>(async () => {});
   const inputHasTextRef = useRef(false);
   const lastScanRef = useRef<{ raw: string; at: number } | null>(null);
   const [inputHasText, setInputHasText] = useState(false);
   const [currentEmployee, setCurrentEmployee] = useState<EmployeePayload | null>(null);
+  const workDateToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tashkent", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  const [workDate, setWorkDate] = useState(workDateToday);
+  const [splitRecord, setSplitRecord] = useState<{ record: PayrollRecord; session: number } | null>(null);
+  const allocationText = scanAllocationText[lang];
+  const [controlReview, setControlReview] = useState<{ preview: ControlPreview; employee: EmployeePayload; workDate: string } | null>(null);
+  const controlReviewRef = useRef<typeof controlReview>(null);
+  const controlConfirmRef = useRef(false);
+  const scanSequenceRef = useRef(0);
+  const scanQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const [controlBusy, setControlBusy] = useState(false);
+  const [controlError, setControlError] = useState("");
   const [records, setRecords] = useState<PayrollRecord[]>([]);
   const [recordsLoaded, setRecordsLoaded] = useState(false);
   const [showAllHistory, setShowAllHistory] = useState(false);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"info" | "success" | "warning" | "error">("info");
   const canSavePayroll = can(me, "payroll.scan", "payroll.manage", "*");
+  const canReturnPayroll = can(me, "payroll.manage");
+  const returningRef = useRef<string | null>(null);
+  const [returningId, setReturningId] = useState<string | null>(null);
 
   useEffect(() => {
     try {
-      for (const key of LEGACY_STORAGE_KEYS) {
-        localStorage.removeItem(key);
+      if (factoryCode === "MIL") {
+        for (const key of LEGACY_STORAGE_KEYS) localStorage.removeItem(key);
       }
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
@@ -529,7 +597,22 @@ export default function PayrollScanPage() {
       }
     } catch {}
     setRecordsLoaded(true);
-  }, []);
+  }, [STORAGE_KEY, factoryCode]);
+
+  useEffect(() => {
+    function syncScanHistory(event: StorageEvent) {
+      if (event.key !== STORAGE_KEY) return;
+      try {
+        const parsed = event.newValue ? JSON.parse(event.newValue) : [];
+        if (!Array.isArray(parsed)) return;
+        const normalized = parsed.map(normalizeStoredRecord).filter(Boolean) as PayrollRecord[];
+        replaceRecords(normalized);
+      } catch {}
+    }
+
+    window.addEventListener("storage", syncScanHistory);
+    return () => window.removeEventListener("storage", syncScanHistory);
+  }, [STORAGE_KEY]);
 
   useEffect(() => {
     recordsRef.current = records;
@@ -538,14 +621,25 @@ export default function PayrollScanPage() {
 
   useEffect(() => {
     if (!recordsLoaded) return;
-    const timeout = window.setTimeout(() => {
+    const persistRecords = () => {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
       } catch {}
-    }, 250);
+    };
+    const idleWindow = window as IdleWindow;
+    let timeoutHandle: number | null = null;
+    let idleHandle: number | null = null;
+    if (idleWindow.requestIdleCallback) {
+      idleHandle = idleWindow.requestIdleCallback(persistRecords, { timeout: 2_000 });
+    } else {
+      timeoutHandle = window.setTimeout(persistRecords, 750);
+    }
 
-    return () => window.clearTimeout(timeout);
-  }, [records, recordsLoaded]);
+    return () => {
+      if (idleHandle != null) idleWindow.cancelIdleCallback?.(idleHandle);
+      if (timeoutHandle != null) window.clearTimeout(timeoutHandle);
+    };
+  }, [records, recordsLoaded, STORAGE_KEY]);
 
   useEffect(() => {
     if (!recordsLoaded) return;
@@ -560,9 +654,10 @@ export default function PayrollScanPage() {
       window.removeEventListener("pagehide", flushRecords);
       window.removeEventListener("beforeunload", flushRecords);
     };
-  }, [recordsLoaded]);
+  }, [recordsLoaded, STORAGE_KEY]);
 
   useEffect(() => {
+    if (document.activeElement?.closest("[data-payroll-employee-search]")) return;
     inputRef.current?.focus();
   }, [currentEmployee, records.length]);
 
@@ -582,21 +677,27 @@ export default function PayrollScanPage() {
     setShowAllHistory(false);
   }, [currentEmployeeId]);
 
+  const sessionRecords = useMemo(
+    () => records.filter(record => record.employeeId === currentEmployeeId && sessionRecordIds.has(record.id)),
+    [records, currentEmployeeId, sessionRecordIds],
+  );
+
   const sessionStats = useMemo<PayrollSessionStats>(() => {
     const employeeMap = new Map<number, EmployeeSummary>();
     let quantity = 0;
     let pay = 0;
-    let currency = records[0]?.currency || "UZS";
+    let currency = sessionRecords[0]?.currency || "UZS";
 
-    for (const record of records) {
+    for (const record of sessionRecords) {
       const recordQuantity = numberOrZero(record.quantity);
       const recordRate = numberOrZero(record.ratePerPiece);
       quantity += recordQuantity;
-      pay += recordQuantity * recordRate;
+      pay += record.totalAmount ?? recordQuantity * recordRate;
       currency = currency || record.currency || "UZS";
 
       const current = employeeMap.get(record.employeeId) || {
         employeeId: record.employeeId,
+        employeeNo: String(record.rawEmployee.employee_no || String(record.employeeId).padStart(4, "0")),
         employeeName: record.employeeName,
         departmentName: record.departmentName,
         position: record.position,
@@ -606,7 +707,7 @@ export default function PayrollScanPage() {
         records: [],
       };
       current.quantity += recordQuantity;
-      current.totalPay += recordQuantity * recordRate;
+      current.totalPay += record.totalAmount ?? recordQuantity * recordRate;
       current.records.push(record);
       employeeMap.set(record.employeeId, current);
     }
@@ -619,7 +720,7 @@ export default function PayrollScanPage() {
       pay,
       currency,
     };
-  }, [records]);
+  }, [sessionRecords]);
 
   const employeeSummaries = sessionStats.employeeSummaries;
   const visibleRecords = currentEmployeeId == null
@@ -630,6 +731,10 @@ export default function PayrollScanPage() {
     [showAllHistory, visibleRecords],
   );
   const hiddenHistoryCount = Math.max(0, visibleRecords.length - visibleHistoryRows.length);
+  const latestRemovableRecord = visibleRecords.find((record) => record.saveStatus !== "saved" && record.saveStatus !== "saving") || null;
+  const latestScan = visibleRecords[0];
+  const latestReturnableRecord = latestScan?.saveStatus === "saved" && latestScan.backendId && latestScan.rawWork.label_id && latestScan.backendStatus !== "voided" ? latestScan : null;
+  const latestSplittableRecord = latestScan?.saveStatus === "saved" && latestScan.backendStatus === "recorded" && latestScan.backendId && numberOrZero(latestScan.quantity) >= 2 ? latestScan : null;
 
   const operationSummaries = useMemo<OperationSummary[]>(() => {
     const map = new Map<string, OperationSummary>();
@@ -645,7 +750,7 @@ export default function PayrollScanPage() {
       const recordQuantity = numberOrZero(record.quantity);
       const recordRate = numberOrZero(record.ratePerPiece);
       current.quantity += recordQuantity;
-      current.totalPay += recordQuantity * recordRate;
+      current.totalPay += record.totalAmount ?? recordQuantity * recordRate;
       map.set(key, current);
     }
     return Array.from(map.values()).sort((a, b) => b.quantity - a.quantity);
@@ -660,8 +765,14 @@ export default function PayrollScanPage() {
     () => records.filter((record) => record.saveStatus !== "saved"),
     [records],
   );
-  const latestUnsavedRecord = unsavedRecords[0] || null;
-  const savedCount = records.length - unsavedRecords.length;
+  const savedCount = sessionRecords.filter(record => record.saveStatus === "saved").length;
+  const sessionWaitingCount = sessionRecords.length - savedCount;
+  const earlierUnsavedRecords = unsavedRecords.filter(record => !sessionRecordIds.has(record.id));
+  const earlierSaveText = {
+    en: "Earlier scans waiting to save",
+    ru: "Предыдущие сканирования ожидают сохранения",
+    uz: "Oldingi skanlar saqlanishni kutmoqda",
+  }[lang];
   const savingCount = records.filter((record) => record.saveStatus === "saving").length;
 
   function setNotice(text: string, tone: typeof messageTone = "info") {
@@ -692,8 +803,24 @@ export default function PayrollScanPage() {
   }
 
   function selectEmployee(payload: EmployeePayload) {
+    if (controlConfirmRef.current) return false;
+    // A chosen employee owns the next scan, never a previous in-flight review.
+    scanSequenceRef.current += 1;
+    controlReviewRef.current = null;
+    setControlReview(null);
+    setControlError("");
+    employeeSessionRef.current += 1;
+    setSessionRecordIds(new Set());
+    setShowAllHistory(false);
+    lastScanRef.current = null;
     currentEmployeeRef.current = payload;
     setCurrentEmployee(payload);
+    return true;
+  }
+
+  function showSessionRecord(record: PayrollRecord, session: number) {
+    if (session !== employeeSessionRef.current || record.employeeId !== currentEmployeeRef.current?.employee_id) return;
+    setSessionRecordIds(ids => new Set([...ids, record.id]));
   }
 
   function replaceRecords(nextRecords: PayrollRecord[]) {
@@ -714,8 +841,122 @@ export default function PayrollScanPage() {
     setInputHasTextState(Boolean(value.trim()));
     clearAutoSubmitTimer();
     if (looksCompleteScan(value)) {
-      autoSubmitTimerRef.current = window.setTimeout(() => void submitScan(), AUTO_SUBMIT_DELAY_MS);
+      const delay = /^[12]\d{8}$/.test(value.trim()) ? NUMERIC_AUTO_SUBMIT_DELAY_MS : AUTO_SUBMIT_DELAY_MS;
+      autoSubmitTimerRef.current = window.setTimeout(() => void submitScan(), delay);
     }
+  }
+
+  function showControlReview(preview: ControlPreview, employee: EmployeePayload, sequence: number, date = workDate) {
+    if (sequence !== scanSequenceRef.current) return;
+    const review = { preview, employee, workDate: date };
+    controlReviewRef.current = review;
+    setControlReview(review);
+    setControlError("");
+    setNotice(controlScanMessages[lang].pending, "info");
+  }
+
+  function cancelControlReview() {
+    if (controlConfirmRef.current) return;
+    scanSequenceRef.current += 1;
+    controlReviewRef.current = null;
+    setControlReview(null);
+    setControlError("");
+    inputRef.current?.focus();
+  }
+
+  async function confirmControlReview(closeUnscanned = false, reason = "") {
+    const review = controlReviewRef.current;
+    if (!review || controlConfirmRef.current || !canSavePayroll) return;
+    const session = employeeSessionRef.current;
+    controlConfirmRef.current = true;
+    setControlBusy(true);
+    setControlError("");
+    try {
+      const saved = await api.post<BackendPayrollRecord>("/api/payroll/scan/control-confirm", {
+        label_uid: review.preview.work.label_id,
+        employee_id: review.employee.employee_id,
+        review_token: review.preview.review_token,
+        close_unscanned: closeUnscanned,
+        closure_reason: reason || undefined,
+        work_date: review.workDate,
+      }, 30_000);
+      if (saved.status === "voided") throw new Error("Cancelled Control record");
+      const work = review.preview.work as WorkPayload;
+      const nextRecord = { ...toPayrollRecord(review.employee, work, t), workDate: review.workDate, scannedAt: saved.scanned_at || new Date().toISOString(), totalAmount: Number(saved.total_amount), backendId: saved.id, backendStatus: saved.status, savedAt: new Date().toISOString(), saveStatus: "saved" as const };
+      replaceRecords([nextRecord, ...recordsRef.current.filter((record) => !payrollScanRecordMatchesLabel(record, work.label_id || ""))]);
+      showSessionRecord(nextRecord, session);
+      controlReviewRef.current = null;
+      setControlReview(null);
+      setNotice(t("page.payrollScan.autoSavedRecord", { count: numberOrZero(nextRecord.quantity).toLocaleString(), name: nextRecord.employeeName }), "success");
+      inputRef.current?.focus();
+    } catch {
+      setControlError(controlScanMessages[lang].error);
+    } finally {
+      controlConfirmRef.current = false;
+      setControlBusy(false);
+    }
+  }
+
+  async function recordNumericWorkScan(raw: string, employee: EmployeePayload, sequence: number) {
+    const selectedWorkDate = workDate;
+    const session = employeeSessionRef.current;
+    const response = await api.post<NumericWorkScanResponse>("/api/payroll/scan/numeric-work", {
+      token: raw,
+      employee_id: employee.employee_id,
+      scanned_at: new Date().toISOString(),
+      work_date: selectedWorkDate,
+    }, 30_000);
+    const payload = normalizeScanPayload(response.work);
+    if (!payload || payload.type !== "process_payroll") {
+      throw new Error(t("page.payrollScan.unknownQr"));
+    }
+
+    if (response.control_preview) {
+      showControlReview(response.control_preview, employee, sequence, selectedWorkDate);
+      return;
+    }
+    if (!response.record) throw new Error(t("page.payrollScan.readFailed"));
+
+    const existingWorkRecord = workRecordByKeyRef.current.get(buildWorkKey(payload));
+    if (response.record.duplicate && existingWorkRecord) {
+      if (session !== employeeSessionRef.current) return;
+      setNotice(
+        t("page.payrollScan.duplicateWork", { name: existingWorkRecord.employeeName }),
+        "warning",
+      );
+      return;
+    }
+
+    const nextRecord = {
+      ...toPayrollRecord(employee, payload, t),
+      workDate: selectedWorkDate,
+      scannedAt: response.record.scanned_at || new Date().toISOString(),
+      totalAmount: Number(response.record.total_amount),
+      backendId: response.record.id,
+      backendStatus: response.record.status,
+      savedAt: new Date().toISOString(),
+      saveStatus: "saved" as const,
+      saveError: null,
+    };
+    const priorRecords = response.record.duplicate
+      ? recordsRef.current
+      : recordsRef.current.filter((record) => !payrollScanRecordMatchesLabel(record, payload.label_id || ""));
+    replaceRecords([nextRecord, ...priorRecords]);
+    showSessionRecord(nextRecord, session);
+    if (session !== employeeSessionRef.current) return;
+    setNotice(
+      t("page.payrollScan.autoSavedRecord", {
+        count: numberOrZero(nextRecord.quantity).toLocaleString(),
+        name: nextRecord.employeeName,
+      }),
+      "success",
+    );
+  }
+
+  function enqueueScanAction(action: () => void | Promise<void>) {
+    const pending = scanQueueRef.current.then(action);
+    scanQueueRef.current = pending.catch(() => {});
+    return pending;
   }
 
   async function submitScan(event?: React.FormEvent) {
@@ -724,22 +965,63 @@ export default function PayrollScanPage() {
     const raw = inputRef.current?.value.trim() || "";
     if (!raw) return;
     clearScanInput();
+    // Capture input immediately, then resolve badges and work in arrival order.
+    await enqueueScanAction(() => processScan(raw));
+  }
+
+  async function processScan(raw: string) {
+    if (controlReviewRef.current) {
+      setNotice(controlScanMessages[lang].pending, "warning");
+      return;
+    }
 
     const now = Date.now();
     const lastScan = lastScanRef.current;
     if (lastScan && lastScan.raw === raw && now - lastScan.at < 700) return;
     lastScanRef.current = { raw, at: now };
+    const sequence = ++scanSequenceRef.current;
+    const session = employeeSessionRef.current;
 
     try {
+      const selectedEmployee = currentEmployeeRef.current;
+      if (/^2\d{8}$/.test(raw) && selectedEmployee && canSavePayroll) {
+        await recordNumericWorkScan(raw, selectedEmployee, sequence);
+        return;
+      }
+      // A failed employee lookup must not leave the previous worker selected.
+      let employeeLookup = !/^2\d{8}$/.test(raw);
+      try { employeeLookup = parseScanPayload(raw, t).type === "employee_payroll"; } catch {}
+      if (employeeLookup) {
+        currentEmployeeRef.current = null;
+        setCurrentEmployee(null);
+      }
       const payload = await resolveScanPayload(raw, t);
       if (payload.type === "employee_payroll") {
-        selectEmployee(payload);
+        if (sequence !== scanSequenceRef.current) return;
+        if (!selectEmployee(payload)) return;
         setNotice(t("page.payrollScan.employeeSelected", { name: payload.employee_name }), "success");
         return;
       }
 
+      if (session !== employeeSessionRef.current) return;
+      const controlEmployee = selectedEmployee;
+      if (controlEmployee && isControlWork(payload)) {
+        const preview = await api.post<ControlPreview>("/api/payroll/scan/control-preview", {
+          label_uid: payload.label_id,
+          employee_id: controlEmployee.employee_id,
+        });
+        showControlReview(preview, controlEmployee, sequence);
+        return;
+      }
+
       const workKey = buildWorkKey(payload);
-      const existingWorkRecord = workRecordByKeyRef.current.get(workKey);
+      let existingWorkRecord = workRecordByKeyRef.current.get(workKey);
+      if (existingWorkRecord && payload.label_status === "available" && payload.label_id) {
+        replaceRecords(recordsRef.current.filter((record) => (
+          !payrollScanRecordMatchesLabel(record, payload.label_id || "")
+        )));
+        existingWorkRecord = undefined;
+      }
       if (existingWorkRecord) {
         setNotice(
           t("page.payrollScan.duplicateWork", { name: existingWorkRecord.employeeName }),
@@ -748,18 +1030,16 @@ export default function PayrollScanPage() {
         return;
       }
 
-      const employee = currentEmployeeRef.current;
+      const employee = selectedEmployee;
       if (!employee) {
         setNotice(t("page.payrollScan.scanEmployeeFirst"), "warning");
         return;
       }
 
-      const nextRecord = toPayrollRecord(employee, payload, t);
+      const nextRecord = { ...toPayrollRecord(employee, payload, t), workDate };
       addRecord(nextRecord);
-      setNotice(
-        t("page.payrollScan.addedPieces", { count: nextRecord.quantity.toLocaleString(), name: nextRecord.employeeName }),
-        "success",
-      );
+      showSessionRecord(nextRecord, session);
+      await saveRecordsToPayroll([nextRecord], true);
     } catch (error: any) {
       setNotice(error?.message || t("page.payrollScan.readFailed"), "error");
     }
@@ -781,11 +1061,55 @@ export default function PayrollScanPage() {
     replaceRecords(recordsRef.current.filter((record) => record.id !== id));
   }
 
-  async function saveRecordsToPayroll(targetRecords: PayrollRecord[]) {
-    const rows = targetRecords.filter((record) => record.saveStatus !== "saved");
+  async function returnRecord(record: PayrollRecord) {
+    if (!canReturnPayroll || returningRef.current || splitRecord || controlReviewRef.current || record.saveStatus !== "saved" || !record.backendId || !record.rawWork.label_id) return;
+    const session = employeeSessionRef.current;
+    const labelUid = record.rawWork.label_id;
+    returningRef.current = record.id;
+    setReturningId(record.id);
+    try {
+      if (!(await dialogs.ask({
+        title: t("page.payrollQrControl.returnTitle"),
+        message: t("page.payrollQrControl.returnConfirm", { qr: labelUid, employee: record.employeeName }),
+        confirmText: t("page.payrollQrControl.returnQr"),
+        tone: "danger",
+      }))) return;
+      await enqueueScanAction(async () => {
+        const result = await api.get<{ items: { id: number; label_uid: string; payroll_record_id: number | null }[] }>(
+          `/api/payroll/qr-labels?search=${encodeURIComponent(labelUid)}&limit=100`,
+        );
+        const label = result.items.find(row => row.label_uid === labelUid && row.payroll_record_id === record.backendId);
+        if (!label) throw new Error(t("page.payrollQrControl.returnFailed"));
+        await api.post(`/api/payroll/qr-labels/${label.id}/return?expected_record_id=${record.backendId}`);
+        const remaining = recordsRef.current.filter(row => row.backendId !== record.backendId);
+        replaceRecords(remaining);
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(remaining)); } catch { /* State persistence retries through the existing history effect. */ }
+        lastScanRef.current = null;
+        if (session === employeeSessionRef.current) setNotice(t("page.payrollQrControl.returned"), "success");
+      });
+    } catch (error: any) {
+      if (session === employeeSessionRef.current) setNotice(error?.message || t("page.payrollQrControl.returnFailed"), "error");
+    } finally {
+      returningRef.current = null;
+      setReturningId(null);
+    }
+  }
+
+  async function saveRecordsToPayroll(targetRecords: PayrollRecord[], automatic = false) {
+    const session = employeeSessionRef.current;
+    const sessionNotice = (text: string, tone: typeof messageTone) => {
+      if (session === employeeSessionRef.current && targetRecords.every(record => record.employeeId === currentEmployeeRef.current?.employee_id)) setNotice(text, tone);
+    };
+    const rows = targetRecords.filter((record) => record.saveStatus !== "saved" && record.saveStatus !== "saving");
     if (!rows.length) return;
     if (!canSavePayroll) {
-      setNotice(t("page.payrollScan.noSavePermission"), "error");
+      const ids = new Set(rows.map((record) => record.id));
+      replaceRecords(recordsRef.current.map((record) => (
+        ids.has(record.id)
+          ? { ...record, saveStatus: "error", saveError: t("page.payrollScan.noSavePermission") }
+          : record
+      )));
+      sessionNotice(t("page.payrollScan.noSavePermission"), "error");
       return;
     }
 
@@ -795,16 +1119,31 @@ export default function PayrollScanPage() {
         ? { ...record, saveStatus: "saving", saveError: null }
         : record
     )));
-    setNotice(t("page.payrollScan.savingRecords", { count: rows.length.toLocaleString() }), "info");
+    sessionNotice(
+      automatic
+        ? t("page.payrollScan.autoSavingRecord", { name: rows[0]?.employeeName || "" })
+        : t("page.payrollScan.savingRecords", { count: rows.length.toLocaleString() }),
+      "info",
+    );
 
     try {
-      const response = await api.post<{
-        records: BackendPayrollRecord[];
-        created_count: number;
-        duplicate_count: number;
-      }>("/api/payroll/records/bulk", {
-        records: rows.map(payrollPayloadFromRecord),
-      }, 30_000);
+      const response = rows.length === 1
+        ? await api.post<BackendPayrollRecord>(
+          "/api/payroll/records",
+          payrollPayloadFromRecord(rows[0]),
+          30_000,
+        ).then((record) => ({
+          records: [record],
+          created_count: record.duplicate ? 0 : 1,
+          duplicate_count: record.duplicate ? 1 : 0,
+        }))
+        : await api.post<{
+          records: BackendPayrollRecord[];
+          created_count: number;
+          duplicate_count: number;
+        }>("/api/payroll/records/bulk", {
+          records: rows.map(payrollPayloadFromRecord),
+        }, 30_000);
 
       const resultById = new Map(rows.map((record, index) => [record.id, response.records[index]]));
       const savedAt = new Date().toISOString();
@@ -816,6 +1155,8 @@ export default function PayrollScanPage() {
         }
         return {
           ...record,
+          scannedAt: result.scanned_at || record.scannedAt,
+          totalAmount: result.total_amount === undefined ? record.totalAmount : Number(result.total_amount),
           backendId: result.id,
           backendStatus: result.status,
           savedAt,
@@ -823,11 +1164,16 @@ export default function PayrollScanPage() {
           saveError: null,
         };
       }));
-      setNotice(
-        t("page.payrollScan.savedRecords", {
-          count: Number(response.created_count || 0).toLocaleString(),
-          duplicates: response.duplicate_count ? t("page.payrollScan.duplicateCount", { count: Number(response.duplicate_count).toLocaleString() }) : "",
-        }),
+      sessionNotice(
+        automatic
+          ? t("page.payrollScan.autoSavedRecord", {
+            count: numberOrZero(rows[0]?.quantity).toLocaleString(),
+            name: rows[0]?.employeeName || "",
+          })
+          : t("page.payrollScan.savedRecords", {
+            count: Number(response.created_count || 0).toLocaleString(),
+            duplicates: response.duplicate_count ? t("page.payrollScan.duplicateCount", { count: Number(response.duplicate_count).toLocaleString() }) : "",
+          }),
         "success",
       );
     } catch (error: any) {
@@ -837,14 +1183,28 @@ export default function PayrollScanPage() {
           ? { ...record, saveStatus: "error", saveError: text }
           : record
       )));
-      setNotice(text, "error");
+      sessionNotice(text, "error");
     }
   }
 
+  useEffect(() => {
+    saveRecordsToPayrollRef.current = saveRecordsToPayroll;
+  });
+
+  useEffect(() => {
+    if (!recordsLoaded || !canSavePayroll || restoredAutoSaveAttemptedRef.current) return;
+    restoredAutoSaveAttemptedRef.current = true;
+    const restoredPending = recordsRef.current.filter((record) => !record.saveStatus || record.saveStatus === "pending");
+    if (restoredPending.length > 0) void saveRecordsToPayrollRef.current(restoredPending);
+  }, [canSavePayroll, recordsLoaded]);
+
   async function clearRecords() {
-    if (!records.length) return;
+    if (!sessionRecords.length || controlConfirmRef.current) return;
+    const session = employeeSessionRef.current;
     if (!(await dialogs.ask({ message: t("page.payrollScan.clearConfirm"), tone: "danger" }))) return;
-    replaceRecords([]);
+    if (session !== employeeSessionRef.current || controlConfirmRef.current) return;
+    employeeSessionRef.current += 1;
+    setSessionRecordIds(new Set());
     setNotice(t("page.payrollScan.cleared"), "info");
   }
 
@@ -867,7 +1227,7 @@ export default function PayrollScanPage() {
       "total_pay",
       "currency",
     ];
-    const rows = records.map((record) => [
+    const rows = sessionRecords.map((record) => [
       record.scannedAt,
       record.employeeId,
       record.employeeName,
@@ -876,13 +1236,13 @@ export default function PayrollScanPage() {
       record.productionNo,
       record.salesOrderNo,
       record.batchNo,
-      record.modelCode,
+      formatModelVariantCode(record.modelCode),
       record.operationSection,
       record.operationCode,
       record.operationName,
       numberOrZero(record.quantity),
       numberOrZero(record.ratePerPiece),
-      numberOrZero(record.quantity) * numberOrZero(record.ratePerPiece),
+      record.totalAmount ?? numberOrZero(record.quantity) * numberOrZero(record.ratePerPiece),
       record.currency,
     ]);
     const csv = [headers, ...rows].map((row) => row.map(csvEscape).join(",")).join("\n");
@@ -915,8 +1275,6 @@ export default function PayrollScanPage() {
     warning: "border-amber-200 bg-amber-50 text-amber-800",
     error: "border-red-200 bg-red-50 text-red-700",
   }[messageTone];
-  const latestVisibleRecord = visibleRecords[0] || null;
-
   return (
     <div>
       <PageHeader
@@ -928,37 +1286,29 @@ export default function PayrollScanPage() {
               <ScanLine />
               <span>{t("page.payrollScan.focusScanner")}</span>
             </button>
-            <button type="button" className="btn" onClick={exportCsv} disabled={records.length === 0}>
+            <button type="button" className="btn" onClick={exportCsv} disabled={sessionRecords.length === 0}>
               <Download />
               <span>CSV</span>
             </button>
-            <button
-              type="button"
-              className="btn"
-              onClick={() => latestUnsavedRecord && saveRecordsToPayroll([latestUnsavedRecord])}
-              disabled={!latestUnsavedRecord || !canSavePayroll || savingCount > 0}
-              title={canSavePayroll ? t("page.payrollScan.saveLatestTitle") : t("page.payrollScan.noSavePermission")}
-            >
-              <Save />
-              <span>{t("page.payrollScan.saveToPayroll")}</span>
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => saveRecordsToPayroll(unsavedRecords)}
-              disabled={unsavedRecords.length === 0 || !canSavePayroll || savingCount > 0}
-              title={canSavePayroll ? t("page.payrollScan.saveAllTitle") : t("page.payrollScan.noSavePermission")}
-            >
-              <CheckCircle2 />
-              <span>{t("page.payrollScan.saveAll")}</span>
-            </button>
-            <button type="button" className="btn btn-danger" onClick={clearRecords} disabled={records.length === 0}>
+            <button type="button" className="btn btn-danger" onClick={clearRecords} disabled={sessionRecords.length === 0}>
               <Trash2 />
               <span>{t("common.clear")}</span>
             </button>
           </div>
         )}
       />
+
+      {splitRecord && <ScanSplit recordId={splitRecord.record.backendId!} quantity={numberOrZero(splitRecord.record.quantity)} employee={splitRecord.record.rawEmployee} onClose={() => setSplitRecord(null)} onSaved={rows => {
+        const replacements = rows.map(row => {
+          const employee: EmployeePayload = { type: "employee_payroll", employee_id: row.employee_id, employee_name: row.employee_name, department_name: row.department_name };
+          const work = { ...row.raw_work_json, type: "process_payroll", label_id: row.scan_uid, quantity: Number(row.quantity), rate_per_piece: Number(row.rate_per_piece) } as WorkPayload;
+          return { ...toPayrollRecord(employee, work, t), scannedAt: row.scanned_at, totalAmount: Number(row.total_amount), backendId: row.id, backendStatus: row.status, saveStatus: "saved" as const, savedAt: new Date().toISOString() };
+        });
+        replaceRecords([...replacements, ...recordsRef.current.filter(row => row.backendId !== splitRecord.record.backendId)]);
+        replacements.forEach(row => showSessionRecord(row, splitRecord.session));
+        setNotice(allocationText.saved, "success");
+      }} />}
+      {controlReview ? <ControlScanReview key={controlReview.preview.review_token} preview={controlReview.preview} employeeName={controlReview.employee.employee_name} busy={controlBusy} error={controlError} onConfirm={(close, reason) => void confirmControlReview(close, reason)} onCancel={cancelControlReview} /> : null}
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(320px,440px)_minmax(0,1fr)]">
         <section className="card p-4">
@@ -970,6 +1320,8 @@ export default function PayrollScanPage() {
             <ScanLine className="h-5 w-5 text-[#8a8472]" />
           </div>
 
+          <label className="label mb-3">{allocationText.workDate}<input type="date" className="input" value={workDate} max={workDateToday()} required disabled={controlBusy || !!controlReview} onChange={event => { if (event.target.value) setWorkDate(event.target.value); }} /></label>
+          {workDate !== workDateToday() && <p role="status" className="mb-3 text-sm">{allocationText.previous}</p>}
           <form onSubmit={submitScan} className="space-y-3">
             <div>
               <label className="label">{t("page.payrollScan.qrInput")}</label>
@@ -979,7 +1331,7 @@ export default function PayrollScanPage() {
                 autoFocus
                 autoComplete="off"
                 spellCheck={false}
-                placeholder='{"type":"employee_payroll"...}'
+                placeholder={t("page.payrollScan.scanPlaceholder")}
                 onChange={handleScanInput}
                 onKeyDown={(event) => {
                   if (event.key === "Tab" && inputRef.current?.value.trim()) {
@@ -994,6 +1346,20 @@ export default function PayrollScanPage() {
               <span>{t("page.payrollScan.scan")}</span>
             </button>
           </form>
+
+          {canSavePayroll && latestSplittableRecord && <div className="mt-3">
+            <button type="button" className="btn w-full" disabled={returningId !== null} onClick={() => setSplitRecord({ record: latestSplittableRecord, session: employeeSessionRef.current })}>{allocationText.split}</button>
+            <p className="mt-1 text-sm">{latestSplittableRecord.operationName} · {latestSplittableRecord.quantity} {allocationText.pieces}</p>
+          </div>}
+          {canReturnPayroll && latestReturnableRecord && <button type="button" className="btn mt-3 w-full" disabled={returningId !== null} onClick={() => void returnRecord(latestReturnableRecord)}>{t("page.payrollQrControl.returnQr")}</button>}
+          {canSavePayroll && <PayrollEmployeeSearch disabled={controlBusy} onSelect={employee => {
+            clearScanInput();
+            if (controlConfirmRef.current) return;
+            void enqueueScanAction(() => {
+              if (!selectEmployee(employee)) return;
+              setNotice(t("page.payrollScan.employeeSelected", { name: employee.employee_name }), "success");
+            });
+          }} />}
 
           {message && (
             <div className={`mt-4 rounded-md border p-3 text-sm ${messageClass}`}>
@@ -1010,7 +1376,7 @@ export default function PayrollScanPage() {
               <div>
                 <div className="text-lg font-semibold">{currentEmployee.employee_name}</div>
                 <div className="mt-1 text-sm text-[#56503f]">
-                  EMP-{String(currentEmployee.employee_id).padStart(4, "0")}
+                  {currentEmployee.employee_no || String(currentEmployee.employee_id).padStart(4, "0")}
                 </div>
                 <div className="mt-1 text-xs text-[#8a8472]">
                   {currentEmployee.department_name || "-"} - {currentEmployee.position || "-"}
@@ -1040,20 +1406,14 @@ export default function PayrollScanPage() {
               <div>
                 <div className="label">{t("page.payrollScan.backendPayroll")}</div>
                 <div className="text-sm text-[#56503f]">
-                  {t("page.payrollScan.backendSummary", { saved: savedCount.toLocaleString(), waiting: unsavedRecords.length.toLocaleString() })}
+                  {t("page.payrollScan.backendSummary", { saved: savedCount.toLocaleString(), waiting: sessionWaitingCount.toLocaleString() })}
                 </div>
               </div>
-              {unsavedRecords.length > 0 && (
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={() => saveRecordsToPayroll(unsavedRecords)}
-                  disabled={!canSavePayroll || savingCount > 0}
-                >
-                  <CheckCircle2 />
-                  <span>{t("page.payrollScan.saveAll")}</span>
-                </button>
-              )}
+              {earlierUnsavedRecords.length > 0 && <div className="flex items-center gap-2 text-sm">
+                <span>{earlierSaveText}: {earlierUnsavedRecords.length.toLocaleString()}</span>
+                <button type="button" className="btn" disabled={!canSavePayroll || savingCount > 0}
+                  onClick={() => void saveRecordsToPayroll(earlierUnsavedRecords)}>{t("common.retry")}</button>
+              </div>}
             </div>
           </div>
 
@@ -1083,7 +1443,7 @@ export default function PayrollScanPage() {
                     <tr key={summary.employeeId}>
                       <td>
                         <div className="font-medium">{summary.employeeName}</div>
-                        <div className="text-xs text-[#8a8472]">EMP-{String(summary.employeeId).padStart(4, "0")}</div>
+                        <div className="text-xs text-[#8a8472]">{summary.employeeNo}</div>
                       </td>
                       <td>{summary.departmentName}</td>
                       <td>{summary.records.length.toLocaleString()}</td>
@@ -1122,9 +1482,9 @@ export default function PayrollScanPage() {
                 type="button"
                 className="btn"
                 onClick={() => {
-                  if (latestVisibleRecord) removeRecord(latestVisibleRecord.id);
+                  if (latestRemovableRecord) removeRecord(latestRemovableRecord.id);
                 }}
-                disabled={!latestVisibleRecord}
+                disabled={!latestRemovableRecord}
               >
                 <RefreshCw />
                 <span>{t("page.payrollScan.undoLast")}</span>
@@ -1163,8 +1523,8 @@ export default function PayrollScanPage() {
                   <tr key={record.id}>
                     <td>{new Date(record.scannedAt).toLocaleString(lang)}</td>
                     <td>{record.employeeName}</td>
-                    <td>{record.modelCode}</td>
-                    <td>{record.productionNo}</td>
+                    <td>{formatModelVariantCode(record.modelCode)}</td>
+                    <td>{formatOrderReference(record.productionNo)}</td>
                     <td>{record.batchNo}</td>
                     <td>
                       <div className="font-medium">{record.operationName}</div>
@@ -1191,7 +1551,7 @@ export default function PayrollScanPage() {
                         onChange={(event) => updateRecord(record.id, { ratePerPiece: parseNumberInput(event.target.value) })}
                       />
                     </td>
-                    <td className="font-semibold">{formatMoney(numberOrZero(record.quantity) * numberOrZero(record.ratePerPiece), record.currency)}</td>
+                    <td className="font-semibold">{formatMoney(record.totalAmount ?? numberOrZero(record.quantity) * numberOrZero(record.ratePerPiece), record.currency)}</td>
                     <td>
                       <div className="space-y-1">
                         <span className={`badge ${saveStatusClass(record)}`}>{saveStatusLabel(record)}</span>
@@ -1204,22 +1564,30 @@ export default function PayrollScanPage() {
                       </div>
                     </td>
                     <td>
-                      <div className="flex items-center gap-2">
-                        {record.saveStatus !== "saved" && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        {canSavePayroll && record.saveStatus === "saved" && record.backendStatus === "recorded" && record.backendId && numberOrZero(record.quantity) >= 2 && (
+                          <button type="button" className="btn" disabled={returningId !== null} onClick={() => setSplitRecord({ record, session: employeeSessionRef.current })}>{allocationText.split}</button>
+                        )}
+                        {canReturnPayroll && record.saveStatus === "saved" && record.backendId && record.rawWork.label_id && record.backendStatus !== "voided" && (
+                          <button type="button" className="btn" disabled={returningId !== null} onClick={() => void returnRecord(record)}>{t("page.payrollQrControl.returnQr")}</button>
+                        )}
+                        {record.saveStatus === "error" && (
                           <button
                             type="button"
                             className="btn h-8 px-2 text-[11px]"
                             onClick={() => saveRecordsToPayroll([record])}
-                            disabled={!canSavePayroll || record.saveStatus === "saving" || savingCount > 0}
+                            disabled={!canSavePayroll || savingCount > 0}
                             title={canSavePayroll ? t("page.payrollScan.saveThisTitle") : t("page.payrollScan.noSavePermission")}
                           >
-                            <Save />
-                            <span>{t("common.save")}</span>
+                            <RefreshCw />
+                            <span>{t("common.retry")}</span>
                           </button>
                         )}
-                        <button type="button" className="icon-btn" onClick={() => removeRecord(record.id)} title={t("page.payrollScan.removeLocal")}>
-                          <Trash2 />
-                        </button>
+                        {record.saveStatus !== "saved" && record.saveStatus !== "saving" && (
+                          <button type="button" className="icon-btn" onClick={() => removeRecord(record.id)} title={t("page.payrollScan.removeLocal")}>
+                            <Trash2 />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

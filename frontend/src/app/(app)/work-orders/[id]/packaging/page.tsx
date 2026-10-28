@@ -1,10 +1,14 @@
 "use client";
+import { localizeError } from "@/lib/errorMessages";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
 import { api, fetcher } from "@/lib/api";
 import { formatBatchLabel, formatBatchSerial } from "@/lib/batchSerial";
+import FirstGradePackaging from "@/components/FirstGradePackaging";
+import UslugaPackaging from "@/components/UslugaPackaging";
 import PackageQrSection from "@/components/PackageQrSection";
+import { postPackageWorkflow, type PackagePrintRun } from "@/lib/packageWorkflow";
 import PageHeader from "@/components/PageHeader";
 import { operationLabel, statusLabel } from "@/components/StagePipeline";
 import WorkOrderProductInfo from "@/components/WorkOrderProductInfo";
@@ -80,18 +84,15 @@ export default function PackagingPage() {
   const { me } = useMe();
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
+  const { mutate: mutateCache } = useSWRConfig();
   const { data: wo, mutate: mutateWo } = useSWR<any>(`/api/work-orders/${id}`, fetcher);
   const { data: po, mutate: mutatePo } = useSWR<any>(wo ? `/api/production-orders/${wo.production_order_id}` : null, fetcher);
   const { data: batchProgress, mutate: mutateBatchProgress } = useSWR<any>(
     wo ? `/api/work-orders/${id}/packaging-batch-progress` : null,
     fetcher,
   );
-  const { data: replacementStatus, mutate: mutateReplacementStatus } = useSWR<any>(
-    wo ? `/api/work-orders/${id}/replacement-status` : null,
-    fetcher,
-  );
   const { data: so } = useSWR<any>(po?.sales_order_id ? `/api/sales-orders/${po.sales_order_id}` : null, fetcher);
-  const { data: model } = useSWR<any>(po?.model_id ? `/api/models/${po.model_id}` : null, fetcher);
+  const { data: model } = useSWR<any>(po?.model_id ? `/api/${po.source_type === "usluga" ? "usluga/" : ""}models/${po.model_id}` : null, fetcher);
   const { data: customers = [] } = useSWR<any[]>("/api/customers", fetcher);
   const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
 
@@ -141,51 +142,12 @@ export default function PackagingPage() {
     return Array.from(bySize.entries()).map(([size, planned_quantity]) => ({ size, planned_quantity }));
   }, [po?.items, color]);
 
-  const totalOrderColorQty = useMemo(
-    () => orderColorItems.reduce((s: number, it: any) => s + Number(it?.planned_quantity || 0), 0),
-    [orderColorItems],
-  );
-  const totalOrderQty = useMemo(
-    () => (po?.items || []).reduce((s: number, it: any) => s + Math.max(0, Number(it?.planned_quantity || 0)), 0),
-    [po?.items],
-  );
-
-  const packageableColorQty = useMemo(() => {
-    if (isAlreadyBatched && selectedBatchProgress) {
-      const hasPackageAccounting =
-        Number(selectedBatchProgress.packed_qty || 0) > 0 || Number(selectedBatchProgress.packaged_qty || 0) > 0;
-      if (hasPackageAccounting) {
-        return Math.max(0, Number(selectedBatchProgress.available_to_package ?? selectedBatchProgress.packed_qty ?? 0));
-      }
-    }
-    const packedQty = isAlreadyBatched
-      ? selectedBatchProgress
-        ? 0
-        : Number(rec.packed_qty || 0)
-      : Number(wo?.passed_qty || wo?.actual_output_qty || rec.packed_qty || 0);
-    if (packedQty > 0) return packedQty;
-
-    const stagePlannedQty = Math.max(
-      0,
-      Number(wo?.planned_output_qty || 0),
-      Number(po?.planned_quantity || 0),
-      totalOrderQty,
-    );
-    if (totalOrderQty > 0 && totalOrderColorQty > 0) {
-      return Math.max(totalOrderColorQty, Math.round((stagePlannedQty * totalOrderColorQty) / totalOrderQty));
-    }
-    return Math.max(totalOrderColorQty, stagePlannedQty);
-  }, [
-    isAlreadyBatched,
-    po?.planned_quantity,
-    rec.packed_qty,
-    selectedBatchProgress,
-    totalOrderColorQty,
-    totalOrderQty,
-    wo?.actual_output_qty,
-    wo?.passed_qty,
-    wo?.planned_output_qty,
-  ]);
+  const availableInputQty = Math.max(0, Number(
+    (isAlreadyBatched ? selectedBatchProgress : batchProgress)?.available_input_qty ?? 0,
+  ));
+  const packageableColorQty = Math.max(0, Number(
+    (isAlreadyBatched ? selectedBatchProgress : batchProgress)?.available_to_package ?? 0,
+  ));
 
   const colorOrderItems = useMemo(
     () => allocateDemandBySize(orderColorItems, packageableColorQty),
@@ -492,7 +454,7 @@ export default function PackagingPage() {
   }, [isAlreadyBatched, po?.batches]);
 
   async function refreshPackagingOutputs() {
-    await Promise.all([mutateBatchProgress(), mutateWo(), mutatePo(), mutateReplacementStatus()]);
+    await Promise.all([mutateBatchProgress(), mutateWo(), mutatePo()]);
     setPackageQrRefreshKey((prev) => prev + 1);
   }
 
@@ -505,6 +467,7 @@ export default function PackagingPage() {
   async function submitRec(e: React.FormEvent) {
     e.preventDefault();
     setRecMsg("");
+    setPkgNotice(null);
     if (isAlreadyBatched && !rec.production_batch_id) {
       setRecMsg(t("batch.selectBeforeSaving", { operation: operationLabel("packaging", t).toLowerCase() }));
       return;
@@ -549,7 +512,24 @@ export default function PackagingPage() {
         production_batch_id: mergeAcrossBatches ? null : rec.production_batch_id || null,
       };
       if (packagePlans.length === 0) {
-        throw new Error("No package items to create.");
+        throw new Error(localizeError("No package items to create."));
+      }
+
+      if (po?.source_type !== "usluga") {
+        const run = await postPackageWorkflow<PackagePrintRun>("/api/packages/print-runs/create-packages", {
+          packages: packagePlans.map((plan, index) => ({
+            ...payloadBase, weight_kg: weightValues[index], items: plan.items,
+            batch_allocations: plan.batch_allocations || [],
+          })),
+        }, me!.id);
+        setPkg({ id: run.package_ids[0], package_no: run.run_no, barcode: "bulk" });
+        setPkgNotice({ type: "success", text: t("page.packaging.bulkCreatedWithFirst", { count: run.count, no: run.run_no }) });
+        await refreshPackagingOutputs();
+        // Creation already succeeded: a blocked print window must not suggest
+        // repeating package creation. The saved run remains available below.
+        try { await api.openLabel(`/api/packages/print-runs/${run.id}/label`); }
+        catch (printError: any) { setPkgNotice({ type: "success", text: `${run.run_no}: ${printError.message}` }); }
+        return;
       }
 
       const createsPartialPackage = !packOnlyFullPackages && packingPreview.partialPackages.some((p) => p.total > 0);
@@ -612,6 +592,13 @@ export default function PackagingPage() {
     production_order_id: wo?.production_order_id,
   }, `#${id}`);
 
+  if (po?.source_type === "usluga") return <div>
+    <PageHeader title={t("page.packaging.title", { id, orderNo })} />
+    <WorkOrderProductInfo t={t} so={so} po={po} wo={wo} model={model} customerName={po.service_customer_name}
+      statusText={wo ? statusLabel(wo.status, t) : "-"} compact />
+    <UslugaPackaging workOrderId={id} onSaved={refreshPackagingOutputs} />
+  </div>;
+
   return (
     <div>
       <PageHeader title={t("page.packaging.title", { id, orderNo })} subtitle={t("page.packaging.subtitle")} />
@@ -627,14 +614,6 @@ export default function PackagingPage() {
         canEditBreakdown={canEditBreakdown}
         onSaveBreakdown={saveBreakdown}
       />
-      {Number(replacementStatus?.open_qty || 0) > 0 && (
-        <div className="mb-4 border-y border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-          <div className="font-semibold">
-            {t("replacement.packagingOpen", { count: Number(replacementStatus.open_qty).toLocaleString() })}
-          </div>
-          <div className="mt-1 text-amber-900">{t("replacement.packagingHint")}</div>
-        </div>
-      )}
       <div className={`mb-4 grid gap-4 ${isAlreadyBatched ? "2xl:grid-cols-[360px_minmax(0,1fr)]" : "max-w-3xl"}`}>
         <form onSubmit={submitRec} className="card p-4">
           <div className="mb-3 text-base font-semibold">{t("btn.savePackagingRecord")}</div>
@@ -651,9 +630,9 @@ export default function PackagingPage() {
                   }}
                 >
                   <option value={0}>{t("batch.selectBatch")}</option>
-                  {(po?.batches || []).map((b: any) => (
+                  {batchItems.map((b: any) => (
                     <option key={b.id} value={b.id}>
-                      {formatBatchLabel(b, po?.id)} ({b.planned_quantity})
+                      {formatBatchLabel(b, po?.id)} ({b.sewing_output_qty})
                     </option>
                   ))}
                 </select>
@@ -661,11 +640,12 @@ export default function PackagingPage() {
             )}
             <div>
               <label className="label">{t("field.inputQty")}</label>
-              <input className="input" type="number" value={rec.input_qty} onChange={(e) => setRec({ ...rec, input_qty: parseNumberInput(e.target.value) })} />
+              <div className="text-xs text-slate-500">{t("field.available")}: {availableInputQty}</div>
+              <input className="input" type="number" min={0} max={availableInputQty} value={rec.input_qty} onChange={(e) => setRec({ ...rec, input_qty: parseNumberInput(e.target.value) })} />
             </div>
             <div>
               <label className="label">{t("field.output")}</label>
-              <input className="input" type="number" value={rec.packed_qty} onChange={(e) => setRec({ ...rec, packed_qty: parseNumberInput(e.target.value) })} />
+              <input className="input" type="number" min={0} max={Math.min(availableInputQty, numberOrZero(rec.input_qty))} value={rec.packed_qty} onChange={(e) => setRec({ ...rec, packed_qty: parseNumberInput(e.target.value) })} />
             </div>
             <div>
               <label className="label">{t("field.damaged")}</label>
@@ -690,10 +670,9 @@ export default function PackagingPage() {
                 <thead>
                   <tr>
                     <th>{t("field.batch")}</th>
-                    <th>{t("statusValue.planned")}</th>
+                    <th>{t("field.sewn")}</th>
                     <th>{t("field.packed")}</th>
                     <th>{t("field.damaged")}</th>
-                    <th>{t("replacement.waiting")}</th>
                     <th>{t("field.remaining")}</th>
                     <th>{t("page.processes.progress")}</th>
                   </tr>
@@ -705,17 +684,16 @@ export default function PackagingPage() {
                         <div className="font-medium">{formatBatchLabel(row, po?.id)}</div>
                         <div className="text-xs text-slate-500">{formatBatchSerial(row, po?.id)}</div>
                       </td>
-                      <td>{row.planned_quantity}</td>
+                      <td>{row.sewing_output_qty}</td>
                       <td>{row.packed_qty}</td>
                       <td>{row.damaged_qty}</td>
-                      <td>{row.waiting_replacement_qty || 0}</td>
-                      <td>{row.remaining_quantity}</td>
+                      <td>{row.available_input_qty}</td>
                       <td>{row.progress_pct}%</td>
                     </tr>
                   ))}
                   {batchItems.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="text-slate-500">{t("batch.noProgressYet")}</td>
+                      <td colSpan={6} className="text-slate-500">{t("batch.noProgressYet")}</td>
                     </tr>
                   )}
                 </tbody>
@@ -723,6 +701,10 @@ export default function PackagingPage() {
             </div>
           </div>
         )}
+      </div>
+
+      <div className="mb-4">
+        {po && !po.sales_order_id && po.source_type !== "usluga" && <FirstGradePackaging key={`${po.id}:${rec.production_batch_id}:${color}`} productionOrderId={po.id} batchId={rec.production_batch_id || undefined} modelId={po.model_id} color={color} onChanged={async () => { setPackageQrRefreshKey(k => k + 1); await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress()]); }} />}
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
@@ -823,7 +805,8 @@ export default function PackagingPage() {
           )}
 
           <h4 className="text-sm font-medium">{t("page.packaging.sizesInPackage")}</h4>
-          <table className="table">
+          <div className="overflow-x-auto">
+            <table className="table">
             <thead>
               <tr>
                 <th>{t("field.size")}</th>
@@ -840,7 +823,8 @@ export default function PackagingPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+            </table>
+          </div>
           <button type="button" className="btn" onClick={() => setPkgItems([...pkgItems, { size: "L", quantity: "" }])}>{t("btn.addSize")}</button>
           <div className="text-sm text-slate-500">{t("page.packaging.totalLine", { n: pkgItems.reduce((s, i) => s + Number(i.quantity || 0), 0) })}</div>
 
@@ -966,7 +950,15 @@ export default function PackagingPage() {
         key={`${po?.id || "none"}-${packageQrRefreshKey}`}
         productionOrderId={po?.id}
         onChanged={async () => {
-          await Promise.all([mutateBatchProgress(), mutateWo()]);
+          const sizePath = `/api/packages/first-grade/size-entry/${po?.id}`;
+          await Promise.all([
+            mutateBatchProgress(), mutateWo(), mutatePo(),
+            mutateCache((key) => typeof key === "string" && (key === sizePath || key.startsWith(`${sizePath}?`))),
+          ]);
+          setRec((previous) => ({ ...previous, input_qty: "", packed_qty: "", damaged_qty: "" }));
+          setCopiesTouched(false);
+          setPkg(null);
+          setPkgNotice(null);
         }}
       />
 

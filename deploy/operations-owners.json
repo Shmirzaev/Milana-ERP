@@ -1,0 +1,16 @@
+{
+  "updated": "2026-10-06",
+  "assignment_basis": "User assigned OPS02 and OPS03 to Ismail and instructed completion.",
+  "operations_owner": "Ismail",
+  "scope": "Connection admission budgets, shared-workload inventory and contention, effective resource limits, backup schedules and job failure follow-up.",
+  "workload_groups": ["Milana ERP", "Catalog/Catalog2", "Kotiba/PostgREST/Telegram", "Leadlens", "Milanaweb", "Tomarix/PostgreSQL/Redis/Garage", "Mailflare", "STT gateway", "Proxmox/PBS backups"],
+  "servers": ["172.16.10.3", "172.16.10.4", "172.16.10.5", "172.16.10.100", "172.16.10.101"],
+  "existing_follow_up_owners": {
+    "OPS04_failure_domains": "Dilmurod",
+    "OPS10_witnessed_zero_RPO_recovery": "Dilmurod",
+    "OPS11_vault_and_credential_rotation": "Dilmurod",
+    "OPS01_incident_trace": "Mirshoir",
+    "OPS07_factory_networks": "Mirshoir"
+  },
+  "business_feature_ownership": "Existing team and service assignments are retained; this file assigns infrastructure operating responsibility only."
+}
