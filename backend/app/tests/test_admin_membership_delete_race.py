@@ -2,6 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 import os
+import time
 from threading import Barrier, Event, Lock
 from uuid import uuid4
 
@@ -186,6 +187,7 @@ def test_concurrent_membership_removals_keep_one_admin(membership_postgres_sessi
 
 
 def test_concurrent_factory_move_and_deactivation_keep_one_admin(membership_postgres_sessions, monkeypatch):
+    from sqlalchemy import text
     from app.libs.dto.catalog.catalog import UserUpdate
 
     actor_id, [mover_id, other_id] = _create_membership_case(membership_postgres_sessions, 2)
@@ -196,15 +198,16 @@ def test_concurrent_factory_move_and_deactivation_keep_one_admin(membership_post
 
     move_checked = Event()
     deactivation_started = Event()
-    deactivation_finished = Event()
+    release_move = Event()
+    backend_pids = {}
     original_count = admin._count_active_admins
 
     def hold_move_after_count(db, exclude_user_id=None):
         count = original_count(db, exclude_user_id=exclude_user_id)
         if exclude_user_id == mover_id:
+            backend_pids["move"] = db.execute(text("SELECT pg_backend_pid()")).scalar_one()
             move_checked.set()
-            assert deactivation_started.wait(5)
-            deactivation_finished.wait(2)
+            assert release_move.wait(10), "Timed out waiting for lock observation"
         return count
 
     monkeypatch.setattr(admin, "_count_active_admins", hold_move_after_count)
@@ -213,6 +216,7 @@ def test_concurrent_factory_move_and_deactivation_keep_one_admin(membership_post
         with membership_postgres_sessions() as db:
             actor = db.get(User, actor_id)
             if user_id == other_id:
+                backend_pids["deactivate"] = db.execute(text("SELECT pg_backend_pid()")).scalar_one()
                 deactivation_started.set()
             try:
                 admin.update_user(user_id, payload, db, actor)
@@ -221,14 +225,29 @@ def test_concurrent_factory_move_and_deactivation_keep_one_admin(membership_post
                 db.rollback()
                 assert exc.status_code == 400
                 return "protected", exc.detail
-            finally:
-                if user_id == other_id:
-                    deactivation_finished.set()
 
     with ThreadPoolExecutor(max_workers=2) as workers:
         move = workers.submit(change, mover_id, UserUpdate(factory_code="BST"))
         assert move_checked.wait(10)
         deactivate = workers.submit(change, other_id, UserUpdate(is_active=False))
+        try:
+            assert deactivation_started.wait(5)
+            deadline = time.monotonic() + 5
+            blocked = False
+            with membership_postgres_sessions() as observer:
+                while time.monotonic() < deadline:
+                    blocked = observer.execute(
+                        text("SELECT :blocker = ANY(pg_blocking_pids(:waiter))"),
+                        {"blocker": backend_pids["move"], "waiter": backend_pids["deactivate"]},
+                    ).scalar_one()
+                    if blocked:
+                        break
+                    if deactivate.done():
+                        break
+                    time.sleep(0.05)
+                assert blocked, "Deactivation did not wait on the factory-change transaction"
+        finally:
+            release_move.set()
         move_result = move.result(timeout=20)
         deactivate_result = deactivate.result(timeout=20)
 
