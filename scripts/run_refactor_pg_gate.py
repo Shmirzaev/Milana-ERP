@@ -19,6 +19,7 @@ import xml.etree.ElementTree as ET
 # cases is allowed; removing a required case needs an explicit ledger change.
 GROUPS = {
     "test_brand_create_postgres": (2, ("test_pg_create_duplicate_and_audit", "test_pg_audit_failure_rolls_back_then_retry")),
+    "test_planning_alternate_creation_postgres": (5, ()),
     "test_purchase_conversion_postgres": (7, ()),
     "test_bom_add_characterization": (54, ()),
     "test_forecast_review_postgres": (9, ()),

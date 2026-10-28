@@ -52,9 +52,13 @@ the insertion command and the actual history frontend; derived cutting progress
 is distinct from stored Production/WorkOrder status. Optional frontend progress
 fields retain their not-started display fallback.
 
-This does not migrate the alternate writer in `create_branded_stock_production`,
-Production status, costing status, forecasting or every Planning table. Combined
-database/browser verification and independent AI/human acceptance remain separate.
+The alternate writer in `create_branded_stock_production` uses the same typed
+schema insertion when no planning order is supplied; its service keeps numbering,
+production coordination, audit and the outer transaction. This covers the Planning
+order row writer only: ProductionOrder, Item, Batch and WorkOrder writes remain in
+production_service.py and are not migrated by this slice. Production status, costing
+status, forecasting and other Planning tables remain separate work.
+Database/browser verification and independent review remain separate.
 
 ### forecasting_recommendations_service.py
 
