@@ -2,7 +2,7 @@
 
 from sqlalchemy.orm import Session
 
-from app.schemas.catalog.partners import Customer
+from app.schemas.catalog.partners import Customer, Supplier
 
 
 def insert_customer(
@@ -29,3 +29,25 @@ def insert_customer(
     db.add(customer)
     db.flush()
     return customer
+
+
+def insert_supplier(
+    db: Session,
+    *,
+    name: str,
+    phone: str | None = None,
+    email: str | None = None,
+    address: str | None = None,
+    notes: str | None = None,
+) -> Supplier:
+    """Add and flush one supplier in the caller's transaction."""
+    supplier = Supplier(
+        name=name,
+        phone=phone,
+        email=email,
+        address=address,
+        notes=notes,
+    )
+    db.add(supplier)
+    db.flush()
+    return supplier
