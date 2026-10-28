@@ -15,9 +15,10 @@ from sqlalchemy.orm import Session
 from app.core.dt import date_filter_bounds
 from app.libs.dto.catalog.party_input import PartyIn
 from app.libs.dto.catalog.party_output import PartyOut
+from app.libs.types.catalog import CustomerUpdateCommand
 from app.models.audit_service import log_action
 from app.schemas import Customer, PurchaseOrder, PurchaseRequestLine, SalesOrder, Shipment, StockBatch, Supplier, User
-from app.schemas.catalog.partners_persistence import insert_customer, insert_supplier
+from app.schemas.catalog.partners_persistence import apply_customer_update, insert_customer, insert_supplier
 
 
 def list_customers(
@@ -82,8 +83,16 @@ def update_customer(
     c = db.get(Customer, cid)
     if not c:
         raise HTTPException(404, "Customer not found")
-    for k, v in payload.model_dump(exclude_unset=True).items():
-        setattr(c, k, v)
+    fields: CustomerUpdateCommand = {"name": payload.name}
+    if "phone" in payload.model_fields_set:
+        fields["phone"] = payload.phone
+    if "email" in payload.model_fields_set:
+        fields["email"] = payload.email
+    if "address" in payload.model_fields_set:
+        fields["address"] = payload.address
+    if "notes" in payload.model_fields_set:
+        fields["notes"] = payload.notes
+    apply_customer_update(db, c, fields)
     log_action(db, current, "update", "Customer", c.id)
     db.commit()
     db.refresh(c)
