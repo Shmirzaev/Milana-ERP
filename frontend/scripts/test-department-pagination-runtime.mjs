@@ -151,6 +151,7 @@ for (const serverSearch of [true, false]) {
     "@/components/ImageThumbnail": { default: () => null },
     "@/components/StagePipeline": { statusLabel: value => value },
     "@/lib/orderRef": { orderReference: (row, fallback) => row.production_no || fallback },
+    "./CuttingOrderList.module.css": { default: { table: "table", status: "status", actions: "actions" } },
   };
   const exports = {};
   new Function("exports", "require", cuttingCompiled)(exports, name => {
