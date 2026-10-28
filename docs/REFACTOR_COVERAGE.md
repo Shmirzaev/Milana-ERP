@@ -4,6 +4,30 @@ Initial candidate-source ledger, 26 October 2026. **The architectural/type targe
 Six Ismail pilots are rollout steps; the other owners remain in scope. Use the
 [engineering workflow](ENGINEERING_WORKFLOW.md) and [ownership](TEAM_OWNERSHIP.md).
 
+## Verified integration checkpoint — 28 October 2026
+
+At merge `1f0022ad55d9f326212694e4ac5d4e16b63bb713` (tree
+`c59b4624ffe0282384730a3dc33593a755d0d898`), scoped local and PostgreSQL
+verification covers PR335's implicit branded Planning insert, PR336 Customer
+create and Brand update, and PR337 Supplier create. Normal Planning UI exercises
+the selected-order path, not the implicit branch. See [dated evidence](archive/VERIFIED_INTEGRATION_2026-10-28.md)
+for exact candidates, GUI/readback scope and limitations. These results do not
+close Catalog, Planning, any of the six areas, the remaining type ledger, or
+human production acceptance. At this earlier checkpoint Customer UPDATE PR339,
+dependency PR331 and tooling PR338 were pending.
+
+The later canonical checkpoint merges CI tooling PR338 as `e6f597891489e38207e01b6bfcca3d8df1b7adea`
+and Customer UPDATE PR339 as `61b1a7020c5e1465aa076acc238d94ea1ad7dd03`
+(tree `a943af045834ff43227ddd4640504f11ddccb69b`). The Customer operation has
+128 required and 17 supplemental PostgreSQL cases and separately scoped GUI
+and readback evidence; the V23 write window failed its resource guard and V25
+was read-only. See the dated evidence for exact source attribution. Supplier
+UPDATE and dependency PR331 are separate candidates outside that dated checkpoint.
+Full types, operations and production acceptance remain open.
+
+The table and inventory below preserve earlier candidate-specific checkpoints;
+they are not a current per-operation completion inventory.
+
 ## Execution resumed with Codex subagents
 
 26 October 2026: Ismail explicitly requested "do the rest iwth codex subagents !".

@@ -2,7 +2,7 @@
 
 from sqlalchemy.orm import Session
 
-from app.libs.types.catalog import CustomerUpdateCommand
+from app.libs.types.catalog import CustomerUpdateCommand, SupplierUpdateCommand
 from app.schemas.catalog.partners import Customer, Supplier
 
 
@@ -52,6 +52,19 @@ def insert_supplier(
     db.add(supplier)
     db.flush()
     return supplier
+
+
+def apply_supplier_update(db: Session, supplier: Supplier, fields: SupplierUpdateCommand) -> None:
+    """Apply supplied fields; the caller owns audit, flush and commit."""
+    supplier.name = fields["name"]
+    if "phone" in fields:
+        supplier.phone = fields["phone"]
+    if "email" in fields:
+        supplier.email = fields["email"]
+    if "address" in fields:
+        supplier.address = fields["address"]
+    if "notes" in fields:
+        supplier.notes = fields["notes"]
 
 
 def apply_customer_update(db: Session, customer: Customer, fields: CustomerUpdateCommand) -> None:

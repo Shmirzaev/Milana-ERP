@@ -30,6 +30,16 @@ class CustomerUpdateCommand(TypedDict):
     notes: NotRequired[str | None]
 
 
+class SupplierUpdateCommand(TypedDict):
+    """Validated supplier fields; absent optional keys leave values unchanged."""
+
+    name: str
+    phone: NotRequired[str | None]
+    email: NotRequired[str | None]
+    address: NotRequired[str | None]
+    notes: NotRequired[str | None]
+
+
 @dataclass(frozen=True)
 class NormalizedBomCreate:
     """The decided content of one BOM row, ready for the mapped write.

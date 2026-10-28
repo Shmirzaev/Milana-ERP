@@ -15,29 +15,20 @@ Updated 2026-10-28. Keep this file short: current decisions, release pointers an
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-QA artifact entry is currently blocked by `QA-APP-ROUTES-20261028` in
-[the active tracker](../bugs/bugs.md): real `/login` and `/` navigation returned
-404 although health passed. The packager omitted two Next runtime inputs.
-The repair must reconcile declared runtime files, smoke-test the extracted
-artifact's login page, and repeat connected-browser/readback checks. Earlier
-build, hash and health results do not establish a usable QA website or acceptance.
+The earlier QA artifact omitted Next runtime inputs and returned 404 on `/login` and
+`/`. A repaired genuine f27 artifact subsequently passed local login and scoped
+visual/readback checks for PRs 335–337. This does not establish production status
+or human production acceptance. See the [dated integration evidence](archive/VERIFIED_INTEGRATION_2026-10-28.md)
+for exact source identities, observations and limitations; the earlier failures and
+candidate history remain recorded there.
 
-The current reservation compatibility correction preserves raw input spelling for
-retry fingerprints and failure audits while keeping canonical typed business
-values. Empty category fallback and invalid input have distinct private tags;
-invalid input must reach the original domain refusal point. Mapping/attribute
-validation, assignment and both Pydantic copy APIs have independent regression
-controls. The shared Catalog BOM page also clears stale success and reports a
-refused write without clearing the form. These corrections require their own
-combined PostgreSQL/build/browser evidence; earlier ff7c UI passes do not verify
-this source. Full enum adoption and human acceptance remain open.
-
-The [manual Finance invoice candidate](archive/FINANCE_MANUAL_INVOICE_CREATE_2026-10-27.md)
-moves its insert into schema-owned persistence and types its actual UI response.
-Existing policies are preserved; independent review, candidate visual checks and
-human acceptance remain separate. It does not complete Finance or the refactor.
-
-The isolated three-operation candidate `1d4f00da` combines Sales confirmation persistence, typed Catalog BOM PATCH persistence and the typed Finance customer-order payment projection. It preserves the complete reviewed author chains and records all source bytes in the integration freeze. The BOM PG ledger still requires 54 cases with the updated canonical-role PATCH node. Source review and individual author tests do not substitute for renewed combined application, PostgreSQL, frontend and actual browser evidence. Human acceptance remains separate. Serving `6f280c6d` does not include these three additions.
+The current integration checkpoint includes CI tooling PR338 at
+`e6f597891489e38207e01b6bfcca3d8df1b7adea` and Customer UPDATE PR339 at
+`61b1a7020c5e1465aa076acc238d94ea1ad7dd03`. Its scoped Customer evidence and
+V23 resource failure are recorded in the [dated integration evidence](archive/VERIFIED_INTEGRATION_2026-10-28.md).
+Supplier UPDATE is a later source candidate with its own verification gates; it is
+not included in that dated checkpoint. Dependency PR331 has separate environment
+and runtime gates. No deployment or human production acceptance is implied.
 
 ## Source and production
 
