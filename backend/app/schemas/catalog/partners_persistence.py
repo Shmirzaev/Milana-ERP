@@ -78,3 +78,8 @@ def apply_customer_update(db: Session, customer: Customer, fields: CustomerUpdat
         customer.address = fields["address"]
     if "notes" in fields:
         customer.notes = fields["notes"]
+
+
+def delete_customer_row(db: Session, customer: Customer) -> None:
+    """Mark a customer for deletion in the caller's transaction."""
+    db.delete(customer)
