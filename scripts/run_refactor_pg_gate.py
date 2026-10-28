@@ -20,7 +20,7 @@ GROUPS = {
     "test_purchase_conversion_postgres": (7, ()),
     "test_bom_add_characterization": (54, ()),
     "test_forecast_review_postgres": (9, ()),
-    "test_stock_movement_and_reservation_postgres": (5, ()),
+    "test_stock_movement_and_reservation_postgres": (7, ()),
     "test_sales_update_old_behavior": (4, (
         "test_pg_stale_unchanged_status_cannot_rewind_concurrent_workflow",
         "test_pg_edit_and_audit_rollback_together_then_retry",
