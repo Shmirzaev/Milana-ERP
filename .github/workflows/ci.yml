@@ -69,6 +69,7 @@ jobs:
           STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
         run: >-
           python -m pytest -q
+          backend/app/tests/test_admin_membership_delete_race.py
           backend/app/tests/test_numbering_postgres_concurrency.py
           backend/app/tests/test_material_reservation_concurrency.py
           backend/app/tests/test_package_write_postgres.py
@@ -191,14 +192,14 @@ jobs:
           API_URL: http://172.16.10.4:8000
         run: npm run build
       - name: Clear generated production build for isolated QA build
-        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025' || github.ref == 'refs/heads/codex/ismail-brand-feedback-20261028' || github.ref == 'refs/heads/codex/ismail-combined-review-20261028')
         working-directory: frontend
         run: |
           test -d .next
           test ! -L .next
           rm -rf -- .next
       - name: Build loopback-only QA frontend
-        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025' || github.ref == 'refs/heads/codex/ismail-brand-feedback-20261028' || github.ref == 'refs/heads/codex/ismail-combined-review-20261028')
         timeout-minutes: 5
         working-directory: frontend
         env:
@@ -208,12 +209,12 @@ jobs:
           NEXT_TELEMETRY_DISABLED: '1'
         run: npm run build -- --webpack
       - name: QA runtime manifest and smoke regressions
-        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025' || github.ref == 'refs/heads/codex/ismail-brand-feedback-20261028' || github.ref == 'refs/heads/codex/ismail-combined-review-20261028')
         timeout-minutes: 2
         working-directory: frontend
         run: python3 -m unittest discover -s scripts -p 'test_*qa_runtime*.py' -v
       - name: Stage bounded QA frontend runtime
-        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025' || github.ref == 'refs/heads/codex/ismail-brand-feedback-20261028' || github.ref == 'refs/heads/codex/ismail-combined-review-20261028')
         timeout-minutes: 2
         working-directory: frontend
         env:
@@ -227,7 +228,7 @@ jobs:
           NEXT_TELEMETRY_DISABLED: '1'
         run: python3 scripts/stage_qa_runtime.py
       - name: Smoke exact staged QA frontend archive
-        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025' || github.ref == 'refs/heads/codex/ismail-brand-feedback-20261028' || github.ref == 'refs/heads/codex/ismail-combined-review-20261028')
         timeout-minutes: 2
         working-directory: frontend
         env:
@@ -238,7 +239,7 @@ jobs:
         run: python3 scripts/smoke_qa_runtime.py
       - name: Upload QA-only frontend runtime
         id: qa_upload
-        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025' || github.ref == 'refs/heads/codex/ismail-brand-feedback-20261028' || github.ref == 'refs/heads/codex/ismail-combined-review-20261028')
         uses: actions/upload-artifact@v4
         with:
           name: qa-frontend-${{ github.sha }}

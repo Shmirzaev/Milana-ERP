@@ -11,16 +11,18 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import xml.etree.ElementTree as ET
 
 
 # Minimum collected counts pin the current parameterized business cases. Adding
 # cases is allowed; removing a required case needs an explicit ledger change.
 GROUPS = {
+    "test_brand_create_postgres": (2, ("test_pg_create_duplicate_and_audit", "test_pg_audit_failure_rolls_back_then_retry")),
     "test_purchase_conversion_postgres": (7, ()),
     "test_bom_add_characterization": (54, ()),
     "test_forecast_review_postgres": (9, ()),
-    "test_stock_movement_and_reservation_postgres": (5, ()),
+    "test_stock_movement_and_reservation_postgres": (7, ()),
     "test_sales_update_old_behavior": (4, (
         "test_pg_stale_unchanged_status_cannot_rewind_concurrent_workflow",
         "test_pg_edit_and_audit_rollback_together_then_retry",
@@ -107,6 +109,16 @@ def configure_ci(identity_path: Path, env_path: Path) -> None:
         output.write("MILANA_TEST_PG_INSTANCE=" + json.dumps(config, separators=(",", ":")) + "\n")
 
 
+def sanitized_pg_environment(source: dict[str, str], scratch: Path) -> dict[str, str]:
+    """Remove inherited libpq configuration; use only empty owned config files."""
+    env = {key: value for key, value in source.items() if not key.upper().startswith("PG")}
+    for key, filename in (("PGPASSFILE", "pgpass"), ("PGSERVICEFILE", "pgservice")):
+        path = scratch / filename
+        path.write_text("", encoding="utf-8")
+        env[key] = str(path)
+    return env
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ci-identity", type=Path)
@@ -127,7 +139,9 @@ def main() -> int:
     backend = Path(__file__).resolve().parents[1] / "backend"
     command = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
                *required_nodes(), f"--junitxml={report}"]
-    completed = subprocess.run(command, cwd=backend, check=False, timeout=1800)
+    with tempfile.TemporaryDirectory(prefix="milana-pg-env-") as scratch:
+        env = sanitized_pg_environment(dict(os.environ), Path(scratch))
+        completed = subprocess.run(command, cwd=backend, check=False, timeout=1800, env=env)
     if completed.returncode:
         return completed.returncode
     counts = check_report(report)

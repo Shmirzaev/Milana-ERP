@@ -8,6 +8,11 @@ SQLAlchemy definitions now live under app/schemas/; Pydantic DTOs live in
 app/libs/dto/. The links below show the authoritative definitions for this group's
 records. Business services live in models/*_service.py.
 
+Brand creation uses `brand_persistence.insert_brand` with the caller's Session;
+it flushes for the audit entity ID and does not commit. The Catalog service owns
+name checks, audit, commit and refresh. This candidate does not migrate brand
+updates, seed/import writers, or alter the existing duplicate-name race behavior.
+
 ## Authoritative definitions
 
 - [Brand](catalog.py)
