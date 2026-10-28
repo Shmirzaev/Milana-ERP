@@ -39,6 +39,14 @@ human acceptance remain separate. It does not complete Finance or the refactor.
 
 The isolated three-operation candidate `1d4f00da` combines Sales confirmation persistence, typed Catalog BOM PATCH persistence and the typed Finance customer-order payment projection. It preserves the complete reviewed author chains and records all source bytes in the integration freeze. The BOM PG ledger still requires 54 cases with the updated canonical-role PATCH node. Source review and individual author tests do not substitute for renewed combined application, PostgreSQL, frontend and actual browser evidence. Human acceptance remains separate. Serving `6f280c6d` does not include these three additions.
 
+## Isolated manual packaging candidate (28 October)
+
+The owner authorized reconciling live `20261027_115452` (`ed47ab8d`) into this
+isolated candidate. Both VM manifests verified as `8b8be7776fece64fc01163052efafc76370516faa4b186f5509fbcc1357a8f90`.
+Rollback is recorded as `20261027_104106`; no deployment is authorized or performed.
+The shared refactoring checkout and branch are untouched. See the imported
+[release evidence](archive/RETURNED_SPLIT_EDIT_2026-10-27.md).
+
 ## Source and production
 
 - Shared integration/production branch: clone_main. origin/main is stale for this work.

@@ -1,5 +1,20 @@
 # Team bug tracker — clone_main
 
+## LABEL-PAYROLL-20261027 — package footer, cutting client and split-payroll editing
+
+- **P2 · Awaiting production verification.** Packaging/cutting: Mirshoir, reviewer
+  Ismail; payroll: Dilmurod, reviewer Mirshoir. Codex implementation was explicitly
+  authorized; these named assignments are not claims of human review.
+- Deployed 20261027_104106, exact application `1d2bfe3d5a5035d925720017766432693177d30f`. All three fixes and immediate
+  technical gates pass; the owner waived timed observation. Existing refactoring
+  and production business data were preserved. No merge or human closure is claimed.
+- [Tests, deployment identities and operator editing steps](../docs/archive/LABEL_PAYROLL_RELEASE_2026-10-27.md).
+- Returned-child follow-up: returned labels had no edit action. Manager metadata
+  correction now preserves all historical earnings and leaves scanned siblings
+  read-only. [Follow-up evidence](../docs/archive/RETURNED_SPLIT_EDIT_2026-10-27.md).
+  Deployed `20261027_115452` / `ed47ab8d0484878f7b5638825beda2ce62a08f5d`; all immediate technical gates pass.
+  Human production acceptance remains pending; no timed monitoring was run.
+
 ## Current paths and historical evidence
 
 Business services live in `backend/app/models/<group>/*_service.py`, with existing
