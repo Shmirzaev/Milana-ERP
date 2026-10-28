@@ -69,6 +69,7 @@ jobs:
           STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
         run: >-
           python -m pytest -q
+          backend/app/tests/test_admin_membership_delete_race.py
           backend/app/tests/test_numbering_postgres_concurrency.py
           backend/app/tests/test_material_reservation_concurrency.py
           backend/app/tests/test_package_write_postgres.py
