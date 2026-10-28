@@ -50,3 +50,29 @@ new exact combined commit, rerun affected and full CI/PostgreSQL gates and build
 new immutable artifacts. This snapshot includes clone_main through `61b1a702`;
 subsequent ongoing refactor operations remain outside the frozen release until
 reviewed. Do not interrupt or overwrite the shared refactor line.
+
+## Corrected candidate after staged Finance checks
+
+Candidate `f38f11a5`, immutable release `20261028_113704`, passed full CI
+(4,820 default cases plus separately required PostgreSQL suites) and was staged
+on inactive blue. Green `20261027_115452` still serves traffic; no activation
+occurred. Signed GET checks covered 21 workflow projections, actual browser
+checks opened the manual pack form without saving, and paired performance passed.
+The final runtime-log gate correctly failed on Finance cost breakdown: a nullable
+descriptive BOM item was passed to `int()`. AST comparison confirmed the same
+function in the old live release. No production BOM or inventory was repaired.
+
+The corrected candidate skips only BOM rows without an inventory item when
+calculating inventory costs. Existing linked-item prices, waste, packaging and
+labor calculations remain unchanged. The regression first produced two failures
+and one linked-only passing control; after the fix all three cases and the
+32-case relevant Finance suite passed. Independent review separately passed all
+three new cases. Build new immutable images from the corrected exact commit,
+renew the backup and candidate/runtime/performance checks, and verify Finance
+before switching traffic. Preserve both earlier unactivated attempts as evidence.
+The frozen clone_main input remains `61b1a702`; refactoring continues separately.
+
+Physical print/label preview visual acceptance remains BLOCKED by the earlier
+browser blob-preview refusal; automated label HTML/reprint checks and the prior
+isolated Packaging-to-warehouse browser handoff are attributed to their exact
+source. Do not claim human acceptance or a completed full-system refactor.
