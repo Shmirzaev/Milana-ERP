@@ -41,6 +41,7 @@ class SmokeRuntimeTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.archive = self.root / "runtime.zip"
         self.files = dict(ROUTES)
+        self.current_ref = sorted(smoke.EXPECTED_REFS)[0]
 
     def tearDown(self):
         self.temp.cleanup()
@@ -64,7 +65,7 @@ class SmokeRuntimeTests(unittest.TestCase):
         raw = self.archive.read_bytes()
         return {
             "schema": "finance-qa-runtime-v1",
-            "candidate": {"github_event": "push", "github_ref": smoke.EXPECTED_REF,
+            "candidate": {"github_event": "push", "github_ref": self.current_ref,
                           "git_head": "a" * 40, "github_sha": "a" * 40,
                           "frontend_clean_after_build": True},
             "build": {"node_env": "production", "api_url": smoke.EXPECTED_API,
@@ -80,50 +81,69 @@ class SmokeRuntimeTests(unittest.TestCase):
         }
 
     def test_exact_hashed_allowlist_and_real_routes_are_accepted(self):
-        files = smoke.validate_archive(self.build_manifest(), self.archive)
+        files = smoke.validate_archive(self.build_manifest(), self.archive, expected_ref=self.current_ref)
         self.assertEqual({name for name, _ in files}, set(self.files))
+
+    def test_each_allowlisted_manifest_ref_must_match_current_job_ref(self):
+        refs = sorted(smoke.EXPECTED_REFS)
+        self.assertEqual(len(refs), 3)
+        for manifest_ref in refs:
+            with self.subTest(manifest_ref=manifest_ref):
+                manifest = self.build_manifest()
+                manifest["candidate"]["github_ref"] = manifest_ref
+                smoke.validate_archive(manifest, self.archive, expected_ref=manifest_ref)
+                other_allowed_ref = next(ref for ref in refs if ref != manifest_ref)
+                # Same manifest SHA, but a different authorized job ref must refuse it.
+                with self.assertRaises(smoke.SmokeError):
+                    smoke.validate_archive(manifest, self.archive, expected_ref=other_allowed_ref)
+
+    def test_unapproved_manifest_ref_is_rejected(self):
+        manifest = self.build_manifest()
+        manifest["candidate"]["github_ref"] = "refs/heads/codex/unapproved"
+        with self.assertRaises(smoke.SmokeError):
+            smoke.validate_archive(manifest, self.archive, expected_ref=self.current_ref)
 
     def test_archive_digest_mismatch_is_rejected(self):
         manifest = self.build_manifest()
         manifest["runtime"]["archive_sha256"] = "0" * 64
         with self.assertRaises(smoke.SmokeError):
-            smoke.validate_archive(manifest, self.archive)
+            smoke.validate_archive(manifest, self.archive, expected_ref=self.current_ref)
 
     def test_member_size_or_hash_mismatch_is_rejected(self):
         manifest = self.build_manifest({".next/package.json": {"sha256": "0" * 64}})
         with self.assertRaises(smoke.SmokeError):
-            smoke.validate_archive(manifest, self.archive)
+            smoke.validate_archive(manifest, self.archive, expected_ref=self.current_ref)
 
     def test_decompressed_member_cannot_exceed_manifest_size(self):
         self.files[".next/package.json"] = b"x" * 12000
         manifest = self.build_manifest({".next/package.json": {"bytes": 1}})
         with self.assertRaises(smoke.SmokeError):
-            smoke.validate_archive(manifest, self.archive)
+            smoke.validate_archive(manifest, self.archive, expected_ref=self.current_ref)
 
     def test_traversal_member_is_rejected(self):
         self.files["../escape"] = b"no"
         with self.assertRaises((smoke.SmokeError, smoke.PackageError)):
-            smoke.validate_archive(self.build_manifest(), self.archive)
+            smoke.validate_archive(self.build_manifest(), self.archive, expected_ref=self.current_ref)
 
     def test_unlisted_extra_zip_member_is_rejected(self):
         manifest = self.build_manifest(zip_extra={"extra.txt": b"unexpected"})
         with self.assertRaises(smoke.SmokeError):
-            smoke.validate_archive(manifest, self.archive)
+            smoke.validate_archive(manifest, self.archive, expected_ref=self.current_ref)
 
     def test_symlink_zip_member_is_rejected(self):
         manifest = self.build_manifest(symlink_member=".next/package.json")
         with self.assertRaises(smoke.SmokeError):
-            smoke.validate_archive(manifest, self.archive)
+            smoke.validate_archive(manifest, self.archive, expected_ref=self.current_ref)
 
     def test_malformed_app_route_manifest_is_rejected(self):
         self.files[".next/app-path-routes-manifest.json"] = b"{"
         with self.assertRaises(smoke.SmokeError):
-            smoke.validate_archive(self.build_manifest(), self.archive)
+            smoke.validate_archive(self.build_manifest(), self.archive, expected_ref=self.current_ref)
 
     def test_missing_app_route_map_is_rejected(self):
         del self.files[".next/app-path-routes-manifest.json"]
         with self.assertRaises(smoke.SmokeError):
-            smoke.validate_archive(self.build_manifest(), self.archive)
+            smoke.validate_archive(self.build_manifest(), self.archive, expected_ref=self.current_ref)
 
     def test_login_route_must_exist_in_route_map(self):
         self.files[".next/app-path-routes-manifest.json"] = json.dumps({"/(app)/page": "/"}).encode()
@@ -133,7 +153,7 @@ class SmokeRuntimeTests(unittest.TestCase):
         self.files[".next/required-server-files.json"] = json.dumps(required).encode()
         self.files.pop(".next/server/app/login/page.js")
         with self.assertRaises(smoke.SmokeError):
-            smoke.validate_archive(self.build_manifest(), self.archive)
+            smoke.validate_archive(self.build_manifest(), self.archive, expected_ref=self.current_ref)
 
     def test_login_404_or_not_found_html_is_rejected(self):
         with self.assertRaises(smoke.SmokeError):

@@ -12,7 +12,11 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 MAX_BYTES = 20 * 1024 * 1024
-EXPECTED_REF = "refs/heads/codex/ismail-finance-pilot-20261025"
+EXPECTED_REFS = frozenset((
+    "refs/heads/codex/ismail-finance-pilot-20261025",
+    "refs/heads/codex/ismail-brand-feedback-20261028",
+    "refs/heads/codex/pr9-three-qa-runtime-20261028",
+))
 EXPECTED_API = "http://127.0.0.1:8107"
 EXPECTED_NEXT = "16.3.8"
 REQUIRED_ROOT_MANIFESTS = (
@@ -44,6 +48,10 @@ FORBIDDEN_ENDPOINTS = (
 
 class PackageError(RuntimeError):
     pass
+
+
+def is_authorized_push_ref(event: str, ref: str) -> bool:
+    return event == "push" and ref in EXPECTED_REFS
 
 
 def fail(message: str) -> None:
@@ -330,7 +338,7 @@ def main() -> int:
         fail("Python 3.11 or newer is required")
     event = os.environ.get("GITHUB_EVENT_NAME", "")
     ref = os.environ.get("GITHUB_REF", "")
-    if event != "push" or ref != EXPECTED_REF:
+    if not is_authorized_push_ref(event, ref):
         fail("QA runtime staging is restricted to the exact authorized push ref")
     if os.environ.get("NODE_ENV") != "production":
         fail("NODE_ENV must be production")

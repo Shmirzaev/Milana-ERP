@@ -17,7 +17,7 @@ import zlib
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from stage_qa_runtime import EXPECTED_API, EXPECTED_NEXT, EXPECTED_REF, MAX_BYTES, PackageError, ensure_safe_member
+from stage_qa_runtime import EXPECTED_API, EXPECTED_NEXT, EXPECTED_REFS, MAX_BYTES, PackageError, ensure_safe_member, is_authorized_push_ref
 
 MAX_MANIFEST_BYTES = 8 * 1024 * 1024
 MAX_PAGE_BYTES = 2 * 1024 * 1024
@@ -37,12 +37,16 @@ def fail(message: str) -> None:
     raise SmokeError(message)
 
 
-def validate_archive(manifest: dict[str, Any], archive_path: Path) -> list[tuple[str, bytes]]:
+def validate_archive(manifest: dict[str, Any], archive_path: Path, *, expected_ref: str) -> list[tuple[str, bytes]]:
     if manifest.get("schema") != "finance-qa-runtime-v1":
         fail("Unexpected QA runtime manifest schema")
+    if expected_ref not in EXPECTED_REFS:
+        fail("Smoke job ref is not in the authorized QA push allowlist")
     candidate = manifest.get("candidate")
-    if not isinstance(candidate, dict) or candidate.get("github_event") != "push" or candidate.get("github_ref") != EXPECTED_REF:
-        fail("Artifact is not bound to the authorized QA push ref")
+    if not isinstance(candidate, dict) or candidate.get("github_event") != "push" or candidate.get("github_ref") not in EXPECTED_REFS:
+        fail("Artifact is not bound to an authorized QA push ref")
+    if candidate.get("github_ref") != expected_ref:
+        fail("Artifact source ref does not match the current smoke job ref")
     if candidate.get("git_head") != candidate.get("github_sha") or not candidate.get("frontend_clean_after_build"):
         fail("QA artifact source identity is inconsistent")
     build = manifest.get("build")
@@ -266,7 +270,7 @@ def reserve_loopback_port() -> int:
 def main() -> int:
     if not sys.platform.startswith("linux"):
         fail("QA artifact smoke is restricted to the Ubuntu Linux CI runner")
-    if os.environ.get("GITHUB_EVENT_NAME") != "push" or os.environ.get("GITHUB_REF") != EXPECTED_REF:
+    if not is_authorized_push_ref(os.environ.get("GITHUB_EVENT_NAME", ""), os.environ.get("GITHUB_REF", "")):
         fail("QA artifact smoke is restricted to the authorized push ref")
     sha = os.environ.get("GITHUB_SHA", "")
     if len(sha) not in (40, 64) or any(char not in "0123456789abcdef" for char in sha):
@@ -291,7 +295,7 @@ def main() -> int:
     candidate = manifest.get("candidate")
     if not isinstance(candidate, dict) or candidate.get("github_sha") != sha:
         fail("Staged QA manifest is for a different source commit")
-    files = validate_archive(manifest, archive_path)
+    files = validate_archive(manifest, archive_path, expected_ref=os.environ["GITHUB_REF"])
 
     frontend = Path(__file__).resolve().parents[1]
     node_modules = frontend / "node_modules"
