@@ -6,7 +6,7 @@ from pydantic import ValidationError
 
 from app.db.session import SessionLocal
 from app.schemas import AuditLog, Item
-from app.libs.dto.inventory.inventory import ItemIn
+from app.libs.dto.inventory.item_input import ItemIn
 
 
 MAX_DEFAULT_COST = Decimal("99999999.9999")

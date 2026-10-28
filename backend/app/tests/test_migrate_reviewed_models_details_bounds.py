@@ -24,12 +24,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.api.routes import catalog
+from app.models.catalog import models_service
 from scripts import migrate_reviewed_old_erp_models_production as migration
 
 
-MAX_BYTES = catalog._MAX_MODEL_DETAILS_JSON_BYTES
-MAX_DEPTH = catalog._MAX_MODEL_DETAILS_JSON_DEPTH
+MAX_BYTES = models_service._MAX_MODEL_DETAILS_JSON_BYTES
+MAX_DEPTH = models_service._MAX_MODEL_DETAILS_JSON_DEPTH
 
 
 def serialized_bytes(details: object) -> int:
@@ -42,7 +42,7 @@ def serialized_bytes(details: object) -> int:
 def assert_within_shared_bounds(details: object) -> None:
     """Assert a document is legal on its own, for the 'legal inputs' half."""
     assert serialized_bytes(details) <= MAX_BYTES
-    catalog._validate_model_details_json_bounds(details)
+    models_service._validate_model_details_json_bounds(details)
 
 
 def receipt_plan() -> dict:
@@ -191,7 +191,7 @@ def test_merge_of_two_legal_documents_is_refused_before_apply(
     merged = migration.desired_existing_state(model, record)["details_after"]
     assert serialized_bytes(merged) > MAX_BYTES
     with pytest.raises(Exception):
-        catalog._validate_model_details_json_bounds(merged)
+        models_service._validate_model_details_json_bounds(merged)
 
     # ...so the plan must refuse to compile at all, not compile and then abort.
     with pytest.raises(migration.MigrationError):

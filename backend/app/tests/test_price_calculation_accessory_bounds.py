@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.libs.dto.planning.price_calculation import PriceCalculationAccessoryIn
+from app.libs.dto.planning.price_calculation_request_update import PriceCalculationAccessoryIn
 
 
 @pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity"])

@@ -1,8 +1,8 @@
 # Tasks and notifications
 
-Business-service group guide, relocated into models/ on 24 October 2026. This
-directory remains README-only; existing implementations are the *_service.py files
-linked below. The proposed files describe later approved operation extractions.
+Business-service group guide, relocated into models/ on 24 October 2026.
+`tasks_service.py` now contains the focused system stock-shortage participant;
+general Task CRUD and other proposed extractions remain pending.
 
 **Purpose:** Own task assignment/status and notification delivery/read-state behavior.
 
@@ -10,6 +10,20 @@ linked below. The proposed files describe later approved operation extractions.
 **Business acceptance:** Shavkat with operators.
 This owner covers the feature's routes, DTOs, enums, database definitions and tests.
 See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordination.
+
+## System stock-shortage participant
+
+`create_stock_shortage_task` receives the current Session and exact required
+title/description/assignee/actor/due-date fields. Sales retains the when/why and
+existing planning-recipient selection. Work management preserves pending/high
+semantics and calls its schema-owned insert. It adds no transaction, flush,
+deduplication, audit, notification or permission behavior. No Task ORM object is
+returned to Sales. This is the already assigned task-creation responsibility;
+it does not introduce a generic CRUD API or migrate user-facing task routes.
+
+Canonical TaskStatus/TaskPriority are used by this writer and schema defaults.
+General Task input/update/output enum conversion and historical-value audit remain
+pending; raw stored values remain strings with unchanged column definitions.
 
 ## Existing code to study first
 

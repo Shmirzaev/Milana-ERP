@@ -81,8 +81,8 @@ def test_collection_create_rejects_unknown_status_without_write_or_audit(client,
         },
     )
 
-    assert response.status_code == 400, response.text
-    assert response.json() == {"detail": "Invalid collection status"}
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"][0]["loc"] == ["body", "status"]
     with TestSessionLocal() as db:
         after = (db.query(Collection).count(), db.query(AuditLog).count())
     assert after == before

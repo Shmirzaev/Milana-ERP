@@ -28,7 +28,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
-from app.api.routes.partners import _candidate_paid_totals, _find_payable_invoice
+from app.models.finance.customer_ledger_service import _candidate_paid_totals, _find_payable_invoice
 from app.db.base import Base
 from app.schemas import Customer, Invoice, Payment, SalesOrder
 from app.models.payments_service import (

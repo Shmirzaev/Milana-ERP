@@ -8,6 +8,12 @@ SQLAlchemy definitions now live under app/schemas/; Pydantic DTOs live in
 app/libs/dto/. The links below show the authoritative definitions for this group's
 records. Business services live in models/*_service.py.
 
+Purchase request rejection uses the focused
+`purchase_request_persistence.apply_purchase_request_rejection` operation to
+serialize a transition already decided by the purchasing service. It mutates
+the supplied attached row in the supplied Session and leaves audit and
+transaction ownership to the business operation; it does not flush or commit.
+
 ## Authoritative definitions
 
 - [PurchaseRequest](purchasing.py)

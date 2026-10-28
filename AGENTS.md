@@ -134,9 +134,11 @@ For new or extended features, use [.agents/skills/milana-feature/SKILL.md](.agen
 Use [docs/TEAM_OWNERSHIP.md](docs/TEAM_OWNERSHIP.md) to name the engineer and reviewer
 before editing. [docs/AGENT_SKILLS.md](docs/AGENT_SKILLS.md) explains team invocation.
 Both skills are versioned with the source; never substitute a personal copy of old rules.
-Target business services live in backend/app/models/<group>/*_service.py.
-This clone_main documentation update does not integrate draft PR #308; current
-root services and mixed DTOs remain until their reviewed operation is migrated. SQLAlchemy definitions
+Business services live in backend/app/models/<group>/*_service.py; existing shared
+helpers remain directly under models/ where the reviewed candidate still uses them.
+The earlier clone_main documentation publication at b92ee8f did not integrate
+draft PR #308. Inspect the current candidate's exact code and operation ledger;
+publishing or merging guidance is not runtime verification. SQLAlchemy definitions
 and registration live in backend/app/schemas/; Pydantic contracts live in
 backend/app/libs/dto/<business-group>/. The namespace separation is implemented.
 Do not recreate services/, put ORM mappings in models/, or put DTOs in schemas/.
@@ -151,21 +153,29 @@ not a substitute for meaningful tests, required CI and independent review.
 
 ## Implementation execution
 
-- MiniMax M3.1-Flash performs implementation. Codex orchestrates, integrates,
-  independently reviews, and tests visually.
-- Use two MiniMax implementation sessions, each requesting up to three scoped
-  subagents (six total), when the runtime supports it. Give them separate working
-  directories and disjoint file ownership.
-- Each session reports its actual model, workers started, changed paths, and
-  checks run.
-- Codex owns integration, independent review, visual E2E, and bounded stress.
-  Human engineering and business review, and the deployment gates, remain.
-- Session capacity, speed, and token cost (for example free or unlimited
-  tokens) are not permanently verified facts; treat them as capacity to
-  observe per run.
-- If MiniMax is unavailable or a worker is stuck, report the blocker and
-  recover or reassign inside MiniMax. Do not silently substitute Codex for
-  implementation.
+Ismail explicitly resumed the remaining system-wide mentor-discipline refactor on
+26 October 2026 with: "do the rest iwth codex subagents !" This authorizes Codex
+subagents to implement this task and supersedes the earlier MiniMax-only execution
+restriction. It does not change the named human domain owners or their approval gates.
+
+- The coordinating Codex agent assigns one business operation, an exact base,
+  isolated checkout, owned paths, expected behavior and evidence gates to each
+  Codex subagent. Record its actual identity, source hashes, changes and checks.
+- Preserve existing MiniMax work and frozen evidence. Coordinate handoff; never
+  let old and new workers edit the same checkout or overlapping files concurrently.
+  The transition does not authorize new MiniMax dispatch, credits or paid usage.
+- One integrator reconciles shared files and tests the exact combined candidate.
+  In particular, shared route files, audit/notification/idempotency persistence and
+  frontend pages with multiple domain consumers need a single assigned writer.
+- Implementation by Codex still requires independent review by a different agent,
+  meaningful automated/PostgreSQL checks where applicable, actual connected-browser
+  visual inspection, persisted readback and bounded stress. A worker's own green
+  report is not independent verification or human acceptance.
+- Freeze and verify the assigned operation before moving that worker to its next
+  implementation step. Keep the full-system remaining-work ledger; completing six
+  pilots does not complete the goal. Follow the [engineering workflow](docs/ENGINEERING_WORKFLOW.md).
+- Human visual/technical approval, production acceptance, merge and deployment
+  remain separate. This execution change grants no new release or spending authority.
 
 ## Verification gates
 

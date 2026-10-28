@@ -1271,7 +1271,7 @@ def validate_corrected_details_bounds(
     """
     from fastapi import HTTPException
 
-    from app.api.routes.catalog import _validate_model_details_json_bounds
+    from app.models.catalog.models_service import _validate_model_details_json_bounds
 
     try:
         _validate_model_details_json_bounds(details, existing_details=existing_details)

@@ -28,6 +28,8 @@ Keep these responsibilities separate when extending a feature.
 5. Update callers and relevant tests in the agreed incremental refactor. Follow
    [the migration sequence](../models/README.md#migration-sequence).
 
-DTO packages are active. enums/ and types/ remain guides until an approved
-operation needs those definitions. Keep assets in their existing home and avoid
-turning libs into a general-purpose miscellaneous folder.
+DTO, enum and internal-type packages contain contracts used by implemented
+operations. Their presence does not establish system-wide adoption: track each
+operation's actual producers, consumers and remaining coverage. Add definitions
+only for an approved operation that uses them. Keep assets in their existing home
+and avoid turning libs into a general-purpose miscellaneous folder.

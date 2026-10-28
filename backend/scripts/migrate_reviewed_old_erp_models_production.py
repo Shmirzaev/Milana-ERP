@@ -81,7 +81,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.api.routes import catalog
+from app.models.catalog import models_service
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.schemas import Model, ModelBOM, ModelColor, ModelImage, ModelSize, User
@@ -1610,7 +1610,7 @@ def _validate_details_bounds(details: object, *, existing_details: object, label
     refusal is translated rather than leaking a web error out of a migration.
     """
     try:
-        catalog._validate_model_details_json_bounds(details, existing_details=existing_details)
+        models_service._validate_model_details_json_bounds(details, existing_details=existing_details)
     except HTTPException as exc:
         raise MigrationError(f"{label} details_json out of bounds: {exc.detail}") from exc
 

@@ -4,7 +4,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.libs.dto.common import ORMModel, SchemaModel
-from app.libs.dto.inventory.inventory import ItemComposition
+from app.libs.dto.inventory.item_input import ItemComposition
 
 
 class ProductionOrderItemIn(SchemaModel):
@@ -199,25 +199,6 @@ class ProductionOrderPageOut(SchemaModel):
     page: int
     page_size: int
     has_more: bool
-
-
-class BrandedPlanningOrderIn(SchemaModel):
-    ordered_for_type: str = "milana"
-    customer_id: Optional[int] = None
-    notes: Optional[str] = None
-
-
-class BrandedPlanningOrderOut(ORMModel):
-    id: int
-    order_no: str
-    ordered_for_type: str
-    customer_id: Optional[int] = None
-    ordered_for_name: str
-    status: str
-    notes: Optional[str] = None
-    created_by: Optional[int] = None
-    created_at: datetime
-    updated_at: datetime
 
 
 class WorkOrderOut(ORMModel):
@@ -445,17 +426,6 @@ class QualityCheckOut(ORMModel):
     defect_reason: Optional[str] = None
     severity: str
     checked_at: Optional[datetime] = None
-
-
-class MaterialRequirement(BaseModel):
-    item_id: int
-    sku: str
-    name: str
-    composition: list[ItemComposition] = Field(default_factory=list)
-    required_quantity: float
-    available_quantity: float
-    shortage: float
-    unit: str
 
 
 class PlanningEstimateMaterial(BaseModel):

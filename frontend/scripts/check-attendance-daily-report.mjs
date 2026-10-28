@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 
 const page = readFileSync(new URL("../src/app/(app)/attendance/page.tsx", import.meta.url), "utf8");
 const route = readFileSync(new URL("../../backend/app/api/routes/attendance.py", import.meta.url), "utf8");
-const report = readFileSync(new URL("../../backend/app/services/attendance_reports.py", import.meta.url), "utf8");
+const report = readFileSync(new URL("../../backend/app/models/attendance_reports_service.py", import.meta.url), "utf8");
 
 for (const field of ["arrival_at", "departure_at", "worked_minutes", "attendance_status"]) {
   assert.ok(page.includes(field), `Attendance page is missing ${field}`);

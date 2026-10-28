@@ -4,6 +4,8 @@ from sqlalchemy import CheckConstraint, String, Integer, ForeignKey, DateTime, T
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, PkMixin, TimestampMixin
+from app.libs.enums.packaging import PackageStockKind
+from app.libs.enums.fulfillment import FinishedGoodsStatus
 
 
 class Bundle(Base, PkMixin, TimestampMixin):
@@ -54,7 +56,7 @@ class BundleScanLog(Base, PkMixin):
 class Package(Base, PkMixin, TimestampMixin):
     __tablename__ = "packages"
     __table_args__ = (
-        CheckConstraint("stock_kind IN ('standard', 'first_grade', 'second_grade')", name="ck_packages_stock_kind"),
+        CheckConstraint("stock_kind IN (" + ", ".join(repr(value.value) for value in PackageStockKind) + ")", name="ck_packages_stock_kind"),
         CheckConstraint("stock_kind != 'first_grade' OR (total_quantity <= 1 AND capacity = 1)", name="ck_packages_single_quantity"),
         CheckConstraint("total_quantity >= 0", name="ck_packages_total_quantity_nonnegative"),
         CheckConstraint("quantity_shortfall >= 0", name="ck_packages_shortfall_nonnegative"),
@@ -95,7 +97,7 @@ class Package(Base, PkMixin, TimestampMixin):
     model_id: Mapped[int | None] = mapped_column(ForeignKey("models.id"), nullable=True)
     color: Mapped[str] = mapped_column(String(64), nullable=False)
     package_type: Mapped[str] = mapped_column(String(16), default="bag", nullable=False)
-    stock_kind: Mapped[str] = mapped_column(String(16), default="standard", server_default="standard", nullable=False, index=True)
+    stock_kind: Mapped[str] = mapped_column(String(16), default=PackageStockKind.STANDARD.value, server_default=PackageStockKind.STANDARD.value, nullable=False, index=True)
     total_quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     quantity_shortfall: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     dispatched_quantities: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}", nullable=False)
@@ -239,7 +241,7 @@ class FinishedGoodsStock(Base, PkMixin, TimestampMixin):
         CheckConstraint("sold_qty >= 0", name="ck_finished_goods_sold_nonnegative"),
         CheckConstraint("cost_per_piece >= 0", name="ck_finished_goods_cost_nonnegative"),
         CheckConstraint("selling_price >= 0", name="ck_finished_goods_price_nonnegative"),
-        CheckConstraint("status IN ('available', 'reserved', 'sold', 'damaged')", name="ck_finished_goods_status"),
+        CheckConstraint("status IN (" + ", ".join(repr(value.value) for value in FinishedGoodsStatus) + ")", name="ck_finished_goods_status"),
     )
     production_order_id: Mapped[int | None] = mapped_column(ForeignKey("production_orders.id"))
     sales_order_id: Mapped[int | None] = mapped_column(ForeignKey("sales_orders.id"))
@@ -256,7 +258,7 @@ class FinishedGoodsStock(Base, PkMixin, TimestampMixin):
     cost_per_piece: Mapped[float] = mapped_column(Numeric(12, 4), default=0, nullable=False)
     selling_price: Mapped[float] = mapped_column(Numeric(12, 2), default=0, nullable=False)
     warehouse_id: Mapped[int | None] = mapped_column(ForeignKey("warehouses.id"))
-    status: Mapped[str] = mapped_column(String(32), default="available", nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default=FinishedGoodsStatus.AVAILABLE.value, nullable=False)
 
 
 class StockReservation(Base, PkMixin):

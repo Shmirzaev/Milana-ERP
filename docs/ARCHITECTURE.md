@@ -124,4 +124,4 @@ Audit rows store `prev_hash` and `entry_hash`. This provides tamper evidence for
 - Auth: HttpOnly cookie for browser sessions; bearer token endpoint for machine clients.
 - Authorization: role permissions stored as JSON strings with `*` as superadmin wildcard.
 - Files: generated barcodes/model files/sales-order attachments in backend storage paths.
-- CI: backend tests, Bandit, pip-audit, Ruff, frontend npm audit, lint, typecheck, and build.
+- CI: backend tests, Ruff and compilation; frontend lint, typecheck, browser regressions, and build. Bandit, pip-audit, and npm audit do not currently run in CI.

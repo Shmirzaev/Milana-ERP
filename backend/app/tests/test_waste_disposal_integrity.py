@@ -14,6 +14,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import waste
+from app.models.inventory import waste_service
 from app.core.security import create_access_token
 from app.db.base import Base
 from app.db.session import SessionLocal
@@ -200,17 +201,17 @@ def test_disposal_audit_failure_rolls_back_state_and_allows_retry(client, monkey
     wid, rid = _fixture(state=state, request_state=None if action == "request-disposal" else "approved" if action == "mark-disposed" else "pending")
     path = f"/api/waste/{wid}/request-disposal" if action == "request-disposal" else f"/api/waste/disposal/{rid}/{action}"
     before = _snapshot(wid)
-    original = waste.log_action
+    original = waste_service.log_action
 
     def fail_audit(*args, **kwargs):
         original(*args, **kwargs)
         raise RuntimeError("Synthetic audit failure")
 
-    monkeypatch.setattr(waste, "log_action", fail_audit)
+    monkeypatch.setattr(waste_service, "log_action", fail_audit)
     with pytest.raises(RuntimeError, match="Synthetic audit failure"):
         client.post(path, headers=headers, json={})
     assert _snapshot(wid) == before
-    monkeypatch.setattr(waste, "log_action", original)
+    monkeypatch.setattr(waste_service, "log_action", original)
     response = client.post(path, headers=headers, json={})
     assert response.status_code == 200, response.text
 
@@ -273,7 +274,7 @@ def test_nonfinite_legacy_numeric_nan_is_refused():
     # SQLite cannot store NaN in its NOT NULL numeric column; PostgreSQL numeric can.
     record = WasteRecord(status="received_by_waste_department", sellable=False, quantity=Decimal("NaN"))
     with pytest.raises(HTTPException) as denied:
-        waste._require_disposal_waste(record, "received_by_waste_department")
+        waste_service._require_disposal_waste(record, "received_by_waste_department")
     assert denied.value.status_code == 400
 
 

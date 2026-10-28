@@ -168,7 +168,7 @@ def invoice_headers(lang: str) -> list[str]:
 
 
 def invoice_column_widths() -> list[int]:
-    return [3, 8, 8, 14, 27, 4, 5, 8, 7, 7, 9]
+    return [3, 8, 8, 14, 14, 6, 7, 8, 9, 10, 13]
 
 
 def invoice_size_labels(sizes: list[dict]) -> list[str]:
@@ -269,25 +269,25 @@ def render_shipment_invoice(document: dict, language: str, *, show_prices: bool 
 <style>
 *{{box-sizing:border-box}}body{{font:400 8pt Calibri,Arial,sans-serif;line-height:1.3;color:#202124;background:#fff;margin:20px auto;max-width:190mm;padding:0}}
 .controls{{margin-bottom:16px;display:flex;gap:8px}}button,.controls a{{color:inherit;text-decoration:none;font:inherit;padding:8px 16px;background:#fff;border:1px solid #b9bec4;border-radius:4px;cursor:pointer}}
-.masthead{{display:flex;align-items:center;justify-content:space-between;gap:10mm;padding:0 0 4mm;border-bottom:0;break-inside:avoid}}
+.masthead{{display:grid;grid-template-columns:minmax(0,1fr) 38mm;align-items:center;gap:6mm;padding:0 0 4mm;border-bottom:0;break-inside:avoid}}
 h1{{font-size:11pt;line-height:1.2;font-weight:700;margin:2mm 0;color:#1f3864}}.supplier{{margin:0;font-size:24pt;font-weight:700;color:#1f3864}}.document-number{{margin:2mm 0 0;color:#9b242b;font-size:8pt;font-weight:700}}
-.logo{{width:38mm;height:auto;display:block;flex:none}}
+.logo{{width:38mm;height:22mm;object-fit:contain;display:block;background:#fff}}
 table{{width:100%;border-collapse:collapse;table-layout:fixed}}td,th{{overflow-wrap:anywhere;vertical-align:middle}}
 .meta{{margin:3mm 0 4mm}}.meta th,.meta td{{padding:1mm 2mm 1mm 0;text-align:left;border:.75pt solid #8ea9db}}
 .meta,.items,.signatures{{border:1.5pt solid #1f3864}}
-.meta th{{font-size:8pt;font-weight:700;color:#4d5656;background:#f2f5fa}}.meta td{{font-size:8pt;font-weight:700}}.meta th:nth-child(3){{padding-left:5mm}}
-.items{{font-size:7pt;line-height:1.2}}.items th,.items td{{padding:1mm 1.1mm;border:.75pt solid #8ea9db;text-align:center}}
-.items thead th{{background:#2f5597;color:#fff;font-size:6.8pt;font-weight:700;padding:2mm .8mm;overflow-wrap:normal;border-bottom:1.5pt solid #d99b26}}
+.meta th{{font-size:11pt;font-weight:700;color:#4d5656;background:#f2f5fa}}.meta td{{font-size:11pt;font-weight:700}}.meta th:nth-child(3){{padding-left:2mm}}
+.items{{font-size:9pt;line-height:1.3}}.items th,.items td{{padding:1mm 1.1mm;border:.75pt solid #8ea9db;text-align:center}}
+.items thead th{{background:#2f5597;color:#fff;font-size:9pt;font-weight:700;padding:2mm .5mm;overflow-wrap:anywhere;border-bottom:1.5pt solid #d99b26}}
 
 .items .row-number{{white-space:nowrap;overflow-wrap:normal;color:#64717e;font-variant-numeric:tabular-nums;padding-left:.5mm;padding-right:.5mm}}
 .items tbody tr{{height:23.1pt}}
-.items .identity{{font-weight:700;color:#1f3864}}.items .description,.items .sizes{{text-align:left}}.items .sizes{{font-size:6.5pt;color:#444b52;white-space:nowrap}}
-.items .numeric{{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-size:6.8pt}}
-.size-label{{display:inline;white-space:nowrap}}
+.items .identity{{font-weight:700;color:#1f3864}}.items .description,.items .sizes{{text-align:left}}.items .sizes{{font-size:9pt;color:#444b52;white-space:normal}}
+.items .numeric{{text-align:right;font-variant-numeric:tabular-nums;white-space:normal;font-size:9pt}}
+.size-label{{display:inline-block;max-width:100%;white-space:normal}}
 thead{{display:table-header-group}}tr{{break-inside:avoid}}.items tbody:first-of-type tr:last-child{{break-after:avoid}}
 .items .totals td{{font-weight:700;background:#c6d9f1;color:#1f3864;border-top:1.5pt solid #1f3864;border-bottom:3pt double #1f3864;padding-top:2mm;padding-bottom:2mm}}
 .items .totals td:last-child{{background:#1f3864;color:white}}
-.items .totals .total-label{{font-size:8pt;text-align:right;padding-left:3mm}}
+.items .totals .total-label{{font-size:9pt;text-align:right;padding-left:3mm}}
 .signatures{{margin-top:5mm;break-inside:avoid;color:#1f3864;font-size:8pt;text-align:center}}
 .signatures th{{background:#1f3864;color:white;padding:2mm;border:.75pt solid #8ea9db;border-bottom:1.5pt solid #d99b26}}
 .signatures td{{height:13mm;border:.75pt solid #8ea9db;background:#f2f5fa;font-weight:700}}

@@ -53,7 +53,7 @@ from sqlalchemy.orm.attributes import flag_modified
 # Bound the imported document with the same guard the catalog write paths use.
 # ``catalog`` is not owned by this script, so this reaches into a private name;
 # the name should become public in a shared module (see the DB03 follow-up).
-from app.api.routes.catalog import _validate_model_details_json_bounds
+from app.models.catalog.models_service import _validate_model_details_json_bounds
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.schemas import Model, ModelBOM, ModelColor, ModelImage, ModelSize, User

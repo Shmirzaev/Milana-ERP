@@ -1,0 +1,123 @@
+"""Run the same seven approval tests on a newly owned loopback PostgreSQL DB.
+
+The normal app/tests/conftest.py forces SQLite. Copy the exact test module to
+an isolated temporary directory so this check cannot accidentally use SQLite.
+Requires PUR_APPROVAL_PG_ADMIN_URL naming the loopback postgres admin database.
+"""
+from pathlib import Path
+import hashlib
+import ipaddress
+import json
+import os
+import secrets
+import shutil
+import sys
+import tempfile
+import xml.etree.ElementTree as ET
+
+import psycopg2
+from psycopg2 import sql
+from sqlalchemy.engine import make_url
+
+
+def main() -> int:
+    admin_url = os.environ.get("PUR_APPROVAL_PG_ADMIN_URL")
+    if not admin_url:
+        raise RuntimeError("PUR_APPROVAL_PG_ADMIN_URL is required; this check must not skip")
+    url = make_url(admin_url)
+    if (url.drivername not in {"postgresql", "postgresql+psycopg2"}
+            or url.host not in {"127.0.0.1", "::1"} or url.database != "postgres"
+            or not url.port or url.query):
+        raise RuntimeError("Require an explicit loopback PostgreSQL postgres URL and port, without query options")
+    backend = Path(__file__).resolve().parents[1]
+    source = backend / "app/tests/test_purchase_request_approval_operation.py"
+    test_bytes = source.read_bytes()
+    source_hash = hashlib.sha256(test_bytes).hexdigest()
+    database = "review_pur_approve_" + secrets.token_hex(8)
+    temporary_root = Path(tempfile.gettempdir()).resolve()
+    temporary = temporary_root / ("milana-pur-approve-" + secrets.token_hex(12))
+    # Exclusive Path.mkdir also avoids the Windows ACL issue with mkdtemp.
+    temporary.mkdir(mode=0o777 if os.name == "nt" else 0o700)
+    before_cwd = Path.cwd()
+    admin = None
+    created = False
+    code = 1
+    report = {"database": database, "test_sha256": source_hash, "created": False,
+              "dropped": False, "passed": 0, "source_unchanged": False}
+    try:
+        admin = psycopg2.connect(host=url.host, port=url.port, user=url.username,
+                                password=url.password, dbname="postgres", connect_timeout=5)
+        admin.autocommit = True
+        with admin.cursor() as cursor:
+            cursor.execute("SELECT current_database(), inet_server_port(), host(inet_server_addr())")
+            actual_db, actual_port, actual_host = cursor.fetchone()
+            if actual_db != "postgres" or actual_port != url.port or not ipaddress.ip_address(actual_host).is_loopback:
+                raise RuntimeError("PostgreSQL admin server identity is not the required loopback target")
+            cursor.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
+        created = report["created"] = True
+        test_url = url.set(database=database, drivername="postgresql+psycopg2")
+        os.environ.update(DATABASE_URL=test_url.render_as_string(hide_password=False), ENV="test",
+                          JWT_SECRET="disposable-pur-approval-test-secret",
+                          FILE_SIGNING_SECRET="disposable-pur-approval-file-signing-secret",
+                          SEED_SAMPLE_DATA="false", SEED_DEMO_USERS="false", STARTUP_SCHEMA_SYNC="false",
+                          PYTEST_DISABLE_PLUGIN_AUTOLOAD="1", PYTHONDONTWRITEBYTECODE="1")
+        sys.dont_write_bytecode = True
+        sys.path.insert(0, str(backend))
+        (temporary / "test_approval.py").write_bytes(test_bytes)
+        (temporary / "conftest.py").write_text(
+            "import pytest\nfrom sqlalchemy import text\n"
+            "from app.db.base import Base\nfrom app.db.session import engine\nimport app.schemas\n"
+            "@pytest.fixture(scope='session', autouse=True)\n"
+            "def owned_database():\n"
+            "    assert engine.dialect.name == 'postgresql'\n"
+            f"    assert engine.url.database == {database!r}\n"
+            "    with engine.connect() as connection:\n"
+            f"        assert connection.execute(text('SELECT current_database()')).scalar() == {database!r}\n"
+            "    Base.metadata.create_all(engine)\n"
+            "    yield\n"
+            "    engine.dispose()\n", encoding="utf-8")
+        os.chdir(temporary)
+        import pytest
+        code = int(pytest.main([str(temporary / "test_approval.py"), "--confcutdir=" + str(temporary),
+                               "-q", "-p", "no:cacheprovider", "--tb=short",
+                               "--junitxml=" + str(temporary / "tests.xml")]))
+        suite = ET.parse(temporary / "tests.xml").getroot().find("testsuite")
+        cases = suite.findall("testcase") if suite is not None else []
+        if (suite is None or len(cases) != 7
+                or any(int(suite.attrib[key]) for key in ("failures", "errors", "skipped"))
+                or not any(case.attrib["name"] == "test_approval_all_mapped_writes_are_schema_owned_and_one_session"
+                           for case in cases)):
+            raise RuntimeError("All seven approval cases, including the mapped-write guard, must pass without skips")
+        report["passed"] = len(cases)
+    finally:
+        try:
+            session_module = sys.modules.get("app.db.session")
+            if session_module is not None:
+                session_module.engine.dispose()
+            if created and admin is not None:
+                with admin.cursor() as cursor:
+                    cursor.execute("SELECT count(*) FROM pg_stat_activity WHERE datname=%s", (database,))
+                    remaining = cursor.fetchone()[0]
+                    cursor.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(database)))
+                    cursor.execute("SELECT count(*) FROM pg_database WHERE datname=%s", (database,))
+                    report["dropped"] = cursor.fetchone()[0] == 0
+                    if not report["dropped"] or remaining:
+                        raise RuntimeError("Owned PostgreSQL cleanup failed or tests leaked connections")
+        finally:
+            if admin is not None:
+                admin.close()
+            os.chdir(before_cwd)
+            if temporary.parent != temporary_root or not temporary.name.startswith("milana-pur-approve-") or temporary.is_symlink():
+                raise RuntimeError("Unexpected temporary cleanup target")
+            try:
+                shutil.rmtree(temporary)
+            finally:
+                report["source_unchanged"] = hashlib.sha256(source.read_bytes()).hexdigest() == source_hash
+                print(json.dumps(report))
+    if not report["source_unchanged"] or not report["dropped"] or report["passed"] != 7:
+        raise RuntimeError("Approval PostgreSQL verification did not complete")
+    return code
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

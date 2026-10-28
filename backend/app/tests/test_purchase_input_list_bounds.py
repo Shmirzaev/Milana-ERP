@@ -17,9 +17,11 @@ from app.schemas import (
     StockBatch,
     StockMovement,
 )
-from app.libs.dto.purchasing.purchasing import (
+from app.libs.dto.purchasing.purchase_order_input import (
     PurchaseOrderIn,
     PurchaseOrderReceiveIn,
+)
+from app.libs.dto.purchasing.purchase_request_input import (
     PurchaseRequestApprovalIn,
     PurchaseRequestIn,
     PurchaseRequestOrderIn,

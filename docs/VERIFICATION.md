@@ -7,6 +7,19 @@ exact candidate again wherever the edit invalidated earlier evidence.
 
 This is the team's required workflow, not a claim that CI enforcement is installed.
 
+Compatibility checks must include supported Python entry paths as well as JSON:
+mapping and attribute validation, omitted fields, assignment, `model_copy` and
+legacy `copy` updates, include/exclude and deep-copy behavior. Preserve raw values
+where they determine retry identity or audit payloads; separately prove the actual
+canonical type consumed by business logic. Exercise concurrent validation if a
+context-local adapter is used. A passing custom/mock handler test is not a real
+database transaction, DOM lifecycle, browser action or PostgreSQL concurrency pass.
+
+The shared model BOM feedback check runs as `test:model-bom-feedback` and is part
+of the frontend build prerequisites. After a rejection, verify that the old green
+success is gone, the actual refusal is visible, entered/edit values remain and no
+phantom row or persisted write appears; then verify a successful retry and reload.
+
 ## 0. Study the old behavior and give the agent a verifiable task
 
 Ismail's direct instruction is study -> move one business operation -> code tests
@@ -109,6 +122,32 @@ pilot is not system-wide completion.
   independent expected values and per-operation allowed/forbidden cases; deriving
   every expected value from the new enum can conceal a missing or misspelled member.
 
+### Preserve the literal response contract before introducing DTO serialization
+
+Before binding a route's `response_model` or replacing a returned dictionary with
+a Pydantic DTO, record an independent pre-change literal JSON golden from the
+actual response serialization path. Cover naive datetimes, UTC datetimes,
+nonzero-offset datetimes and nulls. Include the exact timestamp strings: legacy
+UTC `+00:00` and Pydantic's default `Z` are different wire values even when they
+describe the same instant. Preserve the existing offset and naive/null behavior
+unless an intentional contract change is explicitly documented and tested.
+
+Expected JSON must not be generated from the candidate DTO, `model_dump`, or the
+candidate object's attributes. That is a circular oracle which can accept the
+same serialization defect in both expected and actual output. Keep literal
+pre-change expectations independent and exercise the actual response path.
+If compatibility needs a serializer, scope it to the affected field or response
+contract and test it; do not add a blanket global base-model override merely to
+make one endpoint match. Document and test intentional canonical-enum HTTP 422
+and OpenAPI changes separately rather than forcing old string-schema parity.
+
+This response-contract gate does not move business services out of `models` or
+permit route-owned persistence. Schema-model operations still share the supplied
+Session, and the service owns the one outer transaction. Automated contract
+evidence precedes actual AI browser/visual verification and persisted readback;
+human visual approval remains a separate later gate. No DTO conversion alone
+completes a module or earns an acceptance badge.
+
 ## 2. Run the right automated checks
 
 Run relevant unit/contract tests, API/integration tests and affected workflow
@@ -124,6 +163,33 @@ the affected tests and their configuration; run required PostgreSQL checks in th
 correct isolated process/environment. SQLite cannot prove PostgreSQL row locking.
 Do not invent credentials or print secrets. Report collected, passed, failed and
 skipped tests; a required skipped test leaves its gate BLOCKED, not PASS.
+
+The isolated refactor PostgreSQL workflow runs the required operation groups and
+the separate Purchasing/Fabric supplement from
+`scripts/refactor_pg_required_cases.json`. Review both exact JUnit identity sets,
+source revision, failures/errors/skips and owned database/container cleanup.
+An ordinary regression-suite pass does not replace these PostgreSQL gates.
+
+Frontend CI also runs the Sales enum consumer checks and their mutation tests.
+Keep the guard aligned with real typed DTO/list contracts when those contracts
+gain fields; preserve checks for enum inheritance, action subsets and domain
+ownership. This covered Sales gate does not establish system-wide enum completion.
+
+For the current review branch, CI can also produce a small QA-only frontend
+package after its normal production compile. Its producer is
+`frontend/scripts/stage_qa_runtime.py`; it is restricted to a push on the named
+review branch, loopback API8107 and an empty public API origin. Production-bound
+frontend output must not be reused against local QA. Verify the actual source,
+workflow job, artifact digest, per-file manifest, endpoint configuration and
+existing Windows dependency compatibility before staging it. This selected-file
+package uses the existing pinned dependencies with `next start`; it is not the
+Linux standalone distribution or a production release. Its 20 MiB package limits
+do not lower PostgreSQL/full-build resource gates. Fresh local disk/memory checks,
+runtime identity, actual visual actions and persisted readback remain required;
+a successful build/upload alone earns no visual or human-acceptance status.
+The QA package uses the reviewed Webpack build profile because its required
+runtime manifests differ from the default Turbopack output. Keep the ordinary
+production build unchanged; do not fabricate missing manifests to pass packaging.
 
 ## 3. Visually exercise the real end-to-end workflow
 
@@ -186,6 +252,18 @@ the recorded bounds or corruption signals. No production stress or fabricated
 factory transactions. Heavy capacity testing is a separate bounded exercise, not
 a prerequisite for every unrelated file edit. k6 and mutation/property tools are
 options to adopt where useful, not claimed installed or run by this documentation.
+
+### Verify the packaged frontend before handing it to browser reviewers
+
+For the QA runtime ZIP, require every safe file declared by Next's
+`required-server-files.json`, including `.next/app-path-routes-manifest.json`
+and `.next/package.json`. Reconcile the root route map with server app entries
+and compiled page files. A health rewrite can pass while every page returns 404.
+Smoke-test the actual freshly extracted ZIP with its own working directory:
+require the real login form and the expected unauthenticated home response.
+Keep process, path, byte, timeout and cleanup bounds explicit. Then perform the
+connected-browser desktop/mobile and persisted-state checks; a smoke pass is
+not a visual pass, human approval or deployment authority.
 
 ## 5. Record evidence and completion
 
@@ -280,7 +358,9 @@ are owner requirements; the sources inform their implementation. This Markdown
 update does not install hooks, CI checks or a database audit tool, and does not
 claim any current runtime candidate has passed these gates.
 
-The boundary-audit script mentioned above is available in [PR #308 at this revision](https://github.com/Shmirzaev/Milana-ERP/blob/3cdd6808ff7ced0717f337d17d4e530719d4a86f/backend/scripts/audit_refactor_boundaries.py).
-It is not installed by this documentation-only clone_main update. Check
-tool availability explicitly; missing automation does not waive manual
-writer tracing or permit a claim that the gate passed.
+The [boundary-audit script](../backend/scripts/audit_refactor_boundaries.py) is
+present in both clone_main at `b92ee8f` and this candidate. Its earlier source is
+also recorded in [PR #308 at this revision](https://github.com/Shmirzaev/Milana-ERP/blob/3cdd6808ff7ced0717f337d17d4e530719d4a86f/backend/scripts/audit_refactor_boundaries.py).
+Verify the tool's actual source and supported checks before running it. Presence
+or publication does not prove execution or a pass, and missing automation in
+another checkout does not waive manual writer tracing.

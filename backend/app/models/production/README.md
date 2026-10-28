@@ -1,8 +1,34 @@
 # Production execution
 
 Business-service group guide, relocated into models/ on 24 October 2026. This
-directory remains README-only; existing implementations are the *_service.py files
-linked below. The proposed files describe later approved operation extractions.
+directory contains the released Besttex read-only compatibility service below;
+other existing implementations remain the *_service.py files linked below.
+The proposed files describe later approved operation extractions.
+
+## Besttex read-only compatibility operation
+
+`GET /api/besttex/cutting-orders` and `GET /api/besttex/cutting-orders/{record_id}/sheet`
+delegate to [besttex_cutting_service.py](besttex_cutting_service.py). The coordinator
+authorized porting this released operation from recorded production source
+`439555a77ef583b1b212398e16ecd52ced786e45`, including grouped order/photo projections.
+HTTP contracts live in [besttex_cutting_output.py](../../libs/dto/production/besttex_cutting_output.py).
+
+Preserve `besttex.cutting_sheets`, selected-factory BST restriction/admin access,
+exact batch and bundle ownership, approved positive cutting output, pagination,
+escaped search, garment-family versus exact-variant photo identity and read-only
+printing. Both entry points use the supplied Session and existing public renderer;
+they own no writes or commits. Authentication's existing last-seen behavior is not
+manufacturing mutation. Migration `0149_besttex_cutting_access` is separately
+carried unchanged; adding the file is not authorization to apply it to a live DB.
+
+Output strings are configurable identifiers, labels, references, image URLs and
+size summaries, not status enums. Existing Production/WorkOrder/Bundle status and
+operation predicates remain released literals in this compatibility slice; their
+canonical enum conversion remains in Mirshoir's Production operation ledger.
+This port does not complete Production, migration deployment or visual acceptance.
+Run `test_besttex_cutting_sheets.py`, permission/access regressions and the dedicated
+PostgreSQL lock/retry rehearsal; independently inspect the actual list, denied
+roles, grouped photos and print sheets before human review.
 
 **Purpose:** Own production orders, work orders and manufacturing-stage rules: cutting, printing, sewing, bundle handoffs and quality evidence.
 
@@ -94,6 +120,25 @@ concurrent output, corrections, later Nastils, Printing loss and Packaging hando
 then inspect the real UI and persisted effects. Freshly verify both production
 manifests/slots before any release. The retained active release is the source
 rollback path; a source rollback does not undo records already written.
+
+**Review decisions for the Sewing pilot PR:**
+
+| Person | Decision to record in PR before implementation |
+| --- | --- |
+| Mirshoir, technical owner | Approve or revise the one `record_sewing_output` operation, including band authorization, lock order, transaction owner, retry scope and error mapping. Confirm whether both route callers enter it or need distinct public operations. |
+| Shavkat, business owner | Confirm expected operator-visible results for the examples below, including when a later Nastil becomes active and what Packaging may consume. |
+| Ismail, technical reviewer | Check the agreed contract and regression evidence before any implementation PR is merged. |
+
+Examples for Shavkat to confirm, not new rules inferred by AI:
+
+1. Record 495 of 600 received pieces, then the remaining 105 on the same Nastil; the order must not double count either output.
+2. Complete the first Nastil, then plan/cut/receive a later Nastil; identify the exact event that reopens Sewing and the remaining quantity shown to an operator.
+3. Correct or remove an output record after a partial result; specify permitted actor, downstream quantity change and audit trail.
+4. Record through a band and through the normal form for the same physical work; specify how duplicate/retried submissions are refused or replayed.
+5. Hand passed Sewing pieces to Packaging while failed/rework pieces remain; specify which quantities Packaging may receive and when.
+
+The PR is a decision record. It does not approve code extraction, change production
+behavior, or close the examples until Mirshoir and Shavkat respond.
 
 **DTOs and enums:** Manufacturing/work-order/stage statuses. Enum membership does not authorize transitions or create replacement work. Reuse Create/In, Update and Read/Out contracts
 where they exist. Add action-specific input only for a real action. Do not generate

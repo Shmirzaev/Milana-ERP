@@ -152,7 +152,7 @@ def test_mixed_direct_and_other_package_alias_is_ambiguous_and_not_counted(clien
 
 
 def test_disappeared_package_after_resolution_is_unresolved_not_a_counted_pack(client, auth_headers, packs, monkeypatch):
-    from app.api.routes import stocktake
+    from app.models import stocktake_service as stocktake
 
     cid = start(client, auth_headers)
     monkeypatch.setattr(stocktake, "resolve_package", lambda db, code: (2147483647, False))
