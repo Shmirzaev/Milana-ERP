@@ -32,7 +32,7 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 102)
+        self.assertEqual(sum(counts.values()), 123)
 
     def test_skipped_failed_and_error_evidence_are_rejected(self):
         for tag in ('skipped', 'failure', 'error'):
@@ -125,6 +125,44 @@ class RequiredPGGateTests(unittest.TestCase):
         suite.remove(brand)
         ET.SubElement(suite, 'testcase', classname='app.tests.test_bom_add_characterization', name='extra')
         with self.assertRaisesRegex(ValueError, 'expected at least'):
+            gate.check_report(self.write_report(tree))
+
+    def test_planning_rollback_boundary_cannot_be_replaced(self):
+        tree = self.report()
+        case = next(case for case in tree.iter('testcase')
+                    if case.get('classname') == 'app.tests.test_planning_alternate_creation_postgres'
+                    and case.get('name') ==
+                    'test_pg_alternate_postflush_and_audit_failure_rollback_retry[log_action]')
+        case.set('name', 'unrelated_replacement_case')
+        with self.assertRaisesRegex(ValueError, 'case identities missing'):
+            gate.check_report(self.write_report(tree))
+
+    def test_customer_failure_point_cannot_be_replaced(self):
+        tree = self.report()
+        case = next(case for case in tree.iter('testcase')
+                    if case.get('classname') == 'app.tests.test_customer_create_postgres'
+                    and case.get('name') ==
+                    'test_pg_route_failure_rolls_back_then_retry[audit_finalize]')
+        case.set('name', 'test_pg_route_failure_rolls_back_then_retry[unrelated]')
+        with self.assertRaisesRegex(ValueError, 'case identities missing'):
+            gate.check_report(self.write_report(tree))
+
+    def test_brand_update_case_policy_cannot_be_replaced(self):
+        tree = self.report()
+        case = next(case for case in tree.iter('testcase')
+                    if case.get('classname') == 'app.tests.test_brand_update_postgres'
+                    and case.get('name') == 'test_pg_case_variant_update_is_allowed')
+        case.set('name', 'unrelated_replacement_case')
+        with self.assertRaises(ValueError):
+            gate.check_report(self.write_report(tree))
+
+    def test_supplier_commit_failure_cannot_be_replaced(self):
+        tree = self.report()
+        case = next(case for case in tree.iter('testcase')
+                    if case.get('classname') == 'app.tests.test_supplier_create_postgres'
+                    and case.get('name') == 'test_pg_route_failure_rolls_back_then_retry[commit]')
+        case.set('name', 'test_pg_route_failure_rolls_back_then_retry[unrelated]')
+        with self.assertRaisesRegex(ValueError, 'case identities missing'):
             gate.check_report(self.write_report(tree))
 
     def test_bootstrap_only_ci_and_fixed_endpoint(self):

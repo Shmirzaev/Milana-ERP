@@ -17,10 +17,11 @@ from app.libs.dto.catalog.brand_input import BrandIn
 from app.libs.dto.catalog.collection_input import CollectionCreateIn, CollectionIn
 from app.libs.dto.catalog.collection_output import CollectionCreateOut, CollectionOut
 from app.libs.enums.catalog import CollectionStatus
+from app.libs.types.catalog import BrandUpdateCommand
 from app.models.audit_service import log_action
 from app.models.catalog.models_service import _pagination_payload, _standard_model
 from app.schemas import Brand, Collection, CollectionModel, User
-from app.schemas.catalog.brand_persistence import insert_brand
+from app.schemas.catalog.brand_persistence import apply_brand_update, insert_brand
 from app.schemas.catalog.collection_persistence import insert_collection
 
 COLLECTION_STATUSES = frozenset(status.value for status in CollectionStatus)
@@ -75,8 +76,14 @@ def update_brand(
 ):
     b = db.get(Brand, bid)
     if not b: raise HTTPException(404, "Brand not found")
-    for k, v in payload.model_dump(exclude_unset=True).items():
-        setattr(b, k, v)
+    fields: BrandUpdateCommand = {"name": payload.name}
+    if "description" in payload.model_fields_set:
+        fields["description"] = payload.description
+    if "logo_url" in payload.model_fields_set:
+        fields["logo_url"] = payload.logo_url
+    if "is_active" in payload.model_fields_set:
+        fields["is_active"] = payload.is_active
+    apply_brand_update(db, b, fields)
     log_action(db, current, "update", "Brand", b.id)
     db.commit(); db.refresh(b)
     return b
