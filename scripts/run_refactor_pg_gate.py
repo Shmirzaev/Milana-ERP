@@ -18,6 +18,8 @@ import xml.etree.ElementTree as ET
 # Minimum collected counts pin the current parameterized business cases. Adding
 # cases is allowed; removing a required case needs an explicit ledger change.
 GROUPS = {
+    "test_brand_update_postgres": (3, ('test_pg_update_persistence_omission_null_and_chain', 'test_pg_duplicate_and_audit_finalize_failure_roll_back_then_retry', 'test_pg_case_variant_update_is_allowed')),
+    "test_customer_create_postgres": (6, ("test_pg_route_saves_all_fields_and_audit_same_session", "test_pg_route_refuses_unauthenticated_and_forbidden_without_writes", "test_pg_route_failure_rolls_back_then_retry", "test_pg_concurrent_customers_keep_audit_chain")),
     "test_brand_create_postgres": (2, ("test_pg_create_duplicate_and_audit", "test_pg_audit_failure_rolls_back_then_retry")),
     "test_planning_alternate_creation_postgres": (5, ()),
     "test_purchase_conversion_postgres": (7, ()),

@@ -121,6 +121,25 @@
         "test_pg_alternate_missing_and_closed_orders_refused",
         "test_pg_alternate_postflush_and_audit_failure_rollback_retry"
       ]
+    },
+    "test_customer_create_postgres": {
+      "revision": "db02232dbb261627970809e3c770882867b5c4ff",
+      "git_blob_sha256": "5a1a6433f95eb3ad9b023df4095a7cecbac35f08a313fb9a24bc57aa0d3a9c6c",
+      "selected_functions": [
+        "test_pg_route_saves_all_fields_and_audit_same_session",
+        "test_pg_route_refuses_unauthenticated_and_forbidden_without_writes",
+        "test_pg_route_failure_rolls_back_then_retry",
+        "test_pg_concurrent_customers_keep_audit_chain"
+      ]
+    },
+    "test_brand_update_postgres": {
+      "revision": "73d541e65f962403d7477160e9eef05705e9687c",
+      "git_blob_sha256": "b58fb74bfaf30959aaa34e1a3ac79d7a7f124b0a34e964ed6b3924c4bf9df197",
+      "selected_functions": [
+        "test_pg_update_persistence_omission_null_and_chain",
+        "test_pg_duplicate_and_audit_finalize_failure_roll_back_then_retry",
+        "test_pg_case_variant_update_is_allowed"
+      ]
     }
   },
   "cases": {
@@ -250,6 +269,19 @@
       "test_pg_alternate_missing_and_closed_orders_refused[missing-404]",
       "test_pg_alternate_postflush_and_audit_failure_rollback_retry[insert_branded_planning_order]",
       "test_pg_alternate_postflush_and_audit_failure_rollback_retry[log_action]"
+    ],
+    "test_customer_create_postgres": [
+      "test_pg_route_saves_all_fields_and_audit_same_session",
+      "test_pg_route_refuses_unauthenticated_and_forbidden_without_writes",
+      "test_pg_route_failure_rolls_back_then_retry[audit_enqueue]",
+      "test_pg_route_failure_rolls_back_then_retry[audit_finalize]",
+      "test_pg_route_failure_rolls_back_then_retry[commit]",
+      "test_pg_concurrent_customers_keep_audit_chain"
+    ],
+    "test_brand_update_postgres": [
+      "test_pg_update_persistence_omission_null_and_chain",
+      "test_pg_duplicate_and_audit_finalize_failure_roll_back_then_retry",
+      "test_pg_case_variant_update_is_allowed"
     ]
   },
   "isolated_supplemental_cases": [
