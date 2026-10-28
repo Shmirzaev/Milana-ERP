@@ -20,6 +20,27 @@ from psycopg2 import sql
 from sqlalchemy.engine import make_url
 
 
+def pool_checked_out(pool):
+    """Return a pool's checked-out count when that pool exposes it."""
+    method = getattr(pool, "checkedout", None)
+    try:
+        return int(method()) if callable(method) else None
+    except Exception:
+        return None
+
+
+def owned_activity(cursor, database):
+    """Inspect only the owned target; omit SQL, users, and client details."""
+    cursor.execute("""SELECT pid, state, backend_type, application_name,
+        EXTRACT(EPOCH FROM (clock_timestamp() - backend_start)),
+        EXTRACT(EPOCH FROM (clock_timestamp() - xact_start))
+        FROM pg_stat_activity WHERE datname = %s ORDER BY pid""", (database,))
+    return [dict(pid=row[0], state=row[1], backend_type=row[2],
+                 application_name_sha256=hashlib.sha256((row[3] or "").encode()).hexdigest(), backend_age_seconds=float(row[4]) if row[4] is not None else None,
+                 transaction_age_seconds=float(row[5]) if row[5] is not None else None)
+            for row in cursor.fetchall()]
+
+
 def main() -> int:
     admin_url = os.environ.get("PUR_APPROVAL_PG_ADMIN_URL")
     if not admin_url:
@@ -43,7 +64,10 @@ def main() -> int:
     created = False
     code = 1
     report = {"database": database, "test_sha256": source_hash, "created": False,
-              "dropped": False, "passed": 0, "source_unchanged": False}
+              "dropped": False, "passed": 0, "source_unchanged": False,
+              "original_pool_before": None, "original_pool_after": None,
+              "replacement_pool_after": None,
+              "remaining": None, "activity": []}
     try:
         admin = psycopg2.connect(host=url.host, port=url.port, user=url.username,
                                 password=url.password, dbname="postgres", connect_timeout=5)
@@ -65,7 +89,7 @@ def main() -> int:
         sys.path.insert(0, str(backend))
         (temporary / "test_approval.py").write_bytes(test_bytes)
         (temporary / "conftest.py").write_text(
-            "import pytest\nfrom sqlalchemy import text\n"
+            "import json\nimport sys\nimport pytest\nfrom sqlalchemy import text\n"
             "from app.db.base import Base\nfrom app.db.session import engine\nimport app.schemas\n"
             "@pytest.fixture(scope='session', autouse=True)\n"
             "def owned_database():\n"
@@ -75,7 +99,18 @@ def main() -> int:
             f"        assert connection.execute(text('SELECT current_database()')).scalar() == {database!r}\n"
             "    Base.metadata.create_all(engine)\n"
             "    yield\n"
-            "    engine.dispose()\n", encoding="utf-8")
+            "    def checked_out(pool):\n"
+            "        method = getattr(pool, 'checkedout', None)\n"
+            "        try:\n"
+            "            return int(method()) if callable(method) else None\n"
+            "        except Exception:\n"
+            "            return None\n"
+            "    original_pool = engine.pool\n"
+            "    before = checked_out(original_pool)\n"
+            "    engine.dispose()\n"
+            "    print(json.dumps({'phase': 'fixture_dispose', 'original_pool_before': before, "
+            "'original_pool_after': checked_out(original_pool), "
+            "'replacement_pool_after': checked_out(engine.pool)}), file=sys.__stdout__, flush=True)\n", encoding="utf-8")
         os.chdir(temporary)
         import pytest
         code = int(pytest.main([str(temporary / "test_approval.py"), "--confcutdir=" + str(temporary),
@@ -93,11 +128,21 @@ def main() -> int:
         try:
             session_module = sys.modules.get("app.db.session")
             if session_module is not None:
+                original_pool = session_module.engine.pool
+                report["original_pool_before"] = pool_checked_out(original_pool)
                 session_module.engine.dispose()
+                report["original_pool_after"] = pool_checked_out(original_pool)
+                report["replacement_pool_after"] = pool_checked_out(session_module.engine.pool)
             if created and admin is not None:
                 with admin.cursor() as cursor:
                     cursor.execute("SELECT count(*) FROM pg_stat_activity WHERE datname=%s", (database,))
                     remaining = cursor.fetchone()[0]
+                    report["remaining"] = remaining
+                    if remaining:
+                        try:
+                            report["activity"] = owned_activity(cursor, database)
+                        except Exception as error:
+                            report["activity_error_type"] = type(error).__name__
                     cursor.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(database)))
                     cursor.execute("SELECT count(*) FROM pg_database WHERE datname=%s", (database,))
                     report["dropped"] = cursor.fetchone()[0] == 0
