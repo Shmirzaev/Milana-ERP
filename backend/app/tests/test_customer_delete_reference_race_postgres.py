@@ -3,7 +3,6 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 from time import monotonic
 
-import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
