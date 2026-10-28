@@ -32,7 +32,7 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 113)
+        self.assertEqual(sum(counts.values()), 116)
 
     def test_skipped_failed_and_error_evidence_are_rejected(self):
         for tag in ('skipped', 'failure', 'error'):
@@ -145,6 +145,15 @@ class RequiredPGGateTests(unittest.TestCase):
                     'test_pg_route_failure_rolls_back_then_retry[audit_finalize]')
         case.set('name', 'test_pg_route_failure_rolls_back_then_retry[unrelated]')
         with self.assertRaisesRegex(ValueError, 'case identities missing'):
+            gate.check_report(self.write_report(tree))
+
+    def test_brand_update_case_policy_cannot_be_replaced(self):
+        tree = self.report()
+        case = next(case for case in tree.iter('testcase')
+                    if case.get('classname') == 'app.tests.test_brand_update_postgres'
+                    and case.get('name') == 'test_pg_case_variant_update_is_allowed')
+        case.set('name', 'unrelated_replacement_case')
+        with self.assertRaises(ValueError):
             gate.check_report(self.write_report(tree))
 
     def test_bootstrap_only_ci_and_fixed_endpoint(self):
