@@ -216,11 +216,11 @@ def test_concurrent_factory_move_and_deactivation_keep_one_admin(membership_post
                 deactivation_started.set()
             try:
                 admin.update_user(user_id, payload, db, actor)
-                return "changed"
+                return "changed", None
             except HTTPException as exc:
                 db.rollback()
                 assert exc.status_code == 400
-                return "protected"
+                return "protected", exc.detail
             finally:
                 if user_id == other_id:
                     deactivation_finished.set()
@@ -229,12 +229,17 @@ def test_concurrent_factory_move_and_deactivation_keep_one_admin(membership_post
         move = workers.submit(change, mover_id, UserUpdate(factory_code="BST"))
         assert move_checked.wait(10)
         deactivate = workers.submit(change, other_id, UserUpdate(is_active=False))
-        results = [move.result(timeout=20), deactivate.result(timeout=20)]
+        move_result = move.result(timeout=20)
+        deactivate_result = deactivate.result(timeout=20)
 
-    assert sorted(results) == ["changed", "protected"]
+    assert move_result == ("changed", None)
+    assert deactivate_result == ("protected", "Cannot remove the last active administrator")
     with membership_postgres_sessions() as db:
         mover = db.get(User, mover_id)
         other = db.get(User, other_id)
+        assert mover.factory_code == "BST"
+        assert mover.is_active and "*" not in user_permissions(mover)
+        assert other.is_active and "*" in user_permissions(other)
         assert sum(user.is_active and "*" in user_permissions(user) for user in (mover, other)) == 1
 
 
