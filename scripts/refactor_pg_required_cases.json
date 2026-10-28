@@ -2,6 +2,14 @@
   "description": "Required business case identities; additional cases allowed, removals need review.",
   "collection_method": "Frozen function signatures/literal pytest parameter decorators only; no application/fixture code imported",
   "sources": {
+    "test_brand_create_postgres": {
+      "revision": "53ba460e85bb8b7e5ee9803affd624099276f9fe",
+      "git_blob_sha256": "38c2d96fc95cf3c55725feb114a426c1c189d850dbce9c6ab9ac5e70b7c7e644",
+      "selected_functions": [
+        "test_pg_create_duplicate_and_audit",
+        "test_pg_audit_failure_rolls_back_then_retry"
+      ]
+    },
     "test_bom_add_characterization": {
       "revision": "1e9d983e2b856cb66aaa32ea61c05505651996af",
       "git_blob_sha256": "457f7831ed3b468bd59b291f3e9042e51a8ef73ce7b86ea3e90d7c474567fb4c",
@@ -45,14 +53,16 @@
       ]
     },
     "test_stock_movement_and_reservation_postgres": {
-      "revision": "48cd04f5",
-      "git_blob_sha256": "40a5050ee6f6b6e679b6dcfa6de5c6ba9cdfb9a927919dfc35ba215c75d700bf",
+      "revision": "f8a04e617229ce3c7c9accbb6617f358ce0ea4c5",
+      "git_blob_sha256": "74c323cd8a2c26ba030937cb3af40f2fde95b96d6fa2f5d2bd7867b042c64cd1",
       "selected_functions": [
         "test_postgres_constraints_match_the_canonical_vocabularies",
         "test_schema_writers_store_values_postgres_accepts",
         "test_transfer_conserves_quantity_and_moves_the_batch_location",
         "test_failed_audit_leaves_no_movement_and_no_batch_change",
-        "test_retry_with_the_same_key_replays_without_a_second_movement"
+        "test_retry_with_the_same_key_replays_without_a_second_movement",
+        "test_batch_stock_adjustment_increase_and_depletion_persist_postgres",
+        "test_batch_stock_adjustment_audit_failure_rolls_back_postgres"
       ]
     },
     "test_sales_update_old_behavior": {
@@ -105,6 +115,10 @@
     }
   },
   "cases": {
+    "test_brand_create_postgres": [
+      "test_pg_create_duplicate_and_audit",
+      "test_pg_audit_failure_rolls_back_then_retry"
+    ],
     "test_bom_add_characterization": [
       "test_manual_normalizes_role_name_and_discards_stale_references[main]",
       "test_manual_normalizes_role_name_and_discards_stale_references[ MAIN ]",
@@ -208,7 +222,9 @@
       "test_schema_writers_store_values_postgres_accepts",
       "test_transfer_conserves_quantity_and_moves_the_batch_location",
       "test_failed_audit_leaves_no_movement_and_no_batch_change",
-      "test_retry_with_the_same_key_replays_without_a_second_movement"
+      "test_retry_with_the_same_key_replays_without_a_second_movement",
+      "test_batch_stock_adjustment_increase_and_depletion_persist_postgres",
+      "test_batch_stock_adjustment_audit_failure_rolls_back_postgres"
     ],
     "test_purchase_conversion_postgres": [
       "test_pg_conversion_typed_snapshot_matches_persisted_and_timezone",
@@ -239,5 +255,4 @@
     "backend/app/tests/test_fabric_scan_postgres_followup.py::test_timestamp_projection_has_literal_legacy_oracles[offset-2026-09-11T18:59:59+05:30]",
     "backend/app/tests/test_fabric_scan_postgres_followup.py::test_timestamp_dto_rejects_null_projection_only"
   ]
-
 }

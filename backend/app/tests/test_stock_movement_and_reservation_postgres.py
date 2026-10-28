@@ -207,3 +207,105 @@ def test_retry_with_the_same_key_replays_without_a_second_movement(pg, stock):
         assert replay == first
         assert db.query(StockMovement).filter_by(batch_id=stock["batch"]).count() == 1
         db.rollback()
+
+
+def _create_adjustment_item(db, *, marker: str) -> Item:
+    item = Item(
+        sku=f"ADJ-PG-{marker}",
+        name=f"Adjustment persistence {marker}",
+        category="fabric",
+        unit="kg",
+        default_cost=2.125,
+        track_batch=True,
+        is_active=True,
+    )
+    db.add(item)
+    db.commit()
+    return item
+
+
+def test_batch_stock_adjustment_increase_and_depletion_persist_postgres(pg, stock):
+    """Run the real service on PostgreSQL and read back committed batch, ledger, and audit rows."""
+    from app.libs.dto.inventory.stock_quantity_adjustment_input import StockQuantityAdjustmentIn
+    from app.models.inventory import stock_service
+
+    marker = uuid4().hex[:8].upper()
+    with pg() as db:
+        actor = db.get(User, stock["user"])
+        item = _create_adjustment_item(db, marker=marker)
+        item_id = item.id
+        increase = stock_service.set_stock_quantity(
+            db, item_id, StockQuantityAdjustmentIn(quantity=5, unit="kg"), actor
+        )
+        assert increase.movement_type == StockMovementType.ADJUSTMENT
+        increase_movement_id = increase.movement_id
+
+    with pg() as db:
+        batch = db.query(StockBatch).filter_by(item_id=item_id).one()
+        movement = db.get(StockMovement, increase_movement_id)
+        assert movement is not None
+        batch_id = batch.id
+        warehouse_id = batch.warehouse_id
+        assert float(batch.quantity) == 5
+        assert batch.qc_status == "passed"
+        assert batch.archived_at is None
+        assert movement.batch_id == batch_id
+        assert movement.from_warehouse_id is None
+        assert movement.to_warehouse_id == warehouse_id
+        assert movement.movement_type == "adjustment"
+        assert movement.reference_type == "StockAdjustment"
+        assert float(movement.quantity) == 5
+        assert db.query(AuditLog).filter_by(entity_type="Item", entity_id=item_id).count() == 1
+
+    with pg() as db:
+        actor = db.get(User, stock["user"])
+        decrease = stock_service.set_stock_quantity(
+            db, item_id, StockQuantityAdjustmentIn(quantity=0, unit="kg"), actor
+        )
+        assert decrease.movement_type == StockMovementType.ISSUE
+        decrease_movement_id = decrease.movement_id
+
+    with pg() as db:
+        batch = db.get(StockBatch, batch_id)
+        movement = db.get(StockMovement, decrease_movement_id)
+        assert float(batch.quantity) == 0
+        assert batch.archived_at is not None
+        assert batch.archived_by == stock["user"]
+        assert movement.batch_id == batch_id
+        assert movement.from_warehouse_id == warehouse_id
+        assert movement.to_warehouse_id is None
+        assert movement.movement_type == "issue"
+        assert movement.reference_type == "StockAdjustment"
+        assert float(movement.quantity) == 5
+        assert db.query(AuditLog).filter_by(entity_type="Item", entity_id=item_id).count() == 2
+
+
+def test_batch_stock_adjustment_audit_failure_rolls_back_postgres(pg, stock, monkeypatch):
+    """An audit failure after batch/movement flush leaves no committed partial adjustment."""
+    from app.libs.dto.inventory.stock_quantity_adjustment_input import StockQuantityAdjustmentIn
+    from app.models.inventory import stock_service
+
+    marker = uuid4().hex[:8].upper()
+    with pg() as db:
+        item = _create_adjustment_item(db, marker=marker)
+        item_id = item.id
+        audit_before = db.query(AuditLog).filter_by(entity_type="Item", entity_id=item_id).count()
+
+    def fail_audit(*args, **kwargs):
+        raise RuntimeError("injected adjustment audit failure")
+
+    monkeypatch.setattr(stock_service, "log_action", fail_audit)
+    with pg() as db:
+        actor = db.get(User, stock["user"])
+        with pytest.raises(RuntimeError, match="injected adjustment audit failure"):
+            stock_service.set_stock_quantity(
+                db, item_id, StockQuantityAdjustmentIn(quantity=5, unit="kg"), actor
+            )
+        db.rollback()
+
+    with pg() as db:
+        assert db.query(StockBatch).filter_by(item_id=item_id).count() == 0
+        assert db.query(StockMovement).filter_by(
+            item_id=item_id, reference_type="StockAdjustment",
+        ).count() == 0
+        assert db.query(AuditLog).filter_by(entity_type="Item", entity_id=item_id).count() == audit_before

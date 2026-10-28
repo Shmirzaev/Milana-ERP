@@ -20,6 +20,7 @@ from app.libs.enums.catalog import CollectionStatus
 from app.models.audit_service import log_action
 from app.models.catalog.models_service import _pagination_payload, _standard_model
 from app.schemas import Brand, Collection, CollectionModel, User
+from app.schemas.catalog.brand_persistence import insert_brand
 from app.schemas.catalog.collection_persistence import insert_collection
 
 COLLECTION_STATUSES = frozenset(status.value for status in CollectionStatus)
@@ -47,10 +48,10 @@ def create_brand(
     existing = db.query(Brand).filter(func.lower(Brand.name) == name.lower()).first()
     if existing:
         raise HTTPException(409, "Brand already exists")
-    values = payload.model_dump()
-    values["name"] = name
-    b = Brand(**values)
-    db.add(b); db.flush()
+    b = insert_brand(
+        db, name=name, description=payload.description,
+        logo_url=payload.logo_url, is_active=payload.is_active,
+    )
     log_action(db, current, "create", "Brand", b.id)
     db.commit(); db.refresh(b)
     return b

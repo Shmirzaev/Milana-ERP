@@ -37,7 +37,7 @@ from app.libs.dto.inventory.stock_line_output import StockLine
 from app.libs.dto.inventory.stock_quantity_adjustment_input import StockQuantityAdjustmentIn
 from app.libs.dto.inventory.stock_quantity_adjustment_output import StockQuantityAdjustmentOut
 from app.libs.dto.inventory.warehouse_input import WarehouseIn
-from app.libs.enums.inventory import StockBatchQcStatus
+from app.libs.enums.inventory import StockBatchQcStatus, StockMovementType
 from app.models import inventory_access_service as inventory_access
 from app.models.audit_service import log_action
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
@@ -73,6 +73,7 @@ from app.schemas import (
     Warehouse,
     WasteRecord,
 )
+from app.schemas.inventory import stock_movement_persistence
 from app.schemas.inventory import stock_receipt_persistence
 from app.schemas.inventory import warehouse_persistence
 from app.schemas.inventory.eco_transfer import EcoFabricRoll
@@ -404,7 +405,7 @@ def _apply_batch_tracked_stock_adjustment(
     *,
     item: Item,
     delta: float,
-    movement_type: str,
+    movement_type: StockMovementType,
     user_id: int | None,
 ) -> list[StockMovement]:
     if abs(delta) <= EPSILON:
@@ -425,29 +426,30 @@ def _apply_batch_tracked_stock_adjustment(
     if delta > 0:
         batch = batches[0] if batches else None
         if not batch:
-            batch = StockBatch(
+            batch = stock_movement_persistence.add_adjustment_batch(
+                db,
                 item_id=int(item.id),
                 batch_no=_unique_adjustment_batch_no(db, item),
                 quantity=0,
                 unit=item.unit,
                 cost_per_unit=round_unit_cost(item.default_cost or 0),
                 warehouse_id=_stock_adjustment_warehouse_id(db, item, batches),
-                qc_status="passed",
+                qc_status=StockBatchQcStatus.PASSED,
             )
-            db.add(batch)
-            db.flush()
-        batch.quantity = float(batch.quantity or 0) + delta
-        movement = StockMovement(
+        stock_movement_persistence.set_batch_quantity(
+            db, batch, float(batch.quantity or 0) + delta
+        )
+        movement = stock_movement_persistence.add_stock_adjustment_movement(
+            db,
             movement_type=movement_type,
             item_id=int(item.id),
             batch_id=int(batch.id),
+            from_warehouse_id=None,
             to_warehouse_id=int(batch.warehouse_id),
             quantity=delta,
             unit=item.unit,
-            reference_type="StockAdjustment",
             created_by=user_id,
         )
-        db.add(movement)
         movements.append(movement)
         return movements
 
@@ -459,18 +461,18 @@ def _apply_batch_tracked_stock_adjustment(
         if available <= EPSILON:
             continue
         qty = min(available, left)
-        batch.quantity = available - qty
-        movement = StockMovement(
+        stock_movement_persistence.set_batch_quantity(db, batch, available - qty)
+        movement = stock_movement_persistence.add_stock_adjustment_movement(
+            db,
             movement_type=movement_type,
             item_id=int(item.id),
             batch_id=int(batch.id),
             from_warehouse_id=int(batch.warehouse_id),
+            to_warehouse_id=None,
             quantity=qty,
             unit=item.unit,
-            reference_type="StockAdjustment",
             created_by=user_id,
         )
-        db.add(movement)
         archive_depleted_material_batch(db, batch, user_id=user_id)
         movements.append(movement)
         left -= qty
@@ -522,7 +524,7 @@ def set_stock_quantity(
             unit=item.unit,
         )
 
-    movement_type = "adjustment" if delta > 0 else "issue"
+    movement_type = StockMovementType.ADJUSTMENT if delta > 0 else StockMovementType.ISSUE
     if item.track_batch:
         active_batch_count = (
             db.query(StockBatch.id)
@@ -545,15 +547,17 @@ def set_stock_quantity(
         )
         movement = movements[0] if movements else None
     else:
-        movement = StockMovement(
+        movement = stock_movement_persistence.add_stock_adjustment_movement(
+            db,
             movement_type=movement_type,
             item_id=item_id,
+            batch_id=None,
+            from_warehouse_id=None,
+            to_warehouse_id=None,
             quantity=abs(delta),
             unit=item.unit,
-            reference_type="StockAdjustment",
             created_by=current.id,
         )
-        db.add(movement)
     db.flush()
     log_action(
         db,
