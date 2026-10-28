@@ -1,7 +1,8 @@
-"""Brand creation persistence within the caller's transaction."""
+"""Brand persistence within the caller's transaction."""
 
 from sqlalchemy.orm import Session
 
+from app.libs.types.catalog import BrandUpdateCommand
 from app.schemas.catalog.catalog import Brand
 
 
@@ -13,3 +14,14 @@ def insert_brand(
     db.add(brand)
     db.flush()
     return brand
+
+
+def apply_brand_update(db: Session, brand: Brand, fields: BrandUpdateCommand) -> None:
+    """Apply the validated supplied fields; the caller owns audit and commit."""
+    brand.name = fields["name"]
+    if "description" in fields:
+        brand.description = fields["description"]
+    if "logo_url" in fields:
+        brand.logo_url = fields["logo_url"]
+    if "is_active" in fields:
+        brand.is_active = fields["is_active"]

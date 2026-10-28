@@ -6,9 +6,18 @@ holds, and the material role is the canonical enum member or nothing at all.
 """
 
 from dataclasses import dataclass
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 from app.libs.enums.catalog import BomMaterialRole
+
+
+class BrandUpdateCommand(TypedDict):
+    """Decided PATCH fields: absent optional keys leave stored values unchanged."""
+
+    name: str
+    description: NotRequired[str | None]
+    logo_url: NotRequired[str | None]
+    is_active: NotRequired[bool]
 
 
 @dataclass(frozen=True)

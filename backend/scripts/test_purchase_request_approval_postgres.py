@@ -13,11 +13,100 @@ import secrets
 import shutil
 import sys
 import tempfile
+import time
 import xml.etree.ElementTree as ET
 
 import psycopg2
 from psycopg2 import sql
 from sqlalchemy.engine import make_url
+
+
+def pool_checked_out(pool):
+    """Return a pool's checked-out count when that pool exposes it."""
+    method = getattr(pool, "checkedout", None)
+    try:
+        return int(method()) if callable(method) else None
+    except Exception:
+        return None
+
+
+def owned_activity(cursor, database):
+    """Inspect only the owned target; omit SQL, users, and client details."""
+    cursor.execute("""SELECT pid, state, backend_type, application_name,
+        EXTRACT(EPOCH FROM (clock_timestamp() - backend_start)),
+        EXTRACT(EPOCH FROM (clock_timestamp() - xact_start))
+        FROM pg_stat_activity WHERE datname = %s ORDER BY pid""", (database,))
+    return [dict(pid=row[0], state=row[1], backend_type=row[2],
+                 application_name_sha256=hashlib.sha256((row[3] or "").encode()).hexdigest(), backend_age_seconds=float(row[4]) if row[4] is not None else None,
+                 transaction_age_seconds=float(row[5]) if row[5] is not None else None)
+            for row in cursor.fetchall()]
+
+
+def validate_fixture_evidence(evidence):
+    keys = ("original_pool_before", "original_pool_after", "replacement_pool_after")
+    if not isinstance(evidence, dict) or evidence.get("phase") != "fixture_dispose":
+        raise ValueError("Invalid fixture disposal evidence")
+    for key in keys:
+        value = evidence.get(key, False)
+        if value is not None and (type(value) is not int or value < 0):
+            raise ValueError("Invalid fixture pool count")
+    return evidence
+
+
+def wait_owned_disconnect(cursor, database, timeout=2.0, poll=0.05):
+    """Observe zero within deadline; statement timeouts bound each query separately."""
+    start = time.monotonic()
+    deadline = start + timeout
+    attempts = 0
+    initial = None
+    remaining = None
+    while True:
+        before = time.monotonic()
+        if before >= deadline:
+            return {"initial": initial, "final": remaining, "attempts": attempts,
+                    "elapsed_seconds": before - start, "timed_out": True}
+        milliseconds = max(1, min(1000, int((deadline - before) * 1000)))
+        cursor.execute("SELECT set_config('statement_timeout', %s, false)", (str(milliseconds),))
+        cursor.execute("SELECT count(*) FROM pg_stat_activity WHERE datname=%s", (database,))
+        remaining = cursor.fetchone()[0]
+        attempts += 1
+        if initial is None:
+            initial = remaining
+        now = time.monotonic()
+        if now > deadline:
+            return {"initial": initial, "final": remaining, "attempts": attempts,
+                    "elapsed_seconds": now - start, "timed_out": True}
+        if remaining == 0:
+            return {"initial": initial, "final": 0, "attempts": attempts,
+                    "elapsed_seconds": now - start, "timed_out": False}
+        if now >= deadline:
+            return {"initial": initial, "final": remaining, "attempts": attempts,
+                    "elapsed_seconds": now - start, "timed_out": True}
+        time.sleep(min(poll, deadline - now))
+
+
+def cleanup_owned_target(cursor, database, report, timeout=2.0):
+    """Attempt owned cleanup even when observation fails; unknown never passes."""
+    observed = False
+    try:
+        report["disconnect"] = wait_owned_disconnect(cursor, database, timeout=timeout)
+        observed = not report["disconnect"]["timed_out"] and report["disconnect"]["final"] == 0
+        report["remaining"] = report["disconnect"]["final"]
+        if not observed:
+            try:
+                report["activity"] = owned_activity(cursor, database)
+            except Exception as error:
+                report["activity_error_type"] = type(error).__name__
+    except Exception as error:
+        report["disconnect_error_type"] = type(error).__name__
+    finally:
+        # Restore a bounded admin statement timeout before attempting owned DROP.
+        cursor.execute("SELECT set_config('statement_timeout', %s, false)", ("1000",))
+        cursor.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(database)))
+        cursor.execute("SELECT count(*) FROM pg_database WHERE datname=%s", (database,))
+        report["dropped"] = cursor.fetchone()[0] == 0
+    if not report["dropped"] or not observed:
+        raise RuntimeError("Owned PostgreSQL cleanup failed or tests leaked connections")
 
 
 def main() -> int:
@@ -43,10 +132,13 @@ def main() -> int:
     created = False
     code = 1
     report = {"database": database, "test_sha256": source_hash, "created": False,
-              "dropped": False, "passed": 0, "source_unchanged": False}
+              "dropped": False, "passed": 0, "source_unchanged": False,
+              "original_pool_before": None, "original_pool_after": None,
+              "replacement_pool_after": None,
+              "remaining": None, "activity": []}
     try:
         admin = psycopg2.connect(host=url.host, port=url.port, user=url.username,
-                                password=url.password, dbname="postgres", connect_timeout=5)
+                                password=url.password, dbname="postgres", connect_timeout=5, options="-c statement_timeout=1000")
         admin.autocommit = True
         with admin.cursor() as cursor:
             cursor.execute("SELECT current_database(), inet_server_port(), host(inet_server_addr())")
@@ -65,7 +157,7 @@ def main() -> int:
         sys.path.insert(0, str(backend))
         (temporary / "test_approval.py").write_bytes(test_bytes)
         (temporary / "conftest.py").write_text(
-            "import pytest\nfrom sqlalchemy import text\n"
+            "import json\nfrom pathlib import Path\nimport pytest\nfrom sqlalchemy import text\n"
             "from app.db.base import Base\nfrom app.db.session import engine\nimport app.schemas\n"
             "@pytest.fixture(scope='session', autouse=True)\n"
             "def owned_database():\n"
@@ -75,12 +167,25 @@ def main() -> int:
             f"        assert connection.execute(text('SELECT current_database()')).scalar() == {database!r}\n"
             "    Base.metadata.create_all(engine)\n"
             "    yield\n"
-            "    engine.dispose()\n", encoding="utf-8")
+            "    def checked_out(pool):\n"
+            "        method = getattr(pool, 'checkedout', None)\n"
+            "        try:\n"
+            "            return int(method()) if callable(method) else None\n"
+            "        except Exception:\n"
+            "            return None\n"
+            "    original_pool = engine.pool\n"
+            "    before = checked_out(original_pool)\n"
+            "    engine.dispose()\n"
+            "    Path('fixture-dispose.json').write_text(json.dumps({'phase': 'fixture_dispose', "
+            "'original_pool_before': before, 'original_pool_after': checked_out(original_pool), "
+            "'replacement_pool_after': checked_out(engine.pool)}), encoding='utf-8')\n", encoding="utf-8")
         os.chdir(temporary)
         import pytest
         code = int(pytest.main([str(temporary / "test_approval.py"), "--confcutdir=" + str(temporary),
                                "-q", "-p", "no:cacheprovider", "--tb=short",
                                "--junitxml=" + str(temporary / "tests.xml")]))
+        fixture_evidence = json.loads((temporary / "fixture-dispose.json").read_text(encoding="utf-8"))
+        validate_fixture_evidence(fixture_evidence)
         suite = ET.parse(temporary / "tests.xml").getroot().find("testsuite")
         cases = suite.findall("testcase") if suite is not None else []
         if (suite is None or len(cases) != 7
@@ -91,18 +196,22 @@ def main() -> int:
         report["passed"] = len(cases)
     finally:
         try:
+            fixture_file = temporary / "fixture-dispose.json"
+            if fixture_file.is_file():
+                try:
+                    report["fixture_dispose"] = validate_fixture_evidence(json.loads(fixture_file.read_text(encoding="utf-8")))
+                except (OSError, ValueError):
+                    report["fixture_dispose_error"] = True
             session_module = sys.modules.get("app.db.session")
             if session_module is not None:
+                original_pool = session_module.engine.pool
+                report["original_pool_before"] = pool_checked_out(original_pool)
                 session_module.engine.dispose()
+                report["original_pool_after"] = pool_checked_out(original_pool)
+                report["replacement_pool_after"] = pool_checked_out(session_module.engine.pool)
             if created and admin is not None:
                 with admin.cursor() as cursor:
-                    cursor.execute("SELECT count(*) FROM pg_stat_activity WHERE datname=%s", (database,))
-                    remaining = cursor.fetchone()[0]
-                    cursor.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(database)))
-                    cursor.execute("SELECT count(*) FROM pg_database WHERE datname=%s", (database,))
-                    report["dropped"] = cursor.fetchone()[0] == 0
-                    if not report["dropped"] or remaining:
-                        raise RuntimeError("Owned PostgreSQL cleanup failed or tests leaked connections")
+                    cleanup_owned_target(cursor, database, report)
         finally:
             if admin is not None:
                 admin.close()
