@@ -253,6 +253,18 @@ factory transactions. Heavy capacity testing is a separate bounded exercise, not
 a prerequisite for every unrelated file edit. k6 and mutation/property tools are
 options to adopt where useful, not claimed installed or run by this documentation.
 
+### Verify the packaged frontend before handing it to browser reviewers
+
+For the QA runtime ZIP, require every safe file declared by Next's
+`required-server-files.json`, including `.next/app-path-routes-manifest.json`
+and `.next/package.json`. Reconcile the root route map with server app entries
+and compiled page files. A health rewrite can pass while every page returns 404.
+Smoke-test the actual freshly extracted ZIP with its own working directory:
+require the real login form and the expected unauthenticated home response.
+Keep process, path, byte, timeout and cleanup bounds explicit. Then perform the
+connected-browser desktop/mobile and persisted-state checks; a smoke pass is
+not a visual pass, human approval or deployment authority.
+
 ## 5. Record evidence and completion
 
 Advance an operation through explicit states:

@@ -17,6 +17,8 @@ EXPECTED_API = "http://127.0.0.1:8107"
 EXPECTED_NEXT = "16.3.8"
 REQUIRED_ROOT_MANIFESTS = (
     "BUILD_ID",
+    "app-path-routes-manifest.json",
+    "package.json",
     "build-manifest.json",
     "images-manifest.json",
     "prerender-manifest.json",
@@ -156,7 +158,77 @@ def collect_files(frontend: Path) -> list[tuple[str, Path]]:
     return files
 
 
+def validate_app_routes(build: Path) -> None:
+    """Require the root router map and prove it resolves to packaged app JS."""
+    route_map_path = build / "app-path-routes-manifest.json"
+    app_paths_path = build / "server" / "app-paths-manifest.json"
+    try:
+        route_map = json.loads(route_map_path.read_text(encoding="utf-8"))
+        app_paths = json.loads(app_paths_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise PackageError("Cannot parse the required App Router manifests") from exc
+
+    if not isinstance(route_map, dict) or not route_map:
+        fail("App path routes manifest must be a non-empty object")
+    if not isinstance(app_paths, dict) or not app_paths:
+        fail("Server app paths manifest must be a non-empty object")
+    if set(route_map) != set(app_paths):
+        fail("App route map keys must exactly match server app path keys")
+
+    for route_key, pathname in route_map.items():
+        if not isinstance(route_key, str) or not route_key.startswith("/"):
+            fail("Invalid app route key")
+        if not isinstance(pathname, str) or not pathname.startswith("/"):
+            fail(f"Invalid App Router pathname for {route_key}")
+        if ("\\" in pathname or "?" in pathname or "#" in pathname or ":" in pathname
+                or pathname.startswith("//") or any(ord(char) < 32 or ord(char) == 127 for char in pathname)
+                or any(part in (".", "..") for part in pathname.split("/"))):
+            fail(f"Unsafe App Router pathname for {route_key}")
+
+        compiled = app_paths[route_key]
+        if not isinstance(compiled, str) or not compiled.startswith("app/"):
+            fail(f"Invalid compiled app path for {route_key}")
+        pure = PurePosixPath(compiled)
+        if pure.is_absolute() or any(part in ("", ".", "..") for part in compiled.split("/")):
+            fail(f"Unsafe compiled app path for {route_key}")
+        if "\\" in compiled or ":" in compiled or pure.suffix != ".js":
+            fail(f"Unsafe compiled app path for {route_key}")
+        compiled_path = build / "server" / Path(*pure.parts)
+        if compiled_path.is_symlink() or not compiled_path.is_file():
+            fail(f"Compiled app route file is missing or unsafe: {compiled}")
+
+    if route_map.get("/(app)/page") != "/" or "/(app)/page" not in app_paths:
+        fail("App Router root route must map to a compiled page")
+    if route_map.get("/login/page") != "/login" or "/login/page" not in app_paths:
+        fail("App Router login route must map to a compiled page")
+    if route_map.get("/(app)/customers/[id]/page") != "/customers/[id]":
+        fail("App Router customer detail route must map to its compiled page")
+
+
+def validate_required_file_members(required_data: dict[str, Any], files: list[tuple[str, Path]]) -> None:
+    declared = required_data.get("files")
+    if not isinstance(declared, list) or not declared:
+        fail("Next required-server-files manifest must declare a non-empty file list")
+    packaged = {name for name, _ in files}
+    normalized_seen: set[str] = set()
+    for name in declared:
+        if not isinstance(name, str):
+            fail("Next required-server-files entries must be strings")
+        normalized = name.replace("\\", "/")
+        pure = PurePosixPath(normalized)
+        if (not normalized.startswith(".next/") or pure.is_absolute()
+                or any(part in ("", ".", "..") for part in normalized.split("/"))
+                or ":" in normalized):
+            fail("Unsafe path in Next required-server-files manifest")
+        if normalized in normalized_seen:
+            fail("Duplicate path in Next required-server-files manifest")
+        normalized_seen.add(normalized)
+        if normalized not in packaged:
+            fail(f"Next-required runtime file is missing from package: {normalized}")
+
+
 def validate_routes(frontend: Path, build: Path) -> None:
+    validate_app_routes(build)
     routes_path = build / "routes-manifest.json"
     try:
         routes = json.loads(routes_path.read_text(encoding="utf-8"))
@@ -228,6 +300,8 @@ def validate_routes(frontend: Path, build: Path) -> None:
         required_data = json.loads(required.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise PackageError("Cannot parse required-server-files.json") from exc
+    runtime_files = collect_files(frontend)
+    validate_required_file_members(required_data, runtime_files)
     config = required_data.get("config", {})
     if not isinstance(config, dict):
         fail("Invalid Next required-server-files config")
@@ -243,7 +317,7 @@ def validate_routes(frontend: Path, build: Path) -> None:
     if any(value not in ("", None) for value in public_values):
         fail("Built config contains a non-empty public environment value")
 
-    for archive_name, file_path in collect_files(frontend):
+    for archive_name, file_path in runtime_files:
         raw = file_path.read_bytes()
         if any(endpoint in raw for endpoint in FORBIDDEN_ENDPOINTS):
             fail(f"Production endpoint string found in QA runtime: {archive_name}")

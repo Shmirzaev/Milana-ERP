@@ -11,9 +11,16 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Updated 2026-10-27. Keep this file short: current decisions, release pointers and
+Updated 2026-10-28. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+QA artifact entry is currently blocked by `QA-APP-ROUTES-20261028` in
+[the active tracker](../bugs/bugs.md): real `/login` and `/` navigation returned
+404 although health passed. The packager omitted two Next runtime inputs.
+The repair must reconcile declared runtime files, smoke-test the extracted
+artifact's login page, and repeat connected-browser/readback checks. Earlier
+build, hash and health results do not establish a usable QA website or acceptance.
 
 The current reservation compatibility correction preserves raw input spelling for
 retry fingerprints and failure audits while keeping canonical typed business

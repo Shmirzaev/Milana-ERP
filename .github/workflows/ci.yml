@@ -207,6 +207,11 @@ jobs:
           API_URL: http://127.0.0.1:8107
           NEXT_TELEMETRY_DISABLED: '1'
         run: npm run build -- --webpack
+      - name: QA runtime manifest and smoke regressions
+        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025'
+        timeout-minutes: 2
+        working-directory: frontend
+        run: python3 -m unittest discover -s scripts -p 'test_*qa_runtime*.py' -v
       - name: Stage bounded QA frontend runtime
         if: github.event_name == 'push' && github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025'
         timeout-minutes: 2
@@ -221,6 +226,16 @@ jobs:
           API_URL: http://127.0.0.1:8107
           NEXT_TELEMETRY_DISABLED: '1'
         run: python3 scripts/stage_qa_runtime.py
+      - name: Smoke exact staged QA frontend archive
+        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025'
+        timeout-minutes: 2
+        working-directory: frontend
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_SHA: ${{ github.sha }}
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: python3 scripts/smoke_qa_runtime.py
       - name: Upload QA-only frontend runtime
         id: qa_upload
         if: github.event_name == 'push' && github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025'

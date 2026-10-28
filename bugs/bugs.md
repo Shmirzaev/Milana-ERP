@@ -13,6 +13,23 @@ identify the source at the row's recorded commit. They are historical evidence,
 not instructions to recreate a `services/` directory or proof of a current defect.
 New findings must name the actual current path and revision.
 
+## QA-APP-ROUTES-20261028 — packaged QA site returns 404 before login
+
+- **P1 · NEEDS_REWORK · Verification infrastructure.** Dilmurod owns the area;
+  Mirshoir is the default technical reviewer; Ismail coordinates this repair.
+- Actual browser checks of the `bcfa658` QA artifact, whose executable app inputs
+  match combined candidate `2b34fae`, returned Next.js 404 at `/login` and `/`.
+  No credentials were read or submitted. All 98 QA tables, 97 sequences and
+  43 stored files remained unchanged. No production request or deployment occurred.
+- `frontend/scripts/stage_qa_runtime.py` omitted the build-generated root
+  `.next/app-path-routes-manifest.json` and `.next/package.json`. Next16.3.8
+  silently treats the missing route map as empty, while health rewrites still work.
+- The repair explicitly packages both inputs, reconciles all declared Next
+  runtime files and route-to-compiled-page mappings, and adds refusal tests.
+  A fresh artifact, actual packaged-login smoke, connected-browser desktop/mobile
+  checks, readback and independent review are required before a pass. Human
+  acceptance remains pending; this entry must not move to finished bugs yet.
+
 ## SALES-LIST-TRUTH-20261027 — fabricated quantity and progress
 
 - **P1 · Candidate, unverified · Ismail. Reviewer: Mirshoir.** Actual coordinator
