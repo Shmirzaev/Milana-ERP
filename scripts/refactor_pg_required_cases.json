@@ -152,6 +152,16 @@
         "test_pg_create_preserves_raw_fields_duplicates_and_validation"
       ]
     },
+    "test_supplier_update_postgres": {
+      "revision": "3cc6d1700ff1789efb06463a885ee3d84aff3c19",
+      "git_blob_sha256": "b289f785d6ff120492efeddfe48d5e52709f093e05b542b8821ce2efa6477271",
+      "selected_functions": [
+        "test_pg_patch_fields_permissions_and_audit",
+        "test_pg_inactive_direct_update_remains_out_of_active_list",
+        "test_pg_concurrent_distinct_suppliers_allow_same_name_and_chain",
+        "test_pg_precommit_failure_rolls_back_and_retry"
+      ]
+    },
     "test_customer_update_postgres": {
       "revision": "55af6fe40d4bca5159503ee69484e22adbd78c15",
       "git_blob_sha256": "faf4fa619848aaab04c43f194f46bb52be3832b391936babb69470ca4081c27c",
@@ -311,6 +321,14 @@
       "test_pg_route_failure_rolls_back_then_retry[commit]",
       "test_pg_concurrent_suppliers_keep_audit_chain",
       "test_pg_create_preserves_raw_fields_duplicates_and_validation"
+    ],
+    "test_supplier_update_postgres": [
+      "test_pg_patch_fields_permissions_and_audit",
+      "test_pg_inactive_direct_update_remains_out_of_active_list",
+      "test_pg_concurrent_distinct_suppliers_allow_same_name_and_chain",
+      "test_pg_precommit_failure_rolls_back_and_retry[audit_enqueue]",
+      "test_pg_precommit_failure_rolls_back_and_retry[audit_finalize]",
+      "test_pg_precommit_failure_rolls_back_and_retry[before_commit]"
     ],
     "test_customer_update_postgres": [
       "test_pg_patch_fields_permissions_and_audit",

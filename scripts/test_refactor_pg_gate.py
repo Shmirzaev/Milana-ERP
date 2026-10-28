@@ -32,7 +32,7 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 128)
+        self.assertEqual(sum(counts.values()), 134)
 
     def test_skipped_failed_and_error_evidence_are_rejected(self):
         for tag in ('skipped', 'failure', 'error'):
@@ -169,6 +169,15 @@ class RequiredPGGateTests(unittest.TestCase):
         tree = self.report()
         case = next(case for case in tree.iter('testcase')
                     if case.get('classname') == 'app.tests.test_customer_update_postgres'
+                    and case.get('name') == 'test_pg_precommit_failure_rolls_back_and_retry[before_commit]')
+        case.set('name', 'test_pg_precommit_failure_rolls_back_and_retry[unrelated]')
+        with self.assertRaisesRegex(ValueError, 'case identities missing'):
+            gate.check_report(self.write_report(tree))
+
+    def test_supplier_update_commit_case_cannot_be_replaced(self):
+        tree = self.report()
+        case = next(case for case in tree.iter('testcase')
+                    if case.get('classname') == 'app.tests.test_supplier_update_postgres'
                     and case.get('name') == 'test_pg_precommit_failure_rolls_back_and_retry[before_commit]')
         case.set('name', 'test_pg_precommit_failure_rolls_back_and_retry[unrelated]')
         with self.assertRaisesRegex(ValueError, 'case identities missing'):
