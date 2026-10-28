@@ -4,6 +4,8 @@ These reports preserve what was observed at their recorded date. They are not
 current implementation instructions or proof of today's production state.
 Start with [current context](../PROJECT_CONTEXT.md) for active work.
 
+- [Verified integration checkpoint, 28 October 2026](VERIFIED_INTEGRATION_2026-10-28.md): scoped Planning, Customer, Brand and Supplier evidence, PR338/339 and superseded QA history.
+
 - [Manual Finance invoice creation, 27 October 2026](FINANCE_MANUAL_INVOICE_CREATE_2026-10-27.md):
   schema-owned insert candidate, unchanged policy, type ledger and pending gates.
 
