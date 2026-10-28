@@ -105,6 +105,10 @@
     }
   },
   "cases": {
+    "test_brand_create_postgres": [
+      "test_pg_create_duplicate_and_audit",
+      "test_pg_audit_failure_rolls_back_then_retry"
+    ],
     "test_bom_add_characterization": [
       "test_manual_normalizes_role_name_and_discards_stale_references[main]",
       "test_manual_normalizes_role_name_and_discards_stale_references[ MAIN ]",
