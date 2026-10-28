@@ -64,6 +64,10 @@ jobs:
         env:
           PUR_APPROVAL_PG_ADMIN_URL: postgresql://postgres@127.0.0.1:5432/postgres
         run: python backend/scripts/test_purchase_request_approval_postgres.py
+      - name: Purchasing approval cleanup controls
+        env:
+          PUR_APPROVAL_PG_ADMIN_URL: postgresql://postgres@127.0.0.1:5432/postgres
+        run: python backend/scripts/purchase_approval_cleanup_pg_control.py
       - name: P2 PostgreSQL locking and query-plan regressions
         env:
           STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
