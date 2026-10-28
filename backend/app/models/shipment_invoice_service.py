@@ -1,0 +1,308 @@
+"""Standalone printable shipment invoice; deliberately never writes finance data."""
+from base64 import b64encode
+from functools import lru_cache
+from pathlib import Path
+from html import escape
+from collections import defaultdict, OrderedDict
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
+import re
+from types import SimpleNamespace
+
+from app.models.variant_display_service import format_variant_number
+
+
+def invoice_model_identity(model, source: dict | None = None) -> tuple[str | None, str | None]:
+    if model is None:
+        return None, None
+    details = model.details_json if isinstance(model.details_json, dict) else {}
+    general = details.get("general") if isinstance(details.get("general"), dict) else {}
+    code = str(model.code or "")
+    matched = re.fullmatch(r"(.*?)-(V-\d+|[^-]+)", code)
+    source = source or {}
+    hidden = bool(details.get("legacy_import")) or code.startswith("LEGACY-")
+    source_model = (source.get("original_model_number") or source.get("model_number") or source.get("model_code")) if hidden else None
+    source_variant = (source.get("original_article") or source.get("article") or source.get("variant_number") or source.get("variant")) if hidden else None
+    model_no = str(general.get("model_no") or general.get("modelNo") or details.get("legacy_original_model_no") or
+                   source_model or ("" if hidden else matched[1] if matched else code)).strip()
+    variant_no = str(general.get("variant_no") or general.get("variantNo") or details.get("legacy_original_variant_no") or
+                     source_variant or ("" if hidden else matched[2] if matched else "")).strip()
+    if variant_no and model_no.endswith("-" + variant_no):
+        model_no = model_no[:-(len(variant_no) + 1)]
+    return model_no or None, variant_no or None
+
+
+def build_invoice_rows(lines: list[dict], packages: list[dict]) -> list[dict]:
+    """Combine complete single-variant packs; keep partial/mixed packs distinct."""
+    result = []
+    complete_groups = {}
+    # Index the lines by package once; scanning every line per package made this
+    # O(packages x lines). Insertion order keeps each package's lines in order.
+    lines_by_package = defaultdict(list)
+    for line in lines:
+        lines_by_package[line.get("package_no")].append(line)
+    for package in packages:
+        groups: dict[tuple, dict] = OrderedDict()
+        for line in lines_by_package.get(package["package_no"], ()):
+            parsed_model, parsed_variant = invoice_model_identity(SimpleNamespace(code=line.get("model_code"), details_json={}))
+            key = (line.get("model_no") or parsed_model, line.get("variant_no") or parsed_variant,
+                   line.get("description"), line.get("unit_price"))
+            group = groups.setdefault(key, {"package_no": package["package_no"], "model_no": key[0],
+                                             "variant_no": key[1], "description": key[2], "unit_price": key[3],
+                                             "quantity": 0, "sizes": [], "amount": Decimal("0")})
+            group["quantity"] += int(line["quantity"])
+            group["sizes"].append({"size": line.get("size_display") or line.get("size"), "aggregate": bool(line.get("size_display")), "color": line.get("color"), "quantity": line["quantity"]})
+            if line.get("amount") is None:
+                group["amount"] = None
+            elif group["amount"] is not None:
+                group["amount"] += Decimal(line["amount"])
+        if not groups:
+            groups[()] = {"package_no": package["package_no"], "model_no": None, "variant_no": None,
+                          "description": None, "unit_price": None, "quantity": package.get("quantity", 0),
+                          "sizes": [], "amount": None}
+        for index, group in enumerate(groups.values()):
+            group["amount"] = str(group["amount"].quantize(Decimal("0.01"))) if group["amount"] is not None else None
+            group["package_rowspan"] = len(groups) if index == 0 else 0
+            group["pack_count"] = 1 if index == 0 else 0
+            group["weight_kg"] = package.get("weight_kg") if index == 0 else None
+            # Never allocate a mixed pack's shared weight/count to one variant.
+            # Missing completeness evidence is deliberately not treated as full.
+            if len(groups) == 1 and package.get("is_partial") is False and group["model_no"]:
+                key = (group["model_no"], format_variant_number(group["variant_no"]),
+                       group["description"], group["unit_price"])
+                previous = complete_groups.get(key)
+                if previous is not None:
+                    previous["pack_count"] += 1
+                    previous["quantity"] += group["quantity"]
+                    for field in ("amount", "weight_kg"):
+                        previous[field] = (str(Decimal(previous[field]) + Decimal(group[field]))
+                                           if previous[field] is not None and group[field] is not None else None)
+                    sizes = {(item["size"], item["color"], item["aggregate"]): item for item in previous["sizes"]}
+                    for item in group["sizes"]:
+                        size_key = (item["size"], item["color"], item["aggregate"])
+                        if size_key in sizes:
+                            sizes[size_key]["quantity"] += item["quantity"]
+                        else:
+                            previous["sizes"].append(item)
+                            sizes[size_key] = item
+                    continue
+                complete_groups[key] = group
+            result.append(group)
+    return result
+
+
+def invoice_pack_weight(row: dict):
+    """Average recorded weight per pack; total weight stays exact separately."""
+    total = row.get("weight_kg")
+    return str(Decimal(str(total)) / max(1, row.get("pack_count", 1))) if total is not None else None
+
+
+LABELS = {
+    "en": {"hide_prices": "Hide prices", "show_prices": "Show prices", "pending_price": "Price pending. Not posted to Finance.", "draft": "Draft invoice — shipment not dispatched.", "title": "Warehouse invoice", "posting": "Unposted to Finance until delivery.", "print": "Print", "order": "Sales order", "customer": "Customer",
+           "date": "Shipped", "pack": "Package", "model": "Model / variant", "color": "Color", "size": "Size",
+           "qty": "Pieces", "price": "Unit price", "amount": "Amount", "total": "Total", "packs": "Packages",
+           "calculated": "Calculated amount", "adjustment": "Warehouse adjustment", "net": "Net prices. No tax calculation.",
+           "shipment": "Shipment no.", "driver": "Driver", "vehicle": "Vehicle", "carrier": "Carrier", "phone": "Driver phone",
+           "modelNo": "Model", "variant": "Variant", "description": "Description", "weight": "Kg / pack", "totalWeight": "Total kg",
+           "issued": "Warehouse keeper", "received": "Received by", "ledger": "Ledger invoice",
+           "historical": "Historical shipment: reconstructed from current records; original financial snapshot unavailable.",
+           "missing": "Price unavailable", "signature": "Issued by / Received by"},
+    "ru": {"hide_prices": "Скрыть цены", "show_prices": "Показать цены", "pending_price": "Цена не указана. Не проведено в финансах.", "draft": "Черновик накладной — отгрузка не выполнена.", "title": "Складская накладная", "posting": "Не проведён в финансах до подтверждения доставки.", "print": "Печать", "order": "Заказ", "customer": "Клиент",
+           "date": "Отгружено", "pack": "Упаковка", "model": "Модель / вариант", "color": "Цвет", "size": "Размер",
+           "qty": "Штук", "price": "Цена", "amount": "Сумма", "total": "Итого", "packs": "Упаковок",
+           "calculated": "Расчётная сумма", "adjustment": "Корректировка склада", "net": "Цены нетто. Налог не рассчитывается.",
+           "shipment": "№ отгрузки", "driver": "Водитель", "vehicle": "Автомобиль", "carrier": "Перевозчик", "phone": "Телефон водителя",
+           "modelNo": "Модель", "variant": "Вариант", "description": "Описание", "weight": "Кг / уп.", "totalWeight": "Всего кг",
+           "issued": "Кладовщик", "received": "Получил", "ledger": "Финансовый счёт",
+           "historical": "Историческая отгрузка: данные восстановлены из текущих записей; исходный финансовый снимок отсутствует.",
+           "missing": "Цена не указана", "signature": "Отпустил / Получил"},
+    "uz": {"hide_prices": "Narxlarni yashirish", "show_prices": "Narxlarni ko‘rsatish", "pending_price": "Narx kutilmoqda. Moliyaga o‘tkazilmagan.", "draft": "Hisob-faktura qoralamasi — jo‘natma hali jo‘natilmagan.", "title": "Ombor hisob-fakturasi", "posting": "Yetkazish tasdiqlanmaguncha Moliyaga o‘tkazilmagan.", "print": "Chop etish", "order": "Buyurtma", "customer": "Mijoz",
+           "date": "Jo‘natilgan", "pack": "Qadoq", "model": "Model / variant", "color": "Rang", "size": "O‘lcham",
+           "qty": "Dona", "price": "Narx", "amount": "Summa", "total": "Jami", "packs": "Qadoqlar",
+           "calculated": "Hisoblangan summa", "adjustment": "Ombor tuzatishi", "net": "Sof narxlar. Soliq hisoblanmaydi.",
+           "shipment": "Reys raqami", "driver": "Haydovchi", "vehicle": "Avtomobil", "carrier": "Kargo nomi", "phone": "Haydovchi telefoni",
+           "modelNo": "Model", "variant": "Variant", "description": "Mahsulot tavsifi", "weight": "Kg / qadoq", "totalWeight": "Jami kg",
+           "issued": "Omborchi", "received": "Qabul qildi", "ledger": "Moliyaviy hisob",
+           "historical": "Tarixiy jo‘natma: joriy yozuvlardan tiklangan; asl moliyaviy nusxa mavjud emas.",
+           "missing": "Narx mavjud emas", "signature": "Topshirdi / Qabul qildi"},
+}
+
+
+@lru_cache(maxsize=1)
+def invoice_logo_uri() -> str:
+    """Embed the supplied vector artwork so print pages need no external assets."""
+    artwork = Path(__file__).resolve().parents[1] / "assets" / "milana-premium-logo.svg"
+    return "data:image/svg+xml;base64," + b64encode(artwork.read_bytes()).decode("ascii")
+
+
+INVOICE_CONTACT = ("+998501551010", "Milanapremium.com", "wearmilana@gmail.com")
+
+
+def invoice_date(raw) -> str:
+    if not raw:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone(timedelta(hours=5))).strftime("%d/%m/%Y %H:%M:%S")
+    except ValueError:
+        return str(raw)
+
+
+def invoice_metadata(document: dict, text: dict) -> list[tuple]:
+    transport = document.get("transport_details") or {}
+    return [
+        (text["customer"], document.get("customer"), text["driver"], transport.get("driver_name")),
+        (text["shipment"], document.get("shipment_no"), text["vehicle"], transport.get("vehicle_info")),
+        (text["date"], invoice_date(document.get("shipped_at")), text["carrier"], transport.get("cargo_name")),
+        (text["order"], document.get("sales_order_no"), text["phone"], transport.get("driver_phone")),
+    ]
+
+
+def invoice_headers(lang: str) -> list[str]:
+    text = LABELS[lang]
+    return ["№", text["modelNo"], text["variant"], text["description"], text["size"],
+            {"en": "Packs", "ru": "Упак.", "uz": "Qadoq"}[lang],
+            text["qty"], text["weight"], text["totalWeight"], text["price"], text["amount"]]
+
+
+def invoice_column_widths() -> list[int]:
+    return [3, 8, 8, 14, 14, 6, 7, 8, 9, 10, 13]
+
+
+def invoice_size_labels(sizes: list[dict]) -> list[str]:
+    """Compact size × pieces labels shared by print and Excel, without losing colors."""
+    multicolor = len({item.get("color") for item in sizes if item.get("color")}) > 1
+    return [
+        (f'{item.get("color") or ""} / ' if multicolor else "") + str(item.get("size") or "")
+        + ("" if item.get("aggregate") else f'×{int(item["quantity"])}')
+        for item in sizes
+    ]
+
+
+def invoice_price_notes(document: dict, lang: str) -> list[str]:
+    """Explain saved total overrides without inventing per-item prices."""
+    text = LABELS[lang]
+    notes = []
+    if document.get("adjustment_reason"):
+        calculated = document.get("calculated_amount")
+        amount = format(Decimal(str(calculated)), ",.2f").replace(",", "\u00a0") if calculated is not None else "—"
+        notes.extend([f'{text["calculated"]}: {amount}', f'{text["adjustment"]}: {document["adjustment_reason"]}'])
+    return notes
+
+
+def invoice_notes(document: dict, lang: str) -> list[str]:
+    text = LABELS[lang]
+    notes = []
+    if document.get("historical_reconstruction"):
+        notes.append(text["historical"])
+    if document.get("invoice_layout_version") != 2:
+        notes.append({"en": "Historical snapshot has no original transport, model description or weight details; missing values are blank.",
+                      "ru": "Исторический снимок не содержит исходные данные транспорта, описания модели или веса; пропуски оставлены пустыми.",
+                      "uz": "Tarixiy nusxada asl transport, model tavsifi yoki vazn tafsilotlari yo‘q; qiymatlar bo‘sh qoldirildi."}[lang])
+    notes.append(text["ledger"] + ": " + str(document.get("ledger_invoice_no") or "")
+                 if document.get("finance_posting_status") == "posted"
+                 else text.get(document.get("finance_posting_status"), text["posting"]))
+    return notes
+
+
+def recorded_weight(document: dict) -> Decimal:
+    if document.get("known_weight_kg") is not None:
+        return Decimal(str(document["known_weight_kg"]))
+    if document.get("package_details") is not None:
+        return sum((Decimal(str(p["weight_kg"])) for p in document["package_details"] if p.get("weight_kg") is not None), Decimal("0"))
+    return Decimal(str(document.get("total_weight_kg") or "0"))
+
+
+def render_shipment_invoice(document: dict, language: str, *, show_prices: bool = True) -> str:
+    lang = language if language in LABELS else "en"
+    text = LABELS[lang]
+
+    def value(raw):
+        return escape(str(raw)) if raw is not None else ""
+
+    def number(raw, decimals=2):
+        if raw is None:
+            return ""
+        try:
+            parsed = Decimal(str(raw))
+            return format(parsed, f",.{decimals}f").replace(",", "\u00a0") if parsed.is_finite() else ""
+        except (InvalidOperation, ValueError):
+            return ""
+
+    def weight(raw):
+        return "—" if raw is None else number(raw)
+
+    packages = document.get("package_details")
+    if packages is None:
+        packages = list({line["package_no"]: {"package_no": line["package_no"], "weight_kg": None}
+                         for line in document.get("lines", [])}.values())
+    invoice_rows = document.get("invoice_rows") or build_invoice_rows(document.get("lines", []), packages)
+    body = []
+    for index, row in enumerate(invoice_rows, 1):
+        sizes = ", ".join(f'<span class="size-label">{value(label)}</span>' for label in invoice_size_labels(row.get("sizes", [])))
+        span = row["package_rowspan"]
+        pack_cell = f'<td rowspan="{span}" class="numeric">{number(row["pack_count"], 0)}</td>' if span else ""
+        weight_cells = (f'<td rowspan="{span}" class="numeric">{weight(invoice_pack_weight(row))}</td>'
+                        f'<td rowspan="{span}" class="numeric">{weight(row.get("weight_kg"))}</td>') if span else ""
+        price_cells = (f'<td class="numeric">{weight(row.get("unit_price"))}</td>'
+                       f'<td class="numeric">{weight(row.get("amount"))}</td>') if show_prices else '<td class="numeric"></td><td class="numeric"></td>'
+        body.append(f'<tr><td class="row-number">{index}</td><td class="identity">{value(row.get("model_no"))}</td>'
+                    f'<td>{value(format_variant_number(row.get("variant_no")))}</td><td class="description">{value(row.get("description"))}</td>'
+                    f'<td class="sizes">{sizes}</td>{pack_cell}<td class="numeric">{number(row["quantity"], 0)}</td>'
+                    f'{weight_cells}{price_cells}</tr>')
+    metadata = invoice_metadata(document, text)
+    metadata_html = "".join(f'<tr><th>{value(left)}</th><td>{value(left_value) or "—"}</td>'
+                            f'<th>{value(right)}</th><td>{value(right_value) or "—"}</td></tr>'
+                            for left, left_value, right, right_value in metadata)
+    headers = invoice_headers(lang)
+    columns = "".join(f'<col style="width:{width}%">' for width in invoice_column_widths())
+    money_total = f'<td></td><td class="numeric">{weight(document.get("amount")) if show_prices else ""}</td>'
+    toggle_url = f'?lang={lang}&amp;show_prices={str(not show_prices).lower()}'
+    toggle_text = text["hide_prices" if show_prices else "show_prices"]
+    weights = number(recorded_weight(document))
+    warehouse_signature = {"en": "Warehouse signature", "ru": "Подпись кладовщика", "uz": "Omborchi imzosi"}[lang]
+    warehouse_officer = {"en": "Responsible warehouse officer", "ru": "Ответственный кладовщик", "uz": "Mas’ul omborchi"}[lang]
+    return f'''<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>{text["title"]} {value(document["shipment_no"])}</title>
+<style>
+*{{box-sizing:border-box}}body{{font:400 8pt Calibri,Arial,sans-serif;line-height:1.3;color:#202124;background:#fff;margin:20px auto;max-width:190mm;padding:0}}
+.controls{{margin-bottom:16px;display:flex;gap:8px}}button,.controls a{{color:inherit;text-decoration:none;font:inherit;padding:8px 16px;background:#fff;border:1px solid #b9bec4;border-radius:4px;cursor:pointer}}
+.masthead{{display:grid;grid-template-columns:minmax(0,1fr) 38mm;align-items:center;gap:6mm;padding:0 0 4mm;border-bottom:0;break-inside:avoid}}
+h1{{font-size:11pt;line-height:1.2;font-weight:700;margin:2mm 0;color:#1f3864}}.supplier{{margin:0;font-size:24pt;font-weight:700;color:#1f3864}}.document-number{{margin:2mm 0 0;color:#9b242b;font-size:8pt;font-weight:700}}
+.logo{{width:38mm;height:22mm;object-fit:contain;display:block;background:#fff}}
+table{{width:100%;border-collapse:collapse;table-layout:fixed}}td,th{{overflow-wrap:anywhere;vertical-align:middle}}
+.meta{{margin:3mm 0 4mm}}.meta th,.meta td{{padding:1mm 2mm 1mm 0;text-align:left;border:.75pt solid #8ea9db}}
+.meta,.items,.signatures{{border:1.5pt solid #1f3864}}
+.meta th{{font-size:11pt;font-weight:700;color:#4d5656;background:#f2f5fa}}.meta td{{font-size:11pt;font-weight:700}}.meta th:nth-child(3){{padding-left:2mm}}
+.items{{font-size:9pt;line-height:1.3}}.items th,.items td{{padding:1mm 1.1mm;border:.75pt solid #8ea9db;text-align:center}}
+.items thead th{{background:#2f5597;color:#fff;font-size:9pt;font-weight:700;padding:2mm .5mm;overflow-wrap:anywhere;border-bottom:1.5pt solid #d99b26}}
+
+.items .row-number{{white-space:nowrap;overflow-wrap:normal;color:#64717e;font-variant-numeric:tabular-nums;padding-left:.5mm;padding-right:.5mm}}
+.items tbody tr{{height:23.1pt}}
+.items .identity{{font-weight:700;color:#1f3864}}.items .description,.items .sizes{{text-align:left}}.items .sizes{{font-size:9pt;color:#444b52;white-space:normal}}
+.items .numeric{{text-align:right;font-variant-numeric:tabular-nums;white-space:normal;font-size:9pt}}
+.size-label{{display:inline-block;max-width:100%;white-space:normal}}
+thead{{display:table-header-group}}tr{{break-inside:avoid}}.items tbody:first-of-type tr:last-child{{break-after:avoid}}
+.items .totals td{{font-weight:700;background:#c6d9f1;color:#1f3864;border-top:1.5pt solid #1f3864;border-bottom:3pt double #1f3864;padding-top:2mm;padding-bottom:2mm}}
+.items .totals td:last-child{{background:#1f3864;color:white}}
+.items .totals .total-label{{font-size:9pt;text-align:right;padding-left:3mm}}
+.signatures{{margin-top:5mm;break-inside:avoid;color:#1f3864;font-size:8pt;text-align:center}}
+.signatures th{{background:#1f3864;color:white;padding:2mm;border:.75pt solid #8ea9db;border-bottom:1.5pt solid #d99b26}}
+.signatures td{{height:13mm;border:.75pt solid #8ea9db;background:#f2f5fa;font-weight:700}}
+.signatures td:last-child{{background:white}}
+.contact{{display:flex;justify-content:space-around;background:#1f3864;color:white;padding:3mm 1mm;margin-top:4mm;border-top:1pt solid #d9a441;break-inside:avoid;font-weight:700}}
+@page{{size:A4 portrait;margin:10mm;@bottom-right{{content:counter(page) " / " counter(pages);font:8pt Arial,sans-serif;color:#67717a}}}}
+@media print{{body{{margin:0;max-width:none;width:100%}}.controls{{display:none}}*{{print-color-adjust:exact;-webkit-print-color-adjust:exact}}}}
+@media screen and (max-width:740px){{body{{min-width:700px;margin:16px}}}}
+</style></head><body><div class="controls"><button onclick="window.print()">{text["print"]}</button><a href="{toggle_url}">{toggle_text}</a></div>
+<header class="masthead"><div><p class="supplier">MILANA PREMIUM</p><h1>{text["title"]}</h1></div><img class="logo" src="{invoice_logo_uri()}" alt="Milana Premium logo"></header>
+<table class="meta"><colgroup><col style="width:14%"><col style="width:25%"><col style="width:18%"><col style="width:43%"></colgroup><tbody>{metadata_html}</tbody></table>
+<table class="items"><colgroup>{columns}</colgroup><thead><tr>{"".join(f"<th scope='col'>{header}</th>" for header in headers)}</tr></thead>
+<tbody>{"".join(body)}</tbody><tbody><tr class="totals"><td class="total-label" colspan="5">{text["total"]}</td>
+<td class="numeric">{number(document["packages_count"], 0)}</td><td class="numeric">{number(document["quantity"], 0)}</td>
+<td class="numeric">{weights}</td><td class="numeric">{weights}</td>{money_total}</tr></tbody></table>
+<table class="signatures"><thead><tr><th>{warehouse_officer}</th><th>{warehouse_signature}</th></tr></thead><tbody><tr><td></td><td>________________________________</td></tr></tbody></table>
+<footer class="contact">{"".join(f"<span>{value(contact)}</span>" for contact in INVOICE_CONTACT)}</footer>
+</body></html>'''

@@ -1,226 +1,223 @@
 "use client";
-import { useState } from "react";
-import useSWR from "swr";
-import { api, fetcher } from "@/lib/api";
-import PageHeader from "@/components/PageHeader";
+
+import { useEffect, useMemo, useState } from "react";
+import useSWR, { useSWRConfig } from "swr";
+import { api, fetcher, fetchResponse } from "@/lib/api";
 import Modal from "@/components/Modal";
+import { HrHeader, LoadState, MetricGrid } from "@/components/hr/HrUi";
 import { useT } from "@/lib/i18n";
-import { useDialogs } from "@/components/DialogProvider";
-import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
+import { useMe } from "@/lib/auth";
 
 type Dept = { id: number; name: string };
+type Position = { id: number; name: string };
 type Employee = {
-  id: number;
-  full_name: string;
-  position: string | null;
-  phone: string | null;
-  salary: number | null;
-  department_id: number | null;
-  status: string;
-  joined_at: string | null;
+  id: number; factory_code: string; employee_no: string | null; full_name: string;
+  department_id: number | null; position: string | null; phone: string | null;
+  salary: number | null; status: string; joined_at: string | null;
+  manager_employee_id: number | null; manager_name?: string | null; hr_position_id: number | null; position_name?: string | null; hr_profile_json: Record<string, unknown>;
+};
+type EmployeePage = { include_archived?: boolean; rows: Employee[]; total: number; page: number; page_size: number; has_more: boolean; active_total: number; inactive_total: number; profile_coverage_percent: number | null; search: string };
+type ManagerOptions = { rows: { id: number; full_name: string }[]; has_more: boolean };
+type FormState = {
+  employee_no: string; full_name: string; department_id: string; position: string; phone: string;
+  salary: string; status: string; joined_at: string; manager_employee_id: string; hr_position_id: string;
+  profile: Record<string, string>;
 };
 
-type EmployeeForm = {
-  full_name: string;
-  position: string;
-  phone: string;
-  salary: NumberInputValue;
-  department_id: number;
-  status: string;
-};
+const PROFILE_FIELDS = {
+  Personal: [
+    ["photo_url", "page.hrEmployees.photo_url", "url"], ["date_of_birth", "page.hrEmployees.date_of_birth", "date"],
+    ["gender", "page.hrEmployees.gender", "text"], ["email", "page.hrEmployees.email", "email"], ["address", "page.hrEmployees.address", "text"],
+    ["emergency_contact", "page.hrEmployees.emergency_contact", "text"], ["nationality", "page.hrEmployees.nationality", "text"],
+  ],
+  Employment: [
+    ["company", "page.hrEmployees.company", "text"], ["branch", "page.hrEmployees.branch", "text"], ["section", "page.hrEmployees.section", "text"],
+    ["grade_level", "page.hrEmployees.grade_level", "text"], ["employment_type", "page.hrEmployees.employment_type", "text"],
+    ["probation_end", "page.hrEmployees.probation_end", "date"], ["work_schedule", "page.hrEmployees.work_schedule", "text"],
+    ["shift", "page.hrEmployees.shift", "text"], ["workplace", "page.hrEmployees.workplace", "text"],
+    ["scheduled_daily_hours", "page.hrEmployees.scheduled_daily_hours", "number"],
+  ],
+  Financial: [
+    ["rate_type", "page.hrEmployees.rate_type", "text"], ["bonus_scheme", "page.hrEmployees.bonus_scheme", "text"],
+    ["bank_details", "page.hrEmployees.bank_details", "text"], ["payroll_id", "page.hrEmployees.payroll_id", "text"],
+  ],
+} as const;
+const PROFILE_FIELD_KEYS = new Set<string>(Object.values(PROFILE_FIELDS).flat().map(([key]) => key));
 
-const EMPTY: EmployeeForm = {
-  full_name: "",
-  position: "",
-  phone: "",
-  salary: "",
-  department_id: 0,
-  status: "active",
-};
+const EMPTY: FormState = { employee_no: "", full_name: "", department_id: "", position: "", phone: "", salary: "", status: "active", joined_at: "", manager_employee_id: "", hr_position_id: "", profile: {} };
+
+function effectiveEmployeeNumber(employee: Pick<Employee, "id" | "employee_no">): string {
+  const configured = String(employee.employee_no || "").trim();
+  return configured || String(employee.id).padStart(4, "0");
+}
+
+function toForm(employee?: Employee | null): FormState {
+  if (!employee) return structuredClone(EMPTY);
+  const profile: Record<string, string> = {};
+  Object.entries(employee.hr_profile_json || {}).forEach(([key, value]) => {
+    if (PROFILE_FIELD_KEYS.has(key)) profile[key] = value == null ? "" : String(value);
+  });
+  return { employee_no: employee.employee_no || "", full_name: employee.full_name, department_id: employee.department_id ? String(employee.department_id) : "", position: employee.position || "", phone: employee.phone || "", salary: employee.salary == null ? "" : String(employee.salary), status: employee.status, joined_at: employee.joined_at ? employee.joined_at.slice(0, 10) : "", manager_employee_id: employee.manager_employee_id ? String(employee.manager_employee_id) : "", hr_position_id: employee.hr_position_id ? String(employee.hr_position_id) : "", profile };
+}
 
 export default function EmployeesPage() {
-  const { t } = useT();
-  const dialogs = useDialogs();
-  const { data, error: employeesError, isLoading, mutate } = useSWR<Employee[]>("/api/employees", fetcher);
-  const { data: depts, error: deptsError } = useSWR<Dept[]>("/api/departments", fetcher);
+  const { me } = useMe();
+  const { mutate: mutateCache } = useSWRConfig();
+  const canArchive = (me?.permissions || []).some((permission) => ["*", "hr.employees", "payroll.manage"].includes(permission));
+  const [archiving, setArchiving] = useState<Employee | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+  const [archiveError, setArchiveError] = useState("");
+  const { t, lang } = useT();
+  function employeeStatusLabel(status: string) {
+    return ["active", "inactive", "on_leave", "terminated", "archived"].includes(status)
+      ? t(`page.hrEmployees.${status}`) : status.replaceAll("_", " ");
+  }
+  const PAGE_SIZE = 50;
+  const [page, setPage] = useState(1);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [query, setQuery] = useState("");
+  const archivedQuery = showArchived ? "&include_archived=true" : "";
+  const { data, error, isLoading } = useSWR<EmployeePage>(`/api/employees?page=${page}&page_size=${PAGE_SIZE}&search=${encodeURIComponent(query)}${archivedQuery}`, fetcher);
+  const { data: departments } = useSWR<Dept[]>("/api/departments", fetcher);
+  const [editing, setEditing] = useState<Employee | "new" | null>(null);
+  const [form, setForm] = useState<FormState>(EMPTY);
+  const [positionSearch, setPositionSearch] = useState("");
+  const positionDirectoryKey = editing !== null
+    ? `/api/employees/position-options?search=${encodeURIComponent(positionSearch)}${form.hr_position_id ? `&selected_id=${form.hr_position_id}` : ""}`
+    : null;
+  const { data: positionOptions } = useSWR<{ rows: Position[]; has_more: boolean }>(positionDirectoryKey, fetcher);
+  const positions = positionOptions?.rows;
+  const [managerSearch, setManagerSearch] = useState("");
+  const managerSelected = form.manager_employee_id ? Number(form.manager_employee_id) : null;
+  const managerKey = editing !== null
+    ? `/api/employees/manager-options?search=${encodeURIComponent(managerSearch)}${managerSelected ? `&selected_id=${managerSelected}` : ""}`
+    : null;
+  const { data: managerOptions } = useSWR<ManagerOptions>(managerKey, fetcher);
+  const [section, setSection] = useState<keyof typeof PROFILE_FIELDS>("Personal");
+  const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
 
-  const [f, setF] = useState(EMPTY);
-  const [createMsg, setCreateMsg] = useState("");
-
-  async function create(e: React.FormEvent) {
-    e.preventDefault();
-    setCreateMsg("");
+  async function downloadEmployees() {
+    if (exporting) return;
+    setExporting(true); setExportError("");
     try {
-      await api.post("/api/employees", { ...f, salary: f.salary === "" ? null : numberOrZero(f.salary), department_id: f.department_id || null });
-      setF(EMPTY);
-      mutate();
-    } catch (e: any) {
-      setCreateMsg(e.message);
-    }
+      const response = await fetchResponse(`/api/employees/export.xlsx?search=${encodeURIComponent(query)}&lang=${lang}${archivedQuery}`, { credentials: "include" });
+      if (!response.ok) throw new Error("Employee export failed");
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url; link.download = "employees.xlsx";
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch { setExportError(t("employeeExport.error")); }
+    finally { setExporting(false); }
   }
 
-  const [editing, setEditing] = useState<Employee | null>(null);
-  const [edit, setEdit] = useState(EMPTY);
-  const [editMsg, setEditMsg] = useState("");
+  useEffect(() => {
+    if (!data || data.page !== page || data.search !== query.trim() || Boolean(data.include_archived) !== showArchived) return;
+    setEmployees((current) => page === 1
+      ? data.rows
+      : Array.from(new Map([...current, ...data.rows].map((row) => [row.id, row])).values()));
+  }, [data, page, query, showArchived]);
+  const activePageData = data?.page === page && data.search === query.trim() && Boolean(data.include_archived) === showArchived ? data : undefined;
+  const filtered = useMemo(() => employees, [employees]);
+  function changeQuery(value: string) { setEmployees([]); setPage(1); setQuery(value); }
 
-  function openEdit(emp: Employee) {
-    setEditing(emp);
-    setEdit({
-      full_name: emp.full_name,
-      position: emp.position ?? "",
-      phone: emp.phone ?? "",
-      salary: emp.salary ?? "",
-      department_id: emp.department_id ?? 0,
-      status: emp.status,
-    });
-    setEditMsg("");
-  }
+  function open(employee?: Employee) { setEditing(employee || "new"); setForm(toForm(employee)); setManagerSearch(""); setPositionSearch(""); setSection("Personal"); setMessage(""); }
+  function profileValue(key: string) { return form.profile[key] || ""; }
+  function setProfile(key: string, value: string) { setForm((old) => ({ ...old, profile: { ...old.profile, [key]: value } })); }
 
-  async function saveEdit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!editing) return;
-    setEditMsg("");
+  async function save(event: React.FormEvent) {
+    event.preventDefault(); setSaving(true); setMessage("");
+    const edit = form;
+    const payload = {
+      employee_no: edit.employee_no.trim() || null, full_name: form.full_name.trim(),
+      department_id: form.department_id ? Number(form.department_id) : null,
+      position: form.position.trim() || null, phone: form.phone.trim() || null,
+      salary: form.salary === "" ? null : Number(form.salary), status: form.status,
+      joined_at: form.joined_at ? new Date(`${form.joined_at}T00:00:00Z`).toISOString() : null,
+      manager_employee_id: form.manager_employee_id ? Number(form.manager_employee_id) : null,
+      hr_position_id: form.hr_position_id ? Number(form.hr_position_id) : null,
+      hr_profile_json: {
+        ...Object.fromEntries(Object.entries(editing && editing !== "new" ? editing.hr_profile_json : {}).filter(([key]) => !PROFILE_FIELD_KEYS.has(key))),
+        ...Object.fromEntries(Object.entries(form.profile).filter(([, value]) => value !== "")),
+      },
+    };
     try {
-      await api.patch(`/api/employees/${editing.id}`, {
-        full_name: edit.full_name,
-        position: edit.position || null,
-        phone: edit.phone || null,
-        salary: edit.salary === "" ? null : numberOrZero(edit.salary),
-        department_id: edit.department_id || null,
-        status: edit.status,
-      });
-      setEditing(null);
-      mutate();
-    } catch (e: any) {
-      setEditMsg(e.message);
-    }
+      if (editing === "new") await api.post("/api/employees", payload);
+      else await api.patch(`/api/employees/${editing?.id}`, payload);
+      setEmployees([]); setPage(1); await refreshDirectory(); setEditing(null);
+    } catch (saveError: unknown) { setMessage(String((saveError as Error)?.message || saveError)); }
+    finally { setSaving(false); }
   }
 
-  async function del(emp: Employee) {
-    if (!(await dialogs.ask({ message: `${t("common.delete")} ${emp.full_name}?`, tone: "danger" }))) return;
+  async function refreshDirectory() {
+    await mutateCache((key) => typeof key === "string" &&
+      (key.startsWith("/api/employees?") || key.startsWith("/api/employees/manager-options")),
+      undefined, { revalidate: true });
+  }
+
+  async function archiveEmployee() {
+    if (!archiving || saving) return;
+    setSaving(true); setArchiveError("");
     try {
-      await api.del(`/api/employees/${emp.id}`);
-      mutate();
-    } catch (e: any) {
-      await dialogs.notify(e.message);
-    }
+      await api.post(`/api/employees/${archiving.id}/archive`);
+      setEmployees([]); setPage(1); await refreshDirectory();
+      setArchiving(null);
+    } catch { setArchiveError(t("page.hrEmployees.archiveFailed")); }
+    finally { setSaving(false); }
   }
 
-  return (
-    <div>
-      <PageHeader title={t("page.hr.title")} />
+  return <div>
+    <HrHeader title={t("page.hrEmployees.title")} subtitle={t("page.hrEmployees.subtitle")} actions={<><button className="btn" onClick={downloadEmployees} disabled={exporting}>{t(exporting ? "employeeExport.loading" : "employeeExport.download")}</button><button className="btn btn-primary" onClick={() => open()}>{t("page.hrEmployees.add")}</button></>} />
+    {exportError && <p role="alert" className="mb-4 text-sm text-red-600">{exportError}</p>}
+    <MetricGrid items={[{ label: t("page.hrEmployees.total"), value: activePageData?.total ?? "—" }, { label: t("page.hrEmployees.active"), value: activePageData?.active_total ?? "—" }, { label: t("page.hrEmployees.inactiveTotal"), value: activePageData?.inactive_total ?? "—" }, { label: t("page.hrEmployees.coverage"), value: activePageData?.profile_coverage_percent == null ? "—" : `${activePageData.profile_coverage_percent}%` }]} />
+    <div className="card mb-4 flex flex-wrap items-center gap-4 p-4"><input className="input max-w-xl" placeholder={t("page.hrEmployees.search")} value={query} onChange={(event) => changeQuery(event.target.value)} /><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={showArchived} onChange={(event) => { setEmployees([]); setPage(1); setShowArchived(event.target.checked); }} />{t("page.hrEmployees.showArchived")}</label></div>
+    <LoadState loading={isLoading || !activePageData} error={error} empty={!isLoading && Boolean(activePageData) && filtered.length === 0}>
+      <div className="card overflow-x-auto"><table className="table min-w-[900px]"><thead><tr><th>{t("page.hrEmployees.employee")}</th><th>{t("page.hrEmployees.employeeId")}</th><th>{t("page.hrEmployees.department")}</th><th>{t("page.hrEmployees.position")}</th><th>{t("page.hrEmployees.manager")}</th><th>{t("page.hrEmployees.status")}</th><th>{t("page.hrEmployees.hireDate")}</th><th /></tr></thead><tbody>
+        {filtered.map((employee) => <tr key={employee.id}>
+          <td><div className="flex items-center gap-3">{String(employee.hr_profile_json?.photo_url || "") ? <img className="h-9 w-9 rounded-full object-cover" src={String(employee.hr_profile_json.photo_url)} alt="" /> : <div className="grid h-9 w-9 place-items-center rounded-full bg-[#ecebe3] text-xs font-semibold">{employee.full_name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("")}</div>}<div><div className="font-medium">{employee.full_name}</div><div className="text-xs text-[#8a8472]">{employee.phone || String(employee.hr_profile_json?.email || "—")}</div></div></div></td>
+          <td className="font-mono">{effectiveEmployeeNumber(employee)}</td>
+          <td>{departments?.find((row) => row.id === employee.department_id)?.name || t("page.hrEmployees.unassigned")}</td>
+          <td>{employee.position_name || employee.position || "—"}</td>
+          <td>{employee.manager_name || "—"}</td>
+          <td><span className={`badge ${employee.status === "active" ? "badge-green" : "badge-red"}`}>{employeeStatusLabel(employee.status)}</span></td>
+          <td>{employee.joined_at ? new Date(employee.joined_at).toLocaleDateString({ en: "en-GB", ru: "ru-RU", uz: "uz-UZ" }[lang]) : "—"}</td>
+          <td><div className="flex flex-wrap gap-3"><button className="text-brand-600 hover:underline" onClick={() => open(employee)}>{t("page.hrEmployees.openProfile")}</button>{canArchive && employee.status !== "archived" && <button className="text-red-700 hover:underline" onClick={() => { setArchiving(employee); setArchiveError(""); }}>{t("page.hrEmployees.delete")}</button>}</div></td>
+        </tr>)}
+      </tbody></table></div>
+    </LoadState>
 
-      <form onSubmit={create} className="card mb-6 grid grid-cols-1 gap-3 p-4 md:grid-cols-7">
-        <input className="input" placeholder={t("field.fullName")} value={f.full_name} onChange={(e) => setF({ ...f, full_name: e.target.value })} required />
-        <input className="input" placeholder={t("field.position")} value={f.position} onChange={(e) => setF({ ...f, position: e.target.value })} />
-        <select className="input" value={f.department_id} onChange={(e) => setF({ ...f, department_id: Number(e.target.value) })}>
-          <option value={0}>{t("ph.dept")}</option>
-          {depts?.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-        </select>
-        <input className="input" placeholder={t("field.phone")} value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
-        <input className="input" type="number" placeholder={t("field.salary")} value={f.salary} onChange={(e) => setF({ ...f, salary: parseNumberInput(e.target.value) })} />
-        <select className="input" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
-          <option value="active">{t("empStatus.active")}</option>
-          <option value="inactive">{t("empStatus.inactive")}</option>
-          <option value="on_leave">{t("empStatus.onLeave")}</option>
-          <option value="terminated">{t("empStatus.terminated")}</option>
-        </select>
-        <button className="btn btn-primary">{t("btn.add")}</button>
-        {createMsg && <div className="text-sm text-red-600 md:col-span-7">{createMsg}</div>}
+    <Modal open={editing !== null} onClose={() => setEditing(null)} title={editing === "new" ? t("page.hrEmployees.newEmployee") : t("page.hrEmployees.profileTitle", { name: form.full_name })} wide>
+      <form onSubmit={save} className="space-y-5">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <label><span className="label">{t("field.employeeNo")}</span><input className="input" inputMode="numeric" pattern="[0-9]+" value={form.employee_no} onChange={(e) => setForm({ ...form, employee_no: e.target.value })} /></label>
+          <label className="lg:col-span-2"><span className="label">{t("page.hrEmployees.fullName")}</span><input className="input" required value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} /></label>
+          <label><span className="label">{t("page.hrEmployees.phone")}</span><input className="input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></label>
+          <label><span className="label">{t("page.hrEmployees.department")}</span><select className="input" value={form.department_id} onChange={(e) => setForm({ ...form, department_id: e.target.value })}><option value="">{t("page.hrEmployees.unassigned")}</option>{departments?.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
+          <label><span className="label">{t("page.hrEmployees.positionSearch")}</span><input className="input" value={positionSearch} onChange={(event) => setPositionSearch(event.target.value)} /></label>
+          <label><span className="label">{t("page.hrEmployees.staffingPosition")}</span><select className="input" value={form.hr_position_id} onChange={(e) => setForm({ ...form, hr_position_id: e.target.value })}><option value="">{t("page.hrEmployees.unassigned")}</option>{positions?.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
+          <label><span className="label">{t("page.hrEmployees.positionLabel")}</span><input className="input" value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} /></label>
+          <label><span className="label">{t("page.hrEmployees.managerSearch")}</span><input className="input" type="search" value={managerSearch} onChange={(event) => setManagerSearch(event.target.value)} placeholder={t("page.payroll.searchEmployee")} /></label>
+          <label><span className="label">{t("page.hrEmployees.manager")}</span><select className="input" value={form.manager_employee_id} onChange={(e) => setForm({ ...form, manager_employee_id: e.target.value })}><option value="">—</option>{managerOptions?.rows.filter((row) => row.id !== (editing === "new" ? -1 : editing?.id)).map((row) => <option key={row.id} value={row.id}>{row.full_name}</option>)}</select>{managerOptions?.has_more && <span className="mt-1 block text-xs text-[#8a8472]">{t("page.hrEmployees.refineManagerSearch")}</span>}</label>
+          <label><span className="label">{t("page.hrEmployees.employmentStatus")}</span><select aria-label={t("page.hrEmployees.employmentStatus")} className="input" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}><option value="active">{t("page.hrEmployees.active")}</option><option value="inactive">{t("page.hrEmployees.inactive")}</option><option value="on_leave">{t("page.hrEmployees.on_leave")}</option><option value="terminated">{t("page.hrEmployees.terminated")}</option>{form.status === "archived" && <option value="archived">{t("page.hrEmployees.archived")}</option>}</select></label>
+          <label><span className="label">{t("page.hrEmployees.hireDate")}</span><input className="input" type="date" value={form.joined_at} onChange={(e) => setForm({ ...form, joined_at: e.target.value })} /></label>
+          <label><span className="label">{t("page.hrEmployees.salary")}</span><input className="input" type="number" min="0" step="0.01" value={form.salary} onChange={(e) => setForm({ ...form, salary: e.target.value })} /></label>
+        </div>
+        <div className="border-t border-[#ecebe3] pt-4">
+          <div className="mb-4 flex flex-wrap gap-2">{(Object.keys(PROFILE_FIELDS) as (keyof typeof PROFILE_FIELDS)[]).map((name) => <button type="button" className={`btn ${section === name ? "btn-primary" : ""}`} onClick={() => setSection(name)} key={name}>{t(`page.hrEmployees.section${name}`)}</button>)}</div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{PROFILE_FIELDS[section].map(([key, label, type]) => <label key={key}><span className="label">{t(label)}</span><input className="input" type={type} step={type === "number" ? "0.25" : undefined} value={profileValue(key)} onChange={(e) => setProfile(key, e.target.value)} /></label>)}</div>
+        </div>
+        {message && <div className="text-sm text-red-700">{message}</div>}
+        <div className="flex flex-wrap justify-end gap-2"><button type="button" className="btn" onClick={() => setEditing(null)}>{t("common.cancel")}</button><button className="btn btn-primary" disabled={saving}>{t(saving ? "page.hrEmployees.saving" : "page.hrEmployees.save")}</button></div>
       </form>
-
-      <div className="card overflow-x-auto">
-        {(employeesError || deptsError) && (
-          <div className="border-b border-[#ecebe3] p-3 text-sm text-red-600">
-            {t("page.hr.loadError")}
-          </div>
-        )}
-        <table className="table">
-          <thead>
-            <tr>
-              <th>{t("field.fullName")}</th>
-              <th>{t("field.position")}</th>
-              <th>{t("field.department")}</th>
-              <th>{t("field.phone")}</th>
-              <th>{t("field.salary")}</th>
-              <th>{t("common.status")}</th>
-              <th>{t("field.joined")}</th>
-              <th>{t("field.actions")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading && <tr><td colSpan={8} className="text-sm text-slate-500">{t("common.loading")}</td></tr>}
-            {data?.map((emp) => (
-              <tr key={emp.id}>
-                <td>{emp.full_name}</td>
-                <td>{emp.position ?? "-"}</td>
-                <td>{depts?.find((d) => d.id === emp.department_id)?.name ?? emp.department_id ?? "-"}</td>
-                <td>{emp.phone ?? "-"}</td>
-                <td>{emp.salary ?? "-"}</td>
-                <td>
-                  <span className={`badge ${emp.status === "active" ? "badge-green" : "badge-red"}`}>
-                    {emp.status === "active" && t("empStatus.active")}
-                    {emp.status === "inactive" && t("empStatus.inactive")}
-                    {emp.status === "on_leave" && t("empStatus.onLeave")}
-                    {emp.status === "terminated" && t("empStatus.terminated")}
-                  </span>
-                </td>
-                <td>{emp.joined_at ? new Date(emp.joined_at).toLocaleDateString() : "-"}</td>
-                <td className="flex gap-2">
-                  <button className="text-brand-600 hover:underline" onClick={() => openEdit(emp)}>{t("btn.edit")}</button>
-                  <button className="text-red-600 hover:underline" onClick={() => del(emp)}>{t("btn.delete")}</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <Modal open={!!editing} onClose={() => setEditing(null)} title={t("page.hr.editTitle", { name: editing?.full_name ?? "" })} wide>
-        <form onSubmit={saveEdit} className="space-y-3">
-          <div>
-            <label className="label">{t("field.fullName")}</label>
-            <input className="input" value={edit.full_name} onChange={(e) => setEdit({ ...edit, full_name: e.target.value })} required />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="label">{t("field.position")}</label>
-              <input className="input" value={edit.position} onChange={(e) => setEdit({ ...edit, position: e.target.value })} />
-            </div>
-            <div>
-              <label className="label">{t("field.phone")}</label>
-              <input className="input" value={edit.phone} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="label">{t("field.salary")}</label>
-              <input className="input" type="number" value={edit.salary} onChange={(e) => setEdit({ ...edit, salary: parseNumberInput(e.target.value) })} />
-            </div>
-            <div>
-              <label className="label">{t("field.department")}</label>
-              <select className="input" value={edit.department_id} onChange={(e) => setEdit({ ...edit, department_id: Number(e.target.value) })}>
-                <option value={0}>-</option>
-                {depts?.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
-            </div>
-          </div>
-          <div>
-            <label className="label">{t("common.status")}</label>
-            <select className="input" value={edit.status} onChange={(e) => setEdit({ ...edit, status: e.target.value })}>
-              <option value="active">{t("empStatus.active")}</option>
-              <option value="inactive">{t("empStatus.inactive")}</option>
-              <option value="on_leave">{t("empStatus.onLeave")}</option>
-              <option value="terminated">{t("empStatus.terminated")}</option>
-            </select>
-          </div>
-          {editMsg && <div className="text-sm text-red-600">{editMsg}</div>}
-          <div className="flex justify-end gap-2 pt-2">
-            <button type="button" className="btn" onClick={() => setEditing(null)}>{t("btn.cancel")}</button>
-            <button type="submit" className="btn btn-primary">{t("btn.saveChanges")}</button>
-          </div>
-        </form>
-      </Modal>
-    </div>
-  );
+    </Modal>
+    <Modal open={archiving !== null} onClose={() => { if (!saving) setArchiving(null); }} title={t("page.hrEmployees.delete")}>
+      <p className="text-sm">{t("page.hrEmployees.archiveConfirm", { name: archiving?.full_name || "" })}</p>
+      {archiveError && <p role="alert" className="mt-3 text-sm text-red-700">{archiveError}</p>}
+      <div className="mt-5 flex justify-end gap-2"><button className="btn" disabled={saving} onClick={() => setArchiving(null)}>{t("common.cancel")}</button><button className="btn btn-danger" disabled={saving} onClick={archiveEmployee}>{t(saving ? "page.hrEmployees.saving" : "page.hrEmployees.archive")}</button></div>
+    </Modal>
+    {activePageData?.has_more && <button className="btn mt-4" onClick={() => setPage((current) => current + 1)} disabled={isLoading}>{t("page.hrEmployees.loadMore")}</button>}
+  </div>;
 }

@@ -1,4 +1,6 @@
 "use client";
+import type { SalesOrderStatus } from "@/lib/salesOrderEnums";
+import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -7,13 +9,15 @@ import useSWR from "swr";
 import { Plus } from "lucide-react";
 
 import { api, fetcher } from "@/lib/api";
+import { useMe, can } from "@/lib/auth";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
+import { type InvoiceStatus } from "@/lib/invoiceStatus";
+import { type CustomerOrderPaymentStatus } from "@/lib/customerOrderPaymentStatus";
 import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 
-type PaymentStatus = "paid" | "partial" | "unpaid" | "no_invoice";
 type PaymentRow = {
   id: number;
   amount: number;
@@ -34,7 +38,7 @@ type InvoiceRow = {
   id: number;
   invoice_no: string;
   amount: number;
-  status: string;
+  status: InvoiceStatus;
   issued_at?: string | null;
   due_date?: string | null;
   paid_amount: number;
@@ -48,11 +52,11 @@ type CustomerOrder = {
   order_no: string;
   date?: string | null;
   total: number;
-  status: string;
+  status: SalesOrderStatus;
   invoice_total: number;
   paid_total: number;
   balance_due: number;
-  payment_status: PaymentStatus;
+  payment_status: CustomerOrderPaymentStatus;
   last_payment_at?: string | null;
   invoices: InvoiceRow[];
 };
@@ -67,14 +71,16 @@ function money(value: number) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
 
-function paymentStatusLabel(status: PaymentStatus, t: (key: string) => string) {
+function paymentStatusLabel(status: CustomerOrderPaymentStatus, t: (key: string) => string) {
   if (status === "paid") return t("payment.status.paid");
   if (status === "partial") return t("payment.status.partial");
   if (status === "unpaid") return t("payment.status.unpaid");
+  if (status === "void") return t("payment.status.void");
+  if (status === "cancelled") return t("payment.status.cancelled");
   return t("payment.status.noInvoice");
 }
 
-function paymentStatusClass(status: PaymentStatus) {
+function paymentStatusClass(status: CustomerOrderPaymentStatus) {
   if (status === "paid") return "badge-green";
   if (status === "partial") return "badge-blue";
   if (status === "unpaid") return "badge-red";
@@ -92,6 +98,9 @@ export default function CustomerDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const { t } = useT();
+  const { me } = useMe();
+  const canManageCustomer = can(me, "sales.customers");
+  const canRecordPayment = can(me, "finance.payment");
   const { data: customer, mutate } = useSWR<any>(`/api/customers/${id}`, fetcher);
   const { data: orders, mutate: mutateOrders } = useSWR<CustomerOrder[]>(`/api/customers/${id}/orders`, fetcher);
   const { data: customerPayments, mutate: mutateCustomerPayments } = useSWR<PaymentHistoryRow[]>(`/api/customers/${id}/payments`, fetcher);
@@ -146,7 +155,7 @@ export default function CustomerDetailPage() {
         acc.appliedPaid += Number(order.paid_total || 0);
         acc.orderBalance += effectiveBalanceDue(order);
         if (order.payment_status === "paid") acc.paidOrders += 1;
-        if (effectiveBalanceDue(order) > 0.01) acc.openOrders += 1;
+        if (!["paid", "void", "cancelled"].includes(order.payment_status) && effectiveBalanceDue(order) > 0) acc.openOrders += 1;
         if (order.payment_status === "no_invoice") acc.noInvoiceOrders += 1;
         return acc;
       },
@@ -192,6 +201,7 @@ export default function CustomerDetailPage() {
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
+    if (!canManageCustomer) return;
     setMsg("");
     const next: Record<string, string> = {};
     if (!form.name.trim()) next.name = t("page.profile.nameRequired");
@@ -217,11 +227,12 @@ export default function CustomerDetailPage() {
   function paymentOrderOptionLabel(order: CustomerOrder) {
     const due = effectiveBalanceDue(order);
     return due > 0.01
-      ? t("page.customerDetail.orderOptionDue", { orderNo: order.order_no, amount: money(due) })
-      : t("page.customerDetail.orderOptionPaidAdvance", { orderNo: order.order_no });
+      ? t("page.customerDetail.orderOptionDue", { orderNo: formatOrderReference(order.order_no), amount: money(due) })
+      : t("page.customerDetail.orderOptionPaidAdvance", { orderNo: formatOrderReference(order.order_no) });
   }
 
   function openPayment(order?: CustomerOrder) {
+    if (!canRecordPayment) return;
     setPaymentOpen(true);
     setSelectedPaymentOrderId(order?.id ?? "");
     setPaymentForm({
@@ -241,43 +252,9 @@ export default function CustomerDetailPage() {
     setPaymentMsg("");
   }
 
-  function applyOptimisticPayment(order: CustomerOrder, invoice: InvoiceRow, payment: PaymentRow): CustomerOrder {
-    const paidAmount = Number(payment.amount || 0);
-    const invoiceAmount = Number(invoice.amount || order.total || 0);
-    const rawPaidAmount = Number(invoice.raw_paid_amount || invoice.paid_amount || 0) + paidAmount;
-    const appliedPaidAmount = Math.min(rawPaidAmount, invoiceAmount);
-    const existingInvoices = order.invoices || [];
-    const foundInvoice = existingInvoices.some((row) => Number(row.id) === Number(invoice.id));
-    const updatedInvoice: InvoiceRow = {
-      ...invoice,
-      amount: invoiceAmount,
-      status: Math.max(invoiceAmount - appliedPaidAmount, 0) <= 0.01 ? "paid" : "partially_paid",
-      paid_amount: appliedPaidAmount,
-      raw_paid_amount: rawPaidAmount,
-      advance_amount: Math.max(rawPaidAmount - invoiceAmount, 0),
-      balance_due: Math.max(invoiceAmount - appliedPaidAmount, 0),
-      payments: [...(invoice.payments || []), payment],
-    };
-    const nextInvoices = foundInvoice
-      ? existingInvoices.map((row) => (Number(row.id) === Number(invoice.id) ? updatedInvoice : row))
-      : [...existingInvoices, updatedInvoice];
-    const invoiceTotal = nextInvoices.reduce((sum, row) => sum + Number(row.amount || 0), 0);
-    const paidTotal = nextInvoices.reduce((sum, row) => sum + Number(row.paid_amount || 0), 0);
-    const balanceDue = Math.max(invoiceTotal - paidTotal, 0);
-
-    return {
-      ...order,
-      invoices: nextInvoices,
-      invoice_total: invoiceTotal,
-      paid_total: paidTotal,
-      balance_due: balanceDue,
-      payment_status: balanceDue <= 0.01 ? "paid" : paidTotal > 0 ? "partial" : "unpaid",
-      last_payment_at: payment.paid_at || order.last_payment_at,
-    };
-  }
-
   async function recordPayment(e: React.FormEvent) {
     e.preventDefault();
+    if (!canRecordPayment) return;
     const targetOrder = selectedPaymentOrder;
     const amount = numberOrZero(paymentForm.amount);
     if (!Number.isFinite(amount) || amount <= 0) {
@@ -313,33 +290,6 @@ export default function CustomerDetailPage() {
         invoice_no: savedPayment.invoice_no ?? null,
       };
       setLocalPaymentHistory((prev) => [optimisticPayment, ...prev.filter((row) => row.row_key !== optimisticPayment.row_key)]);
-      if (targetOrder && savedPayment.invoice_id) {
-        const matchingInvoice = targetOrder.invoices?.find((invoice) => Number(invoice.id) === Number(savedPayment.invoice_id));
-        const invoice: InvoiceRow = matchingInvoice || {
-          id: Number(savedPayment.invoice_id || 0),
-          invoice_no: savedPayment.invoice_no || `#${savedPayment.invoice_id}`,
-          amount: Number(savedPayment.invoice_amount || targetOrder.total || 0),
-          status: "unpaid",
-          issued_at: null,
-          due_date: null,
-          paid_amount: 0,
-          balance_due: Number(savedPayment.invoice_amount || targetOrder.total || 0),
-          payments: [],
-        };
-        const optimisticPaymentRow: PaymentRow = {
-          id: optimisticPayment.id,
-          amount: optimisticPayment.amount,
-          payment_method: optimisticPayment.payment_method,
-          paid_at: optimisticPayment.paid_at,
-          notes: optimisticPayment.notes,
-        };
-        const nextOrders = orderRows.map((order) => (
-          Number(order.id) === Number(targetOrder.id)
-            ? applyOptimisticPayment(order, invoice, optimisticPaymentRow)
-            : order
-        ));
-        mutateOrders(nextOrders, { revalidate: false });
-      }
       setPaymentOpen(false);
       setSelectedPaymentOrderId("");
       void mutateCustomerPayments();
@@ -356,20 +306,20 @@ export default function CustomerDetailPage() {
   return (
     <div>
       <PageHeader title={customer.name} subtitle={t("page.customerDetail.subtitle")} />
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[420px_1fr]">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
         <form onSubmit={save} className="card p-4 space-y-3">
-          <div><label className="label">{t("common.name")}</label><input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+          <div><label className="label">{t("common.name")}</label><input className="input" readOnly={!canManageCustomer} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
           {errors.name && <div className="text-xs text-red-600">{errors.name}</div>}
-          <div><label className="label">{t("field.phone")}</label><input className="input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
-          <div><label className="label">{t("field.email")}</label><input className="input" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
+          <div><label className="label">{t("field.phone")}</label><input className="input" readOnly={!canManageCustomer} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
+          <div><label className="label">{t("field.email")}</label><input className="input" type="email" readOnly={!canManageCustomer} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
           {errors.email && <div className="text-xs text-red-600">{errors.email}</div>}
-          <div><label className="label">{t("field.address")}</label><input className="input" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
-          <div><label className="label">{t("field.notes")}</label><textarea className="input min-h-24" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
+          <div><label className="label">{t("field.address")}</label><input className="input" readOnly={!canManageCustomer} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
+          <div><label className="label">{t("field.notes")}</label><textarea className="input min-h-24" readOnly={!canManageCustomer} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
           {msg && <div className={`text-sm ${msg === t("msg.saved") ? "text-green-700" : "text-red-600"}`}>{msg}</div>}
-          <div className="flex justify-end"><button className="btn btn-primary">{t("btn.save")}</button></div>
+          {canManageCustomer && <div className="flex justify-end"><button className="btn btn-primary">{t("btn.save")}</button></div>}
         </form>
 
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
             <div className="card p-4">
               <div className="label">{t("page.customerDetail.orders")}</div>
@@ -420,7 +370,7 @@ export default function CustomerDetailPage() {
               <tbody>
                 {orderRows.map((o) => (
                   <tr key={o.id}>
-                    <td><Link className="text-brand-600 hover:underline" href={`/sales-orders/${o.id}`}>{o.order_no}</Link></td>
+                    <td><Link className="text-brand-600 hover:underline" href={`/sales-orders/${o.id}`}>{formatOrderReference(o.order_no)}</Link></td>
                     <td>{o.date ? new Date(o.date).toLocaleDateString() : "-"}</td>
                     <td><span className="badge">{statusLabel(o.status, t)}</span></td>
                     <td className="text-right">{money(Number(o.total || 0))}</td>
@@ -448,10 +398,10 @@ export default function CustomerDetailPage() {
                     <td>
                       <div className="flex flex-wrap items-center gap-2">
                         <span className={`badge ${paymentStatusClass(o.payment_status)}`}>{paymentStatusLabel(o.payment_status, t)}</span>
-                        <button type="button" className="btn h-7 px-2 text-[11px]" onClick={() => openPayment(o)}>
+                        {canRecordPayment && <button type="button" className="btn h-7 px-2 text-[11px]" onClick={() => openPayment(o)}>
                           <Plus className="h-3.5 w-3.5" />
                           {t("page.customerDetail.addPayment")}
-                        </button>
+                        </button>}
                       </div>
                     </td>
                   </tr>
@@ -464,14 +414,14 @@ export default function CustomerDetailPage() {
           <section className="card overflow-x-auto">
             <div className="flex items-center justify-between gap-3 border-b border-[#ecebe3] px-4 py-3">
               <h2 className="app-card-title">{t("page.customerDetail.paymentHistory")}</h2>
-              <button
+              {canRecordPayment && <button
                 type="button"
                 className="btn h-7 px-2 text-[11px]"
                 onClick={() => openPayment()}
               >
                 <Plus className="h-3.5 w-3.5" />
                 {t("page.customerDetail.addPayment")}
-              </button>
+              </button>}
             </div>
             <table className="table min-w-[760px]">
               <thead>
@@ -489,7 +439,7 @@ export default function CustomerDetailPage() {
                     <td>{payment.paid_at ? new Date(payment.paid_at).toLocaleDateString() : "-"}</td>
                     <td>
                       {payment.order_id ? (
-                        <Link className="text-brand-600 hover:underline" href={`/sales-orders/${payment.order_id}`}>{payment.order_no}</Link>
+                        <Link className="text-brand-600 hover:underline" href={`/sales-orders/${payment.order_id}`}>{formatOrderReference(payment.order_no)}</Link>
                       ) : (
                         <span className="text-slate-500">{t("page.customerDetail.advance")}</span>
                       )}
@@ -504,10 +454,10 @@ export default function CustomerDetailPage() {
                     <td colSpan={5}>
                       <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
                         <span>{t("page.customerDetail.noPayments")}</span>
-                        <button type="button" className="btn h-7 px-2 text-[11px]" onClick={() => openPayment()}>
+                        {canRecordPayment && <button type="button" className="btn h-7 px-2 text-[11px]" onClick={() => openPayment()}>
                           <Plus className="h-3.5 w-3.5" />
                           {t("page.customerDetail.addPayment")}
-                        </button>
+                        </button>}
                       </div>
                     </td>
                   </tr>
@@ -518,10 +468,10 @@ export default function CustomerDetailPage() {
         </div>
       </div>
 
-      <Modal open={paymentOpen} onClose={() => setPaymentOpen(false)} title={t("page.customerDetail.addPayment")}>
+      {canRecordPayment && <Modal open={paymentOpen} onClose={() => setPaymentOpen(false)} title={t("page.customerDetail.addPayment")}>
         <form onSubmit={recordPayment} className="space-y-3">
           <div className="rounded-md border border-[#ecebe3] bg-[#f8f7f3] p-3 text-sm">
-            <div className="font-medium">{selectedPaymentOrder?.order_no || t("page.customerDetail.advancePayment")}</div>
+            <div className="font-medium">{formatOrderReference(selectedPaymentOrder?.order_no, t("page.customerDetail.advancePayment"))}</div>
             <div className="mt-1 text-slate-600">
               {selectedPaymentOrder
                 ? selectedPaymentOrder.invoices?.length
@@ -588,7 +538,7 @@ export default function CustomerDetailPage() {
             <button className="btn btn-primary" disabled={savingPayment}>{savingPayment ? t("common.saving") : t("page.customerDetail.savePayment")}</button>
           </div>
         </form>
-      </Modal>
+      </Modal>}
     </div>
   );
 }

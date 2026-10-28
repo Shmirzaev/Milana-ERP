@@ -1,9 +1,13 @@
 "use client";
+import type { SalesOrderStatus, SalesOrderType } from "@/lib/salesOrderEnums";
+import { formatVariantNumber } from "@/lib/variantDisplay";
+import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
+import useLoadMore from "@/lib/useLoadMore";
 import { CalendarCheck, Clock3, FileText, PackageCheck, Search, Truck, WalletCards, X } from "lucide-react";
 
 import PageHeader from "@/components/PageHeader";
@@ -12,6 +16,7 @@ import PaginationControls from "@/components/PaginationControls";
 import { fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { productionTypeLabel, statusLabel } from "@/components/StagePipeline";
+import { type InvoiceStatus } from "@/lib/invoiceStatus";
 import { orderReference } from "@/lib/orderRef";
 
 type HistorySummary = {
@@ -35,17 +40,14 @@ type HistorySummary = {
   material_spent?: MaterialSpent[];
 };
 
-type HistoryRow = {
+type HistoryRowBase = {
   id: number;
-  record_type: "sales_order" | "production_order";
   history_key: string;
   order_no: string;
   customer_id?: number | null;
   customer_name?: string | null;
   group_order_no?: string | null;
   ordered_for?: string | null;
-  order_type: string;
-  status: string;
   deadline?: string | null;
   created_at?: string | null;
   completed_at?: string | null;
@@ -55,9 +57,15 @@ type HistoryRow = {
   summary: HistorySummary;
 };
 
+// The history API emits these exact discriminators. Production statuses/types
+// belong to Production; they are not SalesOrderStatus or SalesOrderType.
+type HistoryRow = HistoryRowBase & (
+  | { record_type: "sales_order"; order_type: SalesOrderType; status: SalesOrderStatus }
+  | { record_type: "production_order"; order_type: string; status: string }
+);
+
 type HistoryProduct = {
-  model_id?: number | null;
-  finished_goods_stock_id?: number | null;
+  model_id: number;
   model_no?: string | null;
   variant_no?: string | null;
   code?: string | null;
@@ -143,7 +151,7 @@ type InvoiceRow = {
   id: number;
   invoice_no: string;
   amount: number;
-  status: string;
+  status: InvoiceStatus;
   issued_at?: string | null;
   due_date?: string | null;
 };
@@ -409,7 +417,8 @@ export default function OrderHistoryPage() {
   if (createdFrom) historyParams.set("created_from", createdFrom);
   if (createdTo) historyParams.set("created_to", createdTo);
   const historyUrl = `/api/sales-orders/history?${historyParams.toString()}`;
-  const { data: pageData, isLoading } = useSWR<any>(historyUrl, fetcher);
+  const listPager = useLoadMore<any>(historyUrl, fetcher);
+  const { data: pageData, isLoading } = listPager;
   const rows = useMemo<HistoryRow[]>(() => pageData?.rows || [], [pageData]);
   const activeKey = selectedKey;
   const activeRow = rows.find((row) => row.history_key === activeKey);
@@ -532,7 +541,7 @@ export default function OrderHistoryPage() {
                             setDetailTab("overview");
                           }}
                         >
-                          {row.order_no}
+                          {formatOrderReference(row.order_no)}
                         </button>
                       </td>
                       <td className="mono">{row.group_order_no || "-"}</td>
@@ -542,7 +551,7 @@ export default function OrderHistoryPage() {
                             {product.picture_url ? (
                               <Image
                                 src={product.picture_url}
-                                alt={[product.model_no || product.code, product.variant_no].filter(Boolean).join(" ")}
+                                alt={[product.model_no || product.code, formatVariantNumber(product.variant_no)].filter(Boolean).join(" ")}
                                 width={44}
                                 height={44}
                                 unoptimized
@@ -553,7 +562,7 @@ export default function OrderHistoryPage() {
                             )}
                             <div className="min-w-0">
                               <div className="truncate font-medium text-[#14110b]">{product.model_no || product.code || "-"}</div>
-                              <div className="text-xs text-[#56503f]">{t("field.variantNo")}: {product.variant_no || "-"}</div>
+                              <div className="text-xs text-[#56503f]">{t("field.variantNo")}: {formatVariantNumber(product.variant_no) || "-"}</div>
                               {product.name ? <div className="truncate text-xs text-[#8a8472]">{product.name}</div> : null}
                               {(row.products?.length || 0) > 1 ? <div className="text-xs text-[#8a8472]">{t("page.orderHistory.moreProducts", { count: (row.products?.length || 1) - 1 })}</div> : null}
                             </div>
@@ -579,7 +588,7 @@ export default function OrderHistoryPage() {
               </tbody>
             </table>
           </div>
-          <PaginationControls
+          <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()}
             page={page}
             pageSize={pageSize}
             total={Number(pageData?.total || rows.length)}
@@ -595,7 +604,7 @@ export default function OrderHistoryPage() {
         <Modal
           open={Boolean(activeKey)}
           onClose={() => setSelectedKey(null)}
-          title={detail?.order_no || t("page.orderHistory.orderDetails")}
+          title={formatOrderReference(detail?.order_no, "") || t("page.orderHistory.orderDetails")}
           full
         >
           {detailLoading || !detail ? (
@@ -631,7 +640,7 @@ export default function OrderHistoryPage() {
                       href={detail.record_type === "production_order" ? `/production-orders/${detail.id}` : `/sales-orders/${detail.id}`}
                       className="mono text-lg font-semibold hover:underline"
                     >
-                      {detail.order_no}
+                      {formatOrderReference(detail.order_no)}
                     </Link>
                     <div className="mt-1 text-sm text-[#56503f]">
                       {detail.record_type === "production_order"

@@ -1,20 +1,25 @@
 from uuid import uuid4
 
 from app.db.session import SessionLocal
-from app.models import (
+from app.schemas import (
     FinishedGoodsStock,
     LegacyStockReceipt,
     Model,
+    ModelImage,
     Package,
     PackageItem,
+    PackagingRecord,
+    SalesOrder,
     SalesOrderItem,
+    Shipment,
     ShipmentPackage,
     StockReservation,
+    WorkOrder,
 )
 
 
 def _find_model_id(client, headers, code: str) -> int:
-    r = client.get("/api/models", headers=headers)
+    r = client.get("/api/models", params={"code": code, "page_size": 1}, headers=headers)
     assert r.status_code == 200, r.text
     row = next((m for m in r.json() if str(m.get("code")) == code), None)
     assert row is not None, f"Model {code} not found"
@@ -78,69 +83,6 @@ def _insert_finished_goods_stock(*, model_id: int, brand_id: int, color: str, si
         db.close()
 
 
-def _insert_model_less_legacy_stock(*, quantity: int = 90) -> tuple[int, int, str]:
-    token = uuid4().hex
-    model_code = f"OLD-{token[:8].upper()}"
-    db = SessionLocal()
-    try:
-        receipt = LegacyStockReceipt(
-            source_system="ASTATKA_XLSX",
-            source_warehouse_id="READY_PRODUCTS_BALANCE",
-            source_warehouse_name="Ready products",
-            source_record_id=f"TEST-{token}",
-            source_checksum=token.ljust(64, "0"),
-            source_payload={
-                "model_code": model_code,
-                "model_name": "Old inventory pajamas",
-                "product": "Old inventory pajamas",
-                "size": "46-56",
-                "quantity": quantity,
-            },
-        )
-        db.add(receipt)
-        db.flush()
-        package = Package(
-            package_no=f"OLD-PKG-{token[:12].upper()}",
-            barcode=f"OLD-BC-{token[:16].upper()}",
-            legacy_receipt_id=receipt.id,
-            model_id=None,
-            color="Old inventory pajamas",
-            total_quantity=quantity,
-            capacity=60,
-            status="received_in_storage",
-        )
-        db.add(package)
-        db.flush()
-        db.add(
-            PackageItem(
-                package_id=package.id,
-                model_id=None,
-                color="Old inventory pajamas",
-                size="46-56",
-                quantity=quantity,
-            )
-        )
-        stock = FinishedGoodsStock(
-            package_id=package.id,
-            model_id=None,
-            color="Old inventory pajamas",
-            size="46-56",
-            quantity=quantity,
-            available_qty=quantity,
-            reserved_qty=0,
-            sold_qty=0,
-            cost_per_piece=0,
-            selling_price=0,
-            status="available",
-        )
-        db.add(stock)
-        db.commit()
-        db.refresh(stock)
-        return int(stock.id), int(package.id), model_code
-    finally:
-        db.close()
-
-
 def _stock_row(client, headers, stock_id: int):
     r = client.get("/api/finished-goods", headers=headers)
     assert r.status_code == 200, r.text
@@ -157,6 +99,21 @@ def _fgs_headers(client) -> dict[str, str]:
     assert r.status_code == 200, r.text
     token = r.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
+
+
+def _record_packaging_output(production_order_id: int, quantity: int) -> None:
+    with SessionLocal() as db:
+        work_order = db.query(WorkOrder).filter_by(
+            production_order_id=production_order_id,
+            operation="packaging",
+        ).one()
+        db.add(PackagingRecord(
+            work_order_id=work_order.id,
+            input_qty=quantity,
+            packed_qty=quantity,
+            damaged_qty=0,
+        ))
+        db.commit()
 
 
 def test_branded_sales_order_auto_reserves_and_notifies_storage(client, auth_headers):
@@ -202,7 +159,13 @@ def test_branded_sales_order_auto_reserves_and_notifies_storage(client, auth_hea
     r3 = client.get("/api/notifications?limit=30", headers=fgs_headers)
     assert r3.status_code == 200, r3.text
     notifications = r3.json()
-    assert any(str(so["order_no"]) in str(n.get("title", "")) for n in notifications)
+    notification = next((n for n in notifications if str(so["order_no"]) in str(n.get("title", ""))), None)
+    assert notification is not None
+    assert "12 pcs" in str(notification.get("title") or "")
+    assert "T-SHIRT-001" in str(notification.get("message") or "")
+    assert "white / 46" in str(notification.get("message") or "")
+    assert "x 12" in str(notification.get("message") or "")
+    assert str(notification.get("link") or "") == f"/departments/FGS#shipping-order-{so['id']}"
 
 
 def test_branded_sales_order_rejects_when_stock_is_insufficient(client, auth_headers):
@@ -288,6 +251,7 @@ def test_branded_sales_order_repairs_legacy_stock_brand_metadata(client, auth_he
     )
     assert r.status_code == 201, r.text
     po_id = int(r.json()["id"])
+    _record_packaging_output(po_id, 60)
 
     r = client.post(
         "/api/packages",
@@ -302,6 +266,9 @@ def test_branded_sales_order_repairs_legacy_stock_brand_metadata(client, auth_he
     )
     assert r.status_code == 201, r.text
     package_id = int(r.json()["id"])
+
+    r = client.post(f"/api/packages/{package_id}/receive-storage", headers=auth_headers)
+    assert r.status_code == 200, r.text
 
     db = SessionLocal()
     try:
@@ -373,6 +340,7 @@ def test_branded_stock_sale_lists_and_reserves_unbranded_branded_production_stoc
     )
     assert r.status_code == 201, r.text
     po_id = int(r.json()["id"])
+    _record_packaging_output(po_id, 60)
 
     r = client.post(
         "/api/packages",
@@ -426,6 +394,169 @@ def test_branded_stock_sale_lists_and_reserves_unbranded_branded_production_stoc
         db.close()
 
 
+def test_branded_sales_order_uses_received_package_instead_of_packed_stock(client, auth_headers):
+    model_id = _find_model_id(client, auth_headers, "T-SHIRT-001")
+    brand_id, collection_id = _create_brand_and_collection(client, auth_headers)
+
+    def create_package(*, receive_storage: bool) -> int:
+        production = client.post(
+            "/api/planning/create-branded-production",
+            json={
+                "production_type": "branded_stock",
+                "model_id": model_id,
+                "collection_id": collection_id,
+                "planned_quantity": 60,
+                "items": [
+                    {"model_id": model_id, "color": "white", "size": "46", "planned_quantity": 60},
+                ],
+            },
+            headers=auth_headers,
+        )
+        assert production.status_code == 201, production.text
+        production_order_id = int(production.json()["id"])
+        _record_packaging_output(production_order_id, 60)
+        package = client.post(
+            "/api/packages",
+            json={
+                "production_order_id": production_order_id,
+                "model_id": model_id,
+                "color": "white",
+                "capacity": 60,
+                "items": [{"model_id": model_id, "color": "white", "size": "46", "quantity": 60}],
+            },
+            headers=auth_headers,
+        )
+        assert package.status_code == 201, package.text
+        package_id = int(package.json()["id"])
+        if receive_storage:
+            received = client.post(f"/api/packages/{package_id}/receive-storage", headers=auth_headers)
+            assert received.status_code == 200, received.text
+        return package_id
+
+    packed_package_id = create_package(receive_storage=False)
+    received_package_id = create_package(receive_storage=True)
+
+    response = client.post(
+        "/api/sales-orders",
+        json={
+            "order_type": "branded_stock_sale",
+            "items": [
+                {
+                    "model_id": model_id,
+                    "brand_id": brand_id,
+                    "color": "mixed",
+                    "size": "pack60",
+                    "quantity": 60,
+                    "unit_price": 20,
+                }
+            ],
+        },
+        headers=auth_headers,
+    )
+    assert response.status_code == 201, response.text
+    sales_order_id = int(response.json()["id"])
+
+    db = SessionLocal()
+    try:
+        reservation_package_ids = {
+            int(row.package_id)
+            for row in db.query(StockReservation).filter(StockReservation.sales_order_id == sales_order_id).all()
+            if row.package_id is not None
+        }
+    finally:
+        db.close()
+
+    assert reservation_package_ids == {received_package_id}
+    assert packed_package_id not in reservation_package_ids
+
+
+def test_branded_stock_sale_lists_and_reserves_legacy_receipt_stock(client, auth_headers):
+    suffix = uuid4().hex[:8].upper()
+    r = client.post(
+        "/api/models",
+        json={"code": f"LEGACY-SALE-{suffix}", "name": "Legacy sale stock model", "status": "approved"},
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    model_id = int(r.json()["id"])
+
+    db = SessionLocal()
+    try:
+        receipt = LegacyStockReceipt(
+            source_system="TEST_LEGACY_SALE",
+            source_warehouse_id="test",
+            source_record_id=suffix,
+            source_checksum="0" * 64,
+            source_payload={"test": True},
+        )
+        db.add(receipt)
+        db.flush()
+        package = Package(
+            package_no=f"LEGACY-SALE-{suffix}",
+            barcode=f"LEGACY-SALE-{suffix}",
+            legacy_receipt_id=receipt.id,
+            model_id=model_id,
+            color="Not specified",
+            total_quantity=90,
+            capacity=90,
+            status="received_in_storage",
+        )
+        db.add(package)
+        db.flush()
+        db.add(
+            FinishedGoodsStock(
+                package_id=package.id,
+                model_id=model_id,
+                color="Not specified",
+                size="M-46",
+                quantity=90,
+                available_qty=90,
+                reserved_qty=0,
+                sold_qty=0,
+                status="available",
+            )
+        )
+        db.commit()
+        package_id = int(package.id)
+    finally:
+        db.close()
+
+    r = client.get("/api/finished-goods/branded-stock", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    row = next((row for row in r.json() if int(row.get("package_id") or 0) == package_id), None)
+    assert row is not None
+    assert int(row["model_id"]) == model_id
+    assert int(row["available_qty"]) == 90
+    assert row["brand_id"] is None
+
+    r = client.post(
+        "/api/sales-orders",
+        json={
+            "order_type": "branded_stock_sale",
+            "items": [
+                {
+                    "model_id": model_id,
+                    "color": "mixed",
+                    "size": "pack60",
+                    "quantity": 60,
+                    "unit_price": 21,
+                }
+            ],
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["status"] == "ready"
+
+    db = SessionLocal()
+    try:
+        row = db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id == package_id).one()
+        assert int(row.available_qty or 0) == 30
+        assert int(row.reserved_qty or 0) == 60
+    finally:
+        db.close()
+
+
 def test_branded_stock_sale_can_reserve_not_full_package(client, auth_headers):
     suffix = uuid4().hex[:8].upper()
     r = client.post(
@@ -450,6 +581,7 @@ def test_branded_stock_sale_can_reserve_not_full_package(client, auth_headers):
     )
     assert r.status_code == 201, r.text
     po_id = int(r.json()["id"])
+    _record_packaging_output(po_id, 58)
 
     r = client.post(
         "/api/packages",
@@ -497,6 +629,126 @@ def test_branded_stock_sale_can_reserve_not_full_package(client, auth_headers):
         db.close()
 
 
+def test_branded_stock_sale_reserves_exact_and_then_whole_packages_only(client, auth_headers):
+    suffix = uuid4().hex[:8].upper()
+    r = client.post(
+        "/api/models",
+        json={"code": f"WHOLE-BAG-{suffix}", "name": "Whole bag stock model", "status": "approved"},
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    model_id = int(r.json()["id"])
+
+    r = client.post(
+        "/api/planning/create-branded-production",
+        json={
+            "production_type": "branded_stock",
+            "model_id": model_id,
+            "planned_quantity": 198,
+            "items": [
+                {"model_id": model_id, "color": "mixed", "size": "pack60", "planned_quantity": 198},
+            ],
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    production_order_id = int(r.json()["id"])
+    _record_packaging_output(production_order_id, 198)
+
+    package_ids_by_qty: dict[int, list[int]] = {60: [], 78: []}
+    for quantity in (60, 60, 78):
+        r = client.post(
+            "/api/packages",
+            json={
+                "production_order_id": production_order_id,
+                "model_id": model_id,
+                "color": "mixed",
+                "capacity": quantity,
+                "items": [
+                    {"model_id": model_id, "color": "mixed", "size": "46", "quantity": quantity // 2},
+                    {
+                        "model_id": model_id,
+                        "color": "mixed",
+                        "size": "48",
+                        "quantity": quantity - (quantity // 2),
+                    },
+                ],
+            },
+            headers=auth_headers,
+        )
+        assert r.status_code == 201, r.text
+        package_id = int(r.json()["id"])
+        package_ids_by_qty[quantity].append(package_id)
+        r = client.post(f"/api/packages/{package_id}/receive-storage", headers=auth_headers)
+        assert r.status_code == 200, r.text
+
+    def create_order() -> dict:
+        response = client.post(
+            "/api/sales-orders",
+            json={
+                "order_type": "branded_stock_sale",
+                "items": [
+                    {
+                        "model_id": model_id,
+                        "color": "mixed",
+                        "size": "pack60",
+                        "quantity": 78,
+                        "unit_price": 21,
+                    }
+                ],
+            },
+            headers=auth_headers,
+        )
+        assert response.status_code == 201, response.text
+        return response.json()
+
+    first_order = create_order()
+    assert first_order["status"] == "ready"
+    second_order = create_order()
+    assert second_order["status"] == "reserved"
+
+    db = SessionLocal()
+    try:
+        first_reservations = db.query(StockReservation).filter(
+            StockReservation.sales_order_id == int(first_order["id"]),
+        ).all()
+        assert {int(row.package_id) for row in first_reservations} == set(package_ids_by_qty[78])
+        assert sum(int(row.quantity or 0) for row in first_reservations) == 78
+
+        second_reservations = db.query(StockReservation).filter(
+            StockReservation.sales_order_id == int(second_order["id"]),
+        ).all()
+        assert len({int(row.package_id) for row in second_reservations}) == 1
+        assert {int(row.package_id) for row in second_reservations}.issubset(set(package_ids_by_qty[60]))
+        assert sum(int(row.quantity or 0) for row in second_reservations) == 60
+
+        for package_id in package_ids_by_qty[60]:
+            stock_rows = db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id == package_id).all()
+            reserved = sum(int(row.reserved_qty or 0) for row in stock_rows)
+            assert reserved in {0, 60}
+    finally:
+        db.close()
+
+    r = client.post(
+        "/api/shipments",
+        json={"sales_order_id": int(second_order["id"])},
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    shipment = r.json()
+    assert int(shipment["packages_count"]) == 1
+    assert int(shipment["total_qty"]) == 60
+
+    r = client.get(f"/api/shipments/{shipment['id']}/preparation", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    preparation = r.json()
+    assert len(preparation["packages"]) == 1
+    assert int(preparation["packages"][0]["quantity"]) == 60
+    item = next(row for row in preparation["items"] if int(row["model_id"]) == model_id)
+    assert int(item["prepared_qty"]) == 60
+    assert int(item["required_qty"]) == 78
+
+
 def test_fgs_inbox_shows_branded_sales_prep_queue_with_reserved_qty(client, auth_headers):
     model_id = _find_model_id(client, auth_headers, "T-SHIRT-001")
     brand_id, collection_id = _create_brand_and_collection(client, auth_headers)
@@ -529,6 +781,7 @@ def test_fgs_inbox_shows_branded_sales_prep_queue_with_reserved_qty(client, auth
     )
     assert r.status_code == 201, r.text
     po_id = int(r.json()["id"])
+    _record_packaging_output(po_id, 60)
 
     r = client.post(
         "/api/packages",
@@ -591,6 +844,39 @@ def test_fgs_inbox_shows_branded_sales_prep_queue_with_reserved_qty(client, auth
     assert int(row.get("quantity") or 0) == 60
     assert int(row.get("packages") or 0) == 1
     assert int(row.get("pending_qty") or 0) == 0
+    assert int(row.get("order_quantity") or 0) == 60
+    assert len(row.get("item_lines") or []) == 1
+    assert int(row["item_lines"][0]["model_id"]) == model_id
+    assert str(row["item_lines"][0]["model_code"]) == "T-SHIRT-001"
+    assert str(row["item_lines"][0]["color"]) == "mixed"
+    assert str(row["item_lines"][0]["size"]) == "pack60"
+    assert int(row["item_lines"][0]["quantity"]) == 60
+
+    preview_response = client.get(f"/api/shipments/sales-order/{so_id}/preparation", headers=auth_headers)
+    assert preview_response.status_code == 200, preview_response.text
+    preview = preview_response.json()
+    assert preview["is_preview"] is True
+    assert int(preview["shipment"]["id"]) == 0
+    assert preview["shipment"]["sales_order_no"] == so["order_no"]
+    assert preview["shipment"]["customer_name"] == "Ship Target LLC"
+    assert int(preview["required_count"]) == 1
+    assert int(preview["scanned_count"]) == 0
+    assert len(preview["items"]) == 1
+    assert int(preview["items"][0]["prepared_qty"]) == 60
+    assert len(preview["packages"]) == 1
+    assert int(preview["packages"][0]["id"]) == pkg_id
+    assert preview["packages"][0]["scanned"] is False
+
+    notifications_response = client.get("/api/notifications?limit=30", headers=fgs_headers)
+    assert notifications_response.status_code == 200, notifications_response.text
+    notification = next(
+        (n for n in notifications_response.json() if str(so["order_no"]) in str(n.get("title") or "")),
+        None,
+    )
+    assert notification is not None
+    assert "T-SHIRT-001" in str(notification.get("message") or "")
+    assert "x 60" in str(notification.get("message") or "")
+    assert "Tashkent, Sergeli district" in str(notification.get("message") or "")
 
 
 def test_shipments_ready_packages_follow_stock_reservations(client, auth_headers):
@@ -612,6 +898,7 @@ def test_shipments_ready_packages_follow_stock_reservations(client, auth_headers
     )
     assert r.status_code == 201, r.text
     po_id = int(r.json()["id"])
+    _record_packaging_output(po_id, 60)
 
     r = client.post(
         "/api/packages",
@@ -684,6 +971,155 @@ def test_shipments_ready_packages_follow_stock_reservations(client, auth_headers
     assert int(r.json().get("added") or 0) == 1
 
 
+def test_shipment_preparation_returns_visual_items_packages_and_scan_state(client, auth_headers):
+    suffix = uuid4().hex[:8].upper()
+    barcode = f"SHIP-PREP-BC-{suffix}"
+    db = SessionLocal()
+    try:
+        model = Model(
+            code=f"SP{suffix}-9001",
+            name="Shipment preparation model",
+            status="approved",
+            details_json={"general": {"model_no": f"SP{suffix}", "variant_no": "9001"}},
+        )
+        db.add(model)
+        db.flush()
+        db.add_all(
+            [
+                ModelImage(
+                    model_id=model.id,
+                    file_url=f"/storage/model-files/shipment-model-{suffix}.webp",
+                    content_type="image/webp",
+                    image_type="model",
+                    is_primary=True,
+                ),
+                ModelImage(
+                    model_id=model.id,
+                    file_url=f"/storage/model-files/shipment-variant-photo-{suffix}.webp",
+                    content_type="image/webp",
+                    image_type="material",
+                    is_primary=False,
+                ),
+            ]
+        )
+        sales_order = SalesOrder(
+            order_no=f"SO-PREP-{suffix}",
+            order_type="client_order",
+            status="ready",
+            total_amount=0,
+        )
+        db.add(sales_order)
+        db.flush()
+        db.add(
+            SalesOrderItem(
+                sales_order_id=sales_order.id,
+                model_id=model.id,
+                color="navy",
+                size="48",
+                quantity=24,
+                unit_price=0,
+            )
+        )
+        receipt = LegacyStockReceipt(
+            source_system="TEST",
+            source_warehouse_id="shipment-preparation",
+            source_record_id=suffix,
+            source_checksum=suffix.ljust(64, "0"),
+            source_payload={"test": True},
+        )
+        db.add(receipt)
+        db.flush()
+        package = Package(
+            package_no=f"PKG-PREP-{suffix}",
+            barcode=barcode,
+            legacy_receipt_id=receipt.id,
+            model_id=model.id,
+            color="navy",
+            total_quantity=24,
+            capacity=60,
+            storage_cell="A-04",
+            storage_shelf="B",
+            status="received_in_storage",
+        )
+        db.add(package)
+        db.flush()
+        db.add(PackageItem(package_id=package.id, model_id=model.id, color="navy", size="48", quantity=24))
+        shipment = Shipment(
+            sales_order_id=sales_order.id,
+            shipment_no=f"SH-PREP-{suffix}",
+            status="created",
+        )
+        db.add(shipment)
+        db.flush()
+        db.commit()
+        shipment_id = int(shipment.id)
+        package_id = int(package.id)
+    finally:
+        db.close()
+
+    response = client.get(f"/api/shipments/{shipment_id}/preparation", headers=auth_headers)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["shipment"]["sales_order_no"] == f"SO-PREP-{suffix}"
+    assert body["required_count"] == 0
+    assert body["scanned_count"] == 0
+    assert body["remaining_count"] == 0
+    assert body["is_complete"] is False
+    assert len(body["items"]) == 1
+    item = body["items"][0]
+    assert item["model_no"] == f"SP{suffix}"
+    assert item["variant_no"] == "9001"
+    assert item["model_image_url"] == f"/storage/model-files/shipment-model-{suffix}.webp"
+    assert item["variant_image_url"] == f"/storage/model-files/shipment-variant-photo-{suffix}.webp"
+    assert item["required_qty"] == 24
+    assert item["prepared_qty"] == 0
+    assert item["lines"] == [{"color": "navy", "size": "48", "required_qty": 24, "prepared_qty": 0}]
+    assert body["packages"] == []
+
+    db = SessionLocal()
+    try:
+        db.add(ShipmentPackage(shipment_id=shipment_id, package_id=package_id, quantity=24))
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.get(f"/api/shipments/{shipment_id}/preparation", headers=auth_headers)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["required_count"] == 1
+    assert body["scanned_count"] == 0
+    assert body["remaining_count"] == 1
+    assert body["is_complete"] is False
+    assert body["items"][0]["prepared_qty"] == 24
+    assert body["items"][0]["lines"] == [
+        {"color": "navy", "size": "48", "required_qty": 24, "prepared_qty": 24}
+    ]
+    assert len(body["packages"]) == 1
+    assert body["packages"][0]["id"] == package_id
+    assert body["packages"][0]["location"] == "A-04/B"
+    assert body["packages"][0]["scanned"] is False
+    assert body["packages"][0]["items"] == [{"color": "navy", "size": "48", "quantity": 24}]
+
+    scanned = client.post(
+        f"/api/shipments/{shipment_id}/scan-package",
+        json={"code": barcode},
+        headers=auth_headers,
+    )
+    assert scanned.status_code == 200, scanned.text
+    response = client.get(f"/api/shipments/{shipment_id}/preparation", headers=auth_headers)
+    assert response.status_code == 200, response.text
+    assert response.json()["packages"][0]["scanned"] is True
+    assert response.json()["is_complete"] is True
+
+    listing = client.get("/api/shipments", headers=auth_headers)
+    assert listing.status_code == 200, listing.text
+    shipment_row = next(row for row in listing.json() if int(row["id"]) == shipment_id)
+    assert int(shipment_row["required_count"]) == 1
+    assert int(shipment_row["scanned_count"]) == 1
+    assert int(shipment_row["remaining_count"]) == 0
+    assert shipment_row["is_complete"] is True
+
+
 def test_shipment_scan_accepts_unreserved_same_model_package_and_blocks_other_models(client, auth_headers):
     model_id = _find_model_id(client, auth_headers, "T-SHIRT-001")
     suffix = uuid4().hex[:8].upper()
@@ -712,6 +1148,7 @@ def test_shipment_scan_accepts_unreserved_same_model_package_and_blocks_other_mo
         )
         assert r.status_code == 201, r.text
         po_id = int(r.json()["id"])
+        _record_packaging_output(po_id, 60)
 
         r = client.post(
             "/api/packages",
@@ -824,113 +1261,3 @@ def test_shipment_scan_accepts_unreserved_same_model_package_and_blocks_other_mo
     r = client.post(f"/api/shipments/{shipment_id}/ship", headers=auth_headers)
     assert r.status_code == 200, r.text
     assert str(r.json()["status"]) == "shipped"
-
-
-def test_model_less_legacy_stock_can_be_sold_in_multiple_shipments_without_creating_models(
-    client,
-    auth_headers,
-):
-    stock_id, package_id, model_code = _insert_model_less_legacy_stock(quantity=90)
-    db = SessionLocal()
-    try:
-        model_count_before = int(db.query(Model).count())
-    finally:
-        db.close()
-
-    r = client.get("/api/finished-goods/branded-stock", headers=auth_headers)
-    assert r.status_code == 200, r.text
-    listed = next((row for row in r.json() if int(row["id"]) == stock_id), None)
-    assert listed is not None
-    assert listed["model_id"] is None
-    assert listed["model_code"] == model_code
-    assert listed["model_name"] == "Old inventory pajamas"
-    assert int(listed["available_qty"]) == 90
-
-    def create_sale_and_ship(quantity: int) -> int:
-        response = client.post(
-            "/api/sales-orders",
-            json={
-                "order_type": "branded_stock_sale",
-                "items": [
-                    {
-                        "model_id": None,
-                        "finished_goods_stock_id": stock_id,
-                        "color": "mixed",
-                        "size": "pack60",
-                        "quantity": quantity,
-                        "unit_price": 12.5,
-                    }
-                ],
-            },
-            headers=auth_headers,
-        )
-        assert response.status_code == 201, response.text
-        order = response.json()
-        assert order["status"] == "ready"
-        assert order["items"][0]["model_id"] is None
-        assert int(order["items"][0]["finished_goods_stock_id"]) == stock_id
-        assert order["items"][0]["model_code"] == model_code
-        assert order["items"][0]["model_name"] == "Old inventory pajamas"
-
-        shipment_response = client.post(
-            "/api/shipments",
-            json={"sales_order_id": int(order["id"])},
-            headers=auth_headers,
-        )
-        assert shipment_response.status_code == 201, shipment_response.text
-        shipment = shipment_response.json()
-        assert int(shipment["packages_count"]) == 1
-        assert int(shipment["total_qty"]) == quantity
-
-        shipped = client.post(
-            f"/api/shipments/{shipment['id']}/mark-shipped",
-            headers=auth_headers,
-        )
-        assert shipped.status_code == 200, shipped.text
-        return int(order["id"])
-
-    first_order_id = create_sale_and_ship(60)
-    db = SessionLocal()
-    try:
-        stock = db.get(FinishedGoodsStock, stock_id)
-        package = db.get(Package, package_id)
-        line = (
-            db.query(SalesOrderItem)
-            .filter(SalesOrderItem.sales_order_id == first_order_id)
-            .one()
-        )
-        shipment_link = (
-            db.query(ShipmentPackage)
-            .filter(ShipmentPackage.package_id == package_id)
-            .order_by(ShipmentPackage.id.asc())
-            .first()
-        )
-        assert stock is not None
-        assert package is not None
-        assert line.model_id is None
-        assert line.source_model_code == model_code
-        assert int(stock.available_qty) == 30
-        assert int(stock.reserved_qty) == 0
-        assert int(stock.sold_qty) == 60
-        assert stock.status == "available"
-        assert package.status == "received_in_storage"
-        assert shipment_link is not None
-        assert int(shipment_link.quantity) == 60
-    finally:
-        db.close()
-
-    create_sale_and_ship(30)
-    db = SessionLocal()
-    try:
-        stock = db.get(FinishedGoodsStock, stock_id)
-        package = db.get(Package, package_id)
-        assert stock is not None
-        assert package is not None
-        assert int(stock.available_qty) == 0
-        assert int(stock.reserved_qty) == 0
-        assert int(stock.sold_qty) == 90
-        assert stock.status == "sold"
-        assert package.status == "shipped"
-        assert int(db.query(Model).count()) == model_count_before
-    finally:
-        db.close()

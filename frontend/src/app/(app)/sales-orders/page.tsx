@@ -1,7 +1,11 @@
 ﻿"use client";
+import { SalesOrderStatus, SalesOrderType, salesOrderCreateType, type SalesOrderCreateType } from "@/lib/salesOrderEnums";
+import type { SalesOrderListRow } from "@/lib/salesOrderContracts";
+import { formatOrderReference } from "@/lib/orderRef";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
+import useLoadMore from "@/lib/useLoadMore";
 import { Download, Filter, MoreHorizontal, Plus, Search, X } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
@@ -9,22 +13,15 @@ import PaginationControls from "@/components/PaginationControls";
 import { useT } from "@/lib/i18n";
 import { statusLabel } from "@/components/StagePipeline";
 import { useDialogs } from "@/components/DialogProvider";
-import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 
-type SO = {
-  id: number;
-  order_no: string;
-  customer_id: number | null;
-  order_type: string;
-  status: string;
-  deadline: string | null;
-  total_amount: number;
-  notes: string | null;
-};
+type SO = SalesOrderListRow;
+
+const PRODUCTION_TAB_STATUSES: readonly SalesOrderStatus[] = [SalesOrderStatus.PRODUCTION, SalesOrderStatus.PLANNING, SalesOrderStatus.CONFIRMED];
+const INACTIVE_SALES_STATUSES: readonly SalesOrderStatus[] = [SalesOrderStatus.CLOSED, SalesOrderStatus.CANCELLED, SalesOrderStatus.DELIVERED];
 
 type TabKey = "all" | "production" | "late" | "shipping" | "draft";
 
-function statusClass(status: string) {
+function statusClass(status: SalesOrderStatus) {
   const s = status.toLowerCase();
   if (s.includes("late") || s.includes("cancel")) return "bg-red-100 text-red-700";
   if (s.includes("deliver") || s.includes("ship")) return "bg-green-100 text-green-700";
@@ -34,13 +31,6 @@ function statusClass(status: string) {
 
 function Money({ value }: { value: number }) {
   return <span className="mono">${value.toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>;
-}
-
-function rowMetrics(index: number) {
-  return {
-    pct: [62, 18, 81, 47, 4, 0, 93, 100][index % 8],
-    qty: [4800, 12000, 3200, 9600, 2100, 1500, 5400, 720][index % 8],
-  };
 }
 
 function toCsvCell(value: unknown): string {
@@ -53,10 +43,11 @@ function toCsvCell(value: unknown): string {
 
 function matchesTab(o: SO, tab: TabKey): boolean {
   if (tab === "all") return true;
-  if (tab === "production") return ["production", "planning", "confirmed"].includes(o.status);
-  if (tab === "late") return o.status === "late";
-  if (tab === "shipping") return o.status === "ready";
-  if (tab === "draft") return o.status === "draft";
+  if (tab === "production") return PRODUCTION_TAB_STATUSES.includes(o.status);
+  // Preserve the legacy display sentinel without adding a stored Sales status.
+  if (tab === "late") return String(o.status) === "late";
+  if (tab === "shipping") return o.status === SalesOrderStatus.READY;
+  if (tab === "draft") return o.status === SalesOrderStatus.DRAFT;
   return true;
 }
 
@@ -73,8 +64,8 @@ export default function SalesOrdersPage() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("all");
   const [showFilters, setShowFilters] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<SalesOrderStatus | "all">("all");
+  const [typeFilter, setTypeFilter] = useState<SalesOrderCreateType | "all">("all");
   const [createdFrom, setCreatedFrom] = useState("");
   const [createdTo, setCreatedTo] = useState("");
   const [query, setQuery] = useState(initialQ);
@@ -92,11 +83,8 @@ export default function SalesOrdersPage() {
     if (createdTo) params.set("created_to", createdTo);
     return `/api/sales-orders?${params.toString()}`;
   }, [createdFrom, createdTo, page, pageSize, query, statusFilter, typeFilter]);
-  const { data: pageData, isLoading, mutate } = useSWR<any>(
-    salesUrl,
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
+  const listPager = useLoadMore<{ rows: SO[]; total: number }>(salesUrl, fetcher);
+  const { data: pageData, isLoading, mutate } = listPager;
   const data = useMemo<SO[]>(() => pageData?.rows || [], [pageData?.rows]);
 
   useEffect(() => {
@@ -110,32 +98,24 @@ export default function SalesOrdersPage() {
   const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
     return data.filter((o) => {
       if (!matchesTab(o, activeTab)) return false;
       if (statusFilter !== "all" && o.status !== statusFilter) return false;
       if (typeFilter !== "all" && o.order_type !== typeFilter) return false;
-      if (!q) return true;
-      const customer = String(customerMap.get(o.customer_id) || "").toLowerCase();
-      return (
-        o.order_no.toLowerCase().includes(q) ||
-        o.status.toLowerCase().includes(q) ||
-        o.order_type.toLowerCase().includes(q) ||
-        customer.includes(q)
-      );
+      return true;
     });
-  }, [data, activeTab, statusFilter, typeFilter, query, customerMap]);
+  }, [data, activeTab, statusFilter, typeFilter]);
 
   const selected = filtered.find((o) => o.id === (selectedId ?? filtered[0]?.id)) ?? filtered[0];
-  const activeCount = data.filter((o) => !["closed", "cancelled", "delivered"].includes(o.status)).length;
+  const activeCount = data.filter((o) => !INACTIVE_SALES_STATUSES.includes(o.status)).length;
   const inFlight = data.reduce((s, o) => s + Number(o.total_amount || 0), 0);
 
   const tabs = useMemo(() => [
     { key: "all" as TabKey, label: t("sales.tab.all"), count: data.length },
-    { key: "production" as TabKey, label: t("sales.tab.production"), count: data.filter((o) => ["production", "planning", "confirmed"].includes(o.status)).length },
-    { key: "late" as TabKey, label: t("sales.tab.late"), count: data.filter((o) => o.status === "late").length },
-    { key: "shipping" as TabKey, label: t("sales.tab.shipping"), count: data.filter((o) => o.status === "ready").length },
-    { key: "draft" as TabKey, label: t("sales.tab.draft"), count: data.filter((o) => o.status === "draft").length },
+    { key: "production" as TabKey, label: t("sales.tab.production"), count: data.filter((o) => PRODUCTION_TAB_STATUSES.includes(o.status)).length },
+    { key: "late" as TabKey, label: t("sales.tab.late"), count: data.filter((o) => String(o.status) === "late").length },
+    { key: "shipping" as TabKey, label: t("sales.tab.shipping"), count: data.filter((o) => o.status === SalesOrderStatus.READY).length },
+    { key: "draft" as TabKey, label: t("sales.tab.draft"), count: data.filter((o) => o.status === SalesOrderStatus.DRAFT).length },
   ], [data, t]);
 
   function exportCsv() {
@@ -204,17 +184,25 @@ export default function SalesOrdersPage() {
         <div className="card mb-4 grid grid-cols-1 gap-3 p-4 md:grid-cols-4">
           <div>
             <label className="label">{t("common.status")}</label>
-            <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <select className="input" value={statusFilter} onChange={(e) => {
+              // Keep the options actually returned by the list, including any
+              // legacy display value; this is not a response-validation adapter.
+              const next = e.target.value === "all" ? "all" : data.find((row) => row.status === e.target.value)?.status;
+              if (next !== undefined) setStatusFilter(next);
+            }}>
               <option value="all">{t("sales.allStatuses")}</option>
               {[...new Set(data.map((o) => o.status))].map((s) => <option key={s} value={s}>{statusLabel(s, t)}</option>)}
             </select>
           </div>
           <div>
             <label className="label">{t("sales.orderType")}</label>
-            <select className="input" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+            <select className="input" value={typeFilter} onChange={(e) => {
+              const next = e.target.value === "all" ? "all" : salesOrderCreateType(e.target.value);
+              if (next !== null) setTypeFilter(next);
+            }}>
               <option value="all">{t("sales.allTypes")}</option>
-              <option value="client_order">{t("orderType.client")}</option>
-              <option value="branded_stock_sale">{t("orderType.branded")}</option>
+              <option value={SalesOrderType.CLIENT_ORDER}>{t("orderType.client")}</option>
+              <option value={SalesOrderType.BRANDED_STOCK_SALE}>{t("orderType.branded")}</option>
             </select>
           </div>
           <div>
@@ -240,14 +228,13 @@ export default function SalesOrdersPage() {
         <div className="card divide-y divide-[#ecebe3]">
           {isLoading && <div className="p-4 text-sm text-[#8a8472]">{t("common.loading")}</div>}
           {!isLoading && !filtered.length && <div className="p-4 text-sm text-[#8a8472]">{t("sales.noMatch")}</div>}
-          {filtered.map((o, i) => {
-            const { pct, qty } = rowMetrics(i);
+          {filtered.map((o) => {
             return (
               <article key={o.id} className="p-4">
                 <div className="flex min-w-0 items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <a href={`/sales-orders/${o.id}`} className="mono block truncate font-semibold text-[#14110b]">
-                      {o.order_no}
+                    <a href={`/sales-orders/${o.id}`} title={o.order_no} className="mono block truncate font-semibold text-[#14110b]">
+                      {formatOrderReference(o.order_no)}
                     </a>
                     <div className="mt-1 truncate text-sm font-medium text-[#14110b]">
                       {customerMap.get(o.customer_id) ?? t("sales.unknownCustomer")}
@@ -258,7 +245,7 @@ export default function SalesOrdersPage() {
                 <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                   <div>
                     <div className="label">{t("field.qty")}</div>
-                    <div className="mono font-semibold">{qty.toLocaleString()}</div>
+                    <div className="mono font-semibold">{o.total_quantity?.toLocaleString() ?? "—"}</div>
                   </div>
                   <div>
                     <div className="label">{t("field.value")}</div>
@@ -272,10 +259,7 @@ export default function SalesOrdersPage() {
                   </div>
                   <div>
                     <div className="label">{t("page.processes.progress")}</div>
-                    <div className="flex items-center gap-2">
-                      <div className="mini-bar flex-1"><span style={{ width: `${pct}%` }} /></div>
-                      <span className="mono text-xs text-[#8a8472]">{pct}%</span>
-                    </div>
+                    <span className="text-xs text-[#8a8472]">{t("sales.progressUnavailable")}</span>
                   </div>
                 </div>
               </article>
@@ -283,7 +267,7 @@ export default function SalesOrdersPage() {
           })}
         </div>
         <div className="card">
-          <PaginationControls
+          <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()}
             page={page}
             pageSize={pageSize}
             total={Number(pageData?.total || data.length)}
@@ -313,20 +297,16 @@ export default function SalesOrdersPage() {
               <tbody>
                 {isLoading && <tr><td colSpan={8} className="text-[#8a8472]">{t("common.loading")}</td></tr>}
                 {!isLoading && !filtered.length && <tr><td colSpan={8} className="text-[#8a8472]">{t("sales.noMatch")}</td></tr>}
-                {filtered.map((o, i) => {
-                  const { pct, qty } = rowMetrics(i);
+                {filtered.map((o) => {
                   const active = selected?.id === o.id;
                   return (
                     <tr key={o.id} data-selected={active} className={active ? "bg-[#fdf3eb]" : ""} onClick={() => setSelectedId(o.id)}>
                       <td><input type="checkbox" onClick={(e) => e.stopPropagation()} /></td>
-                      <td><a href={`/sales-orders/${o.id}`} className="mono font-medium">{o.order_no}</a></td>
+                      <td><a href={`/sales-orders/${o.id}`} title={o.order_no} className="mono font-medium">{formatOrderReference(o.order_no)}</a></td>
                       <td>{customerMap.get(o.customer_id) ?? t("sales.unknownCustomer")}</td>
-                      <td className="mono text-right">{qty.toLocaleString()}</td>
+                      <td className="mono text-right">{o.total_quantity?.toLocaleString() ?? "—"}</td>
                       <td>
-                        <div className="flex items-center gap-2">
-                          <div className="mini-bar w-24"><span style={{ width: `${pct}%` }} /></div>
-                          <span className="mono text-xs text-[#8a8472]">{pct}%</span>
-                        </div>
+                        <span className="text-xs text-[#8a8472]">{t("sales.progressUnavailable")}</span>
                       </td>
                       <td><span className={`badge ${statusClass(o.status)}`}>{statusLabel(o.status, t)}</span></td>
                       <td className="mono text-[#8a8472]">{o.deadline ? new Date(o.deadline).toLocaleDateString("en-US", { month: "short", day: "2-digit" }) : "-"}</td>
@@ -337,7 +317,7 @@ export default function SalesOrdersPage() {
               </tbody>
             </table>
           </div>
-          <PaginationControls
+          <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()}
             page={page}
             pageSize={pageSize}
             total={Number(pageData?.total || data.length)}
@@ -351,7 +331,7 @@ export default function SalesOrdersPage() {
           {selected ? (
             <>
               <div className="flex items-center justify-between border-b border-[#ecebe3] px-4 py-4">
-                <a href={`/sales-orders/${selected.id}`} className="mono font-semibold">{selected.order_no}</a>
+                <a href={`/sales-orders/${selected.id}`} title={selected.order_no} className="mono font-semibold">{formatOrderReference(selected.order_no)}</a>
                 <div className="flex items-center gap-3">
                   <span className={`badge ${statusClass(selected.status)}`}>{statusLabel(selected.status, t)}</span>
                   <button className="icon-btn"><MoreHorizontal /></button>
@@ -371,7 +351,7 @@ export default function SalesOrdersPage() {
                 </section>
                 <section>
                   <div className="label">{t("sales.orderType")}</div>
-                  <div className="badge">{selected.order_type === "client_order" ? t("orderType.client") : t("orderType.branded")}</div>
+                  <div className="badge">{selected.order_type === SalesOrderType.CLIENT_ORDER ? t("orderType.client") : t("orderType.branded")}</div>
                 </section>
                 <section>
                   <div className="label">{t("sales.financials")}</div>

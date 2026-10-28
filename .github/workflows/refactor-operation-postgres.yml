@@ -1,0 +1,58 @@
+name: Refactor operation PostgreSQL gate
+
+on:
+  pull_request:
+  push:
+    branches: [clone_main, "codex/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  refactor-operation-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+      - name: Start this job's loopback-only PostgreSQL
+        run: |
+          docker run --detach --name milana-refactor-pg --network host \
+            --env POSTGRES_HOST_AUTH_METHOD=trust postgres:17-alpine \
+            postgres -h 127.0.0.1 -p 55432
+          for attempt in $(seq 1 30); do
+            if docker exec milana-refactor-pg pg_isready -h 127.0.0.1 -p 55432 -U postgres; then
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
+      - name: Record container identity independently of the target connection
+        run: |
+          docker exec milana-refactor-pg psql -U postgres -h 127.0.0.1 -p 55432 -d postgres -At \
+            -c "SELECT json_build_object('server_version', current_setting('server_version'), 'system_identifier', (SELECT system_identifier::text FROM pg_control_system()), 'data_directory', current_setting('data_directory'))" \
+            > "$RUNNER_TEMP/refactor-pg-identity.json"
+          python scripts/run_refactor_pg_gate.py \
+            --ci-identity "$RUNNER_TEMP/refactor-pg-identity.json" --github-env "$GITHUB_ENV"
+      - name: Run every required operation case; fail skipped or missing evidence
+        run: python scripts/run_refactor_pg_gate.py --report "$RUNNER_TEMP/refactor-pg-gate.xml"
+      - name: Run isolated Purchasing and Fabric PG cases; fail skipped or missing evidence
+        run: >-
+          python scripts/run_refactor_pg_supplement_gate.py
+          --report "$RUNNER_TEMP/purchasing-fabric-pg-gate.xml"
+      - name: Preserve exact test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: refactor-operation-postgres-report
+          path: |
+            ${{ runner.temp }}/refactor-pg-gate.xml
+            ${{ runner.temp }}/purchasing-fabric-pg-gate.xml
+          if-no-files-found: warn
+      - name: Remove only this job's owned container
+        if: always()
+        run: docker rm --force milana-refactor-pg

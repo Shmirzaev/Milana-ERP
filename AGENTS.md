@@ -1,128 +1,239 @@
 # Milana ERP Project Instructions
 
-These instructions apply to the entire `C:\ERP` repository. New Codex tasks
-opened in this project must use this file as persistent project context.
+These instructions apply to the entire Milana ERP repository and every clean
+worktree created from it.
 
-## Required Context
+Start implementation/review with the [engineering workflow](docs/ENGINEERING_WORKFLOW.md):
+it defines each layer, schema-owned writes, system-wide enum/type adoption and
+the per-operation AI-then-human gates. Keep folder guides consistent with it.
 
-Before planning or making a substantial ERP change, read
-`docs/PROJECT_CONTEXT.md`. It contains the consolidated decisions, production
-topology, business rules, security findings, deployment state, and unfinished
-work from the project's previous chats.
+## Owner's required work cycle
 
-For a narrow question, read at least the relevant sections of that file before
-answering. Do not rely only on a task title or the current Git commit.
+26 October 2026: Ismail reaffirmed this workflow after an agent omitted enum work
+and claimed completion. Preserve his direct instructions and accepted corrections
+in the task record; a summary, old completion claim or worker brief cannot remove scope.
 
-## Project Summary
+Work **one business operation at a time**:
 
-Milana ERP is the real production system for a garment/textile factory, not a
-demo. Its core lifecycle is:
+1. Study the old source and complete affected behavior: routes, services, every
+   caller, DTOs, database definitions/values, permissions and downstream handoffs.
+2. Inventory every relevant value/type and move the approved operation to its
+   correct existing layer. Track converted, intentionally retained and unresolved items.
+3. Pass meaningful automated checks on the candidate, then use the user's connected
+   computer/browser to visually exercise the actual website, inspect screenshots,
+   reopen the records and check persisted database effects and adjacent workflows.
+4. Run the bounded relevant stress/integrity/recovery checks. A missing required
+   test, browser or database check is BLOCKED; do not claim a pass.
+5. Only after independent AI review and all required evidence passes, mark
+   **AI_VERIFIED_AWAITING_HUMAN**. Supply the human's local visual checklist and wait
+   for recorded human review. This state is not approval to merge, deploy or retire paths.
+
+Use [VERIFICATION.md](docs/VERIFICATION.md) for the task packet, evidence and human
+gate. Audit enums/types [table by table](backend/app/libs/enums/README.md#table-by-table-audit),
+not by file/class count. Parallel workers may own disjoint operations; overlapping
+operations have one writer and must pass combined verification. Never call an
+entire area complete while its operation/type ledger contains unexplained gaps.
+
+## Required context
+
+### Schema-owned writes: owner's explicit target, 26 October 2026
+
+Ismail requires routes -> business services -> schema-model persistence operations.
+The earlier namespace move did not implement this boundary. Services keep business
+rules, permissions, calculations and one outer transaction; schema-owned operations
+perform inserts, updates and deletes using that same supplied Session. Include mapped
+attribute/relationship mutations, indirect writers, audit, notifications and idempotency
+in the operation trace. Persistence helpers must not commit, change lock order, import
+services/routes or introduce a generic CRUD framework. Preserve business values and
+storage; identify and test intentional typed-contract changes described below.
+Migrate and verify one complete operation before broad enum/type adoption;
+do not claim all schemas or all system-wide enums are complete from moved files.
+
+The owner's system-wide mentor-discipline goal requires actual canonical Enum
+annotations in fixed-vocabulary DTOs and internal types, used consistently by
+schema defaults/constraints, services and relevant consumers. An enum-backed
+default on str/Any or Enum|str does not satisfy it. Preserve business values,
+normalization and action subsets; document/test intentional API-schema or validation
+changes required for real typing instead of retaining str only for OpenAPI parity.
+Configurable/free-form fields remain appropriate data types. The six Ismail pilots
+are rollout units; remaining domains retain named owners and pending coverage.
+
+Before a substantial change, read `docs/PROJECT_CONTEXT.md` and
+`DEPLOYMENT.md`. For a narrow question, read their relevant sections. Do not
+rely only on a task title, Git commit, local checkout, or GitHub branch.
+
+## Project
+
+Milana ERP is the real production system for a garment/textile factory. Its
+core lifecycle is:
 
 `Sales Order -> Planning -> Cutting -> Bundle QR/barcode -> optional Printing
 -> Sewing -> Packaging -> Package QR/barcode -> Finished Goods -> Shipment`
 
-It also contains branded-stock, Besttex, Eco Cotton, inventory, purchasing,
-reservations, waste, payroll, finance/1C, customers, audit history, forecasting,
-traceability, tasks, notifications, daily sewing reports, role management, and
-an MCP/AI assistant.
+It also contains branded stock, Besttex, Eco Cotton, inventory, purchasing,
+reservations, waste, payroll, finance/1C, customers, audit history,
+forecasting, traceability, tasks, notifications, daily sewing reports, role
+management, and an MCP/AI assistant.
 
 The stack is FastAPI, SQLAlchemy, Alembic, PostgreSQL, Next.js, React,
-TypeScript, TailwindCSS, and Docker.
+TypeScript, TailwindCSS, Docker, and HAProxy blue-green runtime slots.
 
-## Production Source of Truth
+## Production source of truth
 
 - Public domain: `https://erp.milanapremium.uz`
 - PostgreSQL VM: `172.16.10.3`
 - Backend VM: `172.16.10.4`
 - Frontend VM: `172.16.10.5`
-- Production releases: `/opt/milana-erp/releases/<release_id>`
-- Active symlink: `/opt/milana-erp/current`
-- Backend container: `milana-backend`
-- FastAPI container port `10000` is published as VM port `8000`.
-- `DEPLOYMENT.md` is the only supported production deployment procedure.
+- Releases: `/opt/milana-erp/releases/<release_id>`
+- Current source: `/opt/milana-erp/current`
+- Runtime state: `/opt/milana-erp/runtime/slots.json`
+- `deploy/production-base.json` records the Git production baseline.
+- `DEPLOYMENT.md` is the only supported deployment procedure.
 - Vercel, Render, and Hugging Face deployment notes are historical.
 
-On 2026-07-23, production was explicitly rolled back to release
-`20260723_065753`. Do not assume that later same-day releases remain live.
-Verify the current release and behavior before making follow-up changes.
+Before release work, verify both production manifests and slot states. Never assume
+the task title, a local checkout, a branch head or a historical release is current.
 
-The sales-to-warehouse item-detail notification was implemented and tested
-locally, but the production release containing it was rolled back.
+## Shared branch and working-directory rule
 
-## Working-Tree Warning
+The owner confirmed clone_main is the shared production/integration branch.
+Do not use stale origin/main as the base or merge destination. A branch head does
+not establish the exact active production release.
 
-This repository has historically contained extensive uncommitted work and was
-11 commits behind `origin/main` when this context was written. Treat that as a
-snapshot, not a permanent fact: always run fresh Git checks.
+Keep each engineer/agent's working directory isolated. The legacy C:\ERP checkout
+contains preserved work: never reset, discard, overwrite, broadly format or release
+from it. Continue a task's existing dedicated worktree when suitable.
 
-Never discard, reset, overwrite, or broadly reformat existing local changes.
-Before deployment, reconcile:
+The owner's current choice is one shared integration line. Do not create a long-
+lived refactor branch. When directly working on clone_main, use separate clean
+clones/checkouts and serialize landing through one responsible integrator. Temporary
+task branches are an alternative only if accepted by the team. Branch choice never
+authorizes concurrent writers to one checkout or force-pushing over another person.
 
-1. The active production release.
-2. The current local working tree.
-3. GitHub `origin/main`.
+Before implementation, inspect current Git state and recent production fixes. For
+release work, reconcile the exact active sources/manifests/slot states, production-
+base.json, candidate and GitHub. A mismatch blocks release, not read-only analysis
+or explicitly requested planning documentation. The existing documentation worktree
+may be used without claiming it is a verified production baseline.
 
-Use a clean staging checkout or worktree for reconciliation and deployment.
-Do not deploy blindly from only local HEAD or only GitHub.
+Before landing, re-fetch, reconcile overlapping changes and test the exact combined
+revision. Stage only intended paths. Do not broadly add, reset, clean or stash the
+legacy checkout. An urgent factory fix invalidates stale candidate evidence.
+Push/merge and deployment still require the user's authorization. Releases use an
+exact reviewed clean commit and DEPLOYMENT.md, never uncommitted files.
 
-## Safety and Scope Rules
+At handoff report worktree, branch, commit, actual checks, push/merge and deployment
+state. Keep the human summary short.
+
+## Shared refactor discipline
+
+For monolith refactoring, read [.agents/skills/milana-refactor/SKILL.md](.agents/skills/milana-refactor/SKILL.md)
+and the relevant sections of [docs/REFACTOR_PLAN.md](docs/REFACTOR_PLAN.md). Read the README.md only in the
+affected architecture folders. Claude Code uses the same rules via /milana-refactor.
+For new or extended features, use [.agents/skills/milana-feature/SKILL.md](.agents/skills/milana-feature/SKILL.md).
+Use [docs/TEAM_OWNERSHIP.md](docs/TEAM_OWNERSHIP.md) to name the engineer and reviewer
+before editing. [docs/AGENT_SKILLS.md](docs/AGENT_SKILLS.md) explains team invocation.
+Both skills are versioned with the source; never substitute a personal copy of old rules.
+Business services live in backend/app/models/<group>/*_service.py; existing shared
+helpers remain directly under models/ where the reviewed candidate still uses them.
+The earlier clone_main documentation publication at b92ee8f did not integrate
+draft PR #308. Inspect the current candidate's exact code and operation ledger;
+publishing or merging guidance is not runtime verification. SQLAlchemy definitions
+and registration live in backend/app/schemas/; Pydantic contracts live in
+backend/app/libs/dto/<business-group>/. The namespace separation is implemented.
+Do not recreate services/, put ORM mappings in models/, or put DTOs in schemas/.
+Business-operation extraction and visual/production acceptance remain separate work.
+Service responsibilities/interfaces and business policy are human decisions; AI
+implements the approved scope. Planning requests do not authorize source refactoring.
+
+Use [bugs/bugs.md](bugs/bugs.md) for active/unverified work. Move entries to
+[bugs/finished_bugs.md](bugs/finished_bugs.md) only after recorded human production
+verification. Preserve stable IDs and historical evidence. Markdown guidance is
+not a substitute for meaningful tests, required CI and independent review.
+
+## Implementation execution
+
+Ismail explicitly resumed the remaining system-wide mentor-discipline refactor on
+26 October 2026 with: "do the rest iwth codex subagents !" This authorizes Codex
+subagents to implement this task and supersedes the earlier MiniMax-only execution
+restriction. It does not change the named human domain owners or their approval gates.
+
+- The coordinating Codex agent assigns one business operation, an exact base,
+  isolated checkout, owned paths, expected behavior and evidence gates to each
+  Codex subagent. Record its actual identity, source hashes, changes and checks.
+- Preserve existing MiniMax work and frozen evidence. Coordinate handoff; never
+  let old and new workers edit the same checkout or overlapping files concurrently.
+  The transition does not authorize new MiniMax dispatch, credits or paid usage.
+- One integrator reconciles shared files and tests the exact combined candidate.
+  In particular, shared route files, audit/notification/idempotency persistence and
+  frontend pages with multiple domain consumers need a single assigned writer.
+- Implementation by Codex still requires independent review by a different agent,
+  meaningful automated/PostgreSQL checks where applicable, actual connected-browser
+  visual inspection, persisted readback and bounded stress. A worker's own green
+  report is not independent verification or human acceptance.
+- Freeze and verify the assigned operation before moving that worker to its next
+  implementation step. Keep the full-system remaining-work ledger; completing six
+  pilots does not complete the goal. Follow the [engineering workflow](docs/ENGINEERING_WORKFLOW.md).
+- Human visual/technical approval, production acceptance, merge and deployment
+  remain separate. This execution change grants no new release or spending authority.
+
+## Verification gates
+
+For every completed runtime migration, bug fix or feature, follow
+[docs/VERIFICATION.md](docs/VERIFICATION.md): meaningful automated checks, actual
+browser/computer visual E2E, then bounded relevant stress and data-integrity checks.
+Record PASS/FAIL/BLOCKED evidence; missing tools or skipped required tests are not
+passes. Do not retire old paths before the required verification and human acceptance.
+
+## Safety and scope
 
 - Make the smallest exact change requested.
-- Do not create models, production orders, stock, packages, shipments, users,
-  or other business data unless the user explicitly requests it.
-- Do not deploy unless the user asks for deployment or the request clearly
-  includes it.
+- Do not create business data unless explicitly requested.
+- Do not deploy unless requested or clearly included.
 - Preserve unrelated work and data.
-- Back up production PostgreSQL before migrations or material data changes.
-- Keep the active release untouched until builds and migrations succeed.
-- Keep a working rollback release and run all four health checks from
-  `DEPLOYMENT.md`.
-- Never expose or repeat passwords, tokens, private keys, or `.env` values.
-- Credentials pasted into old chats must be considered compromised and rotated.
-- Verify frontend visibility and backend authorization for every permission
-  change.
-- Test the complete department handoff affected by a workflow change.
-- Report the active release, data touched, checks run, and unresolved risks.
+- Back up PostgreSQL before every production migration/cutover.
+- Build outside production, stage the inactive slot, warm it, compare it with
+  active, and switch only after every gate passes.
+- Keep active and rollback slots/releases.
+- Never expose passwords, tokens, private keys, or environment values.
+- Verify frontend visibility and backend authorization for permission changes.
+- Test the complete department handoff affected by workflow changes.
+- Report active/rollback releases, data touched, checks, and unresolved risks.
 
-## Stable Business Rules
+## Stable business rules
 
 - Creating a Production Order starts Cutting automatically.
 - Optional stages are skipped when not required.
-- Cutting overproduction lifts downstream Sewing, Packaging, and Storage plans
-  to the real quantity.
-- Cutting shortfall and replacement work must remain visible and traceable.
-- User-facing pages show business names/numbers, not raw database IDs.
-- Sales prices are net; tax calculation is not used.
-- Package creation must respect selected-batch packed quantities and partial
-  packages.
-- Finished-goods stock must be backed by validated packaging/receipt evidence.
-- Batch-row material pictures affect only that exact stock batch.
-- Deletion must be narrow and blocked for reserved, linked, or used records.
+- Cutting overproduction lifts downstream plans to real quantity.
+- Cutting shortfalls and sewing defects remain visible and traceable. Failed pieces do not create replacement work.
+- User pages show business names/numbers, not raw IDs.
+- Sales prices are net; tax calculation is unused.
+- Package creation respects selected-batch quantities and partial packages.
+- Finished-goods stock requires validated packaging/receipt evidence.
+- Batch-row pictures affect only that stock batch.
+- Deletion is narrow and blocked for reserved, linked, or used records.
 - Important UI text supports English, Russian, and Uzbek.
 - Tablet, phone, scanner, print, and label usability are production concerns.
 
-## Known High-Risk Areas
+## Known high-risk areas
 
-The 2026-07-11 deep audit confirmed high-risk authorization and business-logic
-problems involving cross-stage work-order mutation, finished-goods stock
-minting without packaging evidence, shipment scan bypass, delivery before
-shipment, client-controlled payroll amounts, premature/arbitrary invoicing,
-and missing sewing-factory scope checks.
+Do not assume historical authorization/business-logic risks are fixed without
+current regression evidence, including cross-stage mutation, unsupported
+finished-goods stock, shipment/delivery bypass, client-controlled payroll,
+premature invoicing, sewing-factory scope, and audit hash-chain record `#744`.
 
-Do not assume these are fixed unless current code and regression tests prove it.
-The audit hash chain has also repeatedly failed at record `#744`.
+Audit evidence is under `.codex-work/deep-security-quality-audit/final/`.
 
-Audit evidence is under:
-`.codex-work/deep-security-quality-audit/final/`
+## Context maintenance
 
-## Context Maintenance
+After architecture, production, business-rule, permission, deployment, or risk
+changes:
 
-After work that materially changes production state, architecture, business
-rules, permissions, deployment, or open risks:
-
-1. Update `docs/PROJECT_CONTEXT.md`.
-2. Refresh its `Last updated` date.
-3. Record the active release or rollback.
-4. Keep secrets out of the document.
-5. When accessible, mirror the same durable changes to the Obsidian note at
-   `C:\Users\User\Documents\Obsidian Vault\Milana ERP - Project Context.md`.
+1. update the short `docs/PROJECT_CONTEXT.md` summary and its date; put detailed
+   dated records in `docs/archive/` and link them from the summary instead of appending
+   an unbounded history. Start documentation navigation at `docs/README.md`;
+2. record active/rollback releases and slots;
+3. keep secrets out;
+4. mirror durable context to
+   `C:\Users\User\Documents\Obsidian Vault\Milana ERP - Project Context.md`
+   when accessible.

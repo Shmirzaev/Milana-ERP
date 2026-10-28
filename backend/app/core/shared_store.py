@@ -220,6 +220,7 @@ class SQLiteSharedCounterStore:
 
 
 _store: SharedCounterStore | None = None
+_store_init_lock = RLock()
 
 
 def get_shared_counter_store() -> SharedCounterStore:
@@ -227,24 +228,30 @@ def get_shared_counter_store() -> SharedCounterStore:
     if _store is not None:
         return _store
 
+    with _store_init_lock:
+        if _store is None:
+            _store = _create_shared_counter_store()
+        return _store
+
+
+def _create_shared_counter_store() -> SharedCounterStore:
     url = settings.shared_store_url
     if url:
         parsed = urlparse(url)
         if parsed.scheme in {"redis", "rediss"}:
-            _store = RedisSharedCounterStore(url, prefix=settings.SHARED_STORE_KEY_PREFIX)
+            return RedisSharedCounterStore(url, prefix=settings.SHARED_STORE_KEY_PREFIX)
         elif parsed.scheme == "sqlite":
-            _store = SQLiteSharedCounterStore(url, prefix=settings.SHARED_STORE_KEY_PREFIX)
+            return SQLiteSharedCounterStore(url, prefix=settings.SHARED_STORE_KEY_PREFIX)
         else:
             raise RuntimeError("SHARED_STORE_URL must use redis://, rediss://, or sqlite:///")
-        return _store
 
     if settings.strict_security_required:
         raise RuntimeError("SHARED_STORE_URL or REDIS_URL is required for rate limits and auth lockouts in production/public deployments")
 
-    _store = InMemorySharedCounterStore()
-    return _store
+    return InMemorySharedCounterStore()
 
 
 def reset_shared_counter_store_for_tests() -> None:
     global _store
-    _store = InMemorySharedCounterStore()
+    with _store_init_lock:
+        _store = InMemorySharedCounterStore()

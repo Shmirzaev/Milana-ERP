@@ -1,0 +1,3671 @@
+{
+  "task": "RF-013 single-host rollback rehearsal",
+  "started_at": "2026-10-27T13:00:52.670513+00:00",
+  "old": "ec02b5f87ea3db9543be389b47d88358232b9a3d",
+  "candidate": "111a05c5fbc4e44790d6d075f8db78adaaffdf9f",
+  "state_dir": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-single-host-rollback/.codex-work/rf013-runs/milana-rf013-1_daqqfw",
+  "limits": {
+    "probe_seconds": 150,
+    "probe_interval_seconds": 0.5,
+    "probe_concurrency": 3,
+    "request_timeout_seconds": 2,
+    "business_action_timeout_seconds": 8,
+    "postgres_connections": 60,
+    "recovery_seconds": 30,
+    "memory": {
+      "backend": "1g each",
+      "frontend": "1g each",
+      "postgres": "512m",
+      "haproxy": "128m"
+    }
+  },
+  "expected": "candidate write readable and updateable by old; injected frontend failure leaves route/state mismatch, then old pair recovers",
+  "stop_conditions": "data mismatch, >60 PostgreSQL connections, steady-state 5xx, recovery >30s, probe duration >150s",
+  "snapshots": [
+    {
+      "label": "old_active",
+      "at": "2026-10-27T13:02:38.940717+00:00",
+      "states": {
+        "backend": {
+          "active_release": "old",
+          "active_slot": "blue",
+          "role": "backend",
+          "rollback_release": null,
+          "rollback_slot": null,
+          "updated_at": "2026-10-27T13:02:36.408822+00:00"
+        },
+        "frontend": {
+          "active_release": "old",
+          "active_slot": "blue",
+          "role": "frontend",
+          "rollback_release": null,
+          "rollback_slot": null,
+          "updated_at": "2026-10-27T13:02:36.409433+00:00"
+        }
+      },
+      "symlinks": {
+        "backend": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-old-ec02b5f8",
+        "frontend": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-old-ec02b5f8"
+      },
+      "routes": {
+        "health": {
+          "at": "2026-10-27T13:02:38.586237+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 2.68,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:02:38.589145+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 2.89,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:02:38.609305+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 20.16,
+          "body": null
+        }
+      },
+      "haproxy_config": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-single-host-rollback/.codex-work/rf013-runs/milana-rf013-1_daqqfw/haproxy-old_active.cfg",
+      "haproxy_sha256": "0b86dd04a1c1e451afd9614918f194a1477682a2741a7b677abb90f6c1703907",
+      "database_revision": "0148_second_grade_packages",
+      "financial_currency": null,
+      "postgres_connections": 3,
+      "containers": {
+        "milana-rf013-1_daqqfw-haproxy": "running",
+        "milana-rf013-1_daqqfw-db": "running",
+        "milana-rf013-1_daqqfw-backend-blue": "running",
+        "milana-rf013-1_daqqfw-backend-green": "absent",
+        "milana-rf013-1_daqqfw-frontend-blue": "running",
+        "milana-rf013-1_daqqfw-frontend-green": "absent"
+      }
+    },
+    {
+      "label": "candidate_staged",
+      "at": "2026-10-27T13:02:55.090132+00:00",
+      "states": {
+        "backend": {
+          "active_release": "old",
+          "active_slot": "blue",
+          "role": "backend",
+          "rollback_release": null,
+          "rollback_slot": null,
+          "updated_at": "2026-10-27T13:02:36.408822+00:00"
+        },
+        "frontend": {
+          "active_release": "old",
+          "active_slot": "blue",
+          "role": "frontend",
+          "rollback_release": null,
+          "rollback_slot": null,
+          "updated_at": "2026-10-27T13:02:36.409433+00:00"
+        }
+      },
+      "symlinks": {
+        "backend": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-old-ec02b5f8",
+        "frontend": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-old-ec02b5f8"
+      },
+      "routes": {
+        "health": {
+          "at": "2026-10-27T13:02:54.523707+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 4.05,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:02:54.526791+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 3.07,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:02:54.561765+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 34.98,
+          "body": null
+        }
+      },
+      "haproxy_config": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-single-host-rollback/.codex-work/rf013-runs/milana-rf013-1_daqqfw/haproxy-candidate_staged.cfg",
+      "haproxy_sha256": "0b86dd04a1c1e451afd9614918f194a1477682a2741a7b677abb90f6c1703907",
+      "database_revision": "0148_second_grade_packages",
+      "financial_currency": null,
+      "postgres_connections": 5,
+      "containers": {
+        "milana-rf013-1_daqqfw-haproxy": "running",
+        "milana-rf013-1_daqqfw-db": "running",
+        "milana-rf013-1_daqqfw-backend-blue": "running",
+        "milana-rf013-1_daqqfw-backend-green": "running",
+        "milana-rf013-1_daqqfw-frontend-blue": "running",
+        "milana-rf013-1_daqqfw-frontend-green": "running"
+      }
+    },
+    {
+      "label": "backend_forward",
+      "at": "2026-10-27T13:02:56.570727+00:00",
+      "states": {
+        "backend": {
+          "active_release": "candidate",
+          "active_slot": "green",
+          "role": "backend",
+          "rollback_release": "old",
+          "rollback_slot": "blue",
+          "updated_at": "2026-10-27T13:02:56.092623+00:00"
+        },
+        "frontend": {
+          "active_release": "old",
+          "active_slot": "blue",
+          "role": "frontend",
+          "rollback_release": null,
+          "rollback_slot": null,
+          "updated_at": "2026-10-27T13:02:36.409433+00:00"
+        }
+      },
+      "symlinks": {
+        "backend": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-old-ec02b5f8",
+        "frontend": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-old-ec02b5f8"
+      },
+      "routes": {
+        "health": {
+          "at": "2026-10-27T13:02:56.097799+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 2.83,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:02:56.100867+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 3.05,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:02:56.135947+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 35.08,
+          "body": null
+        }
+      },
+      "haproxy_config": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-single-host-rollback/.codex-work/rf013-runs/milana-rf013-1_daqqfw/haproxy-backend_forward.cfg",
+      "haproxy_sha256": "1bf9927c5de271f6676aabd2f50dde3a614db58f8237313fc7d2d8b5962ac241",
+      "database_revision": "0148_second_grade_packages",
+      "financial_currency": null,
+      "postgres_connections": 5,
+      "containers": {
+        "milana-rf013-1_daqqfw-haproxy": "running",
+        "milana-rf013-1_daqqfw-db": "running",
+        "milana-rf013-1_daqqfw-backend-blue": "running",
+        "milana-rf013-1_daqqfw-backend-green": "running",
+        "milana-rf013-1_daqqfw-frontend-blue": "running",
+        "milana-rf013-1_daqqfw-frontend-green": "running"
+      }
+    },
+    {
+      "label": "candidate_active",
+      "at": "2026-10-27T13:03:00.585080+00:00",
+      "states": {
+        "backend": {
+          "active_release": "candidate",
+          "active_slot": "green",
+          "role": "backend",
+          "rollback_release": "old",
+          "rollback_slot": "blue",
+          "updated_at": "2026-10-27T13:02:56.092623+00:00"
+        },
+        "frontend": {
+          "active_release": "candidate",
+          "active_slot": "green",
+          "role": "frontend",
+          "rollback_release": "old",
+          "rollback_slot": "blue",
+          "updated_at": "2026-10-27T13:02:58.074839+00:00"
+        }
+      },
+      "symlinks": {
+        "backend": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-single-host-rollback",
+        "frontend": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-single-host-rollback"
+      },
+      "routes": {
+        "health": {
+          "at": "2026-10-27T13:03:00.235692+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 3.03,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:00.238198+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 2.49,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:00.271029+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 32.83,
+          "body": null
+        }
+      },
+      "haproxy_config": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-single-host-rollback/.codex-work/rf013-runs/milana-rf013-1_daqqfw/haproxy-candidate_active.cfg",
+      "haproxy_sha256": "e3ab549f1c7d5f71bee39ad07aae99225fc99d629086152618af7447b1af91f5",
+      "database_revision": "0148_second_grade_packages",
+      "financial_currency": null,
+      "postgres_connections": 5,
+      "containers": {
+        "milana-rf013-1_daqqfw-haproxy": "running",
+        "milana-rf013-1_daqqfw-db": "running",
+        "milana-rf013-1_daqqfw-backend-blue": "running",
+        "milana-rf013-1_daqqfw-backend-green": "running",
+        "milana-rf013-1_daqqfw-frontend-blue": "running",
+        "milana-rf013-1_daqqfw-frontend-green": "running"
+      }
+    },
+    {
+      "label": "candidate_write",
+      "at": "2026-10-27T13:03:01.140225+00:00",
+      "states": {
+        "backend": {
+          "active_release": "candidate",
+          "active_slot": "green",
+          "role": "backend",
+          "rollback_release": "old",
+          "rollback_slot": "blue",
+          "updated_at": "2026-10-27T13:02:56.092623+00:00"
+        },
+        "frontend": {
+          "active_release": "candidate",
+          "active_slot": "green",
+          "role": "frontend",
+          "rollback_release": "old",
+          "rollback_slot": "blue",
+          "updated_at": "2026-10-27T13:02:58.074839+00:00"
+        }
+      },
+      "symlinks": {
+        "backend": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-single-host-rollback",
+        "frontend": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-single-host-rollback"
+      },
+      "routes": {
+        "health": {
+          "at": "2026-10-27T13:03:00.864220+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 2.46,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:00.866080+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 1.84,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:00.887353+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 21.27,
+          "body": null
+        }
+      },
+      "haproxy_config": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-single-host-rollback/.codex-work/rf013-runs/milana-rf013-1_daqqfw/haproxy-candidate_write.cfg",
+      "haproxy_sha256": "e3ab549f1c7d5f71bee39ad07aae99225fc99d629086152618af7447b1af91f5",
+      "database_revision": "0148_second_grade_packages",
+      "financial_currency": "UZS",
+      "postgres_connections": 5,
+      "containers": {
+        "milana-rf013-1_daqqfw-haproxy": "running",
+        "milana-rf013-1_daqqfw-db": "running",
+        "milana-rf013-1_daqqfw-backend-blue": "running",
+        "milana-rf013-1_daqqfw-backend-green": "running",
+        "milana-rf013-1_daqqfw-frontend-blue": "running",
+        "milana-rf013-1_daqqfw-frontend-green": "running"
+      }
+    },
+    {
+      "label": "backend_rollback",
+      "at": "2026-10-27T13:03:02.157638+00:00",
+      "states": {
+        "backend": {
+          "active_release": "old",
+          "active_slot": "blue",
+          "role": "backend",
+          "rollback_release": "candidate",
+          "rollback_slot": "green",
+          "updated_at": "2026-10-27T13:03:01.796432+00:00"
+        },
+        "frontend": {
+          "active_release": "candidate",
+          "active_slot": "green",
+          "role": "frontend",
+          "rollback_release": "old",
+          "rollback_slot": "blue",
+          "updated_at": "2026-10-27T13:02:58.074839+00:00"
+        }
+      },
+      "symlinks": {
+        "backend": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-single-host-rollback",
+        "frontend": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-single-host-rollback"
+      },
+      "routes": {
+        "health": {
+          "at": "2026-10-27T13:03:01.803611+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 4.88,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:01.807968+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 4.32,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:01.842702+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 34.72,
+          "body": null
+        }
+      },
+      "haproxy_config": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-single-host-rollback/.codex-work/rf013-runs/milana-rf013-1_daqqfw/haproxy-backend_rollback.cfg",
+      "haproxy_sha256": "d4c6a4b17083d81179aec034fa2a999823491ae80a50226356bf7b302ffd12c3",
+      "database_revision": "0148_second_grade_packages",
+      "financial_currency": "UZS",
+      "postgres_connections": 5,
+      "containers": {
+        "milana-rf013-1_daqqfw-haproxy": "running",
+        "milana-rf013-1_daqqfw-db": "running",
+        "milana-rf013-1_daqqfw-backend-blue": "running",
+        "milana-rf013-1_daqqfw-backend-green": "running",
+        "milana-rf013-1_daqqfw-frontend-blue": "running",
+        "milana-rf013-1_daqqfw-frontend-green": "running"
+      }
+    },
+    {
+      "label": "old_restored",
+      "at": "2026-10-27T13:03:05.480910+00:00",
+      "states": {
+        "backend": {
+          "active_release": "old",
+          "active_slot": "blue",
+          "role": "backend",
+          "rollback_release": "candidate",
+          "rollback_slot": "green",
+          "updated_at": "2026-10-27T13:03:01.796432+00:00"
+        },
+        "frontend": {
+          "active_release": "old",
+          "active_slot": "blue",
+          "role": "frontend",
+          "rollback_release": "candidate",
+          "rollback_slot": "green",
+          "updated_at": "2026-10-27T13:03:02.822739+00:00"
+        }
+      },
+      "symlinks": {
+        "backend": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-old-ec02b5f8",
+        "frontend": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-old-ec02b5f8"
+      },
+      "routes": {
+        "health": {
+          "at": "2026-10-27T13:03:05.172296+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 1.46,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:05.173908+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 1.6,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:05.194089+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 20.19,
+          "body": null
+        }
+      },
+      "haproxy_config": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-single-host-rollback/.codex-work/rf013-runs/milana-rf013-1_daqqfw/haproxy-old_restored.cfg",
+      "haproxy_sha256": "0b86dd04a1c1e451afd9614918f194a1477682a2741a7b677abb90f6c1703907",
+      "database_revision": "0148_second_grade_packages",
+      "financial_currency": "USD",
+      "postgres_connections": 5,
+      "containers": {
+        "milana-rf013-1_daqqfw-haproxy": "running",
+        "milana-rf013-1_daqqfw-db": "running",
+        "milana-rf013-1_daqqfw-backend-blue": "running",
+        "milana-rf013-1_daqqfw-backend-green": "running",
+        "milana-rf013-1_daqqfw-frontend-blue": "running",
+        "milana-rf013-1_daqqfw-frontend-green": "running"
+      }
+    },
+    {
+      "label": "backend_partial_forward",
+      "at": "2026-10-27T13:03:06.560298+00:00",
+      "states": {
+        "backend": {
+          "active_release": "candidate",
+          "active_slot": "green",
+          "role": "backend",
+          "rollback_release": "old",
+          "rollback_slot": "blue",
+          "updated_at": "2026-10-27T13:03:06.199809+00:00"
+        },
+        "frontend": {
+          "active_release": "old",
+          "active_slot": "blue",
+          "role": "frontend",
+          "rollback_release": "candidate",
+          "rollback_slot": "green",
+          "updated_at": "2026-10-27T13:03:02.822739+00:00"
+        }
+      },
+      "symlinks": {
+        "backend": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-old-ec02b5f8",
+        "frontend": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-old-ec02b5f8"
+      },
+      "routes": {
+        "health": {
+          "at": "2026-10-27T13:03:06.207124+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 4.7,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:06.211482+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 4.34,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:06.244953+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 33.48,
+          "body": null
+        }
+      },
+      "haproxy_config": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-single-host-rollback/.codex-work/rf013-runs/milana-rf013-1_daqqfw/haproxy-backend_partial_forward.cfg",
+      "haproxy_sha256": "1bf9927c5de271f6676aabd2f50dde3a614db58f8237313fc7d2d8b5962ac241",
+      "database_revision": "0148_second_grade_packages",
+      "financial_currency": "USD",
+      "postgres_connections": 5,
+      "containers": {
+        "milana-rf013-1_daqqfw-haproxy": "running",
+        "milana-rf013-1_daqqfw-db": "running",
+        "milana-rf013-1_daqqfw-backend-blue": "running",
+        "milana-rf013-1_daqqfw-backend-green": "running",
+        "milana-rf013-1_daqqfw-frontend-blue": "running",
+        "milana-rf013-1_daqqfw-frontend-green": "running"
+      }
+    },
+    {
+      "label": "failed_frontend_switch",
+      "at": "2026-10-27T13:03:45.251106+00:00",
+      "states": {
+        "backend": {
+          "active_release": "candidate",
+          "active_slot": "green",
+          "role": "backend",
+          "rollback_release": "old",
+          "rollback_slot": "blue",
+          "updated_at": "2026-10-27T13:03:06.199809+00:00"
+        },
+        "frontend": {
+          "active_release": "old",
+          "active_slot": "blue",
+          "role": "frontend",
+          "rollback_release": "candidate",
+          "rollback_slot": "green",
+          "updated_at": "2026-10-27T13:03:02.822739+00:00"
+        }
+      },
+      "symlinks": {
+        "backend": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-old-ec02b5f8",
+        "frontend": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-old-ec02b5f8"
+      },
+      "routes": {
+        "health": {
+          "at": "2026-10-27T13:03:44.698550+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 7.76,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:44.706837+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.25,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:44.708413+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 1.54
+        }
+      },
+      "haproxy_config": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-single-host-rollback/.codex-work/rf013-runs/milana-rf013-1_daqqfw/haproxy-failed_frontend_switch.cfg",
+      "haproxy_sha256": "e3ab549f1c7d5f71bee39ad07aae99225fc99d629086152618af7447b1af91f5",
+      "database_revision": "0148_second_grade_packages",
+      "financial_currency": "USD",
+      "postgres_connections": 5,
+      "containers": {
+        "milana-rf013-1_daqqfw-haproxy": "running",
+        "milana-rf013-1_daqqfw-db": "running",
+        "milana-rf013-1_daqqfw-backend-blue": "running",
+        "milana-rf013-1_daqqfw-backend-green": "running",
+        "milana-rf013-1_daqqfw-frontend-blue": "running",
+        "milana-rf013-1_daqqfw-frontend-green": "exited"
+      }
+    },
+    {
+      "label": "reconciled_old",
+      "at": "2026-10-27T13:03:49.218739+00:00",
+      "states": {
+        "backend": {
+          "active_release": "old",
+          "active_slot": "blue",
+          "role": "backend",
+          "rollback_release": null,
+          "rollback_slot": null,
+          "updated_at": "2026-10-27T13:03:46.538777+00:00"
+        },
+        "frontend": {
+          "active_release": "old",
+          "active_slot": "blue",
+          "role": "frontend",
+          "rollback_release": null,
+          "rollback_slot": null,
+          "updated_at": "2026-10-27T13:03:46.539440+00:00"
+        }
+      },
+      "symlinks": {
+        "backend": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-old-ec02b5f8",
+        "frontend": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-old-ec02b5f8"
+      },
+      "routes": {
+        "health": {
+          "at": "2026-10-27T13:03:48.923194+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 2.91,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:48.927133+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 3.93,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:48.954035+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 26.9,
+          "body": null
+        }
+      },
+      "haproxy_config": "/Users/murmurbek/Code/Milana-ERP/.codex-work/rf013-single-host-rollback/.codex-work/rf013-runs/milana-rf013-1_daqqfw/haproxy-reconciled_old.cfg",
+      "haproxy_sha256": "0b86dd04a1c1e451afd9614918f194a1477682a2741a7b677abb90f6c1703907",
+      "database_revision": "0148_second_grade_packages",
+      "financial_currency": "USD",
+      "postgres_connections": 5,
+      "containers": {
+        "milana-rf013-1_daqqfw-haproxy": "running",
+        "milana-rf013-1_daqqfw-db": "running",
+        "milana-rf013-1_daqqfw-backend-blue": "running",
+        "milana-rf013-1_daqqfw-backend-green": "running",
+        "milana-rf013-1_daqqfw-frontend-blue": "running",
+        "milana-rf013-1_daqqfw-frontend-green": "exited"
+      }
+    }
+  ],
+  "events": [
+    {
+      "at": "2026-10-27T13:00:57.098861+00:00",
+      "kind": "postgres_ready",
+      "detail": "milana-rf013-1_daqqfw-db"
+    },
+    {
+      "at": "2026-10-27T13:01:26.982967+00:00",
+      "kind": "image_built",
+      "detail": "milana-rf013-1_daqqfw-backend-old:local"
+    },
+    {
+      "at": "2026-10-27T13:01:55.108092+00:00",
+      "kind": "image_built",
+      "detail": "milana-rf013-1_daqqfw-frontend-old:local"
+    },
+    {
+      "at": "2026-10-27T13:02:12.039941+00:00",
+      "kind": "image_built",
+      "detail": "milana-rf013-1_daqqfw-backend-candidate:local"
+    },
+    {
+      "at": "2026-10-27T13:02:18.679621+00:00",
+      "kind": "image_built",
+      "detail": "milana-rf013-1_daqqfw-frontend-candidate:local"
+    },
+    {
+      "at": "2026-10-27T13:02:29.015950+00:00",
+      "kind": "staged",
+      "detail": "backend blue old"
+    },
+    {
+      "at": "2026-10-27T13:02:34.677969+00:00",
+      "kind": "staged",
+      "detail": "frontend blue old"
+    },
+    {
+      "at": "2026-10-27T13:02:47.514086+00:00",
+      "kind": "staged",
+      "detail": "backend green candidate"
+    },
+    {
+      "at": "2026-10-27T13:02:54.518141+00:00",
+      "kind": "staged",
+      "detail": "frontend green candidate"
+    },
+    {
+      "at": "2026-10-27T13:02:56.094219+00:00",
+      "kind": "activated",
+      "detail": "backend green candidate"
+    },
+    {
+      "at": "2026-10-27T13:02:58.076523+00:00",
+      "kind": "activated",
+      "detail": "frontend green candidate"
+    },
+    {
+      "at": "2026-10-27T13:03:01.798097+00:00",
+      "kind": "activated",
+      "detail": "backend blue old"
+    },
+    {
+      "at": "2026-10-27T13:03:02.824425+00:00",
+      "kind": "activated",
+      "detail": "frontend blue old"
+    },
+    {
+      "at": "2026-10-27T13:03:06.201709+00:00",
+      "kind": "activated",
+      "detail": "backend green candidate"
+    },
+    {
+      "at": "2026-10-27T13:03:09.507866+00:00",
+      "kind": "injected_failure",
+      "detail": "stopped candidate frontend immediately after HAProxy reload"
+    },
+    {
+      "at": "2026-10-27T13:03:44.688267+00:00",
+      "kind": "expected_activation_failure",
+      "detail": "Stable listener did not become healthy: http://127.0.0.1:57253/login"
+    },
+    {
+      "at": "2026-10-27T13:03:45.977335+00:00",
+      "kind": "activated",
+      "detail": "backend blue old"
+    },
+    {
+      "at": "2026-10-27T13:03:46.538733+00:00",
+      "kind": "activated",
+      "detail": "frontend blue old"
+    }
+  ],
+  "status": "pass",
+  "recovery_seconds": 3.67,
+  "failure_to_recovery_seconds": 41.41,
+  "probes": [
+    {
+      "phase": "initial",
+      "at": "2026-10-27T13:02:55.091687+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:02:55.119695+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 28.63,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:02:55.116909+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 25.64,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:02:55.256449+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 165.04,
+          "body": null
+        }
+      }
+    },
+    {
+      "phase": "backend_forward",
+      "at": "2026-10-27T13:02:55.760170+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:02:55.768148+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 7.95,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:02:55.769230+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 7.62,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:02:55.798741+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 37.03,
+          "body": null
+        }
+      }
+    },
+    {
+      "phase": "backend_forward",
+      "at": "2026-10-27T13:02:56.302286+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:02:56.308227+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 5.91,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:02:56.309288+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 6.73,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:02:56.355963+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 53.33,
+          "body": null
+        }
+      }
+    },
+    {
+      "phase": "frontend_forward",
+      "at": "2026-10-27T13:02:56.860456+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:02:56.892119+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 31.61,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:02:56.899150+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 38.38,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:02:57.057612+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 196.73,
+          "body": null
+        }
+      }
+    },
+    {
+      "phase": "frontend_forward",
+      "at": "2026-10-27T13:02:57.560996+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:02:57.630956+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 69.92,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:02:57.631915+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 70.04,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:02:57.777865+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 215.68,
+          "body": null
+        }
+      }
+    },
+    {
+      "phase": "frontend_forward",
+      "at": "2026-10-27T13:02:58.283031+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:02:58.293400+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 10.3,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:02:58.293575+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 10.33,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:02:58.330626+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 47.3,
+          "body": null
+        }
+      }
+    },
+    {
+      "phase": "frontend_forward",
+      "at": "2026-10-27T13:02:58.835866+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:02:58.844912+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.03,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:02:58.846432+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 10.3,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:02:58.888181+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 51.95,
+          "body": null
+        }
+      }
+    },
+    {
+      "phase": "frontend_forward",
+      "at": "2026-10-27T13:02:59.393465+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:02:59.404699+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 11.21,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:02:59.405933+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 12.04,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:02:59.447759+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 53.72,
+          "body": null
+        }
+      }
+    },
+    {
+      "phase": "frontend_forward",
+      "at": "2026-10-27T13:02:59.947994+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:02:59.954559+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 6.54,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:02:59.956392+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.24,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:00.002879+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 54.64,
+          "body": null
+        }
+      }
+    },
+    {
+      "phase": "frontend_forward",
+      "at": "2026-10-27T13:03:00.504655+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:00.508945+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 4.27,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:00.510501+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 5.53,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:00.555317+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 50.22,
+          "body": null
+        }
+      }
+    },
+    {
+      "phase": "frontend_forward",
+      "at": "2026-10-27T13:03:01.059799+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:01.065546+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 5.74,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:01.065671+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 5.65,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:01.084174+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 24.12,
+          "body": null
+        }
+      }
+    },
+    {
+      "phase": "backend_rollback",
+      "at": "2026-10-27T13:03:01.585661+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:01.591008+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 5.32,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:01.592142+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 6.32,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:01.617278+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 31.37,
+          "body": null
+        }
+      }
+    },
+    {
+      "phase": "backend_rollback",
+      "at": "2026-10-27T13:03:02.120858+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:02.124402+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 3.53,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:02.126333+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 5.32,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:02.145527+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 24.52,
+          "body": null
+        }
+      }
+    },
+    {
+      "phase": "frontend_rollback",
+      "at": "2026-10-27T13:03:02.650895+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:02.655965+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 5.04,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:02.656475+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 5.38,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:02.675694+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 24.49,
+          "body": null
+        }
+      }
+    },
+    {
+      "phase": "frontend_rollback",
+      "at": "2026-10-27T13:03:03.176658+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:03.187146+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 10.45,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:03.187300+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 10.28,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:03.226866+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 49.76,
+          "body": null
+        }
+      }
+    },
+    {
+      "phase": "frontend_rollback",
+      "at": "2026-10-27T13:03:03.732070+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:03.740475+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 8.38,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:03.742000+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 9.68,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:03.787004+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 54.58,
+          "body": null
+        }
+      }
+    },
+    {
+      "phase": "frontend_rollback",
+      "at": "2026-10-27T13:03:04.292243+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:04.304017+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 11.76,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:04.306628+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 14.14,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:04.354993+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 62.39,
+          "body": null
+        }
+      }
+    },
+    {
+      "phase": "frontend_rollback",
+      "at": "2026-10-27T13:03:04.860286+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:04.868967+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 8.65,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:04.870235+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 9.68,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:04.917988+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 57.32,
+          "body": null
+        }
+      }
+    },
+    {
+      "phase": "frontend_rollback",
+      "at": "2026-10-27T13:03:05.419143+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:05.423249+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 4.04,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:05.424082+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 4.53,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:05.444381+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 24.71,
+          "body": null
+        }
+      }
+    },
+    {
+      "phase": "backend_partial_forward",
+      "at": "2026-10-27T13:03:05.945068+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:05.950315+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 5.21,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:05.951110+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 5.75,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:05.977376+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 31.87,
+          "body": null
+        }
+      }
+    },
+    {
+      "phase": "backend_partial_forward",
+      "at": "2026-10-27T13:03:06.480586+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:06.491043+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 10.45,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:06.492361+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 11.62,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:06.518176+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 37.39,
+          "body": null
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:07.021937+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:07.029643+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 7.61,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:07.029033+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 6.83,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:07.088414+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 66.09,
+          "body": null
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:07.593769+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:07.603366+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.53,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:07.601221+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 7.16,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:09.595851+00:00",
+          "status": "TimeoutError",
+          "latency_ms": 2001.7
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:10.101157+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:10.109603+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.43,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:10.111751+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 10.35,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:10.104678+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 3.15
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:10.612243+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:10.624079+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 11.81,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:10.625871+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 13.28,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:10.616096+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 3.42
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:11.126576+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:11.134864+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.27,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:11.136189+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.36,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:11.129602+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.68
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:11.641431+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:11.650224+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.76,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:11.651488+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.79,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:11.644842+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 3.04
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:12.156729+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:12.168306+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 11.56,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:12.170123+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 13.15,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:12.160010+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.92
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:12.675371+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:12.683513+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.11,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:12.684590+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.97,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:12.678345+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.64
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:13.189811+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:13.197988+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.16,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:13.199627+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.56,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:13.193925+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 3.76
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:13.703915+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:13.712247+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.31,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:13.714581+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 10.42,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:13.707184+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.91
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:14.218105+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:14.225350+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 7.22,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:14.226713+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.36,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:14.220972+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.52
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:14.731945+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:14.740920+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.95,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:14.743045+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 10.84,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:14.735862+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 3.56
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:15.248318+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:15.256119+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 7.77,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:15.258199+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.62,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:15.253174+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 4.49
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:15.763422+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:15.771842+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.4,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:15.773085+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.41,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:15.766589+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.8
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:16.276443+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:16.284501+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.03,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:16.286041+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.34,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:16.279634+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.81
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:16.791274+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:16.800228+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.94,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:16.801730+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 10.2,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:16.794581+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.93
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:17.303097+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:17.311345+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.23,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:17.312633+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.29,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:17.306015+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.57
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:17.813969+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:17.822205+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.21,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:17.823293+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.06,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:17.817033+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.7
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:18.323572+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:18.330661+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 7.1,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:18.333863+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 10.15,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:18.325702+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 1.9
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:18.839086+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:18.847355+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.25,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:18.849199+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.87,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:18.841907+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.46
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:19.350725+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:19.358346+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 7.6,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:19.359765+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.8,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:19.353574+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.51
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:19.860240+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:19.869105+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.84,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:19.871796+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 11.3,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:19.863709+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 3.1
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:20.373973+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:20.382182+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.18,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:20.383554+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.3,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:20.377598+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 3.24
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:20.888785+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:20.896889+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.08,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:20.898239+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.2,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:20.891872+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.73
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:21.402862+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:21.410751+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 7.87,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:21.412276+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.16,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:21.405846+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.62
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:21.917486+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:21.925685+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.18,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:21.927508+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.78,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:21.920503+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.66
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:22.432753+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:22.440578+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 7.8,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:22.442428+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.4,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:22.435913+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.78
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:22.947643+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:22.956209+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.56,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:22.957242+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.34,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:22.950734+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.77
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:23.460629+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:23.469052+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.39,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:23.470316+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.39,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:23.463986+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.93
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:23.971961+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:23.980628+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.64,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:23.981601+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.39,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:23.975318+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.99
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:24.485500+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:24.493999+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.47,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:24.495280+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.55,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:24.488678+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.82
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:24.998842+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:25.005151+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 6.29,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:25.005406+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 6.47,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:25.000832+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 1.84
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:25.510593+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:25.518114+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 7.49,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:25.519652+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.81,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:25.513897+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.96
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:26.024876+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:26.034094+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.2,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:26.036136+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 11.02,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:26.029161+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 3.95
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:26.540170+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:26.548210+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.01,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:26.549695+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.27,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:26.543123+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.61
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:27.054908+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:27.064157+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.25,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:27.065699+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 10.54,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:27.058759+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 3.54
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:27.568058+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:27.573479+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 5.37,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:27.574086+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 5.74,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:27.570665+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.22
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:28.074355+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:28.082669+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.29,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:28.084144+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.54,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:28.077482+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.78
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:28.585562+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:28.593973+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.27,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:28.595420+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.62,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:28.588743+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.85
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:29.096423+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:29.105176+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.73,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:29.106626+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.93,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:29.099613+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.81
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:29.611833+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:29.617451+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 5.58,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:29.618568+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 6.53,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:29.613649+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 1.52
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:30.123762+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:30.132221+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.44,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:30.133932+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.9,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:30.126735+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.58
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:30.637867+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:30.642165+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 4.28,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:30.642976+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 4.96,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:30.639771+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 1.68
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:31.148227+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:31.156131+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 7.88,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:31.157977+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.48,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:31.151276+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.67
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:31.663198+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:31.671475+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.25,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:31.673010+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.56,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:31.666039+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.49
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:32.178239+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:32.186196+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 7.93,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:32.187899+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.39,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:32.181241+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.63
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:32.693127+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:32.701279+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.12,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:32.702423+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.02,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:32.696492+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.96
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:33.207655+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:33.215234+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 7.55,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:33.217199+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.24,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:33.212117+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 4.02
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:33.720765+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:33.729040+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.27,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:33.731357+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 10.34,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:33.723833+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.71
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:34.236619+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:34.246911+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 10.26,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:34.248812+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 11.94,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:34.239366+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.4
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:34.754048+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:34.762375+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.31,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:34.763635+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.33,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:34.757259+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.84
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:35.265086+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:35.273181+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.07,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:35.274498+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.16,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:35.268242+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.8
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:35.779735+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:35.788217+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.46,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:35.789452+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.46,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:35.783024+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.93
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:36.291775+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:36.302049+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 10.25,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:36.304300+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 12.25,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:36.296654+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 4.5
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:36.808707+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:36.816805+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.07,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:36.817887+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.91,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:36.811686+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.61
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:37.323123+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:37.331562+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.42,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:37.332677+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.27,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:37.326284+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.77
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:37.834713+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:37.842392+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 7.66,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:37.844237+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.27,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:37.837815+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.74
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:38.349471+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:38.357452+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 7.94,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:38.358961+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.21,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:38.352562+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.7
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:38.864201+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:38.871983+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 7.76,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:38.873338+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.89,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:38.867101+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.55
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:39.377452+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:39.389509+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 12.04,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:39.391116+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 13.36,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:39.381035+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 3.14
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:39.896361+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:39.904708+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.32,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:39.905749+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.12,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:39.899533+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.8
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:40.409969+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:40.418479+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.5,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:40.420133+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.88,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:40.413162+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.79
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:40.925361+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:40.934478+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.13,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:40.935477+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.86,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:40.929043+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 3.32
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:41.440725+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:41.448867+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.12,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:41.450393+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.41,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:41.444042+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.93
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:41.952288+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:41.959816+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 7.51,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:41.961261+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.73,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:41.955157+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.54
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:42.463678+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:42.471318+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 7.61,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:42.472683+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.76,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:42.466538+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.52
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:42.977911+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:42.987841+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.89,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:42.990296+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 12.13,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:42.980885+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.61
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:43.495143+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:43.505917+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 10.74,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:43.507101+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 11.7,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:43.498102+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.59
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:44.009585+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:44.017363+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 7.73,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:44.018772+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.91,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:44.013059+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 3.09
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:44.523338+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:44.531382+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.02,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:44.532611+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 9.02,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:44.526548+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.84
+        }
+      }
+    },
+    {
+      "phase": "frontend_post_reload_failure",
+      "at": "2026-10-27T13:03:45.035513+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:45.090026+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 54.36,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:45.101523+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 64.35,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:45.042679+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 5.17
+        }
+      }
+    },
+    {
+      "phase": "manual_reconciliation",
+      "at": "2026-10-27T13:03:45.602352+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:45.610877+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 8.49,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:45.607760+00:00",
+          "status": 200,
+          "release": "candidate",
+          "slot": "green",
+          "latency_ms": 5.12,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:45.605405+00:00",
+          "status": 503,
+          "release": null,
+          "slot": null,
+          "latency_ms": 2.52
+        }
+      }
+    },
+    {
+      "phase": "manual_reconciliation",
+      "at": "2026-10-27T13:03:46.115559+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:46.124118+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 8.51,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:46.131084+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 15.17,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:46.174839+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 58.77,
+          "body": null
+        }
+      }
+    },
+    {
+      "phase": "manual_reconciliation",
+      "at": "2026-10-27T13:03:46.680175+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:46.684955+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 4.69,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:46.685352+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 4.77,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:46.709347+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 28.66,
+          "body": null
+        }
+      }
+    },
+    {
+      "phase": "manual_reconciliation",
+      "at": "2026-10-27T13:03:47.214562+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:47.224934+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 10.37,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:47.225372+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 10.56,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:47.282843+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 67.93,
+          "body": null
+        }
+      }
+    },
+    {
+      "phase": "manual_reconciliation",
+      "at": "2026-10-27T13:03:47.788092+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:47.797659+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 9.55,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:47.799242+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 10.91,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:47.844458+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 56.02,
+          "body": null
+        }
+      }
+    },
+    {
+      "phase": "manual_reconciliation",
+      "at": "2026-10-27T13:03:48.349721+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:48.359365+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 9.63,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:48.361027+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 11.06,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:48.404646+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 54.56,
+          "body": null
+        }
+      }
+    },
+    {
+      "phase": "manual_reconciliation",
+      "at": "2026-10-27T13:03:48.909808+00:00",
+      "responses": {
+        "health": {
+          "at": "2026-10-27T13:03:48.913300+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 3.48,
+          "body": "{\"status\":\"ok\",\"app\":\"Milana ERP\"}"
+        },
+        "ready": {
+          "at": "2026-10-27T13:03:48.915078+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 5.11,
+          "body": "{\"status\":\"ready\",\"checks\":{\"postgresql\":\"ok\"}}"
+        },
+        "login": {
+          "at": "2026-10-27T13:03:48.935349+00:00",
+          "status": 200,
+          "release": "old",
+          "slot": "blue",
+          "latency_ms": 25.31,
+          "body": null
+        }
+      }
+    }
+  ],
+  "finished_at": "2026-10-27T13:03:49.219492+00:00",
+  "cleanup_at": "2026-10-27T13:03:50.712019+00:00"
+}

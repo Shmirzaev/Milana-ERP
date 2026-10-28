@@ -1,0 +1,245 @@
+from uuid import uuid4
+import pytest
+from app.db.session import SessionLocal
+from app.schemas import Bundle, CuttingRecord, CuttingMaterialUsage, MaterialReservation, StockBatch, StockMovement, WorkOrder
+from app.tests.test_material_reservations import _warehouse, _fabric_item, _receive_batch, _cutting_work_order
+
+
+@pytest.fixture
+def passport_cutting(client, auth_headers):
+    warehouse = _warehouse(client, auth_headers, "fabric_storage")
+    item = _fabric_item(client, auth_headers)
+    batches = [_receive_batch(client, auth_headers, item_id=item["id"], warehouse_id=warehouse["id"], quantity=100, unit="kg") for _ in range(2)]
+    response = client.post("/api/planning/create-branded-production", headers=auth_headers, json={
+        "production_type": "branded_stock", "model_id": 1, "planned_quantity": 10,
+        "materials": [{"stock_batch_id": row["id"], "estimated_quantity": 10, "unit": "kg"} for row in batches],
+        "items": [{"model_id": 1, "color": "white", "size": "46", "planned_quantity": 10, "printing_required": False}],
+    })
+    assert response.status_code == 201, response.text
+    order = response.json()
+    work = _cutting_work_order(client, auth_headers, order["id"])
+    passport = client.post("/api/cutting-passports", headers=auth_headers, json={
+        "passport_no": "SAVED-" + uuid4().hex[:8], "date": "2026-09-19T00:00:00Z", "production_order_id": order["id"],
+        "materials": [{"stock_batch_id": row["id"], "layer_weight_kg": 2, "total_layers": 3, "scrap_kg": 0.5,
+                       "pieces": 10, "rolls_count": 1, "operator_name_manual": "Saved operator"} for row in batches],
+    })
+    assert passport.status_code == 201, passport.text
+    payload = {"work_order_id": work["id"], "cutting_passport_id": passport.json()["id"], "use_passport_materials": True,
+               "production_batch_id": passport.json()["production_batch_id"],
+               "input_quantity": 999, "materials": [], "cut_pieces": 10, "passed_pieces": 10,
+               "bundles": [{"color": "white", "size": "46", "quantity": 10, "count": 1, "next": "sewing", "sewing_factory": "milana"}]}
+    return batches, order, work, payload
+
+
+def test_saved_passport_consumes_exact_stock_once_and_keeps_bundle_handoff(client, auth_headers, passport_cutting):
+    batches, order, work, payload = passport_cutting
+    result = client.post("/api/cutting/records", headers=auth_headers, json=payload)
+    assert result.status_code == 201, result.text
+    assert [row["quantity"] for row in result.json()["materials"]] == [6.5, 6.5]
+    with SessionLocal() as db:
+        assert [float(db.get(StockBatch, row["id"]).quantity) for row in batches] == [93.5, 93.5]
+        assert db.query(Bundle).filter_by(production_order_id=order["id"]).one().quantity == 10
+        assert db.get(WorkOrder, work["id"]).passed_qty == 10
+    again = client.post("/api/cutting/records", headers=auth_headers, json=payload)
+    assert again.status_code in {400, 409}, again.text
+    with SessionLocal() as db:
+        assert db.query(CuttingRecord).filter_by(work_order_id=work["id"]).count() == 1
+        assert [float(db.get(StockBatch, row["id"]).quantity) for row in batches] == [93.5, 93.5]
+
+
+def test_missing_passport_does_not_consume_or_create_bundles(client, auth_headers, passport_cutting):
+    batches, order, work, payload = passport_cutting
+    payload["cutting_passport_id"] = None
+    response = client.post("/api/cutting/records", headers=auth_headers, json=payload)
+    assert response.status_code == 400, response.text
+    with SessionLocal() as db:
+        assert db.query(Bundle).filter_by(production_order_id=order["id"]).count() == 0
+        assert [float(db.get(StockBatch, row["id"]).quantity) for row in batches] == [100, 100]
+
+
+@pytest.mark.parametrize("quantity", [6, 10, 15])
+def test_print_existing_nastil_keeps_later_passport_open(client, auth_headers, passport_cutting, quantity):
+    batches, order, work, payload = passport_cutting
+    payload.update(cutting_passport_id=None, use_passport_materials=False,
+                   defer_material_usage=True, input_quantity=0,
+                   cut_pieces=quantity, passed_pieces=quantity)
+    payload["bundles"][0]["quantity"] = quantity
+    created = client.post("/api/cutting/records", headers=auth_headers, json=payload)
+    assert created.status_code == 201, created.text
+    later = client.post("/api/cutting-passports", headers=auth_headers, json={
+        "date": "2026-10-16T00:00:00Z", "production_order_id": order["id"], "pieces": 10,
+    })
+    assert later.status_code == 201, later.text
+    later_batch = later.json()["production_batch_id"]
+    url = f"/api/cutting/records/{created.json()['id']}/production-sheet"
+
+    def snapshot():
+        with SessionLocal() as db:
+            rows = db.query(WorkOrder).filter_by(production_order_id=order["id"]).order_by(WorkOrder.id).all()
+            assert db.get(WorkOrder, work["id"]).status == "in_progress"
+            assert db.query(CuttingRecord).filter_by(production_batch_id=later_batch).count() == 0
+            assert db.query(Bundle).filter_by(production_batch_id=later_batch).count() == 0
+            assert [float(db.get(StockBatch, row["id"]).quantity) for row in batches] == [100, 100]
+            return [tuple(getattr(row, field) for field in (
+                "id", "status", "planned_output_qty", "actual_input_qty", "actual_output_qty",
+                "passed_qty", "failed_qty", "start_time", "end_time",
+            )) for row in rows]
+
+    before = snapshot()
+    preview = client.get(url, headers=auth_headers)
+    assert preview.status_code == 200, preview.text
+    for _ in range(2):
+        printed = client.post(url, headers=auth_headers)
+        assert printed.status_code == 200, printed.text
+        assert printed.text == preview.text
+        assert snapshot() == before
+    invalid = client.post(url + "?bundle_ids=invalid", headers=auth_headers)
+    assert invalid.status_code == 400
+    assert snapshot() == before
+
+
+def test_sheet_prints_before_usage_and_later_entry_debits_once(client, auth_headers, passport_cutting):
+    batches, order, work, payload = passport_cutting
+    payload.update(cutting_passport_id=None, use_passport_materials=False,
+                   defer_material_usage=True, input_quantity=0)
+    result = client.post("/api/cutting/records", headers=auth_headers, json=payload)
+    assert result.status_code == 201, result.text
+    rid = result.json()["id"]
+    assert result.json()["materials"] == []
+    sheet = client.post(f"/api/cutting/records/{rid}/production-sheet", headers=auth_headers)
+    assert sheet.status_code == 200, sheet.text
+    assert "<caption>Material /" not in sheet.text
+    details = client.get(f"/api/cutting/records/{rid}", headers=auth_headers).json()
+    assert details["material_usage_pending"]
+    assert {row["stock_batch_id"] for row in details["pending_materials"]} == {row["id"] for row in batches}
+    with SessionLocal() as db:
+        assert db.get(WorkOrder, work["id"]).status == "completed"
+        assert [float(db.get(StockBatch, row["id"]).quantity) for row in batches] == [100, 100]
+        assert db.query(StockMovement).filter_by(reference_type="CuttingRecord", reference_id=rid).count() == 0
+    usage = {"material_usage": [{"stock_batch_id": row["id"], "quantity": 4.5, "unit": "kg",
+              "details": {"layer_material_kg": 1.5, "material_rolls_used": 2, "cut_pieces": 10,
+                          "layup_operator_name": "Entered later", "waste_quantity": 0.2}} for row in batches]}
+    saved = client.patch(f"/api/cutting/records/{rid}", headers=auth_headers, json=usage)
+    assert saved.status_code == 200, saved.text
+    assert not saved.json()["material_usage_pending"]
+    assert [row["quantity"] for row in saved.json()["materials"]] == [4.5, 4.5]
+    repeated = client.patch(f"/api/cutting/records/{rid}", headers=auth_headers, json=usage)
+    assert repeated.status_code == 409, repeated.text
+    with SessionLocal() as db:
+        assert [float(db.get(StockBatch, row["id"]).quantity) for row in batches] == [95.5, 95.5]
+        assert db.query(Bundle).filter_by(production_order_id=order["id"]).one().quantity == 10
+        assert db.get(WorkOrder, work["id"]).passed_qty == 10
+    sheet = client.get(f"/api/cutting/records/{rid}/production-sheet", headers=auth_headers)
+    assert sheet.status_code == 200 and "Entered later" in sheet.text
+
+
+def test_later_usage_shortage_rolls_back_all_fabrics(client, auth_headers, passport_cutting):
+    batches, _, _, payload = passport_cutting
+    payload.update(cutting_passport_id=None, use_passport_materials=False,
+                   defer_material_usage=True, input_quantity=0)
+    created = client.post("/api/cutting/records", headers=auth_headers, json=payload)
+    assert created.status_code == 201, created.text
+    rid = created.json()["id"]
+    with SessionLocal() as db:
+        db.get(StockBatch, batches[1]["id"]).quantity = 0
+        db.commit()
+    saved = client.patch(f"/api/cutting/records/{rid}", headers=auth_headers, json={
+        "material_usage": [{"stock_batch_id": row["id"], "quantity": 4.5, "unit": "kg"} for row in batches],
+    })
+    assert saved.status_code == 409, saved.text
+    with SessionLocal() as db:
+        assert db.get(StockBatch, batches[0]["id"]).quantity == 100
+        assert db.get(CuttingRecord, rid).input_quantity == 0
+        assert db.query(CuttingMaterialUsage).filter_by(cutting_record_id=rid).count() == 0
+        assert db.query(StockMovement).filter_by(reference_type="CuttingRecord", reference_id=rid).count() == 0
+
+
+def test_awaiting_packaging_has_business_identity(client, auth_headers, passport_cutting):
+    _, order, _, _ = passport_cutting
+    with SessionLocal() as db:
+        sew = db.query(WorkOrder).filter_by(production_order_id=order["id"], operation="sewing").one()
+        sew.passed_qty = 7
+        db.commit()
+    result = client.get("/api/inbox?dept=PKG", headers=auth_headers)
+    assert result.status_code == 200, result.text
+    row = next(row for row in result.json()["awaiting_packaging"] if row["production_order_id"] == order["id"])
+    assert row["order_no"] and row["production_no"]
+    assert row["model_no"] and "variant_no" in row and "model_image_url" in row and "material_image_url" in row
+    assert row["ready_qty"] == 7
+
+
+def test_partial_packaging_keeps_total_and_ready_remainders_separate(client, auth_headers, passport_cutting):
+    _, order, _, _ = passport_cutting
+    with SessionLocal() as db:
+        sew = db.query(WorkOrder).filter_by(production_order_id=order["id"], operation="sewing").one()
+        pack = db.query(WorkOrder).filter_by(production_order_id=order["id"], operation="packaging").one()
+        sew.passed_qty = 7
+        pack.passed_qty = 7
+        pack.planned_output_qty = 10
+        db.commit()
+    result = client.get("/api/inbox?dept=PKG", headers=auth_headers)
+    assert result.status_code == 200, result.text
+    row = next(row for row in result.json()["partially_packaged"] if row["production_order_id"] == order["id"])
+    assert row["remaining_qty"] == 3 and row["ready_qty"] == 0 and row["already_packed"] == 7
+    assert row["id"] and row["operation"] == "packaging" and row["model_no"]
+
+
+def test_optional_passport_number_and_cutting_inbox_link(client, auth_headers, passport_cutting):
+    _, order, _, _ = passport_cutting
+    result = client.post("/api/cutting-passports", headers=auth_headers, json={
+        "date": "2026-10-03T00:00:00Z", "production_order_id": order["id"], "pieces": 10,
+    })
+    assert result.status_code == 201, result.text
+    assert result.json()["passport_no"] == ""
+    inbox = client.get("/api/inbox?dept=CUT", headers=auth_headers)
+    assert inbox.status_code == 200, inbox.text
+    row = next(row for row in inbox.json()["cutting_work_orders"] if row["production_order_id"] == order["id"])
+    assert row["cutting_passport_id"] == result.json()["id"]
+
+
+def test_saved_passport_shortage_keeps_sheet_and_pending_stock_evidence(client, auth_headers, passport_cutting):
+    batches, order, work, payload = passport_cutting
+    with SessionLocal() as db:
+        db.get(StockBatch, batches[0]["id"]).quantity = 0
+        db.commit()
+    result = client.post("/api/cutting/records", headers=auth_headers, json=payload)
+    assert result.status_code == 201, result.text
+    with SessionLocal() as db:
+        assert db.query(Bundle).filter_by(production_order_id=order["id"]).one().quantity == 10
+        assert db.get(WorkOrder, work["id"]).passed_qty == 10
+        assert [float(db.get(StockBatch, row["id"]).quantity) for row in batches] == [0, 93.5]
+        pending = db.query(CuttingMaterialUsage).filter_by(cutting_record_id=result.json()["id"], stock_batch_id=batches[0]["id"]).one()
+        assert pending.quantity == 6.5
+        assert pending.details["inventory_consumption"]["pending_quantity"] == 6.5
+        assert pending.details["inventory_consumption"]["consumed_quantity"] == 0
+        assert db.query(StockMovement).filter_by(batch_id=batches[0]["id"], movement_type="consume").count() == 0
+        reservation = db.query(MaterialReservation).filter_by(production_order_id=order["id"], stock_batch_id=batches[0]["id"]).first()
+        if reservation:
+            assert float(reservation.consumed_quantity) == 0
+    again = client.post("/api/cutting/records", headers=auth_headers, json=payload)
+    assert again.status_code == 409, again.text
+
+
+def test_passport_save_checks_fabric_stock_and_used_passport_credits_own_debit(client, auth_headers, passport_cutting):
+    batches, order, _, payload = passport_cutting
+    passport_id = payload["cutting_passport_id"]
+    saved = client.get(f"/api/cutting-passports/{passport_id}", headers=auth_headers).json()
+    shortage = {**saved, "passport_no": "SHORT-" + uuid4().hex[:8], "materials": [
+        {"stock_batch_id": row["id"], "layer_weight_kg": 2, "total_layers": 100} for row in batches
+    ]}
+    for response in (
+        client.post("/api/cutting-passports", headers=auth_headers, json=shortage),
+        client.put(f"/api/cutting-passports/{passport_id}", headers=auth_headers, json=shortage),
+    ):
+        assert response.status_code == 409, response.text
+        assert "Insufficient fabric for passport" in response.json()["detail"]
+        assert "required 200" in response.json()["detail"]
+    result = client.post("/api/cutting/records", headers=auth_headers, json=payload)
+    assert result.status_code == 201, result.text
+    with SessionLocal() as db:
+        for row in batches:
+            db.get(StockBatch, row["id"]).quantity = 0
+        db.commit()
+    saved["notes"] = "Corrected note after stock consumption"
+    update = client.put(f"/api/cutting-passports/{passport_id}", headers=auth_headers, json=saved)
+    assert update.status_code == 200, update.text

@@ -153,3 +153,4 @@ Daily supervisor use:
 | Cutting blocked | Required material reservation may be incomplete | Check reservation status on Production Order. |
 | Payroll scan duplicates | Same work QR was scanned already | Check saved/duplicate status before rescanning. |
 | Audit history looks wrong | A user action changed the record | Management/Admin should review audit logs. |
+

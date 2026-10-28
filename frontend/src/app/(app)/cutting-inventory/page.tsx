@@ -1,17 +1,21 @@
 "use client";
 
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Fragment, useMemo, useState, type FormEvent } from "react";
 import { ChevronDown, ChevronRight, QrCode, RefreshCw, Search, X } from "lucide-react";
 import useSWR from "swr";
+import useLoadMore from "@/lib/useLoadMore";
 import PageHeader from "@/components/PageHeader";
 import PaginationControls from "@/components/PaginationControls";
 import FabricThumbnail from "@/components/FabricThumbnail";
-import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 import { statusLabel } from "@/components/StagePipeline";
 import { api, fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
-import { orderReference } from "@/lib/orderRef";
+import { orderReference, rawOrderReference } from "@/lib/orderRef";
+import CuttingFactorySummary from "@/components/dashboard/CuttingFactorySummary";
+import { departmentMessages } from "@/components/dashboard/departmentMessages";
 
 type Department = { id: number; name: string; code: string };
 
@@ -41,6 +45,7 @@ type InventoryResponse = {
   total: number;
   total_quantity: number;
   total_orders: number;
+  total_work_orders: number;
   page: number;
   page_size: number;
 };
@@ -55,6 +60,7 @@ type Group = {
   totalQty: number;
   toPrinting: number;
   toSewing: number;
+  factory: string;
 };
 
 const SEWING_CODES = new Set(["SEW", "MIL", "BST", "ECO"]);
@@ -68,7 +74,8 @@ function factoryLabel(value: string | null | undefined, t: (key: string) => stri
   const normalized = String(value || "").trim().toUpperCase();
   if (normalized === "BST" || normalized === "BESTTEX") return t("factory.besttex");
   if (normalized === "ECO" || normalized === "ECO COTTON" || normalized === "ECO_COTTON") return t("factory.ecoCotton");
-  return t("factory.milana");
+  if (["MIL", "MILANA", "SEW"].includes(normalized)) return t("factory.milana");
+  return t("departmentDashboard.unassigned");
 }
 
 function destinationLabel(row: BundleRow, departmentById: Map<number, Department>, t: (key: string) => string) {
@@ -85,7 +92,12 @@ function inventoryState(row: BundleRow, t: (key: string) => string) {
 }
 
 export default function CuttingInventoryPage() {
-  const { t } = useT();
+  const { t, lang } = useT();
+  const copy = departmentMessages[lang];
+  const searchParams = useSearchParams();
+  const cuttingDepartment = searchParams.get("cutting_department") === "ECT" ? "ECT" : "CUT";
+  const factoryName = cuttingDepartment === "ECT" ? t("factory.ecoCotton") : t("factory.milana");
+  const destination = searchParams.get("destination_factory") || "ALL";
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [searchDraft, setSearchDraft] = useState("");
@@ -98,16 +110,15 @@ export default function CuttingInventoryPage() {
     const params = new URLSearchParams({
       page: String(page),
       page_size: String(pageSize),
+      cutting_department_code: cuttingDepartment,
+      destination_factory: destination,
     });
     if (search) params.set("q", search);
     return `/api/bundles/cutting-inventory?${params.toString()}`;
-  }, [page, pageSize, search]);
+  }, [cuttingDepartment, destination, page, pageSize, search]);
 
-  const { data: pageData, mutate, isLoading } = useSWR<InventoryResponse>(
-    inventoryUrl,
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
+  const listPager = useLoadMore<InventoryResponse>(inventoryUrl, fetcher);
+  const { data: pageData, mutate, isLoading } = listPager;
   const rows = useMemo(() => pageData?.rows || [], [pageData?.rows]);
 
   const grouped = useMemo<Group[]>(() => {
@@ -117,7 +128,8 @@ export default function CuttingInventoryPage() {
       const productionBatchId = row.production_batch_id ? Number(row.production_batch_id) : null;
       const batchLabel = row.batch_label || (productionBatchId ? `${t("field.batch")} #${productionBatchId}` : "-");
       const trackingPassportNo = row.tracking_passport_no || "";
-      const key = `${orderNo}::${productionBatchId || "none"}`;
+      const factory = ["MIL", "BST", "ECO"].includes(String(row.sewing_factory_code || "").trim().toUpperCase()) ? String(row.sewing_factory_code).trim().toUpperCase() : "UNASSIGNED";
+      const key = `${rawOrderReference(row, `#${row.production_order_id}`)}::${productionBatchId || "none"}::${factory}`;
       const code = nextDepartmentCode(row, departmentById);
       const goesToPrinting = row.status === "sent_to_printing" || code === "PRT";
       const group = map.get(key);
@@ -129,6 +141,7 @@ export default function CuttingInventoryPage() {
       } else {
         map.set(key, {
           key,
+          factory,
           orderNo,
           productionBatchId,
           batchLabel,
@@ -180,10 +193,11 @@ export default function CuttingInventoryPage() {
   return (
     <div>
       <PageHeader
-        title={t("page.cuttingInventory.title")}
+        title={`${factoryName} - ${t("page.cuttingInventory.title")}`}
         subtitle={t("page.cuttingInventory.subtitle")}
         actions={(
           <div className="flex flex-wrap gap-2">
+            <Link className="btn" href={`/dashboards/cutting?cutting_department=${cuttingDepartment}`}>{copy.cutting}</Link>
             <button type="button" className="btn" onClick={() => mutate()}>
               <RefreshCw className="h-4 w-4" />
               {t("btn.refresh")}
@@ -196,7 +210,8 @@ export default function CuttingInventoryPage() {
         )}
       />
 
-      <div className="mb-4 grid gap-3 md:grid-cols-3">
+      <CuttingFactorySummary department={cuttingDepartment} />
+      <div className="mb-4 grid gap-3 md:grid-cols-4">
         <div className="card p-4">
           <div className="text-sm text-slate-500">{t("page.cuttingInventory.orders")}</div>
           <div className="mt-1 text-2xl font-semibold text-slate-900">{totalOrders.toLocaleString()}</div>
@@ -209,11 +224,13 @@ export default function CuttingInventoryPage() {
           <div className="text-sm text-slate-500">{t("page.cuttingInventory.pieces")}</div>
           <div className="mt-1 text-2xl font-semibold text-slate-900">{totalQuantity.toLocaleString()}</div>
         </div>
+        <div className="card p-4"><div className="text-sm text-slate-500">{copy.works}</div><div className="mt-1 text-2xl font-semibold">{Number(pageData?.total_work_orders || 0).toLocaleString()}</div></div>
       </div>
 
       <div className="card">
         <div className="border-b border-[#e3dfd3] p-4">
           <form className="flex flex-col gap-2 sm:flex-row" onSubmit={submitSearch}>
+            <label className="text-xs text-slate-500">{copy.factory}<select className="input" aria-label={copy.factory} value={destination} onChange={event => { window.location.href = `/cutting-inventory?cutting_department=${cuttingDepartment}&destination_factory=${event.target.value}`; }}><option value="ALL">{copy.all}</option><option value="MIL">Milana</option><option value="BST">Besttex</option><option value="ECO">Eco Cotton</option><option value="UNASSIGNED">{copy.unassigned}</option></select></label>
             <div className="relative flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
@@ -275,6 +292,7 @@ export default function CuttingInventoryPage() {
                       </td>
                       <td>
                         <div>{group.batchLabel}</div>
+                        <div className="mt-1 text-xs font-semibold">{group.factory === "UNASSIGNED" ? copy.unassigned : factoryLabel(group.factory, t)}</div>
                         {group.trackingPassportNo && <div className="text-xs text-slate-500">{group.trackingPassportNo}</div>}
                       </td>
                       <td>
@@ -318,7 +336,7 @@ export default function CuttingInventoryPage() {
                         <td>
                           <div className="flex items-center gap-2">
                             <FabricThumbnail imageUrl={row.material_image_url} label={row.model_code} size="sm" />
-                            <span>{row.model_code || row.model_id}</span>
+                            <span>{formatModelVariantCode(row.model_code) || row.model_id}</span>
                           </div>
                         </td>
                         <td>{row.quantity}</td>
@@ -343,7 +361,7 @@ export default function CuttingInventoryPage() {
           </table>
         </div>
 
-        <PaginationControls
+        <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()}
           page={page}
           pageSize={pageSize}
           total={totalBundles}

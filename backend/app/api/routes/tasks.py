@@ -1,23 +1,35 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
+from sqlalchemy import func
 
+from app.api.routes.notifications import _max_bulk_recipients
 from app.core.deps import DbSession, CurrentUser, is_admin, user_permissions
-from app.models import Task, User
-from app.schemas.tasks import TaskIn, TaskUpdate, TaskOut
-from app.services.audit import log_action
-from app.services.notifications import notify
+from app.schemas import Notification, Task, User
+from app.libs.dto.work_management.tasks import TaskIn, TaskUpdate, TaskOut
+from app.models.audit_service import log_action
+from app.models.notifications_service import notify
+from app.models.user_access_service import access_configured, permission_denied
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 
 def _can_manage(user: User) -> bool:
     """Admins and Management can create / reassign / delete tasks for anyone."""
+    if permission_denied(user, "tasks.manage"):
+        return False
     if is_admin(user):
         return True
-    if user.role and user.role.name in ("Admin", "Management"):
+    if not access_configured(user) and user.role and user.role.name in ("Admin", "Management"):
         return True
     perms = user_permissions(user)
     return "tasks.manage" in perms or "management.approve" in perms
+
+
+def _require_single_assignee(assigned: int | None, db: DbSession, current: User, is_manager: bool) -> None:
+    if assigned != current.id and not is_manager:
+        raise HTTPException(403, "Only managers can assign tasks to other users")
+    if assigned is not None and not db.get(User, assigned):
+        raise HTTPException(404, "Assigned user not found")
 
 
 def _task_link(t: Task) -> str | None:
@@ -61,6 +73,20 @@ def list_tasks(
     return qry.order_by(Task.id.desc()).all()
 
 
+@router.get("/open-count")
+def open_task_count(db: DbSession, current: CurrentUser):
+    count = (
+        db.query(func.count(Task.id))
+        .filter(
+            Task.assigned_to == current.id,
+            Task.status.in_(("pending", "in_progress")),
+        )
+        .scalar()
+        or 0
+    )
+    return {"count": int(count)}
+
+
 @router.post("", response_model=TaskOut, status_code=201)
 def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
     is_manager = _can_manage(current)
@@ -70,7 +96,10 @@ def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
     if requested_assignee == -1:
         if not is_manager:
             raise HTTPException(403, "Only managers can assign tasks to everyone")
-        targets = db.query(User).filter(User.is_active.is_(True)).order_by(User.id).all()
+        max_recipients = _max_bulk_recipients()
+        targets = db.query(User.id).filter(User.is_active.is_(True)).order_by(User.id).limit(max_recipients + 1).all()
+        if len(targets) > max_recipients:
+            raise HTTPException(400, f"Recipient count exceeds ERP_MCP_MAX_BULK_RECIPIENTS={max_recipients}")
         if not targets:
             raise HTTPException(404, "No active users found")
 
@@ -88,15 +117,17 @@ def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
                 entity_id=payload.entity_id,
             )
             db.add(t)
-            db.flush()
             created.append(t)
-            notify(
-                db, user_id=user.id,
+            db.add(Notification(
+                user_id=user.id,
                 title=f"New task: {t.title}",
                 message=(t.description or "")[:280],
                 link=_task_link(t),
-            )
+            ))
 
+        # No per-recipient generated ID is needed until the audit below.
+        # Flush once so PostgreSQL can batch task/notification inserts.
+        db.flush()
         first_task = created[0]
         log_action(
             db,
@@ -116,10 +147,7 @@ def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
 
     # Non-managers can only assign tasks to themselves.
     assigned = requested_assignee or current.id
-    if assigned != current.id and not is_manager:
-        raise HTTPException(403, "Only managers can assign tasks to other users")
-    if not db.get(User, assigned):
-        raise HTTPException(404, "Assigned user not found")
+    _require_single_assignee(assigned, db, current, is_manager)
 
     t = Task(
         title=payload.title,
@@ -166,9 +194,10 @@ def update_task(tid: int, payload: TaskUpdate, db: DbSession, current: CurrentUs
     # Assignees may update status; only managers / creator may change other fields.
     changes = payload.model_dump(exclude_unset=True)
     is_assignee = t.assigned_to == current.id
-    is_manager = _can_manage(current) or t.created_by == current.id
+    is_manager = _can_manage(current)
+    can_edit = is_manager or t.created_by == current.id
 
-    if not is_manager:
+    if not can_edit:
         if not is_assignee:
             raise HTTPException(403, "Not allowed")
         # Restrict assignees to status-only changes.
@@ -177,6 +206,8 @@ def update_task(tid: int, payload: TaskUpdate, db: DbSession, current: CurrentUs
             raise HTTPException(403, "Assignees can only change status")
 
     previous_assignee = t.assigned_to
+    if "assigned_to" in changes and changes["assigned_to"] != previous_assignee:
+        _require_single_assignee(changes["assigned_to"], db, current, is_manager)
     for k, v in changes.items():
         setattr(t, k, v)
 

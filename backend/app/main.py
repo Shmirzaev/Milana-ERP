@@ -1,7 +1,8 @@
 import os
 import logging
+from threading import Event, Lock, Thread
+from time import perf_counter
 from contextlib import asynccontextmanager
-from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -10,16 +11,21 @@ from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security.utils import get_authorization_scheme_param
+from starlette.middleware.gzip import GZipMiddleware
+from starlette.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, Response
+from sqlalchemy import text
 
 from app.core.config import settings
+from app.core.proxy_trust import client_ip, effective_request_scheme, validate_proxy_runtime_configuration
 from app.core.deps import DbSession
 from app.core.security import decode_token
 from app.core.shared_store import get_shared_counter_store
 from app.api.router import api_router
 from app.db.session import SessionLocal, engine
-import app.models  # noqa: F401 — register models with metadata
+import app.schemas  # noqa: F401 — register models with metadata
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("milana")
@@ -66,6 +72,7 @@ def _run_local_schema_sync() -> None:
 def _run_startup() -> None:
     """Validate runtime settings and database readiness before serving."""
     settings.validate_runtime_security()
+    validate_proxy_runtime_configuration(strict_security_required=settings.strict_security_required)
     # In production validate_runtime_security() hard-fails on insecure defaults.
     # Outside production we don't block local dev, but we still surface them
     # loudly so a misconfigured deploy (e.g. ENV left at "development") can't run
@@ -108,29 +115,61 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title=settings.APP_NAME, version="0.1.0", lifespan=lifespan)
 
 _UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
-_RATE_LIMIT_EXEMPT_PATHS = {"/health"}
+_RATE_LIMIT_EXEMPT_PATHS = {"/health", "/ready"}
+_RATE_LIMIT_IP_ONLY_PATHS = {
+    "/api/auth/forgot-password",
+    "/api/auth/login",
+    "/api/auth/login-json",
+    "/api/auth/login-panel",
+    "/api/auth/reset-password",
+    "/api/auth/token",
+    "/api/session/forgot-password",
+    "/api/session/login",
+    "/api/session/login-json",
+    "/api/session/login-panel",
+    "/api/session/reset-password",
+}
+_READINESS_TIMEOUT_SECONDS = 2.0
+_READINESS_CHECK_SLOT = Lock()
+
+
+def _probe_postgresql() -> None:
+    with engine.connect() as connection:
+        connection.execute(text("SELECT 1")).scalar_one()
+
+
+def _postgresql_ready_within(timeout_seconds: float) -> bool:
+    """Bound readiness latency and allow at most one stuck database probe."""
+    slot = _READINESS_CHECK_SLOT
+    if not slot.acquire(blocking=False):
+        return False
+
+    completed = Event()
+    ready = False
+
+    def run_probe() -> None:
+        nonlocal ready
+        try:
+            _probe_postgresql()
+        except Exception:
+            pass
+        else:
+            ready = True
+        finally:
+            slot.release()
+            completed.set()
+
+    try:
+        Thread(target=run_probe, name="postgres-readiness", daemon=True).start()
+    except Exception:
+        slot.release()
+        return False
+
+    return completed.wait(timeout=max(timeout_seconds, 0.001)) and ready
 
 
 def _rate_limit_client_key(request: Request) -> str:
-    peer = request.client.host if request.client else "unknown"
-    forwarded = request.headers.get("x-forwarded-for")
-    # In supported deployments the app sits behind a trusted proxy. This keeps
-    # direct clients from picking arbitrary buckets in normal operation while
-    # still separating users behind Vercel/HF proxies and local TestClient.
-    trusted_peer = peer in {"testclient", "127.0.0.1", "::1", "localhost"}
-    if not trusted_peer:
-        try:
-            import ipaddress
-            peer_ip = ipaddress.ip_address(peer)
-            trusted_peer = peer_ip.is_private or peer_ip.is_loopback
-        except ValueError:
-            trusted_peer = False
-    if trusted_peer and forwarded:
-        first = forwarded.split(",")[0].strip()
-        if first:
-            return first
-    return peer
-
+    return client_ip(request)
 
 def _rate_limit_allowed(key: str) -> tuple[bool, int | None]:
     if not settings.GLOBAL_RATE_LIMIT_ENABLED:
@@ -167,10 +206,7 @@ def _trusted_csrf_origins(request: Request) -> set[str]:
     })
     host = request.headers.get("host", "").strip().lower()
     if host:
-        configured.add(f"{request.url.scheme}://{host}")
-        proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
-        if proto in {"http", "https"}:
-            configured.add(f"{proto}://{host}")
+        configured.add(f"{effective_request_scheme(request)}://{host}")
     return configured
 
 
@@ -189,7 +225,10 @@ def _request_origin_allowed(request: Request) -> bool:
 @app.middleware("http")
 async def _global_rate_limit(request: Request, call_next):
     if request.method.upper() != "OPTIONS" and request.url.path not in _RATE_LIMIT_EXEMPT_PATHS:
-        allowed, retry_after = _rate_limit_allowed(_rate_limit_client_key(request))
+        # Counter I/O and SQLite contention belong in Starlette's bounded pool.
+        allowed, retry_after = await run_in_threadpool(
+            _rate_limit_allowed, _rate_limit_identity_key(request)
+        )
         if not allowed:
             return JSONResponse(
                 status_code=429,
@@ -216,19 +255,38 @@ async def _security_headers(request: Request, call_next):
         "Content-Security-Policy",
         "default-src 'self'; img-src 'self' data: blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
     )
-    if request.url.scheme == "https":
+    if effective_request_scheme(request) == "https":
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     # Uploaded files under /storage are served unauthenticated (so <img> tags can
     # render them with bearer-token auth). They have unguessable UUID names; keep
     # them out of shared caches and search indexes to limit URL-leak exposure.
     if request.url.path.startswith("/storage/"):
-        if request.url.path.startswith("/storage/model-files/thumb/"):
+        if response.status_code >= 400:
+            response.headers["Cache-Control"] = "private, no-store"
+        elif request.url.path.startswith("/storage/model-files/thumb/"):
             response.headers.setdefault("Cache-Control", "private, max-age=604800")
         elif request.url.path.startswith("/storage/model-files/"):
             response.headers.setdefault("Cache-Control", "private, max-age=86400")
         else:
             response.headers.setdefault("Cache-Control", "private, no-store")
         response.headers.setdefault("X-Robots-Tag", "noindex, nofollow")
+    return response
+
+
+@app.middleware("http")
+async def _request_timing(request: Request, call_next):
+    started = perf_counter()
+    response = await call_next(request)
+    duration_ms = (perf_counter() - started) * 1000
+    response.headers["Server-Timing"] = f"app;dur={duration_ms:.1f}"
+    if duration_ms >= 1000:
+        log.warning(
+            "slow_request method=%s path=%s status=%s duration_ms=%.1f",
+            request.method,
+            request.url.path,
+            response.status_code,
+            duration_ms,
+        )
     return response
 
 
@@ -268,6 +326,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Most authenticated ERP list endpoints return highly compressible JSON. Keep
+# the threshold above small control responses so compression CPU is spent only
+# where it materially reduces transfer size. Static model images are already
+# encoded and are therefore unaffected by this middleware.
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
+
 app.include_router(api_router)
 
 # Serve generated QR/barcode images
@@ -299,7 +363,7 @@ def _safe_model_file_path(name: str):
 
 
 def _model_image_record(name: str, db: DbSession):
-    from app.models import ModelImage
+    from app.schemas import ModelImage
 
     file_url = f"/storage/model-files/{name}"
     return (
@@ -359,7 +423,7 @@ def serve_model_file(name: str, request: Request):
 def serve_model_thumbnail(name: str, request: Request, size: int = 320):
     from fastapi import HTTPException
     from fastapi.responses import FileResponse
-    from PIL import Image, ImageOps, UnidentifiedImageError
+    from PIL import UnidentifiedImageError
 
     _require_model_file_token(request)
     source_path = _model_file_path_if_exists(name)
@@ -371,7 +435,7 @@ def serve_model_thumbnail(name: str, request: Request, size: int = 320):
     if not source_path and not image_data:
         raise HTTPException(status_code=404, detail="Not found")
 
-    safe_size = max(96, min(int(size or 320), 640))
+    safe_size = max(96, min(int(size or 320), 1280))
     os.makedirs(_MODEL_THUMBS_ROOT, exist_ok=True)
     thumb_name = f"{safe_size}_{name}.webp"
     thumb_path = os.path.realpath(os.path.join(_MODEL_THUMBS_ROOT, thumb_name))
@@ -381,14 +445,15 @@ def serve_model_thumbnail(name: str, request: Request, size: int = 320):
     source_mtime = os.path.getmtime(source_path) if source_path else 0
     if not os.path.isfile(thumb_path) or os.path.getmtime(thumb_path) < source_mtime:
         try:
-            image_source = source_path if source_path else BytesIO(image_data)
-            with Image.open(image_source) as img:
-                img = ImageOps.exif_transpose(img)
-                img.thumbnail((safe_size, safe_size), Image.Resampling.LANCZOS)
-                if img.mode not in {"RGB", "RGBA"}:
-                    img = img.convert("RGB")
-                img.save(thumb_path, "WEBP", quality=76, method=4)
-        except (UnidentifiedImageError, OSError):
+            from app.models.image_storage_service import ensure_webp_thumbnail
+
+            ensure_webp_thumbnail(
+                destination_path=thumb_path,
+                size=safe_size,
+                source_path=source_path,
+                image_data=image_data,
+            )
+        except (UnidentifiedImageError, OSError, HTTPException):
             raise HTTPException(status_code=415, detail="File is not a previewable image")
 
     return FileResponse(
@@ -427,3 +492,45 @@ def serve_sales_order_file(name: str, exp: str | None = None, sig: str | None = 
 @app.get("/health")
 def health():
     return {"status": "ok", "app": settings.APP_NAME}
+
+
+@app.get("/ready", response_model=None)
+def readiness() -> dict[str, object] | JSONResponse:
+    if _postgresql_ready_within(_READINESS_TIMEOUT_SECONDS):
+        return {"status": "ready", "checks": {"postgresql": "ok"}}
+    return JSONResponse(
+        status_code=503,
+        content={"status": "not_ready", "checks": {"postgresql": "unavailable"}},
+    )
+
+
+def _rate_limit_identity_key(request: Request) -> str:
+    """Choose a rate-limit identity without changing route authentication.
+
+    Public authentication entry points always remain IP-scoped, even when a
+    caller supplies a valid session. Other requests with a cryptographically
+    valid, unexpired access token use its canonical user id so office users do
+    not consume one shared NAT budget. Invalid credentials fall back to the IP
+    bucket and are still rejected independently by the route dependency.
+    """
+    client_key = f"ip:{_rate_limit_client_key(request)}"
+    path = request.url.path.rstrip("/") or "/"
+    if path in _RATE_LIMIT_IP_ONLY_PATHS:
+        return client_key
+
+    authorization = request.headers.get("authorization")
+    scheme, parameter = get_authorization_scheme_param(authorization)
+    token = parameter if scheme.lower() == "bearer" else None
+    if not token:
+        token = request.cookies.get(settings.AUTH_COOKIE_NAME)
+    if not token:
+        return client_key
+
+    try:
+        payload = decode_token(token)
+        user_id = int(payload["sub"])
+        if user_id <= 0:
+            raise ValueError("invalid user id")
+    except (KeyError, OverflowError, TypeError, ValueError):
+        return client_key
+    return f"user:{user_id}"

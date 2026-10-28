@@ -1,8 +1,8 @@
 from datetime import datetime, timezone
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, User
-from app.services.audit import log_action, verify_audit_hash_chain
+from app.schemas import AuditLog, User
+from app.models.audit_service import log_action, verify_audit_hash_chain
 
 
 def test_audit_log_serializes_datetime_in_json_payload():

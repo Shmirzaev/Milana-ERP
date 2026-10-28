@@ -92,3 +92,4 @@ Non-sellable waste must not be disposed before approval.
 | Cannot sell | Waste not received or not sellable | Receive first or correct sellable flag through supervisor/Admin. |
 | Cannot dispose | Management approval missing | Request approval and wait. |
 | Finance report mismatch | Sale/disposal not recorded correctly | Review waste status and sale documents. |
+

@@ -60,3 +60,4 @@ Besttex Sewing Factory is a sewing execution department. It uses the Sewing role
 | Bundle is routed to Milana | Wrong physical bundle or wrong ERP route | Stop and notify supervisor. |
 | Quantity mismatch | Previous stage count or sewing entry mismatch | Check bundle/work order history before saving. |
 | No line available | Assignment missing or line full | Ask Planning/supervisor. |
+

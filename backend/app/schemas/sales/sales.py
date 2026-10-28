@@ -1,0 +1,200 @@
+from __future__ import annotations
+from datetime import datetime
+from sqlalchemy import CheckConstraint, String, Integer, Boolean, ForeignKey, DateTime, Text, Numeric, JSON, UniqueConstraint, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.types import TypeDecorator
+
+from app.db.base import Base, PkMixin, TimestampMixin
+from app.libs.enums.finance import InvoiceStatus
+from app.libs.enums.sales import SalesOrderItemSourceType, SalesOrderStatus, SalesOrderType
+
+SALES_ORDER_STATUS_VALUES = tuple(status.value for status in SalesOrderStatus)
+SALES_ORDER_STATUS_CHECK = "status IN (" + ", ".join(f"'{value}'" for value in SALES_ORDER_STATUS_VALUES) + ")"
+
+
+class SalesOrder(Base, PkMixin, TimestampMixin):
+    __tablename__ = "sales_orders"
+    __table_args__ = (
+        CheckConstraint("total_amount >= 0", name="ck_sales_orders_total_nonnegative"),
+        CheckConstraint(SALES_ORDER_STATUS_CHECK, name="ck_sales_orders_status"),
+    )
+    order_no: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id"))
+    order_type: Mapped[str] = mapped_column(String(32), default=SalesOrderType.CLIENT_ORDER.value, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default=SalesOrderStatus.DRAFT.value, nullable=False)
+    deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    total_amount: Mapped[float] = mapped_column(Numeric(14, 2), default=0, nullable=False)
+    planning_estimated_material_cost: Mapped[float | None] = mapped_column(Numeric(14, 2))
+    planning_estimated_labor_cost: Mapped[float | None] = mapped_column(Numeric(14, 2))
+    planning_estimated_electricity_cost: Mapped[float | None] = mapped_column(Numeric(14, 2))
+    planning_estimated_other_cost: Mapped[float | None] = mapped_column(Numeric(14, 2))
+    planning_estimated_net_cost: Mapped[float | None] = mapped_column(Numeric(14, 2))
+    planning_suggested_price_15: Mapped[float | None] = mapped_column(Numeric(14, 2))
+    planning_suggested_price_20: Mapped[float | None] = mapped_column(Numeric(14, 2))
+    planning_estimated_lead_time_minutes: Mapped[int | None] = mapped_column(Integer)
+    planning_estimate_comment: Mapped[str | None] = mapped_column(Text)
+    planning_estimate_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    planning_estimate_submitted_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    printing_instructions: Mapped[str | None] = mapped_column(Text)
+    printing_attachments: Mapped[list[dict] | None] = mapped_column(JSON, default=list)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+
+    items: Mapped[list["SalesOrderItem"]] = relationship("SalesOrderItem", back_populates="sales_order", cascade="all, delete-orphan")
+
+
+class SalesOrderItem(Base, PkMixin, TimestampMixin):
+    __tablename__ = "sales_order_items"
+    __table_args__ = (
+        CheckConstraint("quantity >= 0", name="ck_sales_order_items_quantity_nonnegative"),
+        CheckConstraint("requested_pack_count IS NULL OR requested_pack_count > 0", name="ck_sales_order_items_requested_packs_positive"),
+        CheckConstraint("unit_price >= 0", name="ck_sales_order_items_unit_price_nonnegative"),
+        CheckConstraint(
+            "model_id IS NOT NULL OR finished_goods_stock_id IS NOT NULL",
+            name="ck_sales_order_items_product_reference",
+        ),
+    )
+    sales_order_id: Mapped[int] = mapped_column(ForeignKey("sales_orders.id"), nullable=False, index=True)
+    model_id: Mapped[int | None] = mapped_column(ForeignKey("models.id"))
+    finished_goods_stock_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "finished_goods_stock.id",
+            name="fk_sales_order_items_finished_goods_stock_id",
+        ),
+        index=True,
+    )
+    source_model_code: Mapped[str | None] = mapped_column(String(64))
+    source_model_name: Mapped[str | None] = mapped_column(String(255))
+    brand_id: Mapped[int | None] = mapped_column(ForeignKey("brands.id"))
+    collection_id: Mapped[int | None] = mapped_column(ForeignKey("collections.id"))
+    color: Mapped[str] = mapped_column(String(64), nullable=False)
+    size: Mapped[str] = mapped_column(String(32), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    requested_pack_count: Mapped[int | None] = mapped_column(Integer)
+    unit_price: Mapped[float] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    printing_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    source_type: Mapped[str] = mapped_column(String(32), default=SalesOrderItemSourceType.PRODUCE_NEW.value, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
+
+    sales_order: Mapped["SalesOrder"] = relationship("SalesOrder", back_populates="items")
+
+
+class Shipment(Base, PkMixin, TimestampMixin):
+    __tablename__ = "shipments"
+    __table_args__ = (
+        CheckConstraint("status IN ('draft', 'created', 'shipped', 'delivered', 'cancelled')", name="ck_shipments_status"),
+    )
+    sales_order_id: Mapped[int | None] = mapped_column(ForeignKey("sales_orders.id"))
+    customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id"))
+    shipment_no: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="draft", nullable=False)
+    shipped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    notes: Mapped[str | None] = mapped_column(Text)
+    dispatch_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    transport_details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    packages: Mapped[list["ShipmentPackage"]] = relationship("ShipmentPackage", back_populates="shipment", cascade="all, delete-orphan")
+    scan_logs: Mapped[list["ShipmentScanLog"]] = relationship(
+        "ShipmentScanLog",
+        back_populates="shipment",
+        cascade="all, delete-orphan",
+        order_by="ShipmentScanLog.scanned_at",
+    )
+
+
+class ShipmentPackage(Base, PkMixin, TimestampMixin):
+    __tablename__ = "shipment_packages"
+    __table_args__ = (
+        CheckConstraint("quantity > 0", name="ck_shipment_packages_quantity_positive"),
+        UniqueConstraint("shipment_id", "package_id", name="uq_shipment_packages_shipment_package"),
+    )
+    shipment_id: Mapped[int] = mapped_column(ForeignKey("shipments.id"), nullable=False)
+    package_id: Mapped[int] = mapped_column(ForeignKey("packages.id"), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    shipment: Mapped["Shipment"] = relationship("Shipment", back_populates="packages")
+
+
+class ShipmentScanLog(Base, PkMixin):
+    __tablename__ = "shipment_scan_logs"
+    shipment_id: Mapped[int] = mapped_column(ForeignKey("shipments.id"), nullable=False, index=True)
+    package_id: Mapped[int | None] = mapped_column(ForeignKey("packages.id"), index=True)
+    scanned_code: Mapped[str] = mapped_column(String(128), nullable=False)
+    scan_result: Mapped[str] = mapped_column(String(32), nullable=False)
+    message: Mapped[str | None] = mapped_column(Text)
+    scanned_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    scanned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    shipment: Mapped["Shipment"] = relationship("Shipment", back_populates="scan_logs")
+
+
+INVOICE_STATUS_VALUES = tuple(status.value for status in InvoiceStatus)
+INVOICE_STATUS_CHECK = "status IN (" + ", ".join(f"'{value}'" for value in INVOICE_STATUS_VALUES) + ")"
+
+
+class InvoiceStatusType(TypeDecorator):
+    """Storage-preserving conversion for the `invoices.status` column.
+
+    The column stays `VARCHAR(32)` and keeps the existing raw strings, so the
+    rendered DDL, the stored values and `ck_invoices_status` are untouched.
+    The conversion is explicit and reviewed: a canonical member is written as
+    its raw value and a loaded value becomes the canonical member, so the
+    mapped annotation describes what a reloaded row actually returns.
+
+    A value that is not a member is passed through unchanged and stays the
+    database CHECK constraint's business, which keeps the stored error shape.
+    An unknown stored value raises instead of silently becoming an open
+    string.
+    """
+
+    impl = String
+    cache_ok = True
+
+    def __init__(self, length: int = 32) -> None:
+        super().__init__(length)
+        self.length = length
+
+    def process_bind_param(self, value: InvoiceStatus | str | None, dialect) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, InvoiceStatus):
+            return value.value
+        return value
+
+    def process_result_value(self, value: str | None, dialect) -> InvoiceStatus | None:
+        if value is None:
+            return None
+        return InvoiceStatus(value)
+
+
+class Invoice(Base, PkMixin, TimestampMixin):
+    __tablename__ = "invoices"
+    __table_args__ = (
+        CheckConstraint("amount >= 0", name="ck_invoices_amount_nonnegative"),
+        CheckConstraint(INVOICE_STATUS_CHECK, name="ck_invoices_status"),
+    )
+    sales_order_id: Mapped[int] = mapped_column(ForeignKey("sales_orders.id"), nullable=False)
+    invoice_no: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    external_source: Mapped[str | None] = mapped_column(String(32))
+    external_id: Mapped[str | None] = mapped_column(String(128))
+    amount: Mapped[float] = mapped_column(Numeric(14, 2), default=0, nullable=False)
+    status: Mapped[InvoiceStatus] = mapped_column(InvoiceStatusType(), default=InvoiceStatus.UNPAID, nullable=False)
+    issued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Payment(Base, PkMixin, TimestampMixin):
+    __tablename__ = "payments"
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="ck_payments_amount_positive"),
+    )
+    invoice_id: Mapped[int | None] = mapped_column(ForeignKey("invoices.id"), nullable=True)
+    customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id"), nullable=True)
+    external_source: Mapped[str | None] = mapped_column(String(32))
+    external_id: Mapped[str | None] = mapped_column(String(128))
+    amount: Mapped[float] = mapped_column(Numeric(14, 2), default=0, nullable=False)
+    payment_method: Mapped[str | None] = mapped_column(String(32))
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    notes: Mapped[str | None] = mapped_column(Text)
