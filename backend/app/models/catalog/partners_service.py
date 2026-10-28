@@ -18,7 +18,7 @@ from app.libs.dto.catalog.party_output import PartyOut
 from app.libs.types.catalog import CustomerUpdateCommand, SupplierUpdateCommand
 from app.models.audit_service import log_action
 from app.schemas import Customer, PurchaseOrder, PurchaseRequestLine, SalesOrder, Shipment, StockBatch, Supplier, User
-from app.schemas.catalog.partners_persistence import apply_customer_update, apply_supplier_update, insert_customer, insert_supplier
+from app.schemas.catalog.partners_persistence import apply_customer_update, apply_supplier_update, delete_customer_row, insert_customer, insert_supplier
 
 
 def list_customers(
@@ -111,7 +111,7 @@ def delete_customer(
         raise HTTPException(409, "Customer is linked to sales orders")
     if db.query(Shipment).filter(Shipment.customer_id == cid).first():
         raise HTTPException(409, "Customer is linked to shipments")
-    db.delete(c)
+    delete_customer_row(db, c)
     log_action(db, current, "delete", "Customer", cid, new_value={"name": c.name})
     db.commit()
 

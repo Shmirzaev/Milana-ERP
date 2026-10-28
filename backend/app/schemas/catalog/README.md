@@ -17,7 +17,9 @@ create helpers flush for audit IDs. Services retain validation/policy, audit,
 outer commit and refresh. This source also uses `apply_supplier_update` with the
 omitted/null-aware `SupplierUpdateCommand`; its verification is separate from the
 dated integration checkpoint. The independent shipment customer creator and
-seed/import writers remain separate paths. These helpers do not change the
+seed/import writers remain separate paths. Customer DELETE uses `delete_customer_row`
+on the supplied Session; the service retains lookup, refusal checks, audit and
+outer commit. Candidate-specific verification remains pending. These helpers do not change the
 existing duplicate-name race behavior.
 
 ## Authoritative definitions

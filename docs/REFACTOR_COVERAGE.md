@@ -28,6 +28,8 @@ Full types, operations and production acceptance remain open.
 The table and inventory below preserve earlier candidate-specific checkpoints;
 they are not a current per-operation completion inventory.
 
+For the source-bound Catalog and Inventory operation queue based on merged PR340 4238974, see [operation queue](REFACTOR_OPERATION_QUEUE.md).
+
 ## Execution resumed with Codex subagents
 
 26 October 2026: Ismail explicitly requested "do the rest iwth codex subagents !".
