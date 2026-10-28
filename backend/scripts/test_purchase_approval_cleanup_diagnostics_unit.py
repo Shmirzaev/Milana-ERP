@@ -2,6 +2,9 @@
 import ast
 import hashlib
 import json
+import os
+import runpy
+from unittest.mock import patch
 from pathlib import Path
 import types
 import unittest
@@ -25,6 +28,16 @@ class Cursor:
     def fetchone(self): return (next(self.counts),)
 
 class Tests(unittest.TestCase):
+    def test_control_import_without_environment_or_database_dependencies(self):
+        control = SOURCE.with_name("purchase_approval_cleanup_pg_control.py")
+        with patch.dict(os.environ, {}, clear=True):
+            loaded = runpy.run_path(str(control), run_name="control_import_check")
+        self.assertTrue(callable(loaded["main"]))
+        self.assertNotIn("admin", loaded)
+        tree = ast.parse(control.read_text(encoding="utf-8"))
+        guard = next(n for n in tree.body if isinstance(n, ast.If))
+        self.assertEqual(ast.unparse(guard.test), "__name__ == '__main__'")
+
     def test_wait_immediate_delayed_and_persistent(self):
         for counts, timeout, expected in [([0], 2, (0, 0, 1, False)),
                                           ([1, 1, 0], 2, (1, 0, 3, False)),

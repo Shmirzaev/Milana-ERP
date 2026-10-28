@@ -32,7 +32,7 @@ jobs:
           PUR_APPROVAL_PG_ADMIN_URL: postgresql://postgres@127.0.0.1:55433/postgres
         run: |
           mkdir -p "$RUNNER_TEMP/pur-diag-results"
-          python backend/scripts/test_purchase_approval_cleanup_pg_control.py > "$RUNNER_TEMP/pur-diag-results/control.log" 2>&1
+          python backend/scripts/purchase_approval_cleanup_pg_control.py > "$RUNNER_TEMP/pur-diag-results/control.log" 2>&1
           cat "$RUNNER_TEMP/pur-diag-results/control.log"
       - name: Run three bounded independent owned-target diagnostics
         env:
