@@ -137,5 +137,15 @@ class AppRouteManifestTests(unittest.TestCase):
                 producer.validate_required_file_members(declaration, members)
 
 
+class PushRefAllowlistTests(unittest.TestCase):
+    def test_only_the_two_approved_push_refs_are_accepted(self):
+        self.assertEqual(len(producer.EXPECTED_REFS), 2)
+        for ref in producer.EXPECTED_REFS:
+            with self.subTest(ref=ref):
+                self.assertTrue(producer.is_authorized_push_ref("push", ref))
+        self.assertFalse(producer.is_authorized_push_ref("push", "refs/heads/codex/unapproved"))
+        self.assertFalse(producer.is_authorized_push_ref("pull_request", next(iter(producer.EXPECTED_REFS))))
+
+
 if __name__ == "__main__":
     unittest.main()
