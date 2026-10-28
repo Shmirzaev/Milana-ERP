@@ -12,7 +12,7 @@ from app.db.session import SessionLocal
 from app.libs.dto.inventory.stock_quantity_adjustment_output import StockQuantityAdjustmentOut
 from app.libs.enums.inventory import StockMovementType
 from app.models.inventory_service import current_stock_for_item
-from app.schemas import AuditLog, Item, StockBatch, StockMovement
+from app.schemas import AuditLog, StockBatch, StockMovement
 
 
 def _create_item(client, auth_headers, *, category="accessory", unit="pcs", track_batch=False):
