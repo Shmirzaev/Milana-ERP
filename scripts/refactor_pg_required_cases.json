@@ -2,6 +2,14 @@
   "description": "Required business case identities; additional cases allowed, removals need review.",
   "collection_method": "Frozen function signatures/literal pytest parameter decorators only; no application/fixture code imported",
   "sources": {
+    "test_brand_create_postgres": {
+      "revision": "53ba460e85bb8b7e5ee9803affd624099276f9fe",
+      "git_blob_sha256": "38c2d96fc95cf3c55725feb114a426c1c189d850dbce9c6ab9ac5e70b7c7e644",
+      "selected_functions": [
+        "test_pg_create_duplicate_and_audit",
+        "test_pg_audit_failure_rolls_back_then_retry"
+      ]
+    },
     "test_bom_add_characterization": {
       "revision": "1e9d983e2b856cb66aaa32ea61c05505651996af",
       "git_blob_sha256": "457f7831ed3b468bd59b291f3e9042e51a8ef73ce7b86ea3e90d7c474567fb4c",

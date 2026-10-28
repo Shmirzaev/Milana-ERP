@@ -138,8 +138,12 @@ class AppRouteManifestTests(unittest.TestCase):
 
 
 class PushRefAllowlistTests(unittest.TestCase):
-    def test_only_the_two_approved_push_refs_are_accepted(self):
-        self.assertEqual(len(producer.EXPECTED_REFS), 2)
+    def test_only_the_three_approved_push_refs_are_accepted(self):
+        self.assertEqual(producer.EXPECTED_REFS, frozenset((
+            "refs/heads/codex/ismail-finance-pilot-20261025",
+            "refs/heads/codex/ismail-brand-feedback-20261028",
+            "refs/heads/codex/ismail-combined-review-20261028",
+        )))
         for ref in producer.EXPECTED_REFS:
             with self.subTest(ref=ref):
                 self.assertTrue(producer.is_authorized_push_ref("push", ref))

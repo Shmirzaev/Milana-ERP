@@ -12,7 +12,11 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 MAX_BYTES = 20 * 1024 * 1024
-EXPECTED_REFS = frozenset(("refs/heads/codex/ismail-finance-pilot-20261025", "refs/heads/codex/ismail-brand-feedback-20261028"))
+EXPECTED_REFS = frozenset((
+    "refs/heads/codex/ismail-finance-pilot-20261025",
+    "refs/heads/codex/ismail-brand-feedback-20261028",
+    "refs/heads/codex/ismail-combined-review-20261028",
+))
 EXPECTED_API = "http://127.0.0.1:8107"
 EXPECTED_NEXT = "16.3.8"
 REQUIRED_ROOT_MANIFESTS = (

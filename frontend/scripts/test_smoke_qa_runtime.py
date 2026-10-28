@@ -86,6 +86,11 @@ class SmokeRuntimeTests(unittest.TestCase):
 
     def test_each_allowlisted_manifest_ref_must_match_current_job_ref(self):
         refs = sorted(smoke.EXPECTED_REFS)
+        self.assertEqual(set(refs), {
+            "refs/heads/codex/ismail-finance-pilot-20261025",
+            "refs/heads/codex/ismail-brand-feedback-20261028",
+            "refs/heads/codex/ismail-combined-review-20261028",
+        })
         for manifest_ref in refs:
             with self.subTest(manifest_ref=manifest_ref):
                 manifest = self.build_manifest()
