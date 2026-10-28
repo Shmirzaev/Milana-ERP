@@ -347,3 +347,4 @@ Weekly:
 | Cutting blocked unexpectedly | Check material reservation setting and reservation status. |
 | Payroll paid before approval | Enforce period status flow: open -> locked -> approved -> paid. |
 | Finance values wrong | Validate BOM, stock costs, production output, package costs, and payroll source data. |
+

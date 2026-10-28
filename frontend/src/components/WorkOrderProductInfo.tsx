@@ -1,4 +1,6 @@
 "use client";
+import { formatModelVariantCode } from "@/lib/variantDisplay";
+import { localizeError } from "@/lib/errorMessages";
 
 import { useEffect, useMemo, useState } from "react";
 import { formatModelComposition } from "@/lib/modelComposition";
@@ -65,19 +67,15 @@ function imageFromUrl(fileUrl?: string | null, fileName?: string | null, source?
 
 function selectProductImages(model: any, po?: any, wo?: any): { modelImage: ProductImage | null; materialImage: ProductImage | null } {
   const images: ModelImage[] = Array.isArray(model?.images) ? model.images.filter(isPreviewImage) : [];
-  const typedModelImage = images.find((img) => String(img.image_type || "").toLowerCase() === "model") || null;
   const typedMaterialImage = images.find((img) => String(img.image_type || "").toLowerCase() === "material") || null;
   const modelImage =
     imageFromUrl(po?.model_image_url || wo?.model_image_url, tSafeName(po?.model_code || wo?.production_no), "model")
     ||
-    typedModelImage
-    || images.find((img) => img.is_primary && img !== typedMaterialImage)
-    || images.find((img) => img !== typedMaterialImage)
+    imageFromUrl(model?.primary_image_url, model?.name, "model")
     || null;
   const materialImage =
     imageFromUrl(po?.material_image_url || wo?.material_image_url, tSafeName(po?.material_item_name || wo?.production_no), "material")
     || typedMaterialImage
-    || images.find((img) => img !== modelImage)
     || null;
 
   return { modelImage, materialImage };
@@ -166,23 +164,14 @@ export default function WorkOrderProductInfo({
   const { modelImage, materialImage } = selectProductImages(model, po, wo);
   const qolipFiles = selectQolipFiles(model);
   const qolipNo = modelQolipNo(model);
-  const modelLabel = model ? `${model.code} - ${model.name}` : (po?.model_id ? `#${po.model_id}` : "-");
+  const modelLabel = model ? `${formatModelVariantCode(model.code)} - ${model.name}` : (po?.model_id ? `#${po.model_id}` : "-");
   const itemPlanTotal = Array.isArray(po?.items)
     ? po.items.reduce((sum: number, it: any) => sum + Math.max(0, Number(it?.planned_quantity || 0)), 0)
     : 0;
   const plannedQty = Number(po?.planned_quantity ?? wo?.planned_output_qty ?? 0);
   const displayedPlannedQty = plannedQty > 0 ? plannedQty : itemPlanTotal;
-  const batchQtyTotal = Array.isArray(po?.batches)
-    ? po.batches.reduce((sum: number, batch: any) => sum + Math.max(0, Number(batch?.planned_quantity || 0)), 0)
-    : 0;
-  const displayedActualQty = Math.max(
-    0,
-    Number(po?.actual_quantity || 0),
-    Number(po?.actual_cut_quantity || 0),
-    Number(po?.actual_bundle_quantity || 0),
-    batchQtyTotal,
-  );
-  const showActualQty = displayedActualQty > 0 && displayedActualQty !== Number(displayedPlannedQty || 0);
+  const displayedActualQty = Math.max(0, Number(po?.actual_quantity ?? 0));
+  const showActualQty = po?.actual_quantity != null;
   const isSewingWorkOrder = String(wo?.operation || "").toLowerCase() === "sewing";
   const receivedBundleCount = Number(wo?.received_bundle_count || 0);
   const receivedBundleQty = Number(wo?.received_bundle_qty || wo?.actual_input_qty || 0);
@@ -281,7 +270,7 @@ export default function WorkOrderProductInfo({
       setBreakdownEditing(false);
       setBreakdownMsg(t("msg.saved"));
     } catch (e: any) {
-      setBreakdownMsg(e?.message || "Failed to save breakdown");
+      setBreakdownMsg(e?.message || localizeError("Failed to save breakdown"));
     } finally {
       setBreakdownSaving(false);
     }
