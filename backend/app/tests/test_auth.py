@@ -15,9 +15,25 @@ def test_admin_login(client):
     assert "access_token" not in body
 
 
+def test_browser_session_alias_supports_cookie_auth(client):
+    login = client.post(
+        "/api/session/login",
+        data={"username": "admin@example.com", "password": "test-admin-password-123!"},
+    )
+    assert login.status_code == 200
+
+    current = client.get("/api/session/me")
+    assert current.status_code == 200
+    assert current.json()["email"] == "admin@example.com"
+
+    logout = client.post("/api/session/logout")
+    assert logout.status_code == 200
+    assert client.get("/api/session/me").status_code == 401
+
+
 def test_login_records_user_activity(client):
     from app.db.session import SessionLocal
-    from app.models import User
+    from app.schemas import User
 
     db = SessionLocal()
     try:
@@ -47,7 +63,7 @@ def test_seed_synchronizes_configured_admin_password(client):
     from app.core.security import hash_password
     from app.db.seed import seed
     from app.db.session import SessionLocal
-    from app.models import User
+    from app.schemas import User
 
     db = SessionLocal()
     try:
@@ -99,8 +115,8 @@ def test_forgot_password_sends_reset_link_for_known_user(client, auth_headers, m
         sent["reset_url"] = reset_url
         return True
 
-    monkeypatch.setattr("app.services.password_reset.secrets.token_urlsafe", lambda _: "known-reset-token")
-    monkeypatch.setattr("app.services.password_reset.send_password_reset_email", fake_send)
+    monkeypatch.setattr("app.models.password_reset_service.secrets.token_urlsafe", lambda _: "known-reset-token")
+    monkeypatch.setattr("app.models.password_reset_service.send_password_reset_email", fake_send)
 
     r = client.post("/api/auth/forgot-password", json={"email": "planning@example.com"})
     assert r.status_code == 200
@@ -126,12 +142,12 @@ def test_forgot_password_uses_neutral_response_for_unknown_email(client):
 
 
 def test_forgot_password_notifies_admin_without_reset_link_when_email_fails(client, auth_headers, monkeypatch):
-    monkeypatch.setattr("app.services.password_reset.secrets.token_urlsafe", lambda _: "failed-email-token")
+    monkeypatch.setattr("app.models.password_reset_service.secrets.token_urlsafe", lambda _: "failed-email-token")
 
     def fail_send(*args, **kwargs):
         raise RuntimeError("smtp blocked")
 
-    monkeypatch.setattr("app.services.password_reset.send_password_reset_email", fail_send)
+    monkeypatch.setattr("app.models.password_reset_service.send_password_reset_email", fail_send)
 
     r = client.post("/api/auth/forgot-password", json={"email": "planning@example.com"})
     assert r.status_code == 200
@@ -146,8 +162,8 @@ def test_forgot_password_notifies_admin_without_reset_link_when_email_fails(clie
 
 
 def test_reset_password_accepts_valid_token(client, monkeypatch):
-    monkeypatch.setattr("app.services.password_reset.secrets.token_urlsafe", lambda _: "reset-login-token")
-    monkeypatch.setattr("app.services.password_reset.send_password_reset_email", lambda *args, **kwargs: True)
+    monkeypatch.setattr("app.models.password_reset_service.secrets.token_urlsafe", lambda _: "reset-login-token")
+    monkeypatch.setattr("app.models.password_reset_service.send_password_reset_email", lambda *args, **kwargs: True)
 
     r = client.post("/api/auth/forgot-password", json={"email": "planning@example.com"})
     assert r.status_code == 200

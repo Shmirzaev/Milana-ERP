@@ -1,16 +1,27 @@
-﻿"use client";
+"use client";
+import BandFloor from "@/components/sewing/BandFloor";
+import { useMe } from "@/lib/auth";
+
+import { formatVariantNumber } from "@/lib/variantDisplay";
+import { localizeError } from "@/lib/errorMessages";
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import useSWR from "swr";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useDeferredValue, useEffect, useMemo, useState } from "react";
+import useSWRInfinite from "swr/infinite";
 
+import ImageThumbnail from "@/components/ImageThumbnail";
+import ReturnPackages from "@/components/ReturnPackages";
 import PageHeader from "@/components/PageHeader";
-import { operationLabel, statusLabel } from "@/components/StagePipeline";
+import StocktakeLink from "@/components/StocktakeLink";
+import CuttingOrderList from "@/components/CuttingOrderList";
+import DepartmentOrderList from "@/components/DepartmentOrderList";
+import ShipmentItemLines from "@/components/ShipmentItemLines";
+import { statusLabel } from "@/components/StagePipeline";
 import { api, fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
-import { FAST_LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
 import { orderReference } from "@/lib/orderRef";
 
 const DEPT_LABELS: Record<string, string> = {
@@ -27,17 +38,32 @@ const DEPT_LABELS: Record<string, string> = {
   FGS: "nav.finishedGoods",
 };
 
-function woActionLink(wo: any) {
-  if (wo.operation === "cutting") return `/work-orders/${wo.id}/cutting`;
-  if (wo.operation === "printing") return `/work-orders/${wo.id}/printing`;
-  if (wo.operation === "sewing") return `/work-orders/${wo.id}/sewing`;
-  if (wo.operation === "packaging") return `/work-orders/${wo.id}/packaging`;
-  return `/production-orders/${wo.production_order_id}`;
-}
+type InboxPackagePage = {
+  rows: any[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+  group_total: number;
+};
 
-function workCardTitle(w: any, t: (key: string, vars?: Record<string, string | number>) => string) {
-  return `${orderReference(w, w?.production_order_id ? `#${w.production_order_id}` : "-")} - ${operationLabel(w.operation, t)}`;
-}
+type InboxAwaitingPackagingPage = {
+  rows: any[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+};
+
+type DepartmentOrderPage = {
+  rows: any[];
+  total: number;
+  offset: number;
+  limit: number;
+  has_more: boolean;
+};
+
+type CuttingOrderPage = DepartmentOrderPage;
 
 function MaterialThumb({ row }: { row: any }) {
   const imageUrl = row?.material_image_url || row?.model_image_url;
@@ -56,12 +82,12 @@ function materialLine(row: any) {
   const sku = String(row?.material_item_sku || "").trim();
   const label = [sku, name].filter(Boolean).join(" - ");
   if (!label) return null;
-  return <div className="truncate text-[11px] text-slate-500">{label}</div>;
+  return <div className="break-words text-[11px] text-slate-500">{label}</div>;
 }
 
 function orderContextLine(row: any, t: (key: string, vars?: Record<string, string | number>) => string) {
   const modelNo = String(row?.model_no || "").trim();
-  const variantNo = String(row?.variant_no || "").trim();
+  const variantNo = formatVariantNumber(row?.variant_no);
   const size = String(row?.size_summary || row?.size || "").trim();
   const parts = [
     modelNo ? { label: t("field.modelNo"), value: modelNo } : null,
@@ -83,17 +109,32 @@ function orderContextLine(row: any, t: (key: string, vars?: Record<string, strin
 }
 
 export default function DepartmentInboxPage() {
+  const { me } = useMe();
+  if (!me) return null;
+  return me.sewing_band_id ? <BandFloor /> : <FactoryDepartmentInboxPage />;
+}
+
+function FactoryDepartmentInboxPage() {
   const { t } = useT();
   const params = useParams<{ code: string }>();
   const router = useRouter();
   const code = String(params.code || "").toUpperCase();
-  const isFinishedGoods = code === "FGS";
+  const isCuttingDepartment = code === "CUT" || code === "ECT";
+  const isPackagingDepartment = code === "PKG" || code === "BPK" || code === "ECP";
   const deptLabel = DEPT_LABELS[code] ? t(DEPT_LABELS[code]) : code;
   const [clientTz, setClientTz] = useState("UTC");
-  const [startingWoId, setStartingWoId] = useState<number | null>(null);
-  const [startError, setStartError] = useState("");
   const [creatingShipmentFor, setCreatingShipmentFor] = useState<string | null>(null);
   const [shipmentError, setShipmentError] = useState("");
+  const [departmentSearch, setDepartmentSearch] = useState("");
+  const deferredDepartmentSearch = useDeferredValue(departmentSearch.trim());
+  const [cuttingSearch, setCuttingSearch] = useState("");
+  const deferredCuttingSearch = useDeferredValue(cuttingSearch.trim());
+  const [pendingPackageSearch, setPendingPackageSearch] = useState("");
+  const [readyPackageSearch, setReadyPackageSearch] = useState("");
+  const deferredPendingPackageSearch = useDeferredValue(pendingPackageSearch.trim());
+  const deferredReadyPackageSearch = useDeferredValue(readyPackageSearch.trim());
+
+  useEffect(() => { setCuttingSearch(""); setDepartmentSearch(""); }, [code]);
 
   useEffect(() => {
     try {
@@ -104,47 +145,122 @@ export default function DepartmentInboxPage() {
     }
   }, []);
 
-  const { data, isLoading, mutate } = useSWR<any>(
-    code ? `/api/inbox?dept=${code}&tz=${encodeURIComponent(clientTz)}` : null,
+  const inboxUrl = code
+    ? `/api/inbox?dept=${code}&tz=${encodeURIComponent(clientTz)}${isPackagingDepartment ? "&include_awaiting_packaging=false" : ""}${code === "FGS" ? "&ready_to_ship_limit=50&ready_to_ship_offset=0" : ""}&include_core_orders=false&ready_to_ship_q=${encodeURIComponent(deferredDepartmentSearch)}`
+    : null;
+  const { data, isLoading, mutate } = useSWR<any>(inboxUrl, fetcher, { refreshInterval: 10_000 });
+  const {
+    data: readyToShipPages,
+    mutate: mutateReadyToShipPages,
+    size: readyToShipSize,
+    setSize: setReadyToShipSize,
+    isValidating: readyToShipValidating,
+  } = useSWRInfinite<any>(
+    (index, previous) => {
+      if (code !== "FGS") return null;
+      if (index === 0) return inboxUrl;
+      if (previous && index * 50 >= Number(previous.ready_to_ship_total ?? 0)) return null;
+      return `/api/inbox?dept=${code}&tz=${encodeURIComponent(clientTz)}&ready_to_ship_limit=50&ready_to_ship_offset=${index * 50}&include_core_orders=false&ready_to_ship_q=${encodeURIComponent(deferredDepartmentSearch)}`;
+    },
     fetcher,
-    FAST_LIVE_DATA_SWR_OPTIONS,
+    { refreshInterval: 10_000 },
   );
-  const pendingWorkOrders = Array.isArray(data?.pending_work_orders) ? data.pending_work_orders : [];
-  const inProgressWorkOrders = Array.isArray(data?.in_progress_work_orders) ? data.in_progress_work_orders : [];
-  const activeWorkOrders = Array.isArray(data?.active_work_orders) ? data.active_work_orders : [];
-  const replacementCuttingWork = Array.isArray(data?.replacement_cutting_work) ? data.replacement_cutting_work : [];
-  const replacementSewingWork = Array.isArray(data?.replacement_sewing_work) ? data.replacement_sewing_work : [];
-  const incomingWorkOrders = useMemo(
-    () => (Array.isArray(data?.incoming_work_orders) ? data.incoming_work_orders : []),
-    [data?.incoming_work_orders],
+  const {
+    data: departmentOrderPages,
+    mutate: mutateDepartmentOrderPages,
+    setSize: setDepartmentOrderPageCount,
+    isValidating: departmentOrdersValidating,
+    isLoading: departmentOrdersLoading,
+    error: departmentOrdersError,
+  } = useSWRInfinite<DepartmentOrderPage>(
+    (index, previous) => code && !isCuttingDepartment && !(previous && !previous.has_more)
+      ? `/api/inbox/department-orders?dept=${code}&tz=${encodeURIComponent(clientTz)}&limit=50&offset=${index * 50}&q=${encodeURIComponent(deferredDepartmentSearch)}`
+      : null,
+    fetcher,
+    { refreshInterval: 10_000 },
   );
-  const incomingWorkOrderPoIds = useMemo(
-    () => new Set(incomingWorkOrders.map((row: any) => Number(row.production_order_id || 0)).filter((poId: number) => poId > 0)),
-    [incomingWorkOrders],
+  const {
+    data: cuttingOrderPages,
+    mutate: mutateCuttingOrderPages,
+    setSize: setCuttingOrderPageCount,
+    isValidating: cuttingOrdersValidating,
+    isLoading: cuttingOrdersLoading,
+    error: cuttingOrdersError,
+  } = useSWRInfinite<CuttingOrderPage>(
+    (index, previous) => isCuttingDepartment && !(previous && !previous.has_more)
+      ? `/api/inbox/cutting-orders?dept=${code}&limit=50&offset=${index * 50}&q=${encodeURIComponent(deferredCuttingSearch)}`
+      : null,
+    fetcher,
+    { refreshInterval: 10_000 },
   );
-  const incomingBundleGroups = useMemo(
-    () => (Array.isArray(data?.incoming_bundle_groups) ? data.incoming_bundle_groups : [])
-      .filter((row: any) => !incomingWorkOrderPoIds.has(Number(row.production_order_id || 0))),
-    [data?.incoming_bundle_groups, incomingWorkOrderPoIds],
+  const {
+    data: pendingPackagePages,
+    mutate: mutatePendingPackagePages,
+    setSize: setPendingPackagePageCount,
+    isValidating: pendingPackagesValidating,
+  } = useSWRInfinite<InboxPackagePage>(
+    (index, previous) => code === "FGS" && !(previous && !previous.has_more)
+      ? `/api/inbox/packages?status=pending&page=${index + 1}&page_size=50&q=${encodeURIComponent([deferredDepartmentSearch, deferredPendingPackageSearch].filter(Boolean).join(" "))}`
+      : null,
+    fetcher,
   );
-  const incomingCount = incomingBundleGroups.length + incomingWorkOrders.length;
-  const pendingPackages = useMemo(() => (
-    Array.isArray(data?.pending_packages) ? data.pending_packages : []
-  ), [data?.pending_packages]);
-  const readyPackages = useMemo(() => (
-    Array.isArray(data?.ready_packages) ? data.ready_packages : []
-  ), [data?.ready_packages]);
-  const splitQueueByStatus = true;
+  const {
+    data: readyPackagePages,
+    mutate: mutateReadyPackagePages,
+    setSize: setReadyPackagePageCount,
+    isValidating: readyPackagesValidating,
+  } = useSWRInfinite<InboxPackagePage>(
+    (index, previous) => code === "FGS" && !(previous && !previous.has_more)
+      ? `/api/inbox/packages?status=ready&page=${index + 1}&page_size=50&q=${encodeURIComponent([deferredDepartmentSearch, deferredReadyPackageSearch].filter(Boolean).join(" "))}`
+      : null,
+    fetcher,
+  );
+  const {
+    data: awaitingPackagingPages,
+    mutate: mutateAwaitingPackagingPages,
+    isLoading: awaitingPackagingLoading,
+    error: awaitingPackagingError,
+    setSize: setAwaitingPackagingPageCount,
+    isValidating: awaitingPackagingValidating,
+  } = useSWRInfinite<InboxAwaitingPackagingPage>(
+    (index, previous) => isPackagingDepartment && !(previous && !previous.has_more)
+      ? `/api/inbox/awaiting-packaging?dept=${code}&page=${index + 1}&page_size=50&q=${encodeURIComponent(deferredDepartmentSearch)}`
+      : null,
+    fetcher,
+    { refreshInterval: 10_000 },
+  );
+  const cuttingWorkOrders = useMemo(
+    () => cuttingOrderPages?.flatMap((page) => page.rows) || [],
+    [cuttingOrderPages],
+  );
+  const cuttingOrdersTotal = cuttingOrderPages?.[0]?.total ?? 0;
+  const cuttingOrdersHasMore = cuttingOrderPages?.at(-1)?.has_more ?? false;
+  const departmentOrders = useMemo(
+    () => departmentOrderPages?.flatMap((page) => page.rows.map((row) => ({ ...row, queueKind: row.queue_kind }))) || [],
+    [departmentOrderPages],
+  );
+  const departmentOrdersTotal = departmentOrderPages?.[0]?.total ?? 0;
+  const departmentOrdersHasMore = departmentOrderPages?.[departmentOrderPages.length - 1]?.has_more ?? false;
+  const pendingPackages = useMemo(() => pendingPackagePages?.flatMap((page) => page.rows) || [], [pendingPackagePages]);
+  const readyPackages = useMemo(() => readyPackagePages?.flatMap((page) => page.rows) || [], [readyPackagePages]);
+  const awaitingPackagingRows = useMemo(
+    () => awaitingPackagingPages?.flatMap((page) => page.rows) || [],
+    [awaitingPackagingPages],
+  );
+  const awaitingPackagingTotal = awaitingPackagingPages?.[0]?.total ?? 0;
+  const awaitingPackagingHasMore = awaitingPackagingPages?.[awaitingPackagingPages.length - 1]?.has_more ?? false;
+  const pendingPackagesTotal = pendingPackagePages?.[0]?.total ?? 0;
+  const readyPackagesTotal = readyPackagePages?.[0]?.total ?? 0;
   const [expandedPackageGroups, setExpandedPackageGroups] = useState<Record<string, boolean>>({});
 
   const pendingPackagesByOrder = useMemo(() => {
     const groups = new Map<string, { key: string; sales_order_id: number | null; order_no: string | null; sales_order_no: string | null; packages: any[]; total_quantity: number }>();
     for (const p of pendingPackages) {
-      const key = p.sales_order_id == null ? "no-so" : `so-${p.sales_order_id}`;
+      const key = p.sales_order_id == null ? `po-${p.production_order_id || p.id}` : `so-${p.sales_order_id}`;
       const existing = groups.get(key) ?? {
         key,
         sales_order_id: p.sales_order_id == null ? null : Number(p.sales_order_id),
-        order_no: p.order_no || p.sales_order_no || null,
+        order_no: p.order_no || p.sales_order_no || p.production_no || null,
         sales_order_no: p.sales_order_no || p.order_no || null,
         packages: [],
         total_quantity: 0,
@@ -195,9 +311,17 @@ export default function DepartmentInboxPage() {
         return left - right;
       });
   }, [readyPackages]);
+  const readyToShipRows = useMemo(
+    () => readyToShipPages?.flatMap((page) => page?.ready_to_ship ?? [])
+      ?? (Array.isArray(data?.ready_to_ship) ? data.ready_to_ship : []),
+    [data?.ready_to_ship, readyToShipPages],
+  );
+  const readyToShipTotal = Number(readyToShipPages?.[0]?.ready_to_ship_total ?? data?.ready_to_ship_total ?? 0);
+  const hasReadyToShipOrders = readyToShipRows.length > 0;
+  const readyToShipHasMore = code === "FGS" && readyToShipRows.length < readyToShipTotal;
   const readyToShipOrders = useMemo(() => {
-    if (Array.isArray(data?.ready_to_ship) && data.ready_to_ship.length > 0) {
-      return data.ready_to_ship;
+    if (readyToShipRows.length > 0) {
+      return readyToShipRows;
     }
     return readyPackagesByOrder.map((g) => ({
       sales_order_id: g.sales_order_id,
@@ -214,6 +338,8 @@ export default function DepartmentInboxPage() {
       packages: g.packages.length,
       quantity: g.total_quantity,
       pending_qty: 0,
+      order_quantity: g.total_quantity,
+      item_lines: [],
       package_lines: g.packages.map((p: any) => ({
         package_id: p.id,
         package_no: p.package_no,
@@ -221,19 +347,17 @@ export default function DepartmentInboxPage() {
         status: p.status,
       })),
     }));
-  }, [data?.ready_to_ship, readyPackagesByOrder]);
+  }, [readyToShipRows, readyPackagesByOrder]);
 
-  async function movePendingToInProgress(workOrderId: number) {
-    setStartingWoId(workOrderId);
-    setStartError("");
-    try {
-      await api.post(`/api/work-orders/${workOrderId}/start`, {});
-      await mutate();
-    } catch (e: any) {
-      setStartError(e?.message || "Failed to move work order to in progress");
-    } finally {
-      setStartingWoId(null);
-    }
+  const readyToShipCount = hasReadyToShipOrders
+    ? readyToShipTotal || readyToShipRows.length
+    : readyPackagePages?.[0]?.group_total ?? 0;
+
+  async function refreshInbox() {
+    await Promise.all([
+      mutate(), mutateReadyToShipPages(), mutateDepartmentOrderPages(), mutateCuttingOrderPages(),
+      mutateAwaitingPackagingPages(), mutatePendingPackagePages(), mutateReadyPackagePages(),
+    ]);
   }
 
   async function createShipmentForOrder(salesOrderId: number | null | undefined) {
@@ -245,10 +369,10 @@ export default function DepartmentInboxPage() {
     try {
       const created = await api.post("/api/shipments", { sales_order_id: soId });
       await api.post(`/api/shipments/${created.id}/add-ready-packages`);
-      await mutate();
+      await refreshInbox();
       openShipment(soId, created.id);
     } catch (e: any) {
-      setShipmentError(e?.message || "Failed to create shipment");
+      setShipmentError(e?.message || localizeError("Failed to create shipment"));
     } finally {
       setCreatingShipmentFor(null);
     }
@@ -263,17 +387,6 @@ export default function DepartmentInboxPage() {
     router.push(`/shipments${qs.toString() ? `?${qs.toString()}` : ""}`);
   }
 
-  function sewingReceivedLine(w: any) {
-    if (w?.operation !== "sewing") return null;
-    const bundleCount = Number(w.received_bundle_count || 0);
-    const qty = Number(w.received_bundle_qty || w.actual_input_qty || 0);
-    return (
-      <div className="text-xs text-slate-500">
-        {t("field.received")}: {bundleCount} {t("nav.bundles").toLowerCase()} / {qty} {t("field.qty").toLowerCase()}
-      </div>
-    );
-  }
-
   function textileLine(row: any) {
     const textileName = String(row?.textile_name || "").trim();
     if (!textileName) return null;
@@ -284,327 +397,72 @@ export default function DepartmentInboxPage() {
     <div>
       <PageHeader
         title={t("page.deptInbox.title", { dept: deptLabel })}
-        subtitle={t(isFinishedGoods ? "page.deptInbox.finishedGoodsSubtitle" : "page.deptInbox.subtitle")}
+        subtitle={t("page.deptInbox.subtitle")}
+        actions={code === "FGS" ? <StocktakeLink /> : isCuttingDepartment || code === "PRT" ? <Link className="btn" href={isCuttingDepartment ? `/dashboards/cutting?cutting_department=${code}` : "/dashboards/printing"}>{t(isCuttingDepartment ? "departmentDashboard.cutting" : "departmentDashboard.printing")}</Link> : undefined}
       />
-      {isLoading && <div className="card p-4 text-sm text-slate-500">{t("common.loading")}</div>}
-      {!isLoading && (code === "CUT" || code === "ECT") && (
-        <section className="card mb-4 p-4">
-          <h2 className="mb-3 text-sm font-semibold text-slate-700">
-            {t("replacement.cuttingSection", { count: replacementCuttingWork.length })}
-          </h2>
-          {replacementCuttingWork.length > 0 ? (
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
-              {replacementCuttingWork.map((row: any) => (
-                <div key={row.id} className="rounded border border-amber-200 bg-amber-50/60 p-2 text-sm">
-                  <div className="flex items-start gap-2">
-                    <MaterialThumb row={row} />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate font-medium">{orderReference(row, `#${row.production_order_id}`)}</div>
-                      {orderContextLine(row, t)}
-                      {materialLine(row)}
-                    </div>
-                  </div>
-                  <div className="mt-2 text-xs font-medium text-amber-900">
-                    {t("replacement.cuttingRemaining", { count: Number(row.remaining_qty || 0).toLocaleString() })}
-                  </div>
-                  <div className="text-xs text-slate-600">{t("replacement.failedSource")}</div>
-                  {row.defect_reason && (
-                    <div className="mt-1 text-xs text-slate-600">
-                      {t("replacement.reason")}: {row.defect_reason}
-                    </div>
-                  )}
-                  <Link className="mt-2 inline-block text-xs text-brand-600 hover:underline" href={`/work-orders/${row.cutting_work_order_id}/cutting`}>
-                    {t("btn.open")}
-                  </Link>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-sm text-slate-400">{t("replacement.noCuttingWork")}</div>
-          )}
-        </section>
-      )}
-      {!isLoading && replacementSewingWork.length > 0 && (
-        <section className="card mb-4 p-4">
-          <h2 className="mb-3 text-sm font-semibold text-slate-700">
-            {t("replacement.sewingSection", { count: replacementSewingWork.length })}
-          </h2>
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
-            {replacementSewingWork.map((row: any) => (
-              <div key={row.id} className="rounded border border-amber-200 bg-amber-50/60 p-2 text-sm">
-                <div className="flex items-start gap-2">
-                  <MaterialThumb row={row} />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium">{orderReference(row, `#${row.production_order_id}`)}</div>
-                    {orderContextLine(row, t)}
-                    {materialLine(row)}
-                    {textileLine(row)}
-                  </div>
-                </div>
-                <div className="mt-2 text-xs font-medium text-amber-900">
-                  {t("replacement.sewingRemaining", { count: Number(row.remaining_qty || 0).toLocaleString() })}
-                </div>
-                <div className="text-xs text-slate-600">{t("replacement.cutReadySource")}</div>
-                {row.defect_reason && (
-                  <div className="mt-1 text-xs text-slate-600">
-                    {t("replacement.reason")}: {row.defect_reason}
-                  </div>
-                )}
-                <Link className="mt-2 inline-block text-xs text-brand-600 hover:underline" href={`/work-orders/${row.sewing_work_order_id}/sewing`}>
-                  {t("btn.open")}
-                </Link>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-      {!isLoading && !isFinishedGoods && (
-        <div className={`grid grid-cols-1 gap-4 ${splitQueueByStatus ? "xl:grid-cols-4" : "lg:grid-cols-3"}`}>
-          <section className="card p-4">
-            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              {t("page.deptInbox.incoming", { count: incomingCount })}
-            </h3>
-            <div className="space-y-2">
-              {incomingWorkOrders.map((w: any) => (
-                <div key={`wo-${w.work_order_id}`} className="rounded border border-slate-200 p-2 text-sm">
-                  <div className="flex items-start gap-2">
-                    <MaterialThumb row={w} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="truncate font-medium">{orderReference(w, `#${w.production_order_id}`)}</div>
-                          <div className="text-xs text-slate-500">
-                            {t("page.deptInbox.incomingProcess", {
-                              source: operationLabel(w.source_operation, t),
-                              target: operationLabel(w.target_operation, t),
-                            })}
-                          </div>
-                          {orderContextLine(w, t)}
-                          {materialLine(w)}
-                          {textileLine(w)}
-                        </div>
-                        <span className="badge shrink-0">{statusLabel(w.source_status || w.status, t)}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-1 text-xs text-slate-500">
-                    {Number(w.ready_qty || 0) > 0
-                      ? t("page.deptInbox.readyReceived", { ready: w.ready_qty, received: w.received_qty })
-                      : t("page.deptInbox.expectedReceived", { expected: w.expected_qty, received: w.received_qty })}
-                  </div>
-                  <div className="mt-1 flex items-center gap-2">
-                    <Link
-                      className="text-xs text-brand-600 hover:underline"
-                      href={woActionLink({
-                        id: w.work_order_id,
-                        operation: w.target_operation,
-                        production_order_id: w.production_order_id,
-                      })}
-                    >
-                      {t("btn.open")}
-                    </Link>
-                    <Link className="text-xs text-brand-600 hover:underline" href={`/production-orders/${w.production_order_id}`}>{t("page.deptInbox.viewOrder")}</Link>
-                  </div>
-                </div>
-              ))}
-              {incomingBundleGroups.map((g: any) => (
-                <div key={`bundle-group-${g.production_order_id}-${g.textile_code || "all"}`} className="rounded border border-slate-200 p-2 text-sm">
-                  <div className="flex items-start gap-2">
-                    <MaterialThumb row={g} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="truncate font-medium">{orderReference(g, `#${g.production_order_id}`)}</div>
-                          <div className="text-xs text-slate-500">
-                            {t("page.deptInbox.incomingProcess", {
-                              source: operationLabel(g.source_operation || "cutting", t),
-                              target: operationLabel(g.target_operation || "sewing", t),
-                            })}
-                          </div>
-                          {orderContextLine(g, t)}
-                          {materialLine(g)}
-                          {textileLine(g)}
-                        </div>
-                        <span className="badge shrink-0">
-                          {Number(g.bundle_count || 0)} {t("nav.bundles").toLowerCase()}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-1 text-xs text-slate-500">
-                    {t("page.deptInbox.readyReceived", { ready: g.ready_qty, received: g.received_qty })}
-                  </div>
-                  <div className="mt-1 flex items-center gap-2">
-                    {g.work_order_id ? (
-                      <Link
-                        className="text-xs text-brand-600 hover:underline"
-                        href={woActionLink({
-                          id: g.work_order_id,
-                          operation: g.target_operation || "sewing",
-                          production_order_id: g.production_order_id,
-                        })}
-                      >
-                        {t("btn.open")}
-                      </Link>
-                    ) : null}
-                    <Link className="text-xs text-brand-600 hover:underline" href={`/production-orders/${g.production_order_id}`}>{t("page.deptInbox.viewOrder")}</Link>
-                  </div>
-                </div>
-              ))}
-              {incomingCount === 0 && <div className="text-sm text-slate-400">{t("page.deptInbox.noIncomingWork")}</div>}
-            </div>
-          </section>
-
-          {splitQueueByStatus ? (
-            <>
-              <section className="card p-4">
-                <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-                  {t("page.deptInbox.pending", { count: pendingWorkOrders.length })}
-                </h3>
-                {startError && <div className="mb-2 text-xs text-red-600">{startError}</div>}
-                <div className="space-y-2">
-                  {pendingWorkOrders.map((w: any) => (
-                    <div key={w.id} className="rounded border border-slate-200 p-2 text-sm">
-                      <div className="flex items-start gap-2">
-                        <MaterialThumb row={w} />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="truncate font-medium">{workCardTitle(w, t)}</div>
-                              {orderContextLine(w, t)}
-                              {materialLine(w)}
-                              {textileLine(w)}
-                            </div>
-                            <span className="badge shrink-0">{statusLabel(w.status, t)}</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="text-xs text-slate-500">{t("page.deptInbox.passedPlanned", { passed: w.passed_qty, planned: w.planned_output_qty })}</div>
-                      {sewingReceivedLine(w)}
-                      {w.deadline && (
-                        <div className="text-xs text-slate-500">{t("field.deadline")}: {new Date(w.deadline).toLocaleDateString()}</div>
-                      )}
-                      <div className="mt-1 flex items-center gap-2">
-                        <button
-                          className="btn h-7 px-2 text-[11px]"
-                          onClick={() => movePendingToInProgress(Number(w.id))}
-                          disabled={startingWoId === Number(w.id)}
-                        >
-                          {startingWoId === Number(w.id) ? t("common.loading") : t("btn.moveToInProgress")}
-                        </button>
-                        <Link className="text-xs text-brand-600 hover:underline" href={woActionLink(w)}>{t("btn.open")}</Link>
-                      </div>
-                    </div>
-                  ))}
-                  {pendingWorkOrders.length === 0 && <div className="text-sm text-slate-400">{t("page.deptInbox.noPendingWorkOrders")}</div>}
-                </div>
-              </section>
-
-              <section className="card p-4">
-                <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-                  {t("page.deptInbox.inProgress", { count: inProgressWorkOrders.length })}
-                </h3>
-                <div className="space-y-2">
-                  {inProgressWorkOrders.map((w: any) => (
-                    <div key={w.id} className="rounded border border-slate-200 p-2 text-sm">
-                      <div className="flex items-start gap-2">
-                        <MaterialThumb row={w} />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="truncate font-medium">{workCardTitle(w, t)}</div>
-                              {orderContextLine(w, t)}
-                              {materialLine(w)}
-                              {textileLine(w)}
-                            </div>
-                            <span className="badge shrink-0">{statusLabel(w.status, t)}</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="text-xs text-slate-500">{t("page.deptInbox.passedPlanned", { passed: w.passed_qty, planned: w.planned_output_qty })}</div>
-                      {sewingReceivedLine(w)}
-                      {w.deadline && (
-                        <div className="text-xs text-slate-500">{t("field.deadline")}: {new Date(w.deadline).toLocaleDateString()}</div>
-                      )}
-                      <Link className="text-xs text-brand-600 hover:underline" href={woActionLink(w)}>{t("btn.open")}</Link>
-                    </div>
-                  ))}
-                  {inProgressWorkOrders.length === 0 && <div className="text-sm text-slate-400">{t("page.deptInbox.noInProgressWorkOrders")}</div>}
-                </div>
-              </section>
-            </>
-          ) : (
-            <section className="card p-4">
-              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-                {t("page.deptInbox.inProgress", { count: activeWorkOrders.length })}
-              </h3>
-              <div className="space-y-2">
-                {activeWorkOrders.map((w: any) => (
-                  <div key={w.id} className="rounded border border-slate-200 p-2 text-sm">
-                    <div className="flex items-start gap-2">
-                      <MaterialThumb row={w} />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="truncate font-medium">{workCardTitle(w, t)}</div>
-                            {orderContextLine(w, t)}
-                            {materialLine(w)}
-                            {textileLine(w)}
-                          </div>
-                          <span className="badge shrink-0">{statusLabel(w.status, t)}</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="text-xs text-slate-500">{t("page.deptInbox.passedPlanned", { passed: w.passed_qty, planned: w.planned_output_qty })}</div>
-                    {sewingReceivedLine(w)}
-                    {w.deadline && (
-                      <div className="text-xs text-slate-500">{t("field.deadline")}: {new Date(w.deadline).toLocaleDateString()}</div>
-                    )}
-                    <Link className="text-xs text-brand-600 hover:underline" href={woActionLink(w)}>{t("btn.open")}</Link>
-                  </div>
-                ))}
-                {activeWorkOrders.length === 0 && <div className="text-sm text-slate-400">{t("page.deptInbox.noActiveWorkOrders")}</div>}
-              </div>
-            </section>
-          )}
-
-          <section className="card p-4">
-            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              {t("page.deptInbox.doneToday", { count: (data?.done_today || []).length })}
-            </h3>
-            <div className="space-y-2">
-              {(data?.done_today || []).map((w: any) => (
-                <div key={w.id} className="rounded border border-slate-200 p-2 text-sm">
-                  <div className="flex items-start gap-2">
-                    <MaterialThumb row={w} />
-                    <div className="min-w-0">
-                      <div className="truncate font-medium">{workCardTitle(w, t)}</div>
-                      {orderContextLine(w, t)}
-                      {materialLine(w)}
-                      {textileLine(w)}
-                    </div>
-                  </div>
-                  <div className="text-xs text-slate-500">{t("page.deptInbox.passedOnly", { passed: w.passed_qty })}</div>
-                  <Link className="text-xs text-brand-600 hover:underline" href={`/production-orders/${w.production_order_id}`}>{t("page.deptInbox.viewOrder")}</Link>
-                </div>
-              ))}
-              {(data?.done_today || []).length === 0 && <div className="text-sm text-slate-400">{t("page.deptInbox.nothingCompleted24h")}</div>}
-            </div>
-          </section>
+      {!isCuttingDepartment && <div className="mb-4">
+        <input type="search" className="input max-w-xl" aria-label={`${t("common.search")} ${deptLabel}`}
+          placeholder={t("common.search")} maxLength={100} value={departmentSearch}
+          onChange={(event) => setDepartmentSearch(event.target.value)} />
+      </div>}
+      {(isLoading || departmentOrdersLoading || cuttingOrdersLoading) && <div className="card p-4 text-sm text-slate-500">{t("common.loading")}</div>}
+      {isCuttingDepartment ? (
+        <div className="min-w-0 space-y-2">
+          {cuttingOrdersError ? <div role="alert" className="text-sm text-red-700">{String(cuttingOrdersError.message || cuttingOrdersError)}</div> : null}
+          <CuttingOrderList
+            key={code}
+            rows={cuttingWorkOrders}
+            cuttingDepartment={code}
+            onSearch={setCuttingSearch}
+            total={cuttingOrdersTotal}
+            t={t}
+          />
+          {cuttingOrdersHasMore ? (
+            <button type="button" className="btn mt-3 h-9 px-3 text-xs" disabled={cuttingOrdersValidating} onClick={() => void setCuttingOrderPageCount((size) => size + 1)}>
+              {cuttingOrdersValidating ? t("common.loading") : t("common.loadMore")}
+            </button>
+          ) : null}
         </div>
-      )}
+      ) : !isLoading && !departmentOrdersLoading ? (
+        <div className="min-w-0 space-y-2">
+          {departmentOrdersError ? <div role="alert" className="text-sm text-red-700">{String(departmentOrdersError.message || departmentOrdersError)}</div> : null}
+          <DepartmentOrderList
+            rows={departmentOrders}
+            title={t("page.deptInbox.orders", { count: departmentOrdersTotal })}
+            emptyLabel={t("page.deptInbox.noOrders")}
+            t={t}
+          />
+          {departmentOrdersHasMore ? (
+            <button
+              type="button"
+              className="btn mt-3 h-9 px-3 text-xs"
+              disabled={departmentOrdersValidating}
+              onClick={() => void setDepartmentOrderPageCount((size) => size + 1)}
+            >
+              {departmentOrdersValidating ? t("common.loading") : t("common.loadMore")}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
-      {(code === "PKG" || code === "BPK" || code === "ECP") && data?.awaiting_packaging?.length > 0 && (
-        <div className="card mt-4 p-4">
-          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">{t("page.deptInbox.awaitingPackaging")}</h3>
+      {isPackagingDepartment && awaitingPackagingLoading ? <div className="card mt-4 p-4 text-sm text-slate-500">{t("common.loading")}</div> : null}
+      {isPackagingDepartment && awaitingPackagingError ? <div role="alert" className="text-sm text-red-700">{localizeError(String(awaitingPackagingError.message || awaitingPackagingError))}</div> : null}
+      {isPackagingDepartment && awaitingPackagingRows.length > 0 && (
+        <div className="card mt-4 overflow-x-auto p-4">
+          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">{t("page.deptInbox.awaitingPackaging")} <span className="text-xs font-normal">{awaitingPackagingRows.length} / {awaitingPackagingTotal}</span></h3>
           <table className="table">
             <thead>
-              <tr><th>{t("field.production")}</th><th>{t("field.readyQty")}</th><th>{t("field.sewn")}</th><th>{t("field.packed")}</th></tr>
+              <tr><th>{t("page.workOrder.modelPicture")}</th><th>{t("cuttingInbox.variantPicture")}</th><th>{t("field.production")}</th><th>{t("field.batch")}</th><th>{t("field.modelNo")}</th><th>{t("field.variantNo")}</th><th>{t("field.readyQty")}</th><th>{t("field.sewn")}</th><th>{t("field.packed")}</th></tr>
             </thead>
             <tbody>
-              {data.awaiting_packaging.map((r: any) => (
-                <tr key={r.production_order_id}>
-                  <td>{orderReference(r, `#${r.production_order_id}`)}</td>
+              {awaitingPackagingRows.map((r: any) => (
+                <tr key={`${r.production_order_id}:${r.production_batch_id ?? "unbatched"}`}>
+                  <td><ImageThumbnail imageUrl={r.model_image_url} label={r.model_no || r.model_name || ""} title={t("page.workOrder.modelPicture")} emptyLabel={t("page.workOrder.noImage")} /></td>
+                  <td><ImageThumbnail imageUrl={r.material_image_url} label={formatVariantNumber(r.variant_no) || ""} title={t("cuttingInbox.variantPicture")} emptyLabel={t("page.workOrder.noImage")} /></td>
+                  <td><Link href={`/production-orders/${r.production_order_id}`} className="mono hover:underline">{r.production_no || "-"}</Link></td>
+                  <td>{r.batch_no ? [r.batch_no, r.batch_name].filter(Boolean).join(" · ") : "-"}</td>
+                  <td>{r.model_no || r.model_code || "-"}</td>
+                  <td>{formatVariantNumber(r.variant_no) || "-"}</td>
                   <td>{r.ready_qty}</td>
                   <td>{r.sewn_passed}</td>
                   <td>{r.already_packed}</td>
@@ -612,15 +470,35 @@ export default function DepartmentInboxPage() {
               ))}
             </tbody>
           </table>
+          {awaitingPackagingHasMore ? (
+            <button
+              type="button"
+              className="btn mt-3"
+              disabled={awaitingPackagingValidating}
+              onClick={() => void setAwaitingPackagingPageCount((awaitingPackagingPages?.length ?? 1) + 1)}
+            >
+              {awaitingPackagingValidating ? t("common.loading") : t("common.loadMore")}
+            </button>
+          ) : null}
         </div>
       )}
 
       {code === "FGS" && (
         <div className="grid grid-cols-1 gap-4 mt-4 lg:grid-cols-2">
-          <section className="card p-4">
+          <section className="card overflow-x-auto p-4">
             <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              {t("page.deptInbox.pendingPackageIntake", { count: pendingPackages.length })}
+              {t("page.deptInbox.pendingPackageIntake", { count: pendingPackagesTotal })}
             </h3>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <input
+                className="input h-8 min-w-48 flex-1"
+                aria-label={`${t("common.search")} ${t("field.package")}`}
+                placeholder={`${t("common.search")} ${t("field.package").toLowerCase()}`}
+                value={pendingPackageSearch}
+                onChange={(event) => setPendingPackageSearch(event.target.value)}
+              />
+              <span className="text-xs text-slate-500">{pendingPackages.length} / {pendingPackagesTotal}</span>
+            </div>
             <table className="table">
               <thead><tr><th>{t("field.salesOrderShort")}</th><th>{t("field.packages")}</th><th>{t("field.qty")}</th><th className="text-right">{t("field.actions")}</th></tr></thead>
               <tbody>
@@ -631,6 +509,7 @@ export default function DepartmentInboxPage() {
                       <td>{g.packages.length}</td>
                       <td>{g.total_quantity}</td>
                       <td className="text-right">
+                        <ReturnPackages packages={g.packages} onReturned={() => { void refreshInbox(); }} />
                         <button
                           className="btn h-7 px-2 text-[11px]"
                           onClick={() => setExpandedPackageGroups((prev) => ({ ...prev, [g.key]: !prev[g.key] }))}
@@ -668,11 +547,31 @@ export default function DepartmentInboxPage() {
                 )}
               </tbody>
             </table>
+            {pendingPackagePages?.[pendingPackagePages.length - 1]?.has_more && (
+              <button
+                className="btn mt-3"
+                type="button"
+                disabled={pendingPackagesValidating}
+                onClick={() => setPendingPackagePageCount((size) => size + 1)}
+              >
+                {pendingPackagesValidating ? t("common.loading") : t("common.loadMore")}
+              </button>
+            )}
           </section>
-          <section className="card p-4">
+          <section className="card overflow-x-auto p-4">
             <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              {t("page.deptInbox.readyToShip", { count: readyToShipOrders.length })}
+              {t("page.deptInbox.readyToShip", { count: readyToShipCount })}
             </h3>
+            {!hasReadyToShipOrders && <div className="mb-3 flex flex-wrap items-center gap-2">
+              <input
+                className="input h-8 min-w-48 flex-1"
+                aria-label={`${t("common.search")} ${t("field.package")}`}
+                placeholder={`${t("common.search")} ${t("field.package").toLowerCase()}`}
+                value={readyPackageSearch}
+                onChange={(event) => setReadyPackageSearch(event.target.value)}
+              />
+              <span className="text-xs text-slate-500">{readyPackages.length} / {readyPackagesTotal}</span>
+            </div>}
             {shipmentError && <div className="mb-2 text-xs text-red-600">{shipmentError}</div>}
             <table className="table">
               <thead>
@@ -680,6 +579,7 @@ export default function DepartmentInboxPage() {
                   <th>{t("field.salesOrderShort")}</th>
                   <th>{t("field.customer")}</th>
                   <th>{t("field.address")}</th>
+                  <th>{t("field.items")}</th>
                   <th>{t("field.type")}</th>
                   <th>{t("field.shipmentNo")}</th>
                   <th>{t("field.packages")}</th>
@@ -698,12 +598,13 @@ export default function DepartmentInboxPage() {
                   const rowKey = `so-${soId}`;
                   return (
                   <Fragment key={key}>
-                    <tr>
+                    <tr id={soId > 0 ? `shipping-order-${soId}` : undefined}>
                       <td>{soLabel}</td>
                       <td>{g.customer_name || "-"}</td>
                       <td className="max-w-[260px] truncate" title={String(g.destination || g.customer_address || "-")}>
                         {g.destination || g.customer_address || "-"}
                       </td>
+                      <td><ShipmentItemLines items={g.item_lines} /></td>
                       <td>{shipmentType}</td>
                       <td>{shipmentLabel}</td>
                       <td>{Number(g.packages || 0)}</td>
@@ -737,10 +638,72 @@ export default function DepartmentInboxPage() {
                   </Fragment>
                 )})}
                 {readyToShipOrders.length === 0 && (
-                  <tr><td colSpan={8} className="text-sm text-slate-400">{t("page.deptInbox.noReadyToShip")}</td></tr>
+                  <tr><td colSpan={9} className="text-sm text-slate-400">{t("page.deptInbox.noReadyToShip")}</td></tr>
                 )}
               </tbody>
             </table>
+            {hasReadyToShipOrders && readyToShipHasMore && (
+              <button
+                className="btn mt-3"
+                type="button"
+                disabled={readyToShipValidating}
+                onClick={() => setReadyToShipSize(readyToShipSize + 1)}
+              >
+                {readyToShipValidating ? t("common.loading") : t("common.loadMore")}
+              </button>
+            )}
+            {!hasReadyToShipOrders && readyPackagePages?.[readyPackagePages.length - 1]?.has_more && (
+              <button
+                className="btn mt-3"
+                type="button"
+                disabled={readyPackagesValidating}
+                onClick={() => setReadyPackagePageCount((size) => size + 1)}
+              >
+                {readyPackagesValidating ? t("common.loading") : t("common.loadMore")}
+              </button>
+            )}
+            {hasReadyToShipOrders && (
+              <div className="mt-4 border-t border-slate-200 pt-4">
+                <h4 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
+                  {t("field.packages")} ({readyPackagesTotal})
+                </h4>
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  <input
+                    className="input h-8 min-w-48 flex-1"
+                    aria-label={`${t("common.search")} ${t("field.package")}`}
+                    placeholder={`${t("common.search")} ${t("field.package").toLowerCase()}`}
+                    value={readyPackageSearch}
+                    onChange={(event) => setReadyPackageSearch(event.target.value)}
+                  />
+                  <span className="text-xs text-slate-500">{readyPackages.length} / {readyPackagesTotal}</span>
+                </div>
+                <table className="table text-xs">
+                  <thead><tr><th>{t("field.salesOrderShort")}</th><th>{t("field.packages")}</th><th>{t("field.qty")}</th></tr></thead>
+                  <tbody>
+                    {readyPackagesByOrder.map((group) => (
+                      <tr key={`ready-package-${group.key}`}>
+                        <td>{orderReference(group, "-")}</td>
+                        <td>{group.packages.length}</td>
+                        <td>{group.total_quantity}</td>
+                      </tr>
+                    ))}
+                    {readyPackagesByOrder.length === 0 && (
+                      <tr><td colSpan={3} className="text-sm text-slate-400">{t("page.deptInbox.noReadyToShip")}</td></tr>
+                    )}
+                  </tbody>
+                </table>
+                {readyPackagePages?.[readyPackagePages.length - 1]?.has_more && (
+                  <button
+                    className="btn mt-3"
+                    type="button"
+                    disabled={readyPackagesValidating}
+                    onClick={() => setReadyPackagePageCount((size) => size + 1)}
+                  >
+                    {readyPackagesValidating ? t("common.loading") : t("common.loadMore")}
+                  </button>
+                )}
+              </div>
+            )}
           </section>
         </div>
       )}

@@ -1,13 +1,17 @@
 "use client";
+import { formatVariantNumber } from "@/lib/variantDisplay";
+import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useMemo, useState, type FormEvent } from "react";
 import { ArrowRight, PackageOpen, RefreshCw, Search } from "lucide-react";
 import useSWR from "swr";
 
 import PageHeader from "@/components/PageHeader";
 import { fetcher } from "@/lib/api";
-import { LIVE_DATA_SWR_OPTIONS } from "@/lib/liveData";
+import { useMe } from "@/lib/auth";
+import { packagingDepartmentForSession } from "@/lib/access";
 import { useT } from "@/lib/i18n";
 import { storageThumbnailUrl } from "@/lib/modelImages";
 
@@ -23,28 +27,30 @@ type ReceivedOrder = {
   received_quantity: number;
   packed_quantity: number;
   remaining_quantity: number;
-  waiting_replacement_quantity: number;
   last_received_at: string;
 };
 
 function orderLabel(row: ReceivedOrder) {
-  return row.order_no || row.production_no || `#${row.production_order_id}`;
+  return formatOrderReference(row.order_no || row.production_no || `#${row.production_order_id}`);
 }
 
 export default function PackagingQueuePage() {
   const { t } = useT();
+  const searchParams = useSearchParams();
+  const { me } = useMe();
+  const requestedDepartment = searchParams.get("packaging_department");
+  const packagingDepartment = packagingDepartmentForSession(me, requestedDepartment);
+  const isEcoCotton = packagingDepartment === "ECP";
+  const factoryLabel = isEcoCotton ? "Eco Cotton" : packagingDepartment === "BPK" ? "Besttex" : "Milana";
   const [searchDraft, setSearchDraft] = useState("");
   const [search, setSearch] = useState("");
   const queueUrl = useMemo(() => {
     const params = new URLSearchParams({ limit: "200" });
+    params.set("packaging_department_code", packagingDepartment);
     if (search) params.set("q", search);
     return `/api/packaging/received-orders?${params.toString()}`;
-  }, [search]);
-  const { data: orders = [], mutate, isLoading } = useSWR<ReceivedOrder[]>(
-    queueUrl,
-    fetcher,
-    LIVE_DATA_SWR_OPTIONS,
-  );
+  }, [packagingDepartment, search]);
+  const { data: orders = [], mutate, isLoading } = useSWR<ReceivedOrder[]>(queueUrl, fetcher);
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -54,7 +60,7 @@ export default function PackagingQueuePage() {
   return (
     <div>
       <PageHeader
-        title={t("page.packagingReceive.queueTitle")}
+        title={`${factoryLabel} - ${t("page.packagingReceive.queueTitle")}`}
         subtitle={t("page.packagingReceive.queueHint")}
         actions={(
           <button type="button" className="btn" onClick={() => mutate()}>
@@ -88,7 +94,6 @@ export default function PackagingQueuePage() {
                 <th className="text-right">{t("field.received")}</th>
                 <th className="text-right">{t("page.packagingReceive.packed")}</th>
                 <th className="text-right">{t("page.packagingReceive.readyToPack")}</th>
-                <th className="text-right">{t("replacement.waiting")}</th>
                 <th>{t("field.actions")}</th>
               </tr>
             </thead>
@@ -116,7 +121,7 @@ export default function PackagingQueuePage() {
                   <td>
                     <div className="font-medium text-[#14110b]">{row.model_name || row.model_code || "-"}</div>
                     <div className="text-xs text-[#8a8472]">
-                      {[row.model_code, row.variant_no && row.variant_no !== row.model_code ? row.variant_no : null]
+                      {[row.model_code, row.variant_no && row.variant_no !== row.model_code ? formatVariantNumber(row.variant_no) : null]
                         .filter(Boolean)
                         .join(" · ") || "-"}
                     </div>
@@ -124,9 +129,6 @@ export default function PackagingQueuePage() {
                   <td className="text-right tabular-nums">{row.received_quantity.toLocaleString()}</td>
                   <td className="text-right tabular-nums">{row.packed_quantity.toLocaleString()}</td>
                   <td className="text-right font-semibold tabular-nums text-[#14110b]">{row.remaining_quantity.toLocaleString()}</td>
-                  <td className="text-right font-semibold tabular-nums text-amber-800">
-                    {Number(row.waiting_replacement_quantity || 0).toLocaleString()}
-                  </td>
                   <td>
                     <Link href={`/work-orders/${row.work_order_id}/packaging`} className="btn btn-primary whitespace-nowrap">
                       {t("page.packagingReceive.packing")}
@@ -137,12 +139,12 @@ export default function PackagingQueuePage() {
               ))}
               {!isLoading && orders.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="text-sm text-[#8a8472]">{t("page.packagingReceive.queueEmpty")}</td>
+                  <td colSpan={7} className="text-sm text-[#8a8472]">{t("page.packagingReceive.queueEmpty")}</td>
                 </tr>
               )}
               {isLoading && orders.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="text-sm text-[#8a8472]">{t("common.loading")}</td>
+                  <td colSpan={7} className="text-sm text-[#8a8472]">{t("common.loading")}</td>
                 </tr>
               )}
             </tbody>

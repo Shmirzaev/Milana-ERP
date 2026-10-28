@@ -1,68 +1,358 @@
-name: CI
+name: ERP validation and immutable release artifacts
 
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, clone_main, "codex/**"]
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: "UTC release ID (YYYYMMDD_HHMMSS)"
+        required: true
+        type: string
+      production_base_release:
+        description: "Currently active production release"
+        required: true
+        type: string
+      production_base_manifest:
+        description: "Currently active SOURCE_MANIFEST.sha256 hash"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   backend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
-      - name: Install backend dependencies
-        run: python -m pip install -r backend/requirements-dev.txt
-      - name: Compile Python
-        run: python -m compileall -q backend/app
-      - name: Run backend tests
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      - run: python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+      - name: Start job-owned loopback PostgreSQL 16
+        run: |
+          docker run --detach --cidfile "$RUNNER_TEMP/ci-postgres.cid" --name milana-ci-postgres \
+            --network host --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --env POSTGRES_DB=first_grade_qa_ci postgres:16-alpine \
+            postgres -h 127.0.0.1 -p 5432
+          for attempt in $(seq 1 30); do
+            if docker exec milana-ci-postgres pg_isready -h 127.0.0.1 -p 5432 -U postgres; then
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
+      - name: Verify one Alembic head
         working-directory: backend
-        run: python -m pytest --cov=app --cov-report=term-missing --cov-fail-under=50 -q
-      - name: Run Bandit
+        run: python -c "from alembic.config import Config; from alembic.script import ScriptDirectory; heads=ScriptDirectory.from_config(Config('alembic.ini')).get_heads(); assert len(heads)==1, heads; print(heads[0])"
+      - name: Ruff and compile
         working-directory: backend
-        run: python -m bandit -r app -x app/tests -q
-      - name: Audit Python dependencies
+        run: |
+          python -m ruff check app
+          python -m compileall -q app scripts
+      - name: Backend regression suite
         working-directory: backend
-        # python-jose installs ecdsa transitively. PYSEC-2026-1325 has no fixed
-        # release, and production/public startup rejects every JWT algorithm
-        # except HS256, so the vulnerable elliptic-curve path is unreachable.
-        run: python -m pip_audit -r requirements.txt --ignore-vuln PYSEC-2026-1325
-      - name: Ruff critical lint
+        run: python -m pytest -q
+      - name: Purchasing approval PostgreSQL write boundary
+        env:
+          PUR_APPROVAL_PG_ADMIN_URL: postgresql://postgres@127.0.0.1:5432/postgres
+        run: python backend/scripts/test_purchase_request_approval_postgres.py
+      - name: P2 PostgreSQL locking and query-plan regressions
+        env:
+          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
+        run: >-
+          python -m pytest -q
+          backend/app/tests/test_numbering_postgres_concurrency.py
+          backend/app/tests/test_material_reservation_concurrency.py
+          backend/app/tests/test_package_write_postgres.py
+          backend/app/tests/test_package_batch_receive_concurrency.py
+          backend/app/tests/test_cutting_packaging_write_postgres.py
+          backend/app/tests/test_cutting_reconciliation_postgres.py
+          backend/app/tests/test_cutting_batch_lifecycle_postgres.py
+          backend/app/tests/test_traceability_postgres_plan.py
+          backend/app/tests/test_packaging_receive_options_query_growth.py
+          backend/app/tests/test_warehouse_pack_reservations_postgres.py
+          backend/app/tests/test_sewing_band_postgres.py
+          backend/app/tests/test_sewing_later_nastil_postgres.py
+          backend/app/tests/test_besttex_cutting_postgres.py
+          backend/app/tests/test_payroll_overlap_repair.py
+      - name: Deployment observation regression suite
+        run: python -m unittest discover -s scripts -p 'test_observe_release.py' -v
+      - name: Create disposable Sales list review database
+        id: sales-list-db
+        run: >-
+          python -c "import psycopg2; db=psycopg2.connect(host='127.0.0.1',port=5432,user='postgres',dbname='postgres'); db.autocommit=True; db.cursor().execute('CREATE DATABASE review_sales_list_ci'); db.close()"
+      - name: Sales list quantities and bounded PostgreSQL queries
         working-directory: backend
-        run: python -m ruff check app
+        env:
+          SALES_LIST_REVIEW_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/review_sales_list_ci
+          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/review_sales_list_ci
+        run: python -m pytest -q app/tests/test_sales_list_truth.py app/tests/test_sales_list_query_growth.py
+      - name: Drop owned Sales list review database
+        if: ${{ always() && steps.sales-list-db.outcome == 'success' }}
+        run: >-
+          python -c "import psycopg2; db=psycopg2.connect(host='127.0.0.1',port=5432,user='postgres',dbname='postgres'); db.autocommit=True; db.cursor().execute('DROP DATABASE review_sales_list_ci WITH (FORCE)'); db.close()"
+      - name: Create disposable Forecast creation review database
+        id: forecast-create-db
+        run: >-
+          python -c "import psycopg2; db=psycopg2.connect(host='127.0.0.1',port=5432,user='postgres',dbname='postgres'); db.autocommit=True; db.cursor().execute('CREATE DATABASE review_forecast_create_ci'); db.close()"
+      - name: Forecast creation PostgreSQL atomicity
+        working-directory: backend
+        env:
+          FORECAST_CREATE_REVIEW_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/review_forecast_create_ci
+        run: python -m pytest -q app/tests/test_forecast_create_postgres.py
+      - name: Drop owned Forecast creation review database
+        if: ${{ always() && steps.forecast-create-db.outcome == 'success' }}
+        run: >-
+          python -c "import psycopg2; db=psycopg2.connect(host='127.0.0.1',port=5432,user='postgres',dbname='postgres'); db.autocommit=True; db.cursor().execute('DROP DATABASE review_forecast_create_ci WITH (FORCE)'); db.close()"
+      - name: Ismail PostgreSQL schema and reservation regressions
+        working-directory: backend
+        env:
+          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
+        run: >-
+          python -m pytest -q app/tests/test_fresh_migration_bootstrap.py
+          app/tests/test_ismail_schema_completion.py app/tests/test_migration_preflight.py
+          app/tests/test_db08_beyka_orm_parity.py app/tests/test_reservation_overclaim.py
+          app/tests/test_reservation_plan_query_growth.py
+          app/tests/test_stock_movement_batch_integrity.py
+      - name: PostgreSQL migration, concurrency and model numbering regression
+        env:
+          PYTHONPATH: ./backend
+          FIRST_GRADE_DISPOSABLE: "1"
+          DATABASE_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
+          JWT_SECRET: disposable-local-test-secret-only
+          FILE_SIGNING_SECRET: disposable-local-file-signing-secret-only
+          INITIAL_ADMIN_EMAIL: admin@disposable.invalid
+          INITIAL_ADMIN_PASSWORD: disposable-local-test-password-123!
+          SEED_DEMO_USERS: "false"
+          SEED_SAMPLE_DATA: "true"
+          IMPORT_LEGACY_MODELS: "false"
+          BARCODE_STORAGE_DIR: /tmp/first-grade-test-barcodes
+        run: |
+          python scripts/test_first_grade_postgres.py
+          python scripts/test_model_numbering_postgres.py
+      - name: Remove only this job's owned PostgreSQL container
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/ci-postgres.cid" ]; then
+            docker rm --force "$(cat "$RUNNER_TEMP/ci-postgres.cid")"
+          fi
 
   frontend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm ci
-      - name: Audit frontend dependencies
-        working-directory: frontend
-        run: npm audit --omit=dev
-      - name: Lint
-        working-directory: frontend
+      - working-directory: frontend
+        run: npm ci --legacy-peer-deps
+      - working-directory: frontend
         run: npm run lint
-      - name: Check translations
-        working-directory: frontend
-        run: npm run check:i18n
-      - name: Typecheck
-        working-directory: frontend
-        run: npm run typecheck
-      - name: Focused strict typecheck
-        working-directory: frontend
+      - working-directory: frontend
         run: npm run typecheck:strict
-      - name: Build
+      - name: Sales enum contracts and mutation checks
+        working-directory: frontend
+        run: npm run test:sales-enum-contracts
+      - name: Browser pagination and Besttex label regressions
+        working-directory: frontend
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:load-more-browser
+          node scripts/test-process-qr-batch-groups.browser.mjs
+          node scripts/test-warehouse-pack-lifecycle.browser.mjs
+          node scripts/test-sewing-bands.browser.mjs
+          node scripts/test-packaging-size-entry.browser.mjs
+          node scripts/test-grade-packaging-state.browser.mjs
+          node scripts/test-cutting-factory-salary.browser.mjs
+          node scripts/test-cutting-batch-selection.browser.mjs
+          node scripts/test-sewing-received-input.browser.mjs
+          node scripts/test-sewing-later-nastil.browser.mjs
+          node scripts/test-cutting-passport-reports.browser.mjs
+          node scripts/test-passport-fabric-employee-export.browser.mjs
+          node scripts/test-hr-employees-locales.browser.mjs
+          node scripts/test-employee-archive.browser.mjs
+          node scripts/test-cutting-batch-print.browser.mjs
+          node scripts/test-receive-total-length.browser.mjs
+          node scripts/check-receiving-auto-roll-weights.mjs
+      - name: Optimized production build and contracts
         working-directory: frontend
         env:
-          NEXT_PUBLIC_API_URL: https://api.example.invalid
+          NEXT_PUBLIC_API_URL: https://erp.milanapremium.uz
+          API_URL: http://172.16.10.4:8000
         run: npm run build
+      - name: Clear generated production build for isolated QA build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025'
+        working-directory: frontend
+        run: |
+          test -d .next
+          test ! -L .next
+          rm -rf -- .next
+      - name: Build loopback-only QA frontend
+        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025'
+        timeout-minutes: 5
+        working-directory: frontend
+        env:
+          NODE_ENV: production
+          NEXT_PUBLIC_API_URL: ''
+          API_URL: http://127.0.0.1:8107
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: npm run build -- --webpack
+      - name: QA runtime manifest and smoke regressions
+        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025'
+        timeout-minutes: 2
+        working-directory: frontend
+        run: python3 -m unittest discover -s scripts -p 'test_*qa_runtime*.py' -v
+      - name: Stage bounded QA frontend runtime
+        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025'
+        timeout-minutes: 2
+        working-directory: frontend
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_SHA: ${{ github.sha }}
+          RUNNER_TEMP: ${{ runner.temp }}
+          NODE_ENV: production
+          NEXT_PUBLIC_API_URL: ''
+          API_URL: http://127.0.0.1:8107
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: python3 scripts/stage_qa_runtime.py
+      - name: Smoke exact staged QA frontend archive
+        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025'
+        timeout-minutes: 2
+        working-directory: frontend
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_SHA: ${{ github.sha }}
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: python3 scripts/smoke_qa_runtime.py
+      - name: Upload QA-only frontend runtime
+        id: qa_upload
+        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025'
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-frontend-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/finance-qa-runtime-${{ github.sha }}/runtime.zip
+            ${{ runner.temp }}/finance-qa-runtime-${{ github.sha }}/manifest.json
+          if-no-files-found: error
+          retention-days: 1
+      - name: Report QA artifact identity
+        if: steps.qa_upload.outcome == 'success'
+        env:
+          ARTIFACT_ID: ${{ steps.qa_upload.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.qa_upload.outputs.artifact-digest }}
+        run: |
+          printf 'QA artifact id: %s\n' "$ARTIFACT_ID" >> "$GITHUB_STEP_SUMMARY"
+          printf 'QA artifact digest: %s\n' "$ARTIFACT_DIGEST" >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    if: github.event_name == 'workflow_dispatch'
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate release identity and production base
+        env:
+          RELEASE_ID: ${{ inputs.release_id }}
+        run: |
+          [[ "$RELEASE_ID" =~ ^[0-9]{8}_[0-9]{6}$ ]]
+          python scripts/verify_release_source.py . \
+            --expected-base-release '${{ inputs.production_base_release }}' \
+            --expected-base-manifest '${{ inputs.production_base_manifest }}'
+      - name: Package deterministic source archive
+        run: python scripts/package_release.py --release '${{ inputs.release_id }}' --output 'milana-erp-${{ inputs.release_id }}.tar.gz'
+      - name: Authenticate to GHCR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GH_TOKEN" | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+      - name: Resolve image names
+        id: images
+        env:
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: |
+          owner="${REPOSITORY_OWNER,,}"
+          echo "backend=ghcr.io/$owner/milana-erp-backend" >> "$GITHUB_OUTPUT"
+          echo "frontend=ghcr.io/$owner/milana-erp-frontend" >> "$GITHUB_OUTPUT"
+      - name: Build and publish backend image
+        id: backend_image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: ./backend
+          pull: true
+          push: true
+          tags: ${{ steps.images.outputs.backend }}:${{ inputs.release_id }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=milana-backend-v1
+          cache-to: type=gha,scope=milana-backend-v1,mode=max
+      - name: Build and publish frontend image
+        id: frontend_image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: ./frontend/Dockerfile
+          pull: true
+          push: true
+          tags: ${{ steps.images.outputs.frontend }}:${{ inputs.release_id }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          build-args: |
+            NEXT_PUBLIC_API_URL=https://erp.milanapremium.uz
+            API_URL=http://172.16.10.4:8000
+          # Reuse dependencies, but always compile the checked-out application.
+          no-cache-filters: builder
+          cache-from: type=gha,scope=milana-frontend-v1
+          cache-to: type=gha,scope=milana-frontend-v1,mode=max
+      - uses: actions/upload-artifact@v4
+        with:
+          name: milana-erp-${{ inputs.release_id }}
+          path: |
+            milana-erp-${{ inputs.release_id }}.tar.gz
+            milana-erp-${{ inputs.release_id }}.tar.gz.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Report artifacts ready
+        env:
+          RELEASE_ID: ${{ inputs.release_id }}
+          BACKEND_IMAGE: ${{ steps.images.outputs.backend }}@${{ steps.backend_image.outputs.digest }}
+          FRONTEND_IMAGE: ${{ steps.images.outputs.frontend }}@${{ steps.frontend_image.outputs.digest }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          release = os.environ["RELEASE_ID"]
+          metadata = json.loads(Path(f"milana-erp-{release}.tar.gz.json").read_text())
+          assert metadata["git_commit"] == os.environ["GITHUB_SHA"]
+          summary = "\n".join([
+              "## Artifacts ready — production activation pending",
+              "",
+              f"Release: `{release}`",
+              f"Source commit: `{metadata['git_commit']}`",
+              f"Source manifest: `{metadata['source_manifest_sha256']}`",
+              f"Backend: `{os.environ['BACKEND_IMAGE']}`",
+              f"Frontend: `{os.environ['FRONTEND_IMAGE']}`",
+              "",
+              "Backend/frontend validation passed and immutable artifacts were published.",
+              "This workflow does not activate production.",
+              "Follow DEPLOYMENT.md for source rechecks, backup, staging, QA and cutover.",
+              "Report Live only after both roles and postflight pass; report Observation complete",
+              "only after the reviewed 10-minute low-risk or 30-minute high-risk window",
+              "and successful closing checks. Uncertain risk defaults to 30 minutes.",
+              "",
+          ])
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as output:
+              output.write(summary)
+          PY

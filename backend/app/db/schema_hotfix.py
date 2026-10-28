@@ -66,6 +66,11 @@ _PATCHES: list[tuple[str, str]] = [
     ("items",       "ADD COLUMN IF NOT EXISTS reorder_level NUMERIC(14,4) NOT NULL DEFAULT 0"),
     ("items",       "ADD COLUMN IF NOT EXISTS composition_json JSON NOT NULL DEFAULT '[]'::json"),
     ("items",       "ADD COLUMN IF NOT EXISTS image_url VARCHAR(512)"),
+    ("purchase_request_lines", "ADD COLUMN IF NOT EXISTS material_name VARCHAR(255)"),
+    ("purchase_request_lines", "ADD COLUMN IF NOT EXISTS photo_url VARCHAR(500)"),
+    ("purchase_order_lines", "ADD COLUMN IF NOT EXISTS supplier_id INTEGER REFERENCES suppliers(id)"),
+    ("purchase_order_lines", "ADD COLUMN IF NOT EXISTS material_name VARCHAR(255)"),
+    ("purchase_order_lines", "ADD COLUMN IF NOT EXISTS photo_url VARCHAR(500)"),
     ("stock_batches", "ADD COLUMN IF NOT EXISTS supplier_id INTEGER REFERENCES suppliers(id)"),
     ("stock_batches", "ADD COLUMN IF NOT EXISTS old_code VARCHAR(64)"),
     ("stock_batches", "ADD COLUMN IF NOT EXISTS color_code VARCHAR(32)"),
@@ -125,6 +130,7 @@ _PATCHES: list[tuple[str, str]] = [
     ("cutting_records", "ADD COLUMN IF NOT EXISTS bundle_count INTEGER NOT NULL DEFAULT 0"),
     ("cutting_records", "ADD COLUMN IF NOT EXISTS total_bundled_quantity INTEGER NOT NULL DEFAULT 0"),
     ("cutting_records", "ADD COLUMN IF NOT EXISTS operator_id INTEGER REFERENCES users(id)"),
+    ("cutting_records", "ADD COLUMN IF NOT EXISTS layup_operator_name VARCHAR(128)"),
     ("cutting_records", "ADD COLUMN IF NOT EXISTS notes TEXT"),
     ("cutting_records", "ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now()"),
     ("cutting_records", "ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()"),
@@ -206,6 +212,8 @@ _TABLE_PATCHES: list[str] = [
         available_quantity NUMERIC(14,4) NOT NULL DEFAULT 0,
         shortage_quantity NUMERIC(14,4) NOT NULL DEFAULT 0,
         preferred_supplier_id INTEGER REFERENCES suppliers(id),
+        material_name VARCHAR(255),
+        photo_url VARCHAR(500),
         notes TEXT
     )
     """,
@@ -237,6 +245,9 @@ _TABLE_PATCHES: list[str] = [
         unit VARCHAR(32) NOT NULL,
         unit_cost NUMERIC(12,4) NOT NULL DEFAULT 0,
         warehouse_id INTEGER REFERENCES warehouses(id),
+        supplier_id INTEGER REFERENCES suppliers(id),
+        material_name VARCHAR(255),
+        photo_url VARCHAR(500),
         notes TEXT
     )
     """,

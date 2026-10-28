@@ -1,15 +1,18 @@
 "use client";
+import { payrollClosureText } from "@/lib/payrollClosureText";
+import { formatOrderReference } from "@/lib/orderRef";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import QRCode from "qrcode";
-import { Printer, RefreshCw, RotateCcw, Search } from "lucide-react";
+import { ChevronDown, ChevronRight, Printer, RefreshCw, RotateCcw, Search } from "lucide-react";
 
 import PageHeader from "@/components/PageHeader";
 import { useDialogs } from "@/components/DialogProvider";
 import { api, fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
+import { removePayrollScanHistoryForLabel } from "@/lib/payrollScanStorage";
 
 type QrLabel = {
   id: number;
@@ -33,7 +36,8 @@ type QrLabel = {
   quantity: number | string;
   rate_per_piece: number | string;
   currency: string;
-  status: "available" | "scanned";
+  status: "available" | "scanned" | "closed";
+  closure_details?: { reason?: string; closed_at?: string } | null;
   payroll_record_id?: number | null;
   employee_id?: number | null;
   employee_name?: string | null;
@@ -49,7 +53,9 @@ type QrControlResponse = {
   items: QrLabel[];
   total: number;
   available_count: number;
+  closed_count: number;
   scanned_count: number;
+  order_counts: { order_no: string; total: number; scanned: number }[];
 };
 
 type QrGroup = {
@@ -58,6 +64,7 @@ type QrGroup = {
   models: string[];
   batches: string[];
   scanned: number;
+  total: number;
 };
 
 type PrintableLabel = QrLabel & { qrSrc: string };
@@ -96,11 +103,13 @@ function uniqueText(values: Array<string | null | undefined>): string[] {
 }
 
 export default function PayrollQrControlPage() {
-  const { t } = useT();
+  const { t, lang } = useT();
+  const closureText = payrollClosureText[lang];
   const dialogs = useDialogs();
   const { me } = useMe();
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState<"all" | "available" | "scanned">("all");
+  const [status, setStatus] = useState<"all" | "available" | "scanned" | "closed">("all");
   const [page, setPage] = useState(0);
   const [returningId, setReturningId] = useState<number | null>(null);
   const [printingOrder, setPrintingOrder] = useState<string | null>(null);
@@ -147,9 +156,10 @@ export default function PayrollQrControlPage() {
       rows: groupRows,
       models: uniqueText(groupRows.map((row) => row.model_code)),
       batches: uniqueText(groupRows.map((row) => row.batch_no)),
-      scanned: groupRows.filter((row) => row.status === "scanned").length,
+      scanned: status === "closed" ? 0 : data?.order_counts?.find((count) => count.order_no === groupOrderNo)?.scanned ?? 0,
+      total: status === "closed" ? groupRows.length : data?.order_counts?.find((count) => count.order_no === groupOrderNo)?.total ?? groupRows.length,
     }));
-  }, [rows]);
+  }, [rows, data?.order_counts, status]);
   const canReturn = can(me, "payroll.manage");
   const from = data?.total ? page * PAGE_SIZE + 1 : 0;
   const to = Math.min((page + 1) * PAGE_SIZE, data?.total || 0);
@@ -170,6 +180,7 @@ export default function PayrollQrControlPage() {
     setActionError("");
     try {
       await api.post(`/api/payroll/qr-labels/${row.id}/return`);
+      removePayrollScanHistoryForLabel(row.label_uid, window.localStorage, me?.factory_code);
       setMessage(t("page.payrollQrControl.returned"));
       await mutate();
     } catch (err: any) {
@@ -255,6 +266,7 @@ export default function PayrollQrControlPage() {
                 <option value="all">{t("page.payrollQrControl.allStatuses")}</option>
                 <option value="available">{t("page.payrollQrControl.notScanned")}</option>
                 <option value="scanned">{t("page.payrollQrControl.scanned")}</option>
+                <option value="closed">{closureText.archived}</option>
               </select>
             </div>
           </div>
@@ -265,6 +277,10 @@ export default function PayrollQrControlPage() {
           </div>
         </div>
 
+        <div className="flex gap-2 border-b p-3" role="tablist">
+          <button className="btn" role="tab" aria-selected={status !== "closed"} onClick={() => setStatus("all")}>{closureText.active}</button>
+          <button className="btn" role="tab" aria-selected={status === "closed"} onClick={() => setStatus("closed")}>{closureText.archived} ({data?.closed_count || 0})</button>
+        </div>
         <div className="overflow-x-auto">
           <table className="table qr-control-table min-w-[1020px]">
             <thead>
@@ -282,22 +298,27 @@ export default function PayrollQrControlPage() {
             <tbody>
               {groups.map((group) => (
                 <Fragment key={group.orderNo}>
-                  <tr className="qr-control-group-row">
+                  <tr className={`qr-control-group-row ${group.scanned === 0 ? "qr-order-white" : group.scanned === group.total ? "qr-order-green" : "qr-order-yellow"}`}>
                     <td colSpan={8}>
                       <div className="flex min-w-0 items-center justify-between gap-4">
                         <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
-                          <strong className="text-sm text-[#14110b]">{group.orderNo}</strong>
+                          <button type="button" className="flex min-h-10 items-center gap-2 text-sm font-semibold text-[#14110b]" aria-expanded={!!expanded[group.orderNo]}
+                            onClick={() => setExpanded((current) => ({ ...current, [group.orderNo]: !current[group.orderNo] }))}>
+                            {expanded[group.orderNo] ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                            {formatOrderReference(group.orderNo)}
+                          </button>
+                          <span>{status === "closed" ? closureText.archived : t(group.scanned === 0 ? "qrOrders.none" : group.scanned === group.total ? "qrOrders.all" : "qrOrders.partial")}</span>
                           <span>{t("common.model")}: <b>{group.models.join(", ") || "-"}</b></span>
                           <span>{t("field.batch")}: <b>{group.batches.join(", ") || "-"}</b></span>
-                          <span>{t("page.payrollQrControl.labelCount", { count: group.rows.length })}</span>
+                          <span>{t("page.payrollQrControl.labelCount", { count: group.total })}</span>
                           <span className="text-green-800">{t("page.payrollQrControl.scanned")}: <b>{group.scanned}</b></span>
-                          <span className="text-amber-800">{t("page.payrollQrControl.notScanned")}: <b>{group.rows.length - group.scanned}</b></span>
+                          <span className="text-amber-800">{t("page.payrollQrControl.notScanned")}: <b>{group.total - group.scanned}</b></span>
                         </div>
                         <button
                           type="button"
                           className="btn shrink-0"
                           onClick={() => reprintOrder(group.orderNo)}
-                          disabled={printingOrder !== null}
+                          disabled={printingOrder !== null || status === "closed"}
                         >
                           <Printer className={printingOrder === group.orderNo ? "animate-pulse" : ""} />
                           {printingOrder === group.orderNo
@@ -307,7 +328,7 @@ export default function PayrollQrControlPage() {
                       </div>
                     </td>
                   </tr>
-                  {group.rows.map((row) => (
+                  {expanded[group.orderNo] && group.rows.map((row) => (
                     <tr key={row.id} className={row.status === "scanned" ? "qr-row-scanned" : "qr-row-available"}>
                       <td>
                         <div className="font-mono text-[11px] font-semibold text-[#14110b]" title={`${t("page.payrollQrControl.issued")}: ${formatDateTime(row.issued_at)}`}>
@@ -322,12 +343,13 @@ export default function PayrollQrControlPage() {
                       <td className="whitespace-nowrap"><b>{row.size || "-"}</b> / {numberText(row.quantity)}</td>
                       <td>
                         <span className={`badge ${row.status === "scanned" ? "badge-green" : "badge-yellow"}`}>
-                          {row.status === "scanned"
+                          {row.status === "closed" ? closureText.closed : row.status === "scanned"
                             ? t("page.payrollQrControl.scanned")
                             : row.return_count > 0
                               ? t("page.payrollQrControl.returnedAvailable")
                               : t("page.payrollQrControl.notScanned")}
                         </span>
+                        {row.closure_details && row.status === "closed" && <div className="mt-1 text-xs">{row.closure_details.reason}<br />{closureText.date}: {formatDateTime(row.closure_details.closed_at)}</div>}
                       </td>
                       <td>
                         <span className="font-medium">{row.employee_name || "-"}</span>
@@ -422,10 +444,14 @@ export default function PayrollQrControlPage() {
           padding: 7px 8px !important;
           border-top: 1px solid #d8d2c2;
           border-bottom: 1px solid #d8d2c2;
-          background: #efede6 !important;
+
           color: #615948;
           font-size: 11px;
         }
+
+        .qr-control-table .qr-order-white td { background: #ffffff !important; }
+        .qr-control-table .qr-order-yellow td { background: #fff1b8 !important; }
+        .qr-control-table .qr-order-green td { background: #d9f0df !important; }
 
         .qr-control-table .qr-row-scanned td {
           background: #edf8ef;

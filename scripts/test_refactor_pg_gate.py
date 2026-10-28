@@ -1,0 +1,139 @@
+"""Offline red/green checks for missing or skipped required PG evidence."""
+import json
+import os
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+import xml.etree.ElementTree as ET
+
+import run_refactor_pg_gate as gate
+
+
+class RequiredPGGateTests(unittest.TestCase):
+    def setUp(self):
+        # Avoid changing global tmp settings; these tests never touch a database.
+        self.scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(self.scratch.cleanup)
+        self.root = Path(self.scratch.name)
+
+    def report(self):
+        tree = ET.Element('testsuites')
+        suite = ET.SubElement(tree, 'testsuite')
+        for module, names in gate.REQUIRED_CASES.items():
+            for name in names:
+                ET.SubElement(suite, 'testcase', classname=f'app.tests.{module}', name=name)
+        return tree
+
+    def write_report(self, tree):
+        path = self.root / 'report.xml'
+        ET.ElementTree(tree).write(path)
+        return path
+
+    def test_complete_evidence_passes(self):
+        counts = gate.check_report(self.write_report(self.report()))
+        self.assertEqual(sum(counts.values()), 98)
+
+    def test_skipped_failed_and_error_evidence_are_rejected(self):
+        for tag in ('skipped', 'failure', 'error'):
+            with self.subTest(tag=tag):
+                tree = self.report()
+                ET.SubElement(next(tree.iter('testcase')), tag)
+                with self.assertRaisesRegex(ValueError, 'did not pass'):
+                    gate.check_report(self.write_report(tree))
+
+    def test_missing_group_and_case_fail(self):
+        tree = self.report()
+        suite = next(tree.iter('testsuite'))
+        suite.remove(next(tree.iter('testcase')))
+        with self.assertRaisesRegex(ValueError, 'expected at least'):
+            gate.check_report(self.write_report(tree))
+
+    def test_missing_required_function_fails_even_with_same_total(self):
+        tree = self.report()
+        for case in tree.iter('testcase'):
+            if case.get('name', '').startswith('test_pg_unknown_customer'):
+                case.set('name', 'different_business_case')
+        with self.assertRaisesRegex(ValueError, 'function missing'):
+            gate.check_report(self.write_report(tree))
+
+    def test_duplicate_cases_cannot_fill_count(self):
+        tree = self.report()
+        cases = list(tree.iter('testcase'))
+        cases[1].attrib.update(cases[0].attrib)
+        with self.assertRaisesRegex(ValueError, 'duplicate'):
+            gate.check_report(self.write_report(tree))
+
+    def test_unrelated_case_cannot_replace_any_required_case(self):
+        for module in gate.REQUIRED_CASES:
+            tree = self.report()
+            selected = [case for case in tree.iter('testcase')
+                        if case.get('classname') == f'app.tests.{module}']
+            selected[0].set('name', 'unrelated_replacement_case')
+            with self.subTest(module=module), self.assertRaises(ValueError):
+                gate.check_report(self.write_report(tree))
+
+    def test_one_rollback_parameter_cannot_replace_another(self):
+        tree = self.report()
+        for case in tree.iter('testcase'):
+            if case.get('name') == 'test_pg_edit_and_audit_rollback_together_then_retry[audit_finalized]':
+                case.set('name', 'test_pg_edit_and_audit_rollback_together_then_retry[unrelated]')
+                break
+        else:
+            self.fail('frozen rollback parameter not present')
+        with self.assertRaisesRegex(ValueError, 'case identities missing'):
+            gate.check_report(self.write_report(tree))
+
+    def test_additional_cases_are_allowed(self):
+        tree = self.report()
+        ET.SubElement(next(tree.iter('testsuite')), 'testcase',
+                      classname='app.tests.test_bom_add_characterization', name='new_case')
+        counts = gate.check_report(self.write_report(tree))
+        self.assertEqual(counts['test_bom_add_characterization'], 55)
+
+    def test_empty_and_malformed_evidence_fail(self):
+        with self.assertRaisesRegex(ValueError, 'no test cases'):
+            gate.check_report(self.write_report(ET.Element('testsuites')))
+        path = self.root / 'malformed.xml'
+        path.write_text('<testsuites>', encoding='utf-8')
+        with self.assertRaises(ET.ParseError):
+            gate.check_report(path)
+
+    def test_required_config_is_checked_before_starting_pytest(self):
+        with patch.dict(os.environ, {}, clear=True), patch.object(gate.subprocess, 'run') as run:
+            with patch('sys.argv', ['gate']), self.assertRaises(SystemExit) as error:
+                gate.main()
+            self.assertEqual(error.exception.code, 2)
+            run.assert_not_called()
+
+    def test_bootstrap_only_ci_and_fixed_endpoint(self):
+        identity = self.root / 'identity.json'
+        env = self.root / 'github-env'
+        identity.write_text(json.dumps({'system_identifier': '123456', 'server_version': '17.11',
+                                        'data_directory': '/var/lib/postgresql/data'}), encoding='utf-8')
+        with patch.dict(os.environ, {}, clear=True), self.assertRaisesRegex(ValueError, 'GitHub Actions'):
+            gate.configure_ci(identity, env)
+        self.assertFalse(env.exists())
+        with patch.dict(os.environ, {'GITHUB_ACTIONS': 'true'}, clear=True):
+            gate.configure_ci(identity, env)
+        values = dict(line.split('=', 1) for line in env.read_text().splitlines())
+        config = json.loads(values['MILANA_TEST_PG_INSTANCE'])
+        self.assertEqual(values['MILANA_REQUIRE_TEST_PG'], '1')
+        self.assertEqual(config['host'], '127.0.0.1')
+        self.assertEqual(config['port'], 55432)
+        self.assertEqual(config['target_prefix'], 'review_ci_refactor_')
+
+    def test_invalid_container_identity_fails_before_env_write(self):
+        identity = self.root / 'identity.json'
+        env = self.root / 'github-env'
+        for changes in ({'system_identifier': 'invalid'}, {'server_version': '16.9'}, {'data_directory': 'relative'}):
+            data = {'system_identifier': '123456', 'server_version': '17.11', 'data_directory': '/pgdata'}
+            data.update(changes)
+            identity.write_text(json.dumps(data), encoding='utf-8')
+            with patch.dict(os.environ, {'GITHUB_ACTIONS': 'true'}, clear=True), self.assertRaises(ValueError):
+                gate.configure_ci(identity, env)
+            self.assertFalse(env.exists())
+
+
+if __name__ == '__main__':
+    unittest.main()

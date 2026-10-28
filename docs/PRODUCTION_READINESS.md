@@ -16,8 +16,7 @@ Use this checklist before exposing Milana ERP to real users or customer data.
 - Authenticated model file access.
 - Audit logs with hash-chain tamper evidence.
 - Backend regression tests for security, auth, audit, production, inventory, and sales flows.
-- CI dependency scanning with `pip-audit` and `npm audit`.
-- CI static/security checks with Bandit, Ruff, lint, typecheck, and build.
+- CI backend tests and Ruff; frontend lint, typecheck, browser regressions, and build. Bandit, `pip-audit`, and `npm audit` do not currently run in CI.
 - Dependabot configuration for backend, frontend, and GitHub Actions.
 
 ## Must Be Completed Before Production
@@ -28,7 +27,6 @@ Use this checklist before exposing Milana ERP to real users or customer data.
    - Unique 32+ character `JWT_SECRET`
    - Different unique 32+ character `FILE_SIGNING_SECRET`
    - Strong `INITIAL_ADMIN_PASSWORD`
-   - Strong `INTEGRATION_1C_TOKEN`
    - Explicit `CORS_ORIGINS`
 
 2. Configure database backups.
