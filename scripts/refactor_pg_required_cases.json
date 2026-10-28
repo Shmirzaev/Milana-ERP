@@ -190,8 +190,8 @@
       ]
     },
     "test_customer_delete_reference_race_postgres": {
-      "revision": "6e0d134132663ac0f8de9b872a1d4c10ab574582",
-      "git_blob_sha256": "c73eb7d7a7d18f1d4fca353a46e77453838fbcb619b665433a215c31bad02318",
+      "revision": "8a4c78568c39985f95dd93feaaf6474d29ffc8f9",
+      "git_blob_sha256": "23dbed6b13ce62b8b5468c3e155fa44f6b5bd2c89d982d7f46bc453388921e25",
       "selected_functions": [
         "test_pg_payment_commit_after_guards_before_delete_flush",
         "test_pg_delete_flush_blocks_payment_until_commit"
