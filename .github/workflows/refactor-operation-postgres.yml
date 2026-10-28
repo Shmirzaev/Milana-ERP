@@ -19,6 +19,8 @@ jobs:
         with:
           python-version: "3.11"
       - run: python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+      - name: Verify PostgreSQL gate evidence and environment guards
+        run: python scripts/test_refactor_pg_gate.py
       - name: Start this job's loopback-only PostgreSQL
         run: |
           docker run --detach --name milana-refactor-pg --network host \

@@ -32,7 +32,7 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 98)
+        self.assertEqual(sum(counts.values()), 100)
 
     def test_skipped_failed_and_error_evidence_are_rejected(self):
         for tag in ('skipped', 'failure', 'error'):
@@ -105,6 +105,27 @@ class RequiredPGGateTests(unittest.TestCase):
                 gate.main()
             self.assertEqual(error.exception.code, 2)
             run.assert_not_called()
+
+    def test_sanitization_removes_inherited_libpq_redirects_and_secrets(self):
+        source = {"PGHOSTADDR": "10.0.0.1", "PGHOST": "other", "PGSERVICE": "remote",
+                  "PGPASSWORD": "secret", "pgoptions": "-c search_path=public",
+                  "MILANA_REQUIRE_TEST_PG": "1", "MILANA_TEST_PG_INSTANCE": "pinned", "PATH": "path"}
+        clean = gate.sanitized_pg_environment(source, self.root)
+        self.assertEqual({k for k in clean if k.upper().startswith("PG")}, {"PGPASSFILE", "PGSERVICEFILE"})
+        self.assertEqual(clean["MILANA_TEST_PG_INSTANCE"], "pinned")
+        self.assertEqual(clean["MILANA_REQUIRE_TEST_PG"], "1")
+        self.assertEqual(Path(clean["PGPASSFILE"]).read_bytes(), b"")
+        self.assertEqual(Path(clean["PGSERVICEFILE"]).read_bytes(), b"")
+
+    def test_missing_brand_case_fails_even_if_other_group_has_extra(self):
+        tree = self.report()
+        suite = next(tree.iter('testsuite'))
+        brand = next(case for case in tree.iter('testcase')
+                     if case.get('classname') == 'app.tests.test_brand_create_postgres')
+        suite.remove(brand)
+        ET.SubElement(suite, 'testcase', classname='app.tests.test_bom_add_characterization', name='extra')
+        with self.assertRaisesRegex(ValueError, 'expected at least'):
+            gate.check_report(self.write_report(tree))
 
     def test_bootstrap_only_ci_and_fixed_endpoint(self):
         identity = self.root / 'identity.json'
