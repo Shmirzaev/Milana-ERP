@@ -1,6 +1,21 @@
 # Milana ERP Project Context
 
-Last updated: 2026-10-27
+Last updated: 2026-10-28
+
+## PO-0612 fully removed (2026-10-28)
+
+- At the owner's explicit request, removed unused 600-piece PO-0612 / KJ13059-V-6714:
+  one production order, four waiting work orders, five size-plan rows and one
+  material-plan link. Shared model, fabric batch 1610 (`483.0000 kg`), planning
+  parent 70 and eight sibling orders are unchanged. Audit 140965 verifies.
+- Fresh backup, rollback rehearsal, 449 dependency/reference checks, independent
+  persisted reconciliation and all four health checks passed. Active green
+  `20261027_115452`, blue rollback `20261027_104106` and schema
+  `0149_besttex_cutting_access` remain unchanged; no deployment occurred.
+- The owner selected the verified live-release branch for this record after the
+  older clone_main baseline was identified. See the
+  [dated cleanup record](archive/PO0612_CLEANUP_2026-10-28.md) for backup, deleted
+  IDs, conservation evidence and the dedicated unmerged documentation branch.
 
 ## Returned divided payroll label editing deployed (2026-10-27)
 
