@@ -140,6 +140,17 @@
         "test_pg_duplicate_and_audit_finalize_failure_roll_back_then_retry",
         "test_pg_case_variant_update_is_allowed"
       ]
+    },
+    "test_supplier_create_postgres": {
+      "revision": "e7ffc79a301ac9d59620278ca422408fedd940b5",
+      "git_blob_sha256": "d8aea97d8ea43e7794c1f3968bda6f2a8950a117ba0224bb5dda5bbf138cca21",
+      "selected_functions": [
+        "test_pg_route_saves_all_fields_and_audit_same_session",
+        "test_pg_route_refuses_unauthenticated_and_forbidden_without_writes",
+        "test_pg_route_failure_rolls_back_then_retry",
+        "test_pg_concurrent_suppliers_keep_audit_chain",
+        "test_pg_create_preserves_raw_fields_duplicates_and_validation"
+      ]
     }
   },
   "cases": {
@@ -282,6 +293,15 @@
       "test_pg_update_persistence_omission_null_and_chain",
       "test_pg_duplicate_and_audit_finalize_failure_roll_back_then_retry",
       "test_pg_case_variant_update_is_allowed"
+    ],
+    "test_supplier_create_postgres": [
+      "test_pg_route_saves_all_fields_and_audit_same_session",
+      "test_pg_route_refuses_unauthenticated_and_forbidden_without_writes",
+      "test_pg_route_failure_rolls_back_then_retry[audit_enqueue]",
+      "test_pg_route_failure_rolls_back_then_retry[audit_finalize]",
+      "test_pg_route_failure_rolls_back_then_retry[commit]",
+      "test_pg_concurrent_suppliers_keep_audit_chain",
+      "test_pg_create_preserves_raw_fields_duplicates_and_validation"
     ]
   },
   "isolated_supplemental_cases": [
