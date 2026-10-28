@@ -170,6 +170,32 @@
         "test_pg_precommit_failure_rolls_back_and_retry",
         "test_pg_concurrent_distinct_customers_allow_same_name_and_chain"
       ]
+    },
+    "test_customer_delete_postgres": {
+      "revision": "6e0d134132663ac0f8de9b872a1d4c10ab574582",
+      "git_blob_sha256": "609bc67a8a4c9f1c61440325f08526c78d0c2a14173aa7d8984910dda06160ec",
+      "selected_functions": [
+        "test_pg_delete_route_success_repeat_and_missing",
+        "test_pg_delete_route_auth_denials_preserve_customer",
+        "test_pg_delete_reference_refusal_preserves_customer",
+        "test_pg_delete_precommit_failure_rolls_back_then_retry",
+        "test_pg_delete_distinct_rows_concurrently_preserves_audit_chain"
+      ]
+    },
+    "test_customer_delete_extra_fk_postgres": {
+      "revision": "6e0d134132663ac0f8de9b872a1d4c10ab574582",
+      "git_blob_sha256": "2784744f0b57a4ffdde821f93d56169cb2c9afc42889cb5a9d1e5a6616472125",
+      "selected_functions": [
+        "test_pg_existing_customer_fk_blocks_delete_then_retry"
+      ]
+    },
+    "test_customer_delete_reference_race_postgres": {
+      "revision": "6e0d134132663ac0f8de9b872a1d4c10ab574582",
+      "git_blob_sha256": "c73eb7d7a7d18f1d4fca353a46e77453838fbcb619b665433a215c31bad02318",
+      "selected_functions": [
+        "test_pg_payment_commit_after_guards_before_delete_flush",
+        "test_pg_delete_flush_blocks_payment_until_commit"
+      ]
     }
   },
   "cases": {
@@ -336,6 +362,26 @@
       "test_pg_precommit_failure_rolls_back_and_retry[audit_finalize]",
       "test_pg_precommit_failure_rolls_back_and_retry[before_commit]",
       "test_pg_concurrent_distinct_customers_allow_same_name_and_chain"
+    ],
+    "test_customer_delete_postgres": [
+      "test_pg_delete_route_success_repeat_and_missing",
+      "test_pg_delete_route_auth_denials_preserve_customer",
+      "test_pg_delete_reference_refusal_preserves_customer[sales]",
+      "test_pg_delete_reference_refusal_preserves_customer[shipment]",
+      "test_pg_delete_reference_refusal_preserves_customer[both]",
+      "test_pg_delete_precommit_failure_rolls_back_then_retry[audit_enqueue]",
+      "test_pg_delete_precommit_failure_rolls_back_then_retry[audit_finalize]",
+      "test_pg_delete_precommit_failure_rolls_back_then_retry[before_commit]",
+      "test_pg_delete_distinct_rows_concurrently_preserves_audit_chain"
+    ],
+    "test_customer_delete_extra_fk_postgres": [
+      "test_pg_existing_customer_fk_blocks_delete_then_retry[payment]",
+      "test_pg_existing_customer_fk_blocks_delete_then_retry[branded_planning]",
+      "test_pg_existing_customer_fk_blocks_delete_then_retry[warehouse_pack_reservation]"
+    ],
+    "test_customer_delete_reference_race_postgres": [
+      "test_pg_payment_commit_after_guards_before_delete_flush",
+      "test_pg_delete_flush_blocks_payment_until_commit"
     ]
   },
   "isolated_supplemental_cases": [
