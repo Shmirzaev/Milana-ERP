@@ -264,6 +264,10 @@ and all four health checks passed. Backup and full evidence are in
   test validity, relevant automated tests, actual visual E2E with screenshot inspection,
   bounded isolated stress, persisted integrity/recovery, then human acceptance.
   Required missing/skipped checks are BLOCKED, not PASS. No production stress/data fabrication.
+- The [local PostgreSQL runner adaptation](archive/LOCAL_POSTGRES_RUNNER_2026-10-29.md)
+  supplies legacy and approved-instance fixtures together. Its full local run had
+  5,375 passes, one stale S06 enum-call failure, and zero skips; required operation
+  and supplement groups passed. Mirshoir review remains pending; CI is unchanged.
 - Default backend pytest fixtures use SQLite. Real PostgreSQL checks need their
   documented setup/collection; do not infer locking correctness from SQLite success.
 - One write path per request and one outer transaction owner. Preserve locks, audit,

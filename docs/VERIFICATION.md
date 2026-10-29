@@ -164,6 +164,32 @@ correct isolated process/environment. SQLite cannot prove PostgreSQL row locking
 Do not invent credentials or print secrets. Report collected, passed, failed and
 skipped tests; a required skipped test leaves its gate BLOCKED, not PASS.
 
+For local PostgreSQL coverage, run `python3 scripts/run_local_postgres_tests.py`
+from the repository root with a local Unix-socket Docker daemon. It builds the
+backend test image and starts disposable PostgreSQL 17, with no published database
+port. Tests share its network namespace so both ends of the connection are
+loopback. The runner supplies the three legacy URLs (`STABILIZATION_POSTGRES_URL`,
+`S06_POSTGRES_URL`, `FN04_TEST_PG_ADMIN_URL`) plus the approved-instance identity
+read independently through Docker and `MILANA_REQUIRE_TEST_PG=1`. It reuses the
+existing environment sanitizer and required-case report validators. JUnit reports
+and final passed/failed/skipped counts remain under `.codex-work/`; S06 runs
+separately only if the default collection omits it. Any skip fails
+the runner. The containers and test image are removed afterward. Consolidating the
+legacy variable names remains a separate change. The runner also enables the
+Payment, Sales-list and Forecast-create opt-in URLs on its owned databases.
+
+PDF/label tests require DejaVu Sans regular and bold at
+`/usr/share/fonts/truetype/dejavu/DejaVuSans{,-Bold}.ttf` (Windows also supports
+the existing Arial paths). The four historical native-macOS font failures pass
+in Ubuntu CI and in this runner's Docker environment: `backend/Dockerfile`
+already installs `fonts-dejavu-core`, so **the runner needs no host font setup**.
+For native Debian/Ubuntu pytest, install with
+`sudo apt-get update && sudo apt-get install -y fonts-dejavu-core`.
+Native macOS font installation alone does not satisfy these hardcoded paths;
+there is no font-path environment override. Use the Docker runner on macOS.
+Missing fonts are an environment prerequisite failure, not a passing/skippable
+PDF check. [CI verification](archive/LOCAL_POSTGRES_RUNNER_2026-10-29.md#font-prerequisites-and-ci).
+
 The isolated refactor PostgreSQL workflow runs the required operation groups and
 the separate Purchasing/Fabric supplement from
 `scripts/refactor_pg_required_cases.json`. Review both exact JUnit identity sets,

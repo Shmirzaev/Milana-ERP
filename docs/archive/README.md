@@ -32,3 +32,6 @@ New detailed dated events belong here; current summaries link to the relevant re
 - [Combined manual Packaging release, 28 October 2026](MANUAL_PACKAGING_RELEASE_2026-10-28.md):
   verified blue promotion, retained green rollback, exact CI/backup/QA and print acceptance limits.
 - [Manual Packaging and employee master correction, 28 October 2026](MANUAL_PACKAGING_2026-10-28.md).
+
+- [Local PostgreSQL runner adaptation](LOCAL_POSTGRES_RUNNER_2026-10-29.md):
+  combined fixture wiring, zero skips and the remaining S06 test-contract failure.
