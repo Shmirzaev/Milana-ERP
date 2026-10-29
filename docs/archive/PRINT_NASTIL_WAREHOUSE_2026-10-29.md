@@ -124,6 +124,11 @@ handling. A release and backup remain prerequisites; no live correction occurred
   The owner's ordinary single-variant production path is covered.
 - New dependency installation reported three inherited audit findings; no package
   versions or lock files were changed by this task.
+- First published CI frontend run failed in the pre-existing factory browser
+  fixture: it omitted the now-required batch list and searched for the previous
+  button text. The fixture now supplies batches, retains whole-order/rejection/
+  fully-locked checks and exercises locked Nastil 1 plus selected 2/3 in EN/RU/UZ.
+  Its local browser run passed; application code was unchanged by that repair.
 
 ## Human checklist before integration/release
 
