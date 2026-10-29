@@ -1,10 +1,11 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.libs.dto.common import ORMModel, SchemaModel
 from app.libs.dto.inventory.item_input import ItemComposition
+from app.libs.enums.production import SewingFactoryCode
 
 
 class ProductionOrderItemIn(SchemaModel):
@@ -470,4 +471,15 @@ class PlanningEstimateSubmitIn(BaseModel):
 
 
 class CuttingSewingFactoryIn(BaseModel):
-    sewing_factory_code: Literal["MIL", "BST", "ECO"]
+    model_config = ConfigDict(extra="forbid")
+    sewing_factory_code: SewingFactoryCode
+    production_batch_ids: list[Annotated[int, Field(strict=True, gt=0, le=2147483647)]] | None = Field(default=None, min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def distinct_batches(self):
+        if self.production_batch_ids is not None and (
+            any(isinstance(value, bool) or value <= 0 for value in self.production_batch_ids)
+            or len(set(self.production_batch_ids)) != len(self.production_batch_ids)
+        ):
+            raise ValueError("Select distinct positive Nastil IDs")
+        return self

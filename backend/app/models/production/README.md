@@ -1,5 +1,19 @@
 # Production execution
 
+## Selected Nastil factory routing
+
+The existing Cutting `PATCH /work-orders/{wid}/sewing-factory` accepts optional
+`production_batch_ids`. The bounded action delegates to
+`nastil_factory_service.py`, using schema-owned operations in
+`schemas/production/factory_routing.py` and the caller's transaction. Selected
+unused Nastils get dedicated Sewing/Packaging work orders; shared stage budgets
+and completion exclude their batches through `batch_scope_service.py`. Recorded
+output/payroll/packaging evidence refuses rerouting that selected Nastil.
+Preserve another Nastil's history and test both receipt orders, later Cutting,
+printing loss, exhausted shared scopes and cross-factory denial. The dated
+[feature evidence](../../../../docs/archive/PRINT_NASTIL_WAREHOUSE_2026-10-29.md)
+records verification and pending human/release acceptance.
+
 Business-service group guide, relocated into models/ on 24 October 2026. This
 directory contains the released Besttex read-only compatibility service below;
 other existing implementations remain the *_service.py files linked below.

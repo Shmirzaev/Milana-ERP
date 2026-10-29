@@ -61,8 +61,6 @@ def correct_received_quantity(db: Session, shipment: Shipment, package_id: int,
         raise HTTPException(404, "Package is not attached to this shipment")
     if package.dispatched_quantities:
         raise HTTPException(409, "Partially dispatched packages require shipment selection, not receipt correction")
-    if str(package.id) in (shipment.dispatch_snapshot or {}).get("package_quantities", {}):
-        raise HTTPException(409, "Remove the shipment selection before correcting receipt contents")
     if package.status not in {"received_in_storage", "reserved"}:
         raise HTTPException(409, "Only received packages can be corrected")
     if package.total_quantity != payload.expected_quantity or link.quantity != package.total_quantity:
@@ -71,6 +69,9 @@ def correct_received_quantity(db: Session, shipment: Shipment, package_id: int,
                                           ShipmentPackage.shipment_id != shipment.id).first():
         raise HTTPException(409, "Package is linked to another shipment")
     items = db.query(PackageItem).filter_by(package_id=package_id).order_by(PackageItem.id).with_for_update().all()
+    previous_selection = (shipment.dispatch_snapshot or {}).get("package_quantities", {}).get(str(package.id))
+    if previous_selection is not None and previous_selection != {str(item.id): item.quantity for item in items}:
+        raise HTTPException(409, "Remove the shipment selection before correcting receipt contents")
     proposed = {line.item_id: line.quantity for line in payload.items}
     if len(proposed) != len(payload.items) or set(proposed) != {item.id for item in items}:
         raise HTTPException(422, "Supply each package item exactly once")
@@ -173,6 +174,10 @@ def correct_received_quantity(db: Session, shipment: Shipment, package_id: int,
     package.total_quantity = total
     package.capacity = after["capacity"]
     link.quantity = total
+    if previous_selection is not None:
+        from app.schemas.fulfillment.shipment_allocation import save_package_claim
+        save_package_claim(db, shipment, package_id,
+                           {str(item.id): proposed[item.id] for item in items if proposed[item.id]}, link)
     log_action(db, user, "correct_shipment_package_quantity", "Shipment", shipment.id,
                old_value={"package_id": package_id, **before}, new_value={"package_id": package_id, **after})
     db.flush()

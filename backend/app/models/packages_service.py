@@ -1593,6 +1593,12 @@ def ship_package(
                .with_for_update(of=Package).populate_existing().one())
         if db.query(WarehousePackReservation.id).filter_by(package_id=pkg.id).first():
             raise HTTPException(409, "Prepare this customer reservation for shipment first")
+        from app.libs.enums.fulfillment import ShipmentStatus
+        from app.schemas import Shipment
+        if db.query(ShipmentPackage.id).join(Shipment, Shipment.id == ShipmentPackage.shipment_id).filter(
+                ShipmentPackage.package_id == pkg.id, Shipment.deleted_at.is_(None),
+                Shipment.status.in_((ShipmentStatus.DRAFT, ShipmentStatus.CREATED))).first():
+            raise HTTPException(409, "Dispatch allocated pieces through their scanned shipment")
         _require_warehouse_package(db, pkg)
     else:
         if (shipment_context.session is not db

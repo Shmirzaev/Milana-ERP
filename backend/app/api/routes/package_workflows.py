@@ -49,7 +49,7 @@ def receiving_orders(db: DbSession, q: str = "", page: int = Query(1, ge=1),
         query = query.filter(or_(ProductionOrder.production_no.icontains(q.strip()[:100], autoescape=True),
                                  SalesOrder.order_no.icontains(q.strip()[:100], autoescape=True)))
     orders = query.distinct().order_by(ProductionOrder.id.desc()).offset((page - 1) * 20).limit(21).all()
-    ranked = db.query(Package.id, Package.production_order_id,
+    ranked = db.query(Package.id, Package.production_order_id, Package.package_no, Package.packed_at, Package.total_quantity,
                       func.row_number().over(partition_by=Package.production_order_id, order_by=Package.id).label("position"),
                       func.count().over(partition_by=Package.production_order_id).label("count"),
                       func.sum(Package.total_quantity).over(partition_by=Package.production_order_id).label("quantity")).filter(
@@ -66,6 +66,8 @@ def receiving_orders(db: DbSession, q: str = "", page: int = Query(1, ge=1),
         rows.append({"id": oid, "production_no": number, "sales_order_no": sales_number,
                      **model_number_fields(model), "model_name": model.name if model else None,
                      "package_ids": [p.id for p in packs], "count": packs[0].count if packs else 0,
+                     "packages": [{"id": p.id, "package_no": p.package_no, "packed_at": p.packed_at,
+                                   "quantity": p.total_quantity} for p in packs],
                      "quantity": packs[0].quantity if packs else 0})
     return {"rows": rows, "has_more": len(orders) > 20}
 

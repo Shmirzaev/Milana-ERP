@@ -44,6 +44,7 @@ from app.models.fulfillment.stock_service import ready_pack_candidates, is_any_s
 from app.libs.enums.packaging import PackageStockKind
 from app.models.sales.ready_stock_service import _reserve_branded_stock
 from app.models.workflow_service import notify_department
+from app.models.model_images_service import model_print_image_url
 from app.schemas import (
     Customer, Model, ProductionOrder, SalesOrder, SalesOrderItem, Shipment, StockReservation, User,
 )
@@ -346,7 +347,10 @@ def create_sales_order(payload: SalesOrderIn, db: Session, current: User) -> Sal
             quantity=0 if pack_order else item.quantity,
             requested_pack_count=item.requested_pack_count,
             unit_price=unit_price,
-            printing_required=item.printing_required,
+            printing_required=item.printing_required or (
+                payload.order_type == SalesOrderType.CLIENT_ORDER
+                and bool(model_print_image_url(model))
+            ),
             source_type=SalesOrderItemSourceType.FROM_STOCK if pack_order else item.source_type,
             notes=item.notes,
         )
