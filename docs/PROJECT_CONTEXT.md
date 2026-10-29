@@ -25,7 +25,10 @@ manifests on both VMs and green `20261027_115452` retained. The candidate merges
 Only Supplier UPDATE and Customer DELETE persistence/type changes differ in
 application source; deployed Packaging, payroll, QR, Finance, frontend and
 migrations are preserved. No candidate activation is yet claimed. The planned
-observation is 30 minutes; the earlier release's waiver does not apply.
+observation was 30 minutes. The owner subsequently explicitly waived this window
+for the current task; immediate checks and retained rollback remain required.
+The first combined CI found an existing SQLite Cutting/Waste timestamp flake;
+the disposable test clock is being corrected to match PostgreSQL transaction time.
 See the [reconciliation record](archive/CLONE_PRODUCTION_RECONCILIATION_2026-10-29.md).
 
 The earlier QA artifact omitted Next runtime inputs and returned 404 on `/login` and

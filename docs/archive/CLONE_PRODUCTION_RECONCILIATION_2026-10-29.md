@@ -55,11 +55,44 @@ source/image/slot identities, rollback health, fixed-origin paired/public perfor
 runtime/log/database/disk gates and final Git/production drift verification.
 Backend switches first, then frontend; all four health checks must pass.
 
-Observation: high/uncertain risk, 30 minutes, because the diff contains persistence
-operations. Keep the former production blue slot running. The prior release's
-waiver is historical and is not inherited. Continue through observer completion and
-closing runtime/identity/database/log/performance checks. Roll back to retained
-blue on failed postflight as appropriate; never downgrade the database implicitly.
+Observation was initially planned as high/uncertain risk, 30 minutes. The owner
+subsequently explicitly requested "skip the 30 minute monitoring as well" in this
+chat. Timed monitoring is therefore waived for this release; do not report it as
+performed. Keep the former production blue slot running and complete every immediate
+runtime/identity/database/log/performance check. Roll back to retained blue on failed
+postflight as appropriate; never downgrade the database implicitly.
+
+## First exact candidate and disposable-clock correction
+
+Candidate `53fd8137b0ced5814fb382ee5848a22f8167e161` preserved all production
+application fixes. Its required PostgreSQL gate passed 148 operation cases plus
+17 Purchasing/Fabric cases with no skips. Local PostgreSQL16 passed all 20 new
+operation cases. Actual connected Chrome saved/reloaded the synthetic Supplier and
+deleted/reloaded the disposable Customer; direct PostgreSQL readback confirmed one
+update audit, one delete audit, retained Supplier fields and absent Customer.
+The existing production frontend was used read-only because it is byte-identical
+to the candidate; all API writes went only to the owned local PostgreSQL database.
+An attempted local Next restart was rejected by automatic approval review and was
+not retried through another launcher. No production business row was changed.
+
+The Windows full run FAILED: 1 failed, 4,831 passed, 538 opt-in skips, 14 warnings.
+The exact Linux release CI [40816106669](https://github.com/Shmirzaev/Milana-ERP/actions/runs/40816106669)
+also FAILED with 1 failed, 4,831 passed, 538 skips. Both errors were the unchanged
+Cutting deletion guard refusing Waste history whose timestamp differed from its
+Cutting record. SQLite CURRENT_TIMESTAMP advances per statement at second precision;
+PostgreSQL now() is transaction-stable. Independent review reproduced the exact
+409 on both candidate and runtime-identical baseline by delaying the Waste insert
+across a second boundary. Targeted baseline/candidate runs passed separately; a
+77-case Customer/Cutting prefix also passed. Those passes do not relabel either
+failed full run. No immutable release artifact or activation came from that attempt.
+
+The correction is confined to the disposable SQLite test engine: its SQLAlchemy
+begin event registers a connection-local UTC CURRENT_TIMESTAMP value for that
+transaction, refreshed at the next transaction. New regressions challenge stability
+across a second boundary, refresh after commit and separate simultaneous connections.
+Application clocks, engines, persistence, deletion guards and existing assertions
+remain unchanged. Renew independent review, the full backend/required PG/frontend CI
+and immutable artifacts on the corrected exact commit before staging.
 
 Status: PREPARING. Test, build, backup, candidate QA, activation and observation
 results will be recorded with their actual source identities and evidence.
