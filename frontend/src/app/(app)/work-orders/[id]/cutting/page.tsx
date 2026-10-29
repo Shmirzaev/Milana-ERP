@@ -21,6 +21,7 @@ import {
   wasteKgFromPassport,
   type CuttingPassportAutofillSource,
 } from "@/lib/cuttingPassportAutofill";
+import { InventoryQcStatus } from "@/lib/inventoryQcStatus";
 
 type SewingFactory = "milana" | "besttex" | "eco_cotton";
 
@@ -129,7 +130,7 @@ type StockBatchOption = {
   unit?: string | null;
   cost_per_unit?: number | null;
   warehouse_name?: string | null;
-  qc_status?: string | null;
+  qc_status?: InventoryQcStatus | null;
   received_date?: string | null;
   active_reservations?: StockBatchReservation[];
 };
@@ -1811,6 +1812,7 @@ export default function CuttingPage() {
 
       {!isUsluga && can(me, "cutting.records", "*") && wo && po && (
         <CuttingSewingFactory workOrderId={Number(id)} factory={po.sewing_factory_code || "MIL"}
+          batches={batchItems}
           locked={batchItems.some((row: any) => row.sewing_output_recorded) || (po.work_orders || []).some((row: any) => row.operation === "sewing" && (row.actual_output_qty > 0 || row.passed_qty > 0 || row.failed_qty > 0))}
           onSaved={() => Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles()])} />
       )}

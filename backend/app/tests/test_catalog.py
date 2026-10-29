@@ -881,7 +881,7 @@ def test_model_variant_groups_keep_underlying_model_ids(client, auth_headers):
     assert inherited_bom["color"] == "Navy"
     assert inherited_bom["photo_url"] == f"/storage/model-files/v-2-{suffix}.webp"
 
-    custom_picture = f"/storage/model-files/custom-variant-{suffix}.webp"
+    custom_picture = f"/storage/model-files/custom-variant-photo-{suffix}.webp"
     edited_custom_picture = f"/storage/model-files/custom-variant-edit-{suffix}.webp"
     created_variant = client.post(
         f"/api/models/{created_ids[0]}/variants",

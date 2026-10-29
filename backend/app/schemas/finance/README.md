@@ -13,6 +13,14 @@ records. Business services live in models/*_service.py.
 - [Invoice](../sales/sales.py)
 - [Payment](../sales/sales.py)
 
+Manual Finance issuance uses [invoice_persistence.py](invoice_persistence.py):
+`insert_order_invoice` receives the existing Session, integer order ID, free-form
+invoice number, Decimal amount, canonical InvoiceStatus and UTC datetime. It
+only constructs/adds/flushes the authoritative Invoice mapping. No independent
+commit, lock acquisition, business rule, mapping, table or migration is added.
+The calling Finance service retains audit and the outer transaction. Other
+issuance contexts are not converted by this one-operation candidate.
+
 These links follow business ownership; some point to mixed files in another group
 or shared core.py. Keep one authoritative mapping per table. Moving individual
 classes out of mixed files is a separate approved change.

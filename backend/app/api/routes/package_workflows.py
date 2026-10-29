@@ -9,6 +9,8 @@ from app.core.deps import CurrentUser, DbSession, require_permissions, user_perm
 from app.schemas import Package, PackagePrintRun, PackagePrintRunMember, ProductionOrder, User
 from app.libs.dto.fulfillment.package_workflows import ManualPackageReceiptIn, PrintRunIn, PrintRunCreatePackagesIn, PrintRunReceiveIn, PackageReturnIn
 from app.libs.dto.packaging.tracking import PackageChangeRequestIn
+from app.libs.dto.packaging.manual_package_input import ManualPackageCreateIn
+from app.libs.dto.packaging.manual_package_output import ManualPackageCreateOut, ManualPackageRecoveryOut
 from pydantic import BaseModel, ConfigDict, Field
 from app.models import package_workflows_service as service
 from app.models.audit_service import log_action
@@ -47,7 +49,7 @@ def receiving_orders(db: DbSession, q: str = "", page: int = Query(1, ge=1),
         query = query.filter(or_(ProductionOrder.production_no.icontains(q.strip()[:100], autoescape=True),
                                  SalesOrder.order_no.icontains(q.strip()[:100], autoescape=True)))
     orders = query.distinct().order_by(ProductionOrder.id.desc()).offset((page - 1) * 20).limit(21).all()
-    ranked = db.query(Package.id, Package.production_order_id,
+    ranked = db.query(Package.id, Package.production_order_id, Package.package_no, Package.packed_at, Package.total_quantity,
                       func.row_number().over(partition_by=Package.production_order_id, order_by=Package.id).label("position"),
                       func.count().over(partition_by=Package.production_order_id).label("count"),
                       func.sum(Package.total_quantity).over(partition_by=Package.production_order_id).label("quantity")).filter(
@@ -64,6 +66,8 @@ def receiving_orders(db: DbSession, q: str = "", page: int = Query(1, ge=1),
         rows.append({"id": oid, "production_no": number, "sales_order_no": sales_number,
                      **model_number_fields(model), "model_name": model.name if model else None,
                      "package_ids": [p.id for p in packs], "count": packs[0].count if packs else 0,
+                     "packages": [{"id": p.id, "package_no": p.package_no, "packed_at": p.packed_at,
+                                   "quantity": p.total_quantity} for p in packs],
                      "quantity": packs[0].quantity if packs else 0})
     return {"rows": rows, "has_more": len(orders) > 20}
 
@@ -348,6 +352,27 @@ def resend_corrected(payload: PrintRunIn, db: DbSession,
                      current: User = Depends(require_permissions("packaging.packages", "*"))):
     from app.models.package_returns_service import resend_packages
     return _write(db, current, "resend-corrected", payload, lambda: resend_packages(db, current, payload))
+
+
+@router.post("/manual-packaging", status_code=201, response_model=ManualPackageCreateOut)
+def manual_packaging(payload: ManualPackageCreateIn,
+                     db: DbSession, current: User = Depends(require_permissions("packaging.packages", "*"))):
+    from app.models.packaging.manual_packages_service import create_manual_packages
+    return create_manual_packages(db, current, payload)
+
+
+@router.post("/manual-packaging/reconcile", response_model=ManualPackageRecoveryOut, response_model_exclude_unset=True)
+def reconcile_manual_packaging(payload: ManualPackageCreateIn,
+                               db: DbSession, current: CurrentUser):
+    from app.models.packaging.manual_packages_service import reconcile_manual_packages
+    return reconcile_manual_packages(db, current, payload)
+
+
+@router.delete("/manual-packaging/{rid}")
+def cancel_manual_packaging(rid: int, db: DbSession,
+                            current: User = Depends(require_permissions("packaging.packages", "*"))):
+    from app.models.packaging.manual_packages_service import cancel_manual_packages
+    return cancel_manual_packages(db, current, rid)
 
 
 @router.post("/manual-receipt", status_code=201)

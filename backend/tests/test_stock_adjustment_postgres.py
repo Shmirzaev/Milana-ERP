@@ -30,8 +30,9 @@ def test_concurrent_stock_adjustments(operation):
     sessions = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     from app.db.base import Base
     from app.schemas import Item, StockBatch, StockMovement, Warehouse, User
-    from app.api.routes.inventory import _apply_batch_tracked_stock_adjustment, set_stock_quantity
-    from app.libs.dto.inventory.inventory import StockQuantityAdjustmentIn
+    from app.api.routes.inventory import set_stock_quantity
+    from app.models.inventory.stock_service import _apply_batch_tracked_stock_adjustment
+    from app.libs.dto.inventory.stock_quantity_adjustment_input import StockQuantityAdjustmentIn
 
     first_read = Event()
     second_read = Event()

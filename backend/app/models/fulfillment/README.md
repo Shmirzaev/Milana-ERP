@@ -1,8 +1,9 @@
 # Warehouse and shipping
 
-Business-service group guide, relocated into models/ on 24 October 2026. This
-directory remains README-only; existing implementations are the *_service.py files
-linked below. The proposed files describe later approved operation extractions.
+Business-service group guide, relocated into models/ on 24 October 2026.
+`stock_service.py` now implements the approved Sales reservation boundary below.
+Other proposed files remain future operation extractions; this is not full-area
+verification or human acceptance.
 
 **Purpose:** Own finished-goods receiving, placement, reservations, shipment, delivery and physical returns.
 
@@ -11,7 +12,39 @@ linked below. The proposed files describe later approved operation extractions.
 This owner covers the feature's routes, DTOs, enums, database definitions and tests.
 See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordination.
 
+## Approved Sales reservation operation
+
+Ismail approved the revised mentor-based `reserve_pieces` / `reserve_packs`
+boundary on 26 October. Both accept the caller's Session, scalar identities and
+typed demands from `libs/types/stock_reservation.py`, never Sales mapped objects.
+`reserve_pieces` uses canonical `PackageStockKind` with the STANDARD/FIRST_GRADE
+subset; `reserve_packs` uses STANDARD internally. Selection/eligibility and exact
+package/stock lock order remain here; stock/reservation/metadata writes use the
+Fulfillment schema operations with no inner commit, rollback or transaction.
+
+Sales keeps its order lock and pack replay refusal, line quantities, order totals,
+status/notes, audit, idempotency and outer commit. Opaque request-local pack keys
+map returned piece totals to even newly created unflushed Sales lines. The public
+`has_order_reservations` query supports the Sales replay guard; the pure public
+`is_any_stock_token` predicate preserves the existing seven-token vocabulary.
+
+Existing option readers now call `ready_pack_candidates` at this owning module.
+They still consume mapped read results; replacing that read interface with DTOs
+is separately pending, not proof of full domain isolation. Receive/dispatch and
+other writers remain separately pending. See the operation packet in
+[the dated record](../../../../docs/archive/SALES_APPROVED_STOCK_BOUNDARY_2026-10-26.md).
+
 ## Existing code to study first
+
+`shipment_allocation_service.py` owns per-item claims on an existing package
+across open shipments. Callers lock their own Shipment, then sorted Package rows;
+never lock another Shipment while holding a Package. Each attachment freezes its
+claim through `schemas/fulfillment/shipment_allocation.py`. Availability subtracts
+other undeleted draft/created claims from physical remaining contents. Dispatch
+prefetches claims/items/reservations after package locks, and standalone package
+dispatch refuses open shipment claims. Existing Sales/customer reservations are
+still enforced; shared claims do not authorize taking another order's stock.
+See [verification and limits](../../../../docs/archive/OPEN_SHIPMENT_PACKAGE_SPLIT_2026-10-29.md).
 
 - Routes: [finished_goods.py](../../api/routes/finished_goods.py), [warehouse_reservations.py](../../api/routes/warehouse_reservations.py), [shipments.py](../../api/routes/shipments.py), [packages.py](../../api/routes/packages.py), [package_workflows.py](../../api/routes/package_workflows.py).
 - Services/helpers: [finished_goods_service.py](../finished_goods_service.py), [package_dispatch_service.py](../package_dispatch_service.py), [package_returns_service.py](../package_returns_service.py), [packages_service.py](../packages_service.py), [package_workflows_service.py](../package_workflows_service.py), [warehouse_packages_service.py](../warehouse_packages_service.py), [warehouse_report_service.py](../warehouse_report_service.py), [shipment_review_service.py](../shipment_review_service.py), [shipment_reopen_service.py](../shipment_reopen_service.py), [shipment_invoice_service.py](../shipment_invoice_service.py), [shipment_invoice_excel_service.py](../shipment_invoice_excel_service.py).

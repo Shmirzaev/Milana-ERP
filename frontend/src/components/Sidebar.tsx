@@ -171,6 +171,7 @@ const SECTIONS: Section[] = [
   {
     titleKey: "section.besttexTextile",
     items: [
+      { href: "/besttex/cutting-orders", labelKey: "nav.besttexCutOrders", perms: ["besttex.cutting_sheets"], icon: Scissors },
       { href: "/departments/BST", labelKey: "nav.besttexSewing", perms: ["sewing.records", "sewing.bundles", "planning.production"], icon: Factory },
       { href: "/sewing/flows?factory=BST", labelKey: "nav.sewingFlows", perms: ["sewing.workspace", "sewing.flows"], icon: Layers3 },
       { href: "/sewing/daily-report?factory=BST", labelKey: "nav.sewingDailyReport", perms: ["sewing.workspace", "sewing.daily_reports.view"], icon: ClipboardList },
@@ -361,6 +362,7 @@ export default function Sidebar() {
     () =>
       SECTIONS.filter((sec) => {
         const factory = me?.factory_code || "MIL";
+        if (sec.titleKey === "section.besttexTextile" && can(me, "*")) return true;
         if (factory === "BST") return sec.titleKey === "section.besttexTextile" || sec.titleKey === "section.hr" || sec.titleKey === "section.payroll";
         const ecoSections = new Set([
           "section.ecoCottonCutting",
@@ -377,6 +379,8 @@ export default function Sidebar() {
       }).map((sec) => ({
         ...sec,
         items: sec.items.filter((i) => {
+          if (sec.titleKey === "section.besttexTextile" && me?.factory_code !== "BST") return i.href === "/besttex/cutting-orders" && can(me, "*");
+          if (i.href === "/besttex/cutting-orders") return can(me, "besttex.cutting_sheets");
           if (!hasInventoryPathAccess(me, i.href)) return false;
           if (isSewingRole(me) && !isSewingWorkspaceNavItem(i.href)) return false;
           if (i.superOnly) return isSuperAdmin(me);

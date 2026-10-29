@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, inspect
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 
-from app.api.routes import fabric_scans
+from app.models.inventory import fabric_scans_service as fabric_scans
 from app.core.deps import get_current_user
 from app.db.base import Base
 from app.main import app

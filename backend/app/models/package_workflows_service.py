@@ -381,7 +381,7 @@ def receive_run(db, current, payload):
     return run, packages, all_members
 
 
-def delete_manual_run(db, current, run, package_ids=None):
+def delete_manual_run(db, current, run, package_ids=None, *, allow_unreceived=False):
     """Delete selected unused packs, or retire shipped labels with history intact."""
     from app.schemas import Shipment, ShipmentPackage, ShipmentScanLog, StockReservation
     from app.schemas.fulfillment.shipment_review import PackageQuantityAdjustment
@@ -411,7 +411,13 @@ def delete_manual_run(db, current, run, package_ids=None):
         else:
             unused.append(pkg)
     unused_ids = [p.id for p in unused]
-    if any(p.status != "received_in_storage" or p.sales_order_id or p.quantity_shortfall for p in unused):
+    if allow_unreceived:
+        if run.received_at or any(p.status != "packed" or p.received_at or p.received_by for p in unused) or shipped:
+            raise HTTPException(409, "Only unreceived manual packaging packs can be cancelled")
+        if any((db.get(ManualPackageReceipt, p.manual_receipt_id).evidence or {}).get("source") != "manual_packaging" for p in unused):
+            raise HTTPException(409, "Only manually created packaging packs can be cancelled")
+    allowed_status = "packed" if allow_unreceived else "received_in_storage"
+    if any(p.status != allowed_status or p.sales_order_id or p.quantity_shortfall for p in unused):
         raise HTTPException(409, "Reserved or adjusted packages cannot be deleted")
     for cls in (ShipmentPackage, ShipmentScanLog, StockReservation, PackageQuantityAdjustment, WarehouseStocktakeRow):
         if unused_ids and db.query(cls).filter(cls.package_id.in_(unused_ids)).first():
@@ -429,13 +435,8 @@ def delete_manual_run(db, current, run, package_ids=None):
                new_value={"removed_stock_package_ids": unused_ids, "retired_shipped_label_ids": [p.id for p in shipped]})
     from app.models.numbering_service import retire_label_numbers
     retire_label_numbers(db, [p.package_no for p in packages], run.run_no)
-    run.deleted_package_ids = sorted(set(run.deleted_package_ids or []) | set(ids))
-    if set(run.deleted_package_ids) == set(run.package_ids):
-        run.deleted_at = datetime.now(timezone.utc)
-    db.flush()
-    for row in stocks:
-        db.delete(row)
-    for pkg in unused:
-        db.delete(pkg)
-    db.flush()
+    from app.schemas.packaging.manual_packages_persistence import apply_manual_run_deletion
+    deleted_ids = sorted(set(run.deleted_package_ids or []) | set(ids))
+    apply_manual_run_deletion(db, run=run, deleted_ids=deleted_ids,
+                             fully_deleted=set(deleted_ids) == set(run.package_ids), stocks=stocks, packages=unused)
     return {"deleted_count": len(requested)}

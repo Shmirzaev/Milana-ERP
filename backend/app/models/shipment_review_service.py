@@ -17,6 +17,7 @@ from app.schemas import (
     StockReservation, User,
 )
 from app.libs.dto.fulfillment.shipment_review import ShipmentAmountReview, ShipmentQuantityReview
+from app.libs.enums.finance import InvoiceStatus
 from app.schemas.fulfillment.shipment_review import PackageQuantityAdjustment
 from app.core.deps import user_permissions
 from app.models.package_dispatch_service import selected_items
@@ -60,8 +61,6 @@ def correct_received_quantity(db: Session, shipment: Shipment, package_id: int,
         raise HTTPException(404, "Package is not attached to this shipment")
     if package.dispatched_quantities:
         raise HTTPException(409, "Partially dispatched packages require shipment selection, not receipt correction")
-    if str(package.id) in (shipment.dispatch_snapshot or {}).get("package_quantities", {}):
-        raise HTTPException(409, "Remove the shipment selection before correcting receipt contents")
     if package.status not in {"received_in_storage", "reserved"}:
         raise HTTPException(409, "Only received packages can be corrected")
     if package.total_quantity != payload.expected_quantity or link.quantity != package.total_quantity:
@@ -70,6 +69,9 @@ def correct_received_quantity(db: Session, shipment: Shipment, package_id: int,
                                           ShipmentPackage.shipment_id != shipment.id).first():
         raise HTTPException(409, "Package is linked to another shipment")
     items = db.query(PackageItem).filter_by(package_id=package_id).order_by(PackageItem.id).with_for_update().all()
+    previous_selection = (shipment.dispatch_snapshot or {}).get("package_quantities", {}).get(str(package.id))
+    if previous_selection is not None and previous_selection != {str(item.id): item.quantity for item in items}:
+        raise HTTPException(409, "Remove the shipment selection before correcting receipt contents")
     proposed = {line.item_id: line.quantity for line in payload.items}
     if len(proposed) != len(payload.items) or set(proposed) != {item.id for item in items}:
         raise HTTPException(422, "Supply each package item exactly once")
@@ -172,6 +174,10 @@ def correct_received_quantity(db: Session, shipment: Shipment, package_id: int,
     package.total_quantity = total
     package.capacity = after["capacity"]
     link.quantity = total
+    if previous_selection is not None:
+        from app.schemas.fulfillment.shipment_allocation import save_package_claim
+        save_package_claim(db, shipment, package_id,
+                           {str(item.id): proposed[item.id] for item in items if proposed[item.id]}, link)
     log_action(db, user, "correct_shipment_package_quantity", "Shipment", shipment.id,
                old_value={"package_id": package_id, **before}, new_value={"package_id": package_id, **after})
     db.flush()
@@ -458,16 +464,21 @@ def invoice_for_frozen_delivery(db: Session, shipment: Shipment, user: User) -> 
         amount += shipment_amount
     if not amount.is_finite() or amount < 0 or amount > Decimal("999999999999.99"):
         raise HTTPException(409, "Finance reconciliation required: combined shipment amount is outside invoice limits")
-    invoices = db.query(Invoice).filter(Invoice.sales_order_id == shipment.sales_order_id,
-                                        Invoice.status.notin_(["void", "cancelled"])).with_for_update().all()
+    invoices = db.query(Invoice).filter(
+        Invoice.sales_order_id == shipment.sales_order_id,
+        Invoice.status.notin_([InvoiceStatus.VOID.value, InvoiceStatus.CANCELLED.value]),
+    ).with_for_update().all()
     if len(invoices) > 1:
         raise HTTPException(409, "Finance reconciliation required: order has multiple ledger invoices")
     existing = invoices[0] if invoices else None
     if existing:
-        if existing.status in {"unpaid", "paid", "partially_paid"} and Decimal(str(existing.amount)) == amount:
+        active_statuses = {
+            InvoiceStatus.UNPAID, InvoiceStatus.PAID, InvoiceStatus.PARTIALLY_PAID,
+        }
+        if existing.status in active_statuses and Decimal(str(existing.amount)) == amount:
             return existing
         paid = db.query(Payment.id).filter_by(invoice_id=existing.id).first()
-        if existing.status != "unpaid" or paid:
+        if existing.status != InvoiceStatus.UNPAID or paid:
             raise HTTPException(409, "Finance reconciliation required: invoice is paid, partially paid or has payment records")
     invoice = existing or ensure_invoice_for_delivered_shipment(db, sales_order_id=shipment.sales_order_id)
     previous_amount = str(invoice.amount)

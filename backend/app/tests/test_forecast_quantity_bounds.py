@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
 from app.schemas import AuditLog, ForecastRecommendation, Model, Role, User
-from app.libs.dto.planning.forecasting import ForecastRecommendationIn
+from app.libs.dto.planning.forecast_recommendation_input import ForecastRecommendationIn
 
 
 def _payload(quantity, *, model_id: int | None = None) -> dict:

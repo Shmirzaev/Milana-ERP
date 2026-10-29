@@ -1,4 +1,4 @@
-from app.libs.dto.inventory.inventory import MaterialReservationAutoIn
+from app.libs.dto.inventory.material_reservation_input import MaterialReservationAutoIn
 from app.tests.conftest import TestSessionLocal
 
 

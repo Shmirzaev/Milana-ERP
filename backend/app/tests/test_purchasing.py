@@ -450,3 +450,116 @@ def test_draft_purchase_order_cannot_be_received(client, auth_headers):
         )
     finally:
         db.close()
+
+
+def _accessory_item_id() -> int:
+    from app.db.session import SessionLocal
+    from app.schemas import Item
+
+    db = SessionLocal()
+    try:
+        return int(db.query(Item).filter(Item.sku == "ACC-BTN-001").one().id)
+    finally:
+        db.close()
+
+
+def test_denied_item_access_commits_no_purchase_request(client, auth_headers, monkeypatch):
+    """A denied line access after the request was written must commit nothing.
+
+    The access check runs after the request was written, so the refusal must
+    leave no request, no line and no audit row behind.
+    """
+    from app.db.session import SessionLocal
+    from app.schemas import AuditLog, PurchaseRequest, PurchaseRequestLine
+    from app.models import purchasing_service
+
+    limited_headers = _create_user_with_permissions(
+        client,
+        auth_headers,
+        email="purchase.materialsonly.request@example.com",
+        permissions=["purchasing.view", "purchasing.request", "inventory.materials_only"],
+    )
+
+    db = SessionLocal()
+    try:
+        before_requests = db.query(PurchaseRequest).count()
+        before_lines = db.query(PurchaseRequestLine).count()
+        before_audits = db.query(AuditLog).count()
+    finally:
+        db.close()
+
+    written = []
+    original_create = purchasing_service.create_purchase_request
+
+    def spy_create(db_, **kwargs):
+        request = original_create(db_, **kwargs)
+        written.append(request.id)
+        return request
+
+    monkeypatch.setattr(purchasing_service, "create_purchase_request", spy_create)
+
+    denied = client.post(
+        "/api/purchasing/requests",
+        json={"lines": [{"item_id": _accessory_item_id(), "requested_quantity": 5}]},
+        headers=limited_headers,
+    )
+    assert denied.status_code == 403, denied.text
+    # The request really was written before the access check denied it.
+    assert written
+
+    db = SessionLocal()
+    try:
+        assert db.query(PurchaseRequest).count() == before_requests
+        assert db.query(PurchaseRequestLine).count() == before_lines
+        assert db.query(AuditLog).count() == before_audits
+    finally:
+        db.close()
+
+
+def test_denied_item_access_commits_no_purchase_order(client, auth_headers, monkeypatch):
+    """A denied line access after the order was written must commit nothing."""
+    from app.db.session import SessionLocal
+    from app.schemas import AuditLog, PurchaseOrder, PurchaseOrderLine
+    from app.models import purchasing_service
+
+    limited_headers = _create_user_with_permissions(
+        client,
+        auth_headers,
+        email="purchase.materialsonly.order@example.com",
+        permissions=["purchasing.view", "purchasing.order", "inventory.materials_only"],
+    )
+
+    db = SessionLocal()
+    try:
+        before_orders = db.query(PurchaseOrder).count()
+        before_lines = db.query(PurchaseOrderLine).count()
+        before_audits = db.query(AuditLog).count()
+    finally:
+        db.close()
+
+    written = []
+    original_create = purchasing_service.create_purchase_order
+
+    def spy_create(db_, **kwargs):
+        order = original_create(db_, **kwargs)
+        written.append(order.id)
+        return order
+
+    monkeypatch.setattr(purchasing_service, "create_purchase_order", spy_create)
+
+    denied = client.post(
+        "/api/purchasing/orders",
+        json={"lines": [{"item_id": _accessory_item_id(), "ordered_quantity": 3}]},
+        headers=limited_headers,
+    )
+    assert denied.status_code == 403, denied.text
+    # The order really was written before the access check denied it.
+    assert written
+
+    db = SessionLocal()
+    try:
+        assert db.query(PurchaseOrder).count() == before_orders
+        assert db.query(PurchaseOrderLine).count() == before_lines
+        assert db.query(AuditLog).count() == before_audits
+    finally:
+        db.close()

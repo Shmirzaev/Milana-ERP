@@ -446,12 +446,12 @@ export default function PackagingPage() {
   }, [packageWeightCount, weightKg]);
 
   useEffect(() => {
-    if (!isAlreadyBatched || !Array.isArray(po?.batches) || po.batches.length === 0) return;
+    if (!isAlreadyBatched || batchItems.length === 0) return;
     setRec((prev) => {
       if (prev.production_batch_id) return prev;
-      return { ...prev, production_batch_id: Number(po.batches[0].id || 0) };
+      return { ...prev, production_batch_id: Number(batchItems[0].id || 0) };
     });
-  }, [isAlreadyBatched, po?.batches]);
+  }, [isAlreadyBatched, batchItems]);
 
   async function refreshPackagingOutputs() {
     await Promise.all([mutateBatchProgress(), mutateWo(), mutatePo()]);

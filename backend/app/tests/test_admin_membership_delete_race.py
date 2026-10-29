@@ -2,6 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 import os
+import time
 from threading import Barrier, Event, Lock
 from uuid import uuid4
 
@@ -12,6 +13,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import admin
+from app.core.deps import user_permissions
 from app.core.security import verify_password
 from app.db.base import Base
 from app.schemas import PasswordResetToken, User
@@ -182,6 +184,82 @@ def test_concurrent_membership_removals_keep_one_admin(membership_postgres_sessi
     assert sorted(results) == ["protected", "removed"]
     with membership_postgres_sessions() as db:
         assert db.query(User).filter(User.id.in_(target_ids), User.is_active.is_(True)).count() == 1
+
+
+def test_concurrent_factory_move_and_deactivation_keep_one_admin(membership_postgres_sessions, monkeypatch):
+    from sqlalchemy import text
+    from app.libs.dto.catalog.catalog import UserUpdate
+
+    actor_id, [mover_id, other_id] = _create_membership_case(membership_postgres_sessions, 2)
+    with membership_postgres_sessions.begin() as db:
+        mover = db.get(User, mover_id)
+        mover.access_policy = {"BST": {"allow": [], "deny": ["finance.view"]}}
+        assert "*" in user_permissions(mover)
+
+    move_checked = Event()
+    deactivation_started = Event()
+    release_move = Event()
+    backend_pids = {}
+    original_count = admin._count_active_admins
+
+    def hold_move_after_count(db, exclude_user_id=None):
+        count = original_count(db, exclude_user_id=exclude_user_id)
+        if exclude_user_id == mover_id:
+            backend_pids["move"] = db.execute(text("SELECT pg_backend_pid()")).scalar_one()
+            move_checked.set()
+            assert release_move.wait(10), "Timed out waiting for lock observation"
+        return count
+
+    monkeypatch.setattr(admin, "_count_active_admins", hold_move_after_count)
+
+    def change(user_id, payload):
+        with membership_postgres_sessions() as db:
+            actor = db.get(User, actor_id)
+            if user_id == other_id:
+                backend_pids["deactivate"] = db.execute(text("SELECT pg_backend_pid()")).scalar_one()
+                deactivation_started.set()
+            try:
+                admin.update_user(user_id, payload, db, actor)
+                return "changed", None
+            except HTTPException as exc:
+                db.rollback()
+                assert exc.status_code == 400
+                return "protected", exc.detail
+
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        move = workers.submit(change, mover_id, UserUpdate(factory_code="BST"))
+        assert move_checked.wait(10)
+        deactivate = workers.submit(change, other_id, UserUpdate(is_active=False))
+        try:
+            assert deactivation_started.wait(5)
+            deadline = time.monotonic() + 5
+            blocked = False
+            with membership_postgres_sessions() as observer:
+                while time.monotonic() < deadline:
+                    blocked = observer.execute(
+                        text("SELECT :blocker = ANY(pg_blocking_pids(:waiter))"),
+                        {"blocker": backend_pids["move"], "waiter": backend_pids["deactivate"]},
+                    ).scalar_one()
+                    if blocked:
+                        break
+                    if deactivate.done():
+                        break
+                    time.sleep(0.05)
+                assert blocked, "Deactivation did not wait on the factory-change transaction"
+        finally:
+            release_move.set()
+        move_result = move.result(timeout=20)
+        deactivate_result = deactivate.result(timeout=20)
+
+    assert move_result == ("changed", None)
+    assert deactivate_result == ("protected", "Cannot remove the last active administrator")
+    with membership_postgres_sessions() as db:
+        mover = db.get(User, mover_id)
+        other = db.get(User, other_id)
+        assert mover.factory_code == "BST"
+        assert mover.is_active and "*" not in user_permissions(mover)
+        assert other.is_active and "*" in user_permissions(other)
+        assert sum(user.is_active and "*" in user_permissions(user) for user in (mover, other)) == 1
 
 
 def test_membership_patch_does_not_block_audit_actor_key_share(membership_postgres_sessions):

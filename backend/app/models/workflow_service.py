@@ -6,13 +6,15 @@ from fastapi import HTTPException
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session, lazyload
 
+from app.schemas.core_persistence import add_notification_row
+from app.schemas.inventory import stock_movement_persistence
+
 from app.schemas import (
     Department,
     FinishedGoodsStock,
     Invoice,
     Item,
     ModelBOM,
-    Notification,
     Package,
     ProductionBatch,
     ProductionOrder,
@@ -27,6 +29,7 @@ from app.schemas import (
 )
 from app.models.audit_service import log_action
 from app.models.numbering_service import next_invoice_no
+from app.libs.enums.finance import InvoiceStatus
 from app.models.passport_nastil_service import has_pending_passport_batches
 
 WORKFLOW_SEQUENCE = ["cutting", "printing", "sewing", "packaging", "storage_transfer"]
@@ -49,9 +52,9 @@ def archive_depleted_material_batch(
     item = item_cache.get(int(batch.item_id)) if item_cache is not None else db.get(Item, int(batch.item_id))
     if not item or str(item.category or "").strip().lower() not in _MATERIAL_BATCH_CATEGORIES:
         return False
-    batch.quantity = 0
-    batch.archived_at = datetime.now(timezone.utc)
-    batch.archived_by = user_id
+    stock_movement_persistence.archive_batch(
+        db, batch, archived_at=datetime.now(timezone.utc), user_id=user_id,
+    )
     user = db.get(User, user_id) if user_id else None
     log_action(
         db,
@@ -113,8 +116,9 @@ def _upstream_failed_qty(db: Session, wo: WorkOrder) -> int:
     if op_index <= 0:
         return 0
     prior_operations = WORKFLOW_SEQUENCE[:op_index]
-    # A previously accepted shortage may remain in failed_qty after a later
-    # nastil supplies those pieces. It cannot still reduce downstream targets.
+    # Read legacy loss credit and the ownership discriminator together. Ordinary
+    # orders retain the existing one-round-trip completion budget.
+    # A shortage already supplied by a later Nastil cannot reduce the target.
     remaining = case(
         (WorkOrder.planned_output_qty > WorkOrder.passed_qty,
          WorkOrder.planned_output_qty - WorkOrder.passed_qty),
@@ -124,17 +128,42 @@ def _upstream_failed_qty(db: Session, wo: WorkOrder) -> int:
         (WorkOrder.failed_qty > remaining, remaining),
         else_=WorkOrder.failed_qty,
     )
-    qry = (
-        db.query(func.coalesce(func.sum(effective_failed), 0))
-        .filter(
-            WorkOrder.production_order_id == wo.production_order_id,
-            WorkOrder.operation.in_(prior_operations),
-        )
+    qry = db.query(func.coalesce(func.sum(effective_failed), 0)).filter(
+        WorkOrder.production_order_id == wo.production_order_id,
+        WorkOrder.operation.in_(prior_operations),
+        WorkOrder.production_batch_id.is_(None) if wo.production_batch_id is None
+        else WorkOrder.production_batch_id == wo.production_batch_id,
     )
-    if wo.production_batch_id is None:
-        qry = qry.filter(WorkOrder.production_batch_id.is_(None))
-    else:
-        qry = qry.filter(WorkOrder.production_batch_id == wo.production_batch_id)
+    scoped_operation = wo.operation in {"sewing", "packaging"}
+    dedicated_exists = wo.production_batch_id is not None
+    if scoped_operation and not dedicated_exists:
+        dedicated_query = db.query(WorkOrder.id).filter(
+            WorkOrder.production_order_id == wo.production_order_id,
+            WorkOrder.operation == wo.operation, WorkOrder.production_batch_id.is_not(None),
+            WorkOrder.status != "cancelled")
+        legacy_failed, dedicated_exists = db.query(qry.scalar_subquery(), dedicated_query.exists()).one()
+        if not dedicated_exists:
+            return int(legacy_failed or 0)
+    if dedicated_exists and scoped_operation:
+        from app.schemas import PrintingRecord, SewingRecord
+        from app.models.production.batch_scope_service import filter_work_order_batches
+        total = 0
+        for operation, model, loss in (("cutting", CuttingRecord, CuttingRecord.defective_pieces),
+                ("printing", PrintingRecord, PrintingRecord.rejected_qty),
+                ("sewing", SewingRecord, SewingRecord.failed_qty + SewingRecord.rejected_qty)):
+            if operation not in prior_operations:
+                continue
+            # Dedicated stages start from usable bundles, which already exclude
+            # cutting defects. Only subsequent Printing/Sewing losses reduce them.
+            if operation == "cutting" and wo.production_batch_id is not None:
+                continue
+            query = db.query(func.coalesce(func.sum(loss), 0)).join(WorkOrder, WorkOrder.id == model.work_order_id).filter(
+                WorkOrder.production_order_id == wo.production_order_id, WorkOrder.status.notin_({"cancelled", "rejected"}))
+            if operation == "cutting":
+                query = query.filter(CuttingRecord.approval_status == "approved",
+                    func.coalesce(CuttingRecord.material_role, "main") == "main")
+            total += int(filter_work_order_batches(query, model.production_batch_id, wo).scalar() or 0)
+        return total
     return int(qry.scalar() or 0)
 
 
@@ -267,16 +296,29 @@ def propagate_cutting_plan_from_output(db: Session, wo: WorkOrder) -> None:
         WorkOrder.production_order_id == wo.production_order_id,
         WorkOrder.operation.in_(downstream_ops),
     )
-    if wo.production_batch_id is None:
-        qry = qry.filter(WorkOrder.production_batch_id.is_(None))
-    else:
+    if wo.production_batch_id is not None:
         qry = qry.filter(WorkOrder.production_batch_id == wo.production_batch_id)
 
-    for row in qry.all():
-        if int(row.planned_input_qty or 0) < output_qty:
-            row.planned_input_qty = output_qty
-        if int(row.planned_output_qty or 0) < output_qty:
-            row.planned_output_qty = output_qty
+    downstream = qry.all()
+    dedicated = [row for row in downstream if row.production_batch_id is not None]
+    batch_outputs = {}
+    if dedicated:
+        for bid, qty in db.query(Bundle.production_batch_id, func.sum(Bundle.quantity)).filter(
+            Bundle.production_order_id == wo.production_order_id, Bundle.status != "cancelled").group_by(Bundle.production_batch_id):
+            batch_outputs[bid] = max(0, int(qty or 0))
+        for bid, qty in db.query(CuttingRecord.production_batch_id, func.sum(CuttingRecord.passed_pieces)).filter(
+            CuttingRecord.work_order_id == wo.id, CuttingRecord.approval_status == "approved").group_by(CuttingRecord.production_batch_id):
+            batch_outputs[bid] = max(batch_outputs.get(bid, 0), int(qty or 0))
+    for row in downstream:
+        target = output_qty
+        if dedicated and row.operation in {"sewing", "packaging"}:
+            owned_elsewhere = {other.production_batch_id for other in dedicated if other.operation == row.operation}
+            target = (batch_outputs.get(row.production_batch_id, 0) if row.production_batch_id is not None else
+                      max(0, output_qty - sum(batch_outputs.get(bid, 0) for bid in owned_elsewhere)))
+        if int(row.planned_input_qty or 0) < target:
+            row.planned_input_qty = target
+        if int(row.planned_output_qty or 0) < target:
+            row.planned_output_qty = target
 
 
 def sync_production_order_status(
@@ -428,7 +470,7 @@ def notify_department(
     for user_id in user_ids:
         if exclude_user_id and user_id == exclude_user_id:
             continue
-        db.add(Notification(user_id=user_id, title=title, message=message, link=link))
+        add_notification_row(db, user_id=user_id, title=title, message=message, link=link)
         created += 1
     return created
 
@@ -728,8 +770,10 @@ def ensure_invoice_for_delivered_shipment(
     so = db.get(SalesOrder, sales_order_id)
     if not so:
         return None
-    existing = db.query(Invoice).filter(Invoice.sales_order_id == sales_order_id,
-                                        Invoice.status.notin_(["void", "cancelled"])).first()
+    existing = db.query(Invoice).filter(
+        Invoice.sales_order_id == sales_order_id,
+        Invoice.status.notin_([InvoiceStatus.VOID.value, InvoiceStatus.CANCELLED.value]),
+    ).first()
     if existing:
         return existing
     now = datetime.now(timezone.utc)
@@ -738,7 +782,7 @@ def ensure_invoice_for_delivered_shipment(
         sales_order_id=sales_order_id,
         invoice_no=next_invoice_no(db),
         amount=float(so.total_amount or 0),
-        status="unpaid",
+        status=InvoiceStatus.UNPAID,
         issued_at=now,
         due_date=due,
     )

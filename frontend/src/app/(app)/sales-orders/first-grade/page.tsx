@@ -1,4 +1,6 @@
 "use client";
+import { SalesOrderItemSourceType, SalesOrderType } from "@/lib/salesOrderEnums";
+import type { SalesOrderCreateInput, SalesOrderSummary } from "@/lib/salesOrderContracts";
 import { formatModelVariantCode } from "@/lib/variantDisplay";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -23,7 +25,8 @@ export default function FirstGradeSale() {
     <form className="card p-4 space-y-4" onSubmit={async event => {
       event.preventDefault(); if (busy || !selected.length) return; setBusy(true); setMessage("");
       try {
-        const order = await api.post<{ id: number }>("/api/sales-orders", { order_type: "branded_stock_sale", customer_id: Number(customer), items: selected.map(row => ({ model_id: row.model_id, color: row.color, size: row.size, quantity: Number(row.quantity), unit_price: Number(row.price), source_type: "first_grade" })) });
+        const payload: SalesOrderCreateInput = { order_type: SalesOrderType.BRANDED_STOCK_SALE, customer_id: Number(customer), items: selected.map(row => ({ model_id: row.model_id, color: row.color, size: row.size, quantity: Number(row.quantity), unit_price: Number(row.price), source_type: SalesOrderItemSourceType.FIRST_GRADE })) };
+        const order = await api.post<SalesOrderSummary>("/api/sales-orders", payload);
         router.push(`/sales-orders/${order.id}`);
       } catch (e) { setMessage(e instanceof Error ? e.message : String(e)); setBusy(false); }
     }}>

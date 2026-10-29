@@ -27,7 +27,7 @@ from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
-from app.api.routes import catalog as catalog_routes
+from app.models.catalog import models_service
 from app.db.base import Base
 from app.schemas import Model, ModelBOM, User
 
@@ -175,7 +175,7 @@ def test_rename_reads_do_not_grow_with_catalogue_size(catalog_postgres):
     def rename_rows(base_id, new_no):
         def action(db):
             model = db.get(Model, base_id)
-            return len(catalog_routes._rename_model_group(db, model, new_no))
+            return len(models_service._rename_model_group(db, model, new_no))
         return action
 
     first_id, _ = _seed_family(Session, model_no="EARLY-A", variants=["1", "2"])
@@ -224,14 +224,14 @@ def test_rename_still_rejects_a_collision_that_differs_only_in_case_and_spacing(
     with Session() as db:
         model = db.get(Model, base_id)
         with pytest.raises(HTTPException) as excinfo:
-            catalog_routes._rename_model_group(db, model, "case-b")
+            models_service._rename_model_group(db, model, "case-b")
         assert excinfo.value.status_code == 409
         assert "conflicts with existing variant" in str(excinfo.value.detail)
 
     with Session() as db:
         model = db.get(Model, base_id)
         with pytest.raises(HTTPException) as excinfo:
-            catalog_routes._rename_model_group(db, model, "SP  ACE-B")
+            models_service._rename_model_group(db, model, "SP  ACE-B")
         assert excinfo.value.status_code == 409
 
 
@@ -248,7 +248,7 @@ def test_clone_code_probes_are_batched(catalog_postgres):
 
     with Session() as db:
         statements, _rows, code = _statements(
-            catalog_postgres, lambda d: catalog_routes._unique_model_copy_code(d, "CLONE")
+            catalog_postgres, lambda d: models_service._unique_model_copy_code(d, "CLONE")
         )
         expected = "CLONE-COPY-60"
         assert code == expected, f"expected the first free suffix, got {code}"
@@ -279,7 +279,7 @@ def test_clone_code_returns_the_same_first_free_code_as_a_linear_scan(catalog_po
         raise HTTPException(409, "Could not create a unique cloned model code")
 
     with Session() as db:
-        assert catalog_routes._unique_model_copy_code(db, "SEQ") == linear_scan(db, "SEQ") == "SEQ-COPY-4"
+        assert models_service._unique_model_copy_code(db, "SEQ") == linear_scan(db, "SEQ") == "SEQ-COPY-4"
 
 
 def test_approval_counts_main_fabric_bom_once_for_the_whole_family(catalog_postgres):
@@ -306,7 +306,7 @@ def test_approval_counts_main_fabric_bom_once_for_the_whole_family(catalog_postg
     def approve(base_id):
         def action(db):
             model = db.get(Model, base_id)
-            return [row.id for row in catalog_routes._approval_family(db, model)]
+            return [row.id for row in models_service._approval_family(db, model)]
         return action
 
     with Session() as db:
@@ -316,7 +316,7 @@ def test_approval_counts_main_fabric_bom_once_for_the_whole_family(catalog_postg
     # The grouped BOM count is one statement regardless of family size.
     with Session() as db:
         model = db.get(Model, family[0])
-        rows = catalog_routes._approval_family(db, model)
+        rows = models_service._approval_family(db, model)
         pending = [row for row in rows if row.status != "approved"]
         pending_ids = [row.id for row in pending]
         assert len(pending_ids) == 6
@@ -344,8 +344,8 @@ def test_usluga_empty_header_exception_is_preserved(catalog_postgres):
 
     with Session() as db:
         model = db.get(Model, header_id)
-        family = catalog_routes._approval_family(db, model)
-        has_variants = any(catalog_routes._clean_text(catalog_routes._model_code_parts(row)[1]) for row in family)
+        family = models_service._approval_family(db, model)
+        has_variants = any(models_service._clean_text(models_service._model_code_parts(row)[1]) for row in family)
         assert has_variants is True
         pending_ids = [row.id for row in family if row.status != "approved"]
         main_counts = {
@@ -358,8 +358,8 @@ def test_usluga_empty_header_exception_is_preserved(catalog_postgres):
         # the empty-header exception. The variant is also absent -> 0, and must fail.
         assert main_counts.get(header_id, 0) == 0
         assert main_counts.get(variant_id, 0) == 0
-        skipped = has_variants and not catalog_routes._clean_text(
-            catalog_routes._model_code_parts(db.get(Model, header_id))[1]) and not db.get(Model, header_id).bom
+        skipped = has_variants and not models_service._clean_text(
+            models_service._model_code_parts(db.get(Model, header_id))[1]) and not db.get(Model, header_id).bom
         assert skipped is True, "an empty family header stays exempt from the main-fabric rule"
         assert main_counts.get(variant_id, 0) != 1, "a variant without a main fabric must be rejected"
 
@@ -374,7 +374,7 @@ def test_generated_family_column_matches_the_python_key(catalog_postgres):
             stored = db.execute(
                 text("SELECT model_group_key FROM models WHERE id = :i"), {"i": model_id}
             ).scalar()
-            assert stored == catalog_routes._model_group_key(model), (
+            assert stored == models_service._model_group_key(model), (
                 "the SQL family key and the Python family key must agree, or the indexed "
                 "path would rename or group a different set of models"
             )

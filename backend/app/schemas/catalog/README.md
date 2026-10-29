@@ -8,6 +8,20 @@ SQLAlchemy definitions now live under app/schemas/; Pydantic DTOs live in
 app/libs/dto/. The links below show the authoritative definitions for this group's
 records. Business services live in models/*_service.py.
 
+Brand creation uses `brand_persistence.insert_brand`; Brand update uses
+`apply_brand_update` with the omitted/null-aware `BrandUpdateCommand`. Customer
+and Supplier creation use `partners_persistence.insert_customer` and
+`insert_supplier`. Customer update uses `apply_customer_update` with the
+omitted/null-aware `CustomerUpdateCommand`. These helpers use the supplied Session and do not commit;
+create helpers flush for audit IDs. Services retain validation/policy, audit,
+outer commit and refresh. This source also uses `apply_supplier_update` with the
+omitted/null-aware `SupplierUpdateCommand`; its verification is separate from the
+dated integration checkpoint. The independent shipment customer creator and
+seed/import writers remain separate paths. Customer DELETE uses `delete_customer_row`
+on the supplied Session; the service retains lookup, refusal checks, audit and
+outer commit. Candidate-specific verification remains pending. These helpers do not change the
+existing duplicate-name race behavior.
+
 ## Authoritative definitions
 
 - [Brand](catalog.py)
@@ -42,6 +56,9 @@ classes out of mixed files is a separate approved change.
    inserts, updates, deletes and mapped mutations belong in schema-owned
    operations using the supplied Session; helpers never commit independently.
    Follow the [engineering workflow](../../../../docs/ENGINEERING_WORKFLOW.md).
+   BOM insertion and the row deletion for the existing Catalog delete operation
+   are focused examples in [bom_persistence.py](bom_persistence.py); the service
+   keeps lookup, linked-cutting refusal, audit and the outer commit.
 5. Update callers, model registration and Alembic discovery together. Require one
    mapping per table and no database-schema difference for a source-only move.
 6. Check contracts and PostgreSQL behavior, visually exercise the affected factory

@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sqlalchemy import text
 
-from app.api.routes.catalog import _model_code_parts, _model_group_payload
+from app.models.catalog.models_service import _model_code_parts, _model_group_payload
 from app.db.session import SessionLocal
 from app.schemas import Model, SewingAssignment, SewingFlow, WorkOrder
 from app.models.audit_service import log_action
