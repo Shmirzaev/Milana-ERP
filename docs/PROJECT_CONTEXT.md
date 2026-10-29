@@ -235,6 +235,25 @@ and all four health checks passed. Backup and full evidence are in
 - Shared [skills](AGENT_SKILLS.md): milana-refactor for extraction, milana-feature
   for new behavior; both Codex and Claude use repository-controlled instructions.
 
+## SEC04 model-file session authentication (branch review only)
+
+- The 27 October browser follow-up found that one-day file and one-week thumbnail
+  private caches let revoked users reopen prior images. The SEC04 branch now
+  requires revalidation after auth and returns byte-free 304s for active filesystem
+  images; legacy DB fallback is `no-store`. Isolated Chromium Gate 3 and bounded
+  HTTP Gate 4 passed on candidate `9f6895a9`; Mirshoir's review and human
+  acceptance remain pending. Previously cached old-policy images can outlive the
+  deploy until their old TTL expires; rollout handling is unresolved.
+  [Current evidence](../backend/app/tests/SEC04-model-file-auth-evidence.md#browser-cache-follow-up--2026-10-27).
+- Updated `codex/sec04-model-file-auth` with `clone_main` at `ba70e0cb`.
+  Model files/thumbnails use current-account authentication and immediately release
+  its DB session before file reads/streaming. Company-wide access is intentional;
+  no factory/per-model scope was added. Owner Dilmurod; reviewer Mirshoir (pending).
+- The evidence file retains the earlier 25 October BLOCKED record as history;
+  the 27 October local gates supersede it. No merge to `clone_main`, deployment,
+  production verification or business-data change. Release/rollback pointers
+  above are historical and were not reverified.
+
 ## Required checks and open risks
 
 - Follow [verification gates](VERIFICATION.md) after each runtime migration/fix/feature:
