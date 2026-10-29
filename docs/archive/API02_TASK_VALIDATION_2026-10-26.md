@@ -82,3 +82,138 @@ Commands: pytest `app/tests/test_task_input_validation.py`,
 Earlier full-suite results above are historical, not re-aimed-candidate results.
 Visual E2E and separate live stress remain BLOCKED; the PostgreSQL concurrency
 check passed. Human review and production acceptance remain pending.
+
+## Local UI/readback and bounded stress — 30 October 2026
+
+Verification-only follow-up requested by the user; owner Dilmurod, reviewer
+Mirshoir. Runtime candidate: `d415114e49594e997c56b1a3d8ce8e6946a2835c`,
+worktree `.codex-work/api02-task-validation`, branch
+`codex/api02-task-validation`. Only this evidence document changes in the
+follow-up commit. No application/test source change, merge, deployment or
+production/shared-environment access. Earlier evidence above is retained.
+**No verified or accepted status is assigned.**
+
+### Environment and coverage limits
+
+Reused #319's `scripts/sec04_local_stack.py` and `sec04_local.compose.yml`
+from `.codex-work/rf004-sec04-verification`, with a separate temporary state
+directory and fresh project `milana-sec04-local-c9357893`. PostgreSQL 16 and
+storage were disposable volumes; API bound only to `127.0.0.1:18080`; one backend
+worker. Five runtime task files' SHA-256 hashes matched the candidate checkout
+(route, DTO, task service, task persistence and enum).
+
+Frontend ran from a `git archive` copy of the exact candidate on
+`127.0.0.1:3000`, with the local API configured explicitly and external browser
+requests blocked. Webpack dev was used because Turbopack rejected the temporary
+copy's external node_modules symlink. No API/auth/permission/UI response mocks or
+application monkeypatches were used. Fixtures followed the existing task tests:
+synthetic manager, non-manager and recipient users, a model and target orders;
+no production dump or real factory records. Setup-only fixture/locator retries
+are excluded from the result counts below.
+
+**Gate 3 remains BLOCKED as a complete required gate.** The connected Browser /
+Computer Use execution tool was unavailable after tool discovery and reading
+both skills. Standalone Chromium exercised the real running website instead;
+this is useful actual-UI evidence, not a claim of connected-device verification.
+Phone coverage is viewport emulation (390 x 900), not a physical phone. Desktop
+was 1280 x 900. Mirshoir must decide whether this fallback is sufficient or require
+another connected-browser run.
+
+### UI and direct PostgreSQL readback
+
+- **PASS: 12 UI cases**, manager/non-manager x EN/RU/UZ x desktop/phone. Created
+  tasks with a valid date, completed and reopened each, then reloaded the page.
+  Every saved task remained pending with the original date and null completed_at.
+  A whitespace title received HTTP 422 and a visible inline refusal in all three
+  languages. Manager-only All/assignee controls were absent for the non-manager.
+  Non-managers can still create self-tasks; their lack of management permission
+  is not a blanket denial of Tasks access. No uncaught page errors in this matrix.
+- **PASS: six actual UI 403 cases**, EN/RU/UZ x desktop/phone. A manager created
+  a fixture task assigned to the non-manager, then reassigned it to the authorized
+  recipient while the old drawer remained open. Clicking Done on the stale row
+  produced a visible localized 403 notice; refresh removed the inaccessible row.
+  Direct database readback confirmed pending status, null completed_at and the
+  new recipient, with only create/reassign audit rows (no refused-update audit).
+- **PASS: direct readback of all 18 UI case records.** The 12 self-task cases
+  each had exactly three audits (create, complete, reopen); each denied case had
+  exactly two. No whitespace-title task persisted. Screenshots were visually
+  inspected across both sizes and all three languages: forms, actions and notices
+  were readable; phone actions wrapped without obscuring the refusal or submit.
+- **PASS: 32 live HTTP checks** for valid states/dates/references, refresh reads,
+  invalid states/priorities/numeric or impossible dates, unsupported/missing or
+  partial create references, denied reference access/assignment/update/listing,
+  and an invalid status filter. Refusals preserved the complete task snapshot and
+  task/audit/notification counts. Updating one component of an already complete,
+  unchanged reference remained accepted. No skipped scripted cases.
+- **PASS: system-shortage path.** The helper preserved pending/high defaults and
+  caller rollback. An actual `POST /api/sales-orders/{id}/reserve-stock` on a
+  one-piece synthetic order without stock returned 200 with one shortage and
+  committed exactly one planning task, pending/high, expected actor/recipient,
+  description and 7 November due date. Its actual Tasks UI completed, reopened and
+  refreshed successfully on desktop and phone; direct readback retained those
+  values with null completed_at. Final audit-chain verification passed 156 rows.
+- **BLOCKED for literal UI coverage:** the drawer has no entity-reference inputs,
+  no arbitrary status text input and no edit-date form. Those valid/invalid input
+  paths were tested through live HTTP plus direct DB readback, not falsely counted
+  as UI actions. See `frontend/src/components/TasksDrawer.tsx:69`, `:74`, `:398`,
+  `:484`, `:620`. Mirshoir must agree this UI/API coverage boundary.
+
+### Stress plan recorded before execution
+
+`STRESS_PLAN.md` in the local evidence directory preceded load. Four workers,
+maximum six workflows each (24 tasks / 144 HTTP requests), workflow ceiling
+30 seconds, request timeout/max latency 5 seconds, p95 limit 1500 ms. Each workflow
+created a referenced task for an authorized recipient, changed state/date, read it
+back, then attempted invalid create/update and an unauthorized update. Stop on
+unexpected status/exception, timeout or integrity mismatch. Expected 403/422s
+were refusals, not unexpected errors. No other test/browser load ran concurrently.
+
+Separately bounded to five target-delete/create pairs and five task-delete/update
+pairs, two operation workers; target races additionally used an observer and an
+external holder of the existing audit advisory mutex. Maximum 20 seconds per pair,
+120 seconds overall. No app patch: observed real PostgreSQL blocking before
+releasing the mutex. Stop the phase on the first unexpected result.
+
+### Stress outcomes: gate 4 FAIL
+
+- **PASS: workflow burst**, 144 requests in 0.394 seconds: 24 x 201, 48 x 200,
+  24 x expected 403, 48 x expected 422; zero unexpected errors. p50 8.63 ms,
+  p95 19.24 ms, max 28.44 ms. Readback: exactly 24 unique correctly assigned tasks,
+  48 audits and 24 assignment notifications. No lost, duplicate, unauthorized or
+  partial writes in this phase; all states, dates and references matched.
+- **PASS within the write-time contract: five target deletion races**, 0.185
+  seconds total. Each target DELETE blocked while task creation waited at audit
+  finalization, then completed only after task creation committed. Each task was
+  committed once. The subsequent deletion left five orphan references, reproducing
+  the already documented lack of a polymorphic FK; this does not prove protection
+  against deletion after commit.
+- **FAIL: task-row DELETE versus PATCH**, four serialized pairs passed
+  (PATCH 200 / DELETE 204), then the fifth returned PATCH **500** / DELETE 204.
+  Stopped at that first unexpected outcome. Exact server error:
+  `sqlalchemy.orm.exc.StaleDataError: UPDATE statement on table 'tasks' expected to update 1 row(s); 0 were matched.`
+  Stack points to `backend/app/api/routes/tasks.py:248`; the task is read without
+  a row lock at `:209`, while deletion reads/deletes at `:255` and `:259`.
+  Readback found the row absent, with two audits (create/delete) rather than a
+  partial update; successful pairs had three audits. No fix was applied.
+  Reproduction on plain clone_main was not run; introduction/attribution is
+  unestablished. Dilmurod/Mirshoir must triage the operation's race outcome before
+  treating bounded stress as passing.
+
+These are small unpaced local bursts on one worker, not sustained-load or factory
+capacity evidence. Mirshoir must review the proposed latency/stop bounds, remaining
+post-commit orphan behavior, reopening policy and existing factory-scope limits.
+The observed 500 prevents a passing stress gate regardless of the chosen latency
+threshold. Human review/acceptance and the complete connected-browser gate remain
+pending; nothing is marked verified or accepted.
+
+### Evidence retained locally
+
+`/private/tmp/api02-gates-20261030/`: `STRESS_PLAN.md`, `stack-identity.json`,
+`api-results.json`, `browser-results.json`, `denial-results.json`,
+`shortage-results.json`, `shortage-browser-results.json`, `readback.json`,
+`final-readback.json`, `stress-results.jsonl`, `backend-race.log`, harness scripts
+and screenshots (`{manager,denied}-{en,ru,uz}-{1280,390}-{refusal,reload}.png`,
+`denied-{en,ru,uz}-{1280,390}-403.png`, `shortage-en-{1280,390}.png`). Artifacts
+are local, not uploaded/committed. Earlier full-suite results were not rerun or
+promoted to this candidate. The temporary frontend was stopped and this run's
+Compose project/volumes removed; production and unrelated local stacks untouched.
