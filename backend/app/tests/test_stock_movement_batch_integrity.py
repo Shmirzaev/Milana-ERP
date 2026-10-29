@@ -666,7 +666,7 @@ def test_postgres_movement_waits_for_the_batch_lock(movement_postgres_engine):
     locked and that the reservation floor is re-read after the lock is granted.
     """
     from app.api.routes.inventory import transfer_stock
-    from app.libs.dto.inventory.inventory import StockMovementIn
+    from app.libs.dto.inventory.stock_movement_input import StockMovementIn
 
     session_factory = sessionmaker(movement_postgres_engine, expire_on_commit=False)
     marker = uuid4().hex[:8]
@@ -734,7 +734,7 @@ def test_postgres_movement_waits_for_the_batch_lock(movement_postgres_engine):
 
 def select_for_update_batch(db, batch_id: int):
     """Take the same row lock the movement path uses, on connection one."""
-    from app.api.routes.inventory import _locked_stock_batch_statement
+    from app.models.inventory.stock_service import _locked_stock_batch_statement
 
     return db.execute(
         _locked_stock_batch_statement(batch_id).execution_options(populate_existing=True)
@@ -763,7 +763,7 @@ def test_postgres_claim_committed_while_movement_waits_still_blocks_it(
     batch is untouched.
     """
     from app.api.routes.inventory import transfer_stock
-    from app.libs.dto.inventory.inventory import StockMovementIn
+    from app.libs.dto.inventory.stock_movement_input import StockMovementIn
 
     session_factory = sessionmaker(movement_postgres_engine, expire_on_commit=False)
     marker = uuid4().hex[:8]

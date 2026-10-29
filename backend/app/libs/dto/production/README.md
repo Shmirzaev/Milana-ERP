@@ -4,6 +4,8 @@
 
 Existing Pydantic definitions in this group:
 
+- [besttex_cutting_output.py](besttex_cutting_output.py): released read-only list/page
+  output; configurable references, display labels, image URLs, counts and dates.
 - [cutting_material.py](cutting_material.py)
 - [cutting_passport.py](cutting_passport.py)
 - [production.py](production.py)

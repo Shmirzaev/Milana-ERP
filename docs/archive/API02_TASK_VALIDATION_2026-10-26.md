@@ -52,3 +52,33 @@ The key-share lock prevents deletion or key change before task commit. It does
 not stop a later deletion; without an FK, that deletion can orphan a reference.
 Active/rollback production releases and slots were not reverified for this
 non-release candidate; no business data or deployment was touched.
+
+## Re-aim after integration refactor — 29 October 2026
+
+Engineer Dilmurod; reviewer Mirshoir. Codex implemented under the owner's explicit
+exception to the local MiniMax setup. Base `425ec9fe`; existing PR #314 branch.
+The reference validation and key-share locking remain in the work-management task
+service alongside upstream's unchanged `create_stock_shortage_task` participant.
+Removed duplicate `libs/enums/task.py`; DTOs/routes use the identical canonical
+values in `libs/enums/work_management.py`. No transition, permission, reference,
+lock ordering, or transaction behavior was changed by this re-aim.
+
+The unchanged defect regressions on clean `425ec9fe` produced **21 failed / 3
+passed / 0 skipped**. Invalid creates returned 201 rather than 422, invalid updates
+returned 200, and the PostgreSQL race failed with `Reference row was deleted before
+the task committed`. The final candidate's four task files produced **65 passed /
+0 failed / 0 skipped**, including the real PostgreSQL deletion race. A new parity
+check for upstream stock-shortage creation passes both sides: pending/high fields
+are staged with no commit and caller rollback removes the row. Ruff and diff
+whitespace checks pass. Tests used PostgreSQL 18 in a fresh local cluster through
+`scripts/run_manual_packaging_pg.py --pg-bin /opt/homebrew/opt/postgresql@18/bin`;
+no existing database or production service was used.
+
+Commands: pytest `app/tests/test_task_input_validation.py`,
+`app/tests/test_task_reference_lock_postgres.py`,
+`app/tests/test_task_assignment_authorization.py`, and
+`app/tests/test_task_broadcast_batching.py`. Baseline/fixed logs are retained at
+`/private/tmp/api02-reaim-baseline.log` and `/private/tmp/api02-reaim-final.log`.
+Earlier full-suite results above are historical, not re-aimed-candidate results.
+Visual E2E and separate live stress remain BLOCKED; the PostgreSQL concurrency
+check passed. Human review and production acceptance remain pending.

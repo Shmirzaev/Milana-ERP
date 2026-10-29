@@ -3,7 +3,7 @@ from typing import Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.libs.dto.common import ORMModel
-from app.libs.enums.task import TaskPriority, TaskStatus
+from app.libs.enums.work_management import TaskPriority, TaskStatus
 
 
 def _reject_numeric_datetime(value):

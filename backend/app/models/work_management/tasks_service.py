@@ -1,5 +1,9 @@
-"""Task target validation and recipient access; task routes own the transaction."""
+"""Task reference validation and system stock-shortage creation.
+
+Task routes and the Sales caller retain their own transaction boundaries.
+"""
 from dataclasses import dataclass
+from datetime import datetime
 from types import SimpleNamespace
 
 from fastapi import HTTPException
@@ -9,6 +13,8 @@ from app.core.deps import PRODUCTION_READ_PERMISSIONS, user_permissions
 from app.models.factory_scope_service import available_factory_codes, factory_for_department, require_factory_access, user_is_super_admin
 from app.models.packaging_scope_service import normalize_packaging_department_code, require_package_access
 from app.schemas import Bundle, Invoice, Package, ProductionOrder, SalesOrder, Shipment, User, WorkOrder
+from app.libs.enums.work_management import TaskPriority, TaskStatus
+from app.schemas.work_management.task_persistence import add_stock_shortage_task
 
 
 _REFERENCE_MODELS = {
@@ -139,3 +145,12 @@ def validate_task_reference_update(
     if reference and next_assignee and next_assignee.id != current.id:
         require_assignee_reference_access(next_assignee, reference)
     return reference
+
+
+def create_stock_shortage_task(
+    db: Session, *, title: str, description: str, assigned_to: int,
+    created_by: int, due_date: datetime | None,
+) -> None:
+    add_stock_shortage_task(db, title=title, description=description,
+                           assigned_to=assigned_to, created_by=created_by, due_date=due_date,
+                           status=TaskStatus.PENDING, priority=TaskPriority.HIGH)

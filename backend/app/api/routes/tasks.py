@@ -12,7 +12,7 @@ from app.models.user_access_service import access_configured, permission_denied
 from app.models.work_management.tasks_service import (
     require_assignee_reference_access, resolve_task_reference, task_reference_key, validate_task_reference_update,
 )
-from app.libs.enums.task import TaskStatus
+from app.libs.enums.work_management import TaskStatus
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 

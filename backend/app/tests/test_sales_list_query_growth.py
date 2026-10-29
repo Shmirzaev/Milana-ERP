@@ -47,9 +47,9 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
-from app.api.routes import sales as sales_routes
 from app.api.routes import shipments as shipment_routes
 from app.db.base import Base
+from app.models.sales import orders_service
 from app.schemas import (
     Customer,
     Model,
@@ -303,8 +303,8 @@ def test_sales_list_hydrates_no_customer_entities_per_row(pg):
 
     with session_factory() as db:
         with probe.measure() as measured:
-            small = sales_routes.list_sales_orders(
-                db, None, page=1, page_size=SMALL_PAGE, include_total=True
+            small = orders_service.list_sales_orders(
+                db, page=1, page_size=SMALL_PAGE, include_total=True
             )
     small_hydrated = measured.hydrated
     small_customers = measured.by_entity["Customer"]
@@ -314,8 +314,8 @@ def test_sales_list_hydrates_no_customer_entities_per_row(pg):
     _seed_orders(session_factory, prefix="B", count=LARGE_PAGE)
     with session_factory() as db:
         with probe.measure() as measured:
-            large = sales_routes.list_sales_orders(
-                db, None, page=1, page_size=LARGE_PAGE, include_total=True
+            large = orders_service.list_sales_orders(
+                db, page=1, page_size=LARGE_PAGE, include_total=True
             )
     large_hydrated = measured.hydrated
     large_customers = measured.by_entity["Customer"]
@@ -348,7 +348,7 @@ def test_sales_list_customer_names_are_still_rendered(pg):
     case = _seed_orders(session_factory, prefix="C", count=6)
 
     with session_factory() as db:
-        rows = sales_routes.list_sales_orders(db, None, page=1, page_size=6, include_total=True)
+        rows = orders_service.list_sales_orders(db, page=1, page_size=6, include_total=True)
     with session_factory() as db:
         names = dict(
             db.query(Customer.id, Customer.name)
@@ -376,11 +376,11 @@ def test_sales_list_search_and_total_still_apply(pg):
     target_id = case["order_ids"][0]
 
     with session_factory() as db:
-        rows = sales_routes.list_sales_orders(db, None, q="customer H 1", page=1, page_size=50)
+        rows = orders_service.list_sales_orders(db, q="customer H 1", page=1, page_size=50)
     assert [int(row["id"]) for row in rows] == [target_id]
 
     with session_factory() as db:
-        page = sales_routes.list_sales_orders(db, None, page=1, page_size=2, include_total=True)
+        page = orders_service.list_sales_orders(db, page=1, page_size=2, include_total=True)
     assert page["total"] == 4
     assert page["page"] == 1 and page["page_size"] == 2
     assert len(page["rows"]) == 2

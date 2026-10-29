@@ -9,7 +9,9 @@ import { statusLabel } from "@/components/StagePipeline";
 import { useMe, can } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { numberOrFallback, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
+import type { CollectionCreateIn, CollectionCreateOut } from "@/lib/collectionCreate";
 
+// Reads/edits deliberately preserve historical statuses outside the create enum.
 type Collection = {
   id: number; brand_id: number; name: string;
   season?: string | null; year?: number | null; description?: string | null; status: string;
@@ -31,7 +33,8 @@ export default function CollectionsPage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    await api.post("/api/collections", { ...form, year: numberOrFallback(form.year, 2025) });
+    const payload: CollectionCreateIn = { ...form, year: numberOrFallback(form.year, 2025) };
+    await api.post<CollectionCreateOut>("/api/collections", payload);
     setForm({ brand_id: 0, name: "", season: "", year: 2025 });
     mutate();
   }

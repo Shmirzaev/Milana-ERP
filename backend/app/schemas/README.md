@@ -33,7 +33,8 @@ span groups: sales/sales.py also contains invoices and shipments;
 production/production.py and production/tracking.py include downstream records.
 The linked group guides describe business ownership and point to the actual file.
 Do not duplicate or split these classes just to populate every folder. identity/
-and finance/ remain guides because their definitions still share those files.
+remains a guide. finance/ owns persistence helpers, while the Invoice and Payment
+mappings remain in sales/sales.py.
 
 ## How to make or change a definition
 

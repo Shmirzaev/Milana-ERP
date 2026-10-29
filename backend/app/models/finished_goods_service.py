@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from sqlalchemy import func, tuple_
 from sqlalchemy.orm import Session, load_only
 
+from app.schemas.fulfillment.stock_persistence import set_stock_metadata
+
 from app.schemas import Collection, CollectionModel, FinishedGoodsStock, Package, ProductionOrder, SalesOrderItem
 
 
@@ -421,14 +423,10 @@ def repair_missing_brand_metadata(db: Session, *, model_ids: set[int] | None = N
             reference_cache=reference_cache,
             entity_cache=entity_cache,
         )
-        changed = False
-        if row.brand_id is None and next_brand_id is not None:
-            row.brand_id = int(next_brand_id)
-            changed = True
-        if row.collection_id is None and next_collection_id is not None:
-            row.collection_id = int(next_collection_id)
-            changed = True
-        if changed:
+        brand_id = int(next_brand_id) if row.brand_id is None and next_brand_id is not None else row.brand_id
+        collection_id = int(next_collection_id) if row.collection_id is None and next_collection_id is not None else row.collection_id
+        if brand_id != row.brand_id or collection_id != row.collection_id:
+            set_stock_metadata(db, row, brand_id=brand_id, collection_id=collection_id)
             updated += 1
     if updated:
         db.flush()

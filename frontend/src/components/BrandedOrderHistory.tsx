@@ -9,18 +9,23 @@ import ImageThumbnail from "@/components/ImageThumbnail";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 import { modelSearchIncludes, normalizeModelSearch } from "@/lib/modelCode";
+import {
+  BrandedCuttingProgress,
+  BrandedPlanningOrderStatus,
+  BrandedPlanningOrderType,
+} from "@/lib/brandedPlanning";
 
 export type BrandedPlanningOrder = {
   id: number;
   order_no: string;
-  ordered_for_type: string;
+  ordered_for_type: BrandedPlanningOrderType;
   customer_id?: number | null;
   ordered_for_name: string;
-  status: string;
+  status: BrandedPlanningOrderStatus;
   created_at: string;
   production_count: number;
   total_quantity: number;
-  cutting_status?: "not_started" | "partial" | "completed";
+  cutting_status?: BrandedCuttingProgress;
   productions: {
     id: number;
     order_no: string;
@@ -29,7 +34,7 @@ export type BrandedPlanningOrder = {
     model?: ModelOption | null;
     planned_quantity: number;
     status: string;
-    cutting_status?: "not_started" | "partial" | "completed";
+    cutting_status?: BrandedCuttingProgress;
     cutting_quantity?: number;
     cutting_departments?: { code: string; name: string }[];
   }[];
@@ -158,14 +163,14 @@ export default function BrandedOrderHistory({
               className="group"
               open={normalizedQuery ? true : undefined}
             >
-              <summary className={`flex cursor-pointer list-none flex-wrap items-center gap-3 px-5 py-4 ${order.cutting_status === "completed" ? "bg-green-100" : order.cutting_status === "partial" ? "bg-yellow-100" : "bg-white"} ${order.id === activeOrderId ? "ring-1 ring-inset ring-[#b7b09e]" : ""}`}>
+              <summary className={`flex cursor-pointer list-none flex-wrap items-center gap-3 px-5 py-4 ${order.cutting_status === BrandedCuttingProgress.COMPLETED ? "bg-green-100" : order.cutting_status === BrandedCuttingProgress.PARTIAL ? "bg-yellow-100" : "bg-white"} ${order.id === activeOrderId ? "ring-1 ring-inset ring-[#b7b09e]" : ""}`}>
                 <ChevronDown className="h-4 w-4 shrink-0 text-[#8a8472] transition-transform group-open:rotate-180" />
                 <span className="mono min-w-16 font-semibold text-[#14110b]">{formatOrderReference(order.order_no)}</span>
                 <span className="text-sm">{order.ordered_for_name}</span>
                 <span className="text-sm text-[#56503f]">
                   {t("page.planning.productionCount", { count: order.production_count })}
                 </span>
-                <span className="text-sm text-[#56503f]">{t(`page.planning.cutting.${order.cutting_status || "not_started"}`)}</span>
+                <span className="text-sm text-[#56503f]">{t(`page.planning.cutting.${order.cutting_status || BrandedCuttingProgress.NOT_STARTED}`)}</span>
                 <span className="hidden text-sm text-[#8a8472] sm:inline">
                   {new Date(order.created_at).toLocaleDateString()}
                 </span>
@@ -193,7 +198,7 @@ export default function BrandedOrderHistory({
                           const modelLabel = [model?.code, model?.name].filter(Boolean).join(" - ") || "-";
                           const fabricLabel = String(model?.variant_fabric || "").trim() || "-";
                           return (
-                            <tr key={production.id} className={production.cutting_status === "completed" ? "!bg-green-100" : production.cutting_status === "partial" ? "!bg-yellow-100" : "!bg-white"}>
+                            <tr key={production.id} className={production.cutting_status === BrandedCuttingProgress.COMPLETED ? "!bg-green-100" : production.cutting_status === BrandedCuttingProgress.PARTIAL ? "!bg-yellow-100" : "!bg-white"}>
                               <td>
                                 <Link className="mono font-semibold underline" href={`/production-orders/${production.id}`}>
                                   {formatOrderReference(production.order_no || production.production_no)}
@@ -223,7 +228,7 @@ export default function BrandedOrderHistory({
                               </td>
                               <td>{Number(production.planned_quantity || 0).toLocaleString()}</td>
                               <td>
-                                <div>{t(`page.planning.cutting.${production.cutting_status || "not_started"}`)}</div>
+                                <div>{t(`page.planning.cutting.${production.cutting_status || BrandedCuttingProgress.NOT_STARTED}`)}</div>
                                 <div className="text-xs text-[#56503f]">
                                   {t("cuttingInbox.cutProgress")}: {Number(production.cutting_quantity || 0).toLocaleString()} / {Number(production.planned_quantity || 0).toLocaleString()}
                                 </div>

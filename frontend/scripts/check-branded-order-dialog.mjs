@@ -109,3 +109,6 @@ for (const [path, allowed] of [["/models", "modeling.approve"], ["/usluga/models
   }
 }
 console.log("Model-family approval visibility and permissions passed.");
+
+// Keep the used history vocabulary/render contract in the existing build gate.
+await import("./test-branded-planning-contracts.mjs");

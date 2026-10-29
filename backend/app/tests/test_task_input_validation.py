@@ -179,3 +179,22 @@ def test_invalid_status_filter_is_rejected(client):
     _, headers = _actor()
     response = client.get("/api/tasks?status=done-ish", headers=headers)
     assert response.status_code == 422, response.text
+
+
+def test_system_stock_shortage_keeps_pending_high_and_callers_transaction():
+    from app.models.work_management.tasks_service import create_stock_shortage_task
+
+    actor, _ = _actor()
+    title = f"Stock shortage {uuid4().hex}"
+    with SessionLocal() as db:
+        create_stock_shortage_task(db, title=title, description="Planning shortage",
+                                  assigned_to=actor, created_by=actor, due_date=None)
+        pending = [row for row in db.new if isinstance(row, Task)]
+        assert len(pending) == 1
+        assert (pending[0].title, pending[0].description, pending[0].assigned_to,
+                pending[0].created_by, pending[0].status, pending[0].priority,
+                pending[0].due_date) == (title, "Planning shortage", actor, actor, "pending", "high", None)
+        db.flush()
+        db.rollback()
+    with SessionLocal() as db:
+        assert db.query(Task).filter_by(title=title).count() == 0

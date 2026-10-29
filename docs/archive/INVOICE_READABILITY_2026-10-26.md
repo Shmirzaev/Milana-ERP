@@ -21,3 +21,62 @@
 - Evidence, raw measurements, CI logs, screenshots and local limitations: `outputs/deployment/` and `outputs/invoice-qa/` in the release worktree. Temporary QA gateways are stopped after verification. No cleaning/deleting releases, images, backups, volumes, uploads or manufacturing records was needed.
 - Retained rollback readiness verified without switching traffic. Run `C:/ERP/.codex-work/qr-besttex-nav-20261026/.venv/Scripts/python.exe outputs/deployment/rollback.py` from this worktree for read-only readiness. Add `--apply` to restore blue backend first, then frontend, repoint both current symlinks and run all four health checks. No database downgrade.
 - Operator acceptance checklist: open existing invoice in EN/RU/UZ; verify 11 pt customer/delivery and 9 pt product rows; one separated sharp logo; long sizes/descriptions wrap; A4 at 100% continues with repeated headings; hidden-price cells remain blank; Excel keeps numeric totals and matching configured fonts. Production/operator acceptance is separate from technical deployment authorization.
+
+## Integration addendum — 26 October 2026
+
+The release-time statements above about a separate draft patch and `70c4bf3c`
+being "not merged or deployed" are preserved as history. The invoice port has
+subsequently merged through [PR #310](https://github.com/Shmirzaev/Milana-ERP/pull/310)
+as `cdcbdfe5e7cfeb08a65e6a86da27fc7b6175733d`, whose verified Git tree is
+`aabd33becc5662469eb2ba408f832fb0059f1229` (parents `b92ee8f` and `623e35f`).
+This records the port's integration state, not a second deployment or a new
+verification of the production observations recorded above.
+
+The refactor integrator is preparing an isolated successor from frozen candidate
+`d0920f6367b702f63c88d5940cf1b44155b34aec` plus that merge. This successor is
+**not deployed, not AI-verified and not human-approved**. Its exact combined source
+requires applicable technical checks and actual invoice/browser/export inspection,
+persisted readback and bounded integrity checks. Earlier invoice-only release
+results and d092 screenshots remain evidence for their original sources; they
+must not be relabeled as successor execution. Human technical/visual approval
+remains separate from both PR merge and the prior invoice deployment authority.
+
+The imported `deploy/production-base.json` records application
+`439555a77ef583b1b212398e16ecd52ced786e45`, release `20261026_085306`, manifest
+`9511b57bf62fd3142c865f3bb07aaf3e2f1053629f90c8521a652cd6da9139e2` and database
+`0149_besttex_cutting_access`. These are historical upstream assertions retained
+without alteration; this documentation review contacted no production host or
+database. The candidate's Alembic files end at `0148_second_grade_packages` and
+do not contain migration 0149. The earlier successor study did not establish the
+recorded runtime commit's ancestry/content relative to the refactor. Reconciliation
+of exact release source, newer factory fixes, migration chain, manifests and slots
+is ongoing before any future deployment. The six-file invoice port alone cannot
+close that gap; no missing migration is fabricated and no production fault is inferred.
+
+Ismail's full-system mentor-discipline objective and explicit Codex-subagent
+authorization remain in force. Schema-owned writes, canonical enum contracts and
+all domain ledgers retain their operation-level gates; neither this port nor its
+historical release accepts the whole ERP. See [current context](../PROJECT_CONTEXT.md)
+and [the engineering workflow](../ENGINEERING_WORKFLOW.md).
+
+## Source reconciliation — 27 October 2026
+
+The earlier addendum's missing-source finding is preserved above as historical
+evidence. Local successor `02c25ecf2c8acad55418d86cf5b067fc89307162` now has real
+parents `034cb7884e9fe2338ab621dd8a13a619fa19dd2c` and recorded production
+`439555a77ef583b1b212398e16ecd52ced786e45`; its tree is
+`a44364d139f41c1ee13c449f3db8e345337ced4b`. It includes independently reviewed
+QR, Besttex and grade-weight compatibility ports, the exact released migration
+0149 and the invoice port. All 36 release paths were accounted for. Seven merge
+conflicts were resolved explicitly, retaining current schema/service/DTO imports
+and newer release metadata; two duplicate legacy modules were removed because
+their implementations are preserved at the reviewed current paths. The merge
+adds only two historical archive documents to the accepted premerge tree;
+backend, frontend and CI bytes are unchanged by the ancestry merge.
+
+This is a local source reconciliation, not a shared-branch push, deployment,
+migration execution or live production check. No QA or production migration was
+applied. Combined technical checks, actual successor browser/readback/stress,
+human acceptance and live release gates remain separate and pending. The earlier
+source gap is closed for these exact Git inputs; current production state and
+the full refactor's remaining operation ledger are not declared complete.

@@ -1,7 +1,8 @@
 from __future__ import annotations
 from datetime import datetime
+from typing import ClassVar
 from sqlalchemy import String, Integer, Boolean, ForeignKey, JSON, DateTime, Text, Numeric, UniqueConstraint, func
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
 from app.db.base import Base, PkMixin, TimestampMixin
 
@@ -109,8 +110,28 @@ class PasswordResetToken(Base, PkMixin):
 
 class SystemSetting(Base, PkMixin, TimestampMixin):
     __tablename__ = "system_settings"
+    MODEL_NUMBERING_KEY: ClassVar[str] = "model_numbering"
     key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     value_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+
+    @classmethod
+    def write_model_numbering(
+        cls,
+        db: Session,
+        *,
+        setting: SystemSetting | None,
+        value_json: dict[str, object],
+    ) -> None:
+        """Store the service's reserved model number in its supplied transaction.
+
+        The numbering service owns the locks, candidate and JSON merge. Keep the
+        original flush point; the outer Catalog operation commits or rolls back.
+        """
+        if setting is not None:
+            setting.value_json = value_json
+        else:
+            db.add(cls(key=cls.MODEL_NUMBERING_KEY, value_json=value_json))
+        db.flush()
 
 
 class IdempotencyRecord(Base, PkMixin):

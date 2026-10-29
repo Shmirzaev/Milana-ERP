@@ -3,8 +3,11 @@
 **Coordination owner:** Ismail. **Reviewer:** Dilmurod.
 Feature owners maintain their internal contracts. See [team ownership](../../../../docs/TEAM_OWNERSHIP.md).
 
-This folder documents the intended home for shared internal contracts when a
-concrete need is established. No Python types have been introduced yet.
+This folder contains used internal contracts, including
+[purchase-request commands](purchasing.py) and
+[finished-goods reservation requests/results](stock_reservation.py).
+Their presence does not establish complete type coverage; each operation still
+needs its producer, consumer and verification evidence.
 
 ## Purpose
 
@@ -25,7 +28,10 @@ types discipline without duplicating the existing Pydantic schemas.
 - `app/schemas/` contains SQLAlchemy definitions, registration and schema-owned
   persistence operations; the outer business service coordinates the transaction.
 - `app/libs/enums/` is the home for fixed vocabulary as approved operations adopt it.
-- `app/models/*_service.py` implements business operations and their runtime rules.
+- `app/models/<group>/*_service.py` implements business operations and their runtime
+  rules; existing shared helpers remain at `app/models/*_service.py`.
+  The former `app/services/` layout is historical. New business-service work uses
+  the existing `models/` domain, as described in [the service guide](../../models/README.md).
 
 ## Rules
 
@@ -45,7 +51,7 @@ types discipline without duplicating the existing Pydantic schemas.
 - Do not create interfaces for every concrete service or a second DTO hierarchy.
 - Avoid importing service implementations or routers into shared types.
 
-Populate this folder only when an approved operation needs such a contract.
+Extend this folder only when an approved operation needs such a contract.
 
 ## How to make an internal type file
 
