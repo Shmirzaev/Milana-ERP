@@ -24,7 +24,7 @@ from app.schemas import (
     Warehouse,
     WasteRecord,
 )
-from app.tests.test_customer_create_postgres import customer_pg_sessions  # noqa: F401
+from app.tests.test_customer_create_postgres import chain, customer_pg_sessions  # noqa: F401
 
 
 def _seed(sessions, *, quantity=10, roll_lengths=None, reservation_quantity=None, eco_return=False):
@@ -128,6 +128,17 @@ def _snapshot(db, ids):
     }
 
 
+def _batch_update_audit(db, ids):
+    rows = db.query(AuditLog).filter_by(
+        action="update", entity_type="StockBatch", entity_id=ids["batch"],
+    ).all()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.user_id == ids["actor"]
+    assert row.entity_type == "StockBatch" and row.entity_id == ids["batch"]
+    return row
+
+
 def test_pg_update_batch_nullable_patch_quantity_warehouse_and_movement_conservation(customer_pg_sessions):
     ids = _seed(customer_pg_sessions)
     with customer_pg_sessions() as db:
@@ -147,6 +158,15 @@ def test_pg_update_batch_nullable_patch_quantity_warehouse_and_movement_conserva
         assert state.color is None and state.color_code == "retained code" and state.supplier_id is None
         assert state.qc_status == "passed"
         assert state.quantity == 8 and state.warehouse_id == ids["destination"]
+        audit = _batch_update_audit(db, ids)
+        assert audit.old_value_json["color"] == "retained color"
+        assert audit.old_value_json["color_code"] == "retained code"
+        assert audit.old_value_json["quantity"] == 10.0
+        assert audit.old_value_json["warehouse_id"] == ids["source"]
+        assert audit.old_value_json["qc_status"] == "pending"
+        assert audit.new_value_json == {
+            "color": None, "quantity": 8.0, "warehouse_id": ids["destination"], "qc_status": "passed",
+        }
         movements = db.query(StockMovement).filter_by(batch_id=ids["batch"]).order_by(StockMovement.id).all()
         assert [(row.movement_type, float(row.quantity), row.from_warehouse_id, row.to_warehouse_id)
                 for row in movements] == [
@@ -154,6 +174,7 @@ def test_pg_update_batch_nullable_patch_quantity_warehouse_and_movement_conserva
             ("issue", 2.0, ids["source"], None),
             ("transfer", 8.0, ids["source"], ids["destination"]),
         ]
+    chain(customer_pg_sessions)
 
 
 def test_pg_forced_batch_item_relink_updates_catalog_and_inventory_participants(customer_pg_sessions):
@@ -172,6 +193,15 @@ def test_pg_forced_batch_item_relink_updates_catalog_and_inventory_participants(
         assert state["waste_item"] == ids["new_item"]
         assert state["movements"] == ((ids["receipt"], ids["new_item"], "receive", 10.0, None, ids["source"]),)
         assert state["audit_count"] == 1
+        audit = _batch_update_audit(db, ids)
+        assert audit.old_value_json["item_id"] == ids["old_item"]
+        assert audit.new_value_json == {
+            "item_id": ids["new_item"],
+            "relinked_item_references": {
+                "stock_movements": 1, "material_reservations": 1, "model_bom": 1, "waste_records": 1,
+            },
+        }
+    chain(customer_pg_sessions)
 
 
 @pytest.mark.parametrize("refusal", ["inactive_target", "reservation_floor", "roll_lengths", "eco_return"])
@@ -239,3 +269,14 @@ def test_pg_audit_failure_rolls_back_all_batch_edit_participants_then_one_retry(
             ("transfer", 8.0, ids["source"], ids["destination"]),
         ])
         assert after["audit_count"] == before["audit_count"] + 1
+        audit = _batch_update_audit(db, ids)
+        assert audit.old_value_json["item_id"] == ids["old_item"]
+        assert audit.old_value_json["quantity"] == 10.0
+        assert audit.old_value_json["warehouse_id"] == ids["source"]
+        assert audit.new_value_json == {
+            "item_id": ids["new_item"], "quantity": 8.0, "warehouse_id": ids["destination"],
+            "relinked_item_references": {
+                "stock_movements": 1, "material_reservations": 1, "model_bom": 1, "waste_records": 1,
+            },
+        }
+    chain(customer_pg_sessions)
