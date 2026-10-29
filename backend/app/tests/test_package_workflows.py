@@ -108,6 +108,34 @@ def create_run(client, headers, template, count):
     return result.json()
 
 
+def test_selected_print_run_is_idempotent_and_persists_manifest(client, auth_headers, packaging_order):
+    packages = [client.post(BASE, headers=auth_headers, json=packaging_order) for _ in range(2)]
+    assert all(response.status_code == 201 for response in packages)
+    package_ids = [response.json()["id"] for response in packages]
+    body = {"request_key": str(uuid4()), "package_ids": package_ids}
+
+    first = client.post(BASE + "/print-runs", headers=auth_headers, json=body)
+    assert first.status_code == 201, first.text
+    replay = client.post(BASE + "/print-runs", headers=auth_headers, json=body)
+    assert replay.status_code == 201, replay.text
+    assert replay.json() == first.json()
+
+    with SessionLocal() as db:
+        run = db.get(PackagePrintRun, first.json()["id"])
+        members = (
+            db.query(PackagePrintRunMember)
+            .filter_by(run_id=first.json()["id"])
+            .order_by(PackagePrintRunMember.id)
+            .all()
+        )
+        audits = db.query(AuditLog).filter_by(
+            action="create_print_run", entity_id=run.id,
+        ).all()
+        assert run.package_ids == sorted(package_ids)
+        assert [member.package_id for member in members] == sorted(package_ids)
+        assert len(audits) == 1
+
+
 def package_qr(pid):
     with SessionLocal() as db:
         p = db.get(Package, pid)

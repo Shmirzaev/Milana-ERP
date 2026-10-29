@@ -11,7 +11,10 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from app.db.base import Base
-from app.schemas import Department, Model, Package, PackagingRecord, ProductionOrder, WorkOrder
+from app.schemas import (
+    AuditLog, Department, Model, Package, PackageItem, PackagePrintRun,
+    PackagePrintRunMember, PackagingRecord, ProductionOrder, User, WorkOrder,
+)
 from app.models import packages_service as package_service
 
 
@@ -117,6 +120,62 @@ def _stub_package_side_effects(monkeypatch) -> None:
     monkeypatch.setattr(package_service, "save_qr_image", lambda *_args, **_kwargs: "/test/qr.png")
     monkeypatch.setattr(package_service, "save_barcode_image", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(package_service, "sync_production_order_status", lambda *_args, **_kwargs: None)
+
+
+def test_print_run_persistence_roundtrips_on_identity_pinned_postgres(package_write_postgres_sessions):
+    from app.models.package_workflows_service import create_run
+
+    sessions, _engine = package_write_postgres_sessions
+    order_id, model_id = _seed_packaged_order(sessions, 2)
+    marker = uuid4().hex
+    with sessions.begin() as db:
+        db.get(ProductionOrder, order_id).source_type = "standard"
+        actor = User(
+            name="Print run persistence QA",
+            email=f"print-run-{marker}@example.invalid",
+            password_hash="unused",
+        )
+        db.add(actor)
+        packages = [
+            Package(
+                package_no=f"PRINT-RUN-{marker}-{index}",
+                barcode=f"PRINT-RUN-BC-{marker}-{index}",
+                production_order_id=order_id,
+                model_id=model_id,
+                color="navy",
+                total_quantity=1,
+                capacity=1,
+                status="packed",
+                packaging_department_code="PKG",
+                items=[PackageItem(model_id=model_id, color="navy", size="M", quantity=1)],
+            )
+            for index in range(2)
+        ]
+        db.add_all(packages)
+        db.flush()
+        run = create_run(db, actor, packages)
+        run_id = int(run.id)
+        package_ids = [int(package.id) for package in packages]
+        actor_id = int(actor.id)
+
+    with sessions() as db:
+        persisted = db.get(PackagePrintRun, run_id)
+        members = (
+            db.query(PackagePrintRunMember)
+            .filter_by(run_id=run_id)
+            .order_by(PackagePrintRunMember.id)
+            .all()
+        )
+        audit = db.query(AuditLog).filter_by(
+            action="create_print_run", entity_id=run_id,
+        ).one()
+        assert persisted.package_ids == package_ids
+        assert persisted.created_by == actor_id
+        assert persisted.packaging_department_code == "PKG"
+        assert persisted.received_by is None and persisted.received_at is None
+        assert [member.package_id for member in members] == package_ids
+        assert all(member.snapshot["quantity"] == 1 for member in members)
+        assert audit.new_value_json["package_ids"] == package_ids
 
 
 def test_second_grade_and_singles_race_for_same_accepted_piece(package_write_postgres_sessions, monkeypatch):

@@ -4,15 +4,26 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 from sqlalchemy import text, or_
+from sqlalchemy.orm import load_only
 
+from app.core.deps import user_permissions
 from app.schemas import (
     FinishedGoodsStock, Model, Package, PackageBatchAllocation, PackageItem, PackageScanLog,
     Warehouse, ManualPackageReceipt, PackagePrintRun, PackagePrintRunMember, PackageBarcodeAlias,
 )
+from app.libs.enums.packaging import PackagingDepartment
+from app.schemas.packaging.manual_packages_persistence import (
+    PackagePrintRunHeaderCommand,
+    insert_package_print_run_header,
+    insert_package_print_run_members,
+)
 from app.models.audit_service import log_action
 from app.models.barcode_service import generate_barcode_value, save_qr_image
 from app.models.idempotency_service import request_fingerprint
+from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 from app.models.numbering_service import _next, next_package_nos
+from app.models.packaging_scope_service import packaging_department_scope, require_package_access
+from app.libs.dto.fulfillment.package_workflows import PrintRunIn
 from app.models.packages_service import (
     _warehouse_source_types, prepare_locked_package_receive,
     receive_at_storage, sync_package_production_orders, validate_storage_location,
@@ -107,29 +118,79 @@ def create_run(db, current, packages, *, received=False):
                 raise HTTPException(409, "Package needs validated Packaging output before entering a receiving print run")
         if pkg.status != ("received_in_storage" if received else "packed"):
             raise HTTPException(409, "Only unreceived packed packages can enter a new receiving print run")
-    run = PackagePrintRun(run_no=_next(db, PackagePrintRun, "run_no", "PRN"),
-                          code=f"PACKRUN:{uuid4().hex}", packaging_department_code=next(iter(owners)),
-                          created_by=current.id, package_ids=[p.id for p in packages])
-    if received:
-        run.received_by = current.id
-        run.received_at = datetime.now(timezone.utc)
-    db.add(run)
-    db.flush()
+    run = insert_package_print_run_header(
+        db,
+        command=PackagePrintRunHeaderCommand(
+            run_no=_next(db, PackagePrintRun, "run_no", "PRN"),
+            code=f"PACKRUN:{uuid4().hex}",
+            actor_id=current.id,
+            department=PackagingDepartment(next(iter(owners))),
+            packages=tuple(packages),
+            received_at=datetime.now(timezone.utc) if received else None,
+        ),
+    )
     items_by_package, allocations_by_package = _package_children(db, packages)
-    for pkg in packages:
-        db.add(PackagePrintRunMember(
-            run_id=run.id,
-            package_id=pkg.id,
-            snapshot=contents(
+    snapshots = [
+        contents(
                 pkg,
                 items=items_by_package[int(pkg.id)],
                 batch_allocations=allocations_by_package[int(pkg.id)],
-            ),
-        ))
-    db.flush()
+        )
+        for pkg in packages
+    ]
+    insert_package_print_run_members(db, run=run, packages=packages, snapshots=snapshots)
     log_action(db, current, "create_print_run", "PackagePrintRun", run.id,
                new_value={"run_no": run.run_no, "package_ids": [p.id for p in packages]})
     return run
+
+
+def _validate_print_run_replay(db, current, replay):
+    if is_cancelled_request(replay):
+        raise HTTPException(409, "This package request was cancelled; submit corrected values with a new key")
+    try:
+        run_id = int(replay["id"])
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(410, "This package request result is no longer available")
+    run = db.query(PackagePrintRun).options(load_only(
+        PackagePrintRun.id, PackagePrintRun.run_no, PackagePrintRun.code,
+        PackagePrintRun.packaging_department_code, PackagePrintRun.package_ids,
+        PackagePrintRun.created_at, PackagePrintRun.received_at,
+        PackagePrintRun.deleted_package_ids, PackagePrintRun.deleted_at, PackagePrintRun.returned_at,
+        PackagePrintRun.superseded_at,
+    )).filter(PackagePrintRun.id == run_id).first()
+    if not run:
+        raise HTTPException(404, "Print run not found")
+    permissions = set(user_permissions(current))
+    if not permissions.intersection({"storage.packages", "storage.shipment", "*"}):
+        packaging_department_scope(current, run.packaging_department_code)
+    require_active_run(run)
+
+
+def create_print_run(db, current, payload: PrintRunIn):
+    """Create one selected package print run, including its HTTP request transaction."""
+    operation = "print-run"
+    key = str(payload.request_key)
+    scope = f"packages.{operation}.{current.id}"
+    lock_request(db, current.id, operation, key)
+    body = payload.model_dump(mode="json")
+    replay = replay_idempotent_response(db, scope=scope, key=key, payload=body)
+    if replay is not None:
+        _validate_print_run_replay(db, current, replay)
+        db.commit()
+        return replay
+
+    ids = payload.package_ids
+    if any(pid <= 0 for pid in ids) or len(set(ids)) != len(ids):
+        raise HTTPException(400, "Select distinct positive package IDs")
+    packages = db.query(Package).filter(Package.id.in_(ids)).order_by(Package.id).with_for_update().populate_existing().all()
+    if len(packages) != len(ids):
+        raise HTTPException(404, "One or more selected packages were not found")
+    for package in packages:
+        require_package_access(current, package)
+    result = run_payload(db, create_run(db, current, packages))
+    store_idempotent_response(db, scope=scope, key=key, payload=body, response=result, user=current)
+    db.commit()
+    return result
 
 
 def run_members(db, run, *, members=None):

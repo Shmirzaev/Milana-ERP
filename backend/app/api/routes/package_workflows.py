@@ -16,7 +16,7 @@ from app.models import package_workflows_service as service
 from app.models.audit_service import log_action
 from app.models.package_label_pages_service import label_document
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
-from app.models.packaging_scope_service import packaging_department_for_order, packaging_department_scope, require_package_access
+from app.models.packaging_scope_service import packaging_department_for_order, packaging_department_scope
 from app.models.packages_service import (create_package, _packaging_record_totals_by_batch,
     PackageWriteContext, prime_package_batch_memberships, prime_packaged_quantity_availability)
 from app.models.packaging_scope_service import packaging_departments_for_order
@@ -390,17 +390,7 @@ def reconcile_manual_receipt(payload: ManualPackageReceiptIn, db: DbSession,
 @router.post("/print-runs", status_code=201)
 def create_print_run(payload: PrintRunIn, db: DbSession,
                      current: User = Depends(require_permissions("packaging.packages", "storage.packages", "*"))):
-    def action():
-        ids = payload.package_ids
-        if any(pid <= 0 for pid in ids) or len(set(ids)) != len(ids):
-            raise HTTPException(400, "Select distinct positive package IDs")
-        packages = db.query(Package).filter(Package.id.in_(ids)).order_by(Package.id).with_for_update().populate_existing().all()
-        if len(packages) != len(ids):
-            raise HTTPException(404, "One or more selected packages were not found")
-        for pkg in packages:
-            require_package_access(current, pkg)
-        return service.run_payload(db, service.create_run(db, current, packages))
-    return _write(db, current, "print-run", payload, action)
+    return service.create_print_run(db, current, payload)
 
 
 @router.post("/print-runs/reconcile")
