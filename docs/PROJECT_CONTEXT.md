@@ -17,18 +17,22 @@ not appended here. This summary does not replace live release verification.
 
 ## Production reconciliation deployed (29 October)
 
-Separate local candidate: the [inactive-material batch-edit fix](archive/INACTIVE_BATCH_EDIT_2026-10-29.md)
-allows an existing batch to retain its inactive material during corrections.
-Other inactive targets remain refused. Scoped API/PostgreSQL/browser/retry checks
-and independent review passed; human review, integration and deployment remain
-separate. Real batch 7148 and production were not changed by that task.
+The [inactive-material batch-edit fix](archive/INACTIVE_BATCH_EDIT_2026-10-29.md)
+is deployed on green `20261029_053553`, runtime `186110a549d48f42801058241ffcabbb22acdaf9` (PR342, clone_main).
+Only the unchanged-material validation was added to the prior green application;
+no separate Mirshoir/Dilmurod changes were introduced. Blue `20261028_123531`
+remains the unchanged running rollback. CI, 165 mandatory PG cases, verified backup,
+no-op schema, candidate/public browser and 120-sample performance/health/runtime
+gates passed. Real batch 7148's material/stock/ledger fingerprint was conserved;
+no production business edit was submitted. Monitoring was explicitly waived,
+not performed. Operator save/reopen acceptance remains pending.
 
 The owner authorized reconciling latest `clone_main` with all current production
 fixes and deploying through blue/green, with current production ready for rollback.
-Active green is `20261029_042945`, exact runtime
+At that earlier cutover, green was `20261029_042945`, exact runtime
 `921d646425054bb7b132042b1a173e2998249adc`, verified on both VMs. Retained blue
 `20261028_123531` (runtime `a0cb9d8b`) stays running and healthy for rollback.
-Both active manifests are `eda617eedff05dfca42aef15003135c5c5870276bb5da087d6543c1add889580`.
+Both manifests at that earlier cutover were `eda617eedff05dfca42aef15003135c5c5870276bb5da087d6543c1add889580`.
 The tested source merges `clone_main` `45b12da1` and production record `a6a89f50`
 in a dedicated worktree and was fast-forwarded into shared `clone_main`.
 Only Supplier UPDATE and Customer DELETE persistence/type changes differ in
