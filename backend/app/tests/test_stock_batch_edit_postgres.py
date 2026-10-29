@@ -180,6 +180,7 @@ def test_pg_update_batch_nullable_patch_quantity_warehouse_and_movement_conserva
 def test_pg_forced_batch_item_relink_updates_catalog_and_inventory_participants(customer_pg_sessions):
     ids = _seed(customer_pg_sessions, reservation_quantity=2)
     with customer_pg_sessions() as db:
+        audit_count_before = db.query(AuditLog).count()
         result = stock_service.update_batch(
             db, ids["batch"], StockBatchUpdate.model_validate({"item_id": ids["new_item"]}),
             _actor(db, ids["actor"]), force=True,
@@ -192,7 +193,7 @@ def test_pg_forced_batch_item_relink_updates_catalog_and_inventory_participants(
         assert state["bom_item"] == ids["new_item"]
         assert state["waste_item"] == ids["new_item"]
         assert state["movements"] == ((ids["receipt"], ids["new_item"], "receive", 10.0, None, ids["source"]),)
-        assert state["audit_count"] == 1
+        assert state["audit_count"] == audit_count_before + 1
         audit = _batch_update_audit(db, ids)
         assert audit.old_value_json["item_id"] == ids["old_item"]
         assert audit.new_value_json == {
@@ -204,11 +205,13 @@ def test_pg_forced_batch_item_relink_updates_catalog_and_inventory_participants(
     chain(customer_pg_sessions)
 
 
-@pytest.mark.parametrize("refusal", ["inactive_target", "reservation_floor", "roll_lengths", "eco_return"])
+@pytest.mark.parametrize(
+    "refusal", ["inactive_target", "reservation_floor", "reserved_warehouse", "roll_lengths", "eco_return"],
+)
 def test_pg_batch_edit_refusals_leave_all_rows_and_audit_unchanged(customer_pg_sessions, refusal):
     ids = _seed(
         customer_pg_sessions,
-        reservation_quantity=8 if refusal == "reservation_floor" else None,
+        reservation_quantity=8 if refusal == "reservation_floor" else 2 if refusal == "reserved_warehouse" else None,
         roll_lengths=[2.0, 2.0] if refusal == "roll_lengths" else None,
         eco_return=refusal == "eco_return",
     )
@@ -220,6 +223,9 @@ def test_pg_batch_edit_refusals_leave_all_rows_and_audit_unchanged(customer_pg_s
         elif refusal == "reservation_floor":
             patch, force = {"quantity": 7}, False
             expected = "Quantity cannot be lower than reserved stock (8 kg)"
+        elif refusal == "reserved_warehouse":
+            patch, force = {"warehouse_id": ids["destination"]}, True
+            expected = "Cannot change warehouse while stock is reserved"
         elif refusal == "roll_lengths":
             patch, force = {"piece_count": 3}, False
             expected = "Cannot change roll count after individual roll lengths have been recorded"
@@ -235,8 +241,12 @@ def test_pg_batch_edit_refusals_leave_all_rows_and_audit_unchanged(customer_pg_s
         assert _snapshot(db, ids) == before
 
 
-def test_pg_audit_failure_rolls_back_all_batch_edit_participants_then_one_retry(customer_pg_sessions, monkeypatch):
-    ids = _seed(customer_pg_sessions, reservation_quantity=2)
+@pytest.mark.parametrize("scenario", ["reserved_relink", "unreserved_transfer"])
+def test_pg_audit_failure_rolls_back_all_batch_edit_participants_then_one_retry(
+    customer_pg_sessions, monkeypatch, scenario,
+):
+    reserved = scenario == "reserved_relink"
+    ids = _seed(customer_pg_sessions, reservation_quantity=2 if reserved else None)
     with customer_pg_sessions() as db:
         before = _snapshot(db, ids)
         real_log_action = stock_service.log_action
@@ -251,8 +261,10 @@ def test_pg_audit_failure_rolls_back_all_batch_edit_participants_then_one_retry(
             return real_log_action(session, *args, **kwargs)
 
         monkeypatch.setattr(stock_service, "log_action", fail_first_audit)
-        payload = StockBatchUpdate.model_validate({"item_id": ids["new_item"], "quantity": 8,
-                                                   "warehouse_id": ids["destination"]})
+        patch = {"item_id": ids["new_item"], "quantity": 8}
+        if not reserved:
+            patch["warehouse_id"] = ids["destination"]
+        payload = StockBatchUpdate.model_validate(patch)
         with pytest.raises(RuntimeError, match="injected audit failure"):
             stock_service.update_batch(db, ids["batch"], payload, _actor(db, ids["actor"]), force=True)
         db.rollback()
@@ -261,22 +273,36 @@ def test_pg_audit_failure_rolls_back_all_batch_edit_participants_then_one_retry(
         stock_service.update_batch(db, ids["batch"], payload, _actor(db, ids["actor"]), force=True)
         assert calls == 2
         after = _snapshot(db, ids)
-        assert after["batch"][0] == ids["new_item"] and after["batch"][1:3] == (8.0, ids["destination"])
-        assert after["reservation_item"] == after["bom_item"] == after["waste_item"] == ids["new_item"]
-        assert sorted((row[2], row[3], row[4], row[5]) for row in after["movements"]) == sorted([
-            ("receive", 10.0, None, ids["source"]),
-            ("issue", 2.0, ids["source"], None),
-            ("transfer", 8.0, ids["source"], ids["destination"]),
-        ])
+        target_warehouse = ids["source"] if reserved else ids["destination"]
+        assert after["batch"][0] == ids["new_item"] and after["batch"][1:3] == (8.0, target_warehouse)
+        assert after["bom_item"] == after["waste_item"] == ids["new_item"]
+        if reserved:
+            assert after["reservation_item"] == ids["new_item"]
+            expected_movements = [
+                ("receive", 10.0, None, ids["source"]),
+                ("issue", 2.0, ids["source"], None),
+            ]
+        else:
+            assert after["reservation_item"] is None
+            expected_movements = [
+                ("receive", 10.0, None, ids["source"]),
+                ("issue", 2.0, ids["source"], None),
+                ("transfer", 8.0, ids["source"], ids["destination"]),
+            ]
+        assert sorted((row[2], row[3], row[4], row[5]) for row in after["movements"]) == sorted(expected_movements)
         assert after["audit_count"] == before["audit_count"] + 1
         audit = _batch_update_audit(db, ids)
         assert audit.old_value_json["item_id"] == ids["old_item"]
         assert audit.old_value_json["quantity"] == 10.0
         assert audit.old_value_json["warehouse_id"] == ids["source"]
-        assert audit.new_value_json == {
-            "item_id": ids["new_item"], "quantity": 8.0, "warehouse_id": ids["destination"],
+        expected_new_value = {
+            "item_id": ids["new_item"], "quantity": 8.0,
             "relinked_item_references": {
-                "stock_movements": 1, "material_reservations": 1, "model_bom": 1, "waste_records": 1,
+                "stock_movements": 1, "material_reservations": 1 if reserved else 0,
+                "model_bom": 1, "waste_records": 1,
             },
         }
+        if not reserved:
+            expected_new_value["warehouse_id"] = ids["destination"]
+        assert audit.new_value_json == expected_new_value
     chain(customer_pg_sessions)
