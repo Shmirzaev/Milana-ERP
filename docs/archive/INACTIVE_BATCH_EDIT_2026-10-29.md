@@ -7,6 +7,15 @@ blocked the original attempt. Base: `origin/clone_main`
 `C:/ERP/.codex-work/edit-inactive-batch-7148`, branch
 `codex/edit-inactive-batch-7148`. No merge or deployment is authorized here.
 
+Subsequent owner authorization: "Push and merge this into clone_main, then deploy
+it without 30 minut monitoring so I can edit batch 7148 in production. Keep blue
+as rollback and don’t replace it, deploy the current change on top of green".
+This supersedes the initial local-only scope. Preserve both blue container
+identities/images/releases; use verified green as the application baseline,
+temporarily route to healthy retained blue only as necessary to stage green
+safely, then return traffic to the updated green. Timed monitoring is waived;
+all other release gates remain required. No business-row edit is authorized.
+
 Inventory owner: Ismail; human reviewer: Mirshoir; operator acceptance: Shavkat.
 Codex root implements; independent Codex `/root/inactive_batch_review` reviewed
 without editing and found no actionable findings. These assignments do not
