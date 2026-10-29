@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 
 from app.schemas import Notification
+from app.schemas.core_persistence import add_notification_row, add_notification_rows
 
 
 def notify(
@@ -13,8 +14,7 @@ def notify(
 ) -> Notification:
     """Create an in-app notification. `link` is an optional frontend route
     the NotificationBell will navigate to when the user clicks the row."""
-    n = Notification(user_id=user_id, title=title, message=message, link=link)
-    db.add(n)
+    n = add_notification_row(db, user_id=user_id, title=title, message=message, link=link)
     if commit:
         db.commit()
     else:
@@ -30,10 +30,8 @@ def notify_many(
     link: str | None = None,
 ) -> list[Notification]:
     """Create an ordered notification fan-out with one flush boundary."""
-    rows = [
-        Notification(user_id=user_id, title=title, message=message, link=link)
-        for user_id in user_ids
-    ]
-    db.add_all(rows)
+    rows = add_notification_rows(
+        db, user_ids=user_ids, title=title, message=message, link=link
+    )
     db.flush()
     return rows

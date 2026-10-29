@@ -3,6 +3,14 @@
 > and [the documentation index](../README.md). Relative Markdown links were adjusted;
 > the historical body and recorded successes, failures and release details are retained.
 
+> **Superseded folder decisions:** current business services belong in
+> `backend/app/models/<group>/*_service.py`; existing shared helpers remain at
+> `backend/app/models/*_service.py`. SQLAlchemy definitions and persistence belong
+> in `backend/app/schemas/`, and Pydantic DTOs in `backend/app/libs/dto/<group>/`.
+> Earlier entries below that assign services to `services/`, ORM classes to
+> `models/`, or DTOs to `schemas/` record abandoned layouts. Do not implement those
+> layouts. Use [the current service guide](../../backend/app/models/README.md).
+
 # Milana ERP Project Context
 
 Last updated: 2026-10-24
@@ -46,7 +54,7 @@ Last updated: 2026-10-24
   deployment changes. Active/rollback releases not rechecked; historical records
   below remain intact. Earlier local-only entries describe earlier task states.
 
-## Final mentor-aligned schema naming (2026-10-24)
+## Historical mentor-aligned schema naming (2026-10-24; layout superseded)
 
 - Owner confirmed correcting the plan and skill after choosing schemas/ as the
   database schema-model name. Target: api/routes/, services/, schemas/ for SQLAlchemy
@@ -62,7 +70,7 @@ Last updated: 2026-10-24
   3eea897e; no source edits, commit, push or deployment. No live-state verification;
   all earlier active/rollback deployment records are retained unchanged.
 
-## Meditech DTO separation: corrected target (2026-10-24)
+## Historical Meditech DTO separation (2026-10-24; layout superseded)
 
 - Re-inspected Meditech snapshot b4c646ce471efbf6fe984f3315bba366b197281a: member and
   board-article input/update/output DTOs are in libs/dto/<feature>/; schemas/ contains
@@ -78,7 +86,7 @@ Last updated: 2026-10-24
 - Local documentation worktree codex/erp-refactor-folders-20261024 at base 3eea897e;
   no commit/push/deployment. Active/rollback releases not rechecked; history preserved.
 
-## Owner-selected libs organization (2026-10-24)
+## Historical libs organization (2026-10-24; layout superseded)
 
 - The owner chose backend/app/libs/ for shared definitions. Moved the documentation-only
   enums/ and types/ scaffolds under libs/, with a parent guide and updated references.
@@ -96,7 +104,7 @@ Last updated: 2026-10-24
   fulfillment, finance, people and work_management. Ten directories are new;
   production/packaging already existed. Each guide explains purpose, current source,
   proposed files, models/DTOs, owner, boundaries and technical/visual verification.
-- Added [the backend guide](../../backend/app/README.md), [service index](../../backend/app/services/README.md)
+- Added [the backend guide](../../backend/app/README.md), [service index (current location)](../../backend/app/models/README.md)
   and [complete source/model map](../REFACTOR_MAP.md): all 47 route files, 87 existing
   service/helper files and 97 mapped classes are accounted for. This is inventory
   coverage and proposed ownership, not completed per-operation implementation analysis.

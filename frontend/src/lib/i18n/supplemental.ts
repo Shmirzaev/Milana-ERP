@@ -4,6 +4,7 @@ import type { Lang } from "./types";
 // legacy dictionary easier to audit without rewriting that large file.
 export const supplemental: Record<Lang, Record<string, string>> = {
   en: {
+    "nav.besttexCutOrders": "Cut orders",
     "page.hrEmployees.delete": "Delete employee",
     "page.hrEmployees.archive": "Archive employee",
     "page.hrEmployees.archived": "Archived",
@@ -1187,6 +1188,7 @@ export const supplemental: Record<Lang, Record<string, string>> = {
     "page.hrEmployees.loadMore": "Load more employees",
   },
   ru: {
+    "nav.besttexCutOrders": "Раскроенные заказы",
     "page.hrEmployees.delete": "Удалить сотрудника",
     "page.hrEmployees.archive": "В архив",
     "page.hrEmployees.archived": "В архиве",
@@ -2484,6 +2486,7 @@ export const supplemental: Record<Lang, Record<string, string>> = {
     "page.hrEmployees.loadMore": "\u0417\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0435\u0449\u0451 \u0441\u043e\u0442\u0440\u0443\u0434\u043d\u0438\u043a\u043e\u0432",
   },
   uz: {
+    "nav.besttexCutOrders": "Bichilgan buyurtmalar",
     "page.hrEmployees.delete": "Xodimni o‘chirish",
     "page.hrEmployees.archive": "Arxivga o‘tkazish",
     "page.hrEmployees.archived": "Arxivda",

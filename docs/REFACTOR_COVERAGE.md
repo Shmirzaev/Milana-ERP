@@ -4,6 +4,42 @@ Initial candidate-source ledger, 26 October 2026. **The architectural/type targe
 Six Ismail pilots are rollout steps; the other owners remain in scope. Use the
 [engineering workflow](ENGINEERING_WORKFLOW.md) and [ownership](TEAM_OWNERSHIP.md).
 
+## Verified integration checkpoint — 28 October 2026
+
+At merge `1f0022ad55d9f326212694e4ac5d4e16b63bb713` (tree
+`c59b4624ffe0282384730a3dc33593a755d0d898`), scoped local and PostgreSQL
+verification covers PR335's implicit branded Planning insert, PR336 Customer
+create and Brand update, and PR337 Supplier create. Normal Planning UI exercises
+the selected-order path, not the implicit branch. See [dated evidence](archive/VERIFIED_INTEGRATION_2026-10-28.md)
+for exact candidates, GUI/readback scope and limitations. These results do not
+close Catalog, Planning, any of the six areas, the remaining type ledger, or
+human production acceptance. At this earlier checkpoint Customer UPDATE PR339,
+dependency PR331 and tooling PR338 were pending.
+
+The later canonical checkpoint merges CI tooling PR338 as `e6f597891489e38207e01b6bfcca3d8df1b7adea`
+and Customer UPDATE PR339 as `61b1a7020c5e1465aa076acc238d94ea1ad7dd03`
+(tree `a943af045834ff43227ddd4640504f11ddccb69b`). The Customer operation has
+128 required and 17 supplemental PostgreSQL cases and separately scoped GUI
+and readback evidence; the V23 write window failed its resource guard and V25
+was read-only. See the dated evidence for exact source attribution. Supplier
+UPDATE and dependency PR331 are separate candidates outside that dated checkpoint.
+Full types, operations and production acceptance remain open.
+
+The table and inventory below preserve earlier candidate-specific checkpoints;
+they are not a current per-operation completion inventory.
+
+For the source-bound Catalog and Inventory operation queue based on merged PR340 4238974, see [operation queue](REFACTOR_OPERATION_QUEUE.md).
+
+## Execution resumed with Codex subagents
+
+26 October 2026: Ismail explicitly requested "do the rest iwth codex subagents !".
+Follow the [current execution rules](../AGENTS.md#implementation-execution): isolated
+operation ownership, one integrator, independent review and unchanged human gates.
+The preparation base is `148107825b7d25538d00da825efa3d3f7ee967c6`; it does not
+replace the older discovery source or transfer its results to a new candidate.
+This execution update makes no new runtime acceptance claim. The named-operation
+states below are the preserved operation checkpoint, not a live worker-status feed.
+
 ## Inventory and evidence boundary
 
 The [machine-readable ledger](REFACTOR_COVERAGE.json) contains all **97 mapped tables / 1,303 fields**
@@ -113,7 +149,7 @@ Dilmurod/Mirshoir retain shared infrastructure ownership. No competing helper co
 ## Advancing a row
 
 Study old source and all callers → classify fields and supported values → agree
-the operation → MiniMax implements schema-owned writers and actual Enum contracts
+the operation → assigned Codex subagent implements schema-owned writers and actual Enum contracts
 → freeze source/hashes → technical and applicable PostgreSQL checks → actual browser
 vision, persisted readback and bounded stress → independent AI review →
 **AI_VERIFIED_AWAITING_HUMAN** → recorded human visual/technical approval.
@@ -137,3 +173,47 @@ the current operation's human gate:
 - Planning: the alternate Production-creation writer, requirements and costing contracts.
 - Sales: finish the agreed Fulfillment reservation/metadata seam, then update,
   cancellation and release paths. Mirshoir retains Fulfillment ownership.
+
+## Remaining work by domain
+
+All 13 domains remain **INCOMPLETE**. This queue expands the next-operation list;
+it is neither exhaustive behavior coverage nor approval of a new public interface.
+Study each operation's complete old call graph and table/field values before its
+implementation. Record converted, retained-with-reason and unresolved contracts
+individually, including DTO input/update/output, internal and frontend consumers.
+No table/field override or human approval is added by this documentation update.
+
+| Domain / tables | Human engineer / reviewer | Remaining work |
+| --- | --- | --- |
+| catalog / 12 | Ismail / Mirshoir | Paid-process corrected contracts and exact combined visual/readback gates; Model creation/counters; product/BOM/variant/partner consumers; image-preview ownership cycle. |
+| finance / 2 | Ismail / Mirshoir | Payment frontend enum consumers and checker correction; exact combined visual/readback gates; Invoice issuance at both entry points; customer advances/ledger auto-invoicing; delivery/reversal writers. |
+| fulfillment / 10 | Mirshoir / Ismail | Public reservation/metadata-repair seam used by Sales, owning schema writers, Session and locks; Receipts, finished-stock edits, release, shipment, returns and delivery callers. |
+| identity / 3 | Dilmurod / Mirshoir | Selected versus assigned factory contract and factory-scope/user-access dependency cycle; Authentication, account/RBAC contracts and supported factory discriminator consumers. |
+| inventory / 14 | Ismail / Mirshoir | Receipt QC internal/frontend contracts and exact combined visual/readback gates; Receipt edits/CRUD, accessory returns, transfers, reservations, stocktake and waste handoffs. |
+| packaging / 9 | Mirshoir / Ismail | Package identity/public parser ownership and route/service cycle; Create/correct package, contents/allocations, receiving-group versus warehouse identity, labels and downstream callers. |
+| people / 14 | Dilmurod / Mirshoir | Employee creation operation, selected-factory authorization and private HR fields; Attendance/device data, HR lifecycle and payroll contracts/writers; reconcile attendance user_type separately from users. |
+| planning / 3 | Ismail / Mirshoir | Branded-order HTTP/frontend and derived-status contracts; exact combined verification; Alternate Production creation writer; requirements, forecasts and costing contracts. |
+| production / 18 | Mirshoir / Ismail | Shared Sewing operation and normal/band/correction boundaries; Cutting deletion route-helper reach-through, all dependent writers/locks; production orders, cutting, printing, bundles and stage handoffs. |
+| purchasing / 4 | Ismail / Mirshoir | PUR-01 named human approval for exact 1a71f16 remains pending; Approve/reject, conversion, purchase-order creation and receiving; preserve action subsets. |
+| sales / 2 | Ismail / Mirshoir | Typed Fulfillment reservation seam and legal per-action stock-kind/quantity subsets; Order update, cancellation/release, alternate ready-stock callers and actual DTO/internal/frontend consumers. |
+| support / 4 | Dilmurod / Mirshoir | Settings-section operation, JSON discriminators and unknown-field semantics; Shared audit/idempotency/settings/reference helpers and all participating writers; inspect root-helper ownership. |
+| work_management / 2 | Dilmurod / Mirshoir | Task creation and notification operation with recipient/manager-broadcast bounds; Task transitions, priority, notification read/update and audit/notification participation in other domains. |
+
+The 97-table inventory totals 1,303 fields, all still subject to explicit field
+review. The eight non-persisted contract categories remain independently pending
+for each domain. AST/name matches are discovery candidates; source declarations,
+actual authorized database values and all consumers must be reconciled semantically.
+An absent user_type field on users does not erase attendance_people.user_type;
+likewise configurable role rows do not make every discriminator free text.
+
+Every write trace includes inserts, updates, deletes, mapped/relationship changes,
+cascades, raw/bulk SQL and audit/notification/idempotency participants. Routes call
+dedicated services; cross-domain callers use the agreed owning public operation;
+schema-owned writers share the outer service's Session and transaction. Keep lock
+order, retry fingerprints, action subsets and external-effect timing explicit.
+
+Freeze hashes before verification and record which combined revision actually ran.
+Technical and applicable PostgreSQL tests, inspected connected-browser screenshots,
+real actions, reopen/readback and bounded integrity/recovery checks must all pass
+before independent `AI_VERIFIED_AWAITING_HUMAN`. A changed candidate needs affected
+checks repeated. Named human visual/technical acceptance is a separate recorded gate.

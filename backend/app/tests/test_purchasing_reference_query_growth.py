@@ -45,6 +45,7 @@ from app.schemas import (
     User,
     Warehouse,
 )
+from app.libs.enums.purchasing import PurchaseRequestStatus
 from app.models.audit_service import verify_audit_hash_chain
 from app.models.purchasing_service import (
     approve_purchase_request,
@@ -289,7 +290,7 @@ def test_create_order_reference_reads_do_not_scale_with_line_count():
 def _measure_create_request(session_factory, line_count, marker):
     reference = _seed_reference_rows(session_factory, f"cr-{marker}-{line_count}", count=line_count)
     payload = {
-        "status": "draft",
+        "status": PurchaseRequestStatus.DRAFT,
         "lines": [
             {
                 "item_id": item_id,

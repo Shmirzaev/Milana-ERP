@@ -7,7 +7,7 @@ from pydantic import ValidationError
 
 from app.db.session import SessionLocal
 from app.schemas import AuditLog, Warehouse
-from app.libs.dto.inventory.inventory import WarehouseIn
+from app.libs.dto.inventory.warehouse_input import WarehouseIn
 
 
 WAREHOUSE_TYPES = (

@@ -10,12 +10,13 @@ import {
   type PaidOperationFactory,
   type SectionCode,
 } from "@/lib/modelPaidOperations";
+import { DEFAULT_CATALOG_SCOPE, type CatalogScope } from "@/lib/catalogScope";
 
 import PaidProcessPicker, { type PaidProcessTemplate } from "@/components/PaidProcessPicker";
 import { paidSectionLabel } from "@/lib/paidProcessSections";
 
 type Props = {
-  catalogScope?: "standard" | "usluga";
+  catalogScope?: CatalogScope;
   operations: PaidOperation[];
   visibleFactories: PaidOperationFactory[];
   onAdd: (factory: PaidOperationFactory, template?: PaidProcessTemplate) => void;
@@ -29,7 +30,7 @@ const FACTORY_LABEL_KEYS: Record<PaidOperationFactory, string> = {
   eco_cotton: "factory.ecoCotton",
 };
 
-export default function PaidOperationsEditor({ catalogScope = "standard", operations, visibleFactories, onAdd, onUpdate, onRemove }: Props) {
+export default function PaidOperationsEditor({ catalogScope = DEFAULT_CATALOG_SCOPE, operations, visibleFactories, onAdd, onUpdate, onRemove }: Props) {
   const { t, lang } = useT();
 
   function operationTable(rows: PaidOperation[]) {

@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from app.db.session import SessionLocal
 from app.schemas import AuditLog, Model, Notification, PriceCalculationRequest
-from app.libs.dto.planning.price_calculation import PriceCalculationPurchasingIn
+from app.libs.dto.planning.price_calculation_request_update import PriceCalculationPurchasingIn
 
 
 MAX_PRICE = Decimal("9999999999.9999")

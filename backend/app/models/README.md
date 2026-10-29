@@ -1,15 +1,24 @@
 # Models: business services and working discipline
 
+Services live here under `models/<domain>`; a proposed `services/` root is stale
+guidance. Routes delegate to the dedicated operation, which calls schema-owned
+persistence with the same supplied Session and owns one outer transaction.
+When old direct Python callers need a compatibility adapter, keep its public
+contract explicit and the typed business core private. Preserve lock acquisition,
+lazy coercion/error precedence, raw retry/audit data and all side-effect
+participants. A typed wrapper around an otherwise unreviewed writer is not
+completion of that operation or its domain.
+
 ## Guidance publication and runtime scope
 
-26 October 2026: these engineering rules are published on `clone_main`.
-This documentation-only update does not integrate the runtime candidate in
-[draft PR #308](https://github.com/Shmirzaev/Milana-ERP/pull/308). References
-below to its six grouped-service extractions, entity-named DTOs, InvoiceStatus
-or candidate test results describe that separate branch, not code newly
-present or verified on `clone_main`. The shared checkout still contains
-legacy/root services and mixed DTO files. Schema-owned writers and full
-enum/type adoption remain incomplete across the ERP.
+The 26 October guidance publication on `clone_main` at `b92ee8f` was
+documentation-only; it did not integrate the runtime candidate in
+[draft PR #308](https://github.com/Shmirzaev/Milana-ERP/pull/308). Later integration
+candidates contain application changes that require their own exact-source evidence.
+Historical results below belong to their named snapshots, not automatically to
+this checkout, a new combined candidate or deployed production. Inspect current
+code and the operation ledger before advancing a gate. Schema-owned writers,
+system-wide enum/type adoption and human acceptance remain incomplete.
 
 **Coordination owner:** Mirshoir. **Reviewer:** Ismail.
 
@@ -19,8 +28,8 @@ authorization and workflow coordination. Writes run through schema-owned operati
 with the supplied Session. There is no separate services/ folder. Follow the
 [engineering workflow](../../../docs/ENGINEERING_WORKFLOW.md) for the layer contract.
 
-The separate PR #308 candidate contains extracted service modules for the six
-Ismail groups below: catalog, purchasing, sales, inventory, planning and finance. Schema-owned
+The six Ismail groups below contain extracted service modules in the refactor
+candidate: catalog, purchasing, sales, inventory, planning and finance. Schema-owned
 writes and system-wide enum-typed contracts remain unfinished. Existing
 shared helpers remain at this directory's root where their callers require them.
 The other groups retain their guides for separately approved extractions.
@@ -110,7 +119,8 @@ SQLAlchemy definitions live in schemas/<business-group>/, with shared definition
 in schemas/core.py and schemas/order_reference.py. schemas/__init__.py registers
 the mapped classes; models/__init__.py does not export ORM classes.
 
-Import services from app.models.<name>_service and mapped classes from app.schemas
+Import domain services from app.models.<group>.<name>_service and existing shared
+helpers from app.models.<name>_service. Import mapped classes from app.schemas
 or their specific module. Never duplicate a mapped class or change table names to
 match Python folders. Services use those classes for reads and call persistence
 operations owned by the schema domain for writes, using the same existing Session.
@@ -119,9 +129,10 @@ independently. This is the required target, not a claim that current services me
 Migrate one complete operation with all its writers, including audit/notification
 participants; preserve atomicity, lock order, idempotency and refusal behavior.
 
-Service-group directories remain guides until an operation's package conversion
-is approved and all callers are updated. Their old ORM filename collisions have
-been removed. This namespace move does not itself extract business logic from routes.
+Groups without implemented operations remain guides; existing domain packages
+are active and retain per-operation verification gates. Their old ORM filename
+collisions have been removed. The namespace move does not itself extract business
+logic from routes or establish schema-owned persistence.
 See [database rules](../schemas/README.md) and [ownership map](../../../docs/REFACTOR_MAP.md#existing-database-models).
 
 ## Shared helpers and queries

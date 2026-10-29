@@ -42,7 +42,7 @@ from app.schemas import (
     ProductionBatch, WasteRecord,
     ProductionOrderItem, Bundle, Item, Model, ModelImage, ModelBOM, StockBatch,
 )
-from app.libs.dto.inventory.inventory import MaterialReservationOut, MaterialReservationStatusOut
+from app.libs.dto.inventory.material_reservation_output import MaterialReservationOut, MaterialReservationStatusOut
 from app.libs.dto.production.production import (
     ProductionOrderIn, ProductionOrderUpdateIn, ProductionOrderOut, ProductionOrderDetail, ProductionOrderPageOut,
     WorkOrderOut, WorkOrderUpdate,

@@ -38,11 +38,11 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import joinedload, sessionmaker
 from sqlalchemy import inspect as sa_inspect
 
-from app.api.routes import sales as sales_routes
 from app.core.dt import date_filter_bounds
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
 from app.core.order_reference import order_reference_contains
 from app.db.base import Base
+from app.models.sales import history_service
 from app.schemas import (
     BrandedPlanningOrder,
     Customer,
@@ -233,8 +233,8 @@ class _HydrationProbe:
 
 
 def _call(session, *, page=1, page_size=50, include_total=True, **filters):
-    return sales_routes.list_sales_order_history(
-        session, None, page=page, page_size=page_size, include_total=include_total, **filters
+    return history_service.list_sales_order_history(
+        session, page=page, page_size=page_size, include_total=include_total, **filters
     )
 
 
@@ -484,10 +484,10 @@ def test_full_payload_is_identical_to_the_pre_fix_payload(seeded):
                 for row, (record_type, row_id) in zip(payload["rows"], expected_keys):
                     if record_type == "sales_order":
                         entity = db.get(SalesOrder, row_id)
-                        expected = sales_routes._sales_order_history(db, entity, include_detail=False)
+                        expected = history_service._sales_order_history(db, entity, include_detail=False)
                     else:
                         entity = db.get(ProductionOrder, row_id)
-                        expected = sales_routes._stock_production_history(db, entity, include_detail=False)
+                        expected = history_service._stock_production_history(db, entity, include_detail=False)
                     assert row == expected, f"{record_type} {row_id} payload drifted"
 
 
@@ -639,13 +639,13 @@ def test_selected_production_rows_keep_their_eager_loaded_children(seeded, monke
     """
     engine, session_factory, _ = seeded
     captured = []
-    original = sales_routes._stock_production_history
+    original = history_service._stock_production_history
 
     def recording(db, po, *, include_detail=False):
         captured.append(po)
         return original(db, po, include_detail=include_detail)
 
-    monkeypatch.setattr(sales_routes, "_stock_production_history", recording)
+    monkeypatch.setattr(history_service, "_stock_production_history", recording)
     with session_factory() as db:
         payload = _call(db, page=1, page_size=6)
     assert captured, "no stock production row was hydrated"

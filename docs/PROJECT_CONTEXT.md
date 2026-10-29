@@ -2,18 +2,97 @@
 
 ## Guidance publication and runtime scope
 
-26 October 2026: these engineering rules are published on `clone_main`.
-This documentation-only update does not integrate the runtime candidate in
-[draft PR #308](https://github.com/Shmirzaev/Milana-ERP/pull/308). References
-below to its six grouped-service extractions, entity-named DTOs, InvoiceStatus
-or candidate test results describe that separate branch, not code newly
-present or verified on `clone_main`. The shared checkout still contains
-legacy/root services and mixed DTO files. Schema-owned writers and full
-enum/type adoption remain incomplete across the ERP.
+The 26 October guidance publication on `clone_main` at `b92ee8f` was
+documentation-only; it did not integrate the runtime candidate in
+[draft PR #308](https://github.com/Shmirzaev/Milana-ERP/pull/308). Later integration
+candidates contain application changes that require their own exact-source evidence.
+Historical results below belong to their named snapshots, not automatically to
+this checkout, a new combined candidate or deployed production. Inspect current
+code and the operation ledger before advancing a gate. Schema-owned writers,
+system-wide enum/type adoption and human acceptance remain incomplete.
 
-Updated 2026-10-27. Keep this file short: current decisions, release pointers and
+Last updated 2026-10-29. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## Production reconciliation deployed (29 October)
+
+The [inactive-material batch-edit fix](archive/INACTIVE_BATCH_EDIT_2026-10-29.md)
+is deployed on green `20261029_053553`, runtime `186110a549d48f42801058241ffcabbb22acdaf9` (PR342, clone_main).
+Only the unchanged-material validation was added to the prior green application;
+no separate Mirshoir/Dilmurod changes were introduced. Blue `20261028_123531`
+remains the unchanged running rollback. CI, 165 mandatory PG cases, verified backup,
+no-op schema, candidate/public browser and 120-sample performance/health/runtime
+gates passed. Real batch 7148's material/stock/ledger fingerprint was conserved;
+no production business edit was submitted. Monitoring was explicitly waived,
+not performed. Operator save/reopen acceptance remains pending.
+
+The owner authorized reconciling latest `clone_main` with all current production
+fixes and deploying through blue/green, with current production ready for rollback.
+At that earlier cutover, green was `20261029_042945`, exact runtime
+`921d646425054bb7b132042b1a173e2998249adc`, verified on both VMs. Retained blue
+`20261028_123531` (runtime `a0cb9d8b`) stays running and healthy for rollback.
+Both manifests at that earlier cutover were `eda617eedff05dfca42aef15003135c5c5870276bb5da087d6543c1add889580`.
+The tested source merges `clone_main` `45b12da1` and production record `a6a89f50`
+in a dedicated worktree and was fast-forwarded into shared `clone_main`.
+Only Supplier UPDATE and Customer DELETE persistence/type changes differ in
+application source; deployed Packaging, payroll, QR, Finance, frontend and
+migrations are preserved. Corrected full backend tests passed 4,834 cases with
+538 opt-in skips; the separate mandatory PostgreSQL CI gate passed all 165 cases
+with no skips. Frontend, exact-source immutable CI, isolated Supplier save/Customer delete
+browser and persisted readback, independent review, verified backup, candidate/public
+read-only QA, paired/public performance and all four health checks passed.
+Database remains `0149_besttex_cutting_access` after a no-op migration check.
+Production QA made no business writes; normal authentication GETs touch heartbeat
+metadata. The owner explicitly waived the 30-minute monitoring; it was not performed.
+The first combined CI failure remains recorded; its SQLite-only timestamp fixture
+was corrected and independently challenged without changing application clocks.
+Closing root-disk use was backend 79.44%, frontend 77.16%; the 80% staging gate
+remains mandatory for the next release. Existing linked-Customer FK error handling
+and prior physical-label/operator acceptance limitations remain open.
+See the [reconciliation record](archive/CLONE_PRODUCTION_RECONCILIATION_2026-10-29.md).
+
+The earlier QA artifact omitted Next runtime inputs and returned 404 on `/login` and
+`/`. A repaired genuine f27 artifact subsequently passed local login and scoped
+visual/readback checks for PRs 335–337. This does not establish production status
+or human production acceptance. See the [dated integration evidence](archive/VERIFIED_INTEGRATION_2026-10-28.md)
+for exact source identities, observations and limitations; the earlier failures and
+candidate history remain recorded there.
+
+The current integration checkpoint includes CI tooling PR338 at
+`e6f597891489e38207e01b6bfcca3d8df1b7adea` and Customer UPDATE PR339 at
+`61b1a7020c5e1465aa076acc238d94ea1ad7dd03`. Its scoped Customer evidence and
+V23 resource failure are recorded in the [dated integration evidence](archive/VERIFIED_INTEGRATION_2026-10-28.md).
+Supplier UPDATE is a later source candidate with its own verification gates; it is
+not included in that dated checkpoint. Dependency PR331 has separate environment
+and runtime gates. No deployment or human production acceptance is implied.
+
+## Historical Manual Packaging and combined release (28 October)
+
+At the 28 October release, active blue was `20261028_123531`, exact runtime
+`a0cb9d8b9fdab64dd751e7f3da7a1fa832779780`, verified on both VMs. Its then-retained
+green rollback was `20261027_115452`. Database stayed `0149_besttex_cutting_access`.
+The release combines reviewed clone_main through `61b1a702`, reconciled live
+fixes, manual Packaging pack creation/reprinting/cancellation, and a narrow
+Finance unlinked-BOM crash correction. Shared refactoring work was untouched;
+this does not complete its operation/type ledger or human acceptance.
+Fresh backup, exact CI/PostgreSQL, actual connected-browser/read-only QA,
+fixed-origin paired/public performance, all four health checks and immediate
+runtime/source/rollback postflight passed. Owner waived timed monitoring only.
+No QA business data was created. Physical print visual acceptance is pending
+after browser blob inspection was refused. See the detailed
+[release record](archive/MANUAL_PACKAGING_RELEASE_2026-10-28.md) for immutable
+images, backup hashes, failed earlier attempts and honest verification limits.
+
+Owner-authorized employee-master correction applied on 28 October: the two MIL
+employees formerly reporting to Akbarova Dilafruz #503 now report to #321.
+Both Dilafruz records remain distinct; no payroll or attendance history moved.
+The exact reviewed script `fe4bc0f8` passed a real PostgreSQL commit test and a
+live rollback rehearsal before apply. Own-transaction attribution verified only
+two employee manager/timestamp updates plus audit entries 144572/144573, with
+95 other business tables untouched by the transaction. Fresh persisted readback
+and all four health checks passed. Backup and full evidence are in
+[the task record](archive/MANUAL_PACKAGING_2026-10-28.md). This data correction preceded the runtime promotion above.
 
 ## Source and production
 
@@ -27,19 +106,34 @@ not appended here. This summary does not replace live release verification.
   Use separate engineer work directories and one landing queue coordinated by Mirshoir.
 - [DEPLOYMENT.md](../DEPLOYMENT.md) is the only supported release procedure.
   Before release reconcile Git, production-base.json, both manifests and runtime slots.
-- Verified 2026-10-26: both VMs serve green `20261026_085306`;
-  retained healthy blue rollback is `20261026_055538`. Deployed application commit
-  `439555a77ef583b1b212398e16ecd52ced786e45`, manifest
-  `9511b57bf62fd3142c865f3bb07aaf3e2f1053629f90c8521a652cd6da9139e2`;
-  database remains `0149_besttex_cutting_access`. Invoice customer/transport text
-  is 11 pt and the product table 9 pt, with separated SVG branding and matching Excel.
-  The release preserves newer factory fixes and excludes the pending namespace work.
-  This integration head is not the released artifact. See [the invoice release record](archive/INVOICE_READABILITY_2026-10-26.md).
-  Exact CI and four health checks passed. The initial public performance failure
-  caused rollback; one corrected comparison with a fixed client origin passed the
-  original budgets. Public-path tail variation also occurs on the previous release
-  and remains unresolved. All attempts are retained; no 30-minute observation or
-  refactoring job was added. The invoice port is draft PR #310, awaiting human review.
+- The imported [26 October invoice release record](archive/INVOICE_READABILITY_2026-10-26.md)
+  reports green `20261026_085306`, retained blue rollback `20261026_055538`,
+  application `439555a77ef583b1b212398e16ecd52ced786e45`, manifest
+  `9511b57bf62fd3142c865f3bb07aaf3e2f1053629f90c8521a652cd6da9139e2`
+  and database `0149_besttex_cutting_access`. Its invoice-only release uses 11 pt
+  customer/transport text, 9 pt product text, separated SVG branding and matching
+  Excel. The record reports exact CI/four health checks and a corrected fixed-origin
+  performance comparison passing after an initial failed gate and rollback;
+  public-path tail variation remains unresolved. No 30-minute observation or
+  refactoring job was added. These are attributed upstream observations, not new
+  production checks by this integration review; operator acceptance stays separate.
+- [PR #310](https://github.com/Shmirzaev/Milana-ERP/pull/310) merged as
+  `cdcbdfe5e7cfeb08a65e6a86da27fc7b6175733d`, tree
+  `aabd33becc5662469eb2ba408f832fb0059f1229`. Its six-file invoice port is being
+  reconciled with frozen refactor candidate `d0920f6367b702f63c88d5940cf1b44155b34aec`.
+  This successor candidate is **not deployed, not AI-verified and not human-approved**.
+  The prior invoice-only production release does not accept or deploy the refactor.
+- `deploy/production-base.json` records the verified 29 October runtime above. The following describes older integration evidence.
+  Local successor merge `02c25ecf2c8acad55418d86cf5b067fc89307162` has actual
+  parents `034cb788` and recorded production `439555`; all 36 released paths were
+  reconciled, retaining reviewed namespace ports and both historical release records.
+  It includes released QR pictures, Besttex views, grade weights and the exact
+  migration `0149_besttex_cutting_access`. The migration has not been applied to QA
+  or production by this review. Customer permissions, Finance payment forms and
+  truthful Sales list totals have independent technical reviews; combined checks
+  and actual successor browser replay remain required. Live manifests, slots and
+  database revision have not been reverified. See the
+  [integration addendum](archive/INVOICE_READABILITY_2026-10-26.md#source-reconciliation--27-october-2026).
 - The earlier `20261024_032622` deployment recorded an initial performance failure and rollback, followed
   by reactivation of the same images; public-path tail variation remains unresolved.
   The owner waived the timed observation period. The archive preserves all attempts.
@@ -63,11 +157,21 @@ not appended here. This summary does not replace live release verification.
 
 ## Architecture and migration state
 
-- Scope correction, 26 October: the six-area service/DTO extraction is complete
-  in the draft candidate, but Ismail's full assignment remains incomplete.
-  RF-011 has only centralized InvoiceStatus so far. The remaining fixed-value
-  inventory, enum callers and compatibility checks are active work; the earlier
-  overall completion claim was too broad. Production/business acceptance remains separate.
+- Execution update, 26 October: Ismail explicitly requested "do the rest iwth codex
+  subagents !" Codex subagents now implement the remaining system-wide refactor in
+  isolated owned checkouts; one integrator and a separate independent reviewer
+  retain the operation gates. This supersedes MiniMax-only execution for this task,
+  not human domain ownership, acceptance or release/spending authority. Preserve
+  prior worker source/evidence. See [execution rules](../AGENTS.md#implementation-execution)
+  and the [remaining-domain ledger](REFACTOR_COVERAGE.md#remaining-work-by-domain).
+  This is an execution change, not a new verification or completion claim.
+
+- Historical scope correction, 26 October: the earlier six-area extraction
+  checkpoint covered service/DTO placement and only the initial InvoiceStatus
+  centralization. It did not complete Ismail's assignment. Subsequent enum and
+  writer candidates must be assessed from their own operation records in the
+  [coverage ledger](REFACTOR_COVERAGE.md); the old completion claim was too broad.
+  Production/business acceptance remains separate.
 - The owner's required unit is one business operation: study old behavior and
   callers, classify all relevant table/field/type candidates, implement, then
   automated checks -> actual visual E2E -> persisted readback/bounded stress ->
@@ -93,14 +197,20 @@ not appended here. This summary does not replace live release verification.
 - Target: api/routes/ for HTTP, models/ for business services, schemas/ for
   database schema models, libs/dto/<feature>/ for input/update/output contracts,
   libs/enums/ for fixed vocabulary, libs/types/ for distinct internal contracts.
-- Existing services now live in models/*_service.py; services/ was removed.
+- Business services live in `backend/app/models/<group>/*_service.py`;
+  existing shared helpers remain in `backend/app/models/*_service.py`.
+  The old `backend/app/services/` directory was removed. Archived plans and
+  commit-specific bug evidence may still name it; those paths describe history,
+  not where an agent should create or move current code. Follow
+  [the service guide](../backend/app/models/README.md) and
+  [the current source map](REFACTOR_MAP.md).
   The owner then authorized completing namespace separation urgently: the 22 DTO
   files are now in libs/dto/ and 26 SQLAlchemy definition files in schemas/, with
   all callers and ORM registration updated. Table definitions and business rules
   are unchanged. See the plan's verification record for actual checks/limitations.
 - The owner authorized all six Ismail areas (catalog, purchasing, sales, inventory,
-  planning, finance) as parallel candidate work. The draft PR branch combines their
-  grouped services and entity-named DTOs for draft PR #308. The current modules
+  planning, finance) as parallel candidate work. The historical `3cdd6808` checkpoint
+  for draft PR #308 combined their grouped services and entity-named DTOs. Its modules
   are listed in [the source map](https://github.com/Shmirzaev/Milana-ERP/blob/3cdd6808ff7ced0717f337d17d4e530719d4a86f/docs/REFACTOR_MAP.md#service-destinations). Existing
   shared helpers remain at models/ root. Finance/Purchasing/Sales passed 397
   tests with zero skips; Planning/Finance paging passed 206, including real PG.
@@ -108,8 +218,10 @@ not appended here. This summary does not replace live release verification.
   permission setup errors, with zero skips, and two separate PG stock races passed.
   Actual six-area UI flows, persisted readback and bounded stress passed; see
   [the candidate record and human checklist](https://github.com/Shmirzaev/Milana-ERP/blob/3cdd6808ff7ced0717f337d17d4e530719d4a86f/docs/archive/ISMAIL_SIX_AREA_REFACTOR_2026-10-25.md).
-  The full API and table DDL are identical (577 routes, 475 paths, 97 tables). Mirshoir's
-  review and Shavkat's business acceptance remain; no merge or deployment is claimed.
+  At that checkpoint, API/table DDL parity covered 577 routes, 475 paths and 97 tables.
+  These historical checks do not verify later enum/OpenAPI or schema-writer changes.
+  Mirshoir's review and Shavkat's business acceptance remain separately recorded gates;
+  no current candidate visual pass or production deployment is claimed here.
 - Humans decide business policy, interfaces and cutover; AI implements approved
   scope. Multitenancy is deferred. No deletion quota or table-per-service requirement.
 
@@ -146,6 +258,13 @@ not appended here. This summary does not replace live release verification.
   correlated factory-path evidence described in [performance evidence](performance-evidence.txt).
 - CI branch triggering and automatic recovery improvements in the plan remain
   implementation tasks; skills/docs do not install enforcement or rollback.
+- RF-013's [disposable single-host rollback rehearsal](archive/RF013_SINGLE_HOST_REHEARSAL_2026-10-27.md)
+  switched both roles through real HAProxy, proved a candidate settings write remains
+  readable/writable by the old backend, and recovered from a partial activation.
+  The failed frontend remained routed for 41.41 seconds from injected stop to old
+  service; `slotctl.activate()` does not compensate. This is local evidence only:
+  Mirshoir review, visual acceptance, future RF-005 data compatibility, and an
+  accountable production rollback operator remain pending. No production state changed.
 - Recovery targets in [DISASTER_RECOVERY.md](DISASTER_RECOVERY.md) remain requirements,
   not proof of measured capacity. Preserve backups, active/rollback releases and evidence.
 

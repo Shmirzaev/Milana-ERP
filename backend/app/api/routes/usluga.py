@@ -8,8 +8,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import selectinload
 
-from app.api.routes import catalog as catalog_routes
 from app.core.deps import DbSession, require_permissions
+from app.libs.dto.catalog.model_bom_output import ModelBOMCreateOut
+from app.libs.enums.catalog import CatalogScope
 from app.schemas import (
     Bundle,
     CuttingRecord,
@@ -28,22 +29,22 @@ from app.schemas import (
     WorkOrder,
 )
 from app.models.audit_service import log_action
+from app.models.catalog import models_service
+from app.models.catalog.models_service import _model_payload
 from app.models.factory_scope_service import require_factory_access
 from app.models.production_service import create_production_order, create_work_orders
-from app.libs.dto.catalog.catalog import (
-    ModelBOMIn,
-    ModelBOMUpdate,
-    ModelDetail,
-    ModelImageIn,
+from app.libs.dto.catalog.model_bom_input import ModelBOMIn
+from app.libs.dto.catalog.model_bom_update import ModelBOMUpdate
+from app.libs.dto.catalog.model_color_input import ModelColorIn
+from app.libs.dto.catalog.model_image_input import ModelImageIn
+from app.libs.dto.catalog.model_input import (
     ModelIn,
-    ModelOptionPage,
-    ModelOut,
     ModelPaidOperationsIn,
-    ModelSizeIn,
-    ModelColorIn,
     ModelVariantCreateIn,
     ModelVariantUpdateIn,
 )
+from app.libs.dto.catalog.model_output import ModelDetail, ModelOptionPage, ModelOut
+from app.libs.dto.catalog.model_size_input import ModelSizeIn
 
 
 router = APIRouter(prefix="/usluga", tags=["usluga"])
@@ -129,21 +130,6 @@ class UslugaHandoverIn(BaseModel):
     @classmethod
     def strip_recipient(cls, value: str) -> str:
         return value.strip()
-
-
-def _model_payload(model: Model) -> dict:
-    from app.models.model_images_service import model_preview_image_url
-    return {
-        "id": model.id,
-        "code": model.code,
-        "name": model.name,
-        "category": model.category,
-        "description": model.description,
-        "image_url": model_preview_image_url(model),
-        "sizes": [row.size for row in sorted(model.sizes, key=lambda row: row.id)],
-        "colors": [row.color_name for row in sorted(model.colors, key=lambda row: row.id)],
-        "created_at": model.created_at,
-    }
 
 
 def _usluga_model_query(db: DbSession):
@@ -327,7 +313,7 @@ def list_usluga_model_options(
     ids: list[int] | None = Query(default=None),
 ):
     _usluga_viewer(current)
-    return catalog_routes.list_model_options(db, current, status, search, page, page_size, ids, "usluga")
+    return models_service.list_model_options(current, db, status, search, page, page_size, ids, "usluga")
 
 
 @router.get("/models")
@@ -348,10 +334,22 @@ def list_usluga_models(
     include_legacy_import: bool = False,
 ):
     _usluga_viewer(current)
-    return catalog_routes.list_models(
-        db, current, response, status, q, code, name, category, created_from, created_to,
+    result = models_service.list_models(
+        current, db, status, q, code, name, category, created_from, created_to,
         page, page_size, include_total, include_legacy_import, "usluga",
     )
+    response.headers.update(models_service.model_page_headers(
+        result["page"], result["page_size"], result["has_more"], result["total"],
+    ))
+    if include_total:
+        return {
+            "rows": result["rows"],
+            "total": result["total"],
+            "page": result["page"],
+            "page_size": result["page_size"],
+            "has_more": result["has_more"],
+        }
+    return result["rows"]
 
 
 @router.get("/models/variant-groups")
@@ -373,9 +371,9 @@ def list_usluga_model_variant_groups(
     qolip_no: str | None = None,
 ):
     _usluga_viewer(current)
-    return catalog_routes.list_model_variant_groups(
-        db, current, status, q, code, name, category, created_from, created_to,
-        page, page_size, include_total, include_legacy_import, compact, "usluga", qolip_no=qolip_no,
+    return models_service.list_model_variant_groups(
+        current, db, status, q, code, name, category, created_from, created_to,
+        page, page_size, include_total, include_legacy_import, compact, "usluga", qolip_no,
     )
 
 
@@ -385,7 +383,7 @@ def list_usluga_model_bom_items(
     current: User = Depends(require_permissions("usluga.view", "usluga.manage", "*")),
 ):
     _usluga_viewer(current)
-    return catalog_routes.list_model_bom_items(db, current)
+    return models_service.list_model_bom_items(current, db)
 
 
 @router.get("/models/next-number")
@@ -395,7 +393,7 @@ def next_usluga_model_number(
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)
-    return catalog_routes.get_next_model_number(db, prefix, current)
+    return models_service.get_next_model_number(current, db, prefix)
 
 
 @router.post("/models", response_model=ModelOut, status_code=201)
@@ -405,7 +403,7 @@ def create_usluga_model(
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)
-    return catalog_routes.create_model(payload, db, current, "usluga")
+    return models_service.create_model(current, db, payload, "usluga")
 
 
 @router.get("/models/{mid}", response_model=ModelDetail)
@@ -415,7 +413,7 @@ def get_usluga_model(
     current: User = Depends(require_permissions("usluga.view", "usluga.manage", "payroll.scan", "payroll.manage", "*")),
 ):
     _usluga_viewer(current)
-    return catalog_routes.get_model(mid, db, current, "usluga")
+    return models_service.get_model(current, db, mid, "usluga")
 
 
 @router.get("/models/{mid}/process-qr-sizes")
@@ -425,13 +423,13 @@ def get_usluga_process_qr_sizes(
     current: User = Depends(require_permissions("usluga.view", "usluga.manage", "payroll.scan", "payroll.manage", "*")),
 ):
     _require_eco(current)
-    return catalog_routes.get_process_qr_model_sizes(mid, db, current, "usluga")
+    return models_service.get_process_qr_model_sizes(current, db, mid, "usluga")
 
 
 @router.post("/models/{mid}/clone", response_model=ModelOut, status_code=201)
 def clone_usluga_model(mid: int, db: DbSession, current: User = Depends(require_permissions("usluga.manage", "*"))):
     _require_eco(current)
-    return catalog_routes.clone_model(mid, db, current, "usluga")
+    return models_service.clone_model(current, db, mid, "usluga")
 
 
 @router.get("/models/{mid}/variants")
@@ -444,13 +442,17 @@ def list_usluga_model_variants(
     page_size: int = Query(default=50, ge=1, le=100),
 ):
     _usluga_viewer(current)
-    return catalog_routes.list_model_variants(mid, response, db, current, page, page_size, "usluga")
+    result = models_service.list_model_variants(current, db, mid, page, page_size, "usluga")
+    response.headers.update(models_service.model_page_headers(
+        result["page"], result["page_size"], result["has_more"],
+    ))
+    return result["rows"]
 
 
 @router.get("/models/{mid}/variants/next-number")
 def next_usluga_model_variant(mid: int, db: DbSession, current: User = Depends(require_permissions("usluga.manage", "*"))):
     _require_eco(current)
-    return catalog_routes.get_next_model_variant_number(mid, db, current, "usluga")
+    return models_service.get_next_model_variant_number(current, db, mid, "usluga")
 
 
 @router.post("/models/{mid}/variants", response_model=ModelOut, status_code=201)
@@ -461,7 +463,7 @@ def create_usluga_model_variant(
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)
-    return catalog_routes.create_model_variant(mid, payload, db, current, "usluga")
+    return models_service.create_model_variant(current, db, mid, payload, "usluga")
 
 
 @router.patch("/models/{mid}/variants/{variant_id}", response_model=ModelOut)
@@ -473,7 +475,7 @@ def update_usluga_model_variant(
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)
-    return catalog_routes.update_model_variant(mid, variant_id, payload, db, current, "usluga")
+    return models_service.update_model_variant(current, db, mid, variant_id, payload, "usluga")
 
 
 @router.delete("/models/{mid}/variants/{variant_id}", status_code=204)
@@ -484,7 +486,7 @@ def delete_usluga_model_variant(
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)
-    return catalog_routes.delete_model_variant(mid, variant_id, db, current, "usluga")
+    return models_service.delete_model_variant(current, db, mid, variant_id, "usluga")
 
 
 @router.patch("/models/{mid}", response_model=ModelOut)
@@ -495,7 +497,7 @@ def update_usluga_model(
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)
-    return catalog_routes.update_model(mid, payload, db, current, "usluga")
+    return models_service.update_model(current, db, mid, payload, "usluga")
 
 
 @router.patch("/models/{mid}/paid-operations", response_model=ModelOut)
@@ -506,13 +508,13 @@ def update_usluga_paid_operations(
     current: User = Depends(require_permissions("usluga.manage", "payroll.manage", "*")),
 ):
     _require_eco(current)
-    return catalog_routes.update_model_paid_operations(mid, payload, db, current, "usluga")
+    return models_service.update_model_paid_operations(current, db, mid, payload, "usluga")
 
 
 @router.post("/models/{mid}/approve", response_model=ModelOut)
 def approve_usluga_model(mid: int, db: DbSession, current: User = Depends(require_permissions("usluga.manage", "*"))):
     _require_eco(current)
-    return catalog_routes.approve_model(mid, db, current, "usluga")
+    return models_service.approve_model(current, db, mid, "usluga")
 
 
 @router.post("/models/{mid}/images", status_code=201)
@@ -523,7 +525,7 @@ def add_usluga_model_image(
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)
-    return catalog_routes.add_image(mid, payload, db, current, "usluga")
+    return models_service.add_image(current, db, mid, payload, "usluga")
 
 
 @router.post("/models/{mid}/images/upload", status_code=201)
@@ -535,7 +537,7 @@ async def upload_usluga_model_image(
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)
-    return await catalog_routes.upload_image(mid, db, file, image_type, current, "usluga")
+    return await models_service.upload_image(current, db, mid, file, image_type, "usluga")
 
 
 @router.delete("/models/{mid}/images/{image_id}", status_code=204)
@@ -546,7 +548,7 @@ def delete_usluga_model_image(
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)
-    return catalog_routes.delete_image(mid, image_id, db, current, "usluga")
+    return models_service.delete_image(current, db, mid, image_id, "usluga")
 
 
 @router.post("/models/{mid}/sizes", status_code=201)
@@ -557,7 +559,7 @@ def add_usluga_model_size(
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)
-    return catalog_routes.add_size(mid, payload, db, current, "usluga")
+    return models_service.add_size(current, db, mid, payload, "usluga")
 
 
 @router.delete("/models/{mid}/sizes/{size_id}", status_code=204)
@@ -568,7 +570,7 @@ def delete_usluga_model_size(
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)
-    return catalog_routes.delete_size(mid, size_id, db, current, "usluga")
+    return models_service.delete_size(current, db, mid, size_id, "usluga")
 
 
 @router.post("/models/{mid}/colors", status_code=201)
@@ -579,10 +581,10 @@ def add_usluga_model_color(
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)
-    return catalog_routes.add_color(mid, payload, db, current, "usluga")
+    return models_service.add_color(current, db, mid, payload, "usluga")
 
 
-@router.post("/models/{mid}/bom", status_code=201)
+@router.post("/models/{mid}/bom", status_code=201, response_model=ModelBOMCreateOut)
 def add_usluga_model_bom(
     mid: int,
     payload: ModelBOMIn,
@@ -590,7 +592,7 @@ def add_usluga_model_bom(
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)
-    return catalog_routes.add_bom(mid, payload, db, current, "usluga")
+    return models_service.add_bom(current, db, mid, payload, CatalogScope.USLUGA)
 
 
 @router.post("/models/{mid}/bom-photo/upload", status_code=201)
@@ -601,7 +603,7 @@ async def upload_usluga_model_bom_photo(
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)
-    return await catalog_routes.upload_bom_photo(mid, db, file, current, "usluga")
+    return await models_service.upload_bom_photo(current, db, mid, file, "usluga")
 
 
 @router.patch("/models/{mid}/bom/{bom_id}")
@@ -613,7 +615,7 @@ def update_usluga_model_bom(
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)
-    return catalog_routes.update_bom(mid, bom_id, payload, db, current, "usluga")
+    return models_service.update_bom(current, db, mid, bom_id, payload, "usluga")
 
 
 @router.delete("/models/{mid}/bom/{bom_id}", status_code=204)
@@ -624,13 +626,13 @@ def delete_usluga_model_bom(
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)
-    return catalog_routes.delete_bom(mid, bom_id, db, current, "usluga")
+    return models_service.delete_bom(current, db, mid, bom_id, "usluga")
 
 
 @router.delete("/models/{mid}", status_code=204)
 def delete_usluga_model(mid: int, db: DbSession, current: User = Depends(require_permissions("usluga.manage", "*"))):
     _require_eco(current)
-    return catalog_routes.delete_model(mid, db, current, "usluga")
+    return models_service.delete_model(current, db, mid, "usluga")
 
 
 @router.get("/orders")

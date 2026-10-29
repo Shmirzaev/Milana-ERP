@@ -21,6 +21,7 @@ import {
   wasteKgFromPassport,
   type CuttingPassportAutofillSource,
 } from "@/lib/cuttingPassportAutofill";
+import { InventoryQcStatus } from "@/lib/inventoryQcStatus";
 
 type SewingFactory = "milana" | "besttex" | "eco_cotton";
 
@@ -129,7 +130,7 @@ type StockBatchOption = {
   unit?: string | null;
   cost_per_unit?: number | null;
   warehouse_name?: string | null;
-  qc_status?: string | null;
+  qc_status?: InventoryQcStatus | null;
   received_date?: string | null;
   active_reservations?: StockBatchReservation[];
 };

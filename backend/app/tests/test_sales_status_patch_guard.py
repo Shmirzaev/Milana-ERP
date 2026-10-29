@@ -23,7 +23,7 @@ def test_patch_cannot_skip_workflow_or_partially_apply(client, auth_headers, sta
         audit_count = db.query(AuditLog).count()
     response = client.patch(f"/api/sales-orders/{order_id}", headers=auth_headers,
                             json={"status": status, "notes": "must not save"})
-    assert response.status_code == 409, response.text
+    assert response.status_code == (422 if status == "bogus" else 409), response.text
     with SessionLocal() as db:
         row = db.get(SalesOrder, order_id)
         assert row.status == "draft"

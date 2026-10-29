@@ -2,7 +2,7 @@ from copy import deepcopy
 
 import pytest
 
-from app.api.routes.catalog import _model_code_parts, _model_group_key
+from app.models.catalog.models_service import _model_code_parts, _model_group_key
 from app.schemas import AuditLog, Model, ModelSize
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_paid_operation_factory_scope import _operation
