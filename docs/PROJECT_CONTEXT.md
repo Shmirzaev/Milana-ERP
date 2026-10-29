@@ -11,9 +11,19 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-10-29. Keep this file short: current decisions, release pointers and
+Last updated 2026-10-30. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## Active whole-ERP refactor
+
+PR343 merged three verified persistence operations into `clone_main` at
+`d235cf9e9a44b1de81428beb261f8fab837cbe87`; this did not deploy them. The owner
+resumed all remaining domains with cheap isolated subagents on 30 October.
+Collection UPDATE, Purchasing costing/notification persistence and typed Finance
+payment results are the current candidate batch, with verification still pending.
+See [the current operation backlog](REFACTOR_COVERAGE.md#current-integration-and-active-work--30-october-2026).
+No whole-domain, system-wide type or human production acceptance is claimed.
 
 ## Current green release (29 October)
 

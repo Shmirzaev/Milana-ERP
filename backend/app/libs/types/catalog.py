@@ -8,7 +8,7 @@ holds, and the material role is the canonical enum member or nothing at all.
 from dataclasses import dataclass
 from typing import NotRequired, TypedDict
 
-from app.libs.enums.catalog import BomMaterialRole
+from app.libs.enums.catalog import BomMaterialRole, CollectionStatus
 
 
 class BrandUpdateCommand(TypedDict):
@@ -38,6 +38,33 @@ class SupplierUpdateCommand(TypedDict):
     email: NotRequired[str | None]
     address: NotRequired[str | None]
     notes: NotRequired[str | None]
+
+
+class CollectionUpdateFields(TypedDict, total=False):
+    """Raw partial fields from Collection PATCH before status normalization."""
+
+    brand_id: int
+    name: str
+    season: str | None
+    year: int
+    description: str | None
+    status: str
+
+
+class CollectionUpdateCommand(TypedDict, total=False):
+    """Validated partial fields passed to Collection persistence.
+
+    Canonical status values are enum-typed. The separate passthrough field is
+    only for an explicitly resubmitted, unchanged historical database value.
+    """
+
+    brand_id: int
+    name: str
+    season: str | None
+    year: int
+    description: str | None
+    status: CollectionStatus
+    unchanged_legacy_status: str
 
 
 @dataclass(frozen=True)

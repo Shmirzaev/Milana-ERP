@@ -1,5 +1,46 @@
 # Whole-ERP refactor coverage
 
+## Current integration and active work — 30 October 2026
+
+`clone_main` is verified at `d235cf9e9a44b1de81428beb261f8fab837cbe87`, tree
+`33b45e218c57e285e14df48bd166fe04309c95b9`. PR343 merged Supplier DELETE,
+Inventory Item CREATE and Sales DELETE after exact-source CI, Computer visual
+checks, persisted/audit readback, independent review, and 40 explicit PostgreSQL
+cases with zero failures/errors/skips. Owned disposable targets and runtimes
+were cleaned up. This is integration evidence, not deployment or personal human
+production acceptance. PR341 also merged Customer DELETE; older pending wording
+in the source-checkpoint queue must not be read as current status.
+
+The owner explicitly resumed the full remaining scope on 30 October, requesting
+cheap parallel subagents. This includes all 13 domains and shared writers; named
+human accountability below is unchanged. Three isolated workers are preparing
+Collection UPDATE, Finance payment-output typing and Purchasing costing-update
+on the current base. The integrator owns shared notification persistence and
+serializes combined-source verification. None of these new candidates is yet
+runtime-verified or merged. Previously frozen candidates remain preserved.
+
+| Remaining scope | Current next work / evidence required |
+| --- | --- |
+| Catalog | Collection UPDATE (including same-value attribute events and legacy status compatibility); paid-process, model/counter, BOM and image operations |
+| Purchasing | Costing update and shared notification transaction; approval/rejection, conversion, orders and receiving |
+| Inventory | Receiving/receipt edits, transfers, reservations, stocktake, accessory returns and waste handoffs |
+| Sales | Create/update, cancellation/release and Fulfillment public operation/lock boundary |
+| Planning | Broader order creation, alternate Production writer, requirements and costing contracts |
+| Finance | Typed payment result/replay; invoice issuance/void/reopen, advances and ledger/shipment writers |
+| Production | Shared Sewing and stage transitions, correction paths and route/private-helper reach-through |
+| Packaging | Contents, allocation/identity, corrections, labels and lifecycle writers |
+| Fulfillment | Receipts/finished stock, reservation/release, shipment/delivery/reversal and returns |
+| Identity | Factory/auth context, user access and account operations |
+| People | Employee/attendance/payroll contracts, writes and locking |
+| Support | Settings, shared audit/idempotency and other root writers |
+| Work management | Task CRUD/transitions and notification operations |
+
+Every row retains operation-sized enum/type classification, caller/alternate
+writer tracing, same-Session persistence, tests, actual visual/readback, bounded
+integrity/stress and independent acceptance gates. This is an execution backlog,
+not exhaustive source discovery or a completion percentage. The initial table/
+field JSON inventory below remains historical and must not be relabelled current.
+
 Initial candidate-source ledger, 26 October 2026. **The architectural/type target is incomplete.**
 Six Ismail pilots are rollout steps; the other owners remain in scope. Use the
 [engineering workflow](ENGINEERING_WORKFLOW.md) and [ownership](TEAM_OWNERSHIP.md).
