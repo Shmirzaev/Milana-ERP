@@ -4,7 +4,7 @@ These reports preserve what was observed at their recorded date. They are not
 current implementation instructions or proof of today's production state.
 Start with [current context](../PROJECT_CONTEXT.md) for active work.
 
-- [Production and clone_main reconciliation, 29 October 2026](CLONE_PRODUCTION_RECONCILIATION_2026-10-29.md): authorized blue/green preparation, preserved live fixes and rollback requirements.
+- [Production and clone_main reconciliation, 29 October 2026](CLONE_PRODUCTION_RECONCILIATION_2026-10-29.md): verified green release, preserved production fixes, retained blue rollback and explicit monitoring waiver.
 
 - [Verified integration checkpoint, 28 October 2026](VERIFIED_INTEGRATION_2026-10-28.md): scoped Planning, Customer, Brand and Supplier evidence, PR338/339 and superseded QA history.
 
