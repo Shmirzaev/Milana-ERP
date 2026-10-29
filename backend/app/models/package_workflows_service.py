@@ -1,4 +1,5 @@
 """Explicit physical receipts; label operations never mint stock."""
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -6,9 +7,8 @@ from fastapi import HTTPException
 from sqlalchemy import text, or_
 from sqlalchemy.orm import load_only
 
-from app.core.deps import user_permissions
 from app.schemas import (
-    FinishedGoodsStock, Model, Package, PackageBatchAllocation, PackageItem, PackageScanLog,
+    FinishedGoodsStock, Model, Package, PackageBatchAllocation, PackageItem, PackageScanLog, User,
     Warehouse, ManualPackageReceipt, PackagePrintRun, PackagePrintRunMember, PackageBarcodeAlias,
 )
 from app.libs.enums.packaging import PackagingDepartment
@@ -19,8 +19,11 @@ from app.schemas.packaging.manual_packages_persistence import (
 )
 from app.models.audit_service import log_action
 from app.models.barcode_service import generate_barcode_value, save_qr_image
-from app.models.idempotency_service import request_fingerprint
-from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
+from app.models.idempotency_service import (
+    replay_idempotent_response,
+    request_fingerprint,
+    store_idempotent_response,
+)
 from app.models.numbering_service import _next, next_package_nos
 from app.models.packaging_scope_service import packaging_department_scope, require_package_access
 from app.libs.dto.fulfillment.package_workflows import PrintRunIn
@@ -32,6 +35,13 @@ from app.models.packages_service import (
 
 
 _CANCELLED_REQUEST_RESPONSE = {"_package_workflow_status": "cancelled"}
+PRINT_RUN_GLOBAL_ACCESS_PERMISSIONS = frozenset({"storage.packages", "storage.shipment", "*"})
+
+
+@dataclass(frozen=True, slots=True)
+class PrintRunAuthorizationContext:
+    actor: User
+    can_access_all_print_runs: bool
 
 
 def cancelled_request_response():
@@ -132,9 +142,9 @@ def create_run(db, current, packages, *, received=False):
     items_by_package, allocations_by_package = _package_children(db, packages)
     snapshots = [
         contents(
-                pkg,
-                items=items_by_package[int(pkg.id)],
-                batch_allocations=allocations_by_package[int(pkg.id)],
+            pkg,
+            items=items_by_package[int(pkg.id)],
+            batch_allocations=allocations_by_package[int(pkg.id)],
         )
         for pkg in packages
     ]
@@ -144,7 +154,7 @@ def create_run(db, current, packages, *, received=False):
     return run
 
 
-def _validate_print_run_replay(db, current, replay):
+def _validate_print_run_replay(db, authorization: PrintRunAuthorizationContext, replay):
     if is_cancelled_request(replay):
         raise HTTPException(409, "This package request was cancelled; submit corrected values with a new key")
     try:
@@ -160,14 +170,14 @@ def _validate_print_run_replay(db, current, replay):
     )).filter(PackagePrintRun.id == run_id).first()
     if not run:
         raise HTTPException(404, "Print run not found")
-    permissions = set(user_permissions(current))
-    if not permissions.intersection({"storage.packages", "storage.shipment", "*"}):
-        packaging_department_scope(current, run.packaging_department_code)
+    if not authorization.can_access_all_print_runs:
+        packaging_department_scope(authorization.actor, run.packaging_department_code)
     require_active_run(run)
 
 
-def create_print_run(db, current, payload: PrintRunIn):
+def create_print_run(db, payload: PrintRunIn, authorization: PrintRunAuthorizationContext):
     """Create one selected package print run, including its HTTP request transaction."""
+    current = authorization.actor
     operation = "print-run"
     key = str(payload.request_key)
     scope = f"packages.{operation}.{current.id}"
@@ -175,8 +185,7 @@ def create_print_run(db, current, payload: PrintRunIn):
     body = payload.model_dump(mode="json")
     replay = replay_idempotent_response(db, scope=scope, key=key, payload=body)
     if replay is not None:
-        _validate_print_run_replay(db, current, replay)
-        db.commit()
+        _validate_print_run_replay(db, authorization, replay)
         return replay
 
     ids = payload.package_ids

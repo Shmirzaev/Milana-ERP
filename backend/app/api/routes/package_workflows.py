@@ -390,7 +390,13 @@ def reconcile_manual_receipt(payload: ManualPackageReceiptIn, db: DbSession,
 @router.post("/print-runs", status_code=201)
 def create_print_run(payload: PrintRunIn, db: DbSession,
                      current: User = Depends(require_permissions("packaging.packages", "storage.packages", "*"))):
-    return service.create_print_run(db, current, payload)
+    authorization = service.PrintRunAuthorizationContext(
+        actor=current,
+        can_access_all_print_runs=bool(
+            set(user_permissions(current)).intersection(service.PRINT_RUN_GLOBAL_ACCESS_PERMISSIONS)
+        ),
+    )
+    return service.create_print_run(db, payload, authorization)
 
 
 @router.post("/print-runs/reconcile")

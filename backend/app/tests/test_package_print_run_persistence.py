@@ -1,7 +1,10 @@
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from uuid import uuid4
 
+from app.libs.dto.fulfillment.package_workflows import PrintRunIn
 from app.libs.enums.packaging import PackagingDepartment
+from app.models import package_workflows_service
 from app.schemas.packaging.manual_packages_persistence import (
     PackagePrintRunHeaderCommand,
     insert_package_print_run_header,
@@ -55,3 +58,30 @@ def test_print_run_persistence_keeps_header_and_manifest_flush_boundaries():
     assert [member.snapshot for member in db.batches[0]] == snapshots
     assert [member.run_id for member in db.batches[0]] == [481, 481]
     assert db.flush_count == 2
+
+
+def test_print_run_replay_preserves_route_transaction_boundary(monkeypatch):
+    commits = []
+    db = SimpleNamespace(commit=lambda: commits.append("commit"))
+    replay = {"id": 481, "run_no": "PRN-2026-000031"}
+    monkeypatch.setattr(package_workflows_service, "lock_request", lambda *_args: None)
+    monkeypatch.setattr(
+        package_workflows_service,
+        "replay_idempotent_response",
+        lambda _db, **_kwargs: replay,
+    )
+    monkeypatch.setattr(
+        package_workflows_service,
+        "_validate_print_run_replay",
+        lambda *_args: None,
+    )
+    authorization = package_workflows_service.PrintRunAuthorizationContext(
+        actor=SimpleNamespace(id=7),
+        can_access_all_print_runs=False,
+    )
+    payload = PrintRunIn(request_key=uuid4(), package_ids=[31])
+
+    result = package_workflows_service.create_print_run(db, payload, authorization)
+
+    assert result == replay
+    assert commits == []
