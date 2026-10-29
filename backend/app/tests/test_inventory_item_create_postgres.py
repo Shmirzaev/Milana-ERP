@@ -11,7 +11,7 @@ from uuid import uuid4
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import event
+from sqlalchemy import event, inspect
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import object_session
 
@@ -203,6 +203,20 @@ def test_pg_duplicate_sku_race_keeps_existing_integrity_error_semantics(customer
     sessions = customer_pg_sessions
     actor_id = role_actor(sessions, ['storage.items'])
     sku = 'RACE-' + uuid4().hex
+    names = [f'Race {index} {uuid4().hex}' for index in range(2)]
+    # Read the actual migrated catalog; accept only a unique, nonpartial SKU
+    # index or constraint that is present there, not an arbitrary DB error.
+    with sessions() as db:
+        inspector = inspect(db.connection())
+        indexes = inspector.get_indexes('items')
+        constraints = inspector.get_unique_constraints('items')
+        sku_indexes = {x['name'] for x in indexes if isinstance(x.get('name'), str) and x['name']
+                       and x.get('unique') and x.get('column_names') == ['sku']
+                       and not x.get('dialect_options', {}).get('postgresql_where')}
+        sku_constraints = {x['name'] for x in constraints if isinstance(x.get('name'), str) and x['name']
+                           and x.get('column_names') == ['sku']}
+        assert 'ix_items_sku' in sku_indexes
+        actual_sku_uniques = sku_indexes | sku_constraints
     barrier = Barrier(2)
     original = stock_service._item_payload
     def after_sku_check(payload):
@@ -212,18 +226,28 @@ def test_pg_duplicate_sku_race_keeps_existing_integrity_error_semantics(customer
     def worker(index):
         with sessions() as db:
             actor = db.get(User, actor_id)
-            payload = ItemIn(sku=sku, name=f'Race {index} {uuid4().hex}', category='fabric', unit='kg')
+            payload = ItemIn(sku=sku, name=names[index], category='fabric', unit='kg')
             try:
-                return ('created', stock_service.create_item(db, payload, actor).id)
-            except IntegrityError:
+                return (index, 'created', stock_service.create_item(db, payload, actor).id, None, None)
+            except IntegrityError as error:
+                original_error = error.orig
+                sqlstate = getattr(original_error, 'sqlstate', None) or getattr(original_error, 'pgcode', None)
+                constraint = getattr(getattr(original_error, 'diag', None), 'constraint_name', None)
                 db.rollback()
-                return ('integrity_error', None)
+                return (index, 'integrity_error', None, sqlstate, constraint)
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = [pool.submit(worker, i) for i in range(2)]
         results = [f.result(timeout=30) for f in futures]
-    assert sorted(x[0] for x in results) == ['created', 'integrity_error']
-    created = next(x[1] for x in results if x[0] == 'created')
+    assert sorted(x[1] for x in results) == ['created', 'integrity_error']
+    winner = next(x for x in results if x[1] == 'created')
+    loser = next(x for x in results if x[1] == 'integrity_error')
+    assert loser[3] == '23505' and isinstance(loser[4], str) and loser[4] in actual_sku_uniques
     with sessions() as db:
-        assert db.query(Item).filter_by(sku=sku).count() == 1
-        assert db.query(AuditLog).filter_by(entity_type='Item', entity_id=created, action='create', user_id=actor_id).count() == 1
+        matching = db.query(Item).filter_by(sku=sku).all()
+        assert len(matching) == 1
+        assert (matching[0].id, matching[0].name, matching[0].category, matching[0].unit) == (
+            winner[2], names[winner[0]], 'fabric', 'kg')
+        assert db.query(Item).filter_by(name=names[loser[0]]).count() == 0
+        audits = db.query(AuditLog).filter_by(entity_type='Item', action='create', user_id=actor_id).all()
+        assert len(audits) == 1 and audits[0].entity_id == winner[2] and audits[0].new_value_json == {'sku': sku}
     chain(sessions)
