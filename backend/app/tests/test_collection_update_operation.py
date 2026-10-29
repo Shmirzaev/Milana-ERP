@@ -62,18 +62,19 @@ def test_update_uses_same_session_and_preserves_omitted_fields(monkeypatch):
         )
 
 
-def test_same_value_canonical_patch_still_appends_update_audit():
+def test_same_value_canonical_patch_still_appends_update_audit(request):
     _brand_id, collection_id = _seed_collection()
     with TestSessionLocal() as db:
         row = db.get(Collection, collection_id)
         status_sets = []
-        event.listen(
-            row,
-            "status",
-            "set",
-            lambda target, value, oldvalue, initiator: status_sets.append(
-                (value, oldvalue)
-            ),
+
+        def record_status_set(target, value, oldvalue, initiator):
+            if target is row:
+                status_sets.append((value, oldvalue))
+
+        event.listen(Collection.status, "set", record_status_set)
+        request.addfinalizer(
+            lambda: event.remove(Collection.status, "set", record_status_set)
         )
         before = (
             row.brand_id,
@@ -116,18 +117,19 @@ def test_same_value_canonical_patch_still_appends_update_audit():
         assert status_sets == [("draft", "draft")]
 
 
-def test_update_clears_nullable_fields_and_keeps_unchanged_legacy_status():
+def test_update_clears_nullable_fields_and_keeps_unchanged_legacy_status(request):
     brand_id, collection_id = _seed_collection(status="legacy_review_state")
     with TestSessionLocal() as db:
         row = db.get(Collection, collection_id)
         status_sets = []
-        event.listen(
-            row,
-            "status",
-            "set",
-            lambda target, value, oldvalue, initiator: status_sets.append(
-                (value, oldvalue)
-            ),
+
+        def record_status_set(target, value, oldvalue, initiator):
+            if target is row:
+                status_sets.append((value, oldvalue))
+
+        event.listen(Collection.status, "set", record_status_set)
+        request.addfinalizer(
+            lambda: event.remove(Collection.status, "set", record_status_set)
         )
         updated = collections_service.update_collection(
             None,
