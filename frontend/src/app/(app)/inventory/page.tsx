@@ -17,6 +17,7 @@ import { useT } from "@/lib/i18n";
 import { compositionTotal, type MaterialComposition } from "@/lib/materialComposition";
 import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
 import { orderReference } from "@/lib/orderRef";
+import { INVENTORY_QC_STATUSES, InventoryQcStatus } from "@/lib/inventoryQcStatus";
 import { useDialogs } from "@/components/DialogProvider";
 import MaterialQrStickerModal, { type MaterialQrStickerData } from "@/components/MaterialQrStickerModal";
 
@@ -139,7 +140,7 @@ type StockBatch = {
   received_date?: string | null;
   warehouse_id?: number | null;
   warehouse_name?: string | null;
-  qc_status: string;
+  qc_status: InventoryQcStatus;
   reserved_quantity?: number;
   available_quantity?: number;
 };
@@ -163,7 +164,7 @@ type BatchForm = {
   image_url: string;
   received_date: string;
   warehouse_id: string;
-  qc_status: string;
+  qc_status: InventoryQcStatus;
 };
 
 type ItemForm = {
@@ -225,7 +226,7 @@ const EMPTY_BATCH_FORM: BatchForm = {
   image_url: "",
   received_date: "",
   warehouse_id: "",
-  qc_status: "pending",
+  qc_status: InventoryQcStatus.PENDING,
 };
 
 function dateTimeLocalValue(value: string | null | undefined) {
@@ -256,7 +257,7 @@ function batchToForm(batch: StockBatch): BatchForm {
     image_url: batch.image_url || "",
     received_date: dateTimeLocalValue(batch.received_date),
     warehouse_id: batch.warehouse_id ? String(batch.warehouse_id) : "",
-    qc_status: batch.qc_status || "pending",
+    qc_status: batch.qc_status || InventoryQcStatus.PENDING,
   };
 }
 
@@ -928,7 +929,7 @@ export default function InventoryPage() {
     return date.toLocaleDateString();
   }
 
-  function qcLabel(status: string | null | undefined) {
+  function qcLabel(status: InventoryQcStatus | null | undefined) {
     const value = String(status || "").trim();
     if (!value) return "-";
     const key = `qc.${value}`;
@@ -1676,8 +1677,15 @@ export default function InventoryPage() {
                 </div>
                 <div>
                   <label className="label">{t("page.receiveStock.qcStatus")}</label>
-                  <select className="input" value={batchForm.qc_status} onChange={(event) => setBatchForm({ ...batchForm, qc_status: event.target.value })}>
-                    {['pending', 'passed', 'failed', 'rejected', 'hold'].map((status) => <option key={status} value={status}>{qcLabel(status)}</option>)}
+                  <select
+                    className="input"
+                    value={batchForm.qc_status}
+                    onChange={(event) => {
+                      const next = INVENTORY_QC_STATUSES.find((status) => String(status) === event.target.value);
+                      if (next) setBatchForm({ ...batchForm, qc_status: next });
+                    }}
+                  >
+                    {INVENTORY_QC_STATUSES.map((status) => <option key={status} value={status}>{qcLabel(status)}</option>)}
                   </select>
                 </div>
                 <div>

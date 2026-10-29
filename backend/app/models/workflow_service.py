@@ -6,13 +6,15 @@ from fastapi import HTTPException
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session, lazyload
 
+from app.schemas.core_persistence import add_notification_row
+from app.schemas.inventory import stock_movement_persistence
+
 from app.schemas import (
     Department,
     FinishedGoodsStock,
     Invoice,
     Item,
     ModelBOM,
-    Notification,
     Package,
     ProductionBatch,
     ProductionOrder,
@@ -27,6 +29,7 @@ from app.schemas import (
 )
 from app.models.audit_service import log_action
 from app.models.numbering_service import next_invoice_no
+from app.libs.enums.finance import InvoiceStatus
 from app.models.passport_nastil_service import has_pending_passport_batches
 
 WORKFLOW_SEQUENCE = ["cutting", "printing", "sewing", "packaging", "storage_transfer"]
@@ -49,9 +52,9 @@ def archive_depleted_material_batch(
     item = item_cache.get(int(batch.item_id)) if item_cache is not None else db.get(Item, int(batch.item_id))
     if not item or str(item.category or "").strip().lower() not in _MATERIAL_BATCH_CATEGORIES:
         return False
-    batch.quantity = 0
-    batch.archived_at = datetime.now(timezone.utc)
-    batch.archived_by = user_id
+    stock_movement_persistence.archive_batch(
+        db, batch, archived_at=datetime.now(timezone.utc), user_id=user_id,
+    )
     user = db.get(User, user_id) if user_id else None
     log_action(
         db,
@@ -428,7 +431,7 @@ def notify_department(
     for user_id in user_ids:
         if exclude_user_id and user_id == exclude_user_id:
             continue
-        db.add(Notification(user_id=user_id, title=title, message=message, link=link))
+        add_notification_row(db, user_id=user_id, title=title, message=message, link=link)
         created += 1
     return created
 
@@ -728,8 +731,10 @@ def ensure_invoice_for_delivered_shipment(
     so = db.get(SalesOrder, sales_order_id)
     if not so:
         return None
-    existing = db.query(Invoice).filter(Invoice.sales_order_id == sales_order_id,
-                                        Invoice.status.notin_(["void", "cancelled"])).first()
+    existing = db.query(Invoice).filter(
+        Invoice.sales_order_id == sales_order_id,
+        Invoice.status.notin_([InvoiceStatus.VOID.value, InvoiceStatus.CANCELLED.value]),
+    ).first()
     if existing:
         return existing
     now = datetime.now(timezone.utc)
@@ -738,7 +743,7 @@ def ensure_invoice_for_delivered_shipment(
         sales_order_id=sales_order_id,
         invoice_no=next_invoice_no(db),
         amount=float(so.total_amount or 0),
-        status="unpaid",
+        status=InvoiceStatus.UNPAID,
         issued_at=now,
         due_date=due,
     )

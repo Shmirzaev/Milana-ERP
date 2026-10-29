@@ -10,6 +10,7 @@ import { useT } from "@/lib/i18n";
 import { formatOrderReference, orderReference } from "@/lib/orderRef";
 import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
 import { MATERIAL_COLOR_OPTIONS, materialColorLabelKey } from "@/lib/materialColors";
+import { InventoryQcStatus } from "@/lib/inventoryQcStatus";
 import { divideBatchQuantityByRollCount } from "@/lib/materialRollWeights";
 
 type ReceiveFormState = {
@@ -32,7 +33,7 @@ type ReceiveFormState = {
   unit: string;
   cost_per_unit: number | "";
   warehouse_id: number;
-  qc_status: string;
+  qc_status: InventoryQcStatus;
   image_url: string;
   return_condition?: string;
 };
@@ -118,6 +119,14 @@ type AccessoryIssueSummaryRow = {
   returnable_quantity?: number;
 };
 
+// The create receipt screen offers these three QC values and starts on
+// `passed`. Membership in the canonical vocabulary does not widen this list.
+const RECEIPT_QC_STATUSES = [
+  InventoryQcStatus.PENDING,
+  InventoryQcStatus.PASSED,
+  InventoryQcStatus.FAILED,
+] as const;
+
 const DEFAULT_RECEIVE_FORM: ReceiveFormState = {
   item_id: 0,
   production_order_id: 0,
@@ -138,7 +147,7 @@ const DEFAULT_RECEIVE_FORM: ReceiveFormState = {
   unit: "kg",
   cost_per_unit: "",
   warehouse_id: 0,
-  qc_status: "passed",
+  qc_status: InventoryQcStatus.PASSED,
   image_url: "",
 };
 
@@ -536,10 +545,17 @@ function StockForm({
       </div>
       <div>
         <label className="label">{t("page.receiveStock.qcStatus")}</label>
-        <select className="input" value={form.qc_status} onChange={(e) => onChange({ ...form, qc_status: e.target.value })}>
-          <option value="pending">{t("qc.pending")}</option>
-          <option value="passed">{t("qc.passed")}</option>
-          <option value="failed">{t("qc.failed")}</option>
+        <select
+          className="input"
+          value={form.qc_status}
+          onChange={(e) => {
+            const next = RECEIPT_QC_STATUSES.find((status) => String(status) === e.target.value);
+            if (next) onChange({ ...form, qc_status: next });
+          }}
+        >
+          {RECEIPT_QC_STATUSES.map((status) => (
+            <option key={status} value={status}>{t(`qc.${status}`)}</option>
+          ))}
         </select>
       </div>
 

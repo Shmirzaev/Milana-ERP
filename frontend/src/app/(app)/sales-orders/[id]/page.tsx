@@ -1,4 +1,7 @@
 "use client";
+import { SalesOrderStatus, SalesOrderType } from "@/lib/salesOrderEnums";
+import type { SalesOrderDetail as SalesOrderDetailContract, SalesOrderItem } from "@/lib/salesOrderContracts";
+import type { InvoiceIssueResponse } from "@/lib/financeInvoiceContracts";
 import { useParams } from "next/navigation";
 import useSWR from "swr";
 import { fetcher, api } from "@/lib/api";
@@ -13,12 +16,15 @@ import { formatModelComposition } from "@/lib/modelComposition";
 
 type PrintingAttachment = { file_url: string; file_name?: string | null; content_type?: string | null };
 
+const INVOICE_ACTION_STATUSES: readonly SalesOrderStatus[] = [SalesOrderStatus.CONFIRMED, SalesOrderStatus.IN_PRODUCTION, SalesOrderStatus.CUTTING, SalesOrderStatus.SEWING, SalesOrderStatus.PACKAGING, SalesOrderStatus.STORAGE, SalesOrderStatus.READY, SalesOrderStatus.RESERVED, SalesOrderStatus.PLANNING, SalesOrderStatus.PLANNING_APPROVED, SalesOrderStatus.PRODUCTION, SalesOrderStatus.SHIPPED, SalesOrderStatus.DELIVERED];
+const RESERVED_SALES_STATUSES: readonly SalesOrderStatus[] = [SalesOrderStatus.READY, SalesOrderStatus.RESERVED];
+
 export default function SalesOrderDetail() {
   const params = useParams<{ id: string }>();
   const { t, lang } = useT();
   const id = params.id;
   const isNumericId = /^\d+$/.test(String(id || ""));
-  const { data: so, error: orderError, isLoading: orderLoading, mutate } = useSWR<any>(isNumericId ? `/api/sales-orders/${id}` : null, fetcher);
+  const { data: so, error: orderError, isLoading: orderLoading, mutate } = useSWR<SalesOrderDetailContract>(isNumericId ? `/api/sales-orders/${id}` : null, fetcher);
   const { data: mr } = useSWR<any[]>(so ? `/api/planning/material-requirements/${id}` : null, fetcher);
   const { data: processes } = useSWR<any[]>(so ? "/api/process-tracking" : null, fetcher);
   const [msg, setMsg] = useState("");
@@ -32,10 +38,10 @@ export default function SalesOrderDetail() {
     return byMime || byName;
   }
 
-  function modelLabel(item: any) {
-    const model = item.model || {};
-    const translated = model.translations?.[lang] || (lang === "ru" ? model.translations?.ru : "") || item.model_name || model.name;
-    const code = item.model_code || model.code;
+  function modelLabel(item: SalesOrderItem) {
+    const model = item.model;
+    const translated = model?.translations?.[lang] || (lang === "ru" ? model?.translations?.ru : "") || item.model_name || model?.name;
+    const code = item.model_code || model?.code;
     return code && translated ? `${code} - ${translated}` : code || translated || item.model_id;
   }
 
@@ -49,7 +55,7 @@ export default function SalesOrderDetail() {
     mutate();
   }
   async function generateInvoice() {
-    const inv = await api.post("/api/finance/invoices", { sales_order_id: Number(id) });
+    const inv = await api.post<InvoiceIssueResponse>("/api/finance/invoices", { sales_order_id: Number(id) });
     setMsg(t("page.salesOrder.invoiceGenerated", { invoiceNo: inv.invoice_no }));
   }
 
@@ -77,11 +83,11 @@ export default function SalesOrderDetail() {
         subtitle={t("page.soDetail.subtitle", { type: productionTypeLabel(so.order_type, t), status: statusLabel(so.status, t) })}
         actions={
           <div className="flex gap-2">
-            {so.status === "draft" && <button className="btn btn-primary" onClick={confirmOrder}>{t("btn.confirm")}</button>}
-            {["confirmed", "in_production", "cutting", "sewing", "packaging", "storage", "ready", "reserved", "planning", "planning_approved", "production", "shipped", "delivered"].includes(String(so.status || "")) && (
+            {so.status === SalesOrderStatus.DRAFT && <button className="btn btn-primary" onClick={confirmOrder}>{t("btn.confirm")}</button>}
+            {INVOICE_ACTION_STATUSES.includes(so.status) && (
               <button className="btn" onClick={generateInvoice}>{t("page.salesOrder.generateInvoice")}</button>
             )}
-            {so.order_type === "branded_stock_sale" && !["ready", "reserved"].includes(String(so.status || "")) && (
+            {so.order_type === SalesOrderType.BRANDED_STOCK_SALE && !RESERVED_SALES_STATUSES.includes(so.status) && (
               <button className="btn" onClick={reserveStock}>{t("btn.reserveStock")}</button>
             )}
           </div>
@@ -131,7 +137,7 @@ export default function SalesOrderDetail() {
           <table className="table">
             <thead><tr><th>{t("field.model")}</th><th>{t("field.color")}</th><th>{t("field.size")}</th><th>{t("field.qty")}</th><th>{t("field.price")}</th></tr></thead>
             <tbody>
-              {so.items?.map((i: any) => (
+              {so.items?.map((i) => (
                 <tr key={i.id}>
                   <td>
                     <div>{modelLabel(i)}</div><SalesLineThumbnails modelId={i.model_id} />

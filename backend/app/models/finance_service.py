@@ -182,7 +182,8 @@ def list_recent_invoices(
     """Return a page of recent invoices with sales-order and customer labels.
 
     Still returns a plain list so existing direct callers keep working; the
-    route wraps it with `count_invoices` for the exact total.
+    `invoice_list_page` operation builds the page envelope, including the
+    exact filtered total from `count_invoices`.
     """
     safe_limit = max(1, min(int(limit or 50), INVOICE_LIST_MAX_LIMIT))
     safe_offset = max(0, int(offset or 0))
@@ -215,11 +216,44 @@ def list_recent_invoices(
                 "order_no": so.order_no,
                 "customer": customer.name if customer else None,
                 "amount": float(invoice.amount or 0),
-                "status": invoice_payment_status(invoice.amount, paid_by_invoice.get(invoice.id, 0), invoice.status),
+                # Same nonnegative due projection as the customer ledger. The
+                # payment total may exceed the invoice; that remains credit.
+                "balance_due": float(round(max(
+                    money_decimal(invoice.amount) - money_decimal(paid_by_invoice.get(invoice.id, 0)),
+                    Decimal(0),
+                ), 2)),
+                "status": invoice_payment_status(
+                    invoice.amount, paid_by_invoice.get(invoice.id, 0), invoice.status
+                ).value,
                 "date": dt.isoformat() if dt else None,
             }
         )
     return out
+
+
+def invoice_list_page(
+    db: Session,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+    search: str | None = None,
+) -> dict:
+    """One page of invoices plus the exact count for the same filter.
+
+    The page bound is a finance rule, not a transport detail: a page holds at
+    most `INVOICE_LIST_MAX_LIMIT` rows, `total` is the true count for the same
+    filter instead of the page length, and `search` narrows the page and the
+    count together. Read-only: this operation writes nothing and commits
+    nothing, so the caller keeps the transaction.
+    """
+    safe_limit = max(1, min(int(limit or 50), INVOICE_LIST_MAX_LIMIT))
+    safe_offset = max(0, int(offset or 0))
+    return {
+        "items": list_recent_invoices(db, limit=safe_limit, offset=safe_offset, search=search),
+        "total": count_invoices(db, search=search),
+        "limit": safe_limit,
+        "offset": safe_offset,
+    }
 
 
 def revenue_by_period(db: Session, *, from_dt: datetime | None = None, to_dt: datetime | None = None) -> list[dict]:
@@ -272,6 +306,9 @@ def cost_breakdown(db: Session) -> dict:
     accessories_cost = 0.0
     for po in pos:
         for bom in boms_by_model.get(int(po.model_id), []):
+            if bom.item_id is None:
+                # Descriptive BOM rows have no inventory cost to include.
+                continue
             item_id = int(bom.item_id)
             item = item_map.get(item_id)
             category = str(item.category if item else "").lower()

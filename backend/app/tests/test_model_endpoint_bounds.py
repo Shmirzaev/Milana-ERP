@@ -244,7 +244,7 @@ def test_variants_use_a_targeted_bounded_database_query(client, auth_headers):
 
 
 def test_postgresql_variant_predicate_uses_the_generated_family_index_columns():
-    from app.api.routes.catalog import _variant_group_predicate
+    from app.models.catalog.models_service import _variant_group_predicate
 
     class PostgreSQLBind:
         class dialect:

@@ -1,4 +1,5 @@
 const en = {
+  firstTotalWeight: "1st Grade total (kg)", secondTotalWeight: "2nd Grade total (kg)", help: "Packing guidance", totalWeightHelp: "Enter total kg for the selected pieces of each grade. Weight is shared across their labels by piece count.",
   secondSaved: "Packages created. Receive their print run in the warehouse.", second: "2nd Grade", grade: "Grade", count: "Pieces to pack", createPacks: "Create packages and labels", secondHelp: "Enter pieces and total kg by size from accepted Sewing output. Receive the labelled packages in Warehouse Stock under 2nd Grade.",
   sizeEntryHelp: "Enter the accepted quantities by size here in Packaging, including pieces already packed. The total must match the accepted Sewing output. Then select the remaining singles.",
   saveSizes: "Save size quantities",
@@ -9,6 +10,7 @@ const en = {
 };
 type Copy = Record<keyof typeof en, string>;
 const ru: Copy = {
+  firstTotalWeight: "Общий вес 1-го сорта (кг)", secondTotalWeight: "Общий вес 2-го сорта (кг)", help: "Правила упаковки", totalWeightHelp: "Укажите общий вес выбранных изделий каждого сорта. Вес распределяется по этикеткам пропорционально количеству изделий.",
   secondSaved: "Упаковки созданы. Примите их группу печати на склад.", second: "2-й сорт", grade: "Сорт", count: "Изделий для упаковки", createPacks: "Создать упаковки и этикетки", secondHelp: "Введите количество и общий вес по размерам из принятого выхода пошива. Примите упаковки с этикетками в разделе склада «2-й сорт».",
   sizeEntryHelp: "Укажите принятые количества по размерам здесь, в упаковке, включая уже упакованные изделия. Сумма должна совпадать с принятым выходом пошива. Затем выберите остатки для поштучной упаковки.",
   saveSizes: "Сохранить количества по размерам",
@@ -18,6 +20,7 @@ const ru: Copy = {
   deleteShipment: "Удалить ошибочную отгрузку", deleteConfirm: "Удалить эту ручную отгрузку? Отсканированные упаковки вернутся в доступный остаток. История действий сохранится.", deleteReason: "Ручная отгрузка создана ошибочно", deleted: "Отгрузка удалена",
 };
 const uz: Copy = {
+  firstTotalWeight: "1-nav jami (kg)", secondTotalWeight: "2-nav jami (kg)", help: "Qadoqlash qoidalari", totalWeightHelp: "Har bir navning tanlangan donalari uchun jami kg ni kiriting. Vazn yorliqlarga dona soniga mutanosib taqsimlanadi.",
   secondSaved: "Qadoqlar yaratildi. Chop etish guruhini omborga qabul qiling.", second: "2-nav", grade: "Nav", count: "Qadoqlanadigan donalar", createPacks: "Qadoqlar va yorliqlar yaratish", secondHelp: "Tikuvdan qabul qilingan donalar va jami kg ni o‘lcham bo‘yicha kiriting. Yorliqli qadoqlarni omborning 2-nav bo‘limida qabul qiling.",
   sizeEntryHelp: "Qabul qilingan miqdorlarni o‘lcham bo‘yicha shu yerda, qadoqlashda kiriting, qadoqlangan donalarni ham qo‘shing. Jami tikuvdan qabul qilingan miqdorga teng bo‘lishi kerak. Keyin qolgan donalarni tanlang.",
   saveSizes: "O‘lcham miqdorlarini saqlash",

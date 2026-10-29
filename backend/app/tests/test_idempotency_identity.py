@@ -12,13 +12,13 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
-from app.api.routes import finance
 from app.api.routes.finance import create_payment
 from app.core.security import create_access_token
 from app.db.base import Base
 from app.db.session import SessionLocal
 from app.schemas import AuditLog, IdempotencyRecord, Invoice, Payment, SalesOrder, User
 from app.libs.dto.sales.sales import PaymentIn
+from app.models import payments_service as low_level_payments
 from app.models.idempotency_service import bind_idempotency_identity, replay_idempotent_response, request_fingerprint, store_idempotent_response
 
 
@@ -206,13 +206,13 @@ def test_postgres_concurrent_payment_retries(postgres_sessions, case, monkeypatc
     ready = Queue()
     processed = Queue()
     key = f"race-{uuid4().hex}"
-    original_payment = finance.create_invoice_payment
+    original_payment = low_level_payments.create_invoice_payment
 
     def process_payment(*args, **kwargs):
         processed.put(1)
         return original_payment(*args, **kwargs)
 
-    monkeypatch.setattr(finance, "create_invoice_payment", process_payment)
+    monkeypatch.setattr(low_level_payments, "create_invoice_payment", process_payment)
 
     def submit(index):
         with sessions() as db:

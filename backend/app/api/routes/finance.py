@@ -1,45 +1,20 @@
-from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation
-from fastapi import APIRouter, HTTPException, Depends, Header, Query
+from datetime import datetime
+from fastapi import APIRouter, Depends, Header, Query
 
 from app.core.deps import DbSession, require_permissions
-from app.schemas import Invoice, SalesOrder, User
-from app.libs.dto.sales.sales import InvoiceIn, InvoiceOut, PaymentIn, PaymentOut
-from app.models.audit_service import log_action
-from app.models.numbering_service import next_invoice_no
-from app.models.payments_service import create_invoice_payment, invoice_payment_status
-from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
+from app.schemas import Invoice, User
+from app.libs.dto.sales.invoice_input import InvoiceIn
+from app.libs.dto.sales.invoice_output import InvoiceOut
+from app.libs.dto.sales.payment_input import PaymentIn
+from app.libs.dto.sales.payment_output import PaymentOut
+from app.models.finance.invoices_service import create_order_invoice
+from app.models.finance.payments_service import record_invoice_payment
 from app.models.finance_service import (
-    dashboard_summary, order_profit, branded_stock_value, waste_cost, waste_income,
-    list_recent_invoices, count_invoices, INVOICE_LIST_MAX_LIMIT, revenue_by_period,
-    cost_breakdown,
+    branded_stock_value, cost_breakdown, dashboard_summary, invoice_list_page,
+    order_profit, revenue_by_period, waste_cost, waste_income,
 )
 
 router = APIRouter(prefix="/finance", tags=["finance"])
-
-# `invoices.amount` is NUMERIC(14, 2), so the largest storable amount is 999999999999.99
-# and the smallest non-zero one is one cent.
-_INVOICE_AMOUNT_MAX = Decimal("999999999999.99")
-_INVOICE_AMOUNT_CENT = Decimal("0.01")
-
-
-def _storable_invoice_amount(value: object) -> Decimal:
-    """Reduce a resolved invoice amount to what the storage column can hold.
-
-    `InvoiceIn.amount` is already storage-bounded, but an omitted amount falls back
-    to the stored `sales_orders.total_amount`, which is a database value rather than
-    a validated request field. Both paths go through this check so a nonfinite,
-    out-of-column or sub-cent total is rejected before any write.
-    """
-    try:
-        amount = Decimal(str(value if value is not None else 0))
-        if not amount.is_finite() or amount < 0 or amount > _INVOICE_AMOUNT_MAX:
-            raise ValueError
-        if amount != amount.quantize(_INVOICE_AMOUNT_CENT):
-            raise ValueError
-    except (InvalidOperation, ValueError):
-        raise HTTPException(422, "Invoice amount must be finite and representable in cents") from None
-    return amount.quantize(_INVOICE_AMOUNT_CENT)
 
 
 @router.get("/dashboard")
@@ -76,14 +51,7 @@ def list_invoices(
     UI can say how many rows exist past the current page instead of silently
     stopping at `limit`.
     """
-    safe_limit = max(1, min(int(limit or 50), INVOICE_LIST_MAX_LIMIT))
-    safe_offset = max(0, int(offset or 0))
-    return {
-        "items": list_recent_invoices(db, limit=safe_limit, offset=safe_offset, search=search),
-        "total": count_invoices(db, search=search),
-        "limit": safe_limit,
-        "offset": safe_offset,
-    }
+    return invoice_list_page(db, limit=limit, offset=offset, search=search)
 
 
 @router.get("/revenue-by-period")
@@ -102,33 +70,8 @@ def get_cost_breakdown(db: DbSession, _: User = Depends(require_permissions("fin
 
 
 @router.post("/invoices", response_model=InvoiceOut, status_code=201)
-def create_invoice(payload: InvoiceIn, db: DbSession, current: User = Depends(require_permissions("finance.invoice", "*"))):
-    # Serialize the existence check even when there is no invoice row to lock.
-    # NO KEY UPDATE stays compatible with invoice-insert foreign-key checks.
-    so = (
-        db.query(SalesOrder)
-        .filter(SalesOrder.id == payload.sales_order_id)
-        .populate_existing()
-        .with_for_update(of=SalesOrder, key_share=True)
-        .first()
-    )
-    if not so:
-        raise HTTPException(404, "Sales order not found")
-    existing = db.query(Invoice).filter(Invoice.sales_order_id == payload.sales_order_id).order_by(Invoice.id.desc()).first()
-    if existing:
-        return existing
-    amount = _storable_invoice_amount(payload.amount if payload.amount is not None else so.total_amount)
-    inv = Invoice(
-        sales_order_id=payload.sales_order_id,
-        invoice_no=next_invoice_no(db),
-        amount=amount,
-        status=invoice_payment_status(amount, 0),
-        issued_at=datetime.now(timezone.utc),
-    )
-    db.add(inv); db.flush()
-    log_action(db, current, "create", "Invoice", inv.id, new_value={"invoice_no": inv.invoice_no})
-    db.commit(); db.refresh(inv)
-    return inv
+def create_invoice(payload: InvoiceIn, db: DbSession, current: User = Depends(require_permissions("finance.invoice", "*"))) -> Invoice:
+    return create_order_invoice(db, payload, current)
 
 
 @router.post("/payments", response_model=PaymentOut, status_code=201)
@@ -138,30 +81,4 @@ def create_payment(
     current: User = Depends(require_permissions("finance.payment", "*")),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    fingerprint_payload = payload.model_dump(mode="json")
-    replay = replay_idempotent_response(db, scope="finance.payments", key=idempotency_key, payload=fingerprint_payload)
-    if replay:
-        return replay
-    inv = db.get(Invoice, payload.invoice_id)
-    if not inv: raise HTTPException(404, "Invoice not found")
-    p = create_invoice_payment(
-        db,
-        inv,
-        amount=payload.amount,
-        payment_method=payload.payment_method,
-        paid_at=payload.paid_at,
-        notes=payload.notes,
-    )
-    log_action(db, current, "create", "Payment", p.id, new_value={"amount": float(p.amount)})
-    response = PaymentOut.model_validate(p).model_dump(mode="json")
-    store_idempotent_response(
-        db,
-        scope="finance.payments",
-        key=idempotency_key,
-        payload=fingerprint_payload,
-        response=response,
-        user=current,
-        status_code=201,
-    )
-    db.commit(); db.refresh(p)
-    return response
+    return record_invoice_payment(db, payload, current, idempotency_key)

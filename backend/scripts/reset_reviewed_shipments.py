@@ -10,6 +10,7 @@ from decimal import Decimal
 
 from sqlalchemy import inspect, text
 from app.db.session import SessionLocal
+from app.libs.enums.finance import InvoiceStatus
 from app.schemas import (Shipment, ShipmentPackage, ShipmentScanLog, Package,
                         FinishedGoodsStock, StockReservation, Invoice, Payment,
                         SalesOrder, IdempotencyRecord, PackageScanLog)
@@ -62,7 +63,7 @@ def prepare(db, ids):
         if db.query(Shipment.id).filter(Shipment.sales_order_id == order.id, ~Shipment.id.in_(ids)).first():
             raise ValueError("Order has another shipment")
     for invoice in invoices:
-        if invoice.status != "unpaid" or invoice.external_id or invoice.external_source or db.query(Payment.id).filter(Payment.invoice_id == invoice.id).first():
+        if invoice.status != InvoiceStatus.UNPAID.value or invoice.external_id or invoice.external_source or db.query(Payment.id).filter(Payment.invoice_id == invoice.id).first():
             raise ValueError("Posted or paid invoice requires separate reconciliation")
     scans = db.query(ShipmentScanLog).filter(ShipmentScanLog.shipment_id.in_(ids)).order_by(ShipmentScanLog.id).with_for_update().all()
     retries = [row for row in db.query(IdempotencyRecord).filter(IdempotencyRecord.scope.like("shipments.%")).order_by(IdempotencyRecord.id).with_for_update().all()
@@ -93,7 +94,7 @@ def apply_reviewed(db, ids, expected):
     # Retain accounting identities and the original amounts in audit. Zero the
     # void invoice because legacy totals sum invoices regardless of their status.
     for invoice in invoices:
-        invoice.status = "void"
+        invoice.status = InvoiceStatus.VOID.value
         invoice.amount = Decimal("0")
     for order in orders:
         order.status = "cancelled"
