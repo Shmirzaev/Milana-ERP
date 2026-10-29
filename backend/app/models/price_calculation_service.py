@@ -15,6 +15,8 @@ from app.schemas import CuttingPassport, User
 from app.schemas.core_persistence import add_notification_row
 from app.schemas.catalog.catalog import Model
 from app.schemas.planning.price_calculation import PriceCalculationRequest
+from app.libs.types.planning import PriceCalculationPurchasingCommand
+from app.schemas.planning.price_calculation_persistence import apply_purchasing_contribution
 from app.models.audit_service import log_action
 from app.models.model_images_service import model_preview_image_url, model_variant_picture_url
 
@@ -437,14 +439,23 @@ def update_cutting_details(db: Session, request: PriceCalculationRequest, data: 
         _notify_finance(db, request, "Cutting details completed")
 
 
-def update_purchasing_details(db: Session, request: PriceCalculationRequest, data: dict, current: User) -> None:
+def update_purchasing_details(
+    db: Session,
+    request: PriceCalculationRequest,
+    command: PriceCalculationPurchasingCommand,
+    current: User,
+) -> None:
     before = purchasing_status(request)
-    request.fabric_price = data.get("fabric_price")
-    request.sewing_cost = data.get("sewing_cost")
-    request.purchasing_updated_by_id = current.id
-    db.flush()
+    apply_purchasing_contribution(db, request, command, updated_by_id=current.id)
     after = purchasing_status(request)
-    log_action(db, current, "update_purchasing_costs", "PriceCalculationRequest", request.id, new_value={"fabric_price": data.get("fabric_price"), "sewing_cost": data.get("sewing_cost")})
+    log_action(
+        db,
+        current,
+        "update_purchasing_costs",
+        "PriceCalculationRequest",
+        request.id,
+        new_value={"fabric_price": command.fabric_price, "sewing_cost": command.sewing_cost},
+    )
     if before != "complete" and after == "complete":
         _notify_finance(db, request, "Purchasing costs completed")
 
