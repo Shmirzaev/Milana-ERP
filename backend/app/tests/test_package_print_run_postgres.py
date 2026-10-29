@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from app.api.routes.packages import router as packages_router
-from app.core.deps import get_current_user, get_db
+from app.core.deps import get_current_user, get_db, user_permissions
 from app.models.idempotency_service import bind_idempotency_identity
 from app.models import package_workflows_service
 from app.models.package_workflows_service import (
@@ -34,7 +34,7 @@ def _seed_print_run_operation(
     package_count=2,
     actor_factory="MIL",
     actor_department="PKG",
-    actor_permissions=None,
+    actor_permissions=("packaging.packages",),
 ):
     marker = uuid4().hex
     with sessions.begin() as db:
@@ -117,12 +117,16 @@ def _seed_print_run_operation(
         return int(actor.id), [int(package.id) for package in packages]
 
 
-def _run_context(db, actor_id, *, global_access=False):
+def _run_context(db, actor_id):
     actor = db.get(User, actor_id)
     bind_idempotency_identity(db, actor)
     return PrintRunAuthorizationContext(
         actor=actor,
-        can_access_all_print_runs=global_access,
+        can_access_all_print_runs=bool(
+            set(user_permissions(actor)).intersection(
+                package_workflows_service.PRINT_RUN_GLOBAL_ACCESS_PERMISSIONS
+            )
+        ),
     )
 
 
@@ -142,6 +146,7 @@ def _invoke_print_run(sessions, actor_id, package_ids, key):
 
 def _assert_no_print_run_effects(sessions, actor_id, package_ids, key):
     with sessions() as db:
+        assert db.query(PackagePrintRun).filter_by(created_by=actor_id).count() == 0
         assert db.query(PackagePrintRunMember).filter(
             PackagePrintRunMember.package_id.in_(package_ids),
         ).count() == 0
