@@ -1,5 +1,16 @@
 # Team bug tracker — clone_main
 
+## INV-INACTIVE-BATCH-20261029 — edit a batch retaining its inactive material
+
+- **Local candidate; awaiting human review and separate deployment.** Inventory
+  owner Ismail; human reviewer Mirshoir. Codex fixed the unchanged-material
+  validation for batch 7148's editor without reactivating or reassigning stock.
+  Another inactive target remains refused, including forced saves.
+- 119 scoped tests plus all seven previously skipped PostgreSQL integrity cases
+  passed; real local Chrome save/reload and PostgreSQL readback passed; 20 repeated
+  saves preserved material/quantity/ledger. Independent review found no issues.
+  No production rows or release changed. [Evidence and operator checklist](../docs/archive/INACTIVE_BATCH_EDIT_2026-10-29.md).
+
 ## PACK-MANUAL-20261028 — manual Packaging packs and labels
 
 - **Local candidate; print visual gate BLOCKED.** Mirshoir owns Packaging;

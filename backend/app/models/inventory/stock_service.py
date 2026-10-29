@@ -1122,7 +1122,7 @@ def update_batch(db, batch_id: int, payload: StockBatchUpdate, current: User, fo
         target_item = db.get(Item, int(values["item_id"]))
         if not target_item:
             raise HTTPException(404, "Material not found")
-        if not target_item.is_active:
+        if target_item.id != item.id and not target_item.is_active:
             raise HTTPException(409, "Selected material is inactive")
         if target_item.category not in _item_name_group_categories(item.category):
             raise HTTPException(409, "Batch material must stay in the same inventory group")

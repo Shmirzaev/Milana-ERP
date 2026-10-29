@@ -17,6 +17,12 @@ not appended here. This summary does not replace live release verification.
 
 ## Production reconciliation deployed (29 October)
 
+Separate local candidate: the [inactive-material batch-edit fix](archive/INACTIVE_BATCH_EDIT_2026-10-29.md)
+allows an existing batch to retain its inactive material during corrections.
+Other inactive targets remain refused. Scoped API/PostgreSQL/browser/retry checks
+and independent review passed; human review, integration and deployment remain
+separate. Real batch 7148 and production were not changed by that task.
+
 The owner authorized reconciling latest `clone_main` with all current production
 fixes and deploying through blue/green, with current production ready for rollback.
 Active green is `20261029_042945`, exact runtime
