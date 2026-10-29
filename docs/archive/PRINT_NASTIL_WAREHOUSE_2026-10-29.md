@@ -129,6 +129,11 @@ handling. A release and backup remain prerequisites; no live correction occurred
   button text. The fixture now supplies batches, retains whole-order/rejection/
   fully-locked checks and exercises locked Nastil 1 plus selected 2/3 in EN/RU/UZ.
   Its local browser run passed; application code was unchanged by that repair.
+- The next CI run passed that factory test, then exposed a second stale fixture:
+  later-Nastil Sewing returned an empty owned-progress list while expecting batch
+  choices. It now supplies owned IDs 1/2/3, includes foreign batch 4 in the PO and
+  asserts that 4 is absent from choices. Existing assignment/save checks remain.
+  Its MIL/BST/ECO × EN/RU/UZ browser run passed without an application change.
 
 ## Human checklist before integration/release
 
