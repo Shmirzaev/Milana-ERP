@@ -3,8 +3,8 @@
 import ast
 import inspect
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session, lazyload
 
 from app.libs.dto.inventory.stock_batch_update import StockBatchUpdate
 from app.libs.enums.inventory import StockBatchQcStatus
@@ -23,6 +23,15 @@ def _session():
         ModelBOM.__table__, WasteRecord.__table__,
     ])
     return Session(engine)
+
+
+def _table_value(db, mapped, column: str, row_id: int):
+    table = mapped.__table__
+    return db.execute(select(table.c[column]).where(table.c.id == row_id)).scalar_one()
+
+
+def _batch(db, batch_id: int):
+    return db.query(StockBatch).options(lazyload(StockBatch.item)).filter_by(id=batch_id).one()
 
 
 def test_batch_edit_patch_contract_keeps_omitted_and_explicit_null_distinct():
@@ -79,9 +88,13 @@ def test_batch_edit_persists_patch_and_balanced_movements_and_cross_domain_links
     db.flush()
 
     rows = db.query(StockMovement).filter(StockMovement.batch_id == batch.id).all()
-    assert batch.quantity == 6 and batch.warehouse_id == 21 and batch.qc_status == "passed"
-    assert existing_movement.item_id == 11 and reservation.item_id == 11
-    assert bom.item_id == 11 and waste.item_id == 11
+    assert (_table_value(db, StockBatch, "quantity", batch.id),
+            _table_value(db, StockBatch, "warehouse_id", batch.id),
+            _table_value(db, StockBatch, "qc_status", batch.id)) == (6, 21, "passed")
+    assert _table_value(db, StockMovement, "item_id", existing_movement.id) == 11
+    assert _table_value(db, MaterialReservation, "item_id", reservation.id) == 11
+    assert _table_value(db, ModelBOM, "item_id", bom.id) == 11
+    assert _table_value(db, WasteRecord, "item_id", waste.id) == 11
     assert counts == {
         "stock_movements": 1, "material_reservations": 1,
         "model_bom": 1, "waste_records": 1,
@@ -109,6 +122,11 @@ def test_batch_edit_outer_rollback_restores_all_participants_and_retry_can_commi
     bom = ModelBOM(model_id=55, item_id=10, stock_batch_id=batch.id, quantity_per_piece=1, unit="kg")
     waste = WasteRecord(item_id=10, batch_id=batch.id, waste_type="scrap", quantity=0, unit="kg")
     db.add_all([reservation, bom, waste])
+    batch_id = batch.id
+    movement_id = movement.id
+    reservation_id = reservation.id
+    bom_id = bom.id
+    waste_id = waste.id
     db.commit()
 
     command = StockBatchEditCommand(
@@ -116,26 +134,28 @@ def test_batch_edit_outer_rollback_restores_all_participants_and_retry_can_commi
         target_quantity=4, old_quantity=5, target_unit="kg", actor_id=7,
         relink_item_id=11, item_movements=(movement,),
     )
-    stock_batch_persistence.apply_batch_edit(db, batch, command)
-    catalog_models_service.relink_stock_batch_boms_for_inventory(db, stock_batch_id=batch.id, item_id=11)
-    stock_batch_persistence.relink_batch_waste_items(db, batch_id=batch.id, item_id=11)
-    stock_batch_persistence.add_batch_edit_movements(db, batch, command)
+    initial_edit_batch = _batch(db, batch_id)
+    stock_batch_persistence.apply_batch_edit(db, initial_edit_batch, command)
+    catalog_models_service.relink_stock_batch_boms_for_inventory(db, stock_batch_id=batch_id, item_id=11)
+    stock_batch_persistence.relink_batch_waste_items(db, batch_id=batch_id, item_id=11)
+    stock_batch_persistence.add_batch_edit_movements(db, initial_edit_batch, command)
     db.rollback()
 
-    assert db.get(StockBatch, batch.id).quantity == 5
-    assert db.get(StockMovement, movement.id).item_id == 10
-    assert db.get(MaterialReservation, reservation.id).item_id == 10
-    assert db.get(ModelBOM, bom.id).item_id == 10
-    assert db.get(WasteRecord, waste.id).item_id == 10
+    assert _table_value(db, StockBatch, "quantity", batch_id) == 5
+    assert _table_value(db, StockMovement, "item_id", movement_id) == 10
+    assert _table_value(db, MaterialReservation, "item_id", reservation_id) == 10
+    assert _table_value(db, ModelBOM, "item_id", bom_id) == 10
+    assert _table_value(db, WasteRecord, "item_id", waste_id) == 10
 
-    stock_batch_persistence.apply_batch_edit(db, db.get(StockBatch, batch.id), command)
-    catalog_models_service.relink_stock_batch_boms_for_inventory(db, stock_batch_id=batch.id, item_id=11)
-    stock_batch_persistence.relink_batch_waste_items(db, batch_id=batch.id, item_id=11)
-    stock_batch_persistence.add_batch_edit_movements(db, db.get(StockBatch, batch.id), command)
+    retry_batch = _batch(db, batch_id)
+    stock_batch_persistence.apply_batch_edit(db, retry_batch, command)
+    catalog_models_service.relink_stock_batch_boms_for_inventory(db, stock_batch_id=batch_id, item_id=11)
+    stock_batch_persistence.relink_batch_waste_items(db, batch_id=batch_id, item_id=11)
+    stock_batch_persistence.add_batch_edit_movements(db, retry_batch, command)
     db.commit()
-    assert db.get(StockBatch, batch.id).quantity == 4
-    assert db.get(StockMovement, movement.id).item_id == 11
-    assert db.get(ModelBOM, bom.id).item_id == 11
+    assert _table_value(db, StockBatch, "quantity", batch_id) == 4
+    assert _table_value(db, StockMovement, "item_id", movement_id) == 11
+    assert _table_value(db, ModelBOM, "item_id", bom_id) == 11
 
 
 def test_service_keeps_validation_refusal_before_any_schema_writer():
