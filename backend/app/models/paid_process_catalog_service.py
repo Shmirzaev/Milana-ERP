@@ -2,7 +2,10 @@
 import unicodedata
 import hashlib
 
-SECTIONS = {"sewing", "cutting", "packaging", "cleaning", "pressing", "control", "storage", "tikuv", "transfer", "snaps", "buttons", "cord", "sorting"}
+from app.libs.enums.catalog import PAID_PROCESS_SECTION_VALUES, PaidProcessSection
+
+# Compatibility symbol for the canonical paid-process section vocabulary.
+SECTIONS = PAID_PROCESS_SECTION_VALUES
 ALIASES = {"пошив": "sewing", "tikuv": "tikuv", "крой": "cutting", "kroy": "cutting",
            "упаковка": "packaging", "upakovka": "packaging", "чистка": "cleaning",
            "chistka": "cleaning", "глажка": "pressing", "dazmol": "pressing",
@@ -19,7 +22,22 @@ def normalized_key(value: str) -> str:
     return hashlib.sha256(normalized_name(value).encode("utf-8")).hexdigest()
 
 
+def _text(value) -> str:
+    """Raw string value; a section member must not stringify as 'Class.MEMBER'."""
+    if isinstance(value, PaidProcessSection):
+        return value.value
+    return str(value or "")
+
+
 def process_section(row: dict) -> str:
-    source = normalized_name(str(row.get("sourceStage") or row.get("source_stage") or ""))
-    section = normalized_name(str(row.get("section") or "sewing"))
-    return source if source in SECTIONS else ALIASES.get(source, section if section in SECTIONS else ALIASES.get(section, "sewing"))
+    """Legacy raw-input boundary: raw seed text in, legacy section string out.
+
+    This interprets historical source records, so its canonical output stays the
+    legacy section *string*. It does not adopt the `PaidProcessSection` contract:
+    the enum-backed canonical boundary is the paid-process DTO and the mapped
+    write, not this legacy interpreter. The membership set below only carries
+    the canonical values as plain strings so the list is not duplicated.
+    """
+    source = normalized_name(_text(row.get("sourceStage") or row.get("source_stage")))
+    section = normalized_name(_text(row.get("section") or PaidProcessSection.SEWING.value))
+    return source if source in SECTIONS else ALIASES.get(source, section if section in SECTIONS else ALIASES.get(section, PaidProcessSection.SEWING.value))

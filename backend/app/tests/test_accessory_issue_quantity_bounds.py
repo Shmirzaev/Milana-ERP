@@ -3,7 +3,7 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from app.libs.dto.inventory.inventory import AccessoryIssueLineIn
+from app.libs.dto.inventory.accessory_issue_input import AccessoryIssueLineIn
 
 
 def test_accessory_issue_quantity_accepts_numeric_14_4_maximum_exactly():

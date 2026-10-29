@@ -1,8 +1,8 @@
 # Sales
 
-Business-service group guide, relocated into models/ on 24 October 2026. This
-directory remains README-only; existing implementations are the *_service.py files
-linked below. The proposed files describe later approved operation extractions.
+Business-service group guide. Since 25 October 2026 this directory holds the
+sales-order operations that used to live in
+[api/routes/sales.py](../../api/routes/sales.py).
 
 **Purpose:** Own sales-order creation, allowed edits, cancellation and ready-stock sales.
 
@@ -11,22 +11,35 @@ linked below. The proposed files describe later approved operation extractions.
 This owner covers the feature's routes, DTOs, enums, database definitions and tests.
 See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordination.
 
+## Service modules
+
+| File | Responsibility |
+| --- | --- |
+| `orders_service.py` | Order CRUD, list and search, detail, first-grade and ready-stock options, confirm, notifications, reservation and idempotency, attachments. |
+| `history_service.py` | Order-history assembly and history/query projection. Owns `_history_products` and `_stock_production_history`. |
+| `ready_stock_service.py` | Sales reservation coordination: calls Fulfillment's typed operations, writes Sales status/notes via schema operations, and requests owned task/notification participants. |
+
+`orders_service` depends on `ready_stock_service`; `history_service` depends on
+`orders_service` for the shared order serializer. No service imports a router.
+
+The route module is now HTTP-only: it binds input and permissions, calls one
+service function and returns its result.
+
+Candidate operation: `confirm_sales_order` sends the mapped status change through the existing `schemas.sales.sales_order_persistence.set_sales_order_status` operation using `SalesOrderStatus.CONFIRMED`. The service retains its existing business decisions and outer transaction, including its notification and audit participants on the supplied Session. This bounded operation does not certify other Sales writers. Combined PostgreSQL, browser/readback and human acceptance evidence must name the candidate source.
+
 ## Existing code to study first
 
-- Routes: [sales.py](../../api/routes/sales.py), [usluga.py](../../api/routes/usluga.py).
-- Services/helpers: [ready_stock_sales_service.py](../ready_stock_sales_service.py).
+- Routes: [sales.py](../../api/routes/sales.py).
+- Services/helpers: [ready_stock_sales_service.py](../ready_stock_sales_service.py)
+  retains the Sales order lock/replay guard and maps returned pack quantities to
+  Sales lines. [Fulfillment stock_service.py](../fulfillment/stock_service.py)
+  owns physical `reserve_pieces`, `reserve_packs` and candidate selection.
 - Existing SQLAlchemy schema models: [SalesOrder](../../schemas/sales/sales.py#L9), [SalesOrderItem](../../schemas/sales/sales.py#L45).
-- Existing Pydantic contracts: [sales.py](../../libs/dto/sales/sales.py).
-
-These are source pointers, not permission to move entire mixed files. Trace the
-particular operation and every caller/write before choosing what belongs here.
+- Existing Pydantic contracts: [sales_order_input.py](../../libs/dto/sales/sales_order_input.py),
+  [sales_order_update.py](../../libs/dto/sales/sales_order_update.py),
+  [sales_order_output.py](../../libs/dto/sales/sales_order_output.py).
 
 ## When making a service file
-
-| Proposed file | Responsibility |
-| --- | --- |
-| `orders_service.py` | Sales order lifecycle and item rules. |
-| `ready_stock_service.py` | Sales from available finished goods. |
 
 Use snake_case_service.py filenames and operation names such as `create_*`, `record_*`,
 `receive_*` or `approve_*`. A typed function is sufficient; a class is optional
@@ -37,12 +50,6 @@ keep fixed values in libs/enums/. See [DTO conventions](../../libs/dto/README.md
 Do not import routers, call an endpoint, or commit inside a helper owned by another
 transaction. Do not create an interface/repository or generic CRUD class by default.
 
-Database definitions have moved to schemas/; business operations use
-*_service.py. Convert this guide into a service package only as an approved
-operation is extracted and all callers are updated.
-
-**First operation to study:** Trace one sales order create/update operation, its item writes and downstream planning links. Do not move invoice or shipment logic into a general SalesService.
-
 **DTOs and enums:** Sales-order statuses and fixed sale categories. Preserve existing public values and cancellation rules. Reuse Create/In, Update and Read/Out contracts
 where they exist. Add action-specific input only for a real action. Do not generate
 three DTOs for every table or expose privileged fields through generic updates.
@@ -52,6 +59,16 @@ three DTOs for every table or expose privileged fields through generic updates.
 Planning evaluates requirements; Fulfillment owns physical dispatch; Finance owns invoices/payments. Do not write their records through private helpers.
 
 Verify order totals, partial edits, cancellation restrictions, reserved stock and response pagination. Visually check order entry/detail and the affected planning or warehouse handoff.
+
+## Remaining exceptions
+
+- `POST /sales-orders/{sid}/generate-invoice` stays in the route and still calls
+  `app.models.finance.invoices_service.generate_order_invoice`. Finance owns
+  invoicing, so the sales services must not import it.
+- The shipment Pydantic contracts remain in
+  [app/libs/dto/sales/sales.py](../../libs/dto/sales/sales.py) with the invoice and
+  payment aliases. Shipments are Fulfillment's entity; moving them is not a sales
+  operation.
 
 ## Migration steps
 

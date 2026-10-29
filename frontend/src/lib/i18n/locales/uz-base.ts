@@ -1,5 +1,6 @@
 // Generated mechanically from dict.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "sales.progressUnavailable": "Bajarilish ma’lumoti mavjud emas",
     "batch.lockedAfterSewing": "Qulflangan: tikuv natijasi kiritilgan",
     "batch.deleteFailed": "Partiyani o'chirib bo'lmadi.",
     "batch.deleted": "Partiya o'chirildi va tasdiqlangan mato sarfi bekor qilindi.",
@@ -1788,7 +1789,7 @@ export default {
     "page.finance.recentInvoices": "Oxirgi hisob-fakturalar",
     "page.finance.noInvoices": "Hali hisob-faktura yo'q.",
     "page.finance.recordPayment": "To'lov yozish",
-    "page.finance.recordPaymentConfirm": "To'lovni yozib, {invoice} ni to'langan deb belgilaysizmi?",
+    "page.finance.recordPaymentConfirm": "{invoice} uchun {amount} miqdoridagi to'lovni qayd etasizmi?",
     "page.finance.revenueOverTime": "Davrlar bo'yicha tushum",
     "page.finance.noRevenueData": "Tanlangan oraliqda tushum ma'lumoti yo'q.",
     "page.finance.costBreakdown": "Xarajatlar taqsimoti",

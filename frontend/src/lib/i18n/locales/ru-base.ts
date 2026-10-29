@@ -1,5 +1,6 @@
 // Generated mechanically from dict.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "sales.progressUnavailable": "Прогресс недоступен",
     "batch.lockedAfterSewing": "Заблокировано: внесён выпуск пошива",
     "batch.deleteFailed": "Не удалось удалить партию.",
     "batch.deleted": "Партия удалена, подтверждённый расход ткани отменён.",
@@ -1788,7 +1789,7 @@ export default {
     "page.finance.recentInvoices": "Последние счета",
     "page.finance.noInvoices": "Счетов пока нет.",
     "page.finance.recordPayment": "Записать платёж",
-    "page.finance.recordPaymentConfirm": "Записать платёж и отметить {invoice} как оплаченный?",
+    "page.finance.recordPaymentConfirm": "Записать платёж на сумму {amount} по счёту {invoice}?",
     "page.finance.revenueOverTime": "Выручка по периодам",
     "page.finance.noRevenueData": "Нет данных по выручке за выбранный период.",
     "page.finance.costBreakdown": "Структура затрат",

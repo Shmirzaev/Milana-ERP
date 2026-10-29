@@ -11,6 +11,7 @@ import { api, fetcher } from "@/lib/api";
 import { useMe, can } from "@/lib/auth";
 import PageHeader from "@/components/PageHeader";
 import BrandedOrderHistory, { type BrandedPlanningOrder } from "@/components/BrandedOrderHistory";
+import { BrandedPlanningOrderType } from "@/lib/brandedPlanning";
 import Modal from "@/components/Modal";
 import SearchableSelect from "@/components/SearchableSelect";
 import BrandedModelVariantSelect from "@/components/BrandedModelVariantSelect";
@@ -18,6 +19,7 @@ import BrandedCustomerDialog from "@/components/BrandedCustomerDialog";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 import { numberOrFallback, numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
+import { InventoryQcStatus, inventoryQcStatus } from "@/lib/inventoryQcStatus";
 
 type FabricBatch = {
   id: number;
@@ -30,9 +32,16 @@ type FabricBatch = {
   unit: string;
   available_quantity: number;
   warehouse_name?: string | null;
-  qc_status?: string | null;
+  qc_status?: InventoryQcStatus | null;
   image_url?: string | null;
 };
+
+// Batches in these QC states are not offered to planning. The vocabulary is the
+// canonical one; the exclusion is this screen's own rule.
+const PLANNING_EXCLUDED_QC_STATUSES: readonly InventoryQcStatus[] = [
+  InventoryQcStatus.FAILED,
+  InventoryQcStatus.REJECTED,
+];
 
 type Brand = {
   id: number;
@@ -393,7 +402,12 @@ export default function PlanningDashboard() {
   const activeBrands = (brands || []).filter((brand) => brand.is_active);
   const availableFabricBatches = useMemo(() => (fabricBatches || [])
     .filter((batch) => Number(batch.available_quantity || 0) > 0)
-    .filter((batch) => !["failed", "rejected"].includes(String(batch.qc_status || "").toLowerCase())), [fabricBatches]);
+    .filter((batch) => {
+      // The wire value is lower-cased exactly as before. An unknown or empty
+      // value is not a member, and an unknown batch stays available.
+      const status = inventoryQcStatus(String(batch.qc_status || "").toLowerCase());
+      return status === null || !PLANNING_EXCLUDED_QC_STATUSES.includes(status);
+    }), [fabricBatches]);
   const selectedBrandedModel = selectedBrandedModelDetail || null;
   const selectedBrandedBrand = activeBrands.find((brand) => Number(brand.id) === Number(brandedForm.brand_id)) || null;
   const brandedModelLoaded = Boolean(brandedForm.model_id)
@@ -896,7 +910,7 @@ export default function PlanningDashboard() {
     setNewBrandedOrderErr("");
     setNewBrandedOrderSaving(true);
     try {
-      const order = await api.post<BrandedPlanningOrder>("/api/planning/branded-orders", customerId ? { ordered_for_type: "customer", customer_id: customerId } : {});
+      const order = await api.post<BrandedPlanningOrder>("/api/planning/branded-orders", customerId ? { ordered_for_type: BrandedPlanningOrderType.CUSTOMER, customer_id: customerId } : {});
       await mutateBrandedOrders();
       setNewBrandedOrderOpen(false);
       selectBrandedOrderForProduction(order.id);

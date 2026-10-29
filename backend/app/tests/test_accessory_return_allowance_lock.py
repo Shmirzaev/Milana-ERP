@@ -28,6 +28,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.routes import inventory as inventory_routes
+from app.models.inventory import stock_service
 from app.models.idempotency_service import bind_idempotency_identity
 from app.db.base import Base
 from app.schemas import (
@@ -44,7 +45,7 @@ from app.schemas import (
     User,
     Warehouse,
 )
-from app.libs.dto.inventory.inventory import AccessoryReturnIn
+from app.libs.dto.inventory.accessory_return_input import AccessoryReturnIn
 from app.models.inventory_service import accessory_issue_summary
 
 # The allowance read happens through this route-module name, so wrapping it
@@ -191,7 +192,7 @@ def _race_two_returns(sessions, case, monkeypatch, *, observe_blockers=False):
     pids = Queue()
     release = Event()
     local = threading.local()
-    real_summary = inventory_routes.accessory_issue_summary
+    real_summary = stock_service.accessory_issue_summary
 
     def rendezvous_summary(db, **kwargs):
         rows = real_summary(db, **kwargs)
@@ -233,7 +234,7 @@ def _race_two_returns(sessions, case, monkeypatch, *, observe_blockers=False):
         holder = arrived.get_nowait() if not arrived.empty() else None
         return blocked, holder
 
-    monkeypatch.setattr(inventory_routes, "accessory_issue_summary", rendezvous_summary)
+    monkeypatch.setattr(stock_service, "accessory_issue_summary", rendezvous_summary)
     try:
         with ThreadPoolExecutor(max_workers=2) as pool:
             futures = [pool.submit(worker, index) for index in (0, 1)]

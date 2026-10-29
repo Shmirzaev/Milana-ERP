@@ -9,6 +9,12 @@ from sqlalchemy import event, text
 from sqlalchemy.orm import Session
 
 from app.schemas import AuditLog, User
+from app.schemas.core_persistence import (
+    add_audit_log_row,
+    add_audit_log_rows,
+    apply_audit_entry_hashes,
+    build_audit_log_row,
+)
 
 
 _AUDIT_LOCK_NAMESPACE = 1_096_107_092  # ASCII "AUDT", stable across processes.
@@ -150,8 +156,7 @@ def _finalize_postgres_audits(db: Session) -> None:
 
     prev_hash = _latest_entry_hash(db)
     for entry in entries:
-        entry.prev_hash = prev_hash
-        entry.entry_hash = _audit_entry_hash(
+        entry_hash = _audit_entry_hash(
             prev_hash=prev_hash,
             user_id=entry.user_id,
             action=entry.action,
@@ -160,8 +165,9 @@ def _finalize_postgres_audits(db: Session) -> None:
             old_value=entry.old_value_json,
             new_value=entry.new_value_json,
         )
-        prev_hash = entry.entry_hash
-    db.add_all(entries)
+        apply_audit_entry_hashes(entry, prev_hash=prev_hash, entry_hash=entry_hash)
+        prev_hash = entry_hash
+    add_audit_log_rows(db, entries)
     db.flush()
     db.info[_AUDIT_FINALIZED].add(transaction)
 
@@ -203,7 +209,7 @@ def log_action(
         # all domain locking.  This keeps ID order identical to chain order.
         db.flush()
         _install_postgres_audit_hooks(db)
-        entry = AuditLog(
+        entry = build_audit_log_row(
             user_id=user.id if user else None,
             action=action,
             entity_type=entity_type,
@@ -226,7 +232,8 @@ def log_action(
         old_value=safe_old,
         new_value=safe_new,
     )
-    entry = AuditLog(
+    entry = add_audit_log_row(
+        db,
         user_id=user.id if user else None,
         action=action,
         entity_type=entity_type,
@@ -236,7 +243,6 @@ def log_action(
         prev_hash=prev_hash,
         entry_hash=entry_hash,
     )
-    db.add(entry)
     if commit:
         db.commit()
     else:

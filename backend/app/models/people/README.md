@@ -38,7 +38,11 @@ keep fixed values in libs/enums/. See [DTO conventions](../../libs/dto/README.md
 Do not import routers, call an endpoint, or commit inside a helper owned by another
 transaction. Do not create an interface/repository or generic CRUD class by default.
 
-**First operation to study:** Trace payroll.create_period/update_period and the inline EmployeeIn/EmployeeUpdate DTOs in routes/hr.py. Move contracts to schemas and rules to the appropriate operation while retaining locks and field permissions.
+**First operation to study:** Trace payroll.create_period/update_period and the
+inline EmployeeIn/EmployeeUpdate DTOs in routes/hr.py. Move Pydantic contracts to
+libs/dto/people/ and business rules to the approved models/people/ service
+operation. Keep writes in schema-owned persistence operations using the same
+supplied Session, retaining locks and field permissions.
 
 **DTOs and enums:** Employee, attendance and payroll-period states; fixed vocabulary does not permit client-controlled pay or bypass period approval. Reuse Create/In, Update and Read/Out contracts
 where they exist. Add action-specific input only for a real action. Do not generate

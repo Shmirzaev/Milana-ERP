@@ -37,7 +37,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
-from app.api.routes import catalog as catalog_routes
+from app.models.catalog import models_service
 from app.api.routes import hr_workspace as hr_routes
 from app.core.config import settings
 from app.db.base import Base
@@ -484,9 +484,9 @@ def test_model_image_upload_commits_its_row_and_audit(upload_postgres, tmp_path,
 
     with upload_postgres() as request_db:
         current = request_db.get(User, user_id)
-        result = asyncio.run(catalog_routes.upload_image(
-            model_id, request_db, file=upload, image_type="model",
-            current=current, catalog_scope="standard",
+        result = asyncio.run(models_service.upload_image(
+            current, request_db, model_id, file=upload, image_type="model",
+            catalog_scope="standard",
         ))
 
     assert result["file_url"].startswith("/storage/model-files/")
@@ -534,9 +534,9 @@ def test_model_image_upload_cancel_rolls_back_the_row_and_removes_the_file(
         current = request_db.get(User, user_id)
 
         async def run():
-            task = asyncio.create_task(catalog_routes.upload_image(
-                model_id, request_db, file=upload, image_type="material",
-                current=current, catalog_scope="standard",
+            task = asyncio.create_task(models_service.upload_image(
+                current, request_db, model_id, file=upload, image_type="material",
+                catalog_scope="standard",
             ))
             for _ in range(500):
                 if entered.is_set():
@@ -563,7 +563,7 @@ def test_model_image_upload_keeps_the_file_when_the_transaction_committed(
     """Cancellation must never delete a file whose row is already committed."""
     monkeypatch.setattr(settings, "MODEL_FILES_DIR", str(tmp_path))
     model_id, user_id = _seed_model(upload_postgres)
-    real_create = catalog_routes._create_uploaded_model_image
+    real_create = models_service._create_uploaded_model_image
     entered = Event()
     release = Event()
 
@@ -572,16 +572,16 @@ def test_model_image_upload_keeps_the_file_when_the_transaction_committed(
         release.wait(5)
         return real_create(db, **kwargs)
 
-    monkeypatch.setattr(catalog_routes, "_create_uploaded_model_image", slow_create)
+    monkeypatch.setattr(models_service, "_create_uploaded_model_image", slow_create)
     upload = _upload()
 
     with upload_postgres() as request_db:
         current = request_db.get(User, user_id)
 
         async def run():
-            task = asyncio.create_task(catalog_routes.upload_image(
-                model_id, request_db, file=upload, image_type="material",
-                current=current, catalog_scope="standard",
+            task = asyncio.create_task(models_service.upload_image(
+                current, request_db, model_id, file=upload, image_type="material",
+                catalog_scope="standard",
             ))
             for _ in range(500):
                 if entered.is_set():
@@ -610,9 +610,9 @@ def test_model_image_upload_rejects_a_model_outside_the_requested_scope(
     with upload_postgres() as request_db:
         current = request_db.get(User, user_id)
         with pytest.raises(HTTPException) as refused:
-            asyncio.run(catalog_routes.upload_image(
-                usluga_model_id, request_db, file=upload, image_type="model",
-                current=current, catalog_scope="standard",
+            asyncio.run(models_service.upload_image(
+                current, request_db, usluga_model_id, file=upload, image_type="model",
+                catalog_scope="standard",
             ))
 
     assert refused.value.status_code == 404
@@ -641,16 +641,16 @@ def test_model_image_scope_is_rechecked_where_the_worker_writes(upload_postgres,
             )
         return stored
 
-    monkeypatch.setattr(image_storage, "store_uploaded_image", store_then_move_scope)
+    monkeypatch.setattr(models_service, "store_uploaded_image", store_then_move_scope)
     upload = _upload()
     audits_before = _audit_count(upload_postgres)
 
     with upload_postgres() as request_db:
         current = request_db.get(User, user_id)
         with pytest.raises(HTTPException) as refused:
-            asyncio.run(catalog_routes.upload_image(
-                model_id, request_db, file=upload, image_type="model",
-                current=current, catalog_scope="standard",
+            asyncio.run(models_service.upload_image(
+                current, request_db, model_id, file=upload, image_type="model",
+                catalog_scope="standard",
             ))
 
     assert refused.value.status_code == 404

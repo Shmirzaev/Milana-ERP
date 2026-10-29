@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.libs.dto.inventory.inventory import StockBatchUpdate
+from app.libs.dto.inventory.stock_batch_update import StockBatchUpdate
 
 
 def test_stock_batch_update_accepts_numeric_column_limit():
