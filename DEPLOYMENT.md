@@ -145,6 +145,32 @@ Create a unique PostgreSQL custom-format backup without printing `DATABASE_URL`.
 - more than 100 restore objects;
 - recorded dump/restore-list sizes and SHA-256 values.
 
+Uploaded files are on the backend host's `/app/storage` bind mount, outside the
+database dump. For an approved coordinated recovery point, quiesce database and
+upload writes, take the dump and a snapshot/copy of the entire mount, then run
+this on an isolated host with `pg_restore` and both copied artifacts. Create a
+pairing manifest **outside** both artifacts:
+
+```sh
+python scripts/storage_recovery_manifest.py create \
+  --database-dump <path-to-custom-format.dump> \
+  --storage-root <path-to-storage-snapshot> \
+  --output <path-to-pairing-manifest.json>
+python scripts/storage_recovery_manifest.py verify \
+  --manifest <path-to-pairing-manifest.json> \
+  --database-dump <path-to-custom-format.dump> \
+  --storage-root <path-to-storage-snapshot>
+```
+
+The verifier reads the supplied artifacts only. It checks the dump hash,
+every storage file hash, missing/extra files, and known database upload URLs
+and stored filenames using local `pg_restore`; it does not connect to a
+database. A nonzero result blocks use of the pair (1 is a mismatch; 2 is
+invalid input or an unreadable artifact). Keep the mode-`0600` manifest
+with the artifacts. A manifest cannot prove the dump and file snapshot were
+captured at the same instant; record the quiesce interval and backup identities.
+It does not replace an isolated restore drill or establish the zero-RPO target.
+
 Run candidate migrations before traffic switch:
 
 ```sh
