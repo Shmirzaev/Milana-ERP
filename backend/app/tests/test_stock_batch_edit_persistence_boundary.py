@@ -122,6 +122,7 @@ def test_batch_edit_outer_rollback_restores_all_participants_and_retry_can_commi
     bom = ModelBOM(model_id=55, item_id=10, stock_batch_id=batch.id, quantity_per_piece=1, unit="kg")
     waste = WasteRecord(item_id=10, batch_id=batch.id, waste_type="scrap", quantity=0, unit="kg")
     db.add_all([reservation, bom, waste])
+    db.flush()
     batch_id = batch.id
     movement_id = movement.id
     reservation_id = reservation.id
