@@ -56,6 +56,15 @@ def validate_claim(db: Session, shipment: Shipment, package: Package, quantities
     validate_available_claim(quantities, available)
 
 
+def ready_claims_for_order(db: Session, packages: list[Package], sales_order_id: int | None):
+    """Order preparation includes pieces already claimed by its own open shipment."""
+    own = db.query(Shipment.id).filter(Shipment.sales_order_id == sales_order_id,
+        Shipment.status.in_(OPEN_STATUSES), Shipment.deleted_at.is_(None)).all() if sales_order_id else []
+    if len(own) > 1:
+        raise HTTPException(409, 'Multiple open shipments for this order require review')
+    return available_claims(db, packages, own[0][0] if own else None)
+
+
 def validate_available_claim(quantities: dict[str, int], available: dict[str, int]) -> None:
     if (set(quantities) != set(available) or sum(quantities.values()) <= 0
             or any(type(qty) is not int or qty < 0 or qty > available[key] for key, qty in quantities.items())):

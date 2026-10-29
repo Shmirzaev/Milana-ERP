@@ -32,7 +32,7 @@ from app.libs.dto.catalog.catalog import PartyIn
 from app.libs.dto.fulfillment.shipment_review import ShipmentAmountReview, ShipmentPackageRemoval, ShipmentQuantityReview, ShipmentTransportDetails, ShipmentReopen
 from app.models.shipment_reopen_service import reopen_shipment
 from app.models.fulfillment.shipment_allocation_service import (
-    available_claims, attach_package_claim, claimed_quantity, replace_claim,
+    available_claims, attach_package_claim, claimed_quantity, replace_claim, ready_claims_for_order,
 )
 from app.models.shipment_review_service import (
     correct_received_quantity, detach_shipment_package, freeze_dispatch_document, locked_shipment,
@@ -1075,7 +1075,7 @@ def ready_packages(db: DbSession, _: CurrentUser, sales_order_id: int | None = N
             .order_by(Package.id.asc())
             .all()
         )
-    claimable = available_claims(db, [p for p, _ in rows])
+    claimable = ready_claims_for_order(db, [p for p, _ in rows], sales_order_id)
     return [
         {
             "id": p.id,

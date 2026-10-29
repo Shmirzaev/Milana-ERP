@@ -119,6 +119,8 @@ def dispatch_selected(db, shipment, package, stocks, user, *, claim_context=None
     reservations = context.reservations[package.id]
     if any(row.sales_order_id != shipment.sales_order_id for row in reservations):
         raise HTTPException(409, "Package is reserved for another order")
+    whole_receipt = not package.dispatched_quantity and all(
+        quantities[str(item.id)] == item.quantity for item in items)
     for stock in stocks:
         key = (stock.model_id, stock.color, stock.size)
         take = min(grouped[key], stock.available_qty + stock.reserved_qty)
@@ -131,8 +133,12 @@ def dispatch_selected(db, shipment, package, stocks, user, *, claim_context=None
         stock.reserved_qty = 0
         stock.sold_qty += take
         stock.status = "available" if stock.available_qty else "sold"
-        for reservation in own:
-            db.delete(reservation)
+        # Whole-receipt dispatch retains the historical consumed reservations,
+        # as the existing whole-pack workflow does. A partial dispatch releases
+        # its remainder, so its former reservation rows must be removed.
+        if not whole_receipt:
+            for reservation in own:
+                db.delete(reservation)
     if any(grouped.values()):
         raise HTTPException(409, "Selected quantity is not available in warehouse stock")
     # Keep this shipment's contents stable after the same pack is depleted.
