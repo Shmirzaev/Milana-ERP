@@ -52,7 +52,7 @@ from app.libs.dto.catalog.model_size_input import ModelSizeIn
 from app.libs.dto.catalog.model_output import ModelDetail, ModelImageOut, ModelOut, ModelSummaryOut
 from app.libs.dto.catalog.process_qr_sizes_input import ProcessQrSizesIn
 from app.libs.enums.catalog import BomMaterialRole, CatalogScope
-from app.libs.types.catalog import NormalizedBomCreate, NormalizedBomUpdate
+from app.libs.types.catalog import NormalizedBomCreate, NormalizedBomUpdate, StockBatchBomRelinkCommand
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import selected_factory_code
 from app.models.image_storage_service import (
@@ -102,7 +102,12 @@ from app.schemas import (
     StockBatch,
     User,
 )
-from app.schemas.catalog.bom_persistence import delete_model_bom, insert_model_bom, update_model_bom
+from app.schemas.catalog.bom_persistence import (
+    delete_model_bom,
+    insert_model_bom,
+    relink_stock_batch_boms,
+    update_model_bom,
+)
 
 # A model's details_json is per-model modelling metadata: identity, costing and
 # paid operations. Sizes, measurements, BOM and images live in their own tables,
@@ -2770,6 +2775,25 @@ async def upload_bom_photo(
             await discard_stored_image(stored)
         raise
     return {"file_url": file_url}
+
+
+def relink_stock_batch_boms_for_inventory(
+    db: Session,
+    *,
+    stock_batch_id: int,
+    item_id: int,
+) -> int:
+    """Catalog participant for an authorized Inventory batch material rebind.
+
+    Inventory owns the outer transaction and all policy/refusal checks. This
+    public domain operation preserves the existing BOM selector and delegates
+    the Catalog-owned mapped update to its schema module without flushing.
+    """
+    command: StockBatchBomRelinkCommand = {
+        "stock_batch_id": stock_batch_id,
+        "item_id": item_id,
+    }
+    return relink_stock_batch_boms(db, command)
 
 
 def update_bom(
