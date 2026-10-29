@@ -66,3 +66,16 @@ The default suite remains **FAIL**, despite zero skips and passing required grou
 Human review remains pending. No production database, serving host or shared
 storage was used. Browser/visual E2E and separate application stress were not
 rerun for this tooling change; no AI-verified or production-acceptance claim is made.
+
+## Font prerequisites and CI
+
+Verified on 29 October: [#322's CI backend regression run](https://github.com/Shmirzaev/Milana-ERP/actions/runs/40841879497/job/123339949929)
+passed 4,838 cases, with 538 opt-in skips. The four historical font-dependent cases
+in `test_eco_transfers.py`, `test_inventory_master_data.py`,
+`test_sewing_daily_reports.py` and `test_usluga.py` are unconditional tests in that
+collection; none has a font-related skip. They also passed in the local Docker
+full run recorded above. Ubuntu CI has the required fonts; the local Docker
+runner installs them through the existing backend Dockerfile. Its users need no
+host font installation. Native Debian/Ubuntu pytest needs `fonts-dejavu-core`;
+native macOS lacks a supported font path or environment override, so use the
+Docker runner rather than assuming a Homebrew font install will be discovered.

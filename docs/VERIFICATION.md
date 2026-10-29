@@ -178,6 +178,18 @@ the runner. The containers and test image are removed afterward. Consolidating t
 legacy variable names remains a separate change. The runner also enables the
 Payment, Sales-list and Forecast-create opt-in URLs on its owned databases.
 
+PDF/label tests require DejaVu Sans regular and bold at
+`/usr/share/fonts/truetype/dejavu/DejaVuSans{,-Bold}.ttf` (Windows also supports
+the existing Arial paths). The four historical native-macOS font failures pass
+in Ubuntu CI and in this runner's Docker environment: `backend/Dockerfile`
+already installs `fonts-dejavu-core`, so **the runner needs no host font setup**.
+For native Debian/Ubuntu pytest, install with
+`sudo apt-get update && sudo apt-get install -y fonts-dejavu-core`.
+Native macOS font installation alone does not satisfy these hardcoded paths;
+there is no font-path environment override. Use the Docker runner on macOS.
+Missing fonts are an environment prerequisite failure, not a passing/skippable
+PDF check. [CI verification](archive/LOCAL_POSTGRES_RUNNER_2026-10-29.md#font-prerequisites-and-ci).
+
 The isolated refactor PostgreSQL workflow runs the required operation groups and
 the separate Purchasing/Fabric supplement from
 `scripts/refactor_pg_required_cases.json`. Review both exact JUnit identity sets,
