@@ -32,3 +32,6 @@ New detailed dated events belong here; current summaries link to the relevant re
 - [Combined manual Packaging release, 28 October 2026](MANUAL_PACKAGING_RELEASE_2026-10-28.md):
   verified blue promotion, retained green rollback, exact CI/backup/QA and print acceptance limits.
 - [Manual Packaging and employee master correction, 28 October 2026](MANUAL_PACKAGING_2026-10-28.md).
+
+- [RF-009 create_user baseline](RF009_CREATE_USER_BASELINE_2026-10-29.md):
+  196 passing current-behavior cases; extraction agreement remains pending.
