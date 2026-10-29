@@ -112,4 +112,3 @@ def test_postgres_attach_refreshes_readiness_after_wait(password_change_postgres
         stale.rollback()
     with sessions() as db:
         assert db.query(ShipmentPackage).filter_by(shipment_id=sids[1]).count()==0
-
