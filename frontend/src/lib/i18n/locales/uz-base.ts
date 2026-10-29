@@ -13,6 +13,7 @@ export default {
     "page.processQr.sizeSplitMissing": "Model yoki buyurtma uchun o‘lchamlar belgilanmagan. Yorliqlarni chiqarishdan oldin model o‘lchamlarini belgilang.",
     "page.processQr.sizeSplitIssuedConflict": "Bu taqsimot avval chiqarilgan yorliqlardan farq qiladi. Yangi yorliqlarni chiqarishdan oldin ularning miqdorini tiklang; mavjud yorliqlarni chiqarilgan yorliqlar bo‘limida tuzating.",
     "auth.connectionFailed": "Seansni tekshirib bo‘lmadi. Internet aloqasini tekshirib, qayta urinib ko‘ring.",
+    "common.requestTimeout": "Server vaqtida javob bermadi. Qayta urinib ko‘ring.",
     "fabricRollEntry.metersRequired": "Umumiy uzunlikni noldan katta va rulonlar sonini butun son bilan kiriting.",
     "fabricRollEntry.quantityMethod": "Miqdor kiritish",
     "fabricRollEntry.totalLengthOnly": "Faqat umumiy uzunlik",

@@ -13,6 +13,7 @@ export default {
     "page.processQr.sizeSplitMissing": "Для модели или заказа не заданы размеры. Укажите размеры модели перед выпуском ярлыков.",
     "page.processQr.sizeSplitIssuedConflict": "Распределение отличается от уже выпущенных ярлыков. Восстановите их количества перед выпуском новых; существующие ярлыки исправляйте в разделе выпущенных ярлыков.",
     "auth.connectionFailed": "Не удалось проверить сеанс. Проверьте соединение и повторите попытку.",
+    "common.requestTimeout": "Сервер не ответил вовремя. Повторите попытку.",
     "fabricRollEntry.metersRequired": "Введите положительную общую длину и целое количество рулонов.",
     "fabricRollEntry.quantityMethod": "Ввод количества",
     "fabricRollEntry.totalLengthOnly": "Только общая длина",
