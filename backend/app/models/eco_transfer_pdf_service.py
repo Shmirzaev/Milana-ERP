@@ -20,8 +20,8 @@ TEXT = {
 
 
 def build_pdf(dispatch, lang="en"):
-    from app.api.routes.fabric_scans import TASHKENT
     from datetime import timezone
+    from app.models.inventory.fabric_scans_service import TASHKENT
     t = TEXT.get(lang, TEXT["en"])
     regular, bold = _register_report_fonts()
     output = BytesIO()

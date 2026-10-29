@@ -1,0 +1,200 @@
+2026-10-27T13:02:28.271000172Z Seed completed.
+2026-10-27T13:02:28.271446717Z Seed failed: (psycopg2.errors.UniqueViolation) duplicate key value violates unique constraint "departments_code_key"
+2026-10-27T13:02:28.271449925Z DETAIL:  Key (code)=(SLS) already exists.
+2026-10-27T13:02:28.271450883Z
+2026-10-27T13:02:28.271451675Z [SQL: INSERT INTO departments (name, code) VALUES (%(name)s, %(code)s) RETURNING departments.id, departments.created_at, departments.updated_at]
+2026-10-27T13:02:28.271486842Z [parameters: {'name': 'Sales', 'code': 'SLS'}]
+2026-10-27T13:02:28.271499050Z (Background on this error at: https://sqlalche.me/e/20/gkpj)
+2026-10-27T13:02:28.997779925Z INFO:     172.20.0.1:57818 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:02:29.005453899Z INFO:     172.20.0.1:57820 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:02:29.013468793Z INFO:     172.20.0.1:57824 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:02:29.020524762Z INFO:     172.20.0.1:57840 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:02:29.024692085Z INFO:     172.20.0.1:57846 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:02:29.031326010Z INFO:     172.20.0.1:57852 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:02:29.035379624Z INFO:     172.20.0.1:57864 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:02:35.471599468Z INFO:     172.20.0.5:46914 - "GET /ready HTTP/1.0" 200 OK
+2026-10-27T13:02:36.377468849Z INFO:     172.20.0.5:37922 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:02:36.432711052Z INFO:     172.20.0.5:37928 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:02:36.435157195Z INFO:     172.20.0.5:37938 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:02:37.480969819Z INFO:     172.20.0.5:37960 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:02:37.481988452Z INFO:     172.20.0.5:37954 - "GET /ready HTTP/1.0" 200 OK
+2026-10-27T13:02:37.490528891Z INFO:     172.20.0.5:37974 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:02:38.561343151Z INFO:     172.20.0.5:37990 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:02:38.565600432Z INFO:     172.20.0.5:38000 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:02:38.606379361Z INFO:     172.20.0.5:38008 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:02:38.609342799Z INFO:     172.20.0.5:38012 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:02:39.215667516Z INFO:     172.20.0.5:38026 - "POST /api/auth/login HTTP/1.1" 200 OK
+2026-10-27T13:02:39.223971328Z INFO:     172.20.0.5:38036 - "GET /api/settings HTTP/1.1" 200 OK
+2026-10-27T13:02:39.485160352Z INFO:     172.20.0.5:38046 - "GET /ready HTTP/1.0" 200 OK
+2026-10-27T13:02:41.492193582Z INFO:     172.20.0.5:38052 - "GET /ready HTTP/1.0" 200 OK
+2026-10-27T13:02:43.533918872Z INFO:     172.20.0.5:38066 - "GET /ready HTTP/1.0" 200 OK
+2026-10-27T13:02:45.544024731Z INFO:     172.20.0.5:38072 - "GET /ready HTTP/1.0" 200 OK
+2026-10-27T13:02:47.599583728Z INFO:     172.20.0.5:51862 - "GET /ready HTTP/1.0" 200 OK
+2026-10-27T13:02:49.633599868Z INFO:     172.20.0.5:51876 - "GET /ready HTTP/1.0" 200 OK
+2026-10-27T13:02:51.637793758Z INFO:     172.20.0.5:51892 - "GET /ready HTTP/1.0" 200 OK
+2026-10-27T13:02:53.641545324Z INFO:     172.20.0.5:51900 - "GET /ready HTTP/1.0" 200 OK
+2026-10-27T13:02:54.543706720Z INFO:     172.20.0.5:51902 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:02:54.546965910Z INFO:     172.20.0.5:51914 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:02:55.136209346Z INFO:     172.20.0.5:51934 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:02:55.138370237Z INFO:     172.20.0.5:51918 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:02:55.656646776Z INFO:     172.20.0.5:45682 - "GET /ready HTTP/1.0" 200 OK
+2026-10-27T13:02:55.788105945Z INFO:     172.20.0.5:45706 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:02:55.789342579Z INFO:     172.20.0.5:45692 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:02:55.898441043Z INFO:     172.20.0.5:45716 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:01.164574840Z INFO:     172.20.0.1:33508 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:01.637470110Z INFO:     172.20.0.5:45732 - "GET /ready HTTP/1.0" 200 OK
+2026-10-27T13:03:01.811066080Z INFO:     172.20.0.5:45734 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:01.816446661Z INFO:     172.20.0.5:45736 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:01.823708505Z INFO:     172.20.0.5:45744 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:03:01.828341289Z INFO:     172.20.0.5:45758 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:02.144487877Z INFO:     172.20.0.5:45768 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:03:02.146677976Z INFO:     172.20.0.5:45772 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:02.595213982Z INFO:     172.20.0.5:45786 - "GET /ready HTTP/1.0" 200 OK
+2026-10-27T13:03:02.676139944Z INFO:     172.20.0.5:45804 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:03:02.676864033Z INFO:     172.20.0.5:45802 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:02.848136735Z INFO:     172.20.0.5:45812 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:03:02.850955255Z INFO:     172.20.0.5:45828 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:03.206452126Z INFO:     172.20.0.5:45836 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:03:03.207171131Z INFO:     172.20.0.5:45846 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:03.759679179Z INFO:     172.20.0.5:45862 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:03:03.761799570Z INFO:     172.20.0.5:45864 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:03.880259262Z INFO:     172.20.0.5:45870 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:03:03.885846344Z INFO:     172.20.0.5:45886 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:04.323250764Z INFO:     172.20.0.5:45890 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:03:04.326323661Z INFO:     172.20.0.5:45888 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:04.608800499Z INFO:     172.20.0.5:45902 - "GET /ready HTTP/1.0" 200 OK
+2026-10-27T13:03:04.888044898Z INFO:     172.20.0.5:45908 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:03:04.889811369Z INFO:     172.20.0.5:45906 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:04.928852902Z INFO:     172.20.0.5:45928 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:03:04.932360219Z INFO:     172.20.0.5:45944 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:05.172465165Z INFO:     172.20.0.5:45946 - "POST /api/auth/login HTTP/1.1" 200 OK
+2026-10-27T13:03:05.177253741Z INFO:     172.20.0.5:45954 - "GET /api/settings HTTP/1.1" 200 OK
+2026-10-27T13:03:05.187325523Z INFO:     172.20.0.5:45962 - "PATCH /api/settings/financial HTTP/1.1" 200 OK
+2026-10-27T13:03:05.190481629Z INFO:     172.20.0.5:45974 - "GET /api/settings HTTP/1.1" 200 OK
+2026-10-27T13:03:05.192771062Z INFO:     172.20.0.5:45978 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:03:05.194398949Z INFO:     172.20.0.5:45980 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:05.443546419Z INFO:     172.20.0.5:45992 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:03:05.444359841Z INFO:     172.20.0.5:46000 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:05.970480982Z INFO:     172.20.0.5:34056 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:03:05.971463823Z INFO:     172.20.0.5:34050 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:05.999780486Z INFO:     172.20.0.5:34062 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:45.285615041Z INFO:     172.20.0.1:45128 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:45.916554557Z INFO:     172.20.0.5:43288 - "GET /ready HTTP/1.0" 200 OK
+2026-10-27T13:03:45.993828220Z INFO:     172.20.0.5:43302 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:45.996963783Z INFO:     172.20.0.5:43318 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:46.143814263Z INFO:     172.20.0.5:43336 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:03:46.149642512Z INFO:     172.20.0.5:43332 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:46.544912885Z INFO:     172.20.0.5:43342 - "GET /ready HTTP/1.0" 200 OK
+2026-10-27T13:03:46.565602737Z INFO:     172.20.0.5:43358 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:03:46.572059907Z INFO:     172.20.0.5:43374 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:46.705280125Z INFO:     172.20.0.5:43390 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:03:46.705925588Z INFO:     172.20.0.5:43392 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:47.243553824Z INFO:     172.20.0.5:43414 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:03:47.245523963Z INFO:     172.20.0.5:43412 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:47.618786848Z INFO:     172.20.0.5:43434 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:03:47.622501332Z INFO:     172.20.0.5:43450 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:47.816932557Z INFO:     172.20.0.5:43468 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:03:47.819563992Z INFO:     172.20.0.5:43462 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:48.378122120Z INFO:     172.20.0.5:43480 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:03:48.380679262Z INFO:     172.20.0.5:43482 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:48.554006007Z INFO:     172.20.0.5:43490 - "GET /ready HTTP/1.0" 200 OK
+2026-10-27T13:03:48.661950381Z INFO:     172.20.0.5:43496 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:03:48.669203473Z INFO:     172.20.0.5:43508 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:48.933734850Z INFO:     172.20.0.5:43534 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:03:48.934838525Z INFO:     172.20.0.5:43516 - "POST /api/auth/login HTTP/1.1" 200 OK
+2026-10-27T13:03:48.935746156Z INFO:     172.20.0.5:43524 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:03:48.940213520Z INFO:     172.20.0.5:43548 - "GET /api/settings HTTP/1.1" 200 OK
+2026-10-27T13:03:48.943889129Z INFO:     172.20.0.5:43560 - "GET /health HTTP/1.1" 200 OK
+2026-10-27T13:03:48.947674530Z INFO:     172.20.0.5:43576 - "GET /ready HTTP/1.1" 200 OK
+2026-10-27T13:02:21.368621855Z INFO  [alembic.runtime.migration] Running upgrade 0132_first_grade_singles -> 0133_storage_customers, Grant Storage and ReadyStorage customer management access.
+2026-10-27T13:02:21.369184609Z INFO  [alembic.runtime.migration] Running upgrade 0133_storage_customers -> 0134_packaging_returns, Preserve old print manifests while returned packages receive a new print run.
+2026-10-27T13:02:21.372480134Z INFO  [alembic.runtime.migration] Running upgrade 0134_packaging_returns -> 0135_usluga_paid_processes, Start a separate, empty reusable catalog for manually entered Usluga processes.
+2026-10-27T13:02:21.376897626Z INFO  [alembic.runtime.migration] Running upgrade 0135_usluga_paid_processes -> 0136_employee_salary_precision, Retain the owner-approved four-decimal employee salary rounding.
+2026-10-27T13:02:21.382463668Z INFO  [alembic.runtime.migration] Running upgrade 0136_employee_salary_precision -> 0137_perf34_shipment_indexes, PERF34: index the shipment document's package-content and price lists.
+2026-10-27T13:02:21.384347224Z INFO  [alembic.runtime.migration] Running upgrade 0137_perf34_shipment_indexes -> 0138_ismail_schema_contract, Align HR indexes and preserve verified constraints during catalog cleanup.
+2026-10-27T13:02:21.409750208Z INFO  [alembic.runtime.migration] Running upgrade 0138_ismail_schema_contract -> 0139_warehouse_pack_reservations, Customer-owned whole-pack holds for future shipments.
+2026-10-27T13:02:21.414838413Z INFO  [alembic.runtime.migration] Running upgrade 0139_warehouse_pack_reservations -> 0140_usluga_packaging_nastil, Size confirmations for service packaging and consistent generated Nastil names.
+2026-10-27T13:02:21.415524960Z INFO  [alembic.runtime.migration] Running upgrade 0140_usluga_packaging_nastil -> 0141_passport_nastil, Persist the Nastil and actual quantity supplied by a cutting passport.
+2026-10-27T13:02:21.417430308Z INFO  [alembic.runtime.migration] Running upgrade 0141_passport_nastil -> 0142_package_partial_dispatch, Preserve per-item dispatch totals under the original package identity.
+2026-10-27T13:02:21.419263405Z INFO  [alembic.runtime.migration] Running upgrade 0142_package_partial_dispatch -> 0143_sewing_band_access, Add band account scope and non-production line completion evidence.
+2026-10-27T13:02:21.421496880Z INFO  [alembic.runtime.migration] Running upgrade 0143_sewing_band_access -> 0144_passport_meter_mode, Persist opt-in metre calculations for cutting passports.
+2026-10-27T13:02:21.421964592Z INFO  [alembic.runtime.migration] Running upgrade 0144_passport_meter_mode -> 0145_packaging_size_entry, Record packaging size counts without changing Sewing output history.
+2026-10-27T13:02:21.422336470Z INFO  [alembic.runtime.migration] Running upgrade 0145_packaging_size_entry -> 0146_payroll_qr_closure, Keep unscanned payroll labels when Control closes their scan group.
+2026-10-27T13:02:21.423597146Z INFO  [alembic.runtime.migration] Running upgrade 0146_payroll_qr_closure -> 0147_passport_tepa_pass, Add the dashboard-only top/bottom piece multiplier to cutting passports.
+2026-10-27T13:02:21.424053316Z INFO  [alembic.runtime.migration] Running upgrade 0147_passport_tepa_pass -> 0148_second_grade_packages, Allow second-grade packages without reclassifying existing stock.
+2026-10-27T13:02:21.881316944Z INFO:     Uvicorn running on http://0.0.0.0:10000 (Press CTRL+C to quit)
+2026-10-27T13:02:21.882046075Z INFO:     Started parent process [8]
+2026-10-27T13:02:27.915980962Z INFO:     Started server process [11]
+2026-10-27T13:02:27.916212338Z INFO:     Waiting for application startup.
+2026-10-27T13:02:27.916266172Z INFO:milana:startup: schema sync disabled; run Alembic migrations or set STARTUP_SCHEMA_SYNC=true for local bootstrap.
+2026-10-27T13:02:27.935470275Z INFO:     Started server process [10]
+2026-10-27T13:02:27.935506317Z INFO:     Waiting for application startup.
+2026-10-27T13:02:27.935709902Z INFO:milana:startup: schema sync disabled; run Alembic migrations or set STARTUP_SCHEMA_SYNC=true for local bootstrap.
+2026-10-27T13:02:28.271251340Z INFO:     Application startup complete.
+2026-10-27T13:02:28.275414330Z ERROR:milana:startup: seed failed: (psycopg2.errors.UniqueViolation) duplicate key value violates unique constraint "departments_code_key"
+2026-10-27T13:02:28.275433122Z DETAIL:  Key (code)=(SLS) already exists.
+2026-10-27T13:02:28.275435580Z
+2026-10-27T13:02:28.275436538Z [SQL: INSERT INTO departments (name, code) VALUES (%(name)s, %(code)s) RETURNING departments.id, departments.created_at, departments.updated_at]
+2026-10-27T13:02:28.275437580Z [parameters: {'name': 'Sales', 'code': 'SLS'}]
+2026-10-27T13:02:28.275438455Z (Background on this error at: https://sqlalche.me/e/20/gkpj)
+2026-10-27T13:02:28.275439288Z Traceback (most recent call last):
+2026-10-27T13:02:28.275440080Z   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+2026-10-27T13:02:28.275441080Z     self.dialect.do_execute(
+2026-10-27T13:02:28.275441872Z   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 941, in do_execute
+2026-10-27T13:02:28.275442788Z     cursor.execute(statement, parameters)
+2026-10-27T13:02:28.275443580Z psycopg2.errors.UniqueViolation: duplicate key value violates unique constraint "departments_code_key"
+2026-10-27T13:02:28.275444497Z DETAIL:  Key (code)=(SLS) already exists.
+2026-10-27T13:02:28.275445288Z
+2026-10-27T13:02:28.275446080Z
+2026-10-27T13:02:28.275446788Z The above exception was the direct cause of the following exception:
+2026-10-27T13:02:28.275447580Z
+2026-10-27T13:02:28.275448247Z Traceback (most recent call last):
+2026-10-27T13:02:28.275449372Z   File "/app/app/main.py", line 104, in _run_startup
+2026-10-27T13:02:28.275450247Z     _seed(ensure_schema=False)
+2026-10-27T13:02:28.275450997Z   File "/app/app/db/seed.py", line 311, in seed
+2026-10-27T13:02:28.275451872Z     db.add(d); db.flush()
+2026-10-27T13:02:28.275452705Z                ^^^^^^^^^^
+2026-10-27T13:02:28.275453455Z   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 4352, in flush
+2026-10-27T13:02:28.275454372Z     self._flush(objects)
+2026-10-27T13:02:28.275455122Z   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 4487, in _flush
+2026-10-27T13:02:28.275455997Z     with util.safe_reraise():
+2026-10-27T13:02:28.275456789Z   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 146, in __exit__
+2026-10-27T13:02:28.275457622Z     raise exc_value.with_traceback(exc_tb)
+2026-10-27T13:02:28.275458455Z   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 4448, in _flush
+2026-10-27T13:02:28.275459330Z     flush_context.execute()
+2026-10-27T13:02:28.275460080Z   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/unitofwork.py", line 466, in execute
+2026-10-27T13:02:28.275470414Z     rec.execute(self)
+2026-10-27T13:02:28.275471830Z   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/unitofwork.py", line 642, in execute
+2026-10-27T13:02:28.275472789Z     util.preloaded.orm_persistence.save_obj(
+2026-10-27T13:02:28.275474455Z   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/persistence.py", line 93, in save_obj
+2026-10-27T13:02:28.275475330Z     _emit_insert_statements(
+2026-10-27T13:02:28.275476122Z   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/persistence.py", line 1233, in _emit_insert_statements
+2026-10-27T13:02:28.275477039Z     result = connection.execute(
+2026-10-27T13:02:28.275477747Z              ^^^^^^^^^^^^^^^^^^^
+2026-10-27T13:02:28.275478497Z   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1418, in execute
+2026-10-27T13:02:28.275479330Z     return meth(
+2026-10-27T13:02:28.275480122Z            ^^^^^
+2026-10-27T13:02:28.275480872Z   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/sql/elements.py", line 515, in _execute_on_connection
+2026-10-27T13:02:28.275481747Z     return connection._execute_clauseelement(
+2026-10-27T13:02:28.275482539Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-10-27T13:02:28.275483330Z   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1640, in _execute_clauseelement
+2026-10-27T13:02:28.275484205Z     ret = self._execute_context(
+2026-10-27T13:02:28.275484914Z           ^^^^^^^^^^^^^^^^^^^^^^
+2026-10-27T13:02:28.275485664Z   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1846, in _execute_context
+2026-10-27T13:02:28.275486497Z     return self._exec_single_context(
+2026-10-27T13:02:28.275487247Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-10-27T13:02:28.275487997Z   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1986, in _exec_single_context
+2026-10-27T13:02:28.275488872Z     self._handle_dbapi_exception(
+2026-10-27T13:02:28.275489747Z   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2355, in _handle_dbapi_exception
+2026-10-27T13:02:28.275490664Z     raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+2026-10-27T13:02:28.275491455Z   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+2026-10-27T13:02:28.275492289Z     self.dialect.do_execute(
+2026-10-27T13:02:28.275493039Z   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 941, in do_execute
+2026-10-27T13:02:28.275493914Z     cursor.execute(statement, parameters)
+2026-10-27T13:02:28.275494705Z sqlalchemy.exc.IntegrityError: (psycopg2.errors.UniqueViolation) duplicate key value violates unique constraint "departments_code_key"
+2026-10-27T13:02:28.275496872Z DETAIL:  Key (code)=(SLS) already exists.
+2026-10-27T13:02:28.275497664Z
+2026-10-27T13:02:28.275498372Z [SQL: INSERT INTO departments (name, code) VALUES (%(name)s, %(code)s) RETURNING departments.id, departments.created_at, departments.updated_at]
+2026-10-27T13:02:28.275499247Z [parameters: {'name': 'Sales', 'code': 'SLS'}]
+2026-10-27T13:02:28.275499997Z (Background on this error at: https://sqlalche.me/e/20/gkpj)
+2026-10-27T13:02:28.275818541Z INFO:     Application startup complete.

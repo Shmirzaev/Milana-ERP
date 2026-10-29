@@ -156,3 +156,31 @@ def test_count_invoices_matches_the_page_filter():
         unfiltered = count_invoices(db)
         filtered = count_invoices(db, search="PERF35-")
     assert filtered <= unfiltered
+
+
+def test_invoice_list_page_owns_the_page_bound_and_the_exact_total(many_invoices):
+    """The page operation, not the router, applies the bound and the count.
+
+    `limit=0` falls back to the default page size and a negative offset is
+    clamped to 0, exactly as the endpoint always did.
+    """
+    from app.models.finance_service import invoice_list_page
+
+    with TestSessionLocal() as db:
+        page = invoice_list_page(db, limit=0, offset=-10, search="PERF35-")
+    assert page["limit"] == 50
+    assert page["offset"] == 0
+    assert page["total"] == 60
+    assert len(page["items"]) == 50
+    assert all(row["invoice_no"].startswith("PERF35-") for row in page["items"])
+
+
+def test_route_returns_the_service_page_unchanged(client, auth_headers, many_invoices):
+    """The router must hand back what the service produced, without reshaping."""
+    from app.models.finance_service import invoice_list_page
+
+    response = client.get("/api/finance/invoices?limit=5&offset=0", headers=auth_headers)
+    assert response.status_code == 200, response.text
+    with TestSessionLocal() as db:
+        page = invoice_list_page(db, limit=5, offset=0)
+    assert response.json() == page

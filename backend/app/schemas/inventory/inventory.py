@@ -4,6 +4,15 @@ from sqlalchemy import CheckConstraint, String, Integer, Boolean, ForeignKey, Da
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, PkMixin, TimestampMixin
+from app.libs.enums.inventory import StockBatchQcStatus, StockMovementType
+
+
+def _in_check(column: str, values: tuple[str, ...]) -> str:
+    return f"{column} IN (" + ", ".join(f"'{value}'" for value in values) + ")"
+
+
+QC_STATUS_CHECK = _in_check("qc_status", tuple(status.value for status in StockBatchQcStatus))
+MOVEMENT_TYPE_CHECK = _in_check("movement_type", tuple(kind.value for kind in StockMovementType))
 
 
 class Item(Base, PkMixin, TimestampMixin):
@@ -41,7 +50,7 @@ class StockBatch(Base, PkMixin, TimestampMixin):
         CheckConstraint("quantity >= 0", name="ck_stock_batches_quantity_nonnegative"),
         CheckConstraint("cost_per_unit >= 0", name="ck_stock_batches_cost_nonnegative"),
         CheckConstraint("piece_count IS NULL OR piece_count >= 0", name="ck_stock_batches_piece_count_nonnegative"),
-        CheckConstraint("qc_status IN ('pending', 'passed', 'failed', 'rejected', 'hold')", name="ck_stock_batches_qc_status"),
+        CheckConstraint(QC_STATUS_CHECK, name="ck_stock_batches_qc_status"),
     )
     item_id: Mapped[int] = mapped_column(ForeignKey("items.id"), nullable=False)
     batch_no: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
@@ -65,7 +74,7 @@ class StockBatch(Base, PkMixin, TimestampMixin):
     image_url: Mapped[str | None] = mapped_column(String(512))
     received_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     warehouse_id: Mapped[int] = mapped_column(ForeignKey("warehouses.id"), nullable=False)
-    qc_status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
+    qc_status: Mapped[str] = mapped_column(String(32), default=StockBatchQcStatus.PENDING.value, nullable=False)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     archived_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
@@ -77,7 +86,7 @@ class StockMovement(Base, PkMixin):
     __table_args__ = (
         CheckConstraint("quantity >= 0", name="ck_stock_movements_quantity_nonnegative"),
         CheckConstraint(
-            "movement_type IN ('receive', 'transfer', 'issue', 'consume', 'adjustment', 'return', 'produce', 'waste', 'shipment')",
+            MOVEMENT_TYPE_CHECK,
             name="ck_stock_movements_type",
         ),
     )

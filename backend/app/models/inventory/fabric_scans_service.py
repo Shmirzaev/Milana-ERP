@@ -1,0 +1,151 @@
+"""Daily fabric scan register: writes only fabric_scans, never stock movements.
+
+This module also owns the shared roll-code parsing (`parse_roll`) and the Tashkent
+business timezone, because the Eco Cotton transfer register scans the same labels.
+"""
+
+import re
+from datetime import date, datetime, timezone
+from urllib.parse import parse_qs, urlsplit
+from zoneinfo import ZoneInfo
+
+from fastapi import HTTPException
+from sqlalchemy import case, func
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from app.libs.dto.inventory.fabric_scan_input import ScanInput
+from app.libs.dto.inventory.fabric_scan_output import (
+    FabricScanReportOut,
+    FabricScanResultOut,
+    FabricScanRowOut,
+    FabricScanSummaryOut,
+)
+from app.libs.enums.inventory import FabricScanDepartment, FabricScanDirection
+from app.libs.types.inventory import FabricScanCreateCommand
+from app.models.factory_scope_service import cutting_department_scope
+from app.models.inventory_access_service import MATERIAL_CATEGORIES
+from app.schemas import StockBatch, User
+from app.schemas.inventory.fabric_scan import FabricScan
+from app.schemas.inventory.fabric_scan_persistence import add_fabric_scan
+
+TASHKENT = ZoneInfo("Asia/Tashkent")
+
+
+def now_utc():
+    return datetime.now(timezone.utc)
+
+
+def parse_roll(code: str) -> tuple[int, int]:
+    value = code.strip()
+    match = re.fullmatch(r"B([1-9]\d*)-R([1-9]\d*)", value, re.IGNORECASE)
+    if match:
+        batch, roll = match.groups()
+    else:
+        try:
+            url = urlsplit(value)
+            params = parse_qs(url.query, max_num_fields=20)
+        except ValueError:
+            raise HTTPException(400, "invalid_roll_code") from None
+        if url.path.rstrip("/") != "/inventory" or url.scheme not in ("", "http", "https"):
+            raise HTTPException(400, "invalid_roll_code")
+        if len(params.get("batch_id", [])) != 1 or len(params.get("roll", [])) != 1:
+            raise HTTPException(400, "invalid_roll_code")
+        batch, roll = params["batch_id"][0], params["roll"][0]
+    if not re.fullmatch(r"[1-9][0-9]{0,9}", batch) or not re.fullmatch(r"[1-9][0-9]{0,9}", roll):
+        raise HTTPException(400, "invalid_roll_code")
+    if int(batch) > 2147483647 or int(roll) > 2147483647:
+        raise HTTPException(400, "invalid_roll_code")
+    return int(batch), int(roll)
+
+
+def row_data(row: FabricScan) -> FabricScanRowOut:
+    return FabricScanRowOut(
+        id=row.id,
+        report_date=row.report_date,
+        direction=FabricScanDirection(row.direction),
+        fabric_name=row.fabric_name,
+        batch_no=row.batch_no,
+        color=row.color,
+        roll_number=row.roll_number,
+        operator_name=row.operator_name,
+        scanned_at=(row.scanned_at.replace(tzinfo=timezone.utc)
+                    if row.scanned_at.tzinfo is None else row.scanned_at),
+    )
+
+
+def scan_fabric_roll(db: Session, payload: ScanInput, user: User) -> FabricScanResultOut:
+    """Record one roll scan. Owns the transaction for this write."""
+    department = cutting_department_scope(user, None)
+    # Keep the existing authorization/department guard before parsing the QR.
+    department_value = FabricScanDepartment(department)
+    batch_id, roll = parse_roll(payload.code)
+    timestamp = now_utc()
+    identity = dict(department=department_value.value,
+                    report_date=timestamp.astimezone(TASHKENT).date(),
+                    batch_id=batch_id, roll_number=roll, direction=payload.direction.value)
+    existing = db.query(FabricScan).filter_by(**identity).first()
+    if existing:
+        return FabricScanResultOut(duplicate=True, row=row_data(existing))
+    batch = db.get(StockBatch, batch_id)
+    if not batch or not batch.item or batch.item.category not in MATERIAL_CATEGORIES:
+        raise HTTPException(404, "fabric_not_found")
+    # Do not trust roll_total, weight, fabric names or other data inside the QR.
+    # Depleted/archived batches can still have physical rolls returning to storage.
+    count = max(batch.piece_count or 0, len(batch.roll_weights_kg or []))
+    if roll > count:
+        raise HTTPException(400, "roll_not_found")
+    command = FabricScanCreateCommand(
+        department=department_value,
+        report_date=identity["report_date"],
+        batch_id=batch_id,
+        roll_number=roll,
+        direction=payload.direction,
+        fabric_name=batch.item.name,
+        batch_no=batch.batch_no,
+        color=batch.color,
+        operator_id=user.id,
+        operator_name=user.name,
+        scanned_at=timestamp,
+    )
+    row = add_fabric_scan(db, command)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = db.query(FabricScan).filter_by(**identity).first()
+        if existing:
+            return FabricScanResultOut(duplicate=True, row=row_data(existing))
+        raise
+    return FabricScanResultOut(duplicate=False, row=row_data(row))
+
+
+def fabric_scan_report(
+    db: Session, user: User, report_date: date | None = None, page: int = 1, page_size: int = 50
+) -> FabricScanReportOut:
+    """One page of the daily fabric scan register for the caller's department."""
+    department = FabricScanDepartment(cutting_department_scope(user, None))
+    day = report_date or now_utc().astimezone(TASHKENT).date()
+    query = db.query(FabricScan).filter_by(department=department.value, report_date=day)
+    received = func.sum(case((FabricScan.direction == FabricScanDirection.RECEIVED.value, 1), else_=0))
+    returned = func.sum(case((FabricScan.direction == FabricScanDirection.RETURNED.value, 1), else_=0))
+    totals = query.with_entities(func.count(FabricScan.id), received, returned).one()
+    groups = query.with_entities(FabricScan.batch_id, FabricScan.fabric_name, FabricScan.batch_no,
+                                FabricScan.color, received, returned).group_by(
+        FabricScan.batch_id, FabricScan.fabric_name, FabricScan.batch_no, FabricScan.color,
+    ).order_by(FabricScan.fabric_name, FabricScan.batch_no).all()
+    rows = query.order_by(FabricScan.scanned_at.desc(), FabricScan.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    return FabricScanReportOut(
+        report_date=day,
+        department=department,
+        total=totals[0],
+        received=totals[1] or 0,
+        returned=totals[2] or 0,
+        summary=[FabricScanSummaryOut(
+            fabric_name=r[1], batch_no=r[2], color=r[3],
+            received=r[4], returned=r[5],
+        ) for r in groups],
+        rows=[row_data(row) for row in rows],
+        page=page,
+        page_size=page_size,
+    )

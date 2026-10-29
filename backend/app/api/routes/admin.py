@@ -541,7 +541,7 @@ def get_user(user_id: int, db: DbSession, _: User = Depends(require_permissions(
 @router.patch("/users/{user_id}", response_model=UserOut)
 def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User = Depends(require_permissions("admin.users", "*"))):
     # Lock memberships in stable order before taking a target credential lock.
-    if {"role_id", "extra_permissions", "access_policy", "is_active"} & payload.model_fields_set:
+    if {"role_id", "extra_permissions", "access_policy", "is_active", "factory_code"} & payload.model_fields_set:
         _lock_active_user_memberships(db)
     credential_change = bool(payload.password)
     u = (

@@ -5,6 +5,7 @@ from sqlalchemy import CheckConstraint, String, Integer, Boolean, ForeignKey, JS
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, PkMixin, TimestampMixin
+from app.libs.enums.catalog import CollectionStatus
 
 if TYPE_CHECKING:
     from app.schemas.inventory.inventory import Item, StockBatch
@@ -25,7 +26,8 @@ class Collection(Base, PkMixin, TimestampMixin):
     season: Mapped[str | None] = mapped_column(String(64))
     year: Mapped[int] = mapped_column(Integer, nullable=False, server_default="2024")
     description: Mapped[str | None] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(String(32), default="draft", nullable=False)
+    # Historical states remain readable until their vocabulary is reconciled.
+    status: Mapped[str] = mapped_column(String(32), default=CollectionStatus.DRAFT.value, nullable=False)
 
     brand: Mapped["Brand"] = relationship("Brand", lazy="joined")
 

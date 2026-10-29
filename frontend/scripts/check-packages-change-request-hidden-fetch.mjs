@@ -79,9 +79,10 @@ function createHarness({ denied = false } = {}) {
       writes.push({ path, body }); return {};
     } }, fetcher() {} },
     "@/lib/access": { packagingDepartmentForSession: () => "PKG" },
+    "@/components/ManualPackageReceipt": { default: "manual-packages" },
     "@/components/PendingPackageWorkflow": { default: "pending-workflow" },
     "@/lib/packageReturnText": { packageReturnText: { en: {} } },
-    "@/lib/packageWorkflow": { postPackageWorkflow: async () => ({}) },
+    "@/lib/packageWorkflow": { packageWorkflowCopy: { en: {} }, postPackageWorkflow: async () => ({}) },
     "@/lib/auth": { can: () => true, useMe: () => ({ me: { id: 1, permissions: ["management.approve"] } }) },
     "@/components/ConfirmDialog": { default: "confirm-dialog" },
     "@/components/Modal": { default: "modal" },
@@ -158,7 +159,7 @@ const deleteButton = find(activeTree, (node) => node.type === "button" && textCo
 assert.equal(deleteButton?.props.disabled, false);
 deleteButton.props.onClick();
 activeTree = active.render();
-const confirmation = find(activeTree, (node) => node.type === "confirm-dialog");
+const confirmation = find(activeTree, (node) => node.type === "confirm-dialog" && node.props.isOpen);
 assert.equal(confirmation.props.message, "page.packages.deleteOutputMessage");
 assert.equal(active.writes.length, 0, "opening the confirmation must not delete data");
 await confirmation.props.onConfirm();

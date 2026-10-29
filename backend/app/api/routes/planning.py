@@ -1,24 +1,18 @@
-from fastapi import APIRouter, HTTPException, Depends, Query
-from sqlalchemy.orm import joinedload, selectinload
+from fastapi import APIRouter, Depends, Query
+from fastapi.responses import Response
 
 from app.core.deps import DbSession, require_permissions
-from app.schemas import BrandedPlanningOrder, Customer, Department, Model, User, SalesOrder, WorkOrder
-from app.libs.dto.production.production import (
+from app.libs.dto.planning.branded_planning_order_input import (
     BrandedPlanningOrderIn,
-    MaterialRequirement,
-    ProductionOrderIn,
-    ProductionOrderOut,
+    BrandedStatusFilter,
 )
+from app.libs.dto.planning.material_requirement_output import MaterialRequirement
+from app.libs.dto.planning.branded_planning_order_output import BrandedPlanningOrderOut
+from app.libs.dto.production.production import ProductionOrderIn, ProductionOrderOut
+from app.libs.enums.planning import BrandedPlanningOrderStatus
+from app.models.planning import branded_orders_service, production_planning_service
 from app.models.planning_service import material_requirements_for_sales_order
-from app.models.production_service import (
-    create_production_order,
-    create_production_batches,
-    create_work_orders,
-    printing_attachments_for_storage,
-)
-from app.models.audit_service import log_action
-from app.models.model_images_service import material_preview_image_url, model_display_image_url
-from app.models.numbering_service import next_branded_planning_order_no
+from app.schemas import User
 
 router = APIRouter(prefix="/planning", tags=["planning"])
 
@@ -26,93 +20,10 @@ router = APIRouter(prefix="/planning", tags=["planning"])
 @router.get("/branded-orders/{order_id}/export.xlsx")
 def export_branded_order(order_id: int, db: DbSession,
                          _: User = Depends(require_permissions("planning.production", "*"))):
-    from fastapi.responses import Response
-    from app.models.branded_order_export_service import build_branded_order_workbook
-    order = db.get(BrandedPlanningOrder, order_id)
-    if not order:
-        raise HTTPException(404, "Branded order not found")
-    return Response(build_branded_order_workbook(db, order),
+    workbook = branded_orders_service.export_branded_order_workbook(db, order_id)
+    return Response(workbook,
                     media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    headers={"Content-Disposition": f'attachment; filename="branded-order-{order.id}.xlsx"'})
-
-BRANDED_ORDER_PARTIES = {
-    "milana": "Milana",
-    "eco_cotton": "Eco Cotton",
-    "besttex": "Besttex",
-}
-
-
-def _branded_model_fabric_label(model: Model) -> str | None:
-    for row in sorted(model.bom or [], key=lambda value: int(value.id or 0)):
-        item = getattr(row, "item", None)
-        if str(getattr(item, "category", "") or "").lower() not in {"fabric", "semi_finished"}:
-            continue
-        item_label = str(getattr(item, "name", None) or getattr(item, "sku", None) or "").strip()
-        color = str(row.color or "").strip()
-        label = " / ".join(value for value in (item_label, color) if value)
-        if label:
-            return label
-
-    details = model.details_json if isinstance(model.details_json, dict) else {}
-    general = details.get("general") if isinstance(details.get("general"), dict) else {}
-    return str(general.get("variant_fabric") or general.get("variantFabric") or "").strip() or None
-
-
-def _branded_model_payload(model: Model) -> dict:
-    return {
-        "id": model.id,
-        "code": model.code,
-        "name": model.name,
-        "primary_image_url": model_display_image_url(model),
-        "variant_fabric": _branded_model_fabric_label(model),
-        "fabric_image_url": material_preview_image_url(model),
-    }
-
-
-def _branded_order_payload(
-    order: BrandedPlanningOrder,
-    model_by_id: dict[int, dict] | None = None,
-    cutting_by_id: dict[int, str] | None = None,
-    cutting_details_by_id: dict[int, dict] | None = None,
-) -> dict:
-    model_by_id = model_by_id or {}
-    cutting_by_id = cutting_by_id or {}
-    cutting_details_by_id = cutting_details_by_id or {}
-    productions = sorted(order.production_orders or [], key=lambda row: int(row.id))
-    cutting_states = [cutting_by_id.get(row.id, "not_started") for row in productions]
-    return {
-        "id": order.id,
-        "order_no": order.order_no,
-        "ordered_for_type": order.ordered_for_type,
-        "customer_id": order.customer_id,
-        "ordered_for_name": order.ordered_for_name,
-        "status": order.status,
-        "notes": order.notes,
-        "created_by": order.created_by,
-        "created_at": order.created_at,
-        "updated_at": order.updated_at,
-        "production_count": len(productions),
-        "total_quantity": sum(int(row.planned_quantity or 0) for row in productions),
-        "cutting_status": (
-            "completed" if cutting_states and all(state == "completed" for state in cutting_states)
-            else "partial" if any(state != "not_started" for state in cutting_states)
-            else "not_started"
-        ),
-        "productions": [
-            {
-                "id": row.id,
-                "order_no": row.order_no,
-                "production_no": row.production_no,
-                "model_id": row.model_id,
-                "model": model_by_id.get(int(row.model_id)),
-                "planned_quantity": row.planned_quantity,
-                "status": row.status,
-                "cutting_status": cutting_by_id.get(row.id, "not_started"),
-                **cutting_details_by_id.get(row.id, {"cutting_quantity": 0, "cutting_departments": []}),
-            }
-            for row in productions
-        ],
-    }
+                    headers={"Content-Disposition": f'attachment; filename="branded-order-{order_id}.xlsx"'})
 
 
 @router.get("/branded-order-parties")
@@ -120,120 +31,32 @@ def branded_order_parties(
     db: DbSession,
     _: User = Depends(require_permissions("planning.production", "*")),
 ):
-    customers = db.query(Customer).order_by(Customer.name.asc()).all()
-    return {
-        "companies": [{"type": key, "name": name} for key, name in BRANDED_ORDER_PARTIES.items()],
-        "customers": [{"id": row.id, "name": row.name} for row in customers],
-    }
+    return branded_orders_service.branded_order_parties(db)
 
 
-@router.get("/branded-orders")
+@router.get("/branded-orders", response_model=list[BrandedPlanningOrderOut])
 def list_branded_orders(
     db: DbSession,
     _: User = Depends(require_permissions("planning.production", "*")),
-    status: str | None = "open",
-):
-    query = db.query(BrandedPlanningOrder).options(joinedload(BrandedPlanningOrder.production_orders))
-    if status:
-        query = query.filter(BrandedPlanningOrder.status == status)
-    rows = query.order_by(BrandedPlanningOrder.id.desc()).all()
-    model_ids = {
-        int(production.model_id)
-        for order in rows
-        for production in (order.production_orders or [])
-        if production.model_id
-    }
-    models = (
-        db.query(Model)
-        .options(selectinload(Model.images), selectinload(Model.bom))
-        .filter(Model.id.in_(model_ids))
-        .all()
-        if model_ids
-        else []
-    )
-    model_by_id = {int(model.id): _branded_model_payload(model) for model in models}
-    production_ids = [production.id for order in rows for production in order.production_orders]
-    cutting_by_production: dict[int, list] = {}
-    if production_ids:
-        cutting_rows = db.query(
-            WorkOrder.production_order_id, WorkOrder.status, WorkOrder.actual_output_qty,
-            Department.code, Department.name,
-        ).join(Department, Department.id == WorkOrder.department_id).filter(
-            WorkOrder.production_order_id.in_(production_ids),
-            WorkOrder.operation == "cutting",
-            WorkOrder.status.notin_(("cancelled", "rejected")),
-        ).all()
-        for work in cutting_rows:
-            cutting_by_production.setdefault(work.production_order_id, []).append(work)
-    cutting_by_id = {
-        production_id: (
-            "completed" if all(work.status == "completed" for work in works)
-            else "partial" if any(work.status == "completed" or work.actual_output_qty > 0 for work in works)
-            else "not_started"
-        )
-        for production_id, works in cutting_by_production.items()
-    }
-    cutting_details_by_id = {
-        production_id: {
-            "cutting_quantity": sum(int(work.actual_output_qty or 0) for work in works),
-            "cutting_departments": [
-                {"code": code, "name": name}
-                for code, name in sorted({(work.code, work.name) for work in works})
-            ],
-        }
-        for production_id, works in cutting_by_production.items()
-    }
-    return [_branded_order_payload(row, model_by_id, cutting_by_id, cutting_details_by_id) for row in rows]
+    status: BrandedStatusFilter = BrandedPlanningOrderStatus.OPEN,
+) -> list[BrandedPlanningOrderOut]:
+    return branded_orders_service.list_branded_orders(db, status)
 
 
 @router.get("/branded-order-customers")
 def branded_order_customers(db: DbSession,
                            _: User = Depends(require_permissions("planning.production", "*")),
                            q: str = Query("", max_length=100)):
-    query = db.query(Customer.id, Customer.name)
-    if q.strip():
-        pattern = "%" + q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
-        query = query.filter(Customer.name.ilike(pattern, escape="\\"))
-    return [{"id": row.id, "name": row.name} for row in query.order_by(Customer.name, Customer.id).limit(50)]
+    return branded_orders_service.branded_order_customers(db, q)
 
 
-@router.post("/branded-orders", status_code=201)
+@router.post("/branded-orders", response_model=BrandedPlanningOrderOut, status_code=201)
 def create_branded_order(
     payload: BrandedPlanningOrderIn,
     db: DbSession,
     current: User = Depends(require_permissions("planning.production", "*")),
-):
-    ordered_for_type = str(payload.ordered_for_type or "").strip().lower()
-    customer_id = payload.customer_id
-    if ordered_for_type == "customer":
-        customer = db.get(Customer, customer_id) if customer_id else None
-        if not customer:
-            raise HTTPException(404, "Customer not found")
-        ordered_for_name = customer.name
-    elif ordered_for_type in BRANDED_ORDER_PARTIES:
-        customer_id = None
-        ordered_for_name = BRANDED_ORDER_PARTIES[ordered_for_type]
-    else:
-        raise HTTPException(400, "Choose Milana, Eco Cotton, Besttex, or a customer")
-
-    order = BrandedPlanningOrder(
-        order_no=next_branded_planning_order_no(db),
-        ordered_for_type=ordered_for_type,
-        customer_id=customer_id,
-        ordered_for_name=ordered_for_name,
-        status="open",
-        notes=str(payload.notes or "").strip() or None,
-        created_by=current.id,
-    )
-    db.add(order)
-    db.flush()
-    log_action(
-        db, current, "create", "BrandedPlanningOrder", order.id,
-        new_value={"order_no": order.order_no, "ordered_for": order.ordered_for_name},
-    )
-    db.commit()
-    db.refresh(order)
-    return _branded_order_payload(order)
+) -> BrandedPlanningOrderOut:
+    return branded_orders_service.create_branded_order(db, payload, current)
 
 
 @router.get("/material-requirements/{sales_order_id}", response_model=list[MaterialRequirement])
@@ -248,120 +71,9 @@ def get_material_requirements(
 
 @router.post("/create-production-order", response_model=ProductionOrderOut, status_code=201)
 def create_for_client_order(payload: ProductionOrderIn, db: DbSession, current: User = Depends(require_permissions("planning.production", "*"))):
-    if payload.production_type != "client_order":
-        raise HTTPException(400, "Use /planning/create-branded-production for branded_stock")
-    so = db.get(SalesOrder, payload.sales_order_id) if payload.sales_order_id else None
-    if not so:
-        raise HTTPException(404, "Sales order not found")
-    allowed_statuses = {"confirmed", "pending_sales_approval", "planning_approved"}
-    if so.status not in allowed_statuses:
-        raise HTTPException(400, f"Sales order must be confirmed before creating production (current: '{so.status}')")
-    printing_attachments = printing_attachments_for_storage(payload.printing_attachments)
-    po = create_production_order(
-        db,
-        production_type="client_order",
-        model_id=payload.model_id,
-        brand_id=payload.brand_id,
-        fabric_batch_id=payload.fabric_batch_id,
-        sales_order_id=payload.sales_order_id,
-        planned_quantity=payload.planned_quantity,
-        start_date=payload.start_date,
-        deadline=payload.deadline,
-        estimated_material_code=payload.estimated_material_code,
-        estimated_material_amount=payload.estimated_material_amount,
-        estimated_material_unit=payload.estimated_material_unit,
-        materials=[row.model_dump() for row in payload.materials],
-        printing_instructions=payload.printing_instructions,
-        printing_attachments=printing_attachments,
-        destination_warehouse_id=payload.destination_warehouse_id,
-        items=[i.model_dump() for i in payload.items],
-        created_by=current.id,
-    )
-    if payload.batches:
-        create_production_batches(db, po.id, [b.model_dump() for b in payload.batches])
-    include_printing = (
-        any(bool(i.printing_required) for i in (so.items or []))
-        or any(bool(i.printing_required) for i in payload.items)
-        or bool(str(payload.printing_instructions or "").strip())
-        or bool(printing_attachments)
-    )
-    create_work_orders(
-        db,
-        po.id,
-        include_printing=include_printing,
-        cutting_department_code=payload.cutting_department_code,
-        sewing_factory_code=payload.sewing_factory_code,
-    )
-    so.status = "planning"
-    log_action(db, current, "create", "ProductionOrder", po.id, new_value={"production_no": po.production_no})
-    db.commit(); db.refresh(po)
-    return po
+    return production_planning_service.create_client_order_production(db, payload, current)
 
 
 @router.post("/create-branded-production", response_model=ProductionOrderOut, status_code=201)
 def create_for_branded(payload: ProductionOrderIn, db: DbSession, current: User = Depends(require_permissions("planning.production", "*"))):
-    if payload.production_type != "branded_stock":
-        raise HTTPException(400, "production_type must be branded_stock")
-    planning_order = db.get(BrandedPlanningOrder, payload.planning_order_id) if payload.planning_order_id else None
-    if payload.planning_order_id and not planning_order:
-        raise HTTPException(404, "Branded planning order not found")
-    if not planning_order:
-        planning_order = BrandedPlanningOrder(
-            order_no=next_branded_planning_order_no(db),
-            ordered_for_type="milana",
-            ordered_for_name=BRANDED_ORDER_PARTIES["milana"],
-            status="open",
-            created_by=current.id,
-        )
-        db.add(planning_order)
-        db.flush()
-    if planning_order.status != "open":
-        raise HTTPException(400, "Branded planning order is not open")
-    printing_attachments = printing_attachments_for_storage(payload.printing_attachments)
-    po = create_production_order(
-        db,
-        production_type="branded_stock",
-        planning_order_id=planning_order.id,
-        model_id=payload.model_id,
-        brand_id=payload.brand_id,
-        fabric_batch_id=payload.fabric_batch_id,
-        sales_order_id=None,
-        collection_id=payload.collection_id,
-        planned_quantity=payload.planned_quantity,
-        start_date=payload.start_date,
-        deadline=payload.deadline,
-        estimated_material_code=payload.estimated_material_code,
-        estimated_material_amount=payload.estimated_material_amount,
-        estimated_material_unit=payload.estimated_material_unit,
-        materials=[row.model_dump() for row in payload.materials],
-        printing_instructions=payload.printing_instructions,
-        printing_attachments=printing_attachments,
-        destination_warehouse_id=payload.destination_warehouse_id,
-        items=[i.model_dump() for i in payload.items],
-        created_by=current.id,
-    )
-    if payload.batches:
-        create_production_batches(db, po.id, [b.model_dump() for b in payload.batches])
-    include_printing = (
-        any(bool(i.printing_required) for i in payload.items)
-        or bool(str(payload.printing_instructions or "").strip())
-        or bool(printing_attachments)
-    )
-    create_work_orders(
-        db,
-        po.id,
-        include_printing=include_printing,
-        cutting_department_code=payload.cutting_department_code,
-        sewing_factory_code=payload.sewing_factory_code,
-    )
-    log_action(
-        db, current, "create", "ProductionOrder", po.id,
-        new_value={
-            "production_no": po.production_no,
-            "type": "branded_stock",
-            "planning_order_no": planning_order.order_no,
-            "sewing_factory_code": payload.sewing_factory_code,
-        },
-    )
-    db.commit(); db.refresh(po)
-    return po
+    return production_planning_service.create_branded_stock_production(db, payload, current)

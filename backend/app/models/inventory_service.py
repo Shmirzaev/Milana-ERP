@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
+from dataclasses import dataclass
 from decimal import Decimal
+from collections.abc import Callable, Iterable
 
 from fastapi import HTTPException
 from sqlalchemy import and_, case, func, or_, text
@@ -26,16 +28,28 @@ from app.schemas import (
     Warehouse,
     WorkOrder,
 )
+from app.libs.enums.inventory import (
+    MaterialReservationSource,
+    MaterialReservationStatus,
+    MaterialReservationType,
+)
+from app.libs.dto.inventory.reservation_type_selection import DeferredReservationType, reservation_type_selection
 from app.models.numbering_service import next_material_reservation_nos
+from app.schemas.inventory import material_reservation_persistence
 from app.models.workflow_service import consume_item_from_batches, consume_stock_batch, notify_department
 
 MATERIAL_CATEGORIES = ("fabric", "semi_finished")
 ACCESSORY_CATEGORIES = ("accessory", "packaging")
 RESERVABLE_CATEGORIES = MATERIAL_CATEGORIES + ACCESSORY_CATEGORIES
-ACTIVE_RESERVATION_STATUSES = ("reserved", "partially_consumed")
-RESERVATION_STATUSES = ("reserved", "partially_consumed", "consumed", "released", "cancelled")
-RESERVATION_TYPES = ("material", "accessory", "packaging")
-RESERVATION_SOURCES = ("manual", "auto_bom", "planning")
+# The stored vocabularies come from the canonical enums, so the column,
+# the writers and the request contract cannot drift apart.
+ACTIVE_RESERVATION_STATUSES = (
+    MaterialReservationStatus.RESERVED.value,
+    MaterialReservationStatus.PARTIALLY_CONSUMED.value,
+)
+RESERVATION_STATUSES = tuple(member.value for member in MaterialReservationStatus)
+RESERVATION_TYPES = tuple(member.value for member in MaterialReservationType)
+RESERVATION_SOURCES = tuple(member.value for member in MaterialReservationSource)
 REQUIRE_RESERVATION_SETTING = "require_material_reservation_before_cutting"
 ACCESSORY_SEWING_BLOCK_REASON = "Accessories must be issued before sewing."
 EPSILON = 1e-9
@@ -154,13 +168,72 @@ def _covered_reservation_quantity(reservation: MaterialReservation) -> float:
     )
 
 
-def _reservation_type_for_category(category: str | None) -> str:
+def _reservation_type_for_category(category: str | None) -> MaterialReservationType:
     normalized = str(category or "").strip().lower()
     if normalized == "packaging":
-        return "packaging"
+        return MaterialReservationType.PACKAGING
     if normalized == "accessory":
-        return "accessory"
-    return "material"
+        return MaterialReservationType.ACCESSORY
+    return MaterialReservationType.MATERIAL
+
+
+def _reservation_source_member(source: object) -> MaterialReservationSource:
+    """The canonical source member, or the refusal this service always used."""
+    if source not in RESERVATION_SOURCES:
+        raise HTTPException(400, "Invalid reservation source")
+    return MaterialReservationSource(source)
+
+
+def _reservation_type_member(value: MaterialReservationType | DeferredReservationType, category: str | None) -> MaterialReservationType:
+    """The canonical type member, or the refusal this service always used."""
+    if isinstance(value, MaterialReservationType):
+        return value
+    if value is DeferredReservationType.FALLBACK:
+        return _reservation_type_for_category(category)
+    raise HTTPException(400, "Invalid reservation_type")
+
+
+@dataclass(frozen=True)
+class _ReservationCreateLine:
+    item_id: int
+    quantity: float
+    unit: str
+    stock_batch_id: int | None
+    warehouse_id: int | None
+    notes: str | None
+    resolve_type: Callable[[], MaterialReservationType | DeferredReservationType]
+
+
+@dataclass(frozen=True)
+class _ReservationCreateValues:
+    production_order_id: int
+    sales_order_id: int | None
+    item_id: int
+    stock_batch_id: int | None
+    warehouse_id: int | None
+    reserved_quantity: float
+    consumed_quantity: float
+    released_quantity: float
+    unit: str
+    status: MaterialReservationStatus
+    reservation_type: MaterialReservationType
+    source: MaterialReservationSource
+    reserved_by: int | None
+    reserved_at: datetime
+    notes: str | None
+
+
+def _prepare_reservation_lines(lines: list[dict]) -> Iterable[_ReservationCreateLine]:
+    """Legacy coercions remain lazy and execute in their original line order."""
+    for raw in lines:
+        item_id = int(raw.get("item_id") or 0)
+        quantity = float(raw.get("reserved_quantity") or raw.get("quantity") or 0)
+        unit = str(raw.get("unit") or "").strip()
+        stock_batch_id = int(raw["stock_batch_id"]) if raw.get("stock_batch_id") else None
+        warehouse_id = int(raw["warehouse_id"]) if raw.get("warehouse_id") else None
+        notes = str(raw.get("notes") or "").strip() or None
+        yield _ReservationCreateLine(item_id, quantity, unit, stock_batch_id, warehouse_id, notes,
+                                     lambda raw=raw: reservation_type_selection(raw.get("reservation_type")))
 
 
 def _active_reserved_sum_query(db: Session):
@@ -879,8 +952,7 @@ def create_material_reservations(
     po = db.get(ProductionOrder, production_order_id)
     if not po:
         raise HTTPException(404, "Production order not found")
-    if source not in RESERVATION_SOURCES:
-        raise HTTPException(400, "Invalid reservation source")
+    source_member = _reservation_source_member(source)
     if not lines:
         raise HTTPException(400, "No reservation lines provided")
 
@@ -888,14 +960,24 @@ def create_material_reservations(
     items, warehouses, batch_reserved, available_by_key = _reservation_read_context(
         db, lines, locked_batches, preloaded_items=locked_items,
     )
-    reservation_values: list[dict] = []
-    for idx, raw in enumerate(lines, start=1):
-        item_id = int(raw.get("item_id") or 0)
-        quantity = float(raw.get("reserved_quantity") or raw.get("quantity") or 0)
-        unit = str(raw.get("unit") or "").strip()
-        stock_batch_id = int(raw["stock_batch_id"]) if raw.get("stock_batch_id") else None
-        warehouse_id = int(raw["warehouse_id"]) if raw.get("warehouse_id") else None
-        notes = str(raw.get("notes") or "").strip() or None
+    return _create_material_reservations_core(
+        db, po=po, lines=_prepare_reservation_lines(lines), user_id=user_id,
+        source=source_member, locked_batches=locked_batches, items=items,
+        warehouses=warehouses, batch_reserved=batch_reserved, available_by_key=available_by_key,
+    )
+
+
+def _create_material_reservations_core(
+    db: Session, *, po: ProductionOrder, lines: Iterable[_ReservationCreateLine],
+    user_id: int | None, source: MaterialReservationSource,
+    locked_batches: dict[int, StockBatch], items: dict[int, Item],
+    warehouses: dict[int, Warehouse], batch_reserved: dict[int, float],
+    available_by_key: dict[tuple[int, int | None], float],
+) -> list[MaterialReservation]:
+    reservation_values: list[_ReservationCreateValues] = []
+    for idx, line in enumerate(lines, start=1):
+        item_id, quantity, unit = line.item_id, line.quantity, line.unit
+        stock_batch_id, warehouse_id, notes = line.stock_batch_id, line.warehouse_id, line.notes
         if quantity <= 0:
             raise HTTPException(400, f"Reservation line #{idx} quantity must be greater than zero")
         item = items.get(item_id)
@@ -904,9 +986,7 @@ def create_material_reservations(
         if item.category not in RESERVABLE_CATEGORIES:
             raise HTTPException(400, f"Item {item.sku} is not a reservable material/accessory item")
         unit = unit or item.unit
-        reservation_type = str(raw.get("reservation_type") or _reservation_type_for_category(item.category)).strip()
-        if reservation_type not in RESERVATION_TYPES:
-            raise HTTPException(400, "Invalid reservation_type")
+        reservation_type = _reservation_type_member(line.resolve_type(), item.category)
 
         if stock_batch_id is not None:
             batch = locked_batches.get(stock_batch_id)
@@ -949,44 +1029,60 @@ def create_material_reservations(
         if warehouse_id is not None:
             available_by_key[(item_id, warehouse_id)] = available_by_key.get((item_id, warehouse_id), 0.0) - quantity
 
-        reservation_values.append({
-            "production_order_id": int(po.id),
-            "sales_order_id": int(po.sales_order_id) if po.sales_order_id else None,
-            "item_id": item_id,
-            "stock_batch_id": stock_batch_id,
-            "warehouse_id": warehouse_id,
-            "reserved_quantity": quantity,
-            "consumed_quantity": 0,
-            "released_quantity": 0,
-            "unit": unit,
-            "status": "reserved",
-            "reservation_type": reservation_type,
-            "source": source,
-            "reserved_by": user_id,
-            "reserved_at": datetime.now(timezone.utc),
-            "notes": notes,
-        })
+        reservation_values.append(_ReservationCreateValues(
+            production_order_id=int(po.id), sales_order_id=int(po.sales_order_id) if po.sales_order_id else None,
+            item_id=item_id, stock_batch_id=stock_batch_id, warehouse_id=warehouse_id,
+            reserved_quantity=quantity, consumed_quantity=0, released_quantity=0, unit=unit,
+            status=MaterialReservationStatus.RESERVED, reservation_type=reservation_type, source=source,
+            reserved_by=user_id, reserved_at=datetime.now(timezone.utc), notes=notes,
+        ))
 
     reservation_nos = next_material_reservation_nos(db, len(reservation_values))
     created = [
-        MaterialReservation(reservation_no=reservation_no, **values)
+        material_reservation_persistence.insert_material_reservation(
+            db,
+            reservation_no=reservation_no,
+            production_order_id=values.production_order_id,
+            sales_order_id=values.sales_order_id,
+            item_id=values.item_id,
+            stock_batch_id=values.stock_batch_id,
+            warehouse_id=values.warehouse_id,
+            reserved_quantity=values.reserved_quantity,
+            consumed_quantity=values.consumed_quantity,
+            released_quantity=values.released_quantity,
+            unit=values.unit,
+            status=values.status,
+            reservation_type=values.reservation_type,
+            source=values.source,
+            reserved_by=values.reserved_by,
+            reserved_at=values.reserved_at,
+            notes=values.notes,
+        )
         for reservation_no, values in zip(reservation_nos, reservation_values, strict=True)
     ]
-    db.add_all(created)
     db.flush()
     return created
 
 
-def _set_reservation_status(reservation: MaterialReservation) -> None:
-    remaining = _open_reservation_quantity(reservation)
-    consumed = float(reservation.consumed_quantity or 0)
-    released = float(reservation.released_quantity or 0)
+def _reservation_status_for_quantities(reserved: object, consumed: object, released: object) -> MaterialReservationStatus:
+    remaining = max(0.0, float(reserved or 0) - float(consumed or 0) - float(released or 0))
+    consumed = float(consumed or 0)
+    released = float(released or 0)
     if remaining <= EPSILON:
-        reservation.status = "released" if released > EPSILON else "consumed"
-    elif consumed > EPSILON:
-        reservation.status = "partially_consumed"
-    else:
-        reservation.status = "reserved"
+        return (
+            MaterialReservationStatus.RELEASED
+            if released > EPSILON
+            else MaterialReservationStatus.CONSUMED
+        )
+    if consumed > EPSILON:
+        return MaterialReservationStatus.PARTIALLY_CONSUMED
+    return MaterialReservationStatus.RESERVED
+
+
+def _set_reservation_status(reservation: MaterialReservation) -> None:
+    reservation.status = _reservation_status_for_quantities(
+        reservation.reserved_quantity, reservation.consumed_quantity, reservation.released_quantity,
+    ).value
 
 
 def _consume_loaded_material_reservation(
@@ -1043,20 +1139,9 @@ def _consume_loaded_material_reservation(
 
 
 def release_material_reservation(db: Session, reservation_id: int) -> MaterialReservation:
-    reservation = db.get(MaterialReservation, reservation_id)
-    if not reservation:
-        raise HTTPException(404, "Material reservation not found")
-    if reservation.status in ("cancelled", "released", "consumed"):
-        raise HTTPException(409, f"Reservation is already {reservation.status}")
-    remaining = _open_reservation_quantity(reservation)
-    if remaining <= EPSILON:
-        _set_reservation_status(reservation)
-        db.flush()
-        return reservation
-    reservation.released_quantity = float(reservation.released_quantity or 0) + remaining
-    _set_reservation_status(reservation)
-    db.flush()
-    return reservation
+    # Preserve existing transaction-neutral caller interface for Cutting and stock.
+    from app.models.inventory.reservation_release_service import release_material_reservation as release
+    return release(db, reservation_id)
 
 
 def consume_material_reservation(
@@ -1325,13 +1410,13 @@ def auto_reserve_materials_for_production_order(
     if mode not in {"shortage_only", "full_remaining"}:
         raise HTTPException(400, "mode must be shortage_only or full_remaining")
     plan = reservation_plan_for_production_order(db, production_order_id)
-    selected_types: set[str] = set()
+    selected_types: set[MaterialReservationType] = set()
     if reserve_materials:
-        selected_types.add("material")
+        selected_types.add(MaterialReservationType.MATERIAL)
     if reserve_accessories:
-        selected_types.add("accessory")
+        selected_types.add(MaterialReservationType.ACCESSORY)
     if reserve_packaging:
-        selected_types.add("packaging")
+        selected_types.add(MaterialReservationType.PACKAGING)
     lines: list[dict] = []
     for row in plan["rows"]:
         if row["reservation_type"] not in selected_types:
@@ -1356,7 +1441,7 @@ def auto_reserve_materials_for_production_order(
         production_order_id=production_order_id,
         lines=lines,
         user_id=user_id,
-        source="auto_bom",
+        source=MaterialReservationSource.AUTO_BOM,
     ) if lines else []
     refreshed_plan = reservation_plan_for_production_order(db, production_order_id)
     shortage = float(refreshed_plan.get("summary", {}).get("shortage") or 0)
