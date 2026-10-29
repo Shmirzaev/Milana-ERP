@@ -1,11 +1,14 @@
 """Partial dispatch keeps receipt contents and the physical label identity intact."""
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
 
 from app.schemas import Package, PackageItem, PackageScanLog, ShipmentPackage, StockReservation
 from app.models.audit_service import log_action
+from app.models.fulfillment.shipment_allocation_service import available_claims, validate_claim, validate_available_claim
+from app.schemas.fulfillment.shipment_allocation import save_package_claim
 
 
 def remaining_quantity(package):
@@ -42,21 +45,59 @@ def select_dispatch_quantity(db, shipment, pid, payload, user):
         raise HTTPException(409, "Remove the whole package instead of selecting zero pieces")
     from app.models.packaging_scope_service import require_package_access
     require_package_access(user, package)
+    validate_claim(db, shipment, package, quantities, items)
     before = link.quantity
-    selections = {**(shipment.dispatch_snapshot or {}).get("package_quantities", {}), str(pid): quantities}
-    shipment.dispatch_snapshot = {**(shipment.dispatch_snapshot or {}), "package_quantities": selections}
-    link.quantity = total
+    save_package_claim(db, shipment, pid, quantities, link)
     log_action(db, user, "select_shipment_package_quantity", "Shipment", shipment.id,
                old_value={"package_id": pid, "quantity": before},
                new_value={"package_id": pid, "quantity": total, "items": quantities, "reason": payload.reason})
     db.flush()
 
 
-def dispatch_selected(db, shipment, package, stocks, user):
-    from app.models.packages_service import _require_warehouse_package
-    _require_warehouse_package(db, package)
-    items = db.query(PackageItem).filter_by(package_id=package.id).order_by(PackageItem.id).all()
+@dataclass(frozen=True)
+class DispatchClaimContext:
+    session: object
+    transaction: object
+    shipment: object
+    packages: dict
+    items: dict
+    available: dict
+    reservations: dict
+
+
+def prepare_dispatch_claims(db, shipment, packages):
+    """Call after sorted Package locks; batch reads for selected dispatches."""
+    selected = [p for p in packages if p.dispatched_quantities or str(p.id) in
+                (shipment.dispatch_snapshot or {}).get('package_quantities', {})]
+    ids = [p.id for p in selected]
+    items = db.query(PackageItem).filter(PackageItem.package_id.in_(ids)).order_by(PackageItem.id).all() if ids else []
+    reservations = db.query(StockReservation).filter(StockReservation.package_id.in_(ids)).order_by(
+        StockReservation.id).with_for_update().all() if ids else []
+    by_package, claims = defaultdict(list), defaultdict(list)
+    for item in items:
+        by_package[item.package_id].append(item)
+    for reservation in reservations:
+        claims[reservation.package_id].append(reservation)
+    return DispatchClaimContext(db, db.get_nested_transaction() or db.get_transaction(), shipment, {p.id:p for p in selected},
+                                by_package, available_claims(db,selected,shipment.id,items), claims)
+
+
+def dispatch_selected(db, shipment, package, stocks, user, *, claim_context=None, shipment_context=None):
+    if shipment_context is None:
+        from app.models.packages_service import _require_warehouse_package
+        _require_warehouse_package(db, package)
+    elif (shipment_context.session is not db or shipment_context.transaction is not (db.get_nested_transaction() or db.get_transaction())
+          or shipment_context.packages_by_id.get(package.id) is not package):
+        raise HTTPException(409, 'Invalid locked package context for shipment')
+    elif shipment_context.source_types_by_order_id.get(package.production_order_id) == 'usluga':
+        raise HTTPException(400, 'Usluga packages are handed directly to the customer and cannot enter warehouse flow')
+    context = claim_context or prepare_dispatch_claims(db, shipment, [package])
+    if (context.session is not db or context.transaction is not (db.get_nested_transaction() or db.get_transaction())
+            or context.shipment is not shipment or context.packages.get(package.id) is not package):
+        raise HTTPException(409, 'Invalid allocation context for shipment')
+    items = context.items[package.id]
     quantities = selected_items(shipment, package, items)
+    validate_available_claim(quantities, context.available[package.id])
     link = next(link for link in shipment.packages if link.package_id == package.id)
     if sum(quantities.values()) != link.quantity or any(
             qty < 0 or qty > remaining_item_quantity(package, item)
@@ -75,8 +116,7 @@ def dispatch_selected(db, shipment, package, stocks, user):
         actual_sold[key] += stock.sold_qty
     if expected != actual or expected_sold != actual_sold:
         raise HTTPException(409, "Package contents and warehouse stock do not balance")
-    reservations = db.query(StockReservation).filter_by(package_id=package.id).order_by(
-        StockReservation.id).with_for_update().all()
+    reservations = context.reservations[package.id]
     if any(row.sales_order_id != shipment.sales_order_id for row in reservations):
         raise HTTPException(409, "Package is reserved for another order")
     for stock in stocks:

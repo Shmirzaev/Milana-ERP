@@ -1,4 +1,4 @@
-from app.models.package_dispatch_service import remaining_quantity, remaining_item_quantity, selected_items, select_dispatch_quantity, dispatch_selected
+from app.models.package_dispatch_service import remaining_quantity, remaining_item_quantity, selected_items, select_dispatch_quantity, dispatch_selected, prepare_dispatch_claims
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from urllib.parse import quote
@@ -31,6 +31,9 @@ from app.libs.dto.sales.sales import ShipmentIn, ShipmentOut, ShipmentScanIn, Sh
 from app.libs.dto.catalog.catalog import PartyIn
 from app.libs.dto.fulfillment.shipment_review import ShipmentAmountReview, ShipmentPackageRemoval, ShipmentQuantityReview, ShipmentTransportDetails, ShipmentReopen
 from app.models.shipment_reopen_service import reopen_shipment
+from app.models.fulfillment.shipment_allocation_service import (
+    available_claims, attach_package_claim, claimed_quantity, replace_claim,
+)
 from app.models.shipment_review_service import (
     correct_received_quantity, detach_shipment_package, freeze_dispatch_document, locked_shipment,
     invoice_for_frozen_delivery, review_shipment_amount, shipment_document,
@@ -239,6 +242,9 @@ def _preparation_payload(
     package_items_by_id: dict[int, list[PackageItem]] = {}
     for item in package_items:
         package_items_by_id.setdefault(int(item.package_id), []).append(item)
+    allocatable_by_package = available_claims(
+        db, [package for _, package in package_rows], shipment.id if shipment else None, package_items,
+    ) if shipment is None or shipment.status in _OPEN_SHIPMENT_STATUSES else {}
 
     order_items = (
         db.query(SalesOrderItem)
@@ -363,7 +369,8 @@ def _preparation_payload(
                 "items": item_lines,
                 "quantity_items": [{"item_id": item.id, "color": item.color, "size": item.size,
                                     "quantity": selected_by_package[package.id][str(item.id)],
-                                    "available_quantity": remaining_item_quantity(package, item)} for item in package_items_by_id.get(int(package.id), [])],
+                                    "available_quantity": allocatable_by_package.get(package.id, {}).get(
+                                        str(item.id), remaining_item_quantity(package, item))} for item in package_items_by_id.get(int(package.id), [])],
             }
         )
         group = grouped.get(int(package.model_id))
@@ -518,7 +525,7 @@ def _package_attachment_error(db: DbSession, shipment: Shipment, package: Packag
     if db.query(WarehousePackReservation.id).filter_by(package_id=package.id).first():
         return f"Package {package.package_no} is reserved for a customer. Prepare it from Warehouse reservations."
     other = _other_open_shipment_for_package(db, int(package.id), shipment_id=int(shipment.id))
-    if other:
+    if other and not sum(available_claims(db, [package], shipment.id)[package.id].values()):
         return f"Package {package.package_no} is already attached to shipment {other.shipment_no}."
     if not shipment.sales_order_id:
         return _orderless_package_error(db, package)
@@ -785,8 +792,7 @@ def _replace_unscanned_same_model_package(
         return None, reservation_error
 
     old_package_id = int(slot.package_id)
-    slot.package_id = int(scanned_package.id)
-    slot.quantity = remaining_quantity(scanned_package)
+    replace_claim(db, shipment, slot, scanned_package)
     db.flush()
     log_action(
         db,
@@ -816,6 +822,7 @@ def _scan_response(
     remaining_count: int,
     is_complete: bool,
     previous_scan: ShipmentPreviousScan | None = None,
+    package_quantity: int | None = None,
 ) -> ShipmentScanOut:
     return ShipmentScanOut(
         ok=ok,
@@ -824,7 +831,7 @@ def _scan_response(
         message=message,
         package_id=int(package.id) if package else None,
         package_no=package.package_no if package else None,
-        package_quantity=remaining_quantity(package) if package else None,
+        package_quantity=package_quantity if package_quantity is not None else remaining_quantity(package) if package else None,
         package_model_code=package_model_code,
         previous_scan=previous_scan,
         required_count=required_count,
@@ -932,9 +939,11 @@ def _ship_verified_packages(db: DbSession, shipment: Shipment, current: User) ->
     freeze_dispatch_document(db, shipment)
     shipment.dispatch_snapshot = {**shipment.dispatch_snapshot, "document": {**shipment.dispatch_snapshot["document"], "warehouse_person": current.name}}
     shipment_context = package_shipment_context(db, packages, stocks_by_package)
+    claim_context = prepare_dispatch_claims(db, shipment, packages)
     for package in packages:
         if package.dispatched_quantities or str(package.id) in (shipment.dispatch_snapshot or {}).get("package_quantities", {}):
-            dispatch_selected(db, shipment, package, stocks_by_package[package.id], current)
+            dispatch_selected(db, shipment, package, stocks_by_package[package.id], current,
+                              claim_context=claim_context, shipment_context=shipment_context)
         else:
             ship_package(db, package, current.id, sync_production=False, shipment_context=shipment_context)
     sync_package_production_orders(db, (package.production_order_id for package in packages))
@@ -1055,11 +1064,6 @@ def ready_packages(db: DbSession, _: CurrentUser, sales_order_id: int | None = N
             StockReservation.package_id.isnot(None),
             StockReservation.quantity > 0,
         )
-        attached_package_ids = (
-            db.query(ShipmentPackage.package_id)
-            .join(Shipment, Shipment.id == ShipmentPackage.shipment_id)
-            .filter(Shipment.status.in_(_OPEN_SHIPMENT_STATUSES))
-        )
         rows = (
             db.query(Package, Model)
             .join(Model, Model.id == Package.model_id)
@@ -1067,11 +1071,11 @@ def ready_packages(db: DbSession, _: CurrentUser, sales_order_id: int | None = N
                 Package.status == "received_in_storage",
                 Package.sales_order_id.is_(None),
                 Package.id.notin_(reserved_package_ids),
-                Package.id.notin_(attached_package_ids),
             )
             .order_by(Package.id.asc())
             .all()
         )
+    claimable = available_claims(db, [p for p, _ in rows])
     return [
         {
             "id": p.id,
@@ -1080,12 +1084,12 @@ def ready_packages(db: DbSession, _: CurrentUser, sales_order_id: int | None = N
             "model_id": p.model_id,
             "model_code": model.code if model else None,
             "color": p.color,
-            "total_quantity": remaining_quantity(p),
+            "total_quantity": sum(claimable[p.id].values()),
             "status": p.status,
             "storage_cell": p.storage_cell,
             "storage_shelf": p.storage_shelf,
         }
-        for p, model in rows
+        for p, model in rows if sum(claimable[p.id].values()) > 0
     ]
 
 
@@ -1157,7 +1161,7 @@ def create_shipment(
             ).first()
             if exists:
                 continue
-            db.add(ShipmentPackage(shipment_id=sh.id, package_id=pkg.id, quantity=remaining_quantity(pkg)))
+            attach_package_claim(db, sh, pkg)
             added += 1
     log_action(
         db,
@@ -1264,7 +1268,7 @@ def add_package(
     ).first()
     if exists:
         raise HTTPException(409, "Package already attached to this shipment")
-    db.add(ShipmentPackage(shipment_id=sh.id, package_id=pkg.id, quantity=remaining_quantity(pkg)))
+    attach_package_claim(db, sh, pkg)
     log_action(db, current, "add_package", "Shipment", sh.id, new_value={"package_id": pkg.id})
     response = {"message": "added"}
     store_idempotent_response(
@@ -1303,7 +1307,7 @@ def add_ready_packages(
     for p in ready:
         if p.id in attached:
             continue
-        db.add(ShipmentPackage(shipment_id=sh.id, package_id=p.id, quantity=remaining_quantity(p)))
+        attach_package_claim(db, sh, p)
         added += 1
     reported = added if added > 0 else len(attached & ready_ids)
     log_action(db, current, "add_ready_packages", "Shipment", sh.id, new_value={"added": added, "ready_attached": reported})
@@ -1717,7 +1721,7 @@ def scan_package(
                     response=response,
                 )
     if not link:
-        db.add(ShipmentPackage(shipment_id=sh.id, package_id=pkg.id, quantity=remaining_quantity(pkg)))
+        attach_package_claim(db, sh, pkg)
         db.flush()
         db.expire(sh, ["packages"])
         log_action(db, current, "add_package_scan", "Shipment", sh.id, new_value={"package_id": pkg.id})
@@ -1756,6 +1760,7 @@ def scan_package(
         remaining_count=remaining_count,
         is_complete=is_complete,
         previous_scan=_previous_package_scan(db, pkg.id, sh.id) if duplicate else None,
+        package_quantity=claimed_quantity(db, sh, pkg),
     )
     return _commit_scan_response(
         db,

@@ -36,6 +36,16 @@ other writers remain separately pending. See the operation packet in
 
 ## Existing code to study first
 
+`shipment_allocation_service.py` owns per-item claims on an existing package
+across open shipments. Callers lock their own Shipment, then sorted Package rows;
+never lock another Shipment while holding a Package. Each attachment freezes its
+claim through `schemas/fulfillment/shipment_allocation.py`. Availability subtracts
+other undeleted draft/created claims from physical remaining contents. Dispatch
+prefetches claims/items/reservations after package locks, and standalone package
+dispatch refuses open shipment claims. Existing Sales/customer reservations are
+still enforced; shared claims do not authorize taking another order's stock.
+See [verification and limits](../../../../docs/archive/OPEN_SHIPMENT_PACKAGE_SPLIT_2026-10-29.md).
+
 - Routes: [finished_goods.py](../../api/routes/finished_goods.py), [warehouse_reservations.py](../../api/routes/warehouse_reservations.py), [shipments.py](../../api/routes/shipments.py), [packages.py](../../api/routes/packages.py), [package_workflows.py](../../api/routes/package_workflows.py).
 - Services/helpers: [finished_goods_service.py](../finished_goods_service.py), [package_dispatch_service.py](../package_dispatch_service.py), [package_returns_service.py](../package_returns_service.py), [packages_service.py](../packages_service.py), [package_workflows_service.py](../package_workflows_service.py), [warehouse_packages_service.py](../warehouse_packages_service.py), [warehouse_report_service.py](../warehouse_report_service.py), [shipment_review_service.py](../shipment_review_service.py), [shipment_reopen_service.py](../shipment_reopen_service.py), [shipment_invoice_service.py](../shipment_invoice_service.py), [shipment_invoice_excel_service.py](../shipment_invoice_excel_service.py).
 - Existing SQLAlchemy schema models: [ManualPackageReceipt](../../schemas/packaging/package_workflows.py#L10), [PackagingReceipt](../../schemas/production/production.py#L479), [Shipment](../../schemas/sales/sales.py#L81), [ShipmentPackage](../../schemas/sales/sales.py#L106), [ShipmentScanLog](../../schemas/sales/sales.py#L119), [PackageQuantityAdjustment](../../schemas/fulfillment/shipment_review.py#L9), [LegacyStockReceipt](../../schemas/production/tracking.py#L128), [FinishedGoodsStock](../../schemas/production/tracking.py#L233), [StockReservation](../../schemas/production/tracking.py#L262), [WarehousePackReservation](../../schemas/production/tracking.py#L276).

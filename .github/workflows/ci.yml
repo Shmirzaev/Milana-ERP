@@ -87,6 +87,7 @@ jobs:
           backend/app/tests/test_sewing_band_postgres.py
           backend/app/tests/test_sewing_later_nastil_postgres.py
           backend/app/tests/test_nastil_factory_postgres.py
+          backend/app/tests/test_open_shipment_allocations_postgres.py
           backend/app/tests/test_besttex_cutting_postgres.py
           backend/app/tests/test_payroll_overlap_repair.py
           backend/app/tests/test_payroll_split_correction_races.py

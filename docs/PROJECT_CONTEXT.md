@@ -17,6 +17,14 @@ not appended here. This summary does not replace live release verification.
 
 ## Current green release (29 October)
 
+The follow-up [multiple open shipment package split](archive/OPEN_SHIPMENT_PACKAGE_SPLIT_2026-10-29.md)
+is a separate candidate on `codex/split-open-shipments-20261029`, based on
+`clone_main` 4bdddf4f. It allows a partial claim to release unallocated sizes for
+another open shipment before dispatch. Production remains the release below
+until explicit release evidence is recorded. No real shipments were altered
+for testing. Shared-claim data requires compatible code; old blue recovery
+must retain the existing application-maintenance guard.
+
 [Order artwork, Nastil factory selection, warehouse remainder and invoice
 sizing](archive/PRINT_NASTIL_WAREHOUSE_2026-10-29.md) is deployed on green
 `20261029_083228`, exact runtime `24f4f2310a2194afe9a589796347525e2a7759fa`,

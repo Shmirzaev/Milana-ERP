@@ -247,7 +247,8 @@ def prepare_shipment(payload: SelectedPacks, db: DbSession,
     db.add(shipment)
     db.flush()
     for package in packages:
-        db.add(ShipmentPackage(shipment_id=shipment.id, package_id=package.id, quantity=remaining_quantity(package)))
+        from app.models.fulfillment.shipment_allocation_service import attach_package_claim
+        attach_package_claim(db, shipment, package)
     log_action(db, current, "create_from_reservations", "Shipment", shipment.id,
                new_value={"package_ids": payload.package_ids, "customer_id": shipment.customer_id})
     response = {"id": shipment.id, "shipment_no": shipment.shipment_no}
