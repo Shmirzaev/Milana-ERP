@@ -1,7 +1,72 @@
 # Order artwork, Nastil routing and warehouse corrections
 
-29 October 2026. Implementation candidate; human acceptance, integration and
-deployment are pending. No production business rows have been changed.
+29 October 2026. Merged and deployed on green `20261029_083228`; PO-0377's
+requested factory correction is applied. Human/operator acceptance remains
+separate. Public latency failures were explicitly accepted by the owner, not
+relabelled as passing measurements. No 30-minute monitoring was performed.
+
+## Final deployment and correction
+
+- PR344 was fast-forward merged into `clone_main` at exact runtime commit
+  `24f4f2310a2194afe9a589796347525e2a7759fa`. This documentation/baseline record
+  follows that runtime; it does not change deployed application code.
+- Both VMs serve green `20261029_083228`, activated at 09:07 UTC. Source manifest
+  `95d3be61132307dc41ec13fff4e51965ad460ab7faa4e5725448db488a13cd59`,
+  archive `b7be433f3fa1e07ec36929a4b124bc53673a8dad52f9e28a6153c40c106a40ce`.
+  Backend image digest `490a56be19ee998e241023c78b3a4d2764671c4b22ebe1dbea3741d1a9890370`;
+  frontend `1cbf8aa2e2fa54bdc2c71515b4557b193eb15f34ffb38529b106f282bec6e57b`.
+  Unchanged blue `20261028_123531` retains its exact container IDs, images and start
+  times. It was used temporarily to serve traffic while inactive green was replaced.
+- Exact immutable CI run 40842869582 passed backend/frontend/release. The backend
+  suite passed 4,860 cases with 539 opt-in skips; required PostgreSQL run 40842802962
+  independently executed all 165 mandatory cases without skips. Frontend build,
+  contracts/browser fixtures, Ruff, strict TypeScript and independent review passed.
+- Verified custom-format backup: `milana_erp_pre_20261029_083228.dump`, 96,730,499
+  bytes, 1,246 restore objects, SHA256
+  `13e14836b0b6eb67f8ca608dc5df3a468d2675e5dcf9e233cc5bb259b721dc6c`.
+  Restore-list hash/size and mode 0600 were verified. Schema upgrade was a no-op;
+  revision remains `0149_besttex_cutting_access`.
+- Actual candidate/public read-only QA passed. Candidate packing-date API values
+  matched 47 persisted package rows; connected Chrome displayed original dates.
+  Change factory showed Nastil 1 locked and 2/3 selectable. Public post-correction
+  Chrome showed six Milana and twelve Besttex bundle rows, with zero console errors.
+  Original cutting-print blob-policy refusal remains BLOCKED; no physical-print or
+  blanket human acceptance is inferred from these scoped checks.
+- The direct paired 120-sample performance gate passed all five endpoints. First
+  public closing check failed model-group p95 190.53→232.78 ms (+22.17%). After the
+  planned exact temporary-container/proxy cleanup, one independently reviewed
+  final-state check failed inventory-stock p95 144.59→185.12 ms (+28.03%); model
+  groups then passed. Counts/payloads were identical and medians stayed within
+  limits. Host diagnosis did not establish saturation or a root cause. Both false
+  gates and raw evidence remain frozen (hashes `154d588203b6c733ce11911c5163296befb03a796105a1307be2ec59658bafbe`
+  and `9629c9ee279e0d45ecb827a5b28c2f0d04f71e87cf7120625e94b9887a99f0b4`).
+  The human explicitly answered **“Accept latency exception and finish PO-377”**.
+  Only this p95 exception was accepted; no further sampling was performed.
+- At 09:20 UTC the verified-backup, active actor 14 and pinned production identity
+  guarded one correction, audit **151254**. Only batch 255/256's twelve bundles and
+  factory/departments changed, with dedicated Sewing/Packaging work orders
+  2671/2672 and 2673/2674 (300 pieces each). Shared Milana Sewing remains 600 in,
+  600 out; Milana Packaging remains 600 in, 540 out, with plan 600. Storage transfer
+  keeps plan 1,200 and output 540. Nastil 1's six bundles/600 pieces stay Milana;
+  2/3 each have six bundles/300 pieces at Besttex. No historical Sewing output was
+  synthesized. Existing one Sewing record, nine packages, items, stock, order/batch
+  quantities and unselected bundles passed protected fingerprints and fresh reads.
+  The first quantitative read-only helper used `storage` instead of the actual
+  `storage_transfer` operation; that assertion was corrected without reapplying
+  the already-committed business change. API scope readback had already passed.
+- Immediate closing checks passed after correction and cleanup: both source/slot
+  identities, routers, two backend workers, zero restart/OOM/runtime errors,
+  database headroom/indexes, revision and all four health endpoints. Temporary QA
+  containers/proxy and local isolated QA listeners are stopped. Monitoring was
+  explicitly waived and was not performed. The 80% staging gate initially stopped
+  image preparation; four exact unused ERP images with verified source archives
+  were removed, without touching any containers/volumes or protected blue images.
+
+Evidence is preserved under this worktree's `outputs/deployment/`, including
+`evidence.json`, frozen performance files, `po0377-final-readback.json` and
+`public-po0377-corrected-context.png`. The data-aware maintenance rollback below
+is mandatory after exposure to this release. Production/operator acceptance and
+the unresolved latency cause remain open; merge and deployment are complete.
 
 ## Direct scope and baseline
 
@@ -15,7 +80,7 @@ The owner explicitly selected `clone_main` as the base.
 - Worktree: `C:\ERP\.codex-work\print-nastil-shipment-20261029`.
 - Branch: `codex/print-nastil-shipment-20261029`; base `425ec9fe`.
 - Both production source manifests verified against production-base.json:
-  active green `20261029_053553`, runtime `186110a5`, manifest
+  initially active green `20261029_053553`, runtime `186110a5`, manifest
   `b5ca28076acb7b740073c32a40b0b0bf7eb818c83a4d84ba79cf51233d60b570`.
   Both slot states retain blue `20261028_123531` as rollback.
 - Production/Packaging/Fulfillment engineering owner: Mirshoir; reviewer: Ismail.
@@ -76,7 +141,8 @@ sewing output. Its preview and committed apply were tested on isolated fixtures.
 The script pins order/batch identities 416/253/255/256 and rejects missing or
 duplicate Nastil indices before it can write. There is no CLI identity override.
 Do not apply it to the old runtime: that runtime lacks exclusive shared-scope
-handling. A release and backup remain prerequisites; no live correction occurred.
+handling. These were the pre-release prerequisites; the final guarded application
+and readback are recorded above.
 
 ## Evidence and limitations
 
@@ -146,15 +212,17 @@ The owner explicitly authorized push/merge into clone_main and deployment on top
 of current green, preserving blue unchanged, and waived the 30-minute monitoring
 window. This overrides only the timed observation requirement. Exact CI, immutable
 images, fresh verified backup, no-op schema, candidate/public QA, performance and
-immediate runtime/health gates remain required. Fresh live reconciliation confirmed
-green 20261029_053553 and blue 20261028_123531 against the recorded manifests.
+immediate runtime/health gates remained required. The pre-deployment live
+reconciliation confirmed then-active green 20261029_053553 and blue 20261028_123531
+against the recorded manifests; the final green release is recorded above.
 
-Final Besttex handoff exposed a pre-existing raw model-ID fallback when catalog
-access was correctly denied across factory contexts. The product panel now uses
+Final Besttex handoff prompted a check of the pre-existing raw model-ID fallback
+when catalog data is unavailable. The product panel now uses
 the authorized work-order model/variant numbers as its fallback, preserving catalog
 authorization and preferring catalog information when available. The real component
-browser fixture covers both cases. This small display correction requires a new
-exact-source validation/artifact run; the earlier 63a0e00f artifact is not promoted.
+browser fixture covers both cases. This small display correction required a new
+exact-source validation/artifact run, which passed for 24f4f231 as recorded above;
+the earlier 63a0e00f artifact was not promoted.
 
 ### Data-aware rollback boundary
 
@@ -194,5 +262,6 @@ export a six-size invoice and verify a single horizontal size line on the select
 paper/PDF width. Check tablet/phone and EN/RU/UZ labels.
 
 Record Mirshoir/Ismail's technical review and the operator's visual acceptance.
-Merge, deployment, PO correction and production acceptance are separate pending
-states; no release authorization is inferred from this document.
+Merge, deployment and the PO correction are complete as recorded above. Human
+production/operator acceptance remains separate and pending; release and latency
+exception authorization came explicitly from the owner in the deployment chat.

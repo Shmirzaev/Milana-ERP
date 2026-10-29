@@ -15,17 +15,33 @@ Last updated 2026-10-29. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Production reconciliation deployed (29 October)
+## Current green release (29 October)
 
-Pending candidate: [order artwork, Nastil factory selection, warehouse remainder
-and invoice sizing](archive/PRINT_NASTIL_WAREHOUSE_2026-10-29.md), based on
-`clone_main` `425ec9fe`. Implementation and bounded checks are recorded separately
-from human acceptance and deployment. PO-0377's exact 2/3-to-Besttex correction is
-prepared, not applied; it must follow the scoped-routing release and verified
-backup. Active/rollback releases below remain unchanged.
+[Order artwork, Nastil factory selection, warehouse remainder and invoice
+sizing](archive/PRINT_NASTIL_WAREHOUSE_2026-10-29.md) is deployed on green
+`20261029_083228`, exact runtime `24f4f2310a2194afe9a589796347525e2a7759fa`,
+merged into `clone_main` through PR344. Both source manifests are
+`95d3be61132307dc41ec13fff4e51965ad460ab7faa4e5725448db488a13cd59`.
+Blue `20261028_123531` remains unchanged, including containers/images/start times.
+After verified backup, PO-0377 Nastils 2/3 (255/256) were assigned to Besttex;
+Nastil 1 stays Milana. Audit 151254 records the correction. Existing Sewing,
+packages, stock, order/batch quantities and unrelated Nastils were conserved.
+No historical Sewing output was invented. Exact-source CI (4,860 backend cases),
+165 required PostgreSQL cases, candidate/public browser, paired performance,
+no-op schema and immediate runtime/health checks passed. Two public p95 checks
+failed (model groups +22.17%, then inventory stock +28.03% after temporary
+container cleanup); both failures remain recorded. The owner explicitly accepted
+this measured latency exception and authorized finishing PO-0377. Cause remains
+unproven; no further retry or blanket performance pass is claimed. The separate
+30-minute monitoring waiver was honored. Cutting-sheet physical/visual operator
+acceptance remains pending. **Blue's old code cannot write mixed shared/dedicated
+Nastil scopes safely: use the documented maintenance recovery guard after this
+release; ordinary ungated blue activation is unsafe.**
+
+## Earlier production reconciliation (29 October)
 
 The [inactive-material batch-edit fix](archive/INACTIVE_BATCH_EDIT_2026-10-29.md)
-is deployed on green `20261029_053553`, runtime `186110a549d48f42801058241ffcabbb22acdaf9` (PR342, clone_main).
+was deployed on green `20261029_053553`, runtime `186110a549d48f42801058241ffcabbb22acdaf9` (PR342, clone_main), before the current release.
 Only the unchanged-material validation was added to the prior green application;
 no separate Mirshoir/Dilmurod changes were introduced. Blue `20261028_123531`
 remains the unchanged running rollback. CI, 165 mandatory PG cases, verified backup,
