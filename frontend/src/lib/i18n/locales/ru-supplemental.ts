@@ -1,5 +1,6 @@
 // Generated mechanically from supplemental.ts; keep keys and values byte-for-byte equivalent.
 export default {
+    "nav.besttexCutOrders": "Раскроенные заказы",
     "page.hrEmployees.delete": "Удалить сотрудника",
     "page.hrEmployees.archive": "В архив",
     "page.hrEmployees.archived": "В архиве",

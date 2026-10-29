@@ -34,6 +34,7 @@ export function factoryWorkspaceHome(me: Me | undefined): string {
     if (!permits("sewing.records", "sewing.bundles", "planning.production") && !packaging) {
       if (permits("payroll.view", "payroll.manage", "payroll.pay")) return "/payroll";
       if (permits("payroll.scan")) return "/payroll/scan";
+      if (permits("besttex.cutting_sheets")) return "/besttex/cutting-orders";
     }
     return packaging && !permits("sewing.records", "sewing.bundles", "planning.production")
       ? "/departments/BPK"

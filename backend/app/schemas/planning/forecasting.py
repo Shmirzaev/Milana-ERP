@@ -5,13 +5,14 @@ from sqlalchemy import DateTime, ForeignKey, JSON, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, PkMixin, TimestampMixin
+from app.libs.enums.planning import ForecastRecommendationStatus
 
 
 class ForecastRecommendation(Base, PkMixin, TimestampMixin):
     __tablename__ = "forecast_recommendations"
 
     recommendation_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    status: Mapped[str] = mapped_column(String(32), default="open", nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), default=ForecastRecommendationStatus.OPEN.value, nullable=False, index=True)
     model_id: Mapped[int | None] = mapped_column(ForeignKey("models.id"))
     item_id: Mapped[int | None] = mapped_column(ForeignKey("items.id"))
     brand_id: Mapped[int | None] = mapped_column(ForeignKey("brands.id"))

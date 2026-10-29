@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from app.db.session import SessionLocal
 from app.schemas import SalesOrder, SalesOrderItem
-from app.libs.dto.sales.sales import SalesOrderItemIn
+from app.libs.dto.sales.sales_order_input import SalesOrderItemIn
 
 
 def _item(**overrides):

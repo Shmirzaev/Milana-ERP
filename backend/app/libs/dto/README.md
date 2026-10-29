@@ -46,6 +46,15 @@ Preserve existing class names unless renaming is separately justified.
 
 ## Contract rules
 
+Legacy request spelling can be part of an idempotency or audit contract. Keep
+validated raw input at an explicit compatibility edge, separate from canonical
+enum business values. Distinguish invalid input from category fallback; never map
+an unknown value silently to a valid default. Preserve the old refusal/audit order
+when validation intentionally remains inside the operation. Test every supported
+Pydantic input/copy/assignment path so private raw state cannot become stale.
+Document the resulting OpenAPI honestly; a string input schema may describe
+deferred legacy validation, but is not proof of full enum adoption on its own.
+
 - Create/In: accepted input fields and deliberate defaults. Trusted identity,
   permissions, audit fields and derived amounts are supplied/checked by the service.
 - Update: allow-listed fields; preserve omitted versus explicit null using the

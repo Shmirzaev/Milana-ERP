@@ -30,7 +30,7 @@ from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
-from app.api.routes import stocktake as stocktake_routes
+from app.models import stocktake_service as stocktake_routes
 from app.db.base import Base
 from app.schemas import (
     FinishedGoodsStock,

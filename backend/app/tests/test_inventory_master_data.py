@@ -6,7 +6,7 @@ from openpyxl import load_workbook
 from sqlalchemy.dialects import postgresql
 
 from app.api.routes.cutting_passports import _compute, _size_count_from_range
-from app.api.routes.inventory import (
+from app.models.inventory.stock_service import (
     _delete_stock_batch_receipt_movements,
     _locked_active_batch_reservations_statement,
     _locked_stock_batch_statement,

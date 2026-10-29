@@ -31,8 +31,8 @@ from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.orm import defer, sessionmaker
 
 from app.api.routes import eco_transfers
-from app.api.routes.eco_transfers import dispatch_data
-from app.api.routes.fabric_scans import TASHKENT
+from app.models.inventory.fabric_scans_service import TASHKENT
+from app.models.inventory.transfers_service import eco_dispatch_data as dispatch_data
 from app.db.base import Base
 from app.schemas import (
     EcoFabricDispatch,

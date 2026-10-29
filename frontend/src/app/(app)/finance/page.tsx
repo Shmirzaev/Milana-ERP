@@ -7,6 +7,7 @@ import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import { useT } from "@/lib/i18n";
+import { INVOICE_STATUS, type InvoiceStatus } from "@/lib/invoiceStatus";
 import { statusLabel } from "@/components/StagePipeline";
 import { useDialogs } from "@/components/DialogProvider";
 import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
@@ -18,7 +19,8 @@ type InvoiceRow = {
   order_no: string;
   customer?: string | null;
   amount: number;
-  status: string;
+  balance_due: number;
+  status: InvoiceStatus;
   date?: string | null;
 };
 
@@ -90,15 +92,15 @@ export default function FinancePage() {
 
   function openPayment(inv: InvoiceRow) {
     setPaying(inv);
-    setPayment({ amount: Number(inv.amount || 0), date: new Date().toISOString().slice(0, 10), payment_method: "bank_transfer" });
+    setPayment({ amount: Number.isFinite(inv.balance_due) ? inv.balance_due : "", date: new Date().toISOString().slice(0, 10), payment_method: "bank_transfer" });
     setPaymentMsg("");
   }
 
   async function recordPayment(e: React.FormEvent) {
     e.preventDefault();
     if (!paying) return;
-    if (!(await dialogs.ask({ message: t("page.finance.recordPaymentConfirm", { invoice: paying.invoice_no || paying.order_no }) }))) return;
     setPaymentMsg("");
+    if (!(await dialogs.ask({ message: t("page.finance.recordPaymentConfirm", { invoice: paying.invoice_no || paying.order_no, amount: money(numberOrZero(payment.amount)) }) }))) return;
     try {
       await api.post("/api/finance/payments", {
         invoice_id: paying.id,
@@ -184,13 +186,13 @@ export default function FinancePage() {
                   <td>{inv.customer || "-"}</td>
                   <td>{money(Number(inv.amount || 0))}</td>
                   <td>
-                    <span className={`badge ${String(inv.status).toLowerCase() === "paid" ? "badge-green" : "badge-yellow"}`}>
+                    <span className={`badge ${inv.status === INVOICE_STATUS.PAID ? "badge-green" : "badge-yellow"}`}>
                       {statusLabel(inv.status, t)}
                     </span>
                   </td>
                   <td>{inv.date ? new Date(inv.date).toLocaleDateString() : "-"}</td>
                   <td>
-                    {String(inv.status).toLowerCase() !== "paid" ? (
+                    {inv.status !== INVOICE_STATUS.PAID ? (
                       <button className="btn h-7 px-2 text-[11px]" onClick={() => openPayment(inv)}>{t("page.finance.recordPayment")}</button>
                     ) : "-"}
                   </td>
@@ -206,11 +208,11 @@ export default function FinancePage() {
           <div className="text-sm text-slate-600">
             {paying?.invoice_no || "-"} - {formatOrderReference(paying?.order_no)} - {money(Number(paying?.amount || 0))}
           </div>
-          <div><label className="label">{t("field.amountReceived")}</label><input className="input" type="number" step="0.01" value={payment.amount} onChange={(e) => setPayment({ ...payment, amount: parseNumberInput(e.target.value) })} required /></div>
-          <div><label className="label">{t("field.date")}</label><input className="input" type="date" value={payment.date} onChange={(e) => setPayment({ ...payment, date: e.target.value })} required /></div>
+          <div><label className="label">{t("field.amountReceived")}</label><input className="input" type="number" step="0.01" value={payment.amount} onChange={(e) => { setPayment({ ...payment, amount: parseNumberInput(e.target.value) }); setPaymentMsg(""); }} required /></div>
+          <div><label className="label">{t("field.date")}</label><input className="input" type="date" value={payment.date} onChange={(e) => { setPayment({ ...payment, date: e.target.value }); setPaymentMsg(""); }} required /></div>
           <div>
             <label className="label">{t("field.paymentMethod")}</label>
-            <select className="input" value={payment.payment_method} onChange={(e) => setPayment({ ...payment, payment_method: e.target.value })}>
+            <select className="input" value={payment.payment_method} onChange={(e) => { setPayment({ ...payment, payment_method: e.target.value }); setPaymentMsg(""); }}>
               <option value="bank_transfer">{t("payment.method.bankTransfer")}</option>
               <option value="cash">{t("payment.method.cash")}</option>
               <option value="card">{t("payment.method.card")}</option>

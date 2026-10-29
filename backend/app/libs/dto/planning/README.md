@@ -4,12 +4,34 @@
 
 Existing Pydantic definitions in this group:
 
-- [forecasting.py](forecasting.py)
-- [price_calculation.py](price_calculation.py)
+- [forecast_recommendation_input.py](forecast_recommendation_input.py) — `ForecastRecommendationIn` using canonical `ForecastRecommendationType` from libs/enums/planning.py.
+- [forecast_recommendation_update.py](forecast_recommendation_update.py) — `ForecastRecommendationPatch` using canonical `ForecastRecommendationStatus` from libs/enums/planning.py.
+- [forecast_recommendation_output.py](forecast_recommendation_output.py) — historical `ForecastRecommendationOut`, typed creation result and review result with canonical status and legacy type.
+- [price_calculation_request_input.py](price_calculation_request_input.py) — `PriceCalculationCreateIn`.
+- [price_calculation_request_update.py](price_calculation_request_update.py) — the cutting, finance, purchasing and accessory contribution payloads.
+- [price_calculation_request_output.py](price_calculation_request_output.py) — `PriceCalculationRequestOut` and `PriceCalculationAccessoryOut`.
+- [branded_planning_order_input.py](branded_planning_order_input.py) — `BrandedPlanningOrderIn`.
+- [material_requirement_output.py](material_requirement_output.py) — `MaterialRequirement`.
 
 These describe accepted inputs and returned data. They do not execute database
-writes, implement permissions or manage transactions. Existing filenames/class
-names are retained; the folder move does not alter validation or defaults.
+writes, implement permissions or manage transactions. Field names, bounds,
+defaults and the accepted vocabulary are unchanged by the split; the former
+`forecasting.py` and `price_calculation.py` modules were replaced by these
+per-entity files once every caller moved.
+
+Forecast creation now uses real enum annotations in its input/result and internal
+insert command. Its OpenAPI references change deliberately; wire values and exact
+case validation are preserved. GET retains unconstrained historical strings; PATCH
+returns its controlled canonical status and retains historical recommendation type.
+Confidence and source_json
+remain open metadata. The review patch uses canonical `ForecastRecommendationStatus`
+with the same four accepted values, and its mapped write is schema-owned; no
+unknown stored value is repaired or discarded by this slice.
+
+`BrandedPlanningOrderIn` and `MaterialRequirement` used to live in
+[../production/production.py](../production/production.py). They are planning
+contracts and now live here; `ProductionOrderIn` and `ProductionOrderOut` stay
+production-owned.
 
 Before adding a file, find the existing contract and its router/service callers.
 Keep creation fields/defaults, allowed update fields and response filtering distinct.

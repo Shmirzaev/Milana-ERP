@@ -1,4 +1,5 @@
 "use client";
+import type { SalesOrderStatus } from "@/lib/salesOrderEnums";
 import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
@@ -8,13 +9,15 @@ import useSWR from "swr";
 import { Plus } from "lucide-react";
 
 import { api, fetcher } from "@/lib/api";
+import { useMe, can } from "@/lib/auth";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
+import { type InvoiceStatus } from "@/lib/invoiceStatus";
+import { type CustomerOrderPaymentStatus } from "@/lib/customerOrderPaymentStatus";
 import { numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 
-type PaymentStatus = "paid" | "partial" | "unpaid" | "no_invoice" | "void" | "cancelled";
 type PaymentRow = {
   id: number;
   amount: number;
@@ -35,7 +38,7 @@ type InvoiceRow = {
   id: number;
   invoice_no: string;
   amount: number;
-  status: string;
+  status: InvoiceStatus;
   issued_at?: string | null;
   due_date?: string | null;
   paid_amount: number;
@@ -49,11 +52,11 @@ type CustomerOrder = {
   order_no: string;
   date?: string | null;
   total: number;
-  status: string;
+  status: SalesOrderStatus;
   invoice_total: number;
   paid_total: number;
   balance_due: number;
-  payment_status: PaymentStatus;
+  payment_status: CustomerOrderPaymentStatus;
   last_payment_at?: string | null;
   invoices: InvoiceRow[];
 };
@@ -68,7 +71,7 @@ function money(value: number) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
 
-function paymentStatusLabel(status: PaymentStatus, t: (key: string) => string) {
+function paymentStatusLabel(status: CustomerOrderPaymentStatus, t: (key: string) => string) {
   if (status === "paid") return t("payment.status.paid");
   if (status === "partial") return t("payment.status.partial");
   if (status === "unpaid") return t("payment.status.unpaid");
@@ -77,7 +80,7 @@ function paymentStatusLabel(status: PaymentStatus, t: (key: string) => string) {
   return t("payment.status.noInvoice");
 }
 
-function paymentStatusClass(status: PaymentStatus) {
+function paymentStatusClass(status: CustomerOrderPaymentStatus) {
   if (status === "paid") return "badge-green";
   if (status === "partial") return "badge-blue";
   if (status === "unpaid") return "badge-red";
@@ -95,6 +98,9 @@ export default function CustomerDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const { t } = useT();
+  const { me } = useMe();
+  const canManageCustomer = can(me, "sales.customers");
+  const canRecordPayment = can(me, "finance.payment");
   const { data: customer, mutate } = useSWR<any>(`/api/customers/${id}`, fetcher);
   const { data: orders, mutate: mutateOrders } = useSWR<CustomerOrder[]>(`/api/customers/${id}/orders`, fetcher);
   const { data: customerPayments, mutate: mutateCustomerPayments } = useSWR<PaymentHistoryRow[]>(`/api/customers/${id}/payments`, fetcher);
@@ -195,6 +201,7 @@ export default function CustomerDetailPage() {
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
+    if (!canManageCustomer) return;
     setMsg("");
     const next: Record<string, string> = {};
     if (!form.name.trim()) next.name = t("page.profile.nameRequired");
@@ -225,6 +232,7 @@ export default function CustomerDetailPage() {
   }
 
   function openPayment(order?: CustomerOrder) {
+    if (!canRecordPayment) return;
     setPaymentOpen(true);
     setSelectedPaymentOrderId(order?.id ?? "");
     setPaymentForm({
@@ -246,6 +254,7 @@ export default function CustomerDetailPage() {
 
   async function recordPayment(e: React.FormEvent) {
     e.preventDefault();
+    if (!canRecordPayment) return;
     const targetOrder = selectedPaymentOrder;
     const amount = numberOrZero(paymentForm.amount);
     if (!Number.isFinite(amount) || amount <= 0) {
@@ -297,20 +306,20 @@ export default function CustomerDetailPage() {
   return (
     <div>
       <PageHeader title={customer.name} subtitle={t("page.customerDetail.subtitle")} />
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[420px_1fr]">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
         <form onSubmit={save} className="card p-4 space-y-3">
-          <div><label className="label">{t("common.name")}</label><input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+          <div><label className="label">{t("common.name")}</label><input className="input" readOnly={!canManageCustomer} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
           {errors.name && <div className="text-xs text-red-600">{errors.name}</div>}
-          <div><label className="label">{t("field.phone")}</label><input className="input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
-          <div><label className="label">{t("field.email")}</label><input className="input" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
+          <div><label className="label">{t("field.phone")}</label><input className="input" readOnly={!canManageCustomer} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
+          <div><label className="label">{t("field.email")}</label><input className="input" type="email" readOnly={!canManageCustomer} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
           {errors.email && <div className="text-xs text-red-600">{errors.email}</div>}
-          <div><label className="label">{t("field.address")}</label><input className="input" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
-          <div><label className="label">{t("field.notes")}</label><textarea className="input min-h-24" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
+          <div><label className="label">{t("field.address")}</label><input className="input" readOnly={!canManageCustomer} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
+          <div><label className="label">{t("field.notes")}</label><textarea className="input min-h-24" readOnly={!canManageCustomer} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
           {msg && <div className={`text-sm ${msg === t("msg.saved") ? "text-green-700" : "text-red-600"}`}>{msg}</div>}
-          <div className="flex justify-end"><button className="btn btn-primary">{t("btn.save")}</button></div>
+          {canManageCustomer && <div className="flex justify-end"><button className="btn btn-primary">{t("btn.save")}</button></div>}
         </form>
 
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
             <div className="card p-4">
               <div className="label">{t("page.customerDetail.orders")}</div>
@@ -389,10 +398,10 @@ export default function CustomerDetailPage() {
                     <td>
                       <div className="flex flex-wrap items-center gap-2">
                         <span className={`badge ${paymentStatusClass(o.payment_status)}`}>{paymentStatusLabel(o.payment_status, t)}</span>
-                        <button type="button" className="btn h-7 px-2 text-[11px]" onClick={() => openPayment(o)}>
+                        {canRecordPayment && <button type="button" className="btn h-7 px-2 text-[11px]" onClick={() => openPayment(o)}>
                           <Plus className="h-3.5 w-3.5" />
                           {t("page.customerDetail.addPayment")}
-                        </button>
+                        </button>}
                       </div>
                     </td>
                   </tr>
@@ -405,14 +414,14 @@ export default function CustomerDetailPage() {
           <section className="card overflow-x-auto">
             <div className="flex items-center justify-between gap-3 border-b border-[#ecebe3] px-4 py-3">
               <h2 className="app-card-title">{t("page.customerDetail.paymentHistory")}</h2>
-              <button
+              {canRecordPayment && <button
                 type="button"
                 className="btn h-7 px-2 text-[11px]"
                 onClick={() => openPayment()}
               >
                 <Plus className="h-3.5 w-3.5" />
                 {t("page.customerDetail.addPayment")}
-              </button>
+              </button>}
             </div>
             <table className="table min-w-[760px]">
               <thead>
@@ -445,10 +454,10 @@ export default function CustomerDetailPage() {
                     <td colSpan={5}>
                       <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
                         <span>{t("page.customerDetail.noPayments")}</span>
-                        <button type="button" className="btn h-7 px-2 text-[11px]" onClick={() => openPayment()}>
+                        {canRecordPayment && <button type="button" className="btn h-7 px-2 text-[11px]" onClick={() => openPayment()}>
                           <Plus className="h-3.5 w-3.5" />
                           {t("page.customerDetail.addPayment")}
-                        </button>
+                        </button>}
                       </div>
                     </td>
                   </tr>
@@ -459,7 +468,7 @@ export default function CustomerDetailPage() {
         </div>
       </div>
 
-      <Modal open={paymentOpen} onClose={() => setPaymentOpen(false)} title={t("page.customerDetail.addPayment")}>
+      {canRecordPayment && <Modal open={paymentOpen} onClose={() => setPaymentOpen(false)} title={t("page.customerDetail.addPayment")}>
         <form onSubmit={recordPayment} className="space-y-3">
           <div className="rounded-md border border-[#ecebe3] bg-[#f8f7f3] p-3 text-sm">
             <div className="font-medium">{formatOrderReference(selectedPaymentOrder?.order_no, t("page.customerDetail.advancePayment"))}</div>
@@ -529,7 +538,7 @@ export default function CustomerDetailPage() {
             <button className="btn btn-primary" disabled={savingPayment}>{savingPayment ? t("common.saving") : t("page.customerDetail.savePayment")}</button>
           </div>
         </form>
-      </Modal>
+      </Modal>}
     </div>
   );
 }

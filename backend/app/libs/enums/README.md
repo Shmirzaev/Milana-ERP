@@ -2,14 +2,16 @@
 
 ## Guidance publication and runtime scope
 
-26 October 2026: these engineering rules are published on `clone_main`.
-This documentation-only update does not integrate the runtime candidate in
-[draft PR #308](https://github.com/Shmirzaev/Milana-ERP/pull/308). References
-below to its six grouped-service extractions, entity-named DTOs, InvoiceStatus
-or candidate test results describe that separate branch, not code newly
-present or verified on `clone_main`. The shared checkout still contains
-legacy/root services and mixed DTO files. Schema-owned writers and full
-enum/type adoption remain incomplete across the ERP.
+26 October 2026: these engineering rules were published on `clone_main`
+through `b92ee8ff109d47e573ff4e506267500a9db1f649`. That documentation-only
+publication did not integrate the runtime candidate in
+[draft PR #308](https://github.com/Shmirzaev/Milana-ERP/pull/308).
+This candidate reconciles those published rules with the grouped services,
+entity-named DTOs and scoped enum corrections. Historical test results belong
+to their recorded revisions; they do not verify this combined candidate.
+Remaining legacy/root services, mixed DTO files, schema-owned writers and
+full enum/type adoption stay in the operation ledger. Browser and human
+acceptance are separate gates.
 
 **Coordination owner:** Ismail. **Reviewer:** Mirshoir.
 Shavkat confirms business meanings; feature owners update callers. See [team ownership](../../../../docs/TEAM_OWNERSHIP.md).
@@ -42,6 +44,13 @@ not a smaller completion scope.
 - Explicit string values that preserve the existing API and database contract.
 
 ## Rules
+
+Audit each field's raw accepted vocabulary separately from its canonical business
+meaning, default/fallback and action subset. Padded legacy values may normalize
+for business use while their original spelling remains significant for replay or
+failure audit. Unknown input is not a fallback. Verify actual runtime enum values
+and all callers, including copied DTOs and direct service producers; an enum file,
+enum-backed string default or passing OpenAPI snapshot alone does not prove usage.
 
 - Confirm the complete vocabulary and its meaning with the feature owner before
   converting existing strings. Shavkat clarifies business meaning; Mirshoir
