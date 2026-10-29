@@ -116,6 +116,29 @@ def _upstream_failed_qty(db: Session, wo: WorkOrder) -> int:
     if op_index <= 0:
         return 0
     prior_operations = WORKFLOW_SEQUENCE[:op_index]
+    dedicated_exists = wo.production_batch_id is not None or db.query(WorkOrder.id).filter(
+        WorkOrder.production_order_id == wo.production_order_id, WorkOrder.operation == wo.operation,
+        WorkOrder.production_batch_id.is_not(None), WorkOrder.status != "cancelled").first()
+    if dedicated_exists and wo.operation in {"sewing", "packaging"}:
+        from app.schemas import PrintingRecord, SewingRecord
+        from app.models.production.batch_scope_service import filter_work_order_batches
+        total = 0
+        for operation, model, loss in (("cutting", CuttingRecord, CuttingRecord.defective_pieces),
+                ("printing", PrintingRecord, PrintingRecord.rejected_qty),
+                ("sewing", SewingRecord, SewingRecord.failed_qty + SewingRecord.rejected_qty)):
+            if operation not in prior_operations:
+                continue
+            # Dedicated stages start from usable bundles, which already exclude
+            # cutting defects. Only subsequent Printing/Sewing losses reduce them.
+            if operation == "cutting" and wo.production_batch_id is not None:
+                continue
+            query = db.query(func.coalesce(func.sum(loss), 0)).join(WorkOrder, WorkOrder.id == model.work_order_id).filter(
+                WorkOrder.production_order_id == wo.production_order_id, WorkOrder.status.notin_({"cancelled", "rejected"}))
+            if operation == "cutting":
+                query = query.filter(CuttingRecord.approval_status == "approved",
+                    func.coalesce(CuttingRecord.material_role, "main") == "main")
+            total += int(filter_work_order_batches(query, model.production_batch_id, wo).scalar() or 0)
+        return total
     # A previously accepted shortage may remain in failed_qty after a later
     # nastil supplies those pieces. It cannot still reduce downstream targets.
     remaining = case(
@@ -270,16 +293,29 @@ def propagate_cutting_plan_from_output(db: Session, wo: WorkOrder) -> None:
         WorkOrder.production_order_id == wo.production_order_id,
         WorkOrder.operation.in_(downstream_ops),
     )
-    if wo.production_batch_id is None:
-        qry = qry.filter(WorkOrder.production_batch_id.is_(None))
-    else:
+    if wo.production_batch_id is not None:
         qry = qry.filter(WorkOrder.production_batch_id == wo.production_batch_id)
 
-    for row in qry.all():
-        if int(row.planned_input_qty or 0) < output_qty:
-            row.planned_input_qty = output_qty
-        if int(row.planned_output_qty or 0) < output_qty:
-            row.planned_output_qty = output_qty
+    downstream = qry.all()
+    dedicated = [row for row in downstream if row.production_batch_id is not None]
+    batch_outputs = {}
+    if dedicated:
+        for bid, qty in db.query(Bundle.production_batch_id, func.sum(Bundle.quantity)).filter(
+            Bundle.production_order_id == wo.production_order_id, Bundle.status != "cancelled").group_by(Bundle.production_batch_id):
+            batch_outputs[bid] = max(0, int(qty or 0))
+        for bid, qty in db.query(CuttingRecord.production_batch_id, func.sum(CuttingRecord.passed_pieces)).filter(
+            CuttingRecord.work_order_id == wo.id, CuttingRecord.approval_status == "approved").group_by(CuttingRecord.production_batch_id):
+            batch_outputs[bid] = max(batch_outputs.get(bid, 0), int(qty or 0))
+    for row in downstream:
+        target = output_qty
+        if dedicated and row.operation in {"sewing", "packaging"}:
+            owned_elsewhere = {other.production_batch_id for other in dedicated if other.operation == row.operation}
+            target = (batch_outputs.get(row.production_batch_id, 0) if row.production_batch_id is not None else
+                      max(0, output_qty - sum(batch_outputs.get(bid, 0) for bid in owned_elsewhere)))
+        if int(row.planned_input_qty or 0) < target:
+            row.planned_input_qty = target
+        if int(row.planned_output_qty or 0) < target:
+            row.planned_output_qty = target
 
 
 def sync_production_order_status(

@@ -650,6 +650,11 @@ def receive_at_sewing(
         )
         if receipt_context is not None:
             received_qty = receipt_context.received_quantities_by_scope.get(quantity_scope, 0)
+            if wo.production_batch_id is None:
+                dedicated_ids = {row.production_batch_id for row in receipt_context.work_orders.get(production_order_id, [])
+                                 if row.operation == "sewing" and row.production_batch_id is not None and row.status != "cancelled"}
+                received_qty -= sum(receipt_context.received_quantities_by_scope.get((production_order_id, bid), 0)
+                                    for bid in dedicated_ids)
         else:
             qty_filters = [
                 Bundle.production_order_id == bundle.production_order_id,
@@ -657,9 +662,10 @@ def receive_at_sewing(
             ]
             if wo.production_batch_id is not None:
                 qty_filters.append(Bundle.production_batch_id == wo.production_batch_id)
+            from app.models.production.batch_scope_service import filter_work_order_batches
             received_qty = int(
-                db.query(func.coalesce(func.sum(Bundle.quantity), 0))
-                .filter(*qty_filters)
+                filter_work_order_batches(db.query(func.coalesce(func.sum(Bundle.quantity), 0))
+                .filter(*qty_filters), Bundle.production_batch_id, wo)
                 .scalar()
                 or 0
             )

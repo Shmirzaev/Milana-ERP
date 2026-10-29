@@ -167,8 +167,10 @@ def invoice_headers(lang: str) -> list[str]:
             text["qty"], text["weight"], text["totalWeight"], text["price"], text["amount"]]
 
 
-def invoice_column_widths() -> list[int]:
-    return [3, 8, 8, 14, 14, 6, 7, 8, 9, 10, 13]
+def invoice_column_widths(rows: list[dict] | None = None) -> list[float]:
+    # Grow only the size column; preserve the other columns' physical widths.
+    size_characters = max((len(", ".join(invoice_size_labels(row.get("sizes", [])))) for row in rows or []), default=0)
+    return [3, 8, 8, 14, max(14, size_characters * 0.9), 6, 7, 8, 9, 10, 13]
 
 
 def invoice_size_labels(sizes: list[dict]) -> list[str]:
@@ -257,7 +259,9 @@ def render_shipment_invoice(document: dict, language: str, *, show_prices: bool 
                             f'<th>{value(right)}</th><td>{value(right_value) or "—"}</td></tr>'
                             for left, left_value, right, right_value in metadata)
     headers = invoice_headers(lang)
-    columns = "".join(f'<col style="width:{width}%">' for width in invoice_column_widths())
+    widths = invoice_column_widths(invoice_rows)
+    sheet_width = 190 * sum(widths) / 100
+    columns = "".join(f'<col style="width:{100 * width / sum(widths):g}%">' for width in widths)
     money_total = f'<td></td><td class="numeric">{weight(document.get("amount")) if show_prices else ""}</td>'
     toggle_url = f'?lang={lang}&amp;show_prices={str(not show_prices).lower()}'
     toggle_text = text["hide_prices" if show_prices else "show_prices"]
@@ -267,7 +271,7 @@ def render_shipment_invoice(document: dict, language: str, *, show_prices: bool 
     return f'''<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>{text["title"]} {value(document["shipment_no"])}</title>
 <style>
-*{{box-sizing:border-box}}body{{font:400 8pt Calibri,Arial,sans-serif;line-height:1.3;color:#202124;background:#fff;margin:20px auto;max-width:190mm;padding:0}}
+*{{box-sizing:border-box}}body{{font:400 8pt Calibri,Arial,sans-serif;line-height:1.3;color:#202124;background:#fff;margin:20px auto;width:{sheet_width:g}mm;padding:0}}
 .controls{{margin-bottom:16px;display:flex;gap:8px}}button,.controls a{{color:inherit;text-decoration:none;font:inherit;padding:8px 16px;background:#fff;border:1px solid #b9bec4;border-radius:4px;cursor:pointer}}
 .masthead{{display:grid;grid-template-columns:minmax(0,1fr) 38mm;align-items:center;gap:6mm;padding:0 0 4mm;border-bottom:0;break-inside:avoid}}
 h1{{font-size:11pt;line-height:1.2;font-weight:700;margin:2mm 0;color:#1f3864}}.supplier{{margin:0;font-size:24pt;font-weight:700;color:#1f3864}}.document-number{{margin:2mm 0 0;color:#9b242b;font-size:8pt;font-weight:700}}
@@ -281,9 +285,9 @@ table{{width:100%;border-collapse:collapse;table-layout:fixed}}td,th{{overflow-w
 
 .items .row-number{{white-space:nowrap;overflow-wrap:normal;color:#64717e;font-variant-numeric:tabular-nums;padding-left:.5mm;padding-right:.5mm}}
 .items tbody tr{{height:23.1pt}}
-.items .identity{{font-weight:700;color:#1f3864}}.items .description,.items .sizes{{text-align:left}}.items .sizes{{font-size:9pt;color:#444b52;white-space:normal}}
+.items .identity{{font-weight:700;color:#1f3864}}.items .description,.items .sizes{{text-align:left}}.items .sizes{{font-size:9pt;color:#444b52;white-space:nowrap;overflow-wrap:normal}}
 .items .numeric{{text-align:right;font-variant-numeric:tabular-nums;white-space:normal;font-size:9pt}}
-.size-label{{display:inline-block;max-width:100%;white-space:normal}}
+.size-label{{display:inline;white-space:nowrap}}
 thead{{display:table-header-group}}tr{{break-inside:avoid}}.items tbody:first-of-type tr:last-child{{break-after:avoid}}
 .items .totals td{{font-weight:700;background:#c6d9f1;color:#1f3864;border-top:1.5pt solid #1f3864;border-bottom:3pt double #1f3864;padding-top:2mm;padding-bottom:2mm}}
 .items .totals td:last-child{{background:#1f3864;color:white}}
@@ -293,7 +297,7 @@ thead{{display:table-header-group}}tr{{break-inside:avoid}}.items tbody:first-of
 .signatures td{{height:13mm;border:.75pt solid #8ea9db;background:#f2f5fa;font-weight:700}}
 .signatures td:last-child{{background:white}}
 .contact{{display:flex;justify-content:space-around;background:#1f3864;color:white;padding:3mm 1mm;margin-top:4mm;border-top:1pt solid #d9a441;break-inside:avoid;font-weight:700}}
-@page{{size:A4 portrait;margin:10mm;@bottom-right{{content:counter(page) " / " counter(pages);font:8pt Arial,sans-serif;color:#67717a}}}}
+@page{{size:{sheet_width + 20:g}mm 297mm;margin:10mm;@bottom-right{{content:counter(page) " / " counter(pages);font:8pt Arial,sans-serif;color:#67717a}}}}
 @media print{{body{{margin:0;max-width:none;width:100%}}.controls{{display:none}}*{{print-color-adjust:exact;-webkit-print-color-adjust:exact}}}}
 @media screen and (max-width:740px){{body{{min-width:700px;margin:16px}}}}
 </style></head><body><div class="controls"><button onclick="window.print()">{text["print"]}</button><a href="{toggle_url}">{toggle_text}</a></div>

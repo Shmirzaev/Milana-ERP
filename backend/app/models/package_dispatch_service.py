@@ -102,6 +102,10 @@ def dispatch_selected(db, shipment, package, stocks, user):
     package.dispatched_quantities = {str(item.id): previous.get(str(item.id), 0) + quantities[str(item.id)] for item in items}
     package.dispatched_quantity = sum(package.dispatched_quantities.values())
     package.status = "received_in_storage" if remaining_quantity(package) else "shipped"
+    if remaining_quantity(package):
+        # The original shipment link and frozen invoice retain attribution.
+        # Reservations above have released the remainder for another shipment.
+        package.sales_order_id = None
     if package.status == "shipped":
         package.shipped_at = datetime.now(timezone.utc)
         package.storage_cell = package.storage_shelf = package.storage_placed_at = None

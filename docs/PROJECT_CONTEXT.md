@@ -17,6 +17,13 @@ not appended here. This summary does not replace live release verification.
 
 ## Production reconciliation deployed (29 October)
 
+Pending candidate: [order artwork, Nastil factory selection, warehouse remainder
+and invoice sizing](archive/PRINT_NASTIL_WAREHOUSE_2026-10-29.md), based on
+`clone_main` `425ec9fe`. Implementation and bounded checks are recorded separately
+from human acceptance and deployment. PO-0377's exact 2/3-to-Besttex correction is
+prepared, not applied; it must follow the scoped-routing release and verified
+backup. Active/rollback releases below remain unchanged.
+
 The [inactive-material batch-edit fix](archive/INACTIVE_BATCH_EDIT_2026-10-29.md)
 is deployed on green `20261029_053553`, runtime `186110a549d48f42801058241ffcabbb22acdaf9` (PR342, clone_main).
 Only the unchanged-material validation was added to the prior green application;

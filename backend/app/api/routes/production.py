@@ -363,12 +363,15 @@ def _ordered_batches_for_work_order(
     )
     if not po:
         raise HTTPException(404, "Production order not found")
-    batches = (
+    batch_query = (
         db.query(ProductionBatch)
         .filter(ProductionBatch.production_order_id == po.id)
         .order_by(ProductionBatch.batch_index.asc(), ProductionBatch.id.asc())
-        .all()
     )
+    if wo.operation in {"sewing", "packaging"}:
+        from app.models.production.batch_scope_service import filter_work_order_batches
+        batch_query = filter_work_order_batches(batch_query, ProductionBatch.id, wo)
+    batches = batch_query.all()
     return po, batches
 
 
@@ -390,6 +393,13 @@ def _resolve_record_batch_id(
 
     po, batches = _ordered_batches_for_work_order(db, wo)
     if not batches:
+        if wo.operation in {"sewing", "packaging"} and db.query(ProductionBatch.id).filter(
+            ProductionBatch.production_order_id == po.id).first():
+            raise HTTPException(409, "This work order has no assigned Nastils")
+        if normalized is not None:
+            from app.models.production.batch_scope_service import batch_owned_by_work_order
+            if not batch_owned_by_work_order(db, wo, normalized):
+                raise HTTPException(409, "This Nastil belongs to its dedicated work order")
         return None
 
     if normalized is None:
@@ -401,19 +411,23 @@ def _resolve_record_batch_id(
     ).first()
     if not exists:
         raise HTTPException(404, "Production batch not found for this production order")
+    from app.models.production.batch_scope_service import batch_owned_by_work_order
+    if not batch_owned_by_work_order(db, wo, normalized):
+        raise HTTPException(409, "This Nastil belongs to its dedicated work order")
     return normalized
 
 
-def _context_work_order(db: DbSession, source_wo: WorkOrder, operation: str) -> WorkOrder | None:
+def _context_work_order(db: DbSession, source_wo: WorkOrder, operation: str, batch_id: int | None = None) -> WorkOrder | None:
     qry = db.query(WorkOrder).filter(
         WorkOrder.production_order_id == source_wo.production_order_id,
         WorkOrder.operation == operation,
     )
-    if source_wo.production_batch_id is None:
-        qry = qry.filter(WorkOrder.production_batch_id.is_(None))
-    else:
-        qry = qry.filter(WorkOrder.production_batch_id == source_wo.production_batch_id)
-    return qry.order_by(WorkOrder.id.asc()).first()
+    target_batch = batch_id if batch_id is not None else source_wo.production_batch_id
+    if target_batch is not None:
+        exact = qry.filter(WorkOrder.production_batch_id == target_batch).order_by(WorkOrder.id).first()
+        if exact:
+            return exact
+    return qry.filter(WorkOrder.production_batch_id.is_(None)).order_by(WorkOrder.id.asc()).first()
 
 
 
@@ -927,6 +941,9 @@ def _received_sewing_work_order_payloads(
         batches_by_po.setdefault(int(batch.production_order_id), []).append(batch)
 
     out: list[dict] = []
+    dedicated = set(db.query(WorkOrder.production_order_id, WorkOrder.production_batch_id).filter(
+        WorkOrder.production_order_id.in_(po_ids), WorkOrder.operation == "sewing",
+        WorkOrder.production_batch_id.is_not(None), WorkOrder.status != "cancelled").all())
     for wo in rows:
         po_id = int(wo.production_order_id)
         wo_id = int(wo.id)
@@ -966,6 +983,8 @@ def _received_sewing_work_order_payloads(
             unscoped_assigned_remaining = int(assigned_by_scope.get((wo_id, None), 0))
             for batch in po_batches:
                 batch_id = int(batch.id)
+                if (po_id, batch_id) in dedicated:
+                    continue
                 received = received_by_scope.get((po_id, batch_id), {})
                 received_qty = int(received.get("received_bundle_qty") or 0)
                 if received_qty <= 0:
@@ -2286,7 +2305,7 @@ def update_cutting_sewing_factory(
         raise HTTPException(404, "Cutting work order not found")
     require_work_order_factory_access(current, db, wo)
     from app.models.cutting_sewing_factory_service import change_sewing_factory
-    result = change_sewing_factory(db, wo, payload.sewing_factory_code, current)
+    result = change_sewing_factory(db, wo, payload.sewing_factory_code, current, payload.production_batch_ids)
     db.commit()
     return result
 
@@ -5139,7 +5158,7 @@ def post_printing(payload: PrintingRecordIn, db: DbSession, current: User = Depe
         allow_next_stage_start=accessories_ready,
     )
     if int(payload.passed_qty or 0) > 0:
-        sew_wo = _context_work_order(db, wo, "sewing")
+        sew_wo = _context_work_order(db, wo, "sewing", batch_id)
         sewing_department_code = sewing_department_code_for_bundle_route(db, wo.production_order_id, batch_id)
         if not accessories_ready and accessory_plan:
             _notify_accessory_issue_block(db, wo, accessory_plan, "printing")
