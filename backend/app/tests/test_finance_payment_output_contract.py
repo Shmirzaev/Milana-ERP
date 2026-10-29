@@ -144,12 +144,14 @@ def test_saved_scoped_replay_preserves_hash_json_and_non_null_timestamp(client, 
     first = client.post("/api/finance/payments", headers=headers, json=body)
     assert first.status_code == 201, first.text
 
+    # The d235 baseline already stored PaymentOut.model_dump(mode="json");
+    # Pydantic's UTC JSON spelling is `Z`, which the response model preserves.
     expected_json = {
         "id": first.json()["id"],
         "invoice_id": invoice_id,
         "amount": 40.0,
         "payment_method": "cash",
-        "paid_at": "2024-11-12T13:14:15+00:00",
+        "paid_at": "2024-11-12T13:14:15Z",
     }
     assert first.json() == expected_json
     assert isinstance(typed_results[0], PaymentOut)
