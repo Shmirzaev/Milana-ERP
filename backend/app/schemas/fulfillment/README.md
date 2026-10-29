@@ -21,6 +21,11 @@ records. Business services live in models/*_service.py.
 - [StockReservation](../production/tracking.py)
 - [WarehousePackReservation](../production/tracking.py)
 
+`shipment_allocation.py` owns mapped writes for a shipment's per-item package
+claim: copied JSON selection plus ShipmentPackage identity/quantity, including
+replacement. It shares the caller's Session and never commits. Calculations,
+eligibility and locking belong to the Fulfillment allocation service.
+
 These links follow business ownership; some point to mixed files in another group
 or shared core.py. Keep one authoritative mapping per table. Moving individual
 classes out of mixed files is a separate approved change.

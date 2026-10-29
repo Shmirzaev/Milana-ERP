@@ -62,6 +62,8 @@ function FactorySewingPage() {
     wo ? `/api/work-orders/${id}/sewing-batch-progress` : null,
     fetcher,
   );
+  const ownedBatches = useMemo(() => (po?.batches || []).filter((batch: any) =>
+    (batchProgress?.items || []).some((row: any) => row.id === batch.id)), [po?.batches, batchProgress]);
   const { data: customers = [] } = useSWR<any[]>("/api/customers", fetcher);
   const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
   const batchById = useMemo(() => new Map((po?.batches || []).map((b: any) => [Number(b.id), b])), [po?.batches]);
@@ -167,12 +169,12 @@ function FactorySewingPage() {
   }, [selectedLine?.productionBatchId]);
 
   useEffect(() => {
-    if (!isAlreadyBatched || !Array.isArray(po?.batches) || po.batches.length === 0) return;
+    if (!isAlreadyBatched || ownedBatches.length === 0) return;
     setF((prev) => {
       if (prev.production_batch_id) return prev;
-      return { ...prev, production_batch_id: Number(po.batches[0].id || 0) };
+      return { ...prev, production_batch_id: Number(ownedBatches[0].id || 0) };
     });
-  }, [isAlreadyBatched, po?.batches]);
+  }, [isAlreadyBatched, ownedBatches]);
 
 
   async function submit(e: React.FormEvent) {
@@ -290,7 +292,7 @@ function FactorySewingPage() {
               }}
             >
               <option value={0}>{t("batch.selectBatch")}</option>
-              {(po?.batches || []).map((b: any) => (
+              {ownedBatches.map((b: any) => (
                 <option key={b.id} value={b.id}>
                   {formatBatchLabel(b, po?.id)} ({b.planned_quantity})
                 </option>
