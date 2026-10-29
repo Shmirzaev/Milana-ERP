@@ -3,9 +3,12 @@
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 from app.libs.enums.inventory import FabricScanDepartment, FabricScanDirection
+
+if TYPE_CHECKING:
+    from app.schemas.inventory.inventory import StockMovement
 
 
 @dataclass(frozen=True)
@@ -44,3 +47,18 @@ class ItemInsertCommand:
     is_active: bool
     image_url: str | None
     composition_json: list[ItemCompositionValue]
+
+
+@dataclass(frozen=True)
+class StockBatchEditCommand:
+    """Validated batch-field patch and ledger effects for one batch edit."""
+
+    values: dict[str, object]
+    old_warehouse_id: int
+    target_warehouse_id: int
+    target_quantity: float
+    old_quantity: float
+    target_unit: str
+    actor_id: int
+    relink_item_id: int | None = None
+    item_movements: tuple["StockMovement", ...] = ()
