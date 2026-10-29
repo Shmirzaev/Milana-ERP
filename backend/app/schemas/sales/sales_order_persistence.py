@@ -2,7 +2,7 @@
 
 These operations own the mapped construction, add/flush and mapped-field
 mutations for `sales_orders` and `sales_order_items` inside the
-sales-order creation and header-edit operations.
+sales-order creation, header-edit and deletion operations.
 
 They use the caller's Session, never commit, never open or close a
 transaction, never swallow an error and never import a service or a route.
@@ -93,6 +93,15 @@ def create_sales_order_item(
 def set_sales_order_total(db: Session, order: SalesOrder, total_amount: float | Decimal) -> None:
     """Write the calculated order total."""
     order.total_amount = total_amount
+
+
+def delete_sales_order_row(db: Session, order: SalesOrder) -> None:
+    """Mark the order for deletion in the caller's transaction.
+
+    Existing mapped relationship cascades are unchanged. The caller owns
+    lookup, reference and status checks, audit, flush and commit.
+    """
+    db.delete(order)
 
 
 def set_sales_order_status(db: Session, order: SalesOrder, status: SalesOrderStatus) -> None:

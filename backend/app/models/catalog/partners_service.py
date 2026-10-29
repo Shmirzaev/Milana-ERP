@@ -18,7 +18,7 @@ from app.libs.dto.catalog.party_output import PartyOut
 from app.libs.types.catalog import CustomerUpdateCommand, SupplierUpdateCommand
 from app.models.audit_service import log_action
 from app.schemas import Customer, PurchaseOrder, PurchaseRequestLine, SalesOrder, Shipment, StockBatch, Supplier, User
-from app.schemas.catalog.partners_persistence import apply_customer_update, apply_supplier_update, delete_customer_row, insert_customer, insert_supplier
+from app.schemas.catalog.partners_persistence import apply_customer_update, apply_supplier_update, delete_customer_row, delete_supplier_row, insert_customer, insert_supplier
 
 
 def list_customers(
@@ -186,6 +186,6 @@ def delete_supplier(
     )
     if linked:
         raise HTTPException(409, "Supplier is linked to stock or purchasing records and cannot be deleted")
-    db.delete(s)
+    delete_supplier_row(db, s)
     log_action(db, current, "delete", "Supplier", sid, new_value={"name": s.name})
     db.commit()
