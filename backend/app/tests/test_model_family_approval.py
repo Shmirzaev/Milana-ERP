@@ -100,7 +100,7 @@ def test_approval_permission_and_family_scope(client, auth_headers):
 def test_usluga_family_validates_all_main_fabrics_before_approval(client, auth_headers):
     import pytest
     from fastapi import HTTPException
-    from app.api.routes.catalog import approve_model
+    from app.models.catalog.models_service import approve_model
     from app.schemas import User
     with SessionLocal() as db:
         actor = db.query(User).filter(User.email == "admin@example.com").one()
@@ -114,11 +114,11 @@ def test_usluga_family_validates_all_main_fabrics_before_approval(client, auth_h
                         quantity_per_piece=1, unit="kg", waste_percent=0))
         db.commit()
         with pytest.raises(HTTPException) as error:
-            approve_model(rows[0].id, db, actor, "usluga")
+            approve_model(actor, db, rows[0].id, "usluga")
         assert error.value.status_code == 409
         assert all(row.status == "draft" for row in rows)
         db.add(ModelBOM(model_id=rows[1].id, material_name="Main fabric", material_role="main",
                         quantity_per_piece=1, unit="kg", waste_percent=0))
         db.commit()
-        approve_model(rows[0].id, db, actor, "usluga")
+        approve_model(actor, db, rows[0].id, "usluga")
         assert all(row.status == "approved" for row in rows)

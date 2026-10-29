@@ -4,13 +4,14 @@ from sqlalchemy import DateTime, ForeignKey, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, PkMixin, TimestampMixin
+from app.libs.enums.purchasing import PurchaseRequestStatus
 
 
 class PurchaseRequest(Base, PkMixin, TimestampMixin):
     __tablename__ = "purchase_requests"
 
     request_no: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
-    status: Mapped[str] = mapped_column(String(32), default="draft", nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default=PurchaseRequestStatus.DRAFT.value, nullable=False)
     sales_order_id: Mapped[int | None] = mapped_column(ForeignKey("sales_orders.id"))
     production_order_id: Mapped[int | None] = mapped_column(ForeignKey("production_orders.id"))
     requested_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))

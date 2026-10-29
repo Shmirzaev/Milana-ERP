@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.schemas import IdempotencyRecord, User
 from app.models.factory_scope_service import FACTORY_CODES, selected_factory_code
+from app.schemas.core_idempotency_record_persistence import insert_idempotency_record
 
 _KEY_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 _IDENTITY = "idempotency_identity"
@@ -141,7 +142,8 @@ def store_idempotent_response(
     if user is None or user.id != identity[0] or selected_factory_code(user) != identity[1]:
         raise HTTPException(401, "Saved retry identity must match the authenticated user and factory")
     fingerprint = request_fingerprint(payload)
-    row = IdempotencyRecord(
+    insert_idempotency_record(
+        db,
         scope=_scoped_operation(scope, identity),
         key=normalized_key,
         request_hash=fingerprint,
@@ -149,5 +151,3 @@ def store_idempotent_response(
         status_code=status_code,
         user_id=user.id if user else None,
     )
-    db.add(row)
-    db.flush()

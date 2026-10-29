@@ -19,6 +19,131 @@
   Existing browser entries with the old one-day/week
   lifetime need rollout handling. Mirshoir's limits/review, human acceptance and
   production verification are pending; this is not a Finished entry.
+## INV-INACTIVE-BATCH-20261029 — edit a batch retaining its inactive material
+
+- **Deployed to green `20261029_053553`; awaiting operator verification.** Inventory
+  owner Ismail; human reviewer Mirshoir. Codex fixed the unchanged-material
+  validation for batch 7148's editor without reactivating or reassigning stock.
+  Another inactive target remains refused, including forced saves.
+- 119 scoped tests plus all seven previously skipped PostgreSQL integrity cases
+  passed; real local Chrome save/reload and PostgreSQL readback passed; 20 repeated
+  saves preserved material/quantity/ledger. Independent review found no issues.
+  No production business rows changed; blue rollback is preserved. [Evidence and operator checklist](../docs/archive/INACTIVE_BATCH_EDIT_2026-10-29.md).
+
+## PACK-MANUAL-20261028 — manual Packaging packs and labels
+
+- **Local candidate; print visual gate BLOCKED.** Mirshoir owns Packaging;
+  Ismail is the human reviewer. Dedicated worktree/branch, no shared refactoring
+  edits or push/merge/deployment. Manual creation uses approved models, per-pack
+  quantities, immutable evidence, exact print runs, safe recovery and cancellation
+  before receipt. Warehouse acceptance remains separate.
+- 146 affected backend tests and 26 real PostgreSQL tests pass; optimized frontend
+  build passes. Actual browser creation/reload/warehouse receipt and persisted
+  quantities pass. Browser policy blocks inspection of the generated blob print tab;
+  visual print and human acceptance remain open. [Evidence and local checklist](../docs/archive/MANUAL_PACKAGING_2026-10-28.md).
+- Separately authorized employee-master correction is applied: exactly two links
+  #503 -> #321, preserving both Dilafruz identities/history, backed up and audited.
+  This is not a merge or runtime deployment and does not close this feature gate.
+
+## LABEL-PAYROLL-20261027 — package footer, cutting client and split-payroll editing
+
+- **P2 · Awaiting production verification.** Packaging/cutting: Mirshoir, reviewer
+  Ismail; payroll: Dilmurod, reviewer Mirshoir. Codex implementation was explicitly
+  authorized; these named assignments are not claims of human review.
+- Deployed 20261027_104106, exact application `1d2bfe3d5a5035d925720017766432693177d30f`. All three fixes and immediate
+  technical gates pass; the owner waived timed observation. Existing refactoring
+  and production business data were preserved. No merge or human closure is claimed.
+- [Tests, deployment identities and operator editing steps](../docs/archive/LABEL_PAYROLL_RELEASE_2026-10-27.md).
+- Returned-child follow-up: returned labels had no edit action. Manager metadata
+  correction now preserves all historical earnings and leaves scanned siblings
+  read-only. [Follow-up evidence](../docs/archive/RETURNED_SPLIT_EDIT_2026-10-27.md).
+  Deployed `20261027_115452` / `ed47ab8d0484878f7b5638825beda2ce62a08f5d`; all immediate technical gates pass.
+  Human production acceptance remains pending; no timed monitoring was run.
+
+## Current paths and historical evidence
+
+Business services live in `backend/app/models/<group>/*_service.py`, with existing
+shared helpers at `backend/app/models/*_service.py`. Database mappings live in
+`backend/app/schemas/`; write operations belong there, but remaining direct
+service writers are migration debt. Pydantic contracts live in
+`backend/app/libs/dto/<group>/`. Use the [current source map](../docs/REFACTOR_MAP.md)
+and [service guide](../backend/app/models/README.md) when implementing a task.
+Old row references such as `B:services/planning.py` and `services/workflow.py`
+identify the source at the row's recorded commit. They are historical evidence,
+not instructions to recreate a `services/` directory or proof of a current defect.
+New findings must name the actual current path and revision.
+
+## QA-APP-ROUTES-20261028 — packaged QA site returns 404 before login
+
+- **P1 · NEEDS_REWORK · Verification infrastructure.** Dilmurod owns the area;
+  Mirshoir is the default technical reviewer; Ismail coordinates this repair.
+- Actual browser checks of the `bcfa658` QA artifact, whose executable app inputs
+  match combined candidate `2b34fae`, returned Next.js 404 at `/login` and `/`.
+  No credentials were read or submitted. All 98 QA tables, 97 sequences and
+  43 stored files remained unchanged. No production request or deployment occurred.
+- `frontend/scripts/stage_qa_runtime.py` omitted the build-generated root
+  `.next/app-path-routes-manifest.json` and `.next/package.json`. Next16.3.8
+  silently treats the missing route map as empty, while health rewrites still work.
+- The repair explicitly packages both inputs, reconciles all declared Next
+  runtime files and route-to-compiled-page mappings, and adds refusal tests.
+  A fresh artifact, actual packaged-login smoke, connected-browser desktop/mobile
+  checks, readback and independent review are required before a pass. Human
+  acceptance remains pending; this entry must not move to finished bugs yet.
+
+## SALES-LIST-TRUTH-20261027 — fabricated quantity and progress
+
+- **P1 · Candidate, unverified · Ismail. Reviewer: Mirshoir.** Actual coordinator
+  screenshots showed a six-piece order as4,800/62% and a two-piece order as9,600/47%.
+  Both desktop and mobile used arrays selected by row index, unrelated to data.
+- Candidate removes fabricated metrics. The existing Sales list read owner sums
+  stored item pieces for returned page IDs, constructs a typed list-only response,
+  and preserves filters, pagination, legacy list/envelope and detail/create contracts.
+  Unallocated pack lines contribute their stored zero; requested packs are not pieces.
+  No production-progress measure exists in this contract, so the UI says it is unavailable.
+- Component regression is red on original source and green on candidate. Targeted
+  PostgreSQL checks cover pieces, packs, empty orders, read-only state and bounded
+  queries. Independent review, combined source tests and actual browser/readback
+  checks remain required. Human approval and release remain pending.
+
+## FN04 receipt follow-up — customer receipt races with manual invoice issuance
+
+- **P1 · Candidate, unverified · Ismail. Reviewer: Mirshoir.** This extends the
+  existing FN04 residual below; it is not production acceptance or a closed bug.
+- Independent local PostgreSQL reproduction on backend `1481078`: customer receipt
+  observes no invoice, Finance or Sales issuance commits, then receipt creates a
+  second $100 invoice for one $100 order. A $25 receipt leaves $200 billed.
+- Candidate: reuse Finance's existing `lock_sales_order` before the customer's
+  invoice lookup. Lock order is keyed replay, parent order `NO KEY UPDATE`, invoice
+  rows, then numbering when required. Keep the service's outer transaction,
+  amount/refusal/allocation rules, audit cardinality and retry identity unchanged.
+- Regression scope: both manual entrypoints and both race winners; a real
+  PostgreSQL blocker check; rollback after invoice/payment/advance/audit/retry
+  participation. Automated evidence and independent browser/human review must be
+  recorded before acceptance. No migration or unique-order constraint is added.
+- Remaining FN04 residual: shipment fallback in
+  `models/workflow_service.ensure_invoice_for_delivered_shipment` still has its
+  separate unlocked issuance path. Customer auto-invoice and advance inserts still
+  need their separately reviewed schema-owned persistence extraction.
+
+## FIN-REVENUE-CHART-STALE-20261025 — Finance revenue chart stays stale after a receipt
+
+- **P3 · Open · Ismail. Reviewer: Mirshoir.** Observed in the disposable local UI on source `d93dbb2` with finance pilot PR #308; no production occurrence claimed. The frontend source is unchanged by the refactor. Active and awaiting human review.
+- Reproduction: record a receipt from the Finance payment form. The top payment totals update immediately, but the revenue chart keeps the pre-receipt values until the page is reloaded, and it then matches the persisted data. The chart reads `/api/finance/revenue-by-period` through its own cache in `F:app/(app)/finance/page.tsx`; after the receipt that handler revalidates only the invoice list and the dashboard totals.
+- Expected: the revenue chart shows the receipt without a manual reload and uses the same refreshed figures as the payment totals.
+- Evidence: `outputs/finance-entrypoints-final-ledger-load.json` and the `outputs/finance-entrypoints-*.json` and `outputs/finance-entrypoints-*.png` files in the parent workspace. They are not committed to this repository.
+
+## PUR-RECEIVING-COLUMN-ORDER-20261025 — purchasing receiving quantity column is reversed against its label
+
+- **P3 · Open · Ismail. Reviewer: Mirshoir.** Observed in the disposable local UI on source `40c13cc` during the commercial verification run; no production occurrence claimed. The frontend source is unchanged by the refactor. Active and awaiting human review.
+- Reproduction: `F:app/(app)/purchasing/receiving/page.tsx` labels the quantity column "Ordered / remaining" (header line 557, `page.purchasing.orderedQty`) but renders `remaining_quantity` first and `ordered_quantity` second (line 606). A synthetic 100 kg order with 40 kg received therefore shows "60.00 / 100.00 kg" under that header. Direct database readback proves the stored data is correct: ordered 100, received 40, one 40 kg batch, two 20 kg rolls, cost 3.25. This is a display and label-order mismatch, not a data or accounting defect.
+- Expected: the numbers under "Ordered / remaining" are ordered first and remaining second, or the header matches the rendered order, with the stored quantities unchanged.
+- Evidence: `outputs/commercial-partial-readback.png` and `outputs/commercial-partial-readback.json` in the parent workspace. They are not committed to this repository.
+
+## FIN-PARTIAL-CONFIRM-20261025 — partial-payment confirmation says “mark as paid”
+
+- **P3 · Open · Ismail. Reviewer: Mirshoir.** Observed in the disposable local UI on source `ba70e0cb` plus finance pilot PR #308; no production occurrence claimed.
+- Reproduction: create a $3,000 invoice, choose Record Payment, and enter $100. The confirmation says “Record payment and mark INV-2026-000001 as paid?” The saved invoice correctly becomes partially paid with $2,900 open.
+- Expected: confirmation describes recording the chosen amount without promising full settlement. Check all supported languages and both partial/full payment before closure.
 
 ## INV-LATER-NASTIL-20261024 — extra Nastil can leave packaging supply negative
 

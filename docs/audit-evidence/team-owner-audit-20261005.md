@@ -1,5 +1,14 @@
 # Ismail bug and team delivery audit
 
+> Historical audit of the revisions named below, not current architecture guidance.
+> Former `backend/app/services/` paths belong to those revisions. Current business
+> services live in `backend/app/models/<group>/*_service.py`, with shared helpers in
+> `backend/app/models/*_service.py`; database mappings live in `backend/app/schemas/`.
+> Write operations belong in that schema layer; remaining direct service writers
+> are migration debt. Follow [the current source map](../REFACTOR_MAP.md) and
+> [service guide](../../backend/app/models/README.md). Historical residual findings
+> require checking the current source before treating them as open defects.
+
 Audited on 2026-10-05 against GitHub `clone_main` at `f61262dd56b1c81eedbff6c8aa57969bdd5cec0b` and Ismail proposal PR 279. Every original Ismail implementation row was checked for commit ancestry, current source and available regression evidence. The audit reproduced one overlooked ST02 reservation-floor gap and includes its fix in the proposal. A green suite is evidence for covered cases, not proof that every possible bug is absent.
 
 ## Ismail result

@@ -18,7 +18,7 @@ from scripts import correct_old_erp_models_local as correction
 
 # The ceilings live in the API write path, which the correction script shares
 # so the two can never drift apart.
-from app.api.routes.catalog import (  # noqa: E402
+from app.models.catalog.models_service import (  # noqa: E402
     _MAX_MODEL_DETAILS_JSON_BYTES,
     _MAX_MODEL_DETAILS_JSON_DEPTH,
     _validate_model_details_json_bounds,
@@ -232,7 +232,7 @@ def test_nested_fixture_is_actually_deeper_than_the_shared_ceiling() -> None:
 
 def test_correction_reuses_the_shared_catalog_validator(monkeypatch) -> None:
     """Fail if the script stops calling the validator the API write path uses."""
-    import app.api.routes.catalog as catalog
+    import app.models.catalog.models_service as models_service
 
     calls: list[tuple[object, object]] = []
 
@@ -240,7 +240,7 @@ def test_correction_reuses_the_shared_catalog_validator(monkeypatch) -> None:
         calls.append((details, existing_details))
         _validate_model_details_json_bounds(details, existing_details=existing_details)
 
-    monkeypatch.setattr(catalog, "_validate_model_details_json_bounds", spy)
+    monkeypatch.setattr(models_service, "_validate_model_details_json_bounds", spy)
     record = complete_record()
 
     plan(model_state(action()), record)

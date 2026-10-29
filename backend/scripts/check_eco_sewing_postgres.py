@@ -20,7 +20,8 @@ os.environ["DATABASE_URL"] = url.render_as_string(hide_password=False)
 from app.db.base import Base
 from app.schemas import (User, Role, Item, Warehouse, StockBatch, EcoFabricDispatch, EcoFabricRoll,
     StockMovement, Department, Model, ProductionOrder, WorkOrder, SewingFlow, SewingAssignment, SewingRecord)
-from app.api.routes.eco_transfers import send, receive, SendIn, ReturnIn
+from app.api.routes.eco_transfers import send, receive
+from app.libs.dto.inventory.eco_fabric_transfer_input import ReturnIn, SendIn
 from app.api.routes.sewing_corrections import update, Correction
 from app.core.deps import user_permissions
 

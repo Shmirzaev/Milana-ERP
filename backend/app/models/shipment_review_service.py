@@ -17,6 +17,7 @@ from app.schemas import (
     StockReservation, User,
 )
 from app.libs.dto.fulfillment.shipment_review import ShipmentAmountReview, ShipmentQuantityReview
+from app.libs.enums.finance import InvoiceStatus
 from app.schemas.fulfillment.shipment_review import PackageQuantityAdjustment
 from app.core.deps import user_permissions
 from app.models.package_dispatch_service import selected_items
@@ -458,16 +459,21 @@ def invoice_for_frozen_delivery(db: Session, shipment: Shipment, user: User) -> 
         amount += shipment_amount
     if not amount.is_finite() or amount < 0 or amount > Decimal("999999999999.99"):
         raise HTTPException(409, "Finance reconciliation required: combined shipment amount is outside invoice limits")
-    invoices = db.query(Invoice).filter(Invoice.sales_order_id == shipment.sales_order_id,
-                                        Invoice.status.notin_(["void", "cancelled"])).with_for_update().all()
+    invoices = db.query(Invoice).filter(
+        Invoice.sales_order_id == shipment.sales_order_id,
+        Invoice.status.notin_([InvoiceStatus.VOID.value, InvoiceStatus.CANCELLED.value]),
+    ).with_for_update().all()
     if len(invoices) > 1:
         raise HTTPException(409, "Finance reconciliation required: order has multiple ledger invoices")
     existing = invoices[0] if invoices else None
     if existing:
-        if existing.status in {"unpaid", "paid", "partially_paid"} and Decimal(str(existing.amount)) == amount:
+        active_statuses = {
+            InvoiceStatus.UNPAID, InvoiceStatus.PAID, InvoiceStatus.PARTIALLY_PAID,
+        }
+        if existing.status in active_statuses and Decimal(str(existing.amount)) == amount:
             return existing
         paid = db.query(Payment.id).filter_by(invoice_id=existing.id).first()
-        if existing.status != "unpaid" or paid:
+        if existing.status != InvoiceStatus.UNPAID or paid:
             raise HTTPException(409, "Finance reconciliation required: invoice is paid, partially paid or has payment records")
     invoice = existing or ensure_invoice_for_delivered_shipment(db, sales_order_id=shipment.sales_order_id)
     previous_amount = str(invoice.amount)

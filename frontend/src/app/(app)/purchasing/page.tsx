@@ -11,6 +11,7 @@ import { api, fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { prepareModelImageUpload } from "@/lib/imageUpload";
+import { PurchaseRequestStatus } from "@/lib/purchaseRequestStatus";
 
 type Item = { id: number; sku: string; name: string; unit: string; image_url?: string | null };
 type Supplier = { id: number; name: string };
@@ -21,25 +22,33 @@ type PurchaseRequestLine = {
   preferred_supplier_name?: string | null;
 };
 type PurchaseRequest = {
-  id: number; request_no: string; status: string; sales_order_no?: string | null;
+  id: number; request_no: string; status: PurchaseRequestStatus; sales_order_no?: string | null;
   lines: PurchaseRequestLine[];
 };
 type PurchaseOrderSummary = { total: number };
 type ApprovalLineDraft = { material_name: string; photo_url: string; preferred_supplier_id: number };
 type OrderDraft = { expected_date: string; quantities: Record<number, string> };
 
-const ACTIVE_REQUEST_STATUSES = new Set(["draft", "pending_approval", "approved"]);
+const ACTIVE_REQUEST_STATUSES = new Set<PurchaseRequestStatus>([
+  PurchaseRequestStatus.DRAFT,
+  PurchaseRequestStatus.PENDING_APPROVAL,
+  PurchaseRequestStatus.APPROVED,
+]);
+const EDITABLE_REQUEST_STATUSES: PurchaseRequestStatus[] = [
+  PurchaseRequestStatus.DRAFT,
+  PurchaseRequestStatus.PENDING_APPROVAL,
+];
 
 function fmtQty(value: number | string | null | undefined) {
   const n = Number(value || 0);
   return Number.isFinite(n) ? n.toFixed(2) : "0.00";
 }
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status }: { status: PurchaseRequestStatus }) {
   const { t } = useT();
-  const tone = status === "approved"
+  const tone = status === PurchaseRequestStatus.APPROVED
     ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-    : status === "rejected"
+    : status === PurchaseRequestStatus.REJECTED
       ? "border-red-200 bg-red-50 text-red-700"
       : "border-[#ded9ca] bg-[#f7f4ed] text-[#56503f]";
   return <span className={`inline-flex rounded-md border px-2 py-1 text-xs font-medium ${tone}`}>{statusLabel(status, t)}</span>;
@@ -82,7 +91,7 @@ export default function PurchasingPage() {
     });
     setOrderDrafts((current) => {
       const next = { ...current };
-      for (const request of requests.filter((row) => row.status === "approved")) {
+      for (const request of requests.filter((row) => row.status === PurchaseRequestStatus.APPROVED)) {
         if (!next[request.id]) next[request.id] = {
           expected_date: "",
           quantities: Object.fromEntries(request.lines.map((line) => [line.id, Number(line.requested_quantity || 0) > 0 ? String(Number(line.requested_quantity)) : ""])),
@@ -118,7 +127,7 @@ export default function PurchasingPage() {
     setBusyId(-1);
     try {
       const created = await api.post<PurchaseRequest>("/api/purchasing/requests", {
-        status: "pending_approval", notes: manual.notes.trim() || null,
+        status: PurchaseRequestStatus.PENDING_APPROVAL, notes: manual.notes.trim() || null,
         lines: [{
           item_id: item.id, unit: item.unit, required_quantity: 0, requested_quantity: 0,
           available_quantity: 0, shortage_quantity: 0, preferred_supplier_id: manual.supplier_id,
@@ -204,7 +213,7 @@ export default function PurchasingPage() {
     <Fragment key={request.id}>
       {request.lines.map((line, index) => {
         const draft = approvalDrafts[line.id] || { material_name: "", photo_url: "", preferred_supplier_id: 0 };
-        const editable = canApprove && ["draft", "pending_approval"].includes(request.status);
+        const editable = canApprove && EDITABLE_REQUEST_STATUSES.includes(request.status);
         return <tr key={line.id}>
           <td><div className="mono font-semibold text-[#14110b]">{index === 0 ? formatOrderReference(request.request_no) : ""}</div><div className="text-xs text-[#8a8472]">{index === 0 ? formatOrderReference(request.sales_order_no) : ""}</div></td>
           <td><label className={`block h-[168px] w-[168px] overflow-hidden rounded-md border border-[#ded9ca] bg-[#f7f4ed] ${editable ? "cursor-pointer" : ""}`}>{draft.photo_url ? <img src={draft.photo_url} alt="" className="h-full w-full object-cover" /> : <span className="flex h-full items-center justify-center"><ImagePlus className="h-4 w-4 text-[#8a8472]" /></span>}{editable && <input type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) uploadPhoto(file, `line-${line.id}`, (photo_url) => setApprovalDrafts((rows) => ({ ...rows, [line.id]: { ...draft, photo_url } }))); }} />}</label></td>
@@ -215,7 +224,7 @@ export default function PurchasingPage() {
           <td>{index === 0 && editable && <div className="flex gap-2"><button type="button" className="btn" disabled={busyId === request.id || Boolean(uploadingKey)} onClick={() => approve(request)}><Check className="h-4 w-4" />{t("btn.approve")}</button><button type="button" className="btn" disabled={busyId === request.id} onClick={() => reject(request)}><X className="h-4 w-4" />{t("btn.reject")}</button></div>}</td>
         </tr>;
       })}
-      {request.status === "approved" && canOrder && <tr className="bg-[#fbfaf6]"><td colSpan={7}><div className="flex flex-wrap items-end gap-3 py-1">
+      {request.status === PurchaseRequestStatus.APPROVED && canOrder && <tr className="bg-[#fbfaf6]"><td colSpan={7}><div className="flex flex-wrap items-end gap-3 py-1">
         {request.lines.map((line) => <div key={line.id}><label className="label">{(line.material_name || line.item_name || line.item_sku)} ({line.unit || "kg"})</label><input className="input w-40" type="number" min="0.0001" step="0.0001" value={orderDrafts[request.id]?.quantities[line.id] || ""} onChange={(event) => setOrderDrafts((rows) => ({ ...rows, [request.id]: { ...(rows[request.id] || { expected_date: "", quantities: {} }), quantities: { ...(rows[request.id]?.quantities || {}), [line.id]: event.target.value } } }))} /></div>)}
         <div><label className="label">{t("page.purchasing.expectedDate")}</label><input className="input" type="date" min={today} value={orderDrafts[request.id]?.expected_date || ""} onChange={(event) => setOrderDrafts((rows) => ({ ...rows, [request.id]: { ...(rows[request.id] || { quantities: {} }), expected_date: event.target.value } }))} /></div>
         <button type="button" className="btn btn-primary" disabled={busyId === request.id} onClick={() => order(request)}><ShoppingCart className="h-4 w-4" />{t("page.purchasing.orderButton")}</button>

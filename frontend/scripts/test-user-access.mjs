@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
+import "./test-besttex-cutting.mjs";
 
 function load(path) {
   const exports = {};
@@ -14,6 +15,7 @@ function load(path) {
 const { changeAccess, accessText } = load("src/lib/userAccess.ts");
 const access = load("src/lib/access.ts");
 const { isSewingRole, factoryWorkspaceHome } = access;
+assert.equal(factoryWorkspaceHome({ factory_code: "BST", permissions: ["besttex.cutting_sheets"] }), "/besttex/cutting-orders");
 let value = { MIL: { allow: ["finance.view"], deny: ["sales.orders"] } };
 const original = JSON.stringify(value);
 value = changeAccess(value, "ECO", "cutting.records", "allow");
@@ -110,7 +112,7 @@ for (const page of ["packages", "packaging/queue", "packaging/receive", "packagi
     for (const query of ["", `packaging_department=${department}`]) {
       const keys = [];
       vm.runInNewContext(queryCode, {
-        URLSearchParams, Intl, Date, packageReturnText: { en: {} },
+        URLSearchParams, Intl, Date, packageReturnText: { en: {} }, packageWorkflowCopy: { en: {} },
         useT: () => ({ t: value => value, lang: "en" }),
         useMe: () => ({ me: { factory_code: factory, permissions: packingPermissions } }),
         useSearchParams: () => new URLSearchParams(query),

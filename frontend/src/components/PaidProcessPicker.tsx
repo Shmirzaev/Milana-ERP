@@ -8,6 +8,7 @@ import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { VALID_SECTIONS, samePaidProcess, type SectionCode } from "@/lib/modelPaidOperations";
 import { paidSectionLabel } from "@/lib/paidProcessSections";
+import { DEFAULT_CATALOG_SCOPE, type CatalogScope } from "@/lib/catalogScope";
 import SearchableSelect from "@/components/SearchableSelect";
 
 export type PaidProcessTemplate = { id: number; code: string; name: string; section: SectionCode };
@@ -17,7 +18,7 @@ const COPY = {
   uz: { search: "Haq to‘lanadigan jarayonni nomi yoki kodi bilan qidiring", empty: "Mos jarayon topilmadi", add: "Haq to‘lanadigan jarayon qo‘shish", name: "Jarayon nomi", create: "Saqlash va tanlash", cancel: "Bekor qilish", section: "Bo‘lim", failed: "Jarayonni yuklash yoki saqlash amalga oshmadi. Qayta urinib ko‘ring.", more: "Natijalarni aniqlashtirish uchun yozishni davom ettiring", duplicate: "Bu jarayon ro‘yxatda mavjud" },
 };
 
-export default function PaidProcessPicker({ onSelect, existing = [], catalogScope = "standard" }: { catalogScope?: "standard" | "usluga"; onSelect: (row: PaidProcessTemplate) => void; existing?: { name: string; section: string }[] }) {
+export default function PaidProcessPicker({ onSelect, existing = [], catalogScope = DEFAULT_CATALOG_SCOPE }: { catalogScope?: CatalogScope; onSelect: (row: PaidProcessTemplate) => void; existing?: { name: string; section: string }[] }) {
   const { lang, t } = useT();
   const { me } = useMe();
   const canManage = can(me, "payroll.manage", "modeling.models");

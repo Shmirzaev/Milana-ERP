@@ -15,20 +15,27 @@ SQLite silently ignores ``FOR UPDATE``/``FOR NO KEY UPDATE``; a green SQLite run
 only proves the non-concurrent paths still work and proves nothing about the
 race itself.
 """
-import os
 import threading
 import uuid
 
 import pytest
-from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.routes import finance as finance_routes
 from app.api.routes import sales as sales_routes
 from app.db.base import Base
 from app.db.session import SessionLocal
-from app.schemas import Invoice, SalesOrder, User
+from app.schemas import AuditLog, Invoice, SalesOrder, User
 from app.libs.dto.sales.sales import InvoiceIn
+from app.tests.pg_approved_instance import (
+    ApprovedInstanceUnavailable,
+    create_target_database,
+    load_approved_instance,
+    verify_approved_instance,
+    target_engine,
+    finalize_target,
+    require_or_skip,
+)
 
 import app.schemas  # noqa: F401  — registers every table on Base.metadata
 
@@ -112,62 +119,77 @@ def test_sales_first_then_finance_agrees(client, auth_headers):
         assert db.query(Invoice).filter(Invoice.sales_order_id == sid).count() == 1
 
 
+def test_sales_entry_point_issues_its_own_invoice_policy(client, auth_headers):
+    """The sales entry point bills the order total as `unpaid`.
+
+    `finance.create_invoice` derives the status from the amount, so an order of
+    0.50 is `paid` there under the USD settlement tolerance. The sales entry
+    point has always issued `unpaid`, audited as `generate_invoice`, and answers
+    with its own envelope — this pins that deliberate difference.
+    """
+    sid = _make_order(total=0.5)
+
+    created = client.post(f"/api/sales-orders/{sid}/generate-invoice", headers=auth_headers)
+    assert created.status_code == 200, created.text
+    body = created.json()
+    assert set(body) == {
+        "id",
+        "sales_order_id",
+        "invoice_no",
+        "amount",
+        "status",
+        "issued_at",
+        "due_date",
+        "created_existing",
+    }
+    assert body["sales_order_id"] == sid
+    assert body["amount"] == 0.5
+    assert body["status"] == "unpaid"
+    assert body["created_existing"] is False
+
+    replay = client.post(f"/api/sales-orders/{sid}/generate-invoice", headers=auth_headers)
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["id"] == body["id"]
+    assert replay.json()["created_existing"] is True
+
+    with SessionLocal() as db:
+        invoices = db.query(Invoice).filter(Invoice.sales_order_id == sid).all()
+        assert len(invoices) == 1
+        assert float(invoices[0].amount) == 0.5
+        assert invoices[0].status == "unpaid"
+        audits = (
+            db.query(AuditLog)
+            .filter(AuditLog.entity_type == "Invoice", AuditLog.entity_id == invoices[0].id)
+            .all()
+        )
+        assert [row.action for row in audits] == ["generate_invoice"]
+        assert audits[0].new_value_json == {"sales_order_id": sid, "amount": 0.5}
+
+
 # --------------------------------------------------------------------------
 # Concurrency — real PostgreSQL, two independent connections.
 # --------------------------------------------------------------------------
 
-_PG_ADMIN_URL = os.environ.get(
-    "FN04_TEST_PG_ADMIN_URL", "postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/postgres"
-)
 _GATE_TIMEOUT = 30.0        # how long we hold the first caller's commit open
 _SECOND_CALLER_WAIT = 2.0  # grace period for the second caller to race in
 
 
-def _pg_reachable() -> bool:
-    try:
-        eng = create_engine(_PG_ADMIN_URL, connect_args={"connect_timeout": 5}, future=True)
-        try:
-            with eng.connect() as conn:
-                conn.execute(text("select 1"))
-        finally:
-            eng.dispose()
-        return True
-    except Exception:
-        return False
-
-
-_pg_unavailable = (
-    "PostgreSQL is required for the FN04 concurrency proof (SQLite does not implement "
-    "FOR NO KEY UPDATE). Set FN04_TEST_PG_ADMIN_URL to a reachable admin DSN."
-)
-
-
 @pytest.fixture(scope="module")
 def pg_sessionmaker():
-    if not _pg_reachable():
-        pytest.skip(_pg_unavailable)
-
-    import psycopg2
-
-    name = "fn04_test_" + uuid.uuid4().hex[:10]
-    admin = psycopg2.connect(_PG_ADMIN_URL.replace("postgresql+psycopg2://", "postgresql://"))
-    admin.autocommit = True
-    with admin.cursor() as cur:
-        cur.execute(f'create database "{name}"')
-    admin.close()
-
-    engine = create_engine(_PG_ADMIN_URL.rsplit("/", 1)[0] + "/" + name, future=True)
-    Base.metadata.create_all(engine)
-    maker = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, future=True)
     try:
-        yield maker
+        instance = load_approved_instance()
+        verify_approved_instance(instance)
+    except ApprovedInstanceUnavailable as error:
+        require_or_skip(error)
+
+    database = create_target_database(instance)
+    engine = None
+    try:
+        engine = target_engine(database)
+        Base.metadata.create_all(engine)
+        yield sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, future=True)
     finally:
-        engine.dispose()
-        admin = psycopg2.connect(_PG_ADMIN_URL.replace("postgresql+psycopg2://", "postgresql://"))
-        admin.autocommit = True
-        with admin.cursor() as cur:
-            cur.execute(f'drop database if exists "{name}" with (force)')
-        admin.close()
+        finalize_target(database, engine)
 
 
 class _GatedSession(Session):
@@ -223,7 +245,7 @@ def _call_entry_point(entry, db, order_id, user_id):
 def _identity(result):
     if isinstance(result, dict):
         return result["id"], result["invoice_no"], result.get("created_existing")
-    return result.id, result.invoice_no, None
+    return result.id, result.invoice_no, getattr(result, "created_existing", None)
 
 
 def _race(pg_sessionmaker, order_id, user_id, first_entry, second_entry):
