@@ -20,6 +20,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import purchasing
 from app.models.idempotency_service import bind_idempotency_identity
+from app.models.purchasing import receiving_service
 from app.core.security import create_access_token
 from app.db import session as session_module
 from app.db.base import Base
@@ -35,7 +36,8 @@ from app.schemas import (
     User,
     Warehouse,
 )
-from app.libs.dto.purchasing.purchasing import PurchaseOrderOut, PurchaseOrderReceiveIn
+from app.libs.dto.purchasing.purchase_order_input import PurchaseOrderReceiveIn
+from app.libs.dto.purchasing.purchase_order_output import PurchaseOrderOut
 
 
 def create_receipt_order(session_factory, *, unit_cost=None, ordered_quantity=100):
@@ -256,19 +258,19 @@ def test_receipt_failure_rolls_back_stock_and_key_then_can_retry(
     client, auth_headers, receipt_order, monkeypatch
 ):
     before = receipt_state(receipt_order)
-    original_store = purchasing.store_idempotent_response
+    original_store = receiving_service.store_idempotent_response
 
     def fail_after_storing(*args, **kwargs):
         original_store(*args, **kwargs)
         raise HTTPException(503, "Synthetic failure before commit")
 
-    monkeypatch.setattr(purchasing, "store_idempotent_response", fail_after_storing)
+    monkeypatch.setattr(receiving_service, "store_idempotent_response", fail_after_storing)
     failed = receive(client, auth_headers, receipt_order)
     assert failed.status_code == 503, failed.text
     # No replay row and no stock residue after the failed transaction.
     assert receipt_state(receipt_order) == before
 
-    monkeypatch.setattr(purchasing, "store_idempotent_response", original_store)
+    monkeypatch.setattr(receiving_service, "store_idempotent_response", original_store)
     retry = receive(client, auth_headers, receipt_order)
     assert retry.status_code == 200, retry.text
     state = receipt_state(receipt_order)

@@ -17,7 +17,7 @@ from scripts import import_old_erp_models_local as migration
 
 # Read from the shared validator rather than restating the numbers, so this
 # module fails if the ceilings are ever retuned in catalog.py.
-from app.api.routes.catalog import (
+from app.models.catalog.models_service import (
     _MAX_MODEL_DETAILS_JSON_BYTES,
     _MAX_MODEL_DETAILS_JSON_DEPTH,
     _validate_model_details_json_bounds,

@@ -57,3 +57,9 @@ duplicate classes or empty implementation files.
 See [schema migration rules](../README.md), [DTO conventions](../../libs/dto/README.md),
 [the business plan](../../../../docs/REFACTOR_PLAN.md) and
 [team ownership](../../../../docs/TEAM_OWNERSHIP.md).
+
+The daily fabric scan register's `fabric_scan_persistence.add_fabric_scan`
+operation maps a validated, server-built snapshot command into one `FabricScan`
+row and attaches it to the supplied Session. It does not flush, commit, roll
+back, query Inventory or create movements. The scan service retains duplicate
+lookup, commit, and `IntegrityError` rollback/requery ownership.

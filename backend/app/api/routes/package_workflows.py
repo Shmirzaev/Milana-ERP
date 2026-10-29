@@ -9,6 +9,8 @@ from app.core.deps import CurrentUser, DbSession, require_permissions, user_perm
 from app.schemas import Package, PackagePrintRun, PackagePrintRunMember, ProductionOrder, User
 from app.libs.dto.fulfillment.package_workflows import ManualPackageReceiptIn, PrintRunIn, PrintRunCreatePackagesIn, PrintRunReceiveIn, PackageReturnIn
 from app.libs.dto.packaging.tracking import PackageChangeRequestIn
+from app.libs.dto.packaging.manual_package_input import ManualPackageCreateIn
+from app.libs.dto.packaging.manual_package_output import ManualPackageCreateOut, ManualPackageRecoveryOut
 from pydantic import BaseModel, ConfigDict, Field
 from app.models import package_workflows_service as service
 from app.models.audit_service import log_action
@@ -348,6 +350,27 @@ def resend_corrected(payload: PrintRunIn, db: DbSession,
                      current: User = Depends(require_permissions("packaging.packages", "*"))):
     from app.models.package_returns_service import resend_packages
     return _write(db, current, "resend-corrected", payload, lambda: resend_packages(db, current, payload))
+
+
+@router.post("/manual-packaging", status_code=201, response_model=ManualPackageCreateOut)
+def manual_packaging(payload: ManualPackageCreateIn,
+                     db: DbSession, current: User = Depends(require_permissions("packaging.packages", "*"))):
+    from app.models.packaging.manual_packages_service import create_manual_packages
+    return create_manual_packages(db, current, payload)
+
+
+@router.post("/manual-packaging/reconcile", response_model=ManualPackageRecoveryOut, response_model_exclude_unset=True)
+def reconcile_manual_packaging(payload: ManualPackageCreateIn,
+                               db: DbSession, current: CurrentUser):
+    from app.models.packaging.manual_packages_service import reconcile_manual_packages
+    return reconcile_manual_packages(db, current, payload)
+
+
+@router.delete("/manual-packaging/{rid}")
+def cancel_manual_packaging(rid: int, db: DbSession,
+                            current: User = Depends(require_permissions("packaging.packages", "*"))):
+    from app.models.packaging.manual_packages_service import cancel_manual_packages
+    return cancel_manual_packages(db, current, rid)
 
 
 @router.post("/manual-receipt", status_code=201)

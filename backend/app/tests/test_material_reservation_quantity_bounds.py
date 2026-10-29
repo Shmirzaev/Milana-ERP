@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from app.db.session import SessionLocal
 from app.schemas import AuditLog, MaterialReservation, StockMovement
-from app.libs.dto.inventory.inventory import MaterialReservationConsumeIn, MaterialReservationIn
+from app.libs.dto.inventory.material_reservation_input import MaterialReservationConsumeIn, MaterialReservationIn
 
 
 MAX_RESERVATION_QUANTITY = Decimal("9999999999.9999")

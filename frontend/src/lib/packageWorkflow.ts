@@ -3,6 +3,9 @@ import { api } from "@/lib/api";
 import type { Lang } from "@/lib/i18n";
 
 const en = {
+  cancelPacks: "Cancel unreceived packs", cancelPacksConfirm: "Cancel every pack in this print run and retire all its labels? Only unused packs still awaiting warehouse receipt can be cancelled. Discard the old labels.", packsCancelled: "Packs cancelled; old labels are retired.",
+  manualPackaging: "Create manual packs", packagingSave: "Create packs and print labels", packagingCreated: "Packs created — awaiting warehouse receipt", createMore: "Create more packs",
+  packagingReview: "Record physically packed goods and print their labels. Warehouse staff must receive these packs before they can be reserved or shipped.",
   packQuantity: "Quantity in pack", deletePacks: "Delete mistaken packs", deleteConfirm: "Delete selected packs? Available stock is removed. Shipped labels are retired; shipment and client accounting history stay saved.",
   manual: "Record physical warehouse packs", model: "Model / variant", color: "Color",
   weight: "Weight per pack (kg)", count: "Number of packs", sizes: "Size quantities per pack",
@@ -19,6 +22,9 @@ const en = {
 };
 type Copy = Record<keyof typeof en, string>;
 const ru: Copy = {
+  cancelPacks: "Отменить непринятые упаковки", cancelPacksConfirm: "Отменить все упаковки этой группы печати и все её этикетки? Отмена доступна только для неиспользованных упаковок, ожидающих приёмки склада. Уничтожьте старые этикетки.", packsCancelled: "Упаковки отменены; старые этикетки недействительны.",
+  manualPackaging: "Создать упаковки вручную", packagingSave: "Создать упаковки и напечатать этикетки", packagingCreated: "Упаковки созданы — ожидают приёмки склада", createMore: "Создать ещё упаковки",
+  packagingReview: "Укажите фактически упакованный товар и напечатайте этикетки. Перед резервированием или отгрузкой склад должен принять эти упаковки.",
   packQuantity: "Количество в упаковке", deletePacks: "Удалить ошибочные упаковки", deleteConfirm: "Удалить выбранные упаковки? Доступный остаток удаляется. Отгруженные этикетки скрываются; история отгрузки и расчётов клиента сохраняется.",
   manual: "Оприходовать физические упаковки", model: "Модель / вариант", color: "Цвет",
   weight: "Вес одной упаковки (кг)", count: "Количество упаковок", sizes: "Размеры и количество в одной упаковке",
@@ -34,6 +40,9 @@ const ru: Copy = {
   cancelPending: "Отменить или восстановить ожидающий приход", pendingCancelled: "Ожидающий запрос безопасно отменён. Исправьте данные и отправьте снова.", resultUnavailable: "Запрос выполнен, но результат удалён или недоступен с текущими правами. Сохранённые данные повтора безопасно очищены.", labelUnavailable: "Приход сохранён, но этикетка недоступна. Обновите страницу или попросите менеджера восстановить доступ перед повторной печатью.",
 };
 const uz: Copy = {
+  cancelPacks: "Qabul qilinmagan qadoqlarni bekor qilish", cancelPacksConfirm: "Ushbu chop etish guruhidagi barcha qadoqlar va barcha yorliqlar bekor qilinsinmi? Faqat ishlatilmagan, ombor qabulini kutayotgan qadoqlar bekor qilinadi. Eski yorliqlarni yo‘q qiling.", packsCancelled: "Qadoqlar bekor qilindi; eski yorliqlar yaroqsiz.",
+  manualPackaging: "Qadoqlarni qo‘lda yaratish", packagingSave: "Qadoqlarni yaratish va yorliqlarni chop etish", packagingCreated: "Qadoqlar yaratildi — ombor qabulini kutmoqda", createMore: "Yana qadoqlar yaratish",
+  packagingReview: "Haqiqatan qadoqlangan mahsulotni kiriting va yorliqlarini chop eting. Band qilish yoki jo‘natishdan oldin ombor bu qadoqlarni qabul qilishi kerak.",
   packQuantity: "Qadoqdagi miqdor", deletePacks: "Xato qadoqlarni o‘chirish", deleteConfirm: "Tanlangan qadoqlar o‘chirilsinmi? Mavjud qoldiq o‘chiriladi. Jo‘natilgan yorliqlar yashiriladi; jo‘natma va mijoz hisob-kitob tarixi saqlanadi.",
   manual: "Ombordagi haqiqiy qadoqlarni kirim qilish", model: "Model / variant", color: "Rang",
   weight: "Bitta qadoq vazni (kg)", count: "Qadoqlar soni", sizes: "Bitta qadoqdagi o‘lchamlar va miqdor",
@@ -245,6 +254,7 @@ export type PackageWorkflowReconciliation<T> =
   | { status: "cancelled" };
 
 const reconciliationPath: Record<string, string> = {
+  "/api/packages/manual-packaging": "/api/packages/manual-packaging/reconcile",
   "/api/packages/manual-receipt": "/api/packages/manual-receipt/reconcile",
   "/api/packages/print-runs": "/api/packages/print-runs/reconcile",
   "/api/packages/print-runs/create-packages": "/api/packages/print-runs/create-packages/reconcile",

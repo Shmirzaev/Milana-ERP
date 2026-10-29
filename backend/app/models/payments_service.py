@@ -6,11 +6,14 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.dt import as_utc
+from app.libs.enums.finance import InvoiceStatus
 from app.schemas import Invoice, Payment, SalesOrder
+from app.schemas.finance.customer_advance_persistence import insert_customer_advance
+from app.schemas.finance.invoice_payment_persistence import insert_invoice_payment, set_invoice_status
 
 
 USD_SETTLEMENT_TOLERANCE = Decimal("1.00")
-REVERSED_INVOICE_STATUSES = frozenset({"void", "cancelled"})
+REVERSED_INVOICE_STATUSES = frozenset({InvoiceStatus.VOID, InvoiceStatus.CANCELLED})
 
 
 def money_decimal(value: Decimal | float | int | None) -> Decimal:
@@ -21,20 +24,23 @@ def money_decimal(value: Decimal | float | int | None) -> Decimal:
 def invoice_payment_status(
     amount: Decimal | float | int,
     total_paid: Decimal | float | int,
-    current_status: str | None = None,
-) -> str:
+    current_status: InvoiceStatus | None = None,
+) -> InvoiceStatus:
     """Apply the approved USD settlement tolerance without altering the ledger.
 
     Invoices and payments currently have no currency field: their commercial
     ledger is USD. This tolerance must not be used for other currencies.
+
+    Returns the canonical `InvoiceStatus` member. Callers convert with `.value`
+    where a plain string is required (JSON payload, string column).
     """
     if current_status in REVERSED_INVOICE_STATUSES:
-        return current_status
+        return InvoiceStatus(current_status)
     amount = money_decimal(amount)
     total_paid = money_decimal(total_paid)
     if amount - total_paid <= USD_SETTLEMENT_TOLERANCE:
-        return "paid"
-    return "partially_paid" if total_paid > 0 else "unpaid"
+        return InvoiceStatus.PAID
+    return InvoiceStatus.PARTIALLY_PAID if total_paid > 0 else InvoiceStatus.UNPAID
 
 
 def invoice_paid_total(db: Session, invoice_id: int) -> Decimal:
@@ -44,7 +50,7 @@ def invoice_paid_total(db: Session, invoice_id: int) -> Decimal:
 
 def refresh_invoice_status(db: Session, invoice: Invoice) -> None:
     total_paid = invoice_paid_total(db, int(invoice.id))
-    invoice.status = invoice_payment_status(invoice.amount, total_paid, invoice.status)
+    set_invoice_status(invoice, invoice_payment_status(invoice.amount, total_paid, invoice.status))
 
 
 def create_invoice_payment(
@@ -62,7 +68,8 @@ def create_invoice_payment(
         raise HTTPException(409, "Cannot pay a reversed or cancelled invoice")
     if customer_id is None and invoice.sales_order_id:
         customer_id = db.query(SalesOrder.customer_id).filter(SalesOrder.id == invoice.sales_order_id).scalar()
-    payment = Payment(
+    payment = insert_invoice_payment(
+        db,
         invoice_id=invoice.id,
         customer_id=customer_id,
         amount=money_decimal(amount),
@@ -70,8 +77,6 @@ def create_invoice_payment(
         paid_at=as_utc(paid_at) or datetime.now(timezone.utc),
         notes=notes,
     )
-    db.add(payment)
-    db.flush()
     refresh_invoice_status(db, invoice)
     return payment
 
@@ -85,14 +90,11 @@ def create_customer_advance_payment(
     paid_at: datetime | None = None,
     notes: str | None = None,
 ) -> Payment:
-    payment = Payment(
-        invoice_id=None,
+    return insert_customer_advance(
+        db,
         customer_id=customer_id,
         amount=money_decimal(amount),
         payment_method=payment_method,
         paid_at=as_utc(paid_at) or datetime.now(timezone.utc),
         notes=notes,
     )
-    db.add(payment)
-    db.flush()
-    return payment

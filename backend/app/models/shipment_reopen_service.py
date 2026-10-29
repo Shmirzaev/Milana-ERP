@@ -11,6 +11,7 @@ from app.schemas import (FinishedGoodsStock, IdempotencyRecord, Invoice, Package
                         PackageScanLog, Payment, SalesOrder, Shipment, ShipmentPackage,
                         StockReservation, User)
 from app.libs.dto.fulfillment.shipment_review import ShipmentReopen
+from app.libs.enums.finance import InvoiceStatus
 from app.models.audit_service import log_action
 from app.models.packages_service import _sync_package_production
 from app.models.shipment_review_service import locked_shipment
@@ -95,14 +96,16 @@ def reopen_shipment(db: Session, sid: int, payload: ShipmentReopen, user: User) 
             _conflict("finance")
         invoices = db.query(Invoice).filter_by(sales_order_id=order.id).order_by(Invoice.id).with_for_update().all()
         for invoice in invoices:
-            if (invoice.status not in {"unpaid", "void", "cancelled"} or invoice.external_id
+            if (invoice.status not in {
+                    InvoiceStatus.UNPAID, InvoiceStatus.VOID, InvoiceStatus.CANCELLED
+                } or invoice.external_id
                     or invoice.external_source or db.query(Payment.id).filter_by(invoice_id=invoice.id).first()):
                 _conflict("finance")
     before = jsonable_encoder({
         "status": shipment.status, "shipped_at": shipment.shipped_at, "delivered_at": shipment.delivered_at,
         "dispatch_snapshot": shipment.dispatch_snapshot, "sales_order_id": shipment.sales_order_id,
         "order": {"id": order.id, "status": order.status, "total_amount": str(order.total_amount)} if order else None,
-        "invoices": [{"id": i.id, "status": i.status, "amount": str(i.amount)} for i in invoices],
+        "invoices": [{"id": i.id, "status": i.status.value, "amount": str(i.amount)} for i in invoices],
         "packages": [{"id": p.id, "status": p.status, "shipped_at": p.shipped_at} for p in packages],
         "stocks": [{"id": s.id, "quantity": s.quantity, "sold_qty": s.sold_qty} for s in stocks],
     })
@@ -120,7 +123,7 @@ def reopen_shipment(db: Session, sid: int, payload: ShipmentReopen, user: User) 
         # The package stays attached, so its original verification remains valid.
         # Actual package removal still invalidates scans in detach_shipment_package.
     for invoice in invoices:
-        invoice.status = "void"
+        invoice.status = InvoiceStatus.VOID
         invoice.amount = 0
     if order:
         if manual:

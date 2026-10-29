@@ -962,6 +962,8 @@ def list_packages(db: DbSession, current: CurrentUser,
         ).order_by(PackagePrintRun.id).all():
             return_reasons[member.package_id] = run.return_reason
     model_by_id = _load_reference_map(db, Model, (p.model_id for p in rows), options=_model_display_load_options())
+    from app.models.packaging.manual_packages_service import manual_package_list_context
+    manual_context = manual_package_list_context(db, rows)
     out = []
     for p in rows:
         qr_url = _ensure_package_qr_url(db, p)
@@ -971,6 +973,7 @@ def list_packages(db: DbSession, current: CurrentUser,
         customer = customer_by_id.get(int(so.customer_id or 0)) if so else None
         row = _package_out_payload(db, p, context=_package_context_values(po, so, customer, model))
         row["qr_code_url"] = qr_url
+        row.update(manual_context.get(p.id, {}))
         po = production_by_id.get(int(p.production_order_id or 0))
         so = sales_by_id.get(int(p.sales_order_id or 0))
         customer = customer_by_id.get(int(so.customer_id or 0)) if so else None

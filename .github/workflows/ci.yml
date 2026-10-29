@@ -3,7 +3,7 @@ name: ERP validation and immutable release artifacts
 on:
   pull_request:
   push:
-    branches: [main, "codex/**"]
+    branches: [main, clone_main, "codex/**"]
   workflow_dispatch:
     inputs:
       release_id:
@@ -26,22 +26,9 @@ permissions:
 jobs:
   backend:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_HOST_AUTH_METHOD: trust
-          POSTGRES_DB: first_grade_qa_ci
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -49,6 +36,19 @@ jobs:
             backend/requirements.txt
             backend/requirements-dev.txt
       - run: python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+      - name: Start job-owned loopback PostgreSQL 16
+        run: |
+          docker run --detach --cidfile "$RUNNER_TEMP/ci-postgres.cid" --name milana-ci-postgres \
+            --network host --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --env POSTGRES_DB=first_grade_qa_ci postgres:16-alpine \
+            postgres -h 127.0.0.1 -p 5432
+          for attempt in $(seq 1 30); do
+            if docker exec milana-ci-postgres pg_isready -h 127.0.0.1 -p 5432 -U postgres; then
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
       - name: Verify one Alembic head
         working-directory: backend
         run: python -c "from alembic.config import Config; from alembic.script import ScriptDirectory; heads=ScriptDirectory.from_config(Config('alembic.ini')).get_heads(); assert len(heads)==1, heads; print(heads[0])"
@@ -60,11 +60,20 @@ jobs:
       - name: Backend regression suite
         working-directory: backend
         run: python -m pytest -q
+      - name: Purchasing approval PostgreSQL write boundary
+        env:
+          PUR_APPROVAL_PG_ADMIN_URL: postgresql://postgres@127.0.0.1:5432/postgres
+        run: python backend/scripts/test_purchase_request_approval_postgres.py
+      - name: Purchasing approval cleanup controls
+        env:
+          PUR_APPROVAL_PG_ADMIN_URL: postgresql://postgres@127.0.0.1:5432/postgres
+        run: python backend/scripts/purchase_approval_cleanup_pg_control.py
       - name: P2 PostgreSQL locking and query-plan regressions
         env:
           STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
         run: >-
           python -m pytest -q
+          backend/app/tests/test_admin_membership_delete_race.py
           backend/app/tests/test_numbering_postgres_concurrency.py
           backend/app/tests/test_material_reservation_concurrency.py
           backend/app/tests/test_package_write_postgres.py
@@ -77,9 +86,42 @@ jobs:
           backend/app/tests/test_warehouse_pack_reservations_postgres.py
           backend/app/tests/test_sewing_band_postgres.py
           backend/app/tests/test_sewing_later_nastil_postgres.py
+          backend/app/tests/test_besttex_cutting_postgres.py
           backend/app/tests/test_payroll_overlap_repair.py
+          backend/app/tests/test_payroll_split_correction_races.py
+          backend/app/tests/test_payroll_returned_split_races.py
+          backend/app/tests/test_manual_packaging_postgres.py
+          backend/app/tests/test_payroll_qr_return_races.py
+          backend/app/tests/test_payroll_period_races.py
       - name: Deployment observation regression suite
         run: python -m unittest discover -s scripts -p 'test_observe_release.py' -v
+      - name: Create disposable Sales list review database
+        id: sales-list-db
+        run: >-
+          python -c "import psycopg2; db=psycopg2.connect(host='127.0.0.1',port=5432,user='postgres',dbname='postgres'); db.autocommit=True; db.cursor().execute('CREATE DATABASE review_sales_list_ci'); db.close()"
+      - name: Sales list quantities and bounded PostgreSQL queries
+        working-directory: backend
+        env:
+          SALES_LIST_REVIEW_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/review_sales_list_ci
+          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/review_sales_list_ci
+        run: python -m pytest -q app/tests/test_sales_list_truth.py app/tests/test_sales_list_query_growth.py
+      - name: Drop owned Sales list review database
+        if: ${{ always() && steps.sales-list-db.outcome == 'success' }}
+        run: >-
+          python -c "import psycopg2; db=psycopg2.connect(host='127.0.0.1',port=5432,user='postgres',dbname='postgres'); db.autocommit=True; db.cursor().execute('DROP DATABASE review_sales_list_ci WITH (FORCE)'); db.close()"
+      - name: Create disposable Forecast creation review database
+        id: forecast-create-db
+        run: >-
+          python -c "import psycopg2; db=psycopg2.connect(host='127.0.0.1',port=5432,user='postgres',dbname='postgres'); db.autocommit=True; db.cursor().execute('CREATE DATABASE review_forecast_create_ci'); db.close()"
+      - name: Forecast creation PostgreSQL atomicity
+        working-directory: backend
+        env:
+          FORECAST_CREATE_REVIEW_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/review_forecast_create_ci
+        run: python -m pytest -q app/tests/test_forecast_create_postgres.py
+      - name: Drop owned Forecast creation review database
+        if: ${{ always() && steps.forecast-create-db.outcome == 'success' }}
+        run: >-
+          python -c "import psycopg2; db=psycopg2.connect(host='127.0.0.1',port=5432,user='postgres',dbname='postgres'); db.autocommit=True; db.cursor().execute('DROP DATABASE review_forecast_create_ci WITH (FORCE)'); db.close()"
       - name: Ismail PostgreSQL schema and reservation regressions
         working-directory: backend
         env:
@@ -106,12 +148,18 @@ jobs:
         run: |
           python scripts/test_first_grade_postgres.py
           python scripts/test_model_numbering_postgres.py
+      - name: Remove only this job's owned PostgreSQL container
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/ci-postgres.cid" ]; then
+            docker rm --force "$(cat "$RUNNER_TEMP/ci-postgres.cid")"
+          fi
 
   frontend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: npm
@@ -122,6 +170,9 @@ jobs:
         run: npm run lint
       - working-directory: frontend
         run: npm run typecheck:strict
+      - name: Sales enum contracts and mutation checks
+        working-directory: frontend
+        run: npm run test:sales-enum-contracts
       - name: Browser pagination and Besttex label regressions
         working-directory: frontend
         run: |
@@ -131,6 +182,7 @@ jobs:
           node scripts/test-warehouse-pack-lifecycle.browser.mjs
           node scripts/test-sewing-bands.browser.mjs
           node scripts/test-packaging-size-entry.browser.mjs
+          node scripts/test-grade-packaging-state.browser.mjs
           node scripts/test-cutting-factory-salary.browser.mjs
           node scripts/test-cutting-batch-selection.browser.mjs
           node scripts/test-sewing-received-input.browser.mjs
@@ -148,6 +200,71 @@ jobs:
           NEXT_PUBLIC_API_URL: https://erp.milanapremium.uz
           API_URL: http://172.16.10.4:8000
         run: npm run build
+      - name: Clear generated production build for isolated QA build
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025' || github.ref == 'refs/heads/codex/ismail-brand-feedback-20261028' || github.ref == 'refs/heads/codex/ismail-combined-review-20261028')
+        working-directory: frontend
+        run: |
+          test -d .next
+          test ! -L .next
+          rm -rf -- .next
+      - name: Build loopback-only QA frontend
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025' || github.ref == 'refs/heads/codex/ismail-brand-feedback-20261028' || github.ref == 'refs/heads/codex/ismail-combined-review-20261028')
+        timeout-minutes: 5
+        working-directory: frontend
+        env:
+          NODE_ENV: production
+          NEXT_PUBLIC_API_URL: ''
+          API_URL: http://127.0.0.1:8107
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: npm run build -- --webpack
+      - name: QA runtime manifest and smoke regressions
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025' || github.ref == 'refs/heads/codex/ismail-brand-feedback-20261028' || github.ref == 'refs/heads/codex/ismail-combined-review-20261028')
+        timeout-minutes: 2
+        working-directory: frontend
+        run: python3 -m unittest discover -s scripts -p 'test_*qa_runtime*.py' -v
+      - name: Stage bounded QA frontend runtime
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025' || github.ref == 'refs/heads/codex/ismail-brand-feedback-20261028' || github.ref == 'refs/heads/codex/ismail-combined-review-20261028')
+        timeout-minutes: 2
+        working-directory: frontend
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_SHA: ${{ github.sha }}
+          RUNNER_TEMP: ${{ runner.temp }}
+          NODE_ENV: production
+          NEXT_PUBLIC_API_URL: ''
+          API_URL: http://127.0.0.1:8107
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: python3 scripts/stage_qa_runtime.py
+      - name: Smoke exact staged QA frontend archive
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025' || github.ref == 'refs/heads/codex/ismail-brand-feedback-20261028' || github.ref == 'refs/heads/codex/ismail-combined-review-20261028')
+        timeout-minutes: 2
+        working-directory: frontend
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_SHA: ${{ github.sha }}
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: python3 scripts/smoke_qa_runtime.py
+      - name: Upload QA-only frontend runtime
+        id: qa_upload
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025' || github.ref == 'refs/heads/codex/ismail-brand-feedback-20261028' || github.ref == 'refs/heads/codex/ismail-combined-review-20261028')
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-frontend-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/finance-qa-runtime-${{ github.sha }}/runtime.zip
+            ${{ runner.temp }}/finance-qa-runtime-${{ github.sha }}/manifest.json
+          if-no-files-found: error
+          retention-days: 1
+      - name: Report QA artifact identity
+        if: steps.qa_upload.outcome == 'success'
+        env:
+          ARTIFACT_ID: ${{ steps.qa_upload.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.qa_upload.outputs.artifact-digest }}
+        run: |
+          printf 'QA artifact id: %s\n' "$ARTIFACT_ID" >> "$GITHUB_STEP_SUMMARY"
+          printf 'QA artifact digest: %s\n' "$ARTIFACT_DIGEST" >> "$GITHUB_STEP_SUMMARY"
 
   release:
     if: github.event_name == 'workflow_dispatch'

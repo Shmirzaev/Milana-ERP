@@ -4,6 +4,7 @@ import type { Lang } from "./types";
 // Use {var} placeholders for interpolation.
 export const dict: Record<Lang, Record<string, string>> = {
   en: {
+    "sales.progressUnavailable": "Progress unavailable",
     "page.processQr.autoSizeSplit": "Unallocated Sewing output was split evenly across model sizes. Review and adjust before issuing. Recorded size quantities are preserved.",
     "page.processQr.sizeSplitTotal": "Allocated: {assigned} / {total} pieces",
     "page.processQr.sizeSplitInvalid": "Use whole, non-negative quantities that total the recorded Sewing output. Existing recorded size quantities cannot be reduced.",
@@ -1891,7 +1892,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "page.finance.recentInvoices": "Recent Invoices",
     "page.finance.noInvoices": "No invoices yet.",
     "page.finance.recordPayment": "Record Payment",
-    "page.finance.recordPaymentConfirm": "Record payment and mark {invoice} as paid?",
+    "page.finance.recordPaymentConfirm": "Record a payment of {amount} for {invoice}?",
     "page.finance.revenueOverTime": "Revenue over time",
     "page.finance.noRevenueData": "No revenue data in selected range.",
     "page.finance.costBreakdown": "Cost breakdown",
@@ -2237,6 +2238,7 @@ export const dict: Record<Lang, Record<string, string>> = {
   },
 
   ru: {
+    "sales.progressUnavailable": "Прогресс недоступен",
     "page.processQr.autoSizeSplit": "Выпуск швейного цеха без распределения разделён поровну по размерам модели. Проверьте и исправьте перед выпуском ярлыков. Записанные количества по размерам сохранены.",
     "page.processQr.sizeSplitTotal": "Распределено: {assigned} / {total} шт.",
     "page.processQr.sizeSplitInvalid": "Введите целые неотрицательные количества, сумма которых равна выпуску швейного цеха. Уже записанные количества по размерам уменьшать нельзя.",
@@ -3998,7 +4000,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "page.finance.recentInvoices": "Последние счета",
     "page.finance.noInvoices": "Счетов пока нет.",
     "page.finance.recordPayment": "Записать платёж",
-    "page.finance.recordPaymentConfirm": "Записать платёж и отметить {invoice} как оплаченный?",
+    "page.finance.recordPaymentConfirm": "Записать платёж на сумму {amount} по счёту {invoice}?",
     "page.finance.revenueOverTime": "Выручка по периодам",
     "page.finance.noRevenueData": "Нет данных по выручке за выбранный период.",
     "page.finance.costBreakdown": "Структура затрат",
@@ -4344,6 +4346,7 @@ export const dict: Record<Lang, Record<string, string>> = {
   },
 
   uz: {
+    "sales.progressUnavailable": "Bajarilish ma’lumoti mavjud emas",
     "page.processQr.autoSizeSplit": "O‘lchamlarga ajratilmagan tikuv miqdori model o‘lchamlariga teng taqsimlandi. Yorliqlarni chiqarishdan oldin tekshiring va tuzating. Avval kiritilgan o‘lcham miqdorlari saqlanadi.",
     "page.processQr.sizeSplitTotal": "Taqsimlangan: {assigned} / {total} dona",
     "page.processQr.sizeSplitInvalid": "Jami tikuv miqdoriga teng bo‘lgan butun, manfiy bo‘lmagan sonlarni kiriting. Avval kiritilgan o‘lcham miqdorlarini kamaytirib bo‘lmaydi.",
@@ -6105,7 +6108,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "page.finance.recentInvoices": "Oxirgi hisob-fakturalar",
     "page.finance.noInvoices": "Hali hisob-faktura yo'q.",
     "page.finance.recordPayment": "To'lov yozish",
-    "page.finance.recordPaymentConfirm": "To'lovni yozib, {invoice} ni to'langan deb belgilaysizmi?",
+    "page.finance.recordPaymentConfirm": "{invoice} uchun {amount} miqdoridagi to'lovni qayd etasizmi?",
     "page.finance.revenueOverTime": "Davrlar bo'yicha tushum",
     "page.finance.noRevenueData": "Tanlangan oraliqda tushum ma'lumoti yo'q.",
     "page.finance.costBreakdown": "Xarajatlar taqsimoti",

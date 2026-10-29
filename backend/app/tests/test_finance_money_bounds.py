@@ -21,7 +21,6 @@ the "reject before any write" guarantee.  SQLite does not enforce ``NUMERIC``
 precision, so the storage-bound proof runs against a real PostgreSQL server via
 ``STABILIZATION_POSTGRES_URL``; when that variable is unset those tests SKIP.
 """
-import inspect
 import os
 import uuid
 from decimal import Decimal
@@ -29,7 +28,7 @@ from decimal import Decimal
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 from uuid import uuid4
@@ -250,15 +249,15 @@ def test_storable_money_guard_rejects_unrepresentable_values():
     reachable through `db.query(...)`. The guard still has to hold the line if
     that column is ever widened, re-typed, or fed by a raw SQL writer.
     """
-    from app.api.routes.finance import _storable_invoice_amount
+    from app.models.finance.invoices_service import storable_invoice_amount
 
     for bad in (SUBCENT_MONEY, OVERFLOW_MONEY, Decimal("Infinity"), Decimal("NaN"), Decimal("-1")):
         with pytest.raises(HTTPException) as excinfo:
-            _storable_invoice_amount(bad)
+            storable_invoice_amount(bad)
         assert excinfo.value.status_code == 422, f"accepted {bad!r}"
-    assert _storable_invoice_amount(None) == 0
-    assert _storable_invoice_amount(MAX_STORED_MONEY) == MAX_STORED_MONEY
-    assert _storable_invoice_amount(Decimal("123.45")) == Decimal("123.45")
+    assert storable_invoice_amount(None) == 0
+    assert storable_invoice_amount(MAX_STORED_MONEY) == MAX_STORED_MONEY
+    assert storable_invoice_amount(Decimal("123.45")) == Decimal("123.45")
 
 
 # --------------------------------------------------------------------------
@@ -316,20 +315,25 @@ def test_invoice_still_returns_the_existing_invoice(client, auth_headers):
     assert second.json()["invoice_no"] == first.json()["invoice_no"]
 
 
-def test_create_invoice_keeps_the_fn04_sales_order_lock():
-    """FN04 (8e42807e) made the existence check safe with NO KEY UPDATE.
+def test_invoice_amount_falls_back_to_the_refreshed_order_total(client, auth_headers):
+    """The locked read must refetch the order row, not reuse a cached copy.
 
-    The amount bound is inserted *after* that locked read, so the lock must
-    still be present, ordered first, and still `key_share=True`.
+    FN04 (8e42807e) made the existence check safe with NO KEY UPDATE, and that
+    locked read refreshes the parent row. An invoice built from a stale cached
+    total would bill the wrong amount.
     """
-    text = inspect.getsource(finance_routes.create_invoice)
-    lock = "with_for_update(of=SalesOrder, key_share=True)"
-    assert lock in text, "the FN04 NO KEY UPDATE lock was removed or weakened"
-    assert "populate_existing()" in text, "the locked read must refetch the row"
-    read = text.index(".with_for_update(")
-    assert read < text.index("existing = db.query(Invoice)"), (
-        "the locked sales-order read must happen before the invoice existence check"
-    )
+    order_id = _make_order(total=123.45)
+    with SessionLocal() as db:
+        cached = db.query(SalesOrder).filter(SalesOrder.id == order_id).one()
+        db.execute(
+            text("UPDATE sales_orders SET total_amount = :amount WHERE id = :id"),
+            {"amount": 999.99, "id": order_id},
+        )
+        db.commit()
+        assert Decimal(str(cached.total_amount)) == Decimal("123.45"), "the session must still hold the old value"
+        user = db.query(User).filter(User.email == "admin@example.com").one()
+        result = finance_routes.create_invoice(InvoiceIn(sales_order_id=order_id), db, user)
+    assert Decimal(str(result.amount)) == Decimal("999.99"), "the invoice must use the stored order total"
 
 
 # --------------------------------------------------------------------------
@@ -455,3 +459,42 @@ def test_postgres_column_would_reject_the_overflow_directly(money_bounds_postgre
         with pytest.raises(Exception):
             db.commit()
         db.rollback()
+
+
+# --------------------------------------------------------------------------
+# FN04 lock behaviour — proven from the executed statements, because SQLite
+# ignores FOR UPDATE. The two-connection race itself stays in
+# test_invoice_creation_integrity.py.
+# --------------------------------------------------------------------------
+
+def test_invoice_issuance_locks_the_parent_order_before_checking_for_an_invoice(money_bounds_postgres_sessions):
+    """The FN04 NO KEY UPDATE lock must still be taken, and taken first.
+
+    A plain FOR UPDATE would conflict with the invoice insert's foreign-key
+    check, so the lock must stay `key_share=True`, and it must be ordered
+    before the invoice existence check.
+    """
+    sessions, engine = money_bounds_postgres_sessions
+    order_id = _pg_order(sessions)
+    actor_id = _pg_actor(sessions)
+    statements: list[str] = []
+
+    def _record(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", _record)
+    try:
+        with sessions() as db:
+            user = db.get(User, actor_id)
+            finance_routes.create_invoice(InvoiceIn(sales_order_id=order_id), db, user)
+    finally:
+        event.remove(engine, "before_cursor_execute", _record)
+
+    locked = [s for s in statements if "FOR NO KEY UPDATE" in s.upper()]
+    assert locked, "the FN04 NO KEY UPDATE lock was removed or weakened"
+    for statement in locked:
+        assert "FOR UPDATE" not in statement.upper(), "a stronger lock breaks the invoice-insert foreign-key check"
+        assert "sales_orders" in statement, "the lock must be taken on the parent sales order"
+    lock_at = min(i for i, s in enumerate(statements) if "FOR NO KEY UPDATE" in s.upper())
+    check_at = min(i for i, s in enumerate(statements) if "FROM invoices" in s)
+    assert lock_at < check_at, "the locked sales-order read must happen before the invoice existence check"
