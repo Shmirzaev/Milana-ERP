@@ -1,5 +1,6 @@
 """Price-calculation Purchasing transition and rollback on migrated PostgreSQL."""
 
+from collections import Counter
 from uuid import uuid4
 
 import pytest
@@ -92,6 +93,23 @@ def _completion_notifications(db, case: dict[str, int | str]) -> list[Notificati
     )
 
 
+def _eligible_finance_ids(db) -> list[int]:
+    """Snapshot every active, explicitly granted Finance recipient in this DB."""
+    recipient_ids = []
+    for user in db.query(User).filter(User.is_active.is_(True)).all():
+        role_permissions = user.role.permissions if user.role is not None else []
+        grants = set(role_permissions or []) | set(user.extra_permissions or [])
+        if "finance.view" in grants and "*" not in grants:
+            recipient_ids.append(user.id)
+    return sorted(recipient_ids)
+
+
+def _assert_recipient_multiplicity(notifications, expected_ids, *, per_recipient: int = 1):
+    assert Counter(row.user_id for row in notifications) == Counter(
+        {user_id: per_recipient for user_id in expected_ids}
+    )
+
+
 def _request_audits(db, request_id: int) -> list[AuditLog]:
     return (
         db.query(AuditLog)
@@ -108,6 +126,14 @@ def _request_audits(db, request_id: int) -> list[AuditLog]:
 def test_pg_purchasing_completion_transition_recipients_and_audit_actor(customer_pg_sessions, monkeypatch):
     sessions = customer_pg_sessions
     case = _create_case(sessions)
+    with sessions() as db:
+        # This module-scoped fixture shares a DB across cases. Earlier cases may
+        # leave active Finance users; notification policy correctly reaches all
+        # eligible users, so snapshot the grants instead of assuming one user.
+        expected_finance_ids = _eligible_finance_ids(db)
+    assert case["finance_id"] in expected_finance_ids
+    assert case["wildcard_id"] not in expected_finance_ids
+    assert case["inactive_finance_id"] not in expected_finance_ids
     writer_sessions = []
     persist = pricing.apply_purchasing_contribution
 
@@ -141,7 +167,7 @@ def test_pg_purchasing_completion_transition_recipients_and_audit_actor(customer
     assert complete["purchasing_status"] == "complete"
     with sessions() as db:
         notifications = _completion_notifications(db, case)
-        assert [row.user_id for row in notifications] == [case["finance_id"]]
+        _assert_recipient_multiplicity(notifications, expected_finance_ids)
         assert all(
             (row.title, row.message, row.link)
             == (
@@ -161,7 +187,8 @@ def test_pg_purchasing_completion_transition_recipients_and_audit_actor(customer
     # A completed-to-completed edit is audited but does not re-notify Finance.
     _update(sessions, case, PriceCalculationPurchasingIn(fabric_price=5.0, sewing_cost=0.2))
     with sessions() as db:
-        assert len(_completion_notifications(db, case)) == 1
+        notifications = _completion_notifications(db, case)
+        _assert_recipient_multiplicity(notifications, expected_finance_ids)
         assert len(_request_audits(db, case["request_id"])) == 3
 
     # The legacy PATCH contract treats omitted values as None, clearing both.
@@ -171,11 +198,13 @@ def test_pg_purchasing_completion_transition_recipients_and_audit_actor(customer
         request = db.get(PriceCalculationRequest, case["request_id"])
         assert request is not None
         assert (request.fabric_price, request.sewing_cost) == (None, None)
-        assert len(_completion_notifications(db, case)) == 1
+        notifications = _completion_notifications(db, case)
+        _assert_recipient_multiplicity(notifications, expected_finance_ids)
 
     _update(sessions, case, PriceCalculationPurchasingIn(fabric_price=4.5, sewing_cost=0.1674))
     with sessions() as db:
-        assert len(_completion_notifications(db, case)) == 2
+        notifications = _completion_notifications(db, case)
+        _assert_recipient_multiplicity(notifications, expected_finance_ids, per_recipient=2)
         assert len(_request_audits(db, case["request_id"])) == 5
     assert len(writer_sessions) == 5
     chain(sessions)
@@ -186,6 +215,14 @@ def test_pg_purchasing_request_audit_and_notification_rollback_then_retry(
 ):
     sessions = customer_pg_sessions
     case = _create_case(sessions)
+    with sessions() as db:
+        # The module-scoped customer_pg_sessions fixture retains prior cases.
+        # Read eligibility independently so the rollback assertions cover every
+        # active Finance recipient without mutating or narrowing production policy.
+        expected_finance_ids = _eligible_finance_ids(db)
+    assert case["finance_id"] in expected_finance_ids
+    assert case["wildcard_id"] not in expected_finance_ids
+    assert case["inactive_finance_id"] not in expected_finance_ids
     original_notify = pricing._notify_finance
     attempted_sessions = []
 
@@ -195,15 +232,17 @@ def test_pg_purchasing_request_audit_and_notification_rollback_then_retry(
         assert request.fabric_price == 4.5
         assert request.sewing_cost == 0.1674
         assert request.purchasing_updated_by_id == case["purchaser_id"]
-        assert _completion_notifications(db, case) == [
-            db.query(Notification)
-            .filter(
-                Notification.title == "Purchasing costs completed",
-                Notification.message == f"Model {case['model_code']} price request was updated.",
-                Notification.link == "/finance/price-calculation",
+        notifications = _completion_notifications(db, case)
+        _assert_recipient_multiplicity(notifications, expected_finance_ids)
+        assert all(
+            (row.title, row.message, row.link)
+            == (
+                "Purchasing costs completed",
+                f"Model {case['model_code']} price request was updated.",
+                "/finance/price-calculation",
             )
-            .one()
-        ]
+            for row in notifications
+        )
         attempted_sessions.append(db)
         raise RuntimeError("injected after price request, audit and notification were staged")
 
@@ -244,5 +283,15 @@ def test_pg_purchasing_request_audit_and_notification_rollback_then_retry(
         assert len(audits) == 1
         assert audits[0].user_id == case["purchaser_id"]
         assert audits[0].new_value_json == {"fabric_price": 4.5, "sewing_cost": 0.1674}
-        assert [row.user_id for row in _completion_notifications(db, case)] == [case["finance_id"]]
+        notifications = _completion_notifications(db, case)
+        _assert_recipient_multiplicity(notifications, expected_finance_ids)
+        assert all(
+            (row.title, row.message, row.link)
+            == (
+                "Purchasing costs completed",
+                f"Model {case['model_code']} price request was updated.",
+                "/finance/price-calculation",
+            )
+            for row in notifications
+        )
     chain(sessions)
