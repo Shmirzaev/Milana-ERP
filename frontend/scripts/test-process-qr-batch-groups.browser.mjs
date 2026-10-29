@@ -14,7 +14,17 @@ const functions = ast.statements.filter(node => ts.isFunctionDeclaration(node)
   .map(node => node.getText(ast)).join("\n");
 const namedSizes = ast.statements.find(node => ts.isVariableStatement(node)
   && node.declarationList.declarations.some(d => d.name.getText(ast) === "NAMED_SIZE_ORDER")).getText(ast);
-const section = source.slice(source.indexOf("<section ref={issuedLabelsSectionRef}"), source.indexOf("<Modal", source.indexOf("<section ref={issuedLabelsSectionRef}")));
+let issuedSection;
+function findIssuedSection(node) {
+  if (ts.isJsxElement(node) && node.openingElement.tagName.getText(ast) === "section"
+    && node.openingElement.attributes.properties.some(attribute => ts.isJsxAttribute(attribute)
+      && attribute.name.getText(ast) === "ref"
+      && attribute.initializer?.getText(ast) === "{issuedLabelsSectionRef}")) issuedSection = node;
+  ts.forEachChild(node, findIssuedSection);
+}
+findIssuedSection(ast);
+assert.ok(issuedSection, "The actual issued-label section must exist");
+const section = issuedSection.getText(ast);
 const entry = `
 import React from "react"; import {createRoot} from "react-dom/client";
 import {RefreshCw,Printer,Trash2,ChevronDown} from "lucide-react";
