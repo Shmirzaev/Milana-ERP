@@ -143,6 +143,11 @@ and all four health checks passed. Backup and full evidence are in
 ## Source and production
 
 - Shared integration/production branch: clone_main. origin/main is stale for this work.
+- Pending platform change: staged backend containers will receive `RELEASE_ID` from
+  `slotctl.py` and report it in `/health` and `/ready`. The backend VM's shared
+  slot manager must be updated from the reviewed release before staging. Existing
+  deployed slots have no process release ID until restaged; the observer still
+  checks status only.
 - Continue a suitable isolated worktree; preserve the legacy C:\ERP checkout.
   Use separate engineer work directories and one landing queue coordinated by Mirshoir.
 - [DEPLOYMENT.md](../DEPLOYMENT.md) is the only supported release procedure.
