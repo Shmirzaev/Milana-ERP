@@ -391,11 +391,32 @@ def _resolve_record_batch_id(
             raise HTTPException(400, f"This work order is bound to batch #{expected}")
         return expected
 
+    if wo.operation in {"sewing", "packaging"}:
+        from app.models.production.batch_scope_service import dedicated_batch_ids, batch_owned_by_work_order
+        if not db.get(ProductionOrder, wo.production_order_id):
+            raise HTTPException(404, "Production order not found")
+        # One read distinguishes a legacy order without Nastils from a shared
+        # work order whose Nastils have all moved to dedicated work orders.
+        rows = db.query(ProductionBatch.id, ProductionBatch.id.notin_(
+            dedicated_batch_ids(wo.production_order_id, wo.operation))).filter(
+                ProductionBatch.production_order_id == wo.production_order_id).all()
+        if not rows:
+            if normalized is not None and not batch_owned_by_work_order(db, wo, normalized):
+                raise HTTPException(409, "This Nastil belongs to its dedicated work order")
+            return None
+        owned = {batch_id for batch_id, available in rows if available}
+        if not owned:
+            raise HTTPException(409, "This work order has no assigned Nastils")
+        if normalized is None:
+            raise HTTPException(400, f"Select a production batch for this {operation_name} record")
+        if normalized not in {batch_id for batch_id, _ in rows}:
+            raise HTTPException(404, "Production batch not found for this production order")
+        if normalized not in owned:
+            raise HTTPException(409, "This Nastil belongs to its dedicated work order")
+        return normalized
+
     po, batches = _ordered_batches_for_work_order(db, wo)
     if not batches:
-        if wo.operation in {"sewing", "packaging"} and db.query(ProductionBatch.id).filter(
-            ProductionBatch.production_order_id == po.id).first():
-            raise HTTPException(409, "This work order has no assigned Nastils")
         if normalized is not None:
             from app.models.production.batch_scope_service import batch_owned_by_work_order
             if not batch_owned_by_work_order(db, wo, normalized):
@@ -424,9 +445,9 @@ def _context_work_order(db: DbSession, source_wo: WorkOrder, operation: str, bat
     )
     target_batch = batch_id if batch_id is not None else source_wo.production_batch_id
     if target_batch is not None:
-        exact = qry.filter(WorkOrder.production_batch_id == target_batch).order_by(WorkOrder.id).first()
-        if exact:
-            return exact
+        return qry.filter(or_(WorkOrder.production_batch_id == target_batch,
+            WorkOrder.production_batch_id.is_(None))).order_by(
+                case((WorkOrder.production_batch_id == target_batch, 0), else_=1), WorkOrder.id).first()
     return qry.filter(WorkOrder.production_batch_id.is_(None)).order_by(WorkOrder.id.asc()).first()
 
 

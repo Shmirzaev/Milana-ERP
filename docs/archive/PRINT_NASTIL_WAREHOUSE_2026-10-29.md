@@ -134,6 +134,20 @@ handling. A release and backup remain prerequisites; no live correction occurred
   choices. It now supplies owned IDs 1/2/3, includes foreign batch 4 in the PO and
   asserts that 4 is absent from choices. Existing assignment/save checks remain.
   Its MIL/BST/ECO × EN/RU/UZ browser run passed without an application change.
+- Full first backend CI: 4,854 passed, 539 opt-in skips and six query-budget
+  failures. The added ownership reads were fixed rather than increasing budgets:
+  loss/discriminator reads are combined, exact/generic work-order lookup uses one
+  ordered query, and batch presence/ownership are returned together. The unchanged
+  1/50/401-size budgets and Nastil/production-flow selection then passed 136 tests.
+
+## Authorized release preparation
+
+The owner explicitly authorized push/merge into clone_main and deployment on top
+of current green, preserving blue unchanged, and waived the 30-minute monitoring
+window. This overrides only the timed observation requirement. Exact CI, immutable
+images, fresh verified backup, no-op schema, candidate/public QA, performance and
+immediate runtime/health gates remain required. Fresh live reconciliation confirmed
+green 20261029_053553 and blue 20261028_123531 against the recorded manifests.
 
 ## Human checklist before integration/release
 
