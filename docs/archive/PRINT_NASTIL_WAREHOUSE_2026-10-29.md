@@ -149,6 +149,37 @@ images, fresh verified backup, no-op schema, candidate/public QA, performance an
 immediate runtime/health gates remain required. Fresh live reconciliation confirmed
 green 20261029_053553 and blue 20261028_123531 against the recorded manifests.
 
+Final Besttex handoff exposed a pre-existing raw model-ID fallback when catalog
+access was correctly denied across factory contexts. The product panel now uses
+the authorized work-order model/variant numbers as its fallback, preserving catalog
+authorization and preferring catalog information when available. The real component
+browser fixture covers both cases. This small display correction requires a new
+exact-source validation/artifact run; the earlier 63a0e00f artifact is not promoted.
+
+### Data-aware rollback boundary
+
+Blue's old application cannot safely write mixed shared/dedicated Nastil scopes.
+The deployment's recovery guard is armed before the new green backend is exposed.
+After that boundary, use the reviewed task recovery command
+`python outputs/deployment/release.py recover-blue-maintenance` from this preserved
+worktree. It retains the original blue images/containers and switches the backend
+router into maintenance: only GET/HEAD on health/readiness paths reach blue;
+all other application paths/methods receive 503. Frontend returns to original blue.
+The explicit command forces maintenance even if an exposure marker is missing.
+Health and maintenance refusal are verified before recovery is recorded as passed.
+Ordinary ungated blue activation is unsafe after this boundary. Restore normal
+business access with compatible reviewed code, or a separately verified inverse
+data reconciliation that refuses used/output-bearing scopes. Do not erase or
+reassign historical output to make an inverse appear safe.
+
+The guard was tested on an owned ephemeral loopback HAProxy listener with 11
+method/path probes; live router/state hashes and original blue identities remained
+unchanged. Four local recovery-order/failure tests passed. Initial test failures
+(occupied fixed test port, then an incorrect HEAD-readiness expectation) were
+diagnosed; no occupied listener was touched and no health behavior was changed.
+The recovery guard is now an explicit readiness gate. Timed observation remains
+waived; immediate source/health/performance checks remain mandatory.
+
 ## Human checklist before integration/release
 
 Use the identified candidate and isolated QA environment first. Create a standard
