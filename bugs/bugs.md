@@ -1,5 +1,46 @@
 # Team bug tracker — clone_main
 
+## INV-INACTIVE-BATCH-20261029 — edit a batch retaining its inactive material
+
+- **Deployed to green `20261029_053553`; awaiting operator verification.** Inventory
+  owner Ismail; human reviewer Mirshoir. Codex fixed the unchanged-material
+  validation for batch 7148's editor without reactivating or reassigning stock.
+  Another inactive target remains refused, including forced saves.
+- 119 scoped tests plus all seven previously skipped PostgreSQL integrity cases
+  passed; real local Chrome save/reload and PostgreSQL readback passed; 20 repeated
+  saves preserved material/quantity/ledger. Independent review found no issues.
+  No production business rows changed; blue rollback is preserved. [Evidence and operator checklist](../docs/archive/INACTIVE_BATCH_EDIT_2026-10-29.md).
+
+## PACK-MANUAL-20261028 — manual Packaging packs and labels
+
+- **Local candidate; print visual gate BLOCKED.** Mirshoir owns Packaging;
+  Ismail is the human reviewer. Dedicated worktree/branch, no shared refactoring
+  edits or push/merge/deployment. Manual creation uses approved models, per-pack
+  quantities, immutable evidence, exact print runs, safe recovery and cancellation
+  before receipt. Warehouse acceptance remains separate.
+- 146 affected backend tests and 26 real PostgreSQL tests pass; optimized frontend
+  build passes. Actual browser creation/reload/warehouse receipt and persisted
+  quantities pass. Browser policy blocks inspection of the generated blob print tab;
+  visual print and human acceptance remain open. [Evidence and local checklist](../docs/archive/MANUAL_PACKAGING_2026-10-28.md).
+- Separately authorized employee-master correction is applied: exactly two links
+  #503 -> #321, preserving both Dilafruz identities/history, backed up and audited.
+  This is not a merge or runtime deployment and does not close this feature gate.
+
+## LABEL-PAYROLL-20261027 — package footer, cutting client and split-payroll editing
+
+- **P2 · Awaiting production verification.** Packaging/cutting: Mirshoir, reviewer
+  Ismail; payroll: Dilmurod, reviewer Mirshoir. Codex implementation was explicitly
+  authorized; these named assignments are not claims of human review.
+- Deployed 20261027_104106, exact application `1d2bfe3d5a5035d925720017766432693177d30f`. All three fixes and immediate
+  technical gates pass; the owner waived timed observation. Existing refactoring
+  and production business data were preserved. No merge or human closure is claimed.
+- [Tests, deployment identities and operator editing steps](../docs/archive/LABEL_PAYROLL_RELEASE_2026-10-27.md).
+- Returned-child follow-up: returned labels had no edit action. Manager metadata
+  correction now preserves all historical earnings and leaves scanned siblings
+  read-only. [Follow-up evidence](../docs/archive/RETURNED_SPLIT_EDIT_2026-10-27.md).
+  Deployed `20261027_115452` / `ed47ab8d0484878f7b5638825beda2ce62a08f5d`; all immediate technical gates pass.
+  Human production acceptance remains pending; no timed monitoring was run.
+
 ## Current paths and historical evidence
 
 Business services live in `backend/app/models/<group>/*_service.py`, with existing

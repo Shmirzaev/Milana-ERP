@@ -11,9 +11,46 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Updated 2026-10-28. Keep this file short: current decisions, release pointers and
+Last updated 2026-10-29. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## Production reconciliation deployed (29 October)
+
+The [inactive-material batch-edit fix](archive/INACTIVE_BATCH_EDIT_2026-10-29.md)
+is deployed on green `20261029_053553`, runtime `186110a549d48f42801058241ffcabbb22acdaf9` (PR342, clone_main).
+Only the unchanged-material validation was added to the prior green application;
+no separate Mirshoir/Dilmurod changes were introduced. Blue `20261028_123531`
+remains the unchanged running rollback. CI, 165 mandatory PG cases, verified backup,
+no-op schema, candidate/public browser and 120-sample performance/health/runtime
+gates passed. Real batch 7148's material/stock/ledger fingerprint was conserved;
+no production business edit was submitted. Monitoring was explicitly waived,
+not performed. Operator save/reopen acceptance remains pending.
+
+The owner authorized reconciling latest `clone_main` with all current production
+fixes and deploying through blue/green, with current production ready for rollback.
+At that earlier cutover, green was `20261029_042945`, exact runtime
+`921d646425054bb7b132042b1a173e2998249adc`, verified on both VMs. Retained blue
+`20261028_123531` (runtime `a0cb9d8b`) stays running and healthy for rollback.
+Both manifests at that earlier cutover were `eda617eedff05dfca42aef15003135c5c5870276bb5da087d6543c1add889580`.
+The tested source merges `clone_main` `45b12da1` and production record `a6a89f50`
+in a dedicated worktree and was fast-forwarded into shared `clone_main`.
+Only Supplier UPDATE and Customer DELETE persistence/type changes differ in
+application source; deployed Packaging, payroll, QR, Finance, frontend and
+migrations are preserved. Corrected full backend tests passed 4,834 cases with
+538 opt-in skips; the separate mandatory PostgreSQL CI gate passed all 165 cases
+with no skips. Frontend, exact-source immutable CI, isolated Supplier save/Customer delete
+browser and persisted readback, independent review, verified backup, candidate/public
+read-only QA, paired/public performance and all four health checks passed.
+Database remains `0149_besttex_cutting_access` after a no-op migration check.
+Production QA made no business writes; normal authentication GETs touch heartbeat
+metadata. The owner explicitly waived the 30-minute monitoring; it was not performed.
+The first combined CI failure remains recorded; its SQLite-only timestamp fixture
+was corrected and independently challenged without changing application clocks.
+Closing root-disk use was backend 79.44%, frontend 77.16%; the 80% staging gate
+remains mandatory for the next release. Existing linked-Customer FK error handling
+and prior physical-label/operator acceptance limitations remain open.
+See the [reconciliation record](archive/CLONE_PRODUCTION_RECONCILIATION_2026-10-29.md).
 
 The earlier QA artifact omitted Next runtime inputs and returned 404 on `/login` and
 `/`. A repaired genuine f27 artifact subsequently passed local login and scoped
@@ -29,6 +66,33 @@ V23 resource failure are recorded in the [dated integration evidence](archive/VE
 Supplier UPDATE is a later source candidate with its own verification gates; it is
 not included in that dated checkpoint. Dependency PR331 has separate environment
 and runtime gates. No deployment or human production acceptance is implied.
+
+## Historical Manual Packaging and combined release (28 October)
+
+At the 28 October release, active blue was `20261028_123531`, exact runtime
+`a0cb9d8b9fdab64dd751e7f3da7a1fa832779780`, verified on both VMs. Its then-retained
+green rollback was `20261027_115452`. Database stayed `0149_besttex_cutting_access`.
+The release combines reviewed clone_main through `61b1a702`, reconciled live
+fixes, manual Packaging pack creation/reprinting/cancellation, and a narrow
+Finance unlinked-BOM crash correction. Shared refactoring work was untouched;
+this does not complete its operation/type ledger or human acceptance.
+Fresh backup, exact CI/PostgreSQL, actual connected-browser/read-only QA,
+fixed-origin paired/public performance, all four health checks and immediate
+runtime/source/rollback postflight passed. Owner waived timed monitoring only.
+No QA business data was created. Physical print visual acceptance is pending
+after browser blob inspection was refused. See the detailed
+[release record](archive/MANUAL_PACKAGING_RELEASE_2026-10-28.md) for immutable
+images, backup hashes, failed earlier attempts and honest verification limits.
+
+Owner-authorized employee-master correction applied on 28 October: the two MIL
+employees formerly reporting to Akbarova Dilafruz #503 now report to #321.
+Both Dilafruz records remain distinct; no payroll or attendance history moved.
+The exact reviewed script `fe4bc0f8` passed a real PostgreSQL commit test and a
+live rollback rehearsal before apply. Own-transaction attribution verified only
+two employee manager/timestamp updates plus audit entries 144572/144573, with
+95 other business tables untouched by the transaction. Fresh persisted readback
+and all four health checks passed. Backup and full evidence are in
+[the task record](archive/MANUAL_PACKAGING_2026-10-28.md). This data correction preceded the runtime promotion above.
 
 ## Source and production
 
@@ -54,7 +118,7 @@ and runtime gates. No deployment or human production acceptance is implied.
   reconciled with frozen refactor candidate `d0920f6367b702f63c88d5940cf1b44155b34aec`.
   This successor candidate is **not deployed, not AI-verified and not human-approved**.
   The prior invoice-only production release does not accept or deploy the refactor.
-- `deploy/production-base.json` carries the imported release assertion above.
+- `deploy/production-base.json` records the verified 29 October runtime above. The following describes older integration evidence.
   Local successor merge `02c25ecf2c8acad55418d86cf5b067fc89307162` has actual
   parents `034cb788` and recorded production `439555`; all 36 released paths were
   reconciled, retaining reviewed namespace ports and both historical release records.

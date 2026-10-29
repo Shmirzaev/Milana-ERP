@@ -4,6 +4,8 @@ These reports preserve what was observed at their recorded date. They are not
 current implementation instructions or proof of today's production state.
 Start with [current context](../PROJECT_CONTEXT.md) for active work.
 
+- [Production and clone_main reconciliation, 29 October 2026](CLONE_PRODUCTION_RECONCILIATION_2026-10-29.md): verified green release, preserved production fixes, retained blue rollback and explicit monitoring waiver.
+
 - [Verified integration checkpoint, 28 October 2026](VERIFIED_INTEGRATION_2026-10-28.md): scoped Planning, Customer, Brand and Supplier evidence, PR338/339 and superseded QA history.
 
 - [Manual Finance invoice creation, 27 October 2026](FINANCE_MANUAL_INVOICE_CREATE_2026-10-27.md):
@@ -24,3 +26,7 @@ Start with [current context](../PROJECT_CONTEXT.md) for active work.
 Older audit reports remain in ../audit-evidence/ because existing records/tests
 refer to them. No historical business or release evidence was deleted in this cleanup.
 New detailed dated events belong here; current summaries link to the relevant record.
+
+- [Combined manual Packaging release, 28 October 2026](MANUAL_PACKAGING_RELEASE_2026-10-28.md):
+  verified blue promotion, retained green rollback, exact CI/backup/QA and print acceptance limits.
+- [Manual Packaging and employee master correction, 28 October 2026](MANUAL_PACKAGING_2026-10-28.md).
