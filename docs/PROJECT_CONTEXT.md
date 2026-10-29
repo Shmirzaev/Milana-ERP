@@ -17,11 +17,14 @@ not appended here. This summary does not replace live release verification.
 
 ## Active whole-ERP refactor
 
-PR343 merged three verified persistence operations into `clone_main` at
-`d235cf9e9a44b1de81428beb261f8fab837cbe87`; this did not deploy them. The owner
-resumed all remaining domains with cheap isolated subagents on 30 October.
-Collection UPDATE, Purchasing costing/notification persistence and typed Finance
-payment results are the current candidate batch, with verification still pending.
+PR347 merged the verified Collection UPDATE, Purchasing costing/notification
+persistence and typed Finance payment-result slice into `clone_main` at
+`ff1542f02c137f24fc9fe78492aa69aa463a7293`, following PR343. No deployment occurred.
+The owner resumed all remaining domains with cheap isolated subagents on 30 October.
+Inventory batch-edit and Packaging selected print-run persistence are the next
+combined candidate; 116 unit/API cases pass, but PostgreSQL, Computer/readback,
+bounded integrity/recovery and final combined acceptance are still pending.
+Collection's canonical/public legacy status typing gap remains explicitly open.
 See [the current operation backlog](REFACTOR_COVERAGE.md#current-integration-and-active-work--30-october-2026).
 No whole-domain, system-wide type or human production acceptance is claimed.
 
