@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.deps import user_permissions
 from app.models.user_access_service import access_configured, permission_denied
-from app.schemas import CuttingPassport, Notification, User
+from app.schemas import CuttingPassport, User
+from app.schemas.core_persistence import add_notification_row
 from app.schemas.catalog.catalog import Model
 from app.schemas.planning.price_calculation import PriceCalculationRequest
 from app.models.audit_service import log_action
@@ -481,11 +482,11 @@ def _notify_new_request(db: Session, request: PriceCalculationRequest) -> None:
             link = "/purchasing/price-calculation"
         else:
             link = "/inventory/accessory-pricing"
-        db.add(Notification(user_id=recipient.id, title="New price calculation request", message=f"Model {request.model.code} needs cost information.", link=link))
+        add_notification_row(db, user_id=recipient.id, title="New price calculation request", message=f"Model {request.model.code} needs cost information.", link=link)
 
 
 def _notify_finance(db: Session, request: PriceCalculationRequest, title: str) -> None:
     for recipient in db.query(User).filter(User.is_active.is_(True)).all():
         if not is_finance_pricing_user(recipient) or "*" in user_permissions(recipient):
             continue
-        db.add(Notification(user_id=recipient.id, title=title, message=f"Model {request.model.code} price request was updated.", link="/finance/price-calculation"))
+        add_notification_row(db, user_id=recipient.id, title=title, message=f"Model {request.model.code} price request was updated.", link="/finance/price-calculation")
