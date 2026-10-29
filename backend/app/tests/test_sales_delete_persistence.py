@@ -5,12 +5,25 @@ These tests prove delegation, refusal order and exception/transaction boundaries
 they do not replace PostgreSQL cascade/rollback or signed-route/UI verification.
 """
 import ast
+from enum import Enum
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
 
 
 APP = Path(__file__).resolve().parents[1]
+
+
+def sales_status_enum():
+    path = APP / "libs/enums/sales.py"
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+    definition = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "SalesOrderStatus")
+    namespace = {"Enum": Enum}
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[definition], type_ignores=[])), str(path), "exec"), namespace)
+    return namespace["SalesOrderStatus"]
+
+
+SalesOrderStatus = sales_status_enum()
 
 
 def load_function(relative, name, collaborators):
@@ -121,6 +134,7 @@ def operation(db):
         "Shipment": Shipment,
         "StockReservation": StockReservation,
         "HTTPException": Refusal,
+        "SalesOrderStatus": SalesOrderStatus,
         "delete_sales_order_row": writer,
         "log_action": audit,
     })
@@ -128,6 +142,9 @@ def operation(db):
 
 
 class SalesDeleteOperationTests(unittest.TestCase):
+    def test_delete_guard_canonical_members_keep_existing_wire_values(self):
+        self.assertEqual((SalesOrderStatus.DRAFT.value, SalesOrderStatus.CANCELLED.value), ("draft", "cancelled"))
+
     def test_allowed_states_delegate_same_row_session_then_audit_and_commit(self):
         for status in ("draft", "cancelled"):
             with self.subTest(status=status):
@@ -158,7 +175,7 @@ class SalesDeleteOperationTests(unittest.TestCase):
             "pending_sales_approval", "confirmed", "planning", "planning_approved",
             "in_production", "production", "cutting", "printing", "sewing", "packaging",
             "storage", "ready_to_ship", "ready", "reserved", "shipped", "delivered", "closed",
-            "completed", "DRAFT", "unknown", None,
+            "completed", "DRAFT", "CANCELLED", " draft ", " cancelled ", "unknown", None,
         ):
             with self.subTest(status=status):
                 db = SessionDouble(status, references=("ProductionOrder",))

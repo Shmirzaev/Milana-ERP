@@ -479,7 +479,7 @@ def delete_sales_order(sid: int, db: Session, current: User):
     if not so:
         raise HTTPException(404, "Sales order not found")
 
-    if so.status not in ("draft", "cancelled"):
+    if so.status not in (SalesOrderStatus.DRAFT.value, SalesOrderStatus.CANCELLED.value):
         raise HTTPException(409, "Only draft or cancelled sales orders can be deleted")
     if db.query(ProductionOrder).filter(ProductionOrder.sales_order_id == sid).first():
         raise HTTPException(409, "Sales order already has linked production orders")
