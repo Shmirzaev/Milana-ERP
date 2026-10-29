@@ -8,7 +8,7 @@ fixture, which creates its own schema on STABILIZATION_POSTGRES_URL.
 
 import pytest
 
-from app.tests.test_customer_create_postgres import customer_pg_sessions
+from app.tests.test_customer_create_postgres import customer_pg_sessions  # noqa: F401
 from app.tests.test_idempotency_identity import (
     test_postgres_concurrent_payment_retries as _concurrent_payment_retries,
     test_postgres_other_users_key_does_not_wait_for_first_user as _other_user_key_is_independent,
