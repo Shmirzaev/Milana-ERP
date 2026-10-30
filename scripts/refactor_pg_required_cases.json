@@ -272,6 +272,19 @@
         "test_pg_shipment_reopen_audit_failure_rolls_back_and_retry_commits_all",
         "test_pg_invoice_payment_and_shipment_reopen_serialize_on_invoice_row"
       ]
+    },
+    "test_model_paid_operations_postgres": {
+      "revision": "19b9ce0ee3755f424cd7f63f387777d801e3bca3",
+      "git_blob_sha256": "7d186baea135a37c5f22d199f132914b997ac650327ecd8f67f913315014d01c",
+      "selected_functions": [
+        "test_pg_paid_operations_patch_round_trips_typed_rows_and_openapi",
+        "test_pg_paid_operations_invalid_and_cross_factory_patch_leave_family_and_audit_unchanged",
+        "test_pg_paid_operations_scoped_save_keeps_other_factory_opaque_legacy_and_other_family",
+        "test_pg_usluga_paid_operation_routes_apply_eco_factory_and_typed_sections",
+        "test_pg_model_create_keeps_historical_paid_operation_json_opaque",
+        "test_pg_paid_operations_failure_rolls_back_then_same_session_retry",
+        "test_pg_paid_operations_concurrent_factories_serialize_same_family_and_prove_row_lock_wait"
+      ]
     }
   },
   "cases": {
@@ -512,6 +525,18 @@
       "test_pg_shipment_reopen_preflights_every_invoice_before_any_finance_write",
       "test_pg_shipment_reopen_audit_failure_rolls_back_and_retry_commits_all",
       "test_pg_invoice_payment_and_shipment_reopen_serialize_on_invoice_row"
+    ],
+    "test_model_paid_operations_postgres": [
+      "test_pg_paid_operations_patch_round_trips_typed_rows_and_openapi[dedicated-patch]",
+      "test_pg_paid_operations_patch_round_trips_typed_rows_and_openapi[whole-model-patch]",
+      "test_pg_paid_operations_invalid_and_cross_factory_patch_leave_family_and_audit_unchanged",
+      "test_pg_paid_operations_scoped_save_keeps_other_factory_opaque_legacy_and_other_family",
+      "test_pg_usluga_paid_operation_routes_apply_eco_factory_and_typed_sections[usluga-dedicated-patch]",
+      "test_pg_usluga_paid_operation_routes_apply_eco_factory_and_typed_sections[usluga-whole-model-patch]",
+      "test_pg_model_create_keeps_historical_paid_operation_json_opaque",
+      "test_pg_paid_operations_failure_rolls_back_then_same_session_retry[audit-failure]",
+      "test_pg_paid_operations_failure_rolls_back_then_same_session_retry[postflush-failure]",
+      "test_pg_paid_operations_concurrent_factories_serialize_same_family_and_prove_row_lock_wait"
     ]
   },
   "isolated_supplemental_cases": [

@@ -108,7 +108,15 @@ GROUPS = {'test_customer_delete_postgres': (9,
                                            ('test_pg_shipment_reopen_finance_participant_same_session_and_no_early_commit',
                                             'test_pg_shipment_reopen_preflights_every_invoice_before_any_finance_write',
                                             'test_pg_shipment_reopen_audit_failure_rolls_back_and_retry_commits_all',
-                                            'test_pg_invoice_payment_and_shipment_reopen_serialize_on_invoice_row'))}
+                                            'test_pg_invoice_payment_and_shipment_reopen_serialize_on_invoice_row')),
+ 'test_model_paid_operations_postgres': (10,
+                                         ('test_pg_paid_operations_patch_round_trips_typed_rows_and_openapi',
+                                          'test_pg_paid_operations_invalid_and_cross_factory_patch_leave_family_and_audit_unchanged',
+                                          'test_pg_paid_operations_scoped_save_keeps_other_factory_opaque_legacy_and_other_family',
+                                          'test_pg_usluga_paid_operation_routes_apply_eco_factory_and_typed_sections',
+                                          'test_pg_model_create_keeps_historical_paid_operation_json_opaque',
+                                          'test_pg_paid_operations_failure_rolls_back_then_same_session_retry',
+                                          'test_pg_paid_operations_concurrent_factories_serialize_same_family_and_prove_row_lock_wait'))}
 REQUIRED_CASES = json.loads(
     Path(__file__).with_name("refactor_pg_required_cases.json").read_text(encoding="utf-8")
 )["cases"]
