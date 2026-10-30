@@ -21,6 +21,7 @@ from app.schemas.work_management.task_persistence import (
     add_user_created_task,
     apply_user_task_completion,
     apply_user_task_update,
+    delete_user_task_row,
 )
 
 
@@ -325,6 +326,30 @@ def complete_user_task(db: Session, current: User, task_id: int) -> Task:
     db.commit()
     db.refresh(task)
     return task
+
+
+TaskDeleteRefusalReason = Literal["task_missing", "not_allowed"]
+
+
+class TaskDeleteRefused(Exception):
+    """A Task DELETE refusal translated by the HTTP route."""
+
+    def __init__(self, reason: TaskDeleteRefusalReason):
+        self.reason = reason
+        super().__init__(reason)
+
+
+def delete_user_task(db: Session, current: User, task_id: int) -> None:
+    """Delete one user-visible Task and its audit in the same transaction."""
+    task = db.get(Task, task_id)
+    if task is None:
+        raise TaskDeleteRefused("task_missing")
+    if not (can_manage_tasks(current) or task.created_by == current.id):
+        raise TaskDeleteRefused("not_allowed")
+
+    delete_user_task_row(db, task)
+    log_action(db, current, "delete", "Task", task_id)
+    db.commit()
 
 
 def create_stock_shortage_task(

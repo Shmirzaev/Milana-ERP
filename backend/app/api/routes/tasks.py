@@ -5,14 +5,15 @@ from app.core.deps import DbSession, CurrentUser
 from app.schemas import Task
 from app.libs.enums.work_management import TaskStatus
 from app.libs.dto.work_management.tasks import TaskIn, TaskUpdate, TaskOut
-from app.models.audit_service import log_action
 from app.models.work_management.tasks_service import (
     TaskCreateRefused,
     TaskCompleteRefused,
+    TaskDeleteRefused,
     TaskUpdateRefused,
     can_manage_tasks as _can_manage,
     complete_user_task,
     create_user_task,
+    delete_user_task,
     update_user_task,
 )
 
@@ -103,13 +104,12 @@ def update_task(tid: int, payload: TaskUpdate, db: DbSession, current: CurrentUs
 
 @router.delete("/{tid}", status_code=204)
 def delete_task(tid: int, db: DbSession, current: CurrentUser):
-    t = db.get(Task, tid)
-    if not t: raise HTTPException(404, "Task not found")
-    if not (_can_manage(current) or t.created_by == current.id):
-        raise HTTPException(403, "Only managers or task creator may delete")
-    db.delete(t)
-    log_action(db, current, "delete", "Task", tid)
-    db.commit()
+    try:
+        delete_user_task(db, current, tid)
+    except TaskDeleteRefused as refusal:
+        if refusal.reason == "task_missing":
+            raise HTTPException(404, "Task not found") from refusal
+        raise HTTPException(403, "Only managers or task creator may delete") from refusal
 
 
 @router.post("/{tid}/complete", response_model=TaskOut)

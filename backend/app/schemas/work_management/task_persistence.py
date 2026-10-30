@@ -88,3 +88,10 @@ def apply_user_task_completion(
         raise ValueError("Task completion requires the caller's attached Task row")
     row.status = TaskStatus.COMPLETED.value
     row.completed_at = completed_at
+
+
+def delete_user_task_row(db: Session, row: Task) -> None:
+    """Stage a user-facing Task delete in its owning transaction."""
+    if object_session(row) is not db:
+        raise ValueError("Task deletion requires the caller's attached Task row")
+    db.delete(row)

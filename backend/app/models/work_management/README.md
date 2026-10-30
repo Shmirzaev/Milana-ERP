@@ -1,9 +1,8 @@
 # Tasks and notifications
 
 Business-service group guide, relocated into models/ on 24 October 2026.
-`tasks_service.py` contains the user-facing Task CREATE, PATCH and COMPLETE
-operations and the separate focused system stock-shortage participant. Deletion
-remains an independent route-owned operation.
+`tasks_service.py` contains the user-facing Task CREATE, PATCH, COMPLETE and
+DELETE operations and the separate focused system stock-shortage participant.
 
 **Purpose:** Own task assignment/status and notification delivery/read-state behavior.
 
@@ -51,6 +50,17 @@ timestamp and creates another completion audit and (when the creator differs fro
 the actor) another creator notification. This operation does not deduplicate or
 add locks. Its notification text/link and audit shape remain distinct from PATCH.
 
+## User-facing Task DELETE
+
+`delete_user_task` keeps the existing lookup-before-authorization behavior and
+the creator-or-manager permission rule. It stages the hard delete through the
+Work Management schema participant, appends the existing `delete` audit on that
+Session, and owns the one outer commit. Audit's current flush/finalization order
+is preserved. The route remains an empty 204; missing Tasks remain 404 and
+non-manager/non-creator actors remain 403. Task notifications are not linked by
+foreign key and remain unchanged after deletion. DELETE adds no soft-delete,
+status policy, lock, notification cleanup or idempotency behavior.
+
 ## System stock-shortage participant
 
 `create_stock_shortage_task` receives the current Session and exact required
@@ -79,7 +89,7 @@ particular operation and every caller/write before choosing what belongs here.
 
 | Proposed file | Responsibility |
 | --- | --- |
-| `tasks_service.py` | Task create/update/assignment/state rules. |
+| `tasks_service.py` | Task create/update/delete/assignment/state rules. |
 | `notifications_service.py` | Notification creation, visibility and delivery coordination. |
 
 Use snake_case_service.py filenames and operation names such as `create_*`, `record_*`,
