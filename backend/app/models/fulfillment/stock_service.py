@@ -1,9 +1,11 @@
 """Fulfillment's approved piece/pack reservation operations.
 
-Sales supplies the Session, scalar identities and typed demands. It owns its order
-lock/replay guard and the outer transaction. This service owns physical eligibility,
-selection, package/stock locks and schema-owned stock writes. No Sales mapped object
-crosses the reservation boundary; no commit/rollback/begin/close is performed here.
+Sales multi-line reservation callers supply the Session, scalar identities and typed
+demands; they own their order lock/replay guard and outer transaction. The direct
+finished-goods reserve entry point owns its existing single commit after schema-owned
+writes. These services own physical eligibility, selection and package/stock locks;
+they do not create or close Sessions. No Sales mapped object crosses the reservation
+boundary.
 """
 from collections import defaultdict
 from collections.abc import Iterable
@@ -12,19 +14,172 @@ from fastapi import HTTPException
 from sqlalchemy import and_, func, inspect, or_
 from sqlalchemy.orm import Session
 
-from app.libs.enums.fulfillment import FinishedGoodsStatus
-from app.libs.enums.packaging import PackageStockKind
+from app.libs.enums.fulfillment import FinishedGoodsStatus, ShipmentStatus
+from app.libs.enums.packaging import PackageStatus, PackageStockKind
+from app.libs.enums.sales import SalesOrderStatus
 from app.libs.types.stock_reservation import (
-    PackDemand, PackReservationResult, PieceDemand, PieceReservationResult,
-    ReservationSummary, StockShortage,
+    DirectStockReservationResult, ManualPackageReservationResult, PackDemand,
+    PackReservationResult, PieceDemand, PieceReservationResult,
+    PieceStockReservationResult, ReservationSummary, StockShortage,
 )
 from app.models.finished_goods_service import repair_missing_brand_metadata
-from app.schemas import FinishedGoodsStock, Model, Package, PackageItem, Shipment, ShipmentPackage, StockReservation
+from app.models.package_dispatch_service import remaining_quantity
+from app.models.audit_service import log_action
+from app.schemas import (
+    FinishedGoodsStock, Model, Package, PackageItem, SalesOrder, Shipment,
+    ShipmentPackage, StockReservation, User,
+)
 from app.schemas.fulfillment.stock_persistence import reserve_stock_row
 
 _SHIPMENT_READY_PACKAGE_STATUSES = ("received_in_storage", "reserved")
 _STOCK_VARIANT_QUERY_CHUNK_SIZE = 200
 _PIECE_STOCK_KINDS = frozenset({PackageStockKind.STANDARD, PackageStockKind.FIRST_GRADE})
+
+
+def _reserve_manual_package(
+    db: Session, actor: User, stock: FinishedGoodsStock, quantity: int,
+    sales_order_id: int,
+) -> ManualPackageReservationResult:
+    # Match receipt/correction locking: package first, then its contents/stock.
+    package = (
+        db.query(Package).filter(Package.id == stock.package_id)
+        .with_for_update(of=Package).populate_existing().one()
+    )
+    if not package.manual_receipt_id or PackageStatus(package.status) not in {
+        PackageStatus.RECEIVED, PackageStatus.RESERVED,
+    }:
+        raise HTTPException(409, "Manual package is not available for reservation")
+    if quantity != remaining_quantity(package) or quantity <= 0:
+        raise HTTPException(409, "Reserve the entire manual package quantity in one request")
+    order = db.get(SalesOrder, sales_order_id)
+    if not order:
+        raise HTTPException(404, "Sales order not found")
+    if SalesOrderStatus(order.status) in {
+        SalesOrderStatus.SHIPPED, SalesOrderStatus.DELIVERED,
+        SalesOrderStatus.CLOSED, SalesOrderStatus.CANCELLED,
+    }:
+        raise HTTPException(409, "Sales order is no longer open for reservation")
+    items = (
+        db.query(PackageItem).filter(PackageItem.package_id == package.id)
+        .order_by(PackageItem.id).with_for_update(of=PackageItem).populate_existing().all()
+    )
+    rows = (
+        db.query(FinishedGoodsStock).filter(FinishedGoodsStock.package_id == package.id)
+        .order_by(FinishedGoodsStock.id).with_for_update(of=FinishedGoodsStock)
+        .populate_existing().all()
+    )
+    if stock.id not in {row.id for row in rows} or not items:
+        raise HTTPException(409, "Manual package stock changed; reload before reserving")
+    if package.sales_order_id or any(
+        row.quantity <= 0 or row.available_qty != row.quantity - row.sold_qty or row.reserved_qty
+        or FinishedGoodsStatus(row.status) not in {
+            FinishedGoodsStatus.AVAILABLE, FinishedGoodsStatus.SOLD,
+        } or row.sales_order_id is not None or row.model_id != package.model_id
+        for row in rows
+    ):
+        raise HTTPException(409, "Manual package must be completely available")
+    if db.query(StockReservation.id).filter(or_(
+        StockReservation.package_id == package.id,
+        StockReservation.finished_goods_stock_id.in_([row.id for row in rows]),
+    )).first():
+        raise HTTPException(409, "Manual package already has a reservation")
+    if db.query(ShipmentPackage.id).join(Shipment).filter(
+        ShipmentPackage.package_id == package.id,
+        Shipment.status.in_([ShipmentStatus.DRAFT.value, ShipmentStatus.CREATED.value])
+        if package.dispatched_quantities else Shipment.status != ShipmentStatus.CANCELLED.value,
+    ).first():
+        raise HTTPException(409, "Manual package is already attached to a shipment")
+    stock_contents, item_contents = defaultdict(int), defaultdict(int)
+    for row in rows:
+        stock_contents[(row.model_id, row.color, row.size)] += row.quantity
+    for item in items:
+        item_contents[(item.model_id, item.color, item.size)] += item.quantity
+    if (stock_contents != item_contents or sum(stock_contents.values()) != package.total_quantity
+            or sum(row.sold_qty for row in rows) != package.dispatched_quantity):
+        raise HTTPException(409, "Manual package contents and warehouse stock do not balance")
+    for row in rows:
+        if row.quantity == row.sold_qty:
+            continue
+        reserve_stock_row(
+            db, row, sales_order_id=sales_order_id, reserved_by=actor.id,
+            quantity=row.quantity - row.sold_qty, package_id=package.id,
+            available_quantity=0, reserved_quantity=row.quantity - row.sold_qty,
+            status=FinishedGoodsStatus.RESERVED,
+        )
+    log_action(db, actor, "reserve", "Package", package.id,
+               new_value={"qty": quantity, "sales_order_id": sales_order_id,
+                          "stock_ids": [row.id for row in rows]})
+    db.commit()
+    return ManualPackageReservationResult(stock_id=stock.id, package_id=package.id, quantity=quantity)
+
+
+def _reserve_piece_stock(
+    db: Session, actor: User, stock_id: int, package_id: int | None,
+    quantity: int, sales_order_id: int,
+) -> PieceStockReservationResult:
+    # Shipment and release lock package -> stock. Refresh both rows after the
+    # locks so availability checks cannot use a stale pre-wait balance.
+    if package_id is not None:
+        package = (
+            db.query(Package).filter(Package.id == package_id)
+            .with_for_update(of=Package).populate_existing().first()
+        )
+        if not package:
+            raise HTTPException(409, "Stock package changed; reload before reserving")
+        if PackageStatus(package.status) not in {PackageStatus.RECEIVED, PackageStatus.RESERVED}:
+            raise HTTPException(409, "Package is not available for reservation")
+    stock = (
+        db.query(FinishedGoodsStock).filter(FinishedGoodsStock.id == stock_id)
+        .with_for_update(of=FinishedGoodsStock).populate_existing().first()
+    )
+    if not stock:
+        raise HTTPException(404, "Stock not found")
+    if stock.package_id != package_id:
+        raise HTTPException(409, "Stock package changed; reload before reserving")
+    if quantity > stock.available_qty:
+        raise HTTPException(400, "Not enough available")
+    available_quantity = stock.available_qty - quantity
+    reserved_quantity = stock.reserved_qty + quantity
+    reserve_stock_row(
+        db, stock, sales_order_id=sales_order_id, reserved_by=actor.id,
+        quantity=quantity, package_id=stock.package_id,
+        available_quantity=available_quantity, reserved_quantity=reserved_quantity,
+        status=FinishedGoodsStatus.RESERVED if available_quantity == 0 else None,
+    )
+    log_action(db, actor, "reserve", "FinishedGoodsStock", stock.id,
+               new_value={"qty": quantity})
+    db.commit()
+    return PieceStockReservationResult(stock_id=stock.id, quantity=quantity)
+
+
+def reserve_direct_stock(
+    db: Session, *, actor: User, stock_id: int, quantity: int,
+    sales_order_id: int,
+) -> DirectStockReservationResult:
+    """Reserve direct warehouse stock using the existing manual/piece policies.
+
+    The route owns permission and HTTP binding. This service owns branch
+    selection, eligibility, ordered locks and the one outer commit.
+    """
+    if stock_id < 1 or stock_id > 2_147_483_647:
+        raise HTTPException(404, "Stock not found")
+    stock = db.get(FinishedGoodsStock, stock_id)
+    if not stock:
+        raise HTTPException(404, "Stock not found")
+    if quantity <= 0:
+        raise HTTPException(400, "Quantity must be > 0")
+    package = (db.query(Package).filter_by(id=stock.package_id).with_for_update()
+               .populate_existing().first()) if stock.package_id else None
+    if package and PackageStatus(package.status) is PackageStatus.RETURNED:
+        raise HTTPException(409, "Package is awaiting correction in Packaging")
+    stock_kind = PackageStockKind(package.stock_kind) if package else None
+    if stock_kind is PackageStockKind.SECOND_GRADE:
+        raise HTTPException(409, "SECOND_GRADE_SEPARATE_STOCK")
+    if stock_kind is PackageStockKind.FIRST_GRADE:
+        raise HTTPException(409, "FIRST_GRADE_SEPARATE_ORDER")
+    if package and package.manual_receipt_id:
+        return _reserve_manual_package(db, actor, stock, quantity, sales_order_id)
+    return _reserve_piece_stock(db, actor, stock.id, stock.package_id, quantity, sales_order_id)
 
 
 class _ShortagePrecheck(StockShortage):

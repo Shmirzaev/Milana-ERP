@@ -7,9 +7,10 @@ from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
 from app.schemas import (
-    FinishedGoodsStock, LegacyStockReceipt, ManualPackageReceipt, Model, Package,
+    AuditLog, FinishedGoodsStock, LegacyStockReceipt, ManualPackageReceipt, Model, Package,
     PackageItem, SalesOrder, Shipment, ShipmentPackage, StockReservation, User,
 )
+from app.models.fulfillment import stock_service
 
 
 def _stock(source="manual", quantities=(4, 6)):
@@ -79,16 +80,33 @@ def _balances(fixture):
         return stocks, reservations
 
 
+def _reservation_audit(entity_type, entity_id):
+    with SessionLocal() as db:
+        return db.query(AuditLog).filter_by(
+            action="reserve", entity_type=entity_type, entity_id=entity_id,
+        ).order_by(AuditLog.id).all()
+
+
 def test_manual_multisize_pack_reserves_all_rows_and_rejects_retry(client, auth_headers):
     fixture = _stock()
     response = _reserve(client, auth_headers, fixture, 10)
     assert response.status_code == 200, response.text
-    assert response.json()["quantity"] == 10
+    assert response.json() == {
+        "message": "reserved", "stock_id": fixture["stock_ids"][0],
+        "package_id": fixture["package_id"], "quantity": 10,
+    }
     stocks, reservations = _balances(fixture)
     assert [(s[1], s[2], s[3], s[4], s[5]) for s in stocks] == [
         (4, 0, 4, 0, "reserved"), (6, 0, 6, 0, "reserved")]
     assert sum(r[2] for r in reservations) == 10
     assert len(reservations) == 2
+    audit = _reservation_audit("Package", fixture["package_id"])
+    assert len(audit) == 1
+    assert audit[0].user_id == fixture["user_id"]
+    assert audit[0].new_value_json == {
+        "qty": 10, "sales_order_id": fixture["sales_order_id"],
+        "stock_ids": fixture["stock_ids"],
+    }
     assert _reserve(client, auth_headers, fixture, 10).status_code == 409
     assert _balances(fixture) == (stocks, reservations)
     with SessionLocal() as db:
@@ -155,10 +173,152 @@ def test_nonmanual_piece_reservation_remains_unchanged(client, auth_headers, sou
     fixture = _stock(source)
     response = _reserve(client, auth_headers, fixture, 2)
     assert response.status_code == 200, response.text
+    assert response.json() == {
+        "message": "reserved", "stock_id": fixture["stock_ids"][0], "quantity": 2,
+    }
     stocks, reservations = _balances(fixture)
     assert stocks[0][2:4] == (2, 2)
     assert stocks[1][2:4] == (6, 0)
     assert [r[2] for r in reservations] == [2]
+    audit = _reservation_audit("FinishedGoodsStock", fixture["stock_ids"][0])
+    assert len(audit) == 1
+    assert audit[0].user_id == fixture["user_id"]
+    assert audit[0].new_value_json == {"qty": 2}
+
+
+def test_direct_reserve_openapi_keeps_both_existing_response_shapes(client):
+    openapi = client.get("/openapi.json").json()
+    operation = openapi["paths"]["/api/finished-goods/reserve"]["post"]
+    assert {parameter["name"] for parameter in operation["parameters"]} == {
+        "stock_id", "quantity", "sales_order_id",
+    }
+    response = operation["responses"]["200"]["content"]["application/json"]["schema"]
+    assert {item["$ref"] for item in response["anyOf"]} == {
+        "#/components/schemas/ManualPackageReservationOut",
+        "#/components/schemas/PieceStockReservationOut",
+    }
+    components = openapi["components"]["schemas"]
+    assert set(components["ManualPackageReservationOut"]["properties"]) == {
+        "message", "stock_id", "quantity", "package_id",
+    }
+    assert set(components["PieceStockReservationOut"]["properties"]) == {
+        "message", "stock_id", "quantity",
+    }
+
+
+@pytest.mark.parametrize(
+    ("classification", "expected_detail"),
+    [
+        ("returned", "Package is awaiting correction in Packaging"),
+        ("second_grade", "SECOND_GRADE_SEPARATE_STOCK"),
+        ("first_grade", "FIRST_GRADE_SEPARATE_ORDER"),
+    ],
+)
+def test_direct_reserve_preserves_package_refusal_precedence(
+    client, auth_headers, classification, expected_detail,
+):
+    quantities = (1,) if classification == "first_grade" else (4, 6)
+    fixture = _stock("legacy", quantities=quantities)
+    with SessionLocal() as db:
+        package = db.get(Package, fixture["package_id"])
+        if classification == "returned":
+            package.status = "returned_to_packaging"
+        elif classification == "second_grade":
+            package.stock_kind = "second_grade"
+        else:
+            package.stock_kind = "first_grade"
+            package.total_quantity = package.capacity = 1
+        db.commit()
+    before = _balances(fixture)
+    response = _reserve(client, auth_headers, fixture, quantities[0])
+    assert response.status_code == 409
+    assert response.json()["detail"] == expected_detail
+    assert _balances(fixture) == before
+
+
+def test_direct_reserve_uses_schema_writer_same_session_and_commits_once(monkeypatch):
+    fixture = _stock("manual")
+    writes = []
+    commits = []
+    original_writer = stock_service.reserve_stock_row
+    with SessionLocal() as db:
+        actor = db.get(User, fixture["user_id"])
+
+        def observe_writer(session, *args, **kwargs):
+            assert session is db and session.in_transaction()
+            writes.append(session)
+            return original_writer(session, *args, **kwargs)
+
+        def observe_commit(session):
+            commits.append((session, len(writes)))
+
+        monkeypatch.setattr(stock_service, "reserve_stock_row", observe_writer)
+        event.listen(db, "before_commit", observe_commit)
+        try:
+            result = stock_service.reserve_direct_stock(
+                db, actor=actor, stock_id=fixture["stock_ids"][0], quantity=10,
+                sales_order_id=fixture["sales_order_id"],
+            )
+        finally:
+            event.remove(db, "before_commit", observe_commit)
+        assert result.package_id == fixture["package_id"]
+        assert len(writes) == 2 and all(session is db for session in writes)
+        assert commits == [(db, 2)]
+
+
+def test_piece_reserve_preserves_status_set_behavior_when_quantity_remains(client, auth_headers):
+    partial = _stock("aggregate", quantities=(4,))
+    depleted = _stock("aggregate", quantities=(4,))
+    status_sets = []
+
+    def capture_status(stock, value, old_value, initiator):
+        status_sets.append((stock.id, value, old_value))
+
+    event.listen(FinishedGoodsStock.status, "set", capture_status)
+    try:
+        partial_response = _reserve(client, auth_headers, partial, 2)
+        depleted_response = _reserve(client, auth_headers, depleted, 4)
+    finally:
+        event.remove(FinishedGoodsStock.status, "set", capture_status)
+
+    assert partial_response.status_code == 200, partial_response.text
+    assert depleted_response.status_code == 200, depleted_response.text
+    assert [entry for entry in status_sets if entry[0] == partial["stock_ids"][0]] == []
+    assert [(value, old_value) for stock_id, value, old_value in status_sets
+            if stock_id == depleted["stock_ids"][0]] == [("reserved", "available")]
+    assert _balances(partial)[0][0][5] == "available"
+    assert _balances(depleted)[0][0][5] == "reserved"
+
+
+def test_direct_reserve_rolls_back_audit_failure_then_retries(client, auth_headers, monkeypatch):
+    fixture = _stock("aggregate", quantities=(10,))
+    before = _balances(fixture)
+    original_log = stock_service.log_action
+    with SessionLocal() as db:
+        actor = db.get(User, fixture["user_id"])
+
+        def fail_after_audit(*args, **kwargs):
+            original_log(*args, **kwargs)
+            raise RuntimeError("synthetic reserve audit failure")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(stock_service, "log_action", fail_after_audit)
+            with pytest.raises(RuntimeError, match="synthetic reserve audit failure"):
+                stock_service.reserve_direct_stock(
+                    db, actor=actor, stock_id=fixture["stock_ids"][0], quantity=2,
+                    sales_order_id=fixture["sales_order_id"],
+                )
+            db.rollback()
+
+    assert _balances(fixture) == before
+    assert _reservation_audit("FinishedGoodsStock", fixture["stock_ids"][0]) == []
+    response = _reserve(client, auth_headers, fixture, 2)
+    assert response.status_code == 200, response.text
+    stocks, reservations = _balances(fixture)
+    assert stocks[0][2:4] == (8, 2)
+    assert len(reservations) == 1 and reservations[0][2] == 2
+    audit = _reservation_audit("FinishedGoodsStock", fixture["stock_ids"][0])
+    assert len(audit) == 1 and audit[0].new_value_json == {"qty": 2}
 
 
 def test_unbranded_manual_stock_is_listed_and_reserved_rows_disappear(client, auth_headers):

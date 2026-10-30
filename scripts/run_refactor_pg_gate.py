@@ -18,6 +18,7 @@ import xml.etree.ElementTree as ET
 # Minimum collected counts pin the current parameterized business cases. Adding
 # cases is allowed; removing a required case needs an explicit ledger change.
 GROUPS = {
+    'test_direct_finished_goods_reserve_postgres': (6, ('test_pg_direct_reserve_manual_package_persists_rows_and_audit', 'test_pg_direct_reserve_denied_actor_makes_no_business_writes', 'test_pg_direct_reserve_competing_piece_requests_do_not_oversell', 'test_pg_direct_reserve_failure_rolls_back_then_retry')),
     'test_customer_delete_postgres': (9, ('test_pg_delete_route_success_repeat_and_missing', 'test_pg_delete_route_auth_denials_preserve_customer', 'test_pg_delete_reference_refusal_preserves_customer', 'test_pg_delete_precommit_failure_rolls_back_then_retry', 'test_pg_delete_distinct_rows_concurrently_preserves_audit_chain')),
     'test_customer_delete_extra_fk_postgres': (3, ('test_pg_existing_customer_fk_blocks_delete_then_retry',)),
     'test_customer_delete_reference_race_postgres': (2, ('test_pg_payment_commit_after_guards_before_delete_flush', 'test_pg_delete_flush_blocks_payment_until_commit')),
