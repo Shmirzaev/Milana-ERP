@@ -50,7 +50,7 @@ from app.libs.dto.production.production import (
     QualityCheckIn, QualityCheckOut,
     ProductionOrderSizesIn,
 )
-from app.libs.enums.production import ProductionType, WorkOrderStatus
+from app.libs.enums.production import WorkOrderStatus
 from app.core.dt import as_utc
 from app.models.audit_service import log_action
 from app.models.production.sewing_service import record_sewing_output
@@ -542,7 +542,9 @@ def list_pos(
     db: DbSession,
     _: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS)),
     status: str | None = None,
-    production_type: ProductionType | None = None,
+    # This is a lossless read filter over an unconstrained historical column;
+    # CREATE DTOs keep their action-specific ProductionType contracts.
+    production_type: str | None = None,
     q: Annotated[str | None, Query(max_length=100)] = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=500)] = 50,
@@ -557,7 +559,7 @@ def list_pos(
         ProductionOrder.source_type == "standard"
     )
     if status: qry = qry.filter(ProductionOrder.status == status)
-    if production_type: qry = qry.filter(ProductionOrder.production_type == production_type.value)
+    if production_type: qry = qry.filter(ProductionOrder.production_type == production_type)
     needle = (q or "").strip()
     if needle:
         escaped_needle = (
