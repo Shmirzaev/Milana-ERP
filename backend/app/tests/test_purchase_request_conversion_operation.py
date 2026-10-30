@@ -301,7 +301,8 @@ def test_operation_result_contract_and_legacy_status():
     routes = {(route.path, method): route for route in router.routes for method in route.methods}
     assert routes[("/purchasing/orders", "POST")].response_model is PurchaseOrderCreationOut
     assert routes[("/purchasing/requests/{request_id}/convert-to-order", "POST")].response_model is PurchaseOrderCreationOut
-    assert routes[("/purchasing/orders/{order_id}/receive", "POST")].response_model is PurchaseOrderOut
+    from app.libs.dto.purchasing.purchase_order_output import PurchaseOrderReceiptOut
+    assert routes[("/purchasing/orders/{order_id}/receive", "POST")].response_model is PurchaseOrderReceiptOut
     assert get_type_hints(create_order)["return"] is PurchaseOrderCreationOut
     assert get_type_hints(convert_request_to_order)["return"] is PurchaseOrderCreationOut
     openapi = app.openapi()

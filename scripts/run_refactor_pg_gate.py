@@ -48,6 +48,44 @@ GROUPS = {
         "test_concurrent_creation_does_not_duplicate_invoice_numbers",
     )),
     "test_customer_invoice_creation_race": (10, ()),
+    "test_stock_batch_edit_postgres": (9, (
+        'test_pg_update_batch_nullable_patch_quantity_warehouse_and_movement_conservation',
+        'test_pg_forced_batch_item_relink_updates_catalog_and_inventory_participants',
+        'test_pg_batch_edit_refusals_leave_all_rows_and_audit_unchanged',
+        'test_pg_audit_failure_rolls_back_all_batch_edit_participants_then_one_retry',
+    )),
+    "test_finance_payment_output_postgres": (6, (
+        'test_pg_typed_payment_concurrent_retries',
+        'test_pg_typed_payment_other_user_key_is_independent',
+        'test_pg_typed_payment_rollback_releases_retry_lock',
+    )),
+    "test_collection_update_postgres": (2, (
+        'test_pg_update_preserves_omissions_and_legacy_status_then_clears_nullables',
+        'test_pg_audit_finalization_failure_rolls_back_then_retry',
+    )),
+    "test_price_calculation_purchasing_postgres": (2, (
+        'test_pg_purchasing_completion_transition_recipients_and_audit_actor',
+        'test_pg_purchasing_request_audit_and_notification_rollback_then_retry',
+    )),
+    "test_package_print_run_postgres": (7, (
+        'test_print_run_persistence_roundtrips_on_approved_postgres',
+        'test_selected_print_run_same_key_replays_and_changed_body_refuses',
+        'test_selected_print_run_route_role_denial_has_no_writes',
+        'test_selected_print_run_foreign_department_denial_has_no_writes',
+        'test_selected_print_run_failure_rolls_back_then_retry',
+        'test_selected_print_run_same_key_concurrency_serializes_exactly_once',
+    )),
+    "test_purchase_receipt_persistence_postgres": (6, (
+        "test_pg_route_permission_denial_has_no_receipt_writes",
+        "test_pg_receipt_participant_command_qc_type_is_canonical",
+        "test_pg_receipt_audit_and_idempotency_failure_rolls_back_then_retry_succeeds",
+        "test_pg_receipt_replay_rechecks_inventory_access_before_serving_saved_response",
+        "test_pg_receipt_same_and_different_key_workers_serialize_on_purchase_order",
+    )),
+    "test_payroll_adjustment_create_postgres": (2, (
+        "test_approved_pg_adjustment_writer_serializes_before_period_lock",
+        "test_approved_pg_manual_adjustment_flush_and_audit_failure_roll_back",
+    )),
 }
 REQUIRED_CASES = json.loads(
     Path(__file__).with_name("refactor_pg_required_cases.json").read_text(encoding="utf-8")

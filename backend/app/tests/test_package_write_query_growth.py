@@ -345,6 +345,13 @@ def test_print_run_snapshot_hydration_is_chunk_bounded(package_count):
             .order_by(PackagePrintRunMember.id)
             .all()
         ]
+        saved_run = db.get(package_workflows.PackagePrintRun, run.id)
+        saved_members = (
+            db.query(PackagePrintRunMember)
+            .filter_by(run_id=run.id)
+            .order_by(PackagePrintRunMember.id)
+            .all()
+        )
 
     item_reads = [statement for statement in statements if " from package_items " in statement]
     allocation_reads = [
@@ -354,6 +361,11 @@ def test_print_run_snapshot_hydration_is_chunk_bounded(package_count):
     assert len(item_reads) == expected_chunks
     assert len(allocation_reads) == expected_chunks
     assert len(snapshots) == package_count
+    assert saved_run.package_ids == package_ids
+    assert saved_run.created_by == actor_id
+    assert saved_run.received_by == actor_id
+    assert saved_run.received_at is not None
+    assert [member.package_id for member in saved_members] == package_ids
     assert all(snapshot["quantity"] == 1 for snapshot in snapshots)
     assert all(snapshot["items"] == [{
         "model_id": snapshots[0]["model_id"],

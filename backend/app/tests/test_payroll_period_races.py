@@ -14,7 +14,8 @@ from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import payroll
 from app.db.base import Base
-from app.schemas import Employee, PayrollAdjustment, PayrollPeriod, PayrollQrLabel, PayrollRecord, User
+from app.models.people import payroll_adjustment_service
+from app.schemas import AuditLog, Employee, PayrollAdjustment, PayrollPeriod, PayrollQrLabel, PayrollRecord, User
 from app.libs.dto.people.payroll import (
     PayrollAdjustmentIn,
     PayrollControlConfirmIn,
@@ -394,14 +395,18 @@ def test_postgres_adjustment_writer_serializes_before_period_lock(payroll_postgr
     writer_ready = Event()
     release_writer = Event()
     pids = Queue()
-    original_assert = payroll._assert_period_accepts_adjustments
+    original_assert = payroll_adjustment_service.assert_period_accepts_manual_adjustment
 
     def pause_after_status_check(period):
         original_assert(period)
         writer_ready.set()
         assert release_writer.wait(10), "Adjustment writer was not released"
 
-    monkeypatch.setattr(payroll, "_assert_period_accepts_adjustments", pause_after_status_check)
+    monkeypatch.setattr(
+        payroll_adjustment_service,
+        "assert_period_accepts_manual_adjustment",
+        pause_after_status_check,
+    )
 
     def write_adjustment():
         with sessions() as db:
@@ -458,6 +463,76 @@ def test_postgres_adjustment_writer_serializes_before_period_lock(payroll_postgr
     with sessions() as db:
         assert db.get(PayrollPeriod, period_id).status == "locked"
         assert db.query(PayrollAdjustment).filter_by(payroll_period_id=period_id).count() == 1
+
+
+def test_postgres_manual_adjustment_flush_and_audit_failure_roll_back(payroll_postgres_sessions, monkeypatch):
+    from app.libs.enums.people import PayrollAdjustmentType
+    from app.libs.dto.people.payroll import PayrollAdjustmentIn
+
+    from app.models.people import payroll_adjustment_service
+
+    sessions, _engine = payroll_postgres_sessions
+    user_id, employee_id, period_ids, _label_uids = _seed(sessions)
+    period_id = period_ids[0]
+    with sessions() as db:
+        before_adjustments = db.query(PayrollAdjustment).count()
+        before_audits = db.query(AuditLog).count()
+
+    original_log_action = payroll_adjustment_service.log_action
+
+    def log_and_fail_after_audit_finalize(db, *args, **kwargs):
+        audit = original_log_action(db, *args, **kwargs)
+
+        def fail_after_audit_finalization(session):
+            assert session.query(PayrollAdjustment).count() == before_adjustments + 1
+            assert session.query(AuditLog).count() == before_audits + 1
+            raise RuntimeError("injected failure after audit finalization")
+
+        event.listen(db, "before_commit", fail_after_audit_finalization, once=True)
+        return audit
+
+    payload = PayrollAdjustmentIn(
+        payroll_period_id=period_id,
+        employee_id=employee_id,
+        adjustment_type=PayrollAdjustmentType.BONUS,
+        amount="42.50",
+        reason="Synthetic audit rollback challenge",
+    )
+    with monkeypatch.context() as patch:
+        patch.setattr(payroll_adjustment_service, "log_action", log_and_fail_after_audit_finalize)
+        with sessions() as db:
+            current = db.get(User, user_id)
+            with pytest.raises(RuntimeError, match="after audit finalization"):
+                payroll_adjustment_service.create_manual_payroll_adjustment(db, payload, current)
+            assert db.query(PayrollAdjustment).count() == before_adjustments + 1
+            assert db.query(AuditLog).count() == before_audits + 1
+            db.rollback()
+
+    with sessions() as db:
+        assert db.query(PayrollAdjustment).count() == before_adjustments
+        assert db.query(AuditLog).count() == before_audits
+
+    with sessions() as db:
+        current = db.get(User, user_id)
+        created = payroll_adjustment_service.create_manual_payroll_adjustment(db, payload, current)
+        created_id = created.id
+        assert created.adjustment_type is PayrollAdjustmentType.BONUS
+
+    with sessions() as db:
+        persisted = db.get(PayrollAdjustment, created_id)
+        assert persisted.adjustment_type is PayrollAdjustmentType.BONUS
+        assert db.query(PayrollAdjustment).filter_by(employee_id=employee_id, payroll_period_id=period_id).count() == 1
+        audit = db.query(AuditLog).filter_by(
+            action="create", entity_type="PayrollAdjustment", entity_id=created_id
+        ).one()
+        assert audit.user_id == user_id
+        assert audit.new_value_json == {
+            "employee_id": employee_id,
+            "adjustment_type": "bonus",
+            "amount": 42.5,
+            "signed_amount": 42.5,
+            "reason": "Synthetic audit rollback challenge",
+        }
 
 
 def test_postgres_approval_blocks_void_then_void_rechecks_status(payroll_postgres_sessions):

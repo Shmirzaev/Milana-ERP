@@ -92,7 +92,10 @@ def test_qc_type_and_defaults_on_dto_and_command():
     assert PurchaseOrderReceiveLineIn.model_validate(line).qc_status is StockBatchQcStatus.PASSED
     assert PurchaseOrderReceiveLineIn.model_validate({**line,'qc_status':''}).qc_status is StockBatchQcStatus.PASSED
 
-@pytest.mark.parametrize('raw,expected', [('', 'passed'), ('pending', 'pending'), (StockBatchQcStatus.HOLD, 'hold')])
+@pytest.mark.parametrize('raw,expected', [
+    ('', 'passed'), ('pending', 'pending'), ('passed', 'passed'), ('failed', 'failed'),
+    ('rejected', 'rejected'), ('hold', 'hold'), (StockBatchQcStatus.HOLD, 'hold'),
+])
 def test_direct_legacy_core_caller_keeps_plain_string_storage(receipt_order, raw, expected):
     from app.models.purchasing_service import receive_purchase_order
     from app.schemas import User

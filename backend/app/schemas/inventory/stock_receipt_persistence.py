@@ -38,27 +38,30 @@ def add_stock_batch(
     order_no: str | None,
     width: float | None,
     gsm: float | None,
-    length_m: float | None,
     quantity: float,
     piece_count: int | None,
     roll_weights_kg: list[float],
-    roll_lengths_m: list[float | None],
     processes: str | None,
     unit: str,
     cost_per_unit: Decimal,
     image_url: str | None,
     warehouse_id: int,
     qc_status: StockBatchQcStatus,
+    length_m: float | None = None,
+    roll_lengths_m: list[float | None] | None = None,
+    internal_batch_no: str | None = None,
 ) -> StockBatch:
     """Insert one received stock batch and return it with its generated id.
 
-    `internal_batch_no`, `received_date`, `archived_at` and `archived_by` keep
-    their column defaults, as they did when the service built the row. The QC
-    member reaches the `String(32)` column as its plain stored value.
+    `internal_batch_no` defaults to its historical Inventory receipt value;
+    Purchase Order receiving supplies its existing PO number. `received_date`,
+    `archived_at` and `archived_by` keep their column defaults. The QC member
+    reaches the `String(32)` column as its plain stored value.
     """
     batch = StockBatch(
         item_id=item_id,
         batch_no=batch_no,
+        internal_batch_no=internal_batch_no,
         supplier_id=supplier_id,
         color=color,
         old_code=old_code,
@@ -67,11 +70,9 @@ def add_stock_batch(
         order_no=order_no,
         width=width,
         gsm=gsm,
-        length_m=length_m,
         quantity=quantity,
         piece_count=piece_count,
         roll_weights_kg=roll_weights_kg,
-        roll_lengths_m=roll_lengths_m,
         processes=processes,
         unit=unit,
         cost_per_unit=cost_per_unit,
@@ -79,6 +80,12 @@ def add_stock_batch(
         warehouse_id=warehouse_id,
         qc_status=qc_status.value,
     )
+    # Purchase-order receipt historically leaves these two values to their
+    # mapped defaults. Inventory's HTTP receipt passes both explicitly.
+    if length_m is not None:
+        batch.length_m = length_m
+    if roll_lengths_m is not None:
+        batch.roll_lengths_m = roll_lengths_m
     db.add(batch)
     db.flush()
     return batch

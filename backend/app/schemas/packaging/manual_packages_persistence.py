@@ -1,4 +1,5 @@
 """Persistence only; the calling Packaging operation owns policy and transaction."""
+from dataclasses import dataclass
 from uuid import uuid4
 from datetime import datetime, timezone
 
@@ -10,6 +11,16 @@ from app.schemas import (
     FinishedGoodsStock, ManualPackageReceipt, Package, PackageItem,
     PackagePrintRun, PackagePrintRunMember, PackageScanLog, SystemSetting,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class PackagePrintRunHeaderCommand:
+    run_no: str
+    code: str
+    actor_id: int
+    department: PackagingDepartment
+    packages: tuple[Package, ...]
+    received_at: datetime | None = None
 
 
 def insert_manual_evidence(db: Session, *, receipt_no: str, actor_id: int,
@@ -86,3 +97,33 @@ def insert_manual_print_run(db: Session, *, run_no: str, actor_id: int,
                 for p, snapshot in zip(packages, snapshots, strict=True)])
     db.flush()
     return row
+
+
+def insert_package_print_run_header(
+    db: Session, *, command: PackagePrintRunHeaderCommand,
+) -> PackagePrintRun:
+    """Insert and flush a validated print-run header using the caller's Session."""
+    row = PackagePrintRun(
+        run_no=command.run_no,
+        code=command.code,
+        packaging_department_code=command.department.value,
+        created_by=command.actor_id,
+        package_ids=[package.id for package in command.packages],
+    )
+    if command.received_at is not None:
+        row.received_by = command.actor_id
+        row.received_at = command.received_at
+    db.add(row)
+    db.flush()
+    return row
+
+
+def insert_package_print_run_members(db: Session, *, run: PackagePrintRun,
+                                     packages: list[Package],
+                                     snapshots: list[dict]) -> None:
+    """Persist the immutable package snapshots after the header is flushed."""
+    db.add_all([
+        PackagePrintRunMember(run_id=run.id, package_id=package.id, snapshot=snapshot)
+        for package, snapshot in zip(packages, snapshots, strict=True)
+    ])
+    db.flush()

@@ -196,6 +196,72 @@
         "test_pg_payment_commit_after_guards_before_delete_flush",
         "test_pg_delete_flush_blocks_payment_until_commit"
       ]
+    },
+    "test_stock_batch_edit_postgres": {
+      "revision": "90a00fce0810f70c49f086e0ef12411cf9e96a6f",
+      "git_blob_sha256": "855e9cd21c3439c22f3209ecedff88a7ddf596e167cd5fc67e074c73a1d1ff7a",
+      "selected_functions": [
+        "test_pg_update_batch_nullable_patch_quantity_warehouse_and_movement_conservation",
+        "test_pg_forced_batch_item_relink_updates_catalog_and_inventory_participants",
+        "test_pg_batch_edit_refusals_leave_all_rows_and_audit_unchanged",
+        "test_pg_audit_failure_rolls_back_all_batch_edit_participants_then_one_retry"
+      ]
+    },
+    "test_finance_payment_output_postgres": {
+      "revision": "90a00fce0810f70c49f086e0ef12411cf9e96a6f",
+      "git_blob_sha256": "34ca56724febfbf431b33dcde1c8409097da8600f13c11263d95c945c2a424d2",
+      "selected_functions": [
+        "test_pg_typed_payment_concurrent_retries",
+        "test_pg_typed_payment_other_user_key_is_independent",
+        "test_pg_typed_payment_rollback_releases_retry_lock"
+      ]
+    },
+    "test_collection_update_postgres": {
+      "revision": "90a00fce0810f70c49f086e0ef12411cf9e96a6f",
+      "git_blob_sha256": "279f4fb7f921cc67dd37bb5f4c4b05071d39f1e87a59cde8498095ae2ff81b25",
+      "selected_functions": [
+        "test_pg_update_preserves_omissions_and_legacy_status_then_clears_nullables",
+        "test_pg_audit_finalization_failure_rolls_back_then_retry"
+      ]
+    },
+    "test_price_calculation_purchasing_postgres": {
+      "revision": "90a00fce0810f70c49f086e0ef12411cf9e96a6f",
+      "git_blob_sha256": "2dcd2f77f1b82697aae29950686d4476c85abdc5f74865308c33c9d3dd847157",
+      "selected_functions": [
+        "test_pg_purchasing_completion_transition_recipients_and_audit_actor",
+        "test_pg_purchasing_request_audit_and_notification_rollback_then_retry"
+      ]
+    },
+    "test_package_print_run_postgres": {
+      "revision": "90a00fce0810f70c49f086e0ef12411cf9e96a6f",
+      "git_blob_sha256": "da22669b5ac3d4abbe8235821d6a2586a60391c2d095f832e6652e02a63a137e",
+      "selected_functions": [
+        "test_print_run_persistence_roundtrips_on_approved_postgres",
+        "test_selected_print_run_same_key_replays_and_changed_body_refuses",
+        "test_selected_print_run_route_role_denial_has_no_writes",
+        "test_selected_print_run_foreign_department_denial_has_no_writes",
+        "test_selected_print_run_failure_rolls_back_then_retry",
+        "test_selected_print_run_same_key_concurrency_serializes_exactly_once"
+      ]
+    },
+    "test_purchase_receipt_persistence_postgres": {
+      "revision": "e5232e20210ca3e36fc525ad7c76253a0d492c56",
+      "git_blob_sha256": "758963b9af18c30b25881bcb7ea80d3bfc5c58dd50034d511c03fdf2162b4ed9",
+      "selected_functions": [
+        "test_pg_route_permission_denial_has_no_receipt_writes",
+        "test_pg_receipt_participant_command_qc_type_is_canonical",
+        "test_pg_receipt_audit_and_idempotency_failure_rolls_back_then_retry_succeeds",
+        "test_pg_receipt_replay_rechecks_inventory_access_before_serving_saved_response",
+        "test_pg_receipt_same_and_different_key_workers_serialize_on_purchase_order"
+      ]
+    },
+    "test_payroll_adjustment_create_postgres": {
+      "revision": "e5232e20210ca3e36fc525ad7c76253a0d492c56",
+      "git_blob_sha256": "58d3af10b8ae9444bc4cd1beba3f898ca5203d7d8b35f0068e08e5bf0883ad1e",
+      "selected_functions": [
+        "test_approved_pg_adjustment_writer_serializes_before_period_lock",
+        "test_approved_pg_manual_adjustment_flush_and_audit_failure_roll_back"
+      ]
     }
   },
   "cases": {
@@ -382,6 +448,54 @@
     "test_customer_delete_reference_race_postgres": [
       "test_pg_payment_commit_after_guards_before_delete_flush",
       "test_pg_delete_flush_blocks_payment_until_commit"
+    ],
+    "test_stock_batch_edit_postgres": [
+      "test_pg_update_batch_nullable_patch_quantity_warehouse_and_movement_conservation",
+      "test_pg_forced_batch_item_relink_updates_catalog_and_inventory_participants",
+      "test_pg_batch_edit_refusals_leave_all_rows_and_audit_unchanged[inactive_target]",
+      "test_pg_batch_edit_refusals_leave_all_rows_and_audit_unchanged[reservation_floor]",
+      "test_pg_batch_edit_refusals_leave_all_rows_and_audit_unchanged[reserved_warehouse]",
+      "test_pg_batch_edit_refusals_leave_all_rows_and_audit_unchanged[roll_lengths]",
+      "test_pg_batch_edit_refusals_leave_all_rows_and_audit_unchanged[eco_return]",
+      "test_pg_audit_failure_rolls_back_all_batch_edit_participants_then_one_retry[reserved_relink]",
+      "test_pg_audit_failure_rolls_back_all_batch_edit_participants_then_one_retry[unreserved_transfer]"
+    ],
+    "test_finance_payment_output_postgres": [
+      "test_pg_typed_payment_concurrent_retries[same-key-replay]",
+      "test_pg_typed_payment_concurrent_retries[different-user]",
+      "test_pg_typed_payment_concurrent_retries[different-factory]",
+      "test_pg_typed_payment_concurrent_retries[changed-payload]",
+      "test_pg_typed_payment_other_user_key_is_independent",
+      "test_pg_typed_payment_rollback_releases_retry_lock"
+    ],
+    "test_collection_update_postgres": [
+      "test_pg_update_preserves_omissions_and_legacy_status_then_clears_nullables",
+      "test_pg_audit_finalization_failure_rolls_back_then_retry"
+    ],
+    "test_price_calculation_purchasing_postgres": [
+      "test_pg_purchasing_completion_transition_recipients_and_audit_actor",
+      "test_pg_purchasing_request_audit_and_notification_rollback_then_retry"
+    ],
+    "test_package_print_run_postgres": [
+      "test_print_run_persistence_roundtrips_on_approved_postgres",
+      "test_selected_print_run_same_key_replays_and_changed_body_refuses",
+      "test_selected_print_run_route_role_denial_has_no_writes",
+      "test_selected_print_run_foreign_department_denial_has_no_writes",
+      "test_selected_print_run_failure_rolls_back_then_retry[audit_finalize]",
+      "test_selected_print_run_failure_rolls_back_then_retry[idempotency_store]",
+      "test_selected_print_run_same_key_concurrency_serializes_exactly_once"
+    ],
+    "test_purchase_receipt_persistence_postgres": [
+      "test_pg_route_permission_denial_has_no_receipt_writes",
+      "test_pg_receipt_participant_command_qc_type_is_canonical",
+      "test_pg_receipt_audit_and_idempotency_failure_rolls_back_then_retry_succeeds",
+      "test_pg_receipt_replay_rechecks_inventory_access_before_serving_saved_response",
+      "test_pg_receipt_same_and_different_key_workers_serialize_on_purchase_order[True]",
+      "test_pg_receipt_same_and_different_key_workers_serialize_on_purchase_order[False]"
+    ],
+    "test_payroll_adjustment_create_postgres": [
+      "test_approved_pg_adjustment_writer_serializes_before_period_lock",
+      "test_approved_pg_manual_adjustment_flush_and_audit_failure_roll_back"
     ]
   },
   "isolated_supplemental_cases": [

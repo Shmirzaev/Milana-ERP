@@ -14,6 +14,11 @@ serialize a transition already decided by the purchasing service. It mutates
 the supplied attached row in the supplied Session and leaves audit and
 transaction ownership to the business operation; it does not flush or commit.
 
+Purchase order receiving applies the service-decided line quantity/cost/first
+warehouse and header status through `purchase_order_persistence` operations.
+They mutate only the supplied attached rows; validation, locks, audits, flushes
+and the single commit remain in the receiving operation.
+
 ## Authoritative definitions
 
 - [PurchaseRequest](purchasing.py)
