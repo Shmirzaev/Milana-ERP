@@ -346,9 +346,9 @@
       ]
     },
     "test_model_image_upload_postgres": {
-      "revision": "35dad5f0fea1a013584da263e1dbc5e76fc0f7f1",
-      "git_blob_oid": "01944edceced564efb7fd829f202c06f8ff3b607",
-      "git_blob_sha256": "97f0633077c4907b5fd3197447ecca40554750e2c1e29f84647ce4d020c236d7",
+      "revision": "3d88b492d2ed559432664086ab1efb46c225a725",
+      "git_blob_oid": "f21801e3d5e379fa8bec77936aa09c213de8f530",
+      "git_blob_sha256": "8f490043b172294636d7070d3baa326ae948b13c7332d5f78c655c99bafe62c0",
       "selected_functions": [
         "test_upload_image_type_preserves_null_and_normalization_contract",
         "test_upload_image_type_rejects_values_outside_the_action_subset",

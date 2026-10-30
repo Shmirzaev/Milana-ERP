@@ -154,9 +154,9 @@ REQUIRED_SOURCES = json.loads(
 )["sources"]
 
 _MODEL_IMAGE_UPLOAD_MODULE = "test_model_image_upload_postgres"
-_MODEL_IMAGE_UPLOAD_REVISION = "35dad5f0fea1a013584da263e1dbc5e76fc0f7f1"
-_MODEL_IMAGE_UPLOAD_BLOB_OID = "01944edceced564efb7fd829f202c06f8ff3b607"
-_MODEL_IMAGE_UPLOAD_BLOB_SHA256 = "97f0633077c4907b5fd3197447ecca40554750e2c1e29f84647ce4d020c236d7"
+_MODEL_IMAGE_UPLOAD_REVISION = "3d88b492d2ed559432664086ab1efb46c225a725"
+_MODEL_IMAGE_UPLOAD_BLOB_OID = "f21801e3d5e379fa8bec77936aa09c213de8f530"
+_MODEL_IMAGE_UPLOAD_BLOB_SHA256 = "8f490043b172294636d7070d3baa326ae948b13c7332d5f78c655c99bafe62c0"
 _MODEL_IMAGE_UPLOAD_FUNCTIONS = (
     "test_upload_image_type_preserves_null_and_normalization_contract",
     "test_upload_image_type_rejects_values_outside_the_action_subset",

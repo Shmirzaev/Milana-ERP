@@ -110,10 +110,10 @@ class RequiredPGGateTests(unittest.TestCase):
         manifest = json.loads(Path(gate.__file__).with_name(
             'refactor_pg_required_cases.json').read_text(encoding='utf-8'))
         source = manifest['sources'][module]
-        self.assertEqual(source['revision'], '35dad5f0fea1a013584da263e1dbc5e76fc0f7f1')
-        self.assertEqual(source['git_blob_oid'], '01944edceced564efb7fd829f202c06f8ff3b607')
+        self.assertEqual(source['revision'], '3d88b492d2ed559432664086ab1efb46c225a725')
+        self.assertEqual(source['git_blob_oid'], 'f21801e3d5e379fa8bec77936aa09c213de8f530')
         self.assertEqual(source['git_blob_sha256'],
-                         '97f0633077c4907b5fd3197447ecca40554750e2c1e29f84647ce4d020c236d7')
+                         '8f490043b172294636d7070d3baa326ae948b13c7332d5f78c655c99bafe62c0')
         self.assertEqual(tuple(source['selected_functions']), functions)
         self.assertEqual(tuple(manifest['cases'][module]), cases)
         self.assertEqual(gate.GROUPS[module], (23, functions))
@@ -233,7 +233,7 @@ class RequiredPGGateTests(unittest.TestCase):
             'isolated_supplemental_cases': manifest['isolated_supplemental_cases'],
         }
         digest = hashlib.sha256(json.dumps(unrelated, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-        self.assertEqual(digest, 'a7d2c5f103d702198c8e383eba93cff8528ae5e8b996f12741c2628fa9197bf7')
+        self.assertEqual(digest, 'c51e1912d02be17a0986108c6dd3a2c7b039138b9ebfa1a8f5b4617071d86f77')
 
     def test_each_new_model_create_identity_is_required_and_nonpasses_fail(self):
         module = 'test_model_paid_operations_postgres'
