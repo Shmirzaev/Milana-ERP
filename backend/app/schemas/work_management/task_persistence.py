@@ -14,3 +14,32 @@ def add_stock_shortage_task(
     db.add(Task(title=title, description=description, assigned_to=assigned_to,
                 created_by=created_by, due_date=due_date,
                 status=status.value, priority=priority.value))
+
+
+def add_user_created_task(
+    db: Session,
+    *,
+    title: str,
+    description: str | None,
+    assigned_to: int,
+    created_by: int,
+    status: TaskStatus,
+    priority: TaskPriority,
+    due_date: datetime | None,
+    entity_type: str | None,
+    entity_id: int | None,
+) -> Task:
+    """Stage one user-created task in the caller's transaction."""
+    row = Task(
+        title=title,
+        description=description,
+        assigned_to=assigned_to,
+        created_by=created_by,
+        status=status.value,
+        priority=priority.value,
+        due_date=due_date,
+        entity_type=entity_type,
+        entity_id=entity_id,
+    )
+    db.add(row)
+    return row

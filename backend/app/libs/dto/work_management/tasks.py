@@ -3,14 +3,15 @@ from typing import Optional
 from pydantic import BaseModel
 
 from app.libs.dto.common import ORMModel
+from app.libs.enums.work_management import TaskPriority, TaskStatus
 
 
 class TaskIn(BaseModel):
     title: str
     description: Optional[str] = None
     assigned_to: Optional[int] = None
-    status: str = "pending"
-    priority: str = "medium"
+    status: TaskStatus = TaskStatus.PENDING
+    priority: TaskPriority = TaskPriority.MEDIUM
     due_date: Optional[datetime] = None
     entity_type: Optional[str] = None
     entity_id: Optional[int] = None
@@ -20,8 +21,8 @@ class TaskUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     assigned_to: Optional[int] = None
-    status: Optional[str] = None
-    priority: Optional[str] = None
+    status: Optional[TaskStatus] = None
+    priority: Optional[TaskPriority] = None
     due_date: Optional[datetime] = None
     entity_type: Optional[str] = None
     entity_id: Optional[int] = None
@@ -33,8 +34,8 @@ class TaskOut(ORMModel):
     description: Optional[str] = None
     assigned_to: Optional[int] = None
     created_by: Optional[int] = None
-    status: str
-    priority: str
+    status: TaskStatus
+    priority: TaskPriority
     due_date: Optional[datetime] = None
     entity_type: Optional[str] = None
     entity_id: Optional[int] = None

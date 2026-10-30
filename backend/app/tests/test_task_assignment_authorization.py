@@ -233,6 +233,44 @@ def test_create_default_assignment_remains_self(client, assigned):
     assert response.status_code == 201 and response.json()["assigned_to"] == actor
 
 
+def test_manager_create_requires_existing_single_assignee_without_writes(client):
+    _, headers = _actor(("tasks.manage",))
+    with SessionLocal() as db:
+        before = (db.query(Task).count(), db.query(Notification).count(), db.query(AuditLog).count())
+    response = client.post("/api/tasks", headers=headers, json={
+        "title": "Missing recipient",
+        "assigned_to": 2_000_000_000,
+    })
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Assigned user not found"}
+    with SessionLocal() as db:
+        assert (db.query(Task).count(), db.query(Notification).count(), db.query(AuditLog).count()) == before
+
+
+def test_task_enum_inputs_serialize_and_filter_with_canonical_wire_values(client):
+    _, headers = _actor()
+    created = client.post("/api/tasks", headers=headers, json={
+        "title": "Enum contract",
+        "status": "in_progress",
+        "priority": "urgent",
+    })
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["status"] == "in_progress" and body["priority"] == "urgent"
+
+    listed = client.get("/api/tasks?status=in_progress", headers=headers)
+    assert listed.status_code == 200, listed.text
+    assert any(row["id"] == body["id"] for row in listed.json())
+    assert client.get("/api/tasks?status=invalid", headers=headers).status_code == 422
+
+    updated = client.patch(f"/api/tasks/{body['id']}", headers=headers, json={
+        "status": "completed",
+        "priority": "high",
+    })
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["status"] == "completed" and updated.json()["priority"] == "high"
+
+
 def test_create_broadcast_mode_and_permissions_remain(client):
     _, denied_headers = _actor()
     _, manager_headers = _actor(("tasks.manage",))

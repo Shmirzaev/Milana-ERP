@@ -2,27 +2,20 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import func
 
-from app.api.routes.notifications import _max_bulk_recipients
-from app.core.deps import DbSession, CurrentUser, is_admin, user_permissions
-from app.schemas import Notification, Task, User
+from app.core.deps import DbSession, CurrentUser
+from app.schemas import Task, User
+from app.libs.enums.work_management import TaskPriority, TaskStatus
 from app.libs.dto.work_management.tasks import TaskIn, TaskUpdate, TaskOut
 from app.models.audit_service import log_action
 from app.models.notifications_service import notify
-from app.models.user_access_service import access_configured, permission_denied
+from app.models.work_management.tasks_service import (
+    TaskCreateRefused,
+    can_manage_tasks as _can_manage,
+    create_user_task,
+    task_notification_link as _task_link,
+)
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
-
-
-def _can_manage(user: User) -> bool:
-    """Admins and Management can create / reassign / delete tasks for anyone."""
-    if permission_denied(user, "tasks.manage"):
-        return False
-    if is_admin(user):
-        return True
-    if not access_configured(user) and user.role and user.role.name in ("Admin", "Management"):
-        return True
-    perms = user_permissions(user)
-    return "tasks.manage" in perms or "management.approve" in perms
 
 
 def _require_single_assignee(assigned: int | None, db: DbSession, current: User, is_manager: bool) -> None:
@@ -32,33 +25,11 @@ def _require_single_assignee(assigned: int | None, db: DbSession, current: User,
         raise HTTPException(404, "Assigned user not found")
 
 
-def _task_link(t: Task) -> str | None:
-    """Build a frontend URL for a task notification when the task references
-    a concrete entity. Returns None when no mapping exists."""
-    et = (t.entity_type or "").lower()
-    eid = t.entity_id
-    if not eid:
-        return None
-    mapping = {
-        "salesorder": f"/sales-orders/{eid}",
-        "sales_order": f"/sales-orders/{eid}",
-        "productionorder": f"/production-orders/{eid}",
-        "production_order": f"/production-orders/{eid}",
-        "workorder": f"/work-orders/{eid}",
-        "work_order": f"/work-orders/{eid}",
-        "bundle": f"/bundles/{eid}",
-        "package": f"/packages/{eid}",
-        "shipment": "/shipments",
-        "invoice": "/finance",
-    }
-    return mapping.get(et)
-
-
 @router.get("", response_model=list[TaskOut])
 def list_tasks(
     db: DbSession, current: CurrentUser,
     scope: str = "mine",  # mine | created | all (manager/admin only)
-    status: str | None = None,
+    status: TaskStatus | None = None,
 ):
     qry = db.query(Task)
     if scope == "all":
@@ -69,7 +40,7 @@ def list_tasks(
     else:  # mine
         qry = qry.filter(Task.assigned_to == current.id)
     if status:
-        qry = qry.filter(Task.status == status)
+        qry = qry.filter(Task.status == status.value)
     return qry.order_by(Task.id.desc()).all()
 
 
@@ -79,7 +50,7 @@ def open_task_count(db: DbSession, current: CurrentUser):
         db.query(func.count(Task.id))
         .filter(
             Task.assigned_to == current.id,
-            Task.status.in_(("pending", "in_progress")),
+            Task.status.in_((TaskStatus.PENDING.value, TaskStatus.IN_PROGRESS.value)),
         )
         .scalar()
         or 0
@@ -89,93 +60,26 @@ def open_task_count(db: DbSession, current: CurrentUser):
 
 @router.post("", response_model=TaskOut, status_code=201)
 def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
-    is_manager = _can_manage(current)
-    requested_assignee = payload.assigned_to
-
-    # Special manager-only broadcast mode: assigned_to == -1 means "everyone".
-    if requested_assignee == -1:
-        if not is_manager:
-            raise HTTPException(403, "Only managers can assign tasks to everyone")
-        max_recipients = _max_bulk_recipients()
-        targets = db.query(User.id).filter(User.is_active.is_(True)).order_by(User.id).limit(max_recipients + 1).all()
-        if len(targets) > max_recipients:
-            raise HTTPException(400, f"Recipient count exceeds ERP_MCP_MAX_BULK_RECIPIENTS={max_recipients}")
-        if not targets:
-            raise HTTPException(404, "No active users found")
-
-        created: list[Task] = []
-        for user in targets:
-            t = Task(
-                title=payload.title,
-                description=payload.description,
-                assigned_to=user.id,
-                created_by=current.id,
-                status=payload.status,
-                priority=payload.priority,
-                due_date=payload.due_date,
-                entity_type=payload.entity_type,
-                entity_id=payload.entity_id,
+    try:
+        return create_user_task(db, current, payload)
+    except TaskCreateRefused as refusal:
+        if refusal.reason == "manager_required":
+            detail = (
+                "Only managers can assign tasks to everyone"
+                if payload.assigned_to == -1
+                else "Only managers can assign tasks to other users"
             )
-            db.add(t)
-            created.append(t)
-            db.add(Notification(
-                user_id=user.id,
-                title=f"New task: {t.title}",
-                message=(t.description or "")[:280],
-                link=_task_link(t),
-            ))
-
-        # No per-recipient generated ID is needed until the audit below.
-        # Flush once so PostgreSQL can batch task/notification inserts.
-        db.flush()
-        first_task = created[0]
-        log_action(
-            db,
-            current,
-            "create",
-            "Task",
-            first_task.id,
-            new_value={
-                "title": payload.title,
-                "assigned_to": "everyone",
-                "created_count": len(created),
-            },
-        )
-        db.commit()
-        db.refresh(first_task)
-        return first_task
-
-    # Non-managers can only assign tasks to themselves.
-    assigned = requested_assignee or current.id
-    _require_single_assignee(assigned, db, current, is_manager)
-
-    t = Task(
-        title=payload.title,
-        description=payload.description,
-        assigned_to=assigned,
-        created_by=current.id,
-        status=payload.status,
-        priority=payload.priority,
-        due_date=payload.due_date,
-        entity_type=payload.entity_type,
-        entity_id=payload.entity_id,
-    )
-    db.add(t)
-    db.flush()
-
-    # Notify the assignee unless they assigned to themselves.
-    if assigned != current.id:
-        notify(
-            db, user_id=assigned,
-            title=f"New task: {t.title}",
-            message=(t.description or "")[:280],
-            link=_task_link(t),
-        )
-
-    log_action(db, current, "create", "Task", t.id, new_value={"title": t.title, "assigned_to": assigned})
-    db.commit()
-    db.refresh(t)
-    return t
+            raise HTTPException(403, detail) from refusal
+        if refusal.reason == "assignee_missing":
+            raise HTTPException(404, "Assigned user not found") from refusal
+        if refusal.reason == "recipient_limit_exceeded":
+            raise HTTPException(
+                400,
+                f"Recipient count exceeds ERP_MCP_MAX_BULK_RECIPIENTS={refusal.recipient_limit}",
+            ) from refusal
+        if refusal.reason == "no_active_recipients":
+            raise HTTPException(404, "No active users found") from refusal
+        raise
 
 
 @router.get("/{tid}", response_model=TaskOut)
@@ -209,11 +113,13 @@ def update_task(tid: int, payload: TaskUpdate, db: DbSession, current: CurrentUs
     if "assigned_to" in changes and changes["assigned_to"] != previous_assignee:
         _require_single_assignee(changes["assigned_to"], db, current, is_manager)
     for k, v in changes.items():
-        setattr(t, k, v)
+        stored_value = v.value if isinstance(v, (TaskStatus, TaskPriority)) else v
+        setattr(t, k, stored_value)
+        changes[k] = stored_value
 
-    if changes.get("status") == "completed" and not t.completed_at:
+    if changes.get("status") == TaskStatus.COMPLETED.value and not t.completed_at:
         t.completed_at = datetime.now(timezone.utc)
-    elif changes.get("status") and changes["status"] != "completed":
+    elif changes.get("status") and changes["status"] != TaskStatus.COMPLETED.value:
         t.completed_at = None
 
     # Notify new assignee if task was reassigned.
@@ -247,7 +153,7 @@ def complete_task(tid: int, db: DbSession, current: CurrentUser):
     if not t: raise HTTPException(404, "Task not found")
     if t.assigned_to != current.id and not _can_manage(current):
         raise HTTPException(403, "Only the assignee or a manager may complete this task")
-    t.status = "completed"
+    t.status = TaskStatus.COMPLETED.value
     t.completed_at = datetime.now(timezone.utc)
     # Notify creator that the task is done.
     if t.created_by and t.created_by != current.id:

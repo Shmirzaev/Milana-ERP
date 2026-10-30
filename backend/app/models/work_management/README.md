@@ -1,8 +1,9 @@
 # Tasks and notifications
 
 Business-service group guide, relocated into models/ on 24 October 2026.
-`tasks_service.py` now contains the focused system stock-shortage participant;
-general Task CRUD and other proposed extractions remain pending.
+`tasks_service.py` contains the generic user-facing Task CREATE operation and the
+separate focused system stock-shortage participant. Other Task operations remain
+independent route-owned work.
 
 **Purpose:** Own task assignment/status and notification delivery/read-state behavior.
 
@@ -10,6 +11,22 @@ general Task CRUD and other proposed extractions remain pending.
 **Business acceptance:** Shavkat with operators.
 This owner covers the feature's routes, DTOs, enums, database definitions and tests.
 See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordination.
+
+## User-facing Task CREATE
+
+`create_user_task` coordinates the existing self, manager-assignment and bounded
+manager-broadcast behaviors on the supplied Session. Task rows are staged through
+the Work Management schema participant; notifications use shared notification
+operations; audit uses the shared hash-chain service. This service owns the one
+outer commit and refreshes the first created task for the existing 201 response.
+It preserves current assignment permissions, inactive existing-assignee behavior,
+notification payloads, broadcast ordering/cap and rollback semantics. It adds no
+idempotency or task locks. Update, delete and complete remain separate operations.
+
+TaskStatus/TaskPriority are now canonical fixed-vocabulary contracts for task
+create/update/output and status filtering; the mapped columns remain VARCHAR with
+string values. Historical stored values were not censused here, so output/runtime
+compatibility and visual/database acceptance remain required gates.
 
 ## System stock-shortage participant
 
@@ -21,9 +38,9 @@ deduplication, audit, notification or permission behavior. No Task ORM object is
 returned to Sales. This is the already assigned task-creation responsibility;
 it does not introduce a generic CRUD API or migrate user-facing task routes.
 
-Canonical TaskStatus/TaskPriority are used by this writer and schema defaults.
-General Task input/update/output enum conversion and historical-value audit remain
-pending; raw stored values remain strings with unchanged column definitions.
+Canonical TaskStatus/TaskPriority remain used by this writer and schema defaults.
+It remains a separate caller-owned participant; no generic CRUD, notification or
+audit behavior was added to it.
 
 ## Existing code to study first
 
