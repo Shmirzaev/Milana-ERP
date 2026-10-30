@@ -196,6 +196,19 @@
         "test_pg_payment_commit_after_guards_before_delete_flush",
         "test_pg_delete_flush_blocks_payment_until_commit"
       ]
+    },
+    "test_model_paid_operations_postgres": {
+      "revision": "1a8bfd86277af690f1c9574c45dace7a15e05e28",
+      "git_blob_sha256": "3a204f15e8ec62462a21a9d7716f5e45208e69c902111ee8633a1d777caec687",
+      "selected_functions": [
+        "test_pg_paid_operations_patch_round_trips_typed_rows_and_openapi",
+        "test_pg_paid_operations_invalid_and_cross_factory_patch_leave_family_and_audit_unchanged",
+        "test_pg_paid_operations_scoped_save_keeps_other_factory_opaque_legacy_and_other_family",
+        "test_pg_usluga_paid_operation_routes_apply_eco_factory_and_typed_sections",
+        "test_pg_model_create_keeps_historical_paid_operation_json_opaque",
+        "test_pg_paid_operations_failure_rolls_back_then_same_session_retry",
+        "test_pg_paid_operations_concurrent_factories_serialize_same_family_and_prove_row_lock_wait"
+      ]
     }
   },
   "cases": {
@@ -382,6 +395,18 @@
     "test_customer_delete_reference_race_postgres": [
       "test_pg_payment_commit_after_guards_before_delete_flush",
       "test_pg_delete_flush_blocks_payment_until_commit"
+    ],
+    "test_model_paid_operations_postgres": [
+      "test_pg_paid_operations_patch_round_trips_typed_rows_and_openapi[dedicated-patch]",
+      "test_pg_paid_operations_patch_round_trips_typed_rows_and_openapi[whole-model-patch]",
+      "test_pg_paid_operations_invalid_and_cross_factory_patch_leave_family_and_audit_unchanged",
+      "test_pg_paid_operations_scoped_save_keeps_other_factory_opaque_legacy_and_other_family",
+      "test_pg_usluga_paid_operation_routes_apply_eco_factory_and_typed_sections[usluga-dedicated-patch]",
+      "test_pg_usluga_paid_operation_routes_apply_eco_factory_and_typed_sections[usluga-whole-model-patch]",
+      "test_pg_model_create_keeps_historical_paid_operation_json_opaque",
+      "test_pg_paid_operations_failure_rolls_back_then_same_session_retry[audit-failure]",
+      "test_pg_paid_operations_failure_rolls_back_then_same_session_retry[postflush-failure]",
+      "test_pg_paid_operations_concurrent_factories_serialize_same_family_and_prove_row_lock_wait"
     ]
   },
   "isolated_supplemental_cases": [
