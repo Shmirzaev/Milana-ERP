@@ -348,6 +348,17 @@
         "test_pg_task_complete_repeat_resets_timestamp_and_duplicates_notice_and_audit",
         "test_pg_task_complete_concurrent_calls_remain_distinct_without_deduplication"
       ]
+    },
+    "test_task_delete_postgres": {
+      "revision": "e677dad1545982c28513a3bacf5532e7fa9e1528",
+      "git_blob_sha256": "1d0fcdbd22a0dc7a3e5608ca19a67b96bfb48da6e7303963768955e5bbcdaf1d",
+      "selected_functions": [
+        "test_pg_task_delete_creator_and_manager_share_session_audit_and_keep_notice",
+        "test_pg_task_delete_denials_preserve_task_notice_audit_and_commit_state",
+        "test_pg_task_delete_missing_row_precedes_authorization_without_writes",
+        "test_pg_task_delete_failure_rolls_back_and_retries_on_same_session",
+        "test_pg_task_delete_two_authorized_sessions_keep_current_duplicate_request_semantics"
+      ]
     }
   },
   "cases": {
@@ -673,6 +684,19 @@
       "test_pg_task_complete_same_session_rollback_clears_audit_state_then_retry[before_commit_hook]",
       "test_pg_task_complete_repeat_resets_timestamp_and_duplicates_notice_and_audit",
       "test_pg_task_complete_concurrent_calls_remain_distinct_without_deduplication"
+    ],
+    "test_task_delete_postgres": [
+      "test_pg_task_delete_creator_and_manager_share_session_audit_and_keep_notice[creator-pending]",
+      "test_pg_task_delete_creator_and_manager_share_session_audit_and_keep_notice[creator_with_manager_denied-completed]",
+      "test_pg_task_delete_creator_and_manager_share_session_audit_and_keep_notice[manager-cancelled]",
+      "test_pg_task_delete_denials_preserve_task_notice_audit_and_commit_state[assignee]",
+      "test_pg_task_delete_denials_preserve_task_notice_audit_and_commit_state[outsider]",
+      "test_pg_task_delete_denials_preserve_task_notice_audit_and_commit_state[denied_manager]",
+      "test_pg_task_delete_missing_row_precedes_authorization_without_writes",
+      "test_pg_task_delete_failure_rolls_back_and_retries_on_same_session[after_delete_flush]",
+      "test_pg_task_delete_failure_rolls_back_and_retries_on_same_session[audit_finalize]",
+      "test_pg_task_delete_failure_rolls_back_and_retries_on_same_session[before_commit_hook]",
+      "test_pg_task_delete_two_authorized_sessions_keep_current_duplicate_request_semantics"
     ]
   },
   "isolated_supplemental_cases": [

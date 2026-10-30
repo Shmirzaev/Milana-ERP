@@ -1,4 +1,5 @@
 """Offline red/green checks for missing or skipped required PG evidence."""
+import ast
 import hashlib
 import json
 import os
@@ -62,7 +63,7 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 259)
+        self.assertEqual(sum(counts.values()), 270)
 
     def test_task_create_source_pin_and_all_literal_case_identities_are_frozen(self):
         module = 'test_task_create_postgres'
@@ -97,7 +98,7 @@ class RequiredPGGateTests(unittest.TestCase):
         self.assertEqual(tuple(source['selected_functions']), functions)
         self.assertEqual(tuple(manifest['cases'][module]), cases)
         self.assertEqual(gate.GROUPS[module], (11, functions))
-        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 259)
+        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 270)
         self.assertEqual(len(manifest['isolated_supplemental_cases']), 17)
 
     def test_task_update_source_pin_all_literal_cases_and_upstream_manifest_are_frozen(self):
@@ -141,7 +142,7 @@ class RequiredPGGateTests(unittest.TestCase):
         self.assertEqual(tuple(source['selected_functions']), functions)
         self.assertEqual(tuple(manifest['cases'][module]), cases)
         self.assertEqual(gate.GROUPS[module], (15, functions))
-        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 259)
+        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 270)
         self.assertEqual(len(manifest['isolated_supplemental_cases']), 17)
 
         # Check upstream bytes semantically without consulting any Git history.
@@ -152,6 +153,8 @@ class RequiredPGGateTests(unittest.TestCase):
         # Remove that additive module before checking the older upstream pin.
         upstream['sources'].pop('test_task_complete_postgres')
         upstream['cases'].pop('test_task_complete_postgres')
+        upstream['sources'].pop('test_task_delete_postgres')
+        upstream['cases'].pop('test_task_delete_postgres')
         canonical = json.dumps(upstream, sort_keys=True, separators=(',', ':')).encode('utf-8')
         self.assertEqual(
             hashlib.sha256(canonical).hexdigest(),
@@ -249,7 +252,7 @@ class RequiredPGGateTests(unittest.TestCase):
         self.assertEqual(tuple(source['selected_functions']), functions)
         self.assertEqual(tuple(manifest['cases'][module]), cases)
         self.assertEqual(gate.GROUPS[module], (15, functions))
-        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 259)
+        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 270)
         self.assertEqual(len(manifest['isolated_supplemental_cases']), 17)
 
         # Prove every prior registry identity and pin remains unchanged without
@@ -257,6 +260,8 @@ class RequiredPGGateTests(unittest.TestCase):
         prior = json.loads(json.dumps(manifest))
         prior['sources'].pop(module)
         prior['cases'].pop(module)
+        prior['sources'].pop('test_task_delete_postgres')
+        prior['cases'].pop('test_task_delete_postgres')
         canonical = json.dumps(prior, sort_keys=True, separators=(',', ':')).encode('utf-8')
         self.assertEqual(
             hashlib.sha256(canonical).hexdigest(),
@@ -309,6 +314,149 @@ class RequiredPGGateTests(unittest.TestCase):
                 'testcase',
                 classname='app.tests.test_bom_add_characterization',
                 name=f'task_complete_replacement_{index}',
+            )
+        with self.assertRaisesRegex(ValueError, 'expected at least'):
+            gate.check_report(self.write_report(tree))
+
+    def test_task_delete_source_pin_ast_cases_and_prior_registry_are_frozen(self):
+        module = 'test_task_delete_postgres'
+        functions = (
+            'test_pg_task_delete_creator_and_manager_share_session_audit_and_keep_notice',
+            'test_pg_task_delete_denials_preserve_task_notice_audit_and_commit_state',
+            'test_pg_task_delete_missing_row_precedes_authorization_without_writes',
+            'test_pg_task_delete_failure_rolls_back_and_retries_on_same_session',
+            'test_pg_task_delete_two_authorized_sessions_keep_current_duplicate_request_semantics',
+        )
+        cases = (
+            'test_pg_task_delete_creator_and_manager_share_session_audit_and_keep_notice[creator-pending]',
+            'test_pg_task_delete_creator_and_manager_share_session_audit_and_keep_notice[creator_with_manager_denied-completed]',
+            'test_pg_task_delete_creator_and_manager_share_session_audit_and_keep_notice[manager-cancelled]',
+            'test_pg_task_delete_denials_preserve_task_notice_audit_and_commit_state[assignee]',
+            'test_pg_task_delete_denials_preserve_task_notice_audit_and_commit_state[outsider]',
+            'test_pg_task_delete_denials_preserve_task_notice_audit_and_commit_state[denied_manager]',
+            'test_pg_task_delete_missing_row_precedes_authorization_without_writes',
+            'test_pg_task_delete_failure_rolls_back_and_retries_on_same_session[after_delete_flush]',
+            'test_pg_task_delete_failure_rolls_back_and_retries_on_same_session[audit_finalize]',
+            'test_pg_task_delete_failure_rolls_back_and_retries_on_same_session[before_commit_hook]',
+            'test_pg_task_delete_two_authorized_sessions_keep_current_duplicate_request_semantics',
+        )
+        manifest = json.loads(Path(gate.__file__).with_name(
+            'refactor_pg_required_cases.json').read_text(encoding='utf-8'))
+        source = manifest['sources'][module]
+        self.assertEqual(source['revision'], 'e677dad1545982c28513a3bacf5532e7fa9e1528')
+        self.assertEqual(
+            source['git_blob_sha256'],
+            '1d0fcdbd22a0dc7a3e5608ca19a67b96bfb48da6e7303963768955e5bbcdaf1d',
+        )
+        self.assertEqual(tuple(source['selected_functions']), functions)
+        self.assertEqual(tuple(manifest['cases'][module]), cases)
+        self.assertEqual(gate.GROUPS[module], (11, functions))
+        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 270)
+        self.assertEqual(len(manifest['isolated_supplemental_cases']), 17)
+
+        source_path = Path(gate.__file__).resolve().parents[1] / 'backend/app/tests/test_task_delete_postgres.py'
+        source_bytes = source_path.read_bytes()
+        self.assertEqual(hashlib.sha256(source_bytes).hexdigest(), source['git_blob_sha256'])
+        syntax = ast.parse(source_bytes, filename=str(source_path))
+        definitions = {
+            node.name: node for node in syntax.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        ordered_functions = tuple(
+            node.name for node in syntax.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in functions
+        )
+        self.assertEqual(ordered_functions, functions)
+
+        derived_cases = []
+        for name in functions:
+            node = definitions[name]
+            parameter_sets = None
+            for decorator in node.decorator_list:
+                if (isinstance(decorator, ast.Call)
+                        and isinstance(decorator.func, ast.Attribute)
+                        and decorator.func.attr == 'parametrize'):
+                    parameter_sets = (
+                        ast.literal_eval(decorator.args[0]),
+                        ast.literal_eval(decorator.args[1]),
+                    )
+                    break
+            if parameter_sets is None:
+                derived_cases.append(name)
+                continue
+            argnames, values = parameter_sets
+            names = [part.strip() for part in argnames.split(',')] if isinstance(argnames, str) else list(argnames)
+            for value in values:
+                parts = [value] if len(names) == 1 else list(value)
+                self.assertEqual(len(parts), len(names))
+                derived_cases.append(f"{name}[{'-'.join(str(part) for part in parts)}]")
+        self.assertEqual(tuple(derived_cases), cases)
+
+        # Hash the current canonical manifest with only this additive registration
+        # removed. This does not depend on Git history and protects every older
+        # source pin, case identity, and supplemental identity.
+        prior = json.loads(json.dumps(manifest))
+        prior['sources'].pop(module)
+        prior['cases'].pop(module)
+        canonical = json.dumps(prior, sort_keys=True, separators=(',', ':')).encode('utf-8')
+        self.assertEqual(
+            hashlib.sha256(canonical).hexdigest(),
+            '51c361b5f9ce43a13d1a3361965f6dcf2ca33fc57b825a0a3215f361bf1be63a',
+        )
+
+    def test_each_task_delete_case_is_required_and_nonpasses_fail(self):
+        module = 'test_task_delete_postgres'
+        for required_name in gate.REQUIRED_CASES[module]:
+            for invalid in ('replacement', 'missing', 'skipped', 'failure', 'error'):
+                with self.subTest(case=required_name, invalid=invalid):
+                    tree = self.report()
+                    suite = next(tree.iter('testsuite'))
+                    case = next(
+                        item for item in tree.iter('testcase')
+                        if item.get('classname') == f'app.tests.{module}'
+                        and item.get('name') == required_name
+                    )
+                    if invalid == 'replacement':
+                        case.set('name', 'unrelated_task_delete_case')
+                    elif invalid == 'missing':
+                        suite.remove(case)
+                        ET.SubElement(
+                            suite,
+                            'testcase',
+                            classname=f'app.tests.{module}',
+                            name='unrelated_task_delete_case',
+                        )
+                    else:
+                        ET.SubElement(case, invalid)
+                    with self.assertRaises(ValueError):
+                        gate.check_report(self.write_report(tree))
+
+    def test_task_delete_duplicate_case_identity_and_group_replacement_fail(self):
+        module = 'test_task_delete_postgres'
+        tree = self.report()
+        suite = next(tree.iter('testsuite'))
+        first = next(
+            item for item in tree.iter('testcase')
+            if item.get('classname') == f'app.tests.{module}'
+        )
+        ET.SubElement(suite, 'testcase', attrib=dict(first.attrib))
+        with self.assertRaisesRegex(ValueError, 'duplicate'):
+            gate.check_report(self.write_report(tree))
+
+        tree = self.report()
+        suite = next(tree.iter('testsuite'))
+        selected = [
+            item for item in tree.iter('testcase')
+            if item.get('classname') == f'app.tests.{module}'
+        ]
+        for case in selected:
+            suite.remove(case)
+        for index in range(len(selected)):
+            ET.SubElement(
+                suite,
+                'testcase',
+                classname='app.tests.test_bom_add_characterization',
+                name=f'task_delete_replacement_{index}',
             )
         with self.assertRaisesRegex(ValueError, 'expected at least'):
             gate.check_report(self.write_report(tree))

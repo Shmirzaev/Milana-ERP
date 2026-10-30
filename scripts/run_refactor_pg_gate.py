@@ -144,7 +144,12 @@ GROUPS = {'test_customer_delete_postgres': (9,
                                       'test_pg_task_complete_http_failure_rolls_back_then_fresh_request_retry',
                                       'test_pg_task_complete_same_session_rollback_clears_audit_state_then_retry',
                                       'test_pg_task_complete_repeat_resets_timestamp_and_duplicates_notice_and_audit',
-                                      'test_pg_task_complete_concurrent_calls_remain_distinct_without_deduplication'))}
+                                      'test_pg_task_complete_concurrent_calls_remain_distinct_without_deduplication')),
+ 'test_task_delete_postgres': (11, ('test_pg_task_delete_creator_and_manager_share_session_audit_and_keep_notice',
+                                     'test_pg_task_delete_denials_preserve_task_notice_audit_and_commit_state',
+                                     'test_pg_task_delete_missing_row_precedes_authorization_without_writes',
+                                     'test_pg_task_delete_failure_rolls_back_and_retries_on_same_session',
+                                     'test_pg_task_delete_two_authorized_sessions_keep_current_duplicate_request_semantics'))}
 REQUIRED_CASES = json.loads(
     Path(__file__).with_name("refactor_pg_required_cases.json").read_text(encoding="utf-8")
 )["cases"]
