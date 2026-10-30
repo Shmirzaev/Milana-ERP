@@ -198,8 +198,8 @@
       ]
     },
     "test_model_paid_operations_postgres": {
-      "revision": "1a8bfd86277af690f1c9574c45dace7a15e05e28",
-      "git_blob_sha256": "3a204f15e8ec62462a21a9d7716f5e45208e69c902111ee8633a1d777caec687",
+      "revision": "ce5eadff20d8c17dc7c8194e7c815f4f2534741e",
+      "git_blob_sha256": "7d10c10d477a14f4e3169c5cd1ca15285ddc38e4094080408f31a45498f86790",
       "selected_functions": [
         "test_pg_paid_operations_patch_round_trips_typed_rows_and_openapi",
         "test_pg_paid_operations_invalid_and_cross_factory_patch_leave_family_and_audit_unchanged",
