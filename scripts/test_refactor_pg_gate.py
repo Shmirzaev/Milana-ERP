@@ -1,4 +1,5 @@
 """Offline red/green checks for missing or skipped required PG evidence."""
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -8,6 +9,20 @@ from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
 import run_refactor_pg_gate as gate
+
+
+def _unrelated_manifest_digest(manifest, excluded_module):
+    frozen = {
+        'description': manifest['description'],
+        'collection_method': manifest['collection_method'],
+        'sources': {key: value for key, value in manifest['sources'].items()
+                    if key != excluded_module},
+        'cases': {key: value for key, value in manifest['cases'].items()
+                  if key != excluded_module},
+        'isolated_supplemental_cases': manifest['isolated_supplemental_cases'],
+    }
+    return hashlib.sha256(json.dumps(
+        frozen, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
 class RequiredPGGateTests(unittest.TestCase):
@@ -61,7 +76,86 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 218)
+        self.assertEqual(sum(counts.values()), 238)
+
+    def test_sewing_output_source_pin_literal_cases_and_upstream_registry_are_frozen(self):
+        module = 'test_sewing_output_postgres'
+        functions = (
+            'test_pg_factory_output_persists_all_participants_and_replays_once',
+            'test_pg_band_output_uses_the_same_operation_and_preserves_retry_contract',
+            'test_pg_sewing_output_refusals_have_no_persistent_effects',
+            'test_pg_real_accessory_gate_refusal_rolls_back_flushed_block_then_retry',
+            'test_pg_zero_defect_output_does_not_create_waste_or_advance_its_sequence',
+            'test_pg_work_order_status_filter_uses_enum_and_wire_value',
+            'test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds',
+            'test_pg_sewing_output_waits_on_real_work_order_lock',
+            'test_pg_band_output_waits_on_same_work_order_lock',
+        )
+        cases = (
+            'test_pg_factory_output_persists_all_participants_and_replays_once',
+            'test_pg_band_output_uses_the_same_operation_and_preserves_retry_contract',
+            'test_pg_sewing_output_refusals_have_no_persistent_effects',
+            'test_pg_real_accessory_gate_refusal_rolls_back_flushed_block_then_retry',
+            'test_pg_zero_defect_output_does_not_create_waste_or_advance_its_sequence',
+            'test_pg_work_order_status_filter_uses_enum_and_wire_value',
+            'test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[record]',
+            'test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[accounting]',
+            'test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[actual_input]',
+            'test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[accessory_block]',
+            'test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[department]',
+            'test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[plans]',
+            'test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[workflow]',
+            'test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[waste]',
+            'test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[notification]',
+            'test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[audit]',
+            'test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[idempotency]',
+            'test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[outer_commit_call]',
+            'test_pg_sewing_output_waits_on_real_work_order_lock',
+            'test_pg_band_output_waits_on_same_work_order_lock',
+        )
+        manifest = json.loads(Path(gate.__file__).with_name(
+            'refactor_pg_required_cases.json').read_text(encoding='utf-8'))
+        source = manifest['sources'][module]
+        self.assertEqual(source['revision'], '81500dedb5cf89ef758d2547e949dc729dde9268')
+        self.assertEqual(source['git_blob_sha256'],
+                         'd06bff674777253cd431604f919a8500993c99c439888a754483a1c5a55ff991')
+        self.assertEqual(tuple(source['selected_functions']), functions)
+        self.assertEqual(tuple(manifest['cases'][module]), cases)
+        self.assertEqual(gate.GROUPS[module], (20, functions))
+        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 238)
+        self.assertEqual(len(manifest['isolated_supplemental_cases']), 17)
+
+        digest = _unrelated_manifest_digest(manifest, module)
+        self.assertEqual(digest, 'c71bc5d2cf0e00281c2aa92d05a09bdb0a6559a5d2152d85e9e68b8b7ce0c0c9')
+
+    def test_sewing_upstream_digest_works_without_git_history_or_checkout_cwd(self):
+        module = 'test_sewing_output_postgres'
+        manifest = json.loads(Path(gate.__file__).with_name(
+            'refactor_pg_required_cases.json').read_text(encoding='utf-8'))
+        original_cwd = Path.cwd()
+        with tempfile.TemporaryDirectory() as outside_checkout:
+            try:
+                os.chdir(outside_checkout)
+                self.assertEqual(_unrelated_manifest_digest(manifest, module),
+                                 'c71bc5d2cf0e00281c2aa92d05a09bdb0a6559a5d2152d85e9e68b8b7ce0c0c9')
+            finally:
+                os.chdir(original_cwd)
+
+    def test_every_sewing_output_case_is_required_and_nonpasses_fail(self):
+        module = 'test_sewing_output_postgres'
+        for required_name in gate.REQUIRED_CASES[module]:
+            for invalid in ('replacement', 'skipped', 'failure', 'error'):
+                with self.subTest(case=required_name, invalid=invalid):
+                    tree = self.report()
+                    case = next(item for item in tree.iter('testcase')
+                                if item.get('classname') == f'app.tests.{module}'
+                                and item.get('name') == required_name)
+                    if invalid == 'replacement':
+                        case.set('name', 'unrelated_sewing_output_case')
+                    else:
+                        ET.SubElement(case, invalid)
+                    with self.assertRaises(ValueError):
+                        gate.check_report(self.write_report(tree))
 
     def test_skipped_failed_and_error_evidence_are_rejected(self):
         for tag in ('skipped', 'failure', 'error'):
