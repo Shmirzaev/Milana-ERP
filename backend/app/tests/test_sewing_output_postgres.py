@@ -16,7 +16,7 @@ from app.api.routes.production import post_sewing
 from app.libs.dto.production.production import SewingRecordIn
 from app.models.idempotency_service import bind_idempotency_identity
 from app.schemas import (
-    AuditLog, Bundle, Department, IdempotencyRecord, Item, ManualAccessoryIssue, Model, ModelBOM, Notification,
+    AuditLog, Bundle, CuttingRecord, Department, IdempotencyRecord, Item, ManualAccessoryIssue, Model, ModelBOM, Notification,
     ProductionOrder, SewingAssignment, SewingFlow, SewingRecord, StockMovement, User,
     WasteRecord, WorkOrder,
 )
@@ -91,10 +91,11 @@ def sewing_case(customer_pg_sessions):
         }
 
 
-def _payload(case, *, passed=8, failed=2, input_qty=10, sewn_qty=10):
+def _payload(case, *, passed=8, failed=2, input_qty=10, sewn_qty=10, defect_reason=None):
     return SewingRecordIn(
         work_order_id=case["sewing_id"], sewing_assignment_id=case["assignment_id"],
         input_qty=input_qty, sewn_qty=sewn_qty, passed_qty=passed, failed_qty=failed,
+        defect_reason=defect_reason,
     )
 
 
@@ -164,7 +165,10 @@ def test_pg_band_output_uses_the_same_operation_and_preserves_retry_contract(cus
         db.get(Bundle, case["bundle_id"]).status = "received_sewing"
         db.commit()
         bind_idempotency_identity(db, actor)
-        payload = _payload(case, passed=8, failed=2, input_qty=0, sewn_qty=10)
+        payload = _payload(
+            case, passed=8, failed=2, input_qty=0, sewn_qty=10,
+            defect_reason="Needle breakage",
+        )
         first = record_output(case["assignment_id"], payload, db, actor, key)
         assert record_output(case["assignment_id"], payload, db, actor, key) == first
     with customer_pg_sessions() as db:
@@ -219,7 +223,11 @@ def test_pg_real_accessory_gate_refusal_rolls_back_flushed_block_then_retry(cust
             model_id=model.id, item_id=accessory.id, quantity_per_piece=1,
             unit="pcs", waste_percent=0,
         )
-        db.add(requirement)
+        cutting_output = CuttingRecord(
+            work_order_id=case["cutting_id"], cut_pieces=50, report_piece_count=50,
+            passed_pieces=50,
+        )
+        db.add_all([requirement, cutting_output])
         db.commit()
 
         actor = db.get(User, case["actor_id"])
@@ -297,8 +305,8 @@ def test_pg_work_order_status_filter_uses_enum_and_wire_value(customer_pg_sessio
     with customer_pg_sessions() as db:
         actor = db.get(User, case["actor_id"])
         rows = list_wos(db, actor, status=WorkOrderStatus.IN_PROGRESS)
-        sewing = next(row for row in rows if row.id == case["sewing_id"])
-        assert sewing.status == WorkOrderStatus.IN_PROGRESS.value
+        sewing = next(row for row in rows if row["id"] == case["sewing_id"])
+        assert sewing["status"] == WorkOrderStatus.IN_PROGRESS.value
         wire = WorkOrderOut.model_validate(sewing)
         assert wire.status is WorkOrderStatus.IN_PROGRESS
 

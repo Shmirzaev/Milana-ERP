@@ -5,9 +5,12 @@ from app.schemas import AuditLog, WorkOrder
 from app.tests.test_sewing_assignment_return import make_assignment
 
 
-@pytest.mark.parametrize("status", ["completed", "cancelled", "not_a_status", None])
+@pytest.mark.parametrize(
+    ("status", "expected_status_code"),
+    [("completed", 409), ("cancelled", 409), ("not_a_status", 422), (None, 409)],
+)
 def test_generic_work_order_patch_rejects_status_changes_without_writes(
-    client, auth_headers, status,
+    client, auth_headers, status, expected_status_code,
 ):
     _, _, work_order_id = make_assignment()
     with SessionLocal() as db:
@@ -20,8 +23,14 @@ def test_generic_work_order_patch_rejects_status_changes_without_writes(
         json={"status": status, "notes": "Must not persist"},
     )
 
-    assert response.status_code == 409, response.text
-    assert response.json()["detail"] == "Use a work-order action to change status"
+    assert response.status_code == expected_status_code, response.text
+    if status == "not_a_status":
+        assert any(
+            error.get("loc") == ["body", "status"] and error.get("type") == "enum"
+            for error in response.json()["detail"]
+        )
+    else:
+        assert response.json()["detail"] == "Use a work-order action to change status"
     with SessionLocal() as db:
         work_order = db.get(WorkOrder, work_order_id)
         assert work_order.status == before_status
