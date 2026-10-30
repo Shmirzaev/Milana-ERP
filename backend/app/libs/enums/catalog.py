@@ -45,6 +45,42 @@ class PaidProcessSection(str, Enum):
     SORTING = "sorting"
 
 
+class PaidOperationFactory(str, Enum):
+    MILANA = "milana"
+    BESTTEX = "besttex"
+    ECO_COTTON = "eco_cotton"
+
+
+PAID_OPERATION_FACTORY_ALIASES = {
+    "MIL": PaidOperationFactory.MILANA,
+    "MILANA": PaidOperationFactory.MILANA,
+    "SML": PaidOperationFactory.MILANA,
+    "BST": PaidOperationFactory.BESTTEX,
+    "BESTTEX": PaidOperationFactory.BESTTEX,
+    "BTX": PaidOperationFactory.BESTTEX,
+    "ECO": PaidOperationFactory.ECO_COTTON,
+    "ECO COTTON": PaidOperationFactory.ECO_COTTON,
+    "ECOCOTTON": PaidOperationFactory.ECO_COTTON,
+}
+
+
+def normalize_paid_operation_factory_value(value: object) -> PaidOperationFactory | None:
+    normalized = str(value or "").strip().upper().replace("-", " ").replace("_", " ")
+    normalized = " ".join(normalized.split())
+    return PAID_OPERATION_FACTORY_ALIASES.get(normalized)
+
+
+class PaidOperationQuantityMode(str, Enum):
+    BATCH = "batch"
+    CUSTOM = "custom"
+
+
+class PaidOperationSplitMode(str, Enum):
+    NONE = "none"
+    EQUAL = "equal"
+    CUSTOM = "custom"
+
+
 PAID_PROCESS_SECTION_VALUES = frozenset(section.value for section in PaidProcessSection)
 
 

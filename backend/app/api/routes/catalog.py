@@ -15,6 +15,7 @@ from app.libs.dto.catalog.model_image_input import ModelImageIn
 from app.libs.dto.catalog.model_input import (
     ModelIn,
     ModelPaidOperationsIn,
+    ModelUpdateIn,
     ModelVariantCreateIn,
     ModelVariantUpdateIn,
 )
@@ -308,7 +309,7 @@ def delete_model_variant(
 @router.patch("/models/{mid}", response_model=ModelOut)
 def update_model(
     mid: int,
-    payload: ModelIn,
+    payload: ModelUpdateIn,
     db: DbSession,
     current: User = Depends(require_permissions("modeling.models", "*")),
     catalog_scope: str = Depends(_standard_catalog_scope),

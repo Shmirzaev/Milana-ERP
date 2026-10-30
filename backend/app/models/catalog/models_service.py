@@ -47,7 +47,7 @@ from app.libs.dto.catalog.model_bom_input import ModelBOMIn
 from app.libs.dto.catalog.model_bom_update import ModelBOMUpdate
 from app.libs.dto.catalog.model_color_input import ModelColorIn
 from app.libs.dto.catalog.model_image_input import ModelImageIn
-from app.libs.dto.catalog.model_input import ModelIn, ModelPaidOperationsIn, ModelVariantCreateIn, ModelVariantUpdateIn
+from app.libs.dto.catalog.model_input import ModelIn, ModelPaidOperationsIn, ModelUpdateIn, ModelVariantCreateIn, ModelVariantUpdateIn
 from app.libs.dto.catalog.model_size_input import ModelSizeIn
 from app.libs.dto.catalog.model_output import ModelDetail, ModelImageOut, ModelOut, ModelSummaryOut
 from app.libs.dto.catalog.process_qr_sizes_input import ProcessQrSizesIn
@@ -77,6 +77,7 @@ from app.models.model_images_service import model_print_image_url, model_preview
 from app.models.numbering_service import next_model_variant_no, next_model_no, CATALOG_NUMBERING_BASE
 from app.models.paid_operations_service import (
     filter_paid_operations_for_factory,
+    merge_scoped_paid_operation_update,
     merge_scoped_paid_operations,
     normalize_paid_operation_factory,
     paid_operations_from_details,
@@ -103,6 +104,7 @@ from app.schemas import (
     User,
 )
 from app.schemas.catalog.bom_persistence import delete_model_bom, insert_model_bom, update_model_bom
+from app.schemas.catalog.model_paid_operations_persistence import persist_model_paid_operations
 
 # A model's details_json is per-model modelling metadata: identity, costing and
 # paid operations. Sizes, measurements, BOM and images live in their own tables,
@@ -2267,7 +2269,7 @@ def update_model(
     current: User,
     db: Session,
     mid: int,
-    payload: ModelIn,
+    payload: ModelUpdateIn,
     catalog_scope: str = "standard",
 ):
     catalog_scope = _normalize_catalog_scope(catalog_scope)
@@ -2278,10 +2280,17 @@ def update_model(
         raise HTTPException(400, "Automatic model numbering is only available when creating a model")
     factory_scope = "eco_cotton" if catalog_scope == "usluga" else sewing_master_factory_scope(current)
     if factory_scope and "details_json" in update_data:
-        update_data["details_json"] = merge_scoped_paid_operations(
-            m.details_json,
-            update_data.get("details_json"),
-            factory_scope,
+        if payload.paid_operations_update is not None:
+            update_data["details_json"] = merge_scoped_paid_operation_update(
+                m.details_json, update_data["details_json"], payload.paid_operations_update, factory_scope
+            )
+        else:
+            update_data["details_json"] = merge_scoped_paid_operations(
+                m.details_json, update_data.get("details_json"), factory_scope
+            )
+    elif "details_json" in update_data and payload.paid_operations_update is not None:
+        update_data["details_json"] = merge_scoped_paid_operation_update(
+            m.details_json, update_data["details_json"], payload.paid_operations_update, None
         )
     if "details_json" in update_data:
         # Bound the merged document, not the raw one: the merge is what is stored.
@@ -2307,7 +2316,10 @@ def update_model(
         renamed = _rename_model_group(db, m, incoming_model_no, catalog_scope)
 
     for k, v in update_data.items():
-        setattr(m, k, v)
+        if k == "details_json":
+            persist_model_paid_operations(db, m, v)
+        else:
+            setattr(m, k, v)
     for renamed_model, old_code in renamed:
         if renamed_model.id == m.id:
             continue
@@ -2346,9 +2358,10 @@ def update_model_paid_operations(
         raise HTTPException(404, "Model not found")
 
     factory_scope = _catalog_paid_operation_factory_scope(current, catalog_scope)
-    if factory_scope and payload.sewing_factory and payload.sewing_factory != factory_scope:
+    requested_factory = payload.sewing_factory.value if payload.sewing_factory else None
+    if factory_scope and requested_factory and requested_factory != factory_scope:
         raise HTTPException(403, "Cannot change another sewing factory's paid operations")
-    save_factory = factory_scope or payload.sewing_factory
+    save_factory = factory_scope or requested_factory
     # Use the catalog's exact family identity and the same advisory lock as
     # variant creation; row locks also protect concurrent factory saves.
     family_ids = [row.id for row in _approval_family(db, model)]
@@ -2362,7 +2375,7 @@ def update_model_paid_operations(
         pending_details.append((member, next_details))
     for member, next_details in pending_details:
         old_count = len(paid_operations_from_details(filter_paid_operations_for_factory(member.details_json, save_factory)))
-        member.details_json = next_details
+        persist_model_paid_operations(db, member, next_details)
         log_action(
             db, current, "update_paid_operations", "Model", member.id,
             old_value={"factory": save_factory, "operation_count": old_count},

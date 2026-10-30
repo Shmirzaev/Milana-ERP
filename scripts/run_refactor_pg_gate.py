@@ -18,6 +18,7 @@ import xml.etree.ElementTree as ET
 # Minimum collected counts pin the current parameterized business cases. Adding
 # cases is allowed; removing a required case needs an explicit ledger change.
 GROUPS = {
+    'test_model_paid_operations_postgres': (10, ('test_pg_paid_operations_patch_round_trips_typed_rows_and_openapi', 'test_pg_paid_operations_invalid_and_cross_factory_patch_leave_family_and_audit_unchanged', 'test_pg_paid_operations_scoped_save_keeps_other_factory_opaque_legacy_and_other_family', 'test_pg_usluga_paid_operation_routes_apply_eco_factory_and_typed_sections', 'test_pg_model_create_keeps_historical_paid_operation_json_opaque', 'test_pg_paid_operations_failure_rolls_back_then_same_session_retry', 'test_pg_paid_operations_concurrent_factories_serialize_same_family_and_prove_row_lock_wait')),
     'test_customer_delete_postgres': (9, ('test_pg_delete_route_success_repeat_and_missing', 'test_pg_delete_route_auth_denials_preserve_customer', 'test_pg_delete_reference_refusal_preserves_customer', 'test_pg_delete_precommit_failure_rolls_back_then_retry', 'test_pg_delete_distinct_rows_concurrently_preserves_audit_chain')),
     'test_customer_delete_extra_fk_postgres': (3, ('test_pg_existing_customer_fk_blocks_delete_then_retry',)),
     'test_customer_delete_reference_race_postgres': (2, ('test_pg_payment_commit_after_guards_before_delete_flush', 'test_pg_delete_flush_blocks_payment_until_commit')),

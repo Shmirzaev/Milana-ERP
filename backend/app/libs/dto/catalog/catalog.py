@@ -25,8 +25,10 @@ from app.libs.dto.catalog.model_color_output import ModelColorOut
 from app.libs.dto.catalog.model_image_input import ModelImageIn
 from app.libs.dto.catalog.model_image_output import ModelImageOut
 from app.libs.dto.catalog.model_input import (
+    ModelDetailsUpdateIn,
     ModelIn,
     ModelPaidOperationsIn,
+    ModelUpdateIn,
     ModelVariantCreateIn,
     ModelVariantUpdateIn,
 )
@@ -63,6 +65,8 @@ __all__ = [
     "ModelImageIn",
     "ModelImageOut",
     "ModelIn",
+    "ModelDetailsUpdateIn",
+    "ModelUpdateIn",
     "ModelOptionOut",
     "ModelOptionPage",
     "ModelOut",

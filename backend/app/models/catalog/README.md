@@ -25,6 +25,28 @@ See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordi
 | [partners_service.py](partners_service.py) | Customer and supplier reference CRUD and their deletion guards. |
 | [paid_processes_service.py](paid_processes_service.py) | Paid-operation definitions for the standard and usluga catalogues, not payroll settlement. |
 
+### Model paid-operation updates
+
+`update_model_paid_operations` accepts rows through `PaidOperationIn`, while
+the two model PATCH routes use `ModelUpdateIn` to keep its typed row command
+separate from opaque `details_json`. Model CREATE remains on `ModelIn` and does
+not apply this update validation. `section`, `sewingFactory`, `quantityMode` and
+`splitMode` use catalog enums. Other known editor fields (identity, selection,
+rate, quantity/copy/split data, timing, currency and source metadata) have
+explicit optional scalar/list contracts, preserving sent strings, numbers,
+nulls and omissions without adding defaults. Non-factory legacy aliases remain
+typed under their original keys so frontend and backend fallback behavior is
+preserved. Recognized factory spellings normalize only at the factory field;
+the legacy `company` hint stays opaque and does not become explicit factory
+ownership. Genuine extension keys remain present. Invalid fixed values
+or malformed known containers now return 422. Historical
+`details_json` reads remain opaque and are not rewritten. The service retains
+authorization, factory policy, family discovery/locking, merge, bounds checks,
+audit and commit; `model_paid_operations_persistence.py` assigns prepared JSON
+through the caller's Session without flushing or committing. Stored JSON
+vocabulary has not been censused, so no database constraint or legacy-data
+compatibility claim is made.
+
 Every service function takes the acting user and the `Session` first, then the
 operation input, and owns its own transaction: no helper commits and no
 service imports a router. The routers in
