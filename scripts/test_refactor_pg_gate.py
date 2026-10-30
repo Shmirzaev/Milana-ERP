@@ -110,10 +110,10 @@ class RequiredPGGateTests(unittest.TestCase):
         manifest = json.loads(Path(gate.__file__).with_name(
             'refactor_pg_required_cases.json').read_text(encoding='utf-8'))
         source = manifest['sources'][module]
-        self.assertEqual(source['revision'], '35dad5f0fea1a013584da263e1dbc5e76fc0f7f1')
-        self.assertEqual(source['git_blob_oid'], '01944edceced564efb7fd829f202c06f8ff3b607')
+        self.assertEqual(source['revision'], '7290b56545c2c6257d6eb9ce9f0a1376e1c7f8e2')
+        self.assertEqual(source['git_blob_oid'], 'f21801e3d5e379fa8bec77936aa09c213de8f530')
         self.assertEqual(source['git_blob_sha256'],
-                         '97f0633077c4907b5fd3197447ecca40554750e2c1e29f84647ce4d020c236d7')
+                         '8f490043b172294636d7070d3baa326ae948b13c7332d5f78c655c99bafe62c0')
         self.assertEqual(tuple(source['selected_functions']), functions)
         self.assertEqual(tuple(manifest['cases'][module]), cases)
         self.assertEqual(gate.GROUPS[module], (23, functions))
@@ -127,6 +127,43 @@ class RequiredPGGateTests(unittest.TestCase):
             json.dumps(baseline, sort_keys=True, separators=(',', ':')).encode()
         ).hexdigest()
         self.assertEqual(baseline_hash, 'fd77edae0055c6c345a2da20f0282719dd565357ab15e84f6fd4ca2d297d44b8')
+        # Restoring only the previous Image source identity reconstructs the
+        # old cross-module canonical digests; it proves no other registry
+        # content changed during the source refresh.
+        historical = json.loads(json.dumps(manifest))
+        historical['sources'][module].update(
+            revision='35dad5f0fea1a013584da263e1dbc5e76fc0f7f1',
+            git_blob_oid='01944edceced564efb7fd829f202c06f8ff3b607',
+            git_blob_sha256='97f0633077c4907b5fd3197447ecca40554750e2c1e29f84647ce4d020c236d7',
+        )
+        old_bom_baseline = dict(historical)
+        old_bom_baseline['sources'] = {
+            name: value for name, value in historical['sources'].items()
+            if name != 'test_bom_add_characterization'
+        }
+        old_bom_baseline['cases'] = {
+            name: value for name, value in historical['cases'].items()
+            if name != 'test_bom_add_characterization'
+        }
+        old_bom_baseline['approved_case_transitions'] = [
+            item for item in historical['approved_case_transitions']
+            if item.get('module') != 'test_bom_add_characterization'
+        ]
+        self.assertEqual(hashlib.sha256(
+            json.dumps(old_bom_baseline, sort_keys=True, separators=(',', ':')).encode()
+        ).hexdigest(), 'b8fca3b944e292a64120cf91e72ad2460624d4a8bb71a8427f5680824cd4e2a3')
+        old_model_baseline = {
+            'description': historical['description'],
+            'collection_method': historical['collection_method'],
+            'sources': {key: value for key, value in historical['sources'].items()
+                        if key != 'test_model_paid_operations_postgres'},
+            'cases': {key: value for key, value in historical['cases'].items()
+                      if key != 'test_model_paid_operations_postgres'},
+            'isolated_supplemental_cases': historical['isolated_supplemental_cases'],
+        }
+        self.assertEqual(hashlib.sha256(
+            json.dumps(old_model_baseline, sort_keys=True, separators=(',', ':')).encode()
+        ).hexdigest(), '93610adfe0a6bdc2a7cc59080070a0b3112d94f2f4f570f07cbe179f0e1b4f90')
         gate.verify_model_image_upload_source()
 
     def test_bom_source_refresh_retains_all_old_cases_and_requires_retry_case(self):
@@ -227,7 +264,7 @@ class RequiredPGGateTests(unittest.TestCase):
         ]
         self.assertEqual(hashlib.sha256(
             json.dumps(baseline, sort_keys=True, separators=(',', ':')).encode()).hexdigest(),
-            'b8fca3b944e292a64120cf91e72ad2460624d4a8bb71a8427f5680824cd4e2a3')
+            'bd3fca3b95320acf08722aa940d1b5a9406100e4cb8ca0da37935fc6d2173399')
         self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 257)
         self.assertEqual(sum(len(items) for items in manifest['cases'].values())
                          + len(manifest['isolated_supplemental_cases']), 274)
@@ -351,7 +388,7 @@ class RequiredPGGateTests(unittest.TestCase):
             'isolated_supplemental_cases': manifest['isolated_supplemental_cases'],
         }
         digest = hashlib.sha256(json.dumps(unrelated, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-        self.assertEqual(digest, '93610adfe0a6bdc2a7cc59080070a0b3112d94f2f4f570f07cbe179f0e1b4f90')
+        self.assertEqual(digest, '280d087d712f13d194f341ed5d85fd1440a2865af133d556bebe69df89a9d40c')
 
     def test_each_new_model_create_identity_is_required_and_nonpasses_fail(self):
         module = 'test_model_paid_operations_postgres'
