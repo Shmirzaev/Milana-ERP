@@ -70,7 +70,10 @@ the three existing settings PATCH sections into typed routes, a Support service
 and schema-owned supplied-Session persistence. Independent source review accepted
 the approved-fixture replacement, exact lock witnesses with JSON evidence,
 rollback/retry tests, restored unknown-section body-shape semantics and typed
-internal dispatch. Its 16 PostgreSQL cases still need required CI registration.
+internal dispatch. Independent registration review accepted all 16 PostgreSQL
+cases in the required gate, preserving every upstream case and source pin:
+218 primary plus 17 supplemental cases are required (235 total), with no runtime
+pass yet claimed for the Support candidate.
 No preceding CI result covers this draft. Actual language-value census and all
 runtime, browser/readback and acceptance gates remain pending; logo upload stays
 an explicitly separate operation.

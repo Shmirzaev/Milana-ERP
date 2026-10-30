@@ -44,7 +44,9 @@ The isolated SUP-01 settings PATCH draft builds on PR353 and introduces typed
 three-section routes, a Support business service and supplied-Session schema
 persistence. Independent source review accepted the corrected approved fixture,
 exact lock witnesses, rollback/retry tests and typed/body-shape contracts. Required
-CI registration and all exact-source runtime evidence are pending.
+CI registration now adds all 16 cases to the required gate without removing the
+219 upstream cases: 235 cases are required. Exact-source runtime results remain
+pending; the prior combined CI cannot verify this new Support change.
 Canonical language values are `en`/`ru`/`uz`; actual historical settings values still
 need the authorized read-only census. Currency, timezone and model types remain
 configurable. Logo upload and its file/transaction lifecycle remain separate work.
