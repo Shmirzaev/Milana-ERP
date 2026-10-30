@@ -23,22 +23,28 @@ Browser evidence is desktop English with synthetic allowed roles. Collection's
 public/raw legacy status typing remains unresolved; no domain or production
 acceptance is implied.
 
-The next isolated combined candidate applies Inventory batch-edit and Packaging
-selected print-run freezes to that merge base. Initial combined `78de8944` / tree
-`66811238` passed 116 focused unit/API cases with zero failures/errors/skips. Inventory's
-new identity-pinned PostgreSQL cases include actual edits, cross-domain relinks,
-refusals, rollback/retry and audit-chain checks. The corrected 26-case selection
-(9 Inventory, 7 Packaging and 10 PR347 regression cases) collected successfully.
-Local execution failed on earlier test assumptions and a RAM-reserve stop; the
-interrupted cluster remains preserved offline and will not be reused. The owner
-requires Comet, Chrome and Telegram to remain open, so these 26 cases are being
-added to the existing CI-owned PostgreSQL gate: 174 primary cases plus the unchanged
-17 supplemental cases. Existing 165-case CI success excludes these new cases;
-no expanded PostgreSQL pass is claimed yet. Computer checks, persisted readback,
-bounded integrity/recovery and independent combined acceptance remain pending;
-PR348 stays draft and unmerged.
-The integrator owns shared files and serializes landing. Frozen author candidates
-and earlier failed evidence remain preserved.
+PR348 freezes Inventory batch-edit and Packaging selected print-run persistence
+at `e6935401` / tree `331cb9aa`. Its 116 focused unit/API results belong to the
+application-equivalent initial `78de8944` source; exact-head backend/frontend CI
+and all 191 mandatory PostgreSQL cases passed, including successful owned-container
+cleanup. Actual Computer checks, persisted readback and postvisual checks remain
+pending; PR348 is draft and unmerged.
+
+The isolated successor `codex/refactor-receipts-payroll-combined-20261030` combines
+that source with independently reviewed Purchase Order receiving persistence and
+manual payroll adjustment creation. Its shared Inventory imports/types preserve
+the prior edit behavior and the reviewed public receipt participant. The People
+slice adds canonical adjustment and factory types while preserving stored values,
+query binding, constraints, scope/lock order and the separate reversal writer.
+Six approved receipt cases and two approved payroll race/rollback wrappers are
+added to the existing 191-case gate: 182 primary plus 17 supplemental cases.
+Combined execution is pending at this source freeze. The original operation
+branches, failed local runs and exact-source receipts remain preserved.
+
+The integrator owns shared files and serializes landing. Existing operation/type
+gaps, actual browser/readback, bounded recovery/cleanup and independent combined
+acceptance remain open. The full 13-domain scope and named human accountability
+are unchanged.
 
 | Remaining scope | Current next work / evidence required |
 | --- | --- |

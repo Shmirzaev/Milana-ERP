@@ -21,12 +21,13 @@ PR347 merged the verified Collection UPDATE, Purchasing costing/notification
 persistence and typed Finance payment-result slice into `clone_main` at
 `ff1542f02c137f24fc9fe78492aa69aa463a7293`, following PR343. No deployment occurred.
 The owner resumed all remaining domains with cheap isolated subagents on 30 October.
-Inventory batch-edit and Packaging selected print-run persistence are the next
-combined candidate in draft PR348. Its 116 unit/API cases pass. The corrected 26
-PostgreSQL cases are being added to the existing CI-owned gate (174 primary plus
-17 unchanged supplemental cases); expanded PostgreSQL execution, Computer/readback,
-bounded integrity/recovery and final combined acceptance remain pending. Local
-PG remains held while Comet, Chrome and Telegram stay open as the owner requested.
+PR348 freezes Inventory batch-edit and Packaging selected print-run persistence
+at `e6935401`; exact-head backend/frontend and 191 mandatory PG cases passed.
+Its isolated successor combines reviewed Purchase Order receiving and manual
+payroll adjustment creation, with 199 mandatory PG cases (182 primary plus 17
+supplemental). Combined execution, Computer/readback, postvisual checks and final
+acceptance remain pending. Original candidates remain frozen; the owner requires
+Comet, Chrome and Telegram to stay open, and local runtime guards remain enforced.
 Collection's canonical/public legacy status typing gap remains explicitly open.
 See [the current operation backlog](REFACTOR_COVERAGE.md#current-integration-and-active-work--30-october-2026).
 No whole-domain, system-wide type or human production acceptance is claimed.

@@ -32,7 +32,7 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 174)
+        self.assertEqual(sum(counts.values()), 182)
 
     def test_skipped_failed_and_error_evidence_are_rejected(self):
         for tag in ('skipped', 'failure', 'error'):
@@ -151,6 +151,56 @@ class RequiredPGGateTests(unittest.TestCase):
         ET.SubElement(case, 'skipped')
         with self.assertRaisesRegex(ValueError, 'did not pass'):
             gate.check_report(self.write_report(tree))
+
+    def test_each_purchase_receipt_case_identity_is_required(self):
+        module = 'test_purchase_receipt_persistence_postgres'
+        for name in gate.REQUIRED_CASES[module]:
+            with self.subTest(case=name):
+                tree = self.report()
+                case = next(item for item in tree.iter('testcase')
+                            if item.get('classname') == f'app.tests.{module}'
+                            and item.get('name') == name)
+                case.set('name', 'unrelated_replacement_case')
+                with self.assertRaisesRegex(ValueError, 'function missing|case identities missing'):
+                    gate.check_report(self.write_report(tree))
+
+    def test_purchase_receipt_nonpasses_are_rejected(self):
+        module = 'test_purchase_receipt_persistence_postgres'
+        for name in gate.REQUIRED_CASES[module]:
+            for tag in ('skipped', 'failure', 'error'):
+                with self.subTest(case=name, tag=tag):
+                    tree = self.report()
+                    case = next(item for item in tree.iter('testcase')
+                                if item.get('classname') == f'app.tests.{module}'
+                                and item.get('name') == name)
+                    ET.SubElement(case, tag)
+                    with self.assertRaisesRegex(ValueError, 'did not pass'):
+                        gate.check_report(self.write_report(tree))
+
+    def test_each_manual_adjustment_pg_identity_is_required(self):
+        module = 'test_payroll_adjustment_create_postgres'
+        for name in gate.REQUIRED_CASES[module]:
+            with self.subTest(case=name):
+                tree = self.report()
+                case = next(item for item in tree.iter('testcase')
+                            if item.get('classname') == f'app.tests.{module}'
+                            and item.get('name') == name)
+                case.set('name', 'unrelated_replacement_case')
+                with self.assertRaisesRegex(ValueError, 'function missing|case identities missing'):
+                    gate.check_report(self.write_report(tree))
+
+    def test_manual_adjustment_pg_nonpasses_are_rejected(self):
+        module = 'test_payroll_adjustment_create_postgres'
+        for name in gate.REQUIRED_CASES[module]:
+            for tag in ('skipped', 'failure', 'error'):
+                with self.subTest(case=name, tag=tag):
+                    tree = self.report()
+                    case = next(item for item in tree.iter('testcase')
+                                if item.get('classname') == f'app.tests.{module}'
+                                and item.get('name') == name)
+                    ET.SubElement(case, tag)
+                    with self.assertRaisesRegex(ValueError, 'did not pass'):
+                        gate.check_report(self.write_report(tree))
 
     def test_empty_and_malformed_evidence_fail(self):
         with self.assertRaisesRegex(ValueError, 'no test cases'):

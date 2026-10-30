@@ -243,6 +243,25 @@
         "test_selected_print_run_failure_rolls_back_then_retry",
         "test_selected_print_run_same_key_concurrency_serializes_exactly_once"
       ]
+    },
+    "test_purchase_receipt_persistence_postgres": {
+      "revision": "e5232e20210ca3e36fc525ad7c76253a0d492c56",
+      "git_blob_sha256": "758963b9af18c30b25881bcb7ea80d3bfc5c58dd50034d511c03fdf2162b4ed9",
+      "selected_functions": [
+        "test_pg_route_permission_denial_has_no_receipt_writes",
+        "test_pg_receipt_participant_command_qc_type_is_canonical",
+        "test_pg_receipt_audit_and_idempotency_failure_rolls_back_then_retry_succeeds",
+        "test_pg_receipt_replay_rechecks_inventory_access_before_serving_saved_response",
+        "test_pg_receipt_same_and_different_key_workers_serialize_on_purchase_order"
+      ]
+    },
+    "test_payroll_adjustment_create_postgres": {
+      "revision": "e5232e20210ca3e36fc525ad7c76253a0d492c56",
+      "git_blob_sha256": "58d3af10b8ae9444bc4cd1beba3f898ca5203d7d8b35f0068e08e5bf0883ad1e",
+      "selected_functions": [
+        "test_approved_pg_adjustment_writer_serializes_before_period_lock",
+        "test_approved_pg_manual_adjustment_flush_and_audit_failure_roll_back"
+      ]
     }
   },
   "cases": {
@@ -465,6 +484,18 @@
       "test_selected_print_run_failure_rolls_back_then_retry[audit_finalize]",
       "test_selected_print_run_failure_rolls_back_then_retry[idempotency_store]",
       "test_selected_print_run_same_key_concurrency_serializes_exactly_once"
+    ],
+    "test_purchase_receipt_persistence_postgres": [
+      "test_pg_route_permission_denial_has_no_receipt_writes",
+      "test_pg_receipt_participant_command_qc_type_is_canonical",
+      "test_pg_receipt_audit_and_idempotency_failure_rolls_back_then_retry_succeeds",
+      "test_pg_receipt_replay_rechecks_inventory_access_before_serving_saved_response",
+      "test_pg_receipt_same_and_different_key_workers_serialize_on_purchase_order[True]",
+      "test_pg_receipt_same_and_different_key_workers_serialize_on_purchase_order[False]"
+    ],
+    "test_payroll_adjustment_create_postgres": [
+      "test_approved_pg_adjustment_writer_serializes_before_period_lock",
+      "test_approved_pg_manual_adjustment_flush_and_audit_failure_roll_back"
     ]
   },
   "isolated_supplemental_cases": [

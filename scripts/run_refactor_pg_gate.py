@@ -75,6 +75,17 @@ GROUPS = {
         'test_selected_print_run_failure_rolls_back_then_retry',
         'test_selected_print_run_same_key_concurrency_serializes_exactly_once',
     )),
+    "test_purchase_receipt_persistence_postgres": (6, (
+        "test_pg_route_permission_denial_has_no_receipt_writes",
+        "test_pg_receipt_participant_command_qc_type_is_canonical",
+        "test_pg_receipt_audit_and_idempotency_failure_rolls_back_then_retry_succeeds",
+        "test_pg_receipt_replay_rechecks_inventory_access_before_serving_saved_response",
+        "test_pg_receipt_same_and_different_key_workers_serialize_on_purchase_order",
+    )),
+    "test_payroll_adjustment_create_postgres": (2, (
+        "test_approved_pg_adjustment_writer_serializes_before_period_lock",
+        "test_approved_pg_manual_adjustment_flush_and_audit_failure_roll_back",
+    )),
 }
 REQUIRED_CASES = json.loads(
     Path(__file__).with_name("refactor_pg_required_cases.json").read_text(encoding="utf-8")
