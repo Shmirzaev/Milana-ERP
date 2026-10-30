@@ -1091,6 +1091,8 @@ def _stage_accessories_for_production_order(
 
     if not issued:
         raise HTTPException(400, "No accessory issue quantities provided")
+    # Readiness queries must see staged issue rows when autoflush is disabled.
+    db.flush()
     sync_sewing_accessory_block(db, production_order_id)
     return AccessoryIssueOut(
         production_order_id=int(po.id),
