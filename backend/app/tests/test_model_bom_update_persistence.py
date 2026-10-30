@@ -567,7 +567,7 @@ def test_normalized_update_keeps_same_value_attribute_assignments(
 @pytest.mark.parametrize(
     ("values", "message"),
     [
-        ({"unknown": 1}, "Unknown normalized BOM update fields"),
+        ({"unknown": 1}, "Unknown normalized BOM update field: unknown"),
         ({"material_role": "legacy"}, "material_role must be a BomMaterialRole"),
         ({"item_id": "3"}, "item_id must be an integer"),
     ],
