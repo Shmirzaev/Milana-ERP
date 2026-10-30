@@ -334,6 +334,20 @@
         "test_pg_task_patch_concurrent_disjoint_fields_merge_with_two_audits",
         "test_pg_task_patch_repeat_has_no_idempotency_or_repeat_assignment_notice"
       ]
+    },
+    "test_task_complete_postgres": {
+      "revision": "865b8e1645970532bca47bfd638d03d81fc174bd",
+      "git_blob_sha256": "27483adb76a148d9456f73c2505f6637e70b291e8e1c6f84a82fc3819967ab5f",
+      "selected_functions": [
+        "test_pg_task_complete_actor_notification_audit_and_shared_session",
+        "test_pg_task_complete_does_not_notify_without_distinct_creator",
+        "test_pg_task_complete_denials_preserve_all_task_effects",
+        "test_pg_task_complete_missing_row_precedes_actor_authorization",
+        "test_pg_task_complete_http_failure_rolls_back_then_fresh_request_retry",
+        "test_pg_task_complete_same_session_rollback_clears_audit_state_then_retry",
+        "test_pg_task_complete_repeat_resets_timestamp_and_duplicates_notice_and_audit",
+        "test_pg_task_complete_concurrent_calls_remain_distinct_without_deduplication"
+      ]
     }
   },
   "cases": {
@@ -642,6 +656,23 @@
       "test_pg_task_patch_failure_rolls_back_then_retry[before_commit_hook]",
       "test_pg_task_patch_concurrent_disjoint_fields_merge_with_two_audits",
       "test_pg_task_patch_repeat_has_no_idempotency_or_repeat_assignment_notice"
+    ],
+    "test_task_complete_postgres": [
+      "test_pg_task_complete_actor_notification_audit_and_shared_session[assignee]",
+      "test_pg_task_complete_actor_notification_audit_and_shared_session[manager]",
+      "test_pg_task_complete_does_not_notify_without_distinct_creator[same_actor]",
+      "test_pg_task_complete_does_not_notify_without_distinct_creator[missing_creator]",
+      "test_pg_task_complete_denials_preserve_all_task_effects[outsider]",
+      "test_pg_task_complete_denials_preserve_all_task_effects[denied_manager]",
+      "test_pg_task_complete_missing_row_precedes_actor_authorization",
+      "test_pg_task_complete_http_failure_rolls_back_then_fresh_request_retry[after_notification_flush]",
+      "test_pg_task_complete_http_failure_rolls_back_then_fresh_request_retry[audit_finalize]",
+      "test_pg_task_complete_http_failure_rolls_back_then_fresh_request_retry[before_commit_hook]",
+      "test_pg_task_complete_same_session_rollback_clears_audit_state_then_retry[after_notification_flush]",
+      "test_pg_task_complete_same_session_rollback_clears_audit_state_then_retry[audit_finalize]",
+      "test_pg_task_complete_same_session_rollback_clears_audit_state_then_retry[before_commit_hook]",
+      "test_pg_task_complete_repeat_resets_timestamp_and_duplicates_notice_and_audit",
+      "test_pg_task_complete_concurrent_calls_remain_distinct_without_deduplication"
     ]
   },
   "isolated_supplemental_cases": [

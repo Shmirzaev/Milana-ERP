@@ -62,7 +62,7 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 244)
+        self.assertEqual(sum(counts.values()), 259)
 
     def test_task_create_source_pin_and_all_literal_case_identities_are_frozen(self):
         module = 'test_task_create_postgres'
@@ -97,7 +97,7 @@ class RequiredPGGateTests(unittest.TestCase):
         self.assertEqual(tuple(source['selected_functions']), functions)
         self.assertEqual(tuple(manifest['cases'][module]), cases)
         self.assertEqual(gate.GROUPS[module], (11, functions))
-        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 244)
+        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 259)
         self.assertEqual(len(manifest['isolated_supplemental_cases']), 17)
 
     def test_task_update_source_pin_all_literal_cases_and_upstream_manifest_are_frozen(self):
@@ -141,13 +141,17 @@ class RequiredPGGateTests(unittest.TestCase):
         self.assertEqual(tuple(source['selected_functions']), functions)
         self.assertEqual(tuple(manifest['cases'][module]), cases)
         self.assertEqual(gate.GROUPS[module], (15, functions))
-        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 244)
+        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 259)
         self.assertEqual(len(manifest['isolated_supplemental_cases']), 17)
 
         # Check upstream bytes semantically without consulting any Git history.
         upstream = json.loads(json.dumps(manifest))
         upstream['sources'].pop(module)
         upstream['cases'].pop(module)
+        # Task COMPLETE was registered after the frozen Task UPDATE base.
+        # Remove that additive module before checking the older upstream pin.
+        upstream['sources'].pop('test_task_complete_postgres')
+        upstream['cases'].pop('test_task_complete_postgres')
         canonical = json.dumps(upstream, sort_keys=True, separators=(',', ':')).encode('utf-8')
         self.assertEqual(
             hashlib.sha256(canonical).hexdigest(),
@@ -199,6 +203,112 @@ class RequiredPGGateTests(unittest.TestCase):
                 'testcase',
                 classname='app.tests.test_bom_add_characterization',
                 name=f'task_update_replacement_{index}',
+            )
+        with self.assertRaisesRegex(ValueError, 'expected at least'):
+            gate.check_report(self.write_report(tree))
+
+    def test_task_complete_source_pin_cases_and_prior_registry_are_frozen(self):
+        module = 'test_task_complete_postgres'
+        functions = (
+            'test_pg_task_complete_actor_notification_audit_and_shared_session',
+            'test_pg_task_complete_does_not_notify_without_distinct_creator',
+            'test_pg_task_complete_denials_preserve_all_task_effects',
+            'test_pg_task_complete_missing_row_precedes_actor_authorization',
+            'test_pg_task_complete_http_failure_rolls_back_then_fresh_request_retry',
+            'test_pg_task_complete_same_session_rollback_clears_audit_state_then_retry',
+            'test_pg_task_complete_repeat_resets_timestamp_and_duplicates_notice_and_audit',
+            'test_pg_task_complete_concurrent_calls_remain_distinct_without_deduplication',
+        )
+        cases = (
+            'test_pg_task_complete_actor_notification_audit_and_shared_session[assignee]',
+            'test_pg_task_complete_actor_notification_audit_and_shared_session[manager]',
+            'test_pg_task_complete_does_not_notify_without_distinct_creator[same_actor]',
+            'test_pg_task_complete_does_not_notify_without_distinct_creator[missing_creator]',
+            'test_pg_task_complete_denials_preserve_all_task_effects[outsider]',
+            'test_pg_task_complete_denials_preserve_all_task_effects[denied_manager]',
+            'test_pg_task_complete_missing_row_precedes_actor_authorization',
+            'test_pg_task_complete_http_failure_rolls_back_then_fresh_request_retry[after_notification_flush]',
+            'test_pg_task_complete_http_failure_rolls_back_then_fresh_request_retry[audit_finalize]',
+            'test_pg_task_complete_http_failure_rolls_back_then_fresh_request_retry[before_commit_hook]',
+            'test_pg_task_complete_same_session_rollback_clears_audit_state_then_retry[after_notification_flush]',
+            'test_pg_task_complete_same_session_rollback_clears_audit_state_then_retry[audit_finalize]',
+            'test_pg_task_complete_same_session_rollback_clears_audit_state_then_retry[before_commit_hook]',
+            'test_pg_task_complete_repeat_resets_timestamp_and_duplicates_notice_and_audit',
+            'test_pg_task_complete_concurrent_calls_remain_distinct_without_deduplication',
+        )
+        manifest = json.loads(
+            (Path(gate.__file__).with_name('refactor_pg_required_cases.json'))
+            .read_text(encoding='utf-8')
+        )
+        source = manifest['sources'][module]
+        self.assertEqual(source['revision'], '865b8e1645970532bca47bfd638d03d81fc174bd')
+        self.assertEqual(
+            source['git_blob_sha256'],
+            '27483adb76a148d9456f73c2505f6637e70b291e8e1c6f84a82fc3819967ab5f',
+        )
+        self.assertEqual(tuple(source['selected_functions']), functions)
+        self.assertEqual(tuple(manifest['cases'][module]), cases)
+        self.assertEqual(gate.GROUPS[module], (15, functions))
+        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 259)
+        self.assertEqual(len(manifest['isolated_supplemental_cases']), 17)
+
+        # Prove every prior registry identity and pin remains unchanged without
+        # consulting Git history (important in shallow CI checkouts).
+        prior = json.loads(json.dumps(manifest))
+        prior['sources'].pop(module)
+        prior['cases'].pop(module)
+        canonical = json.dumps(prior, sort_keys=True, separators=(',', ':')).encode('utf-8')
+        self.assertEqual(
+            hashlib.sha256(canonical).hexdigest(),
+            'f1680c052f4f324a7c7cafb71506b2ff5d6a4471c2dbf3e13e5bdb6da1ff97b2',
+        )
+
+    def test_each_task_complete_case_is_required_and_nonpasses_fail(self):
+        module = 'test_task_complete_postgres'
+        for required_name in gate.REQUIRED_CASES[module]:
+            for invalid in ('replacement', 'missing', 'skipped', 'failure', 'error'):
+                with self.subTest(case=required_name, invalid=invalid):
+                    tree = self.report()
+                    suite = next(tree.iter('testsuite'))
+                    case = next(
+                        item for item in tree.iter('testcase')
+                        if item.get('classname') == f'app.tests.{module}'
+                        and item.get('name') == required_name
+                    )
+                    if invalid == 'replacement':
+                        case.set('name', 'unrelated_task_complete_case')
+                    elif invalid == 'missing':
+                        suite.remove(case)
+                        ET.SubElement(
+                            suite,
+                            'testcase',
+                            classname='app.tests.test_bom_add_characterization',
+                            name='missing_task_complete_replacement',
+                        )
+                    else:
+                        ET.SubElement(case, invalid)
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        'required PG group|required PG function missing|case identities missing|did not pass',
+                    ):
+                        gate.check_report(self.write_report(tree))
+
+    def test_task_complete_group_cannot_be_replaced_by_other_cases(self):
+        module = 'test_task_complete_postgres'
+        tree = self.report()
+        suite = next(tree.iter('testsuite'))
+        selected = [
+            case for case in tree.iter('testcase')
+            if case.get('classname') == f'app.tests.{module}'
+        ]
+        for case in selected:
+            suite.remove(case)
+        for index in range(len(selected)):
+            ET.SubElement(
+                suite,
+                'testcase',
+                classname='app.tests.test_bom_add_characterization',
+                name=f'task_complete_replacement_{index}',
             )
         with self.assertRaisesRegex(ValueError, 'expected at least'):
             gate.check_report(self.write_report(tree))

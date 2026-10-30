@@ -136,7 +136,15 @@ GROUPS = {'test_customer_delete_postgres': (9,
                                     'test_pg_task_patch_explicit_null_not_null_fields_keep_database_failure_semantics',
                                     'test_pg_task_patch_failure_rolls_back_then_retry',
                                     'test_pg_task_patch_concurrent_disjoint_fields_merge_with_two_audits',
-                                    'test_pg_task_patch_repeat_has_no_idempotency_or_repeat_assignment_notice'))}
+                                    'test_pg_task_patch_repeat_has_no_idempotency_or_repeat_assignment_notice')),
+ 'test_task_complete_postgres': (15, ('test_pg_task_complete_actor_notification_audit_and_shared_session',
+                                      'test_pg_task_complete_does_not_notify_without_distinct_creator',
+                                      'test_pg_task_complete_denials_preserve_all_task_effects',
+                                      'test_pg_task_complete_missing_row_precedes_actor_authorization',
+                                      'test_pg_task_complete_http_failure_rolls_back_then_fresh_request_retry',
+                                      'test_pg_task_complete_same_session_rollback_clears_audit_state_then_retry',
+                                      'test_pg_task_complete_repeat_resets_timestamp_and_duplicates_notice_and_audit',
+                                      'test_pg_task_complete_concurrent_calls_remain_distinct_without_deduplication'))}
 REQUIRED_CASES = json.loads(
     Path(__file__).with_name("refactor_pg_required_cases.json").read_text(encoding="utf-8")
 )["cases"]
