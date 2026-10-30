@@ -544,7 +544,15 @@ def test_pg_cancel_during_image_processing_cleans_files_before_database_write(
     with sessions() as db:
         assert db.query(ModelImage).filter(ModelImage.model_id == model_id).count() == 0
         assert _audits_for_model(db, model_id) == []
-    assert list(tmp_path.rglob("*")) == []
+    assert _file_inventory(tmp_path) == {}
+    entries = {
+        path.relative_to(tmp_path).as_posix(): path
+        for path in tmp_path.rglob("*")
+    }
+    assert set(entries) == {"_thumbs"}
+    assert not entries["_thumbs"].is_symlink()
+    assert entries["_thumbs"].is_dir()
+    assert not any(entries["_thumbs"].iterdir())
     chain(sessions)
 
 

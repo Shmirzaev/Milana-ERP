@@ -1,4 +1,5 @@
 from datetime import date
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile
 
@@ -355,7 +356,7 @@ async def upload_image(
     mid: int,
     db: DbSession,
     file: UploadFile = File(...),
-    image_type: ModelImageUploadInput = Form(None),
+    image_type: Annotated[ModelImageUploadInput, Form()] = None,
     current: User = Depends(require_permissions("modeling.models", "*")),
     catalog_scope: str = Depends(_standard_catalog_scope),
 ):
