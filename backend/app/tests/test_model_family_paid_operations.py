@@ -333,19 +333,49 @@ def test_paid_operation_persistence_uses_the_callers_session_and_does_not_commit
     assert _details(model_id) == original
 
 
-def test_create_keeps_legacy_paid_operation_json_opaque(client, auth_headers):
+def test_create_rejects_invalid_paid_operation_vocabulary_without_writes(client, auth_headers):
     code = f"OPAQUE-{uuid4().hex[:8]}"
     legacy_details = {
         "general": {"model_no": code},
         "paid_operations": [{"id": "legacy", "section": "old-section", "company": "MIL",
                              "quantityMode": "historical-mode", "extension": {"kept": True}}],
     }
+    with TestSessionLocal() as db:
+        model_count = db.query(Model).count()
+    audits_before = _audit_count()
     response = client.post(
         "/api/models", headers=auth_headers,
         json={"code": code, "name": "Opaque create", "details_json": legacy_details},
     )
-    assert response.status_code == 201, response.text
+    assert response.status_code == 422, response.text
+    errors = response.json()["detail"]
+    for field, value in (("section", "old-section"), ("quantityMode", "historical-mode")):
+        assert any(error["loc"] == ["body", "details_json", "paid_operations", 0, field]
+                   and error["type"] == "enum" and error["input"] == value for error in errors)
+    with TestSessionLocal() as db:
+        assert db.query(Model).count() == model_count
+        assert db.query(Model).filter_by(code=code).count() == 0
+    assert _audit_count() == audits_before
+
+
+def test_existing_legacy_paid_operation_json_remains_opaque_on_get(client, auth_headers):
+    code = f"OPAQUE-READ-{uuid4().hex[:8]}"
+    legacy_details = {
+        "general": {"model_no": code},
+        "paid_operations": [{"id": "legacy", "section": "old-section", "company": "MIL",
+                             "quantityMode": "historical-mode", "extension": {"kept": True}}],
+    }
+    with TestSessionLocal() as db:
+        model = Model(code=code, name="Existing opaque historical JSON", details_json=legacy_details)
+        db.add(model)
+        db.commit()
+        model_id = model.id
+    audits_before = _audit_count()
+    response = client.get(f"/api/models/{model_id}", headers=auth_headers)
+    assert response.status_code == 200, response.text
     assert response.json()["details_json"] == legacy_details
+    assert _details(model_id) == legacy_details
+    assert _audit_count() == audits_before
 
 
 def test_paid_operation_audit_failure_rolls_back_and_retry_succeeds(monkeypatch):
