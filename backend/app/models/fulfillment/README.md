@@ -34,6 +34,22 @@ is separately pending, not proof of full domain isolation. Receive/dispatch and
 other writers remain separately pending. See the operation packet in
 [the dated record](../../../../docs/archive/SALES_APPROVED_STOCK_BOUNDARY_2026-10-26.md).
 
+## Direct finished-goods reserve
+
+`reserve_direct_stock` owns the existing `/api/finished-goods/reserve` manual-
+package and piece-stock branches. It preserves the route's `sales.orders`
+permission, branch selectors, refusal messages, package/item/stock lock order,
+reservation identity, audit payload and one outer commit. Manual packages must
+still reserve their complete remaining quantity; other package-backed and
+package-less stock remain piece-reserved. Both paths persist stock quantities,
+status and `StockReservation` through the existing schema-owned
+`reserve_stock_row` operation using the same Session. Sales `reserve_pieces` and
+`reserve_packs` remain distinct operations with Sales-owned order effects.
+
+The sibling `/api/finished-goods/release-reservation` writer is not included in
+this reserve operation. Legacy metadata repair remains separately used by
+`reserve_pieces`; this operation does not move or claim that caller.
+
 ## Existing code to study first
 
 `shipment_allocation_service.py` owns per-item claims on an existing package

@@ -116,7 +116,12 @@ GROUPS = {'test_customer_delete_postgres': (9,
                                           'test_pg_usluga_paid_operation_routes_apply_eco_factory_and_typed_sections',
                                           'test_pg_model_create_keeps_historical_paid_operation_json_opaque',
                                           'test_pg_paid_operations_failure_rolls_back_then_same_session_retry',
-                                          'test_pg_paid_operations_concurrent_factories_serialize_same_family_and_prove_row_lock_wait'))}
+                                          'test_pg_paid_operations_concurrent_factories_serialize_same_family_and_prove_row_lock_wait')),
+ 'test_direct_finished_goods_reserve_postgres': (6,
+                                                 ('test_pg_direct_reserve_manual_package_persists_rows_and_audit',
+                                                  'test_pg_direct_reserve_denied_actor_makes_no_business_writes',
+                                                  'test_pg_direct_reserve_competing_piece_requests_do_not_oversell',
+                                                  'test_pg_direct_reserve_failure_rolls_back_then_retry'))}
 REQUIRED_CASES = json.loads(
     Path(__file__).with_name("refactor_pg_required_cases.json").read_text(encoding="utf-8")
 )["cases"]

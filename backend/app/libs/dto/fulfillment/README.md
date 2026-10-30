@@ -5,6 +5,7 @@
 Existing Pydantic definitions in this group:
 
 - [package_workflows.py](package_workflows.py)
+- [stock_reservation_output.py](stock_reservation_output.py)
 - [shipment_review.py](shipment_review.py)
 
 These describe accepted inputs and returned data. They do not execute database
@@ -20,6 +21,10 @@ Add action/query contracts only for actual operations. New <entity>_input.py, <e
 Reuse shared bases from ../common.py and existing fixed values. Test validation,
 serialization, denied/privileged fields and the consuming workflow; then perform
 the required visual and release acceptance checks.
+
+`stock_reservation_output.py` describes the two existing direct reserve response
+shapes. The route keeps the piece response's `package_id` omission and the manual
+package response's `package_id` inclusion; no new request fields are introduced.
 
 See [DTO rules](../README.md), [business services](../../../models/README.md),
 [database definitions](../../../schemas/README.md) and

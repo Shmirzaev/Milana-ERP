@@ -9,6 +9,10 @@ This folder contains used internal contracts, including
 Their presence does not establish complete type coverage; each operation still
 needs its producer, consumer and verification evidence.
 
+`stock_reservation.py` also contains typed outcomes for the direct Fulfillment
+manual-package and piece-stock reserve operation; the route maps those outcomes
+to its existing, branch-specific HTTP response shapes.
+
 ## Purpose
 
 Describe data passed between internal operations when its shape differs from an
