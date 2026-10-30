@@ -21,6 +21,13 @@ commit, lock acquisition, business rule, mapping, table or migration is added.
 The calling Finance service retains audit and the outer transaction. Other
 issuance contexts are not converted by this one-operation candidate.
 
+Shipment reopen's invoice participant uses
+[invoice_reversal_persistence.py](invoice_reversal_persistence.py): the Finance
+service passes already-locked Invoice rows after the shipment coordinator has
+preflighted the complete set. The writer stages only `InvoiceStatus.VOID` and a
+zero amount in the supplied Session, with no policy check, flush, audit or
+commit. Shipment and stock writes remain outside this Finance helper.
+
 These links follow business ownership; some point to mixed files in another group
 or shared core.py. Keep one authoritative mapping per table. Moving individual
 classes out of mixed files is a separate approved change.
