@@ -13,7 +13,7 @@ from app.libs.dto.catalog.model_bom_update import ModelBOMUpdate
 from app.libs.dto.catalog.model_color_input import ModelColorIn
 from app.libs.dto.catalog.model_image_input import ModelImageIn
 from app.libs.dto.catalog.model_input import (
-    ModelIn,
+    ModelCreateIn,
     ModelPaidOperationsIn,
     ModelUpdateIn,
     ModelVariantCreateIn,
@@ -22,6 +22,7 @@ from app.libs.dto.catalog.model_input import (
 from app.libs.dto.catalog.model_output import (
     ModelDetail,
     ModelOptionPage,
+    ModelCreateOut,
     ModelOut,
     ModelSellingPriceOut,
 )
@@ -195,9 +196,9 @@ def get_next_model_number(
     return models_service.get_next_model_number(_, db, prefix)
 
 
-@router.post("/models", response_model=ModelOut, status_code=201)
+@router.post("/models", response_model=ModelCreateOut, status_code=201)
 def create_model(
-    payload: ModelIn,
+    payload: ModelCreateIn,
     db: DbSession,
     current: User = Depends(require_permissions("modeling.models", "*")),
     catalog_scope: str = Depends(_standard_catalog_scope),

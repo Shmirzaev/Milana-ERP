@@ -2,6 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
+from datetime import datetime, timezone
 import json
 from queue import Queue
 from threading import Barrier
@@ -12,12 +13,13 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import text
+from sqlalchemy.orm import object_session
 
 from app.api.routes.catalog import router as catalog_router
 from app.api.routes.usluga import router as usluga_router
 from app.core.deps import get_db
 from app.core.security import create_access_token
-from app.libs.dto.catalog.model_input import ModelPaidOperationsIn
+from app.libs.dto.catalog.model_input import ModelCreateIn, ModelPaidOperationsIn, PaidOperationIn
 from app.libs.enums.catalog import (
     PaidOperationFactory,
     PaidOperationQuantityMode,
@@ -26,13 +28,19 @@ from app.libs.enums.catalog import (
 )
 from app.models.catalog import models_service
 from app.models.factory_scope_service import bind_session_factory
-from app.schemas import AuditLog, Model, Role, User
+from app.schemas import AuditLog, CollectionModel, Department, Model, ModelBOM, ModelColor, ModelImage, ModelSize, Role, SystemSetting, User
 from app.tests.test_customer_create_postgres import chain, customer_pg_sessions  # noqa: F401
 
 
-def _actor(sessions, permissions, factory="MIL"):
+def _actor(sessions, permissions, factory="MIL", *, role_name=None, department_code=None):
     with sessions.begin() as db:
-        role = Role(name=f"Paid operation PG {uuid4().hex}", permissions=permissions)
+        role = Role(name=role_name or f"Paid operation PG {uuid4().hex}", permissions=permissions)
+        department = None
+        if department_code:
+            department = db.query(Department).filter_by(code=department_code).one_or_none()
+            if department is None:
+                department = Department(name=f"Synthetic {department_code} {uuid4().hex}", code=department_code)
+                db.add(department)
         db.add(role)
         db.flush()
         user = User(
@@ -41,6 +49,7 @@ def _actor(sessions, permissions, factory="MIL"):
             password_hash="unused",
             factory_code=factory,
             role_id=role.id,
+            department_id=department.id if department else None,
             is_active=True,
         )
         db.add(user)
@@ -48,9 +57,11 @@ def _actor(sessions, permissions, factory="MIL"):
         return user.id
 
 
-def _client(sessions):
+def _client(sessions, *, include_usluga=False):
     app = FastAPI()
     app.include_router(catalog_router, prefix="/api")
+    if include_usluga:
+        app.include_router(usluga_router, prefix="/api")
 
     def isolated_db():
         with sessions() as db:
@@ -349,22 +360,480 @@ def test_pg_usluga_paid_operation_routes_apply_eco_factory_and_typed_sections(cu
     chain(sessions)
 
 
-def test_pg_model_create_keeps_historical_paid_operation_json_opaque(customer_pg_sessions):
+@pytest.mark.parametrize("scope", ["standard", "usluga"], ids=["standard-create", "usluga-create"])
+def test_pg_model_create_uses_typed_paid_operation_rows_and_keeps_open_metadata(customer_pg_sessions, monkeypatch, scope):
+    sessions = customer_pg_sessions
+    factory = "ECO" if scope == "usluga" else "MIL"
+    actor_id = _actor(sessions, ["*"], factory)
+    code = f"CREATE-TYPED-{uuid4().hex[:8]}"
+    details = {
+        "general": {"model_no": code},
+        "paid_operations": [{
+            "id": "create-row",
+            "section": "sewing",
+            "sewingFactory": "ECO" if scope == "usluga" else "MIL",
+            "rate": "3.50",
+            "quantityMode": "batch",
+            "editorExtension": {"keep": True},
+        }],
+        "unrelated_extension": {"keep": ["historic", 0, False]},
+    }
+    url = "/api/usluga/models" if scope == "usluga" else "/api/models"
+    invalid_code = f"CREATE-INVALID-{uuid4().hex[:8]}"
+    from app.schemas.catalog.model_persistence import insert_model as actual_insert_model
+
+    insert_witnesses = []
+
+    def witness_insert(db, command):
+        assert command.details_json.has_paid_operations
+        assert isinstance(command.details_json.paid_operations[0], PaidOperationIn)
+        model = actual_insert_model(db, command)
+        assert object_session(model) is db
+        insert_witnesses.append((db, model.id))
+        return model
+
+    with monkeypatch.context() as patch:
+        patch.setattr(models_service, "insert_model", witness_insert)
+        with _client(sessions, include_usluga=(scope == "usluga")) as client:
+            schema = client.app.openapi()
+            request_ref = schema["paths"][url]["post"]["requestBody"]["content"]["application/json"]["schema"]["$ref"]
+            assert request_ref.endswith("/ModelCreateIn")
+            response_ref = schema["paths"][url]["post"]["responses"]["201"]["content"]["application/json"]["schema"]["$ref"]
+            assert response_ref.endswith("/ModelCreateOut")
+            details_schema = schema["components"]["schemas"]["ModelCreateDetailsIn"]
+            assert "PaidOperationIn" in json.dumps(details_schema["properties"]["paid_operations"])
+            assert details_schema["additionalProperties"] is True
+            output_details = schema["components"]["schemas"]["ModelCreateDetailsOut"]
+            assert "PaidOperationOut" in json.dumps(output_details["properties"]["paid_operations"])
+            assert output_details["additionalProperties"] is True
+            response = client.post(url, headers=_headers(actor_id, factory), json={
+                "code": code, "name": "Typed paid-operation CREATE", "details_json": details,
+                "status": "legacy-review-state",
+            })
+    assert response.status_code == 201, response.text
+    assert len(insert_witnesses) == 1 and insert_witnesses[0][1] == response.json()["id"]
+    saved = _stored(sessions, response.json()["id"])
+    assert saved["general"] == details["general"]
+    assert saved["unrelated_extension"] == details["unrelated_extension"]
+    assert response.json()["status"] == "legacy-review-state"
+    assert saved["paid_operations"] == [{
+        "id": "create-row",
+        "section": "sewing",
+        "sewingFactory": "eco_cotton" if scope == "usluga" else "milana",
+        "rate": "3.50",
+        "quantityMode": "batch",
+        "editorExtension": {"keep": True},
+    }]
+    before_audits = len(_audits(sessions, [response.json()["id"]]))
+    with sessions() as db:
+        created = db.query(Model).filter_by(code=code).one()
+        assert created.catalog_scope == scope
+        assert created.factory_code == ("ECO" if scope == "usluga" else None)
+        assert db.query(ModelImage).filter_by(model_id=created.id).count() == 0
+        assert db.query(ModelSize).filter_by(model_id=created.id).count() == 0
+        assert db.query(ModelColor).filter_by(model_id=created.id).count() == 0
+        assert db.query(ModelBOM).filter_by(model_id=created.id).count() == 0
+        assert db.query(CollectionModel).filter_by(model_id=created.id).count() == 0
+        created_id = created.id
+    with _client(sessions) as client:
+        invalid = client.post(url, headers=_headers(actor_id, factory), json={
+            "code": invalid_code, "name": "Invalid new row",
+            "details_json": {"paid_operations": [{"section": "historic-section", "rate": True}]},
+        })
+    assert invalid.status_code == 422, invalid.text
+    with sessions() as db:
+        assert db.query(Model).filter_by(code=invalid_code).count() == 0
+        assert db.get(Model, created_id) is not None
+        assert len(_audits(sessions, [created_id])) == before_audits == 1
+    chain(sessions)
+
+
+@pytest.mark.parametrize(
+    "case,scoped,details_rows,expected_rows_key,expected_rows",
+    [
+        ("omitted-unscoped", False, {}, None, None),
+        (
+            "sparse-row-explicit-null-unscoped",
+            False,
+            {"paid_operations": [{"section": "sewing", "rate": None, "sparseExtension": {"keep": True}}]},
+            "paid_operations",
+            [{"section": "sewing", "rate": None, "sparseExtension": {"keep": True}}],
+        ),
+        (
+            "snake-scoped",
+            True,
+            {"paid_operations": [{"id": "snake", "section": "sewing", "sewingFactory": "MIL", "rate": "2.75", "rowExtra": {"keep": True}}]},
+            "paid_operations",
+            [{"id": "snake", "section": "sewing", "sewingFactory": "milana", "rate": "2.75", "rowExtra": {"keep": True}}],
+        ),
+        (
+            "camel-scoped",
+            True,
+            {"paidOperations": [{"id": "camel", "section": "sewing", "sewingFactory": "MIL", "rate": "2.75"}]},
+            "paid_operations",
+            [{"id": "camel", "section": "sewing", "sewingFactory": "milana", "rate": "2.75"}],
+        ),
+        (
+            "both-scoped-canonical-wins",
+            True,
+            {
+                "paid_operations": [{"id": "canonical", "section": "sewing", "rate": "2.75"}],
+                "paidOperations": [{"id": "alias", "section": "cutting", "rate": "1.25"}],
+            },
+            "paid_operations",
+            [{"id": "canonical", "section": "sewing", "rate": "2.75"}],
+        ),
+        ("snake-null-scoped", True, {"paid_operations": None}, "paid_operations", []),
+        ("camel-null-scoped", True, {"paidOperations": None}, "paid_operations", []),
+        ("camel-null-unscoped", False, {"paidOperations": None}, "paidOperations", None),
+    ],
+    ids=[
+        "omitted-unscoped",
+        "sparse-row-explicit-null-unscoped",
+        "snake-scoped",
+        "camel-scoped",
+        "both-scoped-canonical-wins",
+        "snake-null-scoped",
+        "camel-null-scoped",
+        "camel-null-unscoped",
+    ],
+)
+def test_pg_model_create_paid_operation_key_presence_and_scope_merge(
+    customer_pg_sessions, case, scoped, details_rows, expected_rows_key, expected_rows
+):
+    sessions = customer_pg_sessions
+    actor_id = (
+        _actor(
+            sessions,
+            ["modeling.models"],
+            "MIL",
+            role_name=f"Synthetic Sewing Master {uuid4().hex}",
+            department_code="MIL",
+        )
+        if scoped
+        else _actor(sessions, ["*"])
+    )
+    code = f"CREATE-PRESENCE-{uuid4().hex[:8]}"
+    details = {"general": {"model_no": code}, "open_extension": {"keep": [0, False]}, **details_rows}
+    with _client(sessions) as client:
+        response = client.post("/api/models", headers=_headers(actor_id, "MIL"), json={
+            "code": code, "name": f"Paid-operation presence {case}", "details_json": details,
+        })
+    assert response.status_code == 201, response.text
+    returned = response.json()["details_json"]
+    saved = _stored(sessions, response.json()["id"])
+    assert returned == saved
+    assert returned["open_extension"] == {"keep": [0, False]}
+    if expected_rows_key is None:
+        assert "paid_operations" not in returned and "paidOperations" not in returned
+    else:
+        assert returned[expected_rows_key] == expected_rows
+        other_key = "paidOperations" if expected_rows_key == "paid_operations" else "paid_operations"
+        assert other_key not in returned
+    chain(sessions)
+
+
+def test_pg_model_create_keeps_preexisting_opaque_paid_operation_json_readable(customer_pg_sessions):
     sessions = customer_pg_sessions
     actor_id = _actor(sessions, ["*"])
-    code = f"CREATE-OPAQUE-{uuid4().hex[:8]}"
-    details = {
+    code = f"CREATE-OPAQUE-READ-{uuid4().hex[:8]}"
+    historical = {
         "general": {"model_no": code},
         "paid_operations": [{"id": "old", "section": "historic-section", "rate": True,
                              "company": "MIL", "quantityMode": "retired", "extension": {"keep": True}}],
     }
+    with sessions.begin() as db:
+        row = Model(code=code, name="Existing opaque historical JSON", details_json=historical)
+        db.add(row)
+        db.flush()
+        model_id = row.id
+    with _client(sessions) as client:
+        response = client.get(f"/api/models/{model_id}", headers=_headers(actor_id))
+    assert response.status_code == 200, response.text
+    assert response.json()["details_json"] == historical
+    assert _stored(sessions, model_id) == historical
+
+
+def test_pg_legacy_variant_create_retains_payload_approval_without_family_sibling(customer_pg_sessions):
+    sessions = customer_pg_sessions
+    actor_id = _actor(sessions, ["*"])
+    code = f"LEGACY-CREATE-{uuid4().hex[:8]}-V1"
     with _client(sessions) as client:
         response = client.post("/api/models", headers=_headers(actor_id), json={
-            "code": code, "name": "Opaque historical JSON", "details_json": details,
+            "code": code,
+            "name": "Legacy approved variant",
+            "status": "approved",
+            "details_json": {
+                "legacy_import": True,
+                "general": {"model_no": code.rsplit("-V1", 1)[0], "variant_no": "V1"},
+            },
         })
     assert response.status_code == 201, response.text
-    saved = _stored(sessions, response.json()["id"])
-    assert saved == details
+    assert response.json()["status"] == "approved"
+    assert response.json()["approved_by"] is None
+    assert response.json()["approved_at"] is None
+    with sessions() as db:
+        saved = db.query(Model).filter_by(code=code).one()
+        assert saved.status == "approved"
+        assert saved.approved_by is None and saved.approved_at is None
+    chain(sessions)
+
+
+def test_pg_model_create_wrong_factory_paid_operation_refuses_before_writes(customer_pg_sessions):
+    sessions = customer_pg_sessions
+    from app.models.numbering_service import next_model_no
+
+    actor_id = _actor(
+        sessions,
+        ["modeling.models"],
+        "MIL",
+        role_name=f"Synthetic Sewing Master {uuid4().hex}",
+        department_code="MIL",
+    )
+    with sessions() as db:
+        audit_count_before = db.query(AuditLog).filter(AuditLog.entity_type == "Model").count()
+        model_count_before = db.query(Model).count()
+        setting_before = db.query(SystemSetting).filter_by(key="model_numbering").one_or_none()
+        numbering_before = deepcopy(setting_before.value_json) if setting_before else None
+        expected_code = next_model_no(db, "XJ")
+        assert db.query(Model).filter_by(code=expected_code).count() == 0
+    with _client(sessions) as client:
+        response = client.post("/api/models", headers=_headers(actor_id, "MIL"), json={
+            "code": "ignored-preview",
+            "name": "Must not create a Besttex operation as Milana",
+            "automatic_model_prefix": "XJ",
+            "details_json": {"paid_operations": [{
+                "id": "wrong-factory", "section": "sewing", "sewingFactory": "BST", "rate": "1.00",
+            }]},
+        })
+    assert response.status_code == 403, response.text
+    with sessions() as db:
+        assert db.query(Model).count() == model_count_before
+        assert db.query(Model).filter_by(code=expected_code).count() == 0
+        assert db.query(AuditLog).filter(AuditLog.entity_type == "Model").count() == audit_count_before
+        setting = db.query(SystemSetting).filter_by(key="model_numbering").one_or_none()
+        assert (deepcopy(setting.value_json) if setting else None) == numbering_before
+    chain(sessions)
+
+
+def test_pg_model_create_audit_failure_rolls_back_then_same_session_retry(customer_pg_sessions, monkeypatch):
+    sessions = customer_pg_sessions
+    actor_id = _actor(sessions, ["*"])
+    code = f"CREATE-RETRY-{uuid4().hex[:8]}"
+    payload = ModelCreateIn(code=code, name="CREATE retry", details_json={"extra": {"kept": True}})
+    original_audit = models_service.log_action
+    failed = []
+
+    def fail_first_audit(*args, **kwargs):
+        if not failed:
+            failed.append(True)
+            raise RuntimeError("injected Model CREATE audit failure")
+        return original_audit(*args, **kwargs)
+
+    with sessions() as db:
+        actor = db.get(User, actor_id)
+        audit_count_before = db.query(AuditLog).filter(AuditLog.entity_type == "Model").count()
+        with monkeypatch.context() as patch:
+            patch.setattr(models_service, "log_action", fail_first_audit)
+            with pytest.raises(RuntimeError, match="injected Model CREATE audit failure"):
+                models_service.create_model(actor, db, payload)
+            db.rollback()
+            assert db.query(Model).filter_by(code=code).count() == 0
+            assert db.query(AuditLog).filter(AuditLog.entity_type == "Model").count() == audit_count_before
+            created = models_service.create_model(actor, db, payload)
+            model_id = created["id"]
+    with sessions() as db:
+        assert db.get(Model, model_id).details_json == {"extra": {"kept": True}, "general": {"model_no": code}}
+        assert len(_audits(sessions, [model_id])) == 1
+        assert db.query(AuditLog).filter(AuditLog.entity_type == "Model").count() == audit_count_before + 1
+    chain(sessions)
+
+
+def test_pg_model_create_automatic_number_and_model_rollback_retry_together(customer_pg_sessions, monkeypatch):
+    sessions = customer_pg_sessions
+    actor_id = _actor(sessions, ["*"])
+    baseline = {"last_assigned": {"XJ": 7300}, "other": {"keep": True}}
+    with sessions.begin() as db:
+        setting = db.query(SystemSetting).filter_by(key="model_numbering").one_or_none()
+        if setting is None:
+            setting = SystemSetting(key="model_numbering", value_json=deepcopy(baseline))
+            db.add(setting)
+        else:
+            setting.value_json = deepcopy(baseline)
+    original_audit = models_service.log_action
+    failed = []
+
+    def fail_first_audit(*args, **kwargs):
+        if not failed:
+            failed.append(True)
+            raise RuntimeError("injected automatic Model CREATE audit failure")
+        return original_audit(*args, **kwargs)
+
+    with sessions() as db:
+        actor = db.get(User, actor_id)
+        audit_count_before = db.query(AuditLog).filter(AuditLog.entity_type == "Model").count()
+        with monkeypatch.context() as patch:
+            patch.setattr(models_service, "log_action", fail_first_audit)
+            with pytest.raises(RuntimeError, match="injected automatic Model CREATE audit failure"):
+                models_service.create_model(
+                    actor,
+                    db,
+                    ModelCreateIn(code="ignored-preview", name="Automatic retry", automatic_model_prefix="XJ"),
+                )
+            db.rollback()
+            assert db.query(Model).filter_by(code="XJ7301").count() == 0
+            assert db.query(SystemSetting).filter_by(key="model_numbering").one().value_json == baseline
+            assert db.query(AuditLog).filter(AuditLog.entity_type == "Model").count() == audit_count_before
+            created = models_service.create_model(
+                actor,
+                db,
+                ModelCreateIn(code="ignored-preview", name="Automatic retry", automatic_model_prefix="XJ"),
+            )
+    assert created["code"] == "XJ7301"
+    with sessions() as db:
+        assert db.query(SystemSetting).filter_by(key="model_numbering").one().value_json == {
+            "last_assigned": {"XJ": 7301}, "other": {"keep": True},
+        }
+        assert db.query(Model).filter_by(code="XJ7301").count() == 1
+        assert db.query(AuditLog).filter(AuditLog.entity_type == "Model").count() == audit_count_before + 1
+    chain(sessions)
+
+
+def test_pg_model_create_variant_waits_for_family_approval_lock(customer_pg_sessions, record_property):
+    sessions = customer_pg_sessions
+    actor_id = _actor(sessions, ["*"])
+    family_code = f"CREATE-LOCK-{uuid4().hex[:8]}"
+    approved_at = datetime.now(timezone.utc)
+    with sessions.begin() as db:
+        base = Model(
+            code=family_code,
+            name="Approved CREATE family",
+            status="approved",
+            approved_by=actor_id,
+            approved_at=approved_at,
+            catalog_scope="standard",
+            details_json={"general": {"model_no": family_code}},
+        )
+        db.add(base)
+        db.flush()
+        base_id = base.id
+    lock_key = f"model-approval:standard:model:{family_code.casefold()}"
+
+    def create_variant(actor_id, variant_no, start, pid_queue):
+        with sessions() as db:
+            db.execute(text("SET LOCAL lock_timeout = '9s'"))
+            db.execute(text("SET LOCAL statement_timeout = '18s'"))
+            actor = db.get(User, actor_id)
+            pid_queue.put(db.execute(text("SELECT pg_backend_pid()")).scalar_one())
+            start.wait(timeout=8)
+            return models_service.create_model(
+                actor,
+                db,
+                ModelCreateIn(
+                    code=f"{family_code}-V-{variant_no}",
+                    name="Approved CREATE variant",
+                    details_json={"general": {"model_no": family_code, "variant_no": variant_no}},
+                ),
+            )
+
+    holder = sessions()
+    holder_pid = holder.execute(text("SELECT pg_backend_pid()")).scalar_one()
+    holder.execute(text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"), {"lock_key": lock_key})
+    pool = ThreadPoolExecutor(max_workers=2)
+    start = Barrier(3)
+    pid_queue = Queue()
+    workers = [pool.submit(create_variant, actor_id, value, start, pid_queue) for value in ("2", "3")]
+    observer = sessions()
+    worker_pids = set()
+    lock_witnesses = {}
+    wait_diagnostics = {}
+    snapshot_refreshes = 0
+    try:
+        worker_pids = {pid_queue.get(timeout=5), pid_queue.get(timeout=5)}
+        start.wait(timeout=8)
+        deadline = monotonic() + 8
+        while monotonic() < deadline:
+            observer.execute(text("SELECT pg_stat_clear_snapshot()"))
+            snapshot_refreshes += 1
+            for worker_pid in worker_pids:
+                state = observer.execute(text("""
+                    SELECT wait_event_type, wait_event, pg_blocking_pids(pid) AS blocking_pids
+                    FROM pg_stat_activity WHERE pid = :pid
+                """), {"pid": worker_pid}).mappings().one_or_none()
+                if state is None:
+                    continue
+                advisory = observer.execute(text("""
+                    SELECT mode, granted FROM pg_locks
+                    WHERE pid = :pid AND locktype = 'advisory'
+                """), {"pid": worker_pid}).mappings().all()
+                seen = set(state["blocking_pids"] or ())
+                frontier = list(seen)
+                while frontier and holder_pid not in seen:
+                    parent_pid = frontier.pop()
+                    blockers = observer.execute(
+                        text("SELECT pg_blocking_pids(:pid)"), {"pid": parent_pid}
+                    ).scalar_one()
+                    for blocker_pid in blockers:
+                        if blocker_pid not in seen:
+                            seen.add(blocker_pid)
+                            frontier.append(blocker_pid)
+                wait_diagnostics[worker_pid] = {
+                    "wait_event_type": state["wait_event_type"],
+                    "wait_event": state["wait_event"],
+                    "advisory_locks": [dict(row) for row in advisory],
+                    "blocker_chain": sorted(seen),
+                }
+                if (
+                    state["wait_event_type"] == "Lock"
+                    and any(not row["granted"] for row in advisory)
+                    and holder_pid in seen
+                ):
+                    lock_witnesses[worker_pid] = wait_diagnostics[worker_pid]
+            if set(lock_witnesses) == worker_pids:
+                break
+            if all(worker.done() for worker in workers):
+                break
+            sleep(0.05)
+        record_property(
+            "model_create_family_lock_witnesses",
+            json.dumps({
+                "holder_pid": holder_pid,
+                "worker_pids": sorted(worker_pids),
+                "snapshot_refreshes": snapshot_refreshes,
+                "witnesses": lock_witnesses,
+                "last_wait_diagnostics": wait_diagnostics,
+            }, sort_keys=True),
+        )
+        assert set(lock_witnesses) == worker_pids, (
+            "both Model CREATE workers must wait on the held family advisory lock; "
+            f"pids={sorted(worker_pids)}, witnesses={lock_witnesses}, last={wait_diagnostics}"
+        )
+    finally:
+        try:
+            holder.rollback()
+        finally:
+            try:
+                holder.close()
+            finally:
+                try:
+                    observer.close()
+                finally:
+                    pool.shutdown(wait=True, cancel_futures=True)
+    results = [worker.result(timeout=0) for worker in workers]
+    assert {row["status"] for row in results} == {"approved"}
+    created_ids = [row["id"] for row in results]
+    with sessions() as db:
+        base = db.get(Model, base_id)
+        assert base.status == "approved" and base.approved_by == actor_id and base.approved_at == approved_at
+        created = [db.get(Model, model_id) for model_id in created_ids]
+        assert {row.status for row in created} == {"approved"}
+        assert {row.approved_by for row in created} == {actor_id}
+        assert {row.approved_at for row in created} == {approved_at}
+        audits = db.query(AuditLog).filter(
+            AuditLog.entity_type == "Model", AuditLog.entity_id.in_(created_ids), AuditLog.action == "create"
+        ).all()
+        assert len(audits) == 2
+    chain(sessions)
 
 
 @pytest.mark.parametrize("failure_point", ["audit", "model-flush"], ids=["audit-failure", "postflush-failure"])

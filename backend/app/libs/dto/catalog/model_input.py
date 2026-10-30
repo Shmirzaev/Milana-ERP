@@ -132,6 +132,21 @@ class ModelIn(BaseModel):
     sam_minutes: float = 0
 
 
+class ModelCreateDetailsIn(BaseModel):
+    """Typed paid-operation rows with open, preserved model metadata."""
+
+    model_config = ConfigDict(extra="allow")
+
+    paid_operations: list[PaidOperationIn] | None = None
+    paidOperations: list[PaidOperationIn] | None = None
+
+
+class ModelCreateIn(ModelIn):
+    """CREATE contract; PATCH continues to use its separate update contract."""
+
+    details_json: ModelCreateDetailsIn | None = None
+
+
 
 class ModelDetailsUpdateIn(BaseModel):
     """PATCH details with typed operation rows and open unrelated metadata."""
@@ -143,7 +158,7 @@ class ModelDetailsUpdateIn(BaseModel):
 
 
 class ModelUpdateIn(ModelIn):
-    """PATCH contract; create remains intentionally opaque for model JSON."""
+    """PATCH contract with typed paid-operation rows and open JSON metadata."""
 
     details_json: ModelDetailsUpdateIn | None = None
 

@@ -13,6 +13,11 @@ needs its producer, consumer and verification evidence.
 manual-package and piece-stock reserve operation; the route maps those outcomes
 to its existing, branch-specific HTTP response shapes.
 
+`catalog.py` carries the actual Model CREATE command and insert values. The
+command keeps known paid-operation rows as `PaidOperationIn` through business
+factory-scope checks; the schema operation serializes them at persistence.
+Model status remains raw pending the legacy vocabulary census.
+
 ## Purpose
 
 Describe data passed between internal operations when its shape differs from an

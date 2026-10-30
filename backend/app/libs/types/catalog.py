@@ -5,10 +5,15 @@ schema-owned insert. The business service has already decided what the row
 holds, and the material role is the canonical enum member or nothing at all.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
+from datetime import datetime
 from typing import NotRequired, TypedDict
 
-from app.libs.enums.catalog import BomMaterialRole, CollectionStatus
+from app.libs.dto.catalog.model_input import PaidOperationIn
+from app.libs.enums.catalog import BomMaterialRole, CatalogScope, CollectionStatus, PaidOperationFactory
+from app.libs.enums.factory import FactoryCode
 
 
 class BrandUpdateCommand(TypedDict):
@@ -111,3 +116,72 @@ class StockBatchBomRelinkCommand(TypedDict):
 
     stock_batch_id: int
     item_id: int
+
+
+@dataclass(frozen=True)
+class ModelCreateCommand:
+    """Validated Model CREATE input consumed by catalog business policy.
+
+    Paid-operation rows remain typed through service policy and serialize only
+    in the schema-owned JSON persistence operation. `status` remains raw because Model.status
+    has legacy importer/PATCH values and no established closed vocabulary.
+    """
+
+    code: str
+    name: str
+    catalog_scope: CatalogScope
+    factory_scope: PaidOperationFactory | None
+    category: str | None
+    description: str | None
+    brand_id: int | None
+    collection_id: int | None
+    product_type: str | None
+    season: str | None
+    constructor_employee_id: int | None
+    designer_employee_id: int | None
+    details_json: ModelCreateDetails
+    status: str
+    sam_minutes: float
+    automatic_model_prefix: str | None
+
+
+@dataclass(frozen=True)
+class ModelCreateDetails:
+    """Open model metadata with recognized paid-operation keys kept typed."""
+
+    metadata: dict[str, object]
+    has_paid_operations: bool
+    paid_operations: list[PaidOperationIn] | None
+    has_paid_operations_alias: bool
+    paidOperations: list[PaidOperationIn] | None
+
+
+@dataclass(frozen=True)
+class ModelApprovalInheritance:
+    """Approval projection copied from the already-locked approved family."""
+
+    approved_by: int | None
+    approved_at: datetime | None
+
+
+@dataclass(frozen=True)
+class ModelInsert:
+    """All mapped Model CREATE values after service policy has decided them."""
+
+    code: str
+    name: str
+    catalog_scope: CatalogScope
+    factory_code: FactoryCode | None
+    category: str | None
+    description: str | None
+    brand_id: int | None
+    collection_id: int | None
+    product_type: str | None
+    season: str | None
+    constructor_employee_id: int | None
+    designer_employee_id: int | None
+    details_json: ModelCreateDetails
+    status: str
+    sam_minutes: float
+    created_by: int | None
+    approval_inheritance: ModelApprovalInheritance | None = None

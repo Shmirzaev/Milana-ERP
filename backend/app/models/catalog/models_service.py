@@ -13,6 +13,7 @@ Contract for the catalog product operations:
 """
 
 from copy import deepcopy
+from dataclasses import replace
 from datetime import date, datetime, timezone
 from functools import partial
 import json
@@ -47,12 +48,21 @@ from app.libs.dto.catalog.model_bom_input import ModelBOMIn
 from app.libs.dto.catalog.model_bom_update import ModelBOMUpdate
 from app.libs.dto.catalog.model_color_input import ModelColorIn
 from app.libs.dto.catalog.model_image_input import ModelImageIn
-from app.libs.dto.catalog.model_input import ModelIn, ModelPaidOperationsIn, ModelUpdateIn, ModelVariantCreateIn, ModelVariantUpdateIn
+from app.libs.dto.catalog.model_input import ModelCreateIn, ModelPaidOperationsIn, ModelUpdateIn, ModelVariantCreateIn, ModelVariantUpdateIn
 from app.libs.dto.catalog.model_size_input import ModelSizeIn
-from app.libs.dto.catalog.model_output import ModelDetail, ModelImageOut, ModelOut, ModelSummaryOut
+from app.libs.dto.catalog.model_output import ModelCreateOut, ModelDetail, ModelImageOut, ModelOut, ModelSummaryOut
 from app.libs.dto.catalog.process_qr_sizes_input import ProcessQrSizesIn
-from app.libs.enums.catalog import BomMaterialRole, CatalogScope
-from app.libs.types.catalog import NormalizedBomCreate, NormalizedBomUpdate, StockBatchBomRelinkCommand
+from app.libs.enums.catalog import BomMaterialRole, CatalogScope, PaidOperationFactory
+from app.libs.enums.factory import FactoryCode
+from app.libs.types.catalog import (
+    ModelApprovalInheritance,
+    ModelCreateCommand,
+    ModelCreateDetails,
+    ModelInsert,
+    NormalizedBomCreate,
+    NormalizedBomUpdate,
+    StockBatchBomRelinkCommand,
+)
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import selected_factory_code
 from app.models.image_storage_service import (
@@ -77,6 +87,7 @@ from app.models.model_images_service import model_print_image_url, model_preview
 from app.models.numbering_service import next_model_variant_no, next_model_no, CATALOG_NUMBERING_BASE
 from app.models.paid_operations_service import (
     filter_paid_operations_for_factory,
+    merge_scoped_model_create_operations,
     merge_scoped_paid_operation_update,
     merge_scoped_paid_operations,
     normalize_paid_operation_factory,
@@ -110,6 +121,7 @@ from app.schemas.catalog.bom_persistence import (
     update_model_bom,
 )
 from app.schemas.catalog.model_paid_operations_persistence import persist_model_paid_operations
+from app.schemas.catalog.model_persistence import insert_model, serialize_model_create_details
 
 # A model's details_json is per-model modelling metadata: identity, costing and
 # paid operations. Sizes, measurements, BOM and images live in their own tables,
@@ -1660,29 +1672,77 @@ def get_next_model_number(
 def create_model(
     current: User,
     db: Session,
-    payload: ModelIn,
+    payload: ModelCreateIn,
     catalog_scope: str = "standard",
 ):
-    catalog_scope = _normalize_catalog_scope(catalog_scope)
-    model_data = payload.model_dump()
-    automatic_prefix = model_data.pop("automatic_model_prefix", None)
-    details = deepcopy(model_data.get("details_json")) if isinstance(model_data.get("details_json"), dict) else {}
+    scope = CatalogScope(_normalize_catalog_scope(catalog_scope))
+    details_input = payload.details_json
+    create_details = (
+        ModelCreateDetails(
+            metadata=details_input.model_dump(
+                mode="python", exclude_unset=True, exclude={"paid_operations", "paidOperations"}
+            ),
+            has_paid_operations="paid_operations" in details_input.model_fields_set,
+            paid_operations=details_input.paid_operations,
+            has_paid_operations_alias="paidOperations" in details_input.model_fields_set,
+            paidOperations=details_input.paidOperations,
+        )
+        if details_input is not None
+        else ModelCreateDetails(
+            metadata={},
+            has_paid_operations=False,
+            paid_operations=None,
+            has_paid_operations_alias=False,
+            paidOperations=None,
+        )
+    )
+    command = ModelCreateCommand(
+        code=payload.code,
+        name=payload.name,
+        catalog_scope=scope,
+        factory_scope=None,
+        category=payload.category,
+        description=payload.description,
+        brand_id=payload.brand_id,
+        collection_id=payload.collection_id,
+        product_type=payload.product_type,
+        season=payload.season,
+        constructor_employee_id=payload.constructor_employee_id,
+        designer_employee_id=payload.designer_employee_id,
+        details_json=create_details,
+        status=payload.status,
+        sam_minutes=payload.sam_minutes,
+        automatic_model_prefix=payload.automatic_model_prefix,
+    )
+    code = command.code
+    automatic_prefix = command.automatic_model_prefix
+    details = deepcopy(command.details_json.metadata) if command.details_json else {}
     if automatic_prefix:
         general = details.get("general") if isinstance(details.get("general"), dict) else {}
         if general.get("variant_no") or general.get("variantNo") or details.get("legacy_import"):
             raise HTTPException(400, "Automatic model numbering creates a base model")
-        model_data["code"] = next_model_no(db, automatic_prefix, reserve=True)
-        details["general"] = {**general, "model_no": model_data["code"]}
-    model_data["code"] = (
-        _clean_text(model_data.get("code"))
+        code = next_model_no(db, automatic_prefix, reserve=True)
+        details["general"] = {**general, "model_no": code}
+    code = (
+        _clean_text(code)
         if details.get("legacy_import") is True
-        else _normalize_model_code(model_data.get("code"))
+        else _normalize_model_code(code)
     )
-    if db.query(Model).filter(Model.code == model_data["code"]).first():
+    if db.query(Model).filter(Model.code == code).first():
         raise HTTPException(400, "Model code already exists")
-    factory_scope = "eco_cotton" if catalog_scope == "usluga" else sewing_master_factory_scope(current)
+    raw_factory_scope = (
+        "eco_cotton" if scope is CatalogScope.USLUGA else sewing_master_factory_scope(current)
+    )
+    command = replace(
+        command,
+        factory_scope=PaidOperationFactory(raw_factory_scope) if raw_factory_scope else None,
+    )
+    factory_scope = command.factory_scope.value if command.factory_scope else None
     if factory_scope:
-        details = merge_scoped_paid_operations({}, details, factory_scope)
+        create_details = merge_scoped_model_create_operations(
+            command.details_json,
+            command.factory_scope,
+        )
     general = details.get("general")
     if not isinstance(general, dict):
         general = {}
@@ -1692,30 +1752,62 @@ def create_model(
         general["model_no"] = configured_model_no
         general.pop("modelNo", None)
     if not configured_model_no and not configured_variant_no:
-        general["model_no"] = model_data["code"]
+        general["model_no"] = code
     if (configured_model_no or general.get("model_no")) and not configured_variant_no:
         general.pop("variant_no", None)
         general.pop("variantNo", None)
     details["general"] = general
-    model_data["details_json"] = details
-    _validate_model_details_json_bounds(model_data["details_json"])
+    persisted_details = replace(create_details, metadata=details)
+    _validate_model_details_json_bounds(serialize_model_create_details(persisted_details))
 
-    m = Model(
-        **model_data,
-        catalog_scope=catalog_scope,
-        factory_code="ECO" if catalog_scope == "usluga" else None,
-        created_by=current.id,
+    approval = None
+    if _model_code_parts_from_general(code, general)[1]:
+        family_probe = SimpleNamespace(
+            id=0,
+            code=code,
+            name=command.name,
+            catalog_scope=scope.value,
+            details_json=details,
+            status=command.status,
+            approved_by=None,
+            approved_at=None,
+        )
+        approval = next(
+            (row for row in _approval_family(db, family_probe) if row.status == "approved"),
+            None,
+        )
+    m = insert_model(
+        db,
+        ModelInsert(
+            code=code,
+            name=command.name,
+            catalog_scope=scope,
+            factory_code=FactoryCode.ECO if scope is CatalogScope.USLUGA else None,
+            category=command.category,
+            description=command.description,
+            brand_id=command.brand_id,
+            collection_id=command.collection_id,
+            product_type=command.product_type,
+            season=command.season,
+            constructor_employee_id=command.constructor_employee_id,
+            designer_employee_id=command.designer_employee_id,
+            details_json=persisted_details,
+            status=command.status,
+            sam_minutes=command.sam_minutes,
+            created_by=current.id,
+            approval_inheritance=(
+                ModelApprovalInheritance(
+                    approved_by=approval.approved_by,
+                    approved_at=approval.approved_at,
+                )
+                if approval is not None
+                else None
+            ),
+        ),
     )
-    if _model_code_parts(m)[1]:
-        approval = next((row for row in _approval_family(db, m) if row.status == "approved"), None)
-        if approval:
-            m.status = "approved"
-            m.approved_by = approval.approved_by
-            m.approved_at = approval.approved_at
-    db.add(m); db.flush()
     log_action(db, current, "create", "Model", m.id, new_value={"code": m.code})
     db.commit(); db.refresh(m)
-    return _model_out_payload(m, factory_scope)
+    return ModelCreateOut.model_validate(_model_out_payload(m, factory_scope)).model_dump()
 
 
 def get_model_selling_price(

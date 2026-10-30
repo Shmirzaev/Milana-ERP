@@ -1,13 +1,14 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_serializer
 
 from app.libs.dto.catalog.model_bom_output import ModelBOMOut
 from app.libs.dto.catalog.model_color_output import ModelColorOut
 from app.libs.dto.catalog.model_image_output import ModelImageOut
 from app.libs.dto.catalog.model_size_output import ModelSizeOut
 from app.libs.dto.common import ORMModel
+from app.libs.dto.catalog.model_input import PaidOperationIn
 from app.libs.dto.inventory.item_input import ItemComposition
 
 
@@ -36,6 +37,41 @@ class ModelOut(ORMModel):
     approved_by: Optional[int] = None
     approved_at: Optional[datetime] = None
     created_at: datetime
+
+
+class PaidOperationOut(PaidOperationIn):
+    """Canonical paid-operation row returned after a typed Model CREATE."""
+
+    @model_serializer(mode="wrap")
+    def preserve_paid_operation_field_presence(self, handler):
+        payload = handler(self)
+        for field_name in type(self).model_fields:
+            if field_name not in self.model_fields_set:
+                payload.pop(field_name, None)
+        return payload
+
+
+class ModelCreateDetailsOut(BaseModel):
+    """CREATE response details: typed known rows, preserved open metadata."""
+
+    model_config = {"extra": "allow"}
+
+    paid_operations: list[PaidOperationOut] | None = None
+    paidOperations: list[PaidOperationOut] | None = None
+
+    @model_serializer(mode="wrap")
+    def preserve_paid_operation_key_presence(self, handler):
+        payload = handler(self)
+        for key in ("paid_operations", "paidOperations"):
+            if key not in self.model_fields_set:
+                payload.pop(key, None)
+        return payload
+
+
+class ModelCreateOut(ModelOut):
+    """Typed CREATE response; historical GET responses remain opaque ModelOut."""
+
+    details_json: ModelCreateDetailsOut | None = None
 
 
 class ModelDetail(ModelOut):

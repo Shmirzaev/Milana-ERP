@@ -7,11 +7,10 @@ Existing Pydantic definitions in this group:
 - [catalog.py](catalog.py)
 - [model_input.py](model_input.py)
 
-Model paid-operation rows use the `PaidOperationIn` contract for the dedicated
-operation PATCH and within `ModelDetailsUpdateIn` for whole-model PATCH. Both
-PATCH forms expose the typed row schema; CREATE remains on raw `ModelIn`
-details. The update details model retains unknown metadata while preserving
-omitted/null row keys. It validates fixed catalog vocabularies while retaining unknown row
+Model paid-operation rows use `PaidOperationIn` for the dedicated operation
+PATCH, whole-model PATCH and the separate `ModelCreateIn` details contract.
+CREATE and PATCH retain unrelated unknown metadata while preserving omitted/null
+row keys. They validate fixed catalog vocabularies while retaining unknown row
 extension keys and omitted fields. Known editor identity, selection, rate,
 quantity/copy/split, timing, currency and source metadata fields have explicit
 optional scalar/list types; supplied scalar representations are retained.

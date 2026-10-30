@@ -38,13 +38,13 @@ from app.libs.dto.catalog.model_bom_update import ModelBOMUpdate
 from app.libs.dto.catalog.model_color_input import ModelColorIn
 from app.libs.dto.catalog.model_image_input import ModelImageIn
 from app.libs.dto.catalog.model_input import (
-    ModelIn,
+    ModelCreateIn,
     ModelPaidOperationsIn,
     ModelUpdateIn,
     ModelVariantCreateIn,
     ModelVariantUpdateIn,
 )
-from app.libs.dto.catalog.model_output import ModelDetail, ModelOptionPage, ModelOut
+from app.libs.dto.catalog.model_output import ModelCreateOut, ModelDetail, ModelOptionPage, ModelOut
 from app.libs.dto.catalog.model_size_input import ModelSizeIn
 
 
@@ -397,9 +397,9 @@ def next_usluga_model_number(
     return models_service.get_next_model_number(current, db, prefix)
 
 
-@router.post("/models", response_model=ModelOut, status_code=201)
+@router.post("/models", response_model=ModelCreateOut, status_code=201)
 def create_usluga_model(
-    payload: ModelIn,
+    payload: ModelCreateIn,
     db: DbSession,
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):

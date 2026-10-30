@@ -9,12 +9,16 @@ import inspect
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import create_engine, event
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.core import model_search  # noqa: F401 - register SQLite identity normalizer
 from app.db.base import Base
+from app.libs.dto.catalog.model_input import PaidOperationIn
+from app.libs.enums.catalog import CatalogScope, PaidProcessSection
+from app.libs.types.catalog import ModelCreateDetails, ModelInsert
 from app.models import numbering_service as numbering
 from app.schemas import Model, SystemSetting
+from app.schemas.catalog.model_persistence import insert_model
 
 
 @pytest.fixture
@@ -29,6 +33,56 @@ def db():
 
 def setting(db):
     return db.query(SystemSetting).filter_by(key="model_numbering").one_or_none()
+
+
+def test_model_create_schema_insert_flushes_typed_rows_without_committing(db):
+    flushes = []
+    commits = []
+    before_flush = lambda *args: flushes.append(True)
+    after_commit = lambda *args: commits.append(True)
+    event.listen(db, "before_flush", before_flush)
+    event.listen(db, "after_commit", after_commit)
+    try:
+        row = insert_model(
+            db,
+            ModelInsert(
+                code="SCHEMA-CREATE-1",
+                name="Schema create contract",
+                catalog_scope=CatalogScope.STANDARD,
+                factory_code=None,
+                category=None,
+                description=None,
+                brand_id=None,
+                collection_id=None,
+                product_type=None,
+                season=None,
+                constructor_employee_id=None,
+                designer_employee_id=None,
+                details_json=ModelCreateDetails(
+                    metadata={"general": {"model_no": "SCHEMA-CREATE-1"}, "extension": {"keep": True}},
+                    has_paid_operations=True,
+                    paid_operations=[PaidOperationIn(section=PaidProcessSection.SEWING, rate="2.75")],
+                    has_paid_operations_alias=False,
+                    paidOperations=None,
+                ),
+                status="draft",
+                sam_minutes=0,
+                created_by=None,
+            ),
+        )
+        assert object_session(row) is db
+        assert row.id is not None
+        assert flushes == [True]
+        assert commits == []
+        assert row.details_json == {
+            "general": {"model_no": "SCHEMA-CREATE-1"},
+            "extension": {"keep": True},
+            "paid_operations": [{"section": "sewing", "rate": "2.75"}],
+        }
+    finally:
+        event.remove(db, "before_flush", before_flush)
+        event.remove(db, "after_commit", after_commit)
+        db.rollback()
 
 
 def test_reserved_insert_and_update_use_schema_method_same_session_one_flush(db, monkeypatch):
@@ -152,7 +206,7 @@ def test_mapped_json_events_and_flush_originate_in_schema_method(db):
 
 @pytest.mark.parametrize("scope", ["standard", "usluga"])
 def test_actual_catalog_caller_shares_counter_and_audit_transaction(db, scope):
-    from app.libs.dto.catalog.model_input import ModelIn
+    from app.libs.dto.catalog.model_input import ModelCreateIn
     from app.models.catalog import models_service
     from app.schemas import AuditLog, Role, User
 
@@ -161,7 +215,7 @@ def test_actual_catalog_caller_shares_counter_and_audit_transaction(db, scope):
     db.add_all([role, actor]); db.commit()
     commits = []
     event.listen(db, "after_commit", lambda *args: commits.append(True))
-    payload = ModelIn(code="ignored-preview", name="Synthetic auto number", automatic_model_prefix="XJ")
+    payload = ModelCreateIn(code="ignored-preview", name="Synthetic auto number", automatic_model_prefix="XJ")
     first = models_service.create_model(actor, db, payload, scope)
     second = models_service.create_model(actor, db, payload, scope)
     assert first["code"] == "XJ3201" and second["code"] == "XJ3202"
@@ -172,7 +226,7 @@ def test_actual_catalog_caller_shares_counter_and_audit_transaction(db, scope):
 
 
 def test_actual_catalog_late_audit_failure_rolls_back_number_and_model(db, monkeypatch):
-    from app.libs.dto.catalog.model_input import ModelIn
+    from app.libs.dto.catalog.model_input import ModelCreateIn
     from app.models.catalog import models_service
     from app.schemas import Role, User
 
@@ -183,7 +237,7 @@ def test_actual_catalog_late_audit_failure_rolls_back_number_and_model(db, monke
     with monkeypatch.context() as patch:
         patch.setattr(models_service, "log_action", fail)
         with pytest.raises(RuntimeError, match="synthetic audit failure"):
-            models_service.create_model(actor, db, ModelIn(code="preview", name="Synthetic failure", automatic_model_prefix="XJ"))
+            models_service.create_model(actor, db, ModelCreateIn(code="preview", name="Synthetic failure", automatic_model_prefix="XJ"))
     db.rollback()  # Existing outer operation/session owns failure rollback.
     assert setting(db) is None and db.query(Model).count() == 0
     assert numbering.next_model_no(db, "XJ") == "XJ3201"

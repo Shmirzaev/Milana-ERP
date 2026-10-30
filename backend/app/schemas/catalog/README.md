@@ -28,6 +28,7 @@ existing duplicate-name race behavior.
 - [Collection](catalog.py)
 - [Model](catalog.py)
 - [Model paid-operation persistence](model_paid_operations_persistence.py)
+- [Model CREATE persistence](model_persistence.py)
 - [CollectionModel](catalog.py)
 - [ModelImage](catalog.py)
 - [ModelSize](catalog.py)
@@ -41,6 +42,11 @@ existing duplicate-name race behavior.
 These links follow business ownership; some point to mixed files in another group
 or shared core.py. Keep one authoritative mapping per table. Moving individual
 classes out of mixed files is a separate approved change.
+
+Model CREATE uses `model_persistence.insert_model` for the mapped row and
+inherited approval assignments. The service keeps family selection/locking,
+audit and the outer commit. Typed paid-operation rows serialize at this mapped
+JSON persistence boundary; historical read rows are unchanged.
 
 ## How to make a file here
 

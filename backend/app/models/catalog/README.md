@@ -28,9 +28,9 @@ See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordi
 ### Model paid-operation updates
 
 `update_model_paid_operations` accepts rows through `PaidOperationIn`, while
-the two model PATCH routes use `ModelUpdateIn` to keep its typed row command
-separate from opaque `details_json`. Model CREATE remains on `ModelIn` and does
-not apply this update validation. `section`, `sewingFactory`, `quantityMode` and
+the two model PATCH routes use `ModelUpdateIn` with typed rows and open metadata.
+Model CREATE uses a distinct `ModelCreateIn` contract for typed rows and open
+unrelated metadata. `section`, `sewingFactory`, `quantityMode` and
 `splitMode` use catalog enums. Other known editor fields (identity, selection,
 rate, quantity/copy/split data, timing, currency and source metadata) have
 explicit optional scalar/list contracts, preserving sent strings, numbers,
@@ -46,6 +46,24 @@ audit and commit; `model_paid_operations_persistence.py` assigns prepared JSON
 through the caller's Session without flushing or committing. Stored JSON
 vocabulary has not been censused, so no database constraint or legacy-data
 compatibility claim is made.
+
+### Model CREATE persistence
+
+Both standard and Usluga POST routes use `ModelCreateIn`; `ModelCreateCommand`
+keeps catalog scope and paid-operation rows typed through service policy and
+factory checks. Open `details_json` metadata remains intact, while recognized
+paid-operation rows use the canonical row contract. `model_persistence.insert_model`
+is the schema-owned Model insert and approval-inheritance writer: it serializes
+typed rows at the mapped JSON boundary, adds and flushes on the caller's Session,
+and never commits. The service still owns automatic number reservation,
+code/identity rules, approval-family lock and selection, audit, one outer commit
+and refresh. The CREATE response uses `ModelCreateOut`; historical GET output
+remains opaque. The previous opaque-new-row case is replaced by valid canonical
+CREATE, malformed-new-row 422 and unchanged historical opaque-read coverage.
+`Model.status` remains a raw string because legacy importers and generic PATCH
+accept pass-through values without a proven closed stored vocabulary; no status
+enum or policy change is claimed. Required PostgreSQL/browser/readback checks
+remain pending.
 
 Every service function takes the acting user and the `Session` first, then the
 operation input, and owns its own transaction: no helper commits and no

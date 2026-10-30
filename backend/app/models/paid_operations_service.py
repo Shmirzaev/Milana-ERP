@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 from typing import Any
 
 from fastapi import HTTPException
 
 from app.libs.dto.catalog.model_input import PaidOperationIn
-from app.libs.enums.catalog import normalize_paid_operation_factory_value
+from app.libs.enums.catalog import PaidOperationFactory, normalize_paid_operation_factory_value
+from app.libs.types.catalog import ModelCreateDetails
 from app.schemas import User
 
 
@@ -117,6 +119,32 @@ def merge_scoped_paid_operations(existing_details: object, incoming_details: obj
     incoming["paid_operations"] = incoming_rows + hidden_rows
     incoming.pop("paidOperations", None)
     return incoming
+
+
+def merge_scoped_model_create_operations(
+    details: ModelCreateDetails,
+    factory: PaidOperationFactory,
+) -> ModelCreateDetails:
+    """Apply the CREATE factory policy while paid-operation rows stay typed."""
+
+    if details.has_paid_operations:
+        rows = details.paid_operations
+    elif details.has_paid_operations_alias:
+        rows = details.paidOperations
+    else:
+        return details
+    incoming_rows = rows or []
+    if any(row.factory_was_explicit and row.resolved_factory_hint != factory for row in incoming_rows):
+        raise HTTPException(403, "A sewing master cannot change another sewing factory's paid operations")
+    # CREATE has no existing Model JSON to preserve. Match the prior scoped
+    # merge's canonical-key result and null-to-empty-list behavior.
+    return replace(
+        details,
+        has_paid_operations=True,
+        paid_operations=incoming_rows,
+        has_paid_operations_alias=False,
+        paidOperations=None,
+    )
 
 
 def merge_scoped_paid_operation_update(
