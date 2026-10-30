@@ -90,6 +90,7 @@ class SmokeRuntimeTests(unittest.TestCase):
             "refs/heads/codex/ismail-finance-pilot-20261025",
             "refs/heads/codex/ismail-brand-feedback-20261028",
             "refs/heads/codex/ismail-combined-review-20261028",
+            "refs/heads/codex/refactor-combined-next-20261030",
         })
         for manifest_ref in refs:
             with self.subTest(manifest_ref=manifest_ref):
