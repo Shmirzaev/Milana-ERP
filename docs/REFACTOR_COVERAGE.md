@@ -50,15 +50,30 @@ The current isolated verification branch combines four frozen candidates:
 | PR349 | `f35eb109` | Backend/frontend CI and 199 required PG cases passed | Computer, persisted readback, postvisual and combined acceptance |
 | PR350 | `703e0130` | Shipment-reopen Finance invoice participant; backend/frontend CI and 169 required PG cases passed | Computer, persisted readback, postvisual and combined acceptance |
 | PR351 | `bcafc730` | Typed standard/Usluga model paid-operation PATCH and schema-owned JSON persistence; backend/frontend CI and 175 exact PG cases passed, including recorded two-worker lock evidence | Computer, persisted readback, historical mapped/read contracts and combined acceptance |
-| PR352 | `b9e75544` | Direct manual/piece finished-goods reserve extraction and typed outputs; source review, 21 stdlib guards and 171 exact PG cases passed, including both observed package-lock waits | Full current CI, API-explorer/adjacent-page visual assessment, readback and combined acceptance |
+| PR352 | `b9e75544` | Direct manual/piece finished-goods reserve extraction and typed outputs; source review, 21 stdlib guards, full backend/frontend CI and 171 exact PG cases passed, including both observed package-lock waits | API-explorer/adjacent-page visual assessment, readback and combined acceptance |
 
 Component case totals overlap. Their combined registry preserves the union of
 202 primary and 17 supplemental identities: **219 required cases**, not the sum
-of the component totals. No combined runtime pass is claimed yet. The only
+of the component totals. Combined draft PR353 at `1842ee72` passed all 219 exact
+cases with zero failures/errors/skips, both actual lock/blocker-chain proofs and
+owned-container cleanup. Full combined CI also passed backend/frontend checks:
+4,981 main backend cases passed, 638 opt-in cases were skipped, and 36 subtests
+passed. Additional PostgreSQL/migration/concurrency/numbering and cleanup gates
+passed; release was skipped. The only
 application merge conflict was resolved by retaining both Catalog persistence
 imports; CI conflicts retain both parents' cases, pins and guard methods. A
 diagnostic-only correction prevents reporting an unobserved blocker PID.
 The shared integration branch is unchanged by this isolated preparation.
+
+SUP-01 is a separate, uncommitted draft based on that combined revision. It moves
+the three existing settings PATCH sections into typed routes, a Support service
+and schema-owned supplied-Session persistence. Independent source review accepted
+the approved-fixture replacement, exact lock witnesses with JSON evidence,
+rollback/retry tests, restored unknown-section body-shape semantics and typed
+internal dispatch. Its 16 PostgreSQL cases still need required CI registration.
+No preceding CI result covers this draft. Actual language-value census and all
+runtime, browser/readback and acceptance gates remain pending; logo upload stays
+an explicitly separate operation.
 
 The integrator owns shared files and serializes landing. Existing operation/type
 gaps, actual browser/readback, bounded recovery/cleanup and independent combined
@@ -194,7 +209,7 @@ folders, set service counts or authorize new business behavior.
 | production / 18 | Mirshoir / Ismail | PRD-01: Shared Sewing output | QUEUED_FOR_OWNER_AGREEMENT |
 | purchasing / 4 | Ismail / Mirshoir | PUR-01: Create purchase request, direct and from Sales | AI_VERIFIED_AWAITING_HUMAN at 1a71f16 |
 | sales / 2 | Ismail / Mirshoir | SAL-01: Create standard sales order | FULFILLMENT_BOUNDARY_PENDING |
-| support / 4 | Dilmurod / Mirshoir | SUP-01: Patch one settings section | QUEUED_FOR_OWNER_AGREEMENT |
+| support / 4 | Dilmurod / Mirshoir | SUP-01: Patch one settings section | SOURCE_IMPLEMENTED_VERIFICATION_PENDING |
 | work_management / 2 | Dilmurod / Mirshoir | WRK-01: Create task and notification | QUEUED_FOR_OWNER_AGREEMENT |
 
 ## Operation boundaries to agree and preserve
@@ -216,7 +231,7 @@ above remain pending.
 - **PRD-01 — Shared Sewing output:** `backend/app/api/routes/production.py::post_sewing`. Mirshoir agrees shared normal/band operation; preserve WorkOrder/assignment lock order, output limits, corrections, Packaging handoff and retry identity.
 - **PUR-01 — Create purchase request, direct and from Sales:** `backend/app/models/purchasing/requests_service.py::create_purchase_request`. Typed command; legal draft/pending_approval creation subset; header/lines plus shared audit/notification persistence.
 - **SAL-01 — Create standard sales order:** `backend/app/models/sales/orders_service.py::create_sales_order`. Real order/source enums; ready-stock reservation and metadata repair require Fulfillment ownership; no Sales-owned stock writer.
-- **SUP-01 — Patch one settings section:** `backend/app/api/routes/settings.py::save_settings_section`. Preserve section-specific schema/unknown-field handling, absent-row advisory lock, JSON merge and audit; section discriminator is distinct from configurable values.
+- **SUP-01 — Patch one settings section:** `backend/app/api/routes/settings.py::save_company_info`, `save_financial_settings`, and `save_system_preferences` delegate to Support service and schema persistence on one Session. Preserve section-specific validation, absent-row advisory lock, JSON merge and audit; section discriminator is distinct from configurable values. Stored-language value audit and all runtime verification remain pending.
 - **WRK-01 — Create task and notification:** `backend/app/api/routes/tasks.py::create_task`. Single recipient and manager broadcast are one operation family; preserve recipient bounds, status/priority semantics and atomic task/notification/audit effects.
 
 Fulfillment reservation work is an immediate dependency of the Sales pilot, not
