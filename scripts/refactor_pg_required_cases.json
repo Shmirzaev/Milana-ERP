@@ -409,9 +409,9 @@
       ]
     },
     "test_accessory_issue_postgres": {
-      "revision": "a93021ff77392f5748563a48e8f98813c635f7f5",
-      "git_blob_oid": "089341420fe4fb49d44296615732e33466aa26b3",
-      "git_blob_sha256": "c09341cdf005973a937603d81372d97b5a4338b079393a8995d355b9dd1990a9",
+      "revision": "0a15bb8dc1f194fb2c29d7b605dc827c13805d92",
+      "git_blob_oid": "a5b3ef6090393d69b33e7aa505b3e5741e47446d",
+      "git_blob_sha256": "a9940a0ada598de3e95486750e3e17c6354479f528de5e8bf45958489a2c40ef",
       "selected_functions": [
         "test_pg_route_stock_issue_persists_fifo_gate_and_audit_same_session",
         "test_pg_route_manual_issue_records_without_stock_or_movement",

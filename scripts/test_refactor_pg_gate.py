@@ -978,7 +978,7 @@ class RequiredPGGateTests(unittest.TestCase):
             'refactor_pg_required_cases.json').read_text(encoding='utf-8'))
         self.assertEqual(hashlib.sha256(json.dumps(
             manifest, sort_keys=True, separators=(',', ':')).encode()
-        ).hexdigest(), '26fe2ea3fecc24c54e58dbec5807aada19b539f537df2fdc09fc5ee919cb1d99')
+        ).hexdigest(), '6102c9da2c90532df32f54314340c573b8502b09f0deaa0f86a660a436c39a02')
         expected_modules = set(_COMBINED_EXPECTED_CASES)
         self.assertEqual(set(expected_modules) - set(manifest['cases']), set())
         for module, expected in _COMBINED_EXPECTED_CASES.items():
