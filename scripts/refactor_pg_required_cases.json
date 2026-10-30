@@ -274,8 +274,8 @@
       ]
     },
     "test_model_paid_operations_postgres": {
-      "revision": "19b9ce0ee3755f424cd7f63f387777d801e3bca3",
-      "git_blob_sha256": "7d186baea135a37c5f22d199f132914b997ac650327ecd8f67f913315014d01c",
+      "revision": "2430deeea65094606de1870560287127c7e6e4fa",
+      "git_blob_sha256": "a2eef29c70c2fd5d4afefafab6d5c91df717aca6a974c5196963d21430fed322",
       "selected_functions": [
         "test_pg_paid_operations_patch_round_trips_typed_rows_and_openapi",
         "test_pg_paid_operations_invalid_and_cross_factory_patch_leave_family_and_audit_unchanged",
