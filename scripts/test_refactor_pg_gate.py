@@ -1,4 +1,5 @@
 """Offline red/green checks for missing or skipped required PG evidence."""
+import ast
 import hashlib
 import json
 import os
@@ -76,7 +77,7 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 238)
+        self.assertEqual(sum(counts.values()), 247)
 
     def test_sewing_output_source_pin_literal_cases_and_upstream_registry_are_frozen(self):
         module = 'test_sewing_output_postgres'
@@ -122,11 +123,11 @@ class RequiredPGGateTests(unittest.TestCase):
         self.assertEqual(tuple(source['selected_functions']), functions)
         self.assertEqual(tuple(manifest['cases'][module]), cases)
         self.assertEqual(gate.GROUPS[module], (20, functions))
-        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 238)
+        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 247)
         self.assertEqual(len(manifest['isolated_supplemental_cases']), 17)
 
         digest = _unrelated_manifest_digest(manifest, module)
-        self.assertEqual(digest, 'c71bc5d2cf0e00281c2aa92d05a09bdb0a6559a5d2152d85e9e68b8b7ce0c0c9')
+        self.assertEqual(digest, 'a8aa7811c053bde30d653e54a2c1e0f03b98c4ee4776c92c7752b39c9b5465e1')
 
     def test_sewing_upstream_digest_works_without_git_history_or_checkout_cwd(self):
         module = 'test_sewing_output_postgres'
@@ -137,7 +138,7 @@ class RequiredPGGateTests(unittest.TestCase):
             try:
                 os.chdir(outside_checkout)
                 self.assertEqual(_unrelated_manifest_digest(manifest, module),
-                                 'c71bc5d2cf0e00281c2aa92d05a09bdb0a6559a5d2152d85e9e68b8b7ce0c0c9')
+                                 'a8aa7811c053bde30d653e54a2c1e0f03b98c4ee4776c92c7752b39c9b5465e1')
             finally:
                 os.chdir(original_cwd)
 
@@ -369,6 +370,172 @@ class RequiredPGGateTests(unittest.TestCase):
                     'test_pg_alternate_postflush_and_audit_failure_rollback_retry[log_action]')
         case.set('name', 'unrelated_replacement_case')
         with self.assertRaisesRegex(ValueError, 'case identities missing'):
+            gate.check_report(self.write_report(tree))
+
+    def test_planning_source_ast_cases_and_prior_255_manifest_are_frozen(self):
+        module = 'test_planning_alternate_creation_postgres'
+        functions = (
+            'test_pg_alternate_create_and_existing_order_handoff',
+            'test_pg_alternate_optional_material_printing_and_full_children',
+            'test_pg_shared_production_writer_keeps_client_general_and_usluga_callers',
+            'test_pg_alternate_missing_and_closed_orders_refused',
+            'test_pg_alternate_postflush_and_audit_failure_rollback_retry',
+            'test_pg_alternate_commit_failure_rolls_back_audit_and_retries_same_session',
+            'test_pg_alternate_concurrent_implicit_orders_witness_number_lock_chain',
+        )
+        cases = (
+            'test_pg_alternate_create_and_existing_order_handoff',
+            'test_pg_alternate_optional_material_printing_and_full_children',
+            'test_pg_shared_production_writer_keeps_client_general_and_usluga_callers',
+            'test_pg_alternate_missing_and_closed_orders_refused[closed-400]',
+            'test_pg_alternate_missing_and_closed_orders_refused[missing-404]',
+            'test_pg_alternate_postflush_and_audit_failure_rollback_retry[insert_branded_planning_order]',
+            'test_pg_alternate_postflush_and_audit_failure_rollback_retry[insert_production_order]',
+            'test_pg_alternate_postflush_and_audit_failure_rollback_retry[insert_production_order_components]',
+            'test_pg_alternate_postflush_and_audit_failure_rollback_retry[persist_production_batches]',
+            'test_pg_alternate_postflush_and_audit_failure_rollback_retry[add_work_orders]',
+            'test_pg_alternate_postflush_and_audit_failure_rollback_retry[apply_initial_production_workflow_state]',
+            'test_pg_alternate_postflush_and_audit_failure_rollback_retry[log_action]',
+            'test_pg_alternate_commit_failure_rolls_back_audit_and_retries_same_session',
+            'test_pg_alternate_concurrent_implicit_orders_witness_number_lock_chain',
+        )
+        old_source = {
+            'revision': 'e02ecd1648ffebe943872e1eeed4063a5601fd41',
+            'git_blob_sha256': 'a4746e221335620f03b7469886d5c0e1a9bff17ed1e88fb2454142bd2a031952',
+            'selected_functions': [
+                'test_pg_alternate_create_and_existing_order_handoff',
+                'test_pg_alternate_missing_and_closed_orders_refused',
+                'test_pg_alternate_postflush_and_audit_failure_rollback_retry',
+            ],
+        }
+        old_cases = [
+            'test_pg_alternate_create_and_existing_order_handoff',
+            'test_pg_alternate_missing_and_closed_orders_refused[closed-400]',
+            'test_pg_alternate_missing_and_closed_orders_refused[missing-404]',
+            'test_pg_alternate_postflush_and_audit_failure_rollback_retry[insert_branded_planning_order]',
+            'test_pg_alternate_postflush_and_audit_failure_rollback_retry[log_action]',
+        ]
+        manifest = json.loads(Path(gate.__file__).with_name(
+            'refactor_pg_required_cases.json').read_text(encoding='utf-8'))
+        source = manifest['sources'][module]
+        self.assertEqual(source['revision'], '29ae43b8b84fff5111f2a8e1f30c6533f91ccb8a')
+        self.assertEqual(
+            source['git_blob_sha256'],
+            'b66fa4b8b08533dc6da6515f01a77deb601fcbccfe95d84f7e134399d17b2620',
+        )
+        self.assertEqual(tuple(source['selected_functions']), functions)
+        self.assertEqual(tuple(manifest['cases'][module]), cases)
+        self.assertTrue(set(old_cases).issubset(cases))
+        self.assertEqual(gate.GROUPS[module], (14, functions))
+        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 247)
+        self.assertEqual(len(manifest['isolated_supplemental_cases']), 17)
+
+        source_path = Path(gate.__file__).resolve().parents[1] / 'backend/app/tests/test_planning_alternate_creation_postgres.py'
+        source_bytes = source_path.read_bytes()
+        canonical_source_bytes = source_bytes.replace(b'\r\n', b'\n')
+        self.assertEqual(hashlib.sha256(canonical_source_bytes).hexdigest(), source['git_blob_sha256'])
+        syntax = ast.parse(source_bytes, filename=str(source_path))
+        definitions = {
+            node.name: node for node in syntax.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        ordered_functions = tuple(
+            node.name for node in syntax.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in functions
+        )
+        self.assertEqual(ordered_functions, functions)
+
+        derived_cases = []
+        for name in functions:
+            node = definitions[name]
+            parameter_sets = None
+            for decorator in node.decorator_list:
+                if (isinstance(decorator, ast.Call)
+                        and isinstance(decorator.func, ast.Attribute)
+                        and decorator.func.attr == 'parametrize'):
+                    parameter_sets = (
+                        ast.literal_eval(decorator.args[0]),
+                        ast.literal_eval(decorator.args[1]),
+                    )
+                    break
+            if parameter_sets is None:
+                derived_cases.append(name)
+                continue
+            argnames, values = parameter_sets
+            names = [part.strip() for part in argnames.split(',')] if isinstance(argnames, str) else list(argnames)
+            for value in values:
+                parts = [value] if len(names) == 1 else list(value)
+                self.assertEqual(len(parts), len(names))
+                derived_cases.append(f"{name}[{'-'.join(str(part) for part in parts)}]")
+        self.assertEqual(tuple(derived_cases), cases)
+
+        # Reconstruct the exact pre-expansion registry, retaining the original
+        # five Planning identities and original Planning source pin. This proves
+        # the prior 255 required identities remain unchanged without Git history.
+        prior = json.loads(json.dumps(manifest))
+        prior['sources'][module] = old_source
+        prior['cases'][module] = old_cases
+        canonical = json.dumps(prior, sort_keys=True, separators=(',', ':')).encode('utf-8')
+        self.assertEqual(
+            hashlib.sha256(canonical).hexdigest(),
+            'b9144be34dd84f8b89ee1e746edea86cbcb0a92c5001a7245e313342213a24d8',
+        )
+
+    def test_each_planning_case_is_required_and_nonpasses_fail(self):
+        module = 'test_planning_alternate_creation_postgres'
+        for required_name in gate.REQUIRED_CASES[module]:
+            for invalid in ('replacement', 'missing', 'skipped', 'failure', 'error'):
+                with self.subTest(case=required_name, invalid=invalid):
+                    tree = self.report()
+                    suite = next(tree.iter('testsuite'))
+                    case = next(
+                        item for item in tree.iter('testcase')
+                        if item.get('classname') == f'app.tests.{module}'
+                        and item.get('name') == required_name
+                    )
+                    if invalid == 'replacement':
+                        case.set('name', 'unrelated_planning_create_case')
+                    elif invalid == 'missing':
+                        suite.remove(case)
+                        ET.SubElement(
+                            suite,
+                            'testcase',
+                            classname=f'app.tests.{module}',
+                            name='unrelated_planning_create_case',
+                        )
+                    else:
+                        ET.SubElement(case, invalid)
+                    with self.assertRaises(ValueError):
+                        gate.check_report(self.write_report(tree))
+
+    def test_planning_duplicate_identity_and_group_replacement_fail(self):
+        module = 'test_planning_alternate_creation_postgres'
+        tree = self.report()
+        suite = next(tree.iter('testsuite'))
+        first = next(
+            item for item in tree.iter('testcase')
+            if item.get('classname') == f'app.tests.{module}'
+        )
+        ET.SubElement(suite, 'testcase', attrib=dict(first.attrib))
+        with self.assertRaisesRegex(ValueError, 'duplicate'):
+            gate.check_report(self.write_report(tree))
+
+        tree = self.report()
+        suite = next(tree.iter('testsuite'))
+        selected = [
+            item for item in tree.iter('testcase')
+            if item.get('classname') == f'app.tests.{module}'
+        ]
+        for case in selected:
+            suite.remove(case)
+        for index in range(len(selected)):
+            ET.SubElement(
+                suite,
+                'testcase',
+                classname='app.tests.test_bom_add_characterization',
+                name=f'planning_create_replacement_{index}',
+            )
+        with self.assertRaisesRegex(ValueError, 'expected at least'):
             gate.check_report(self.write_report(tree))
 
     def test_customer_failure_point_cannot_be_replaced(self):
