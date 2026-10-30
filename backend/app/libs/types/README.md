@@ -9,6 +9,13 @@ This folder contains used internal contracts, including
 Their presence does not establish complete type coverage; each operation still
 needs its producer, consumer and verification evidence.
 
+`production.py` now carries the same-Session create commands and mapped-state
+values consumed by Production schema operations. `ProductionType` covers the
+three exact current writer kinds; the DTO and Usluga action retain their distinct
+accepted subsets. The free-form WorkOrder operation and broader ProductionOrder
+status vocabularies remain unclassified rather than being inferred from one
+creation path.
+
 `stock_reservation.py` also contains typed outcomes for the direct Fulfillment
 manual-package and piece-stock reserve operation; the route maps those outcomes
 to its existing, branch-specific HTTP response shapes.

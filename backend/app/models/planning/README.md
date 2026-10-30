@@ -52,13 +52,18 @@ the insertion command and the actual history frontend; derived cutting progress
 is distinct from stored Production/WorkOrder status. Optional frontend progress
 fields retain their not-started display fallback.
 
-The alternate writer in `create_branded_stock_production` uses the same typed
-schema insertion when no planning order is supplied; its service keeps numbering,
-production coordination, audit and the outer transaction. This covers the Planning
-order row writer only: ProductionOrder, Item, Batch and WorkOrder writes remain in
-production_service.py and are not migrated by this slice. Production status, costing
-status, forecasting and other Planning tables remain separate work.
-Database/browser verification and independent review remain separate.
+The `create_branded_stock_production` candidate now owns the selected alternate
+create operation's policy, numbering, and one outer transaction. It reuses the
+Planning-order insertion and Production schema persistence operations for the
+ProductionOrder, material/item children, optional batches, work orders, and initial
+workflow state. `production_service.py` retains shared validations, calculations,
+reference queries and operation decisions while calling those schema operations.
+Its client-order, general `/production-orders`, and Usluga callers retain separate
+contracts; the general branded-stock route still bypasses Planning-parent creation
+and remains a separate pending operation. This is source implementation only.
+Required unit/PostgreSQL checks, actual browser/readback, bounded concurrency,
+independent review and human acceptance remain pending; no Planning/Production
+area completion is claimed.
 
 ### forecasting_recommendations_service.py
 

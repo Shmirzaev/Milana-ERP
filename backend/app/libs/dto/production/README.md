@@ -16,7 +16,26 @@ Existing Pydantic definitions in this group:
 
 These describe accepted inputs and returned data. They do not execute database
 writes, implement permissions or manage transactions. Existing filenames/class
-names are retained; the folder move does not alter validation or defaults.
+names are retained; the source candidate documents the one intentional enum
+typing/schema change below.
+
+Production Order creation uses canonical `ProductionType` and retains the DTO's
+existing two-value action subset (`client_order`, `branded_stock`) with an
+explicit validator; the shared Usluga writer also uses `service_order`. The
+alternate branded-stock CREATE endpoint has its own output DTO with its actual
+one-operation enum contract; client-order Planning CREATE and generic standard
+production CREATE likewise use action-scoped outputs that retain the canonical
+enum annotations and constrain their known accepted subsets. Usluga keeps its
+existing response shape, which omits these two discriminator fields. Global
+`ProductionOrderOut` and `ProductionOrderDetail` reads keep
+`production_type` as a lossless string because that mapped column has no CHECK
+and historical stored values have not been reconciled. `source_type` remains
+enum-typed because its mapped CHECK constrains the stored vocabulary. The
+general creation input schema still documents only its two accepted values;
+the general ProductionOrder GET endpoints remain on the broad read DTOs.
+This source candidate does not classify the full ProductionOrder status set or
+WorkOrder operation vocabulary; it does not claim global read-output enum
+completion.
 
 Before adding a file, find the existing contract and its router/service callers.
 Keep creation fields/defaults, allowed update fields and response filtering distinct.

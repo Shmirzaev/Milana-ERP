@@ -1,10 +1,10 @@
 from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Literal, Optional
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.libs.dto.common import ORMModel, SchemaModel
-from app.libs.enums.production import WorkOrderStatus
+from app.libs.enums.production import ProductionSourceType, ProductionType, WorkOrderStatus
 from app.libs.dto.inventory.item_input import ItemComposition
 from app.libs.enums.production import SewingFactoryCode
 
@@ -127,7 +127,9 @@ class ProductionBatchOut(ORMModel):
 
 
 class ProductionOrderIn(SchemaModel):
-    production_type: Literal["client_order", "branded_stock"]
+    production_type: ProductionType = Field(
+        json_schema_extra={"enum": ["client_order", "branded_stock"]},
+    )
     planning_order_id: Optional[int] = None
     sales_order_id: Optional[int] = None
     collection_id: Optional[int] = None
@@ -149,14 +151,25 @@ class ProductionOrderIn(SchemaModel):
     items: list[ProductionOrderItemIn] = Field(default_factory=list, max_length=1000)
     batches: list[ProductionBatchIn] = Field(default_factory=list, max_length=1000)
 
+    @field_validator("production_type")
+    @classmethod
+    def restrict_creation_types(cls, value: ProductionType) -> ProductionType:
+        # service_order is a real ProductionType used by Usluga, but remains
+        # outside this DTO's historical two-action creation subset.
+        if value not in {ProductionType.CLIENT_ORDER, ProductionType.BRANDED_STOCK}:
+            raise ValueError("production_type must be client_order or branded_stock")
+        return value
+
 
 class ProductionOrderOut(ORMModel):
     id: int
     production_no: str
     order_no: Optional[str] = None
     sales_order_no: Optional[str] = None
+    # Historical read payloads remain lossless: the mapped string column has
+    # no CHECK constraint, so old rows can contain values outside current writers.
     production_type: str
-    source_type: str = "standard"
+    source_type: ProductionSourceType = ProductionSourceType.STANDARD
     planning_order_id: Optional[int] = None
     sales_order_id: Optional[int] = None
     collection_id: Optional[int] = None
@@ -201,6 +214,60 @@ class ProductionOrderPageOut(SchemaModel):
     page: int
     page_size: int
     has_more: bool
+
+
+class BrandedStockProductionOrderCreateOut(ProductionOrderOut):
+    """Canonical output contract for the branded-stock create operation only."""
+
+    production_type: ProductionType = Field(
+        json_schema_extra={"enum": [ProductionType.BRANDED_STOCK.value]},
+    )
+    source_type: ProductionSourceType = Field(
+        default=ProductionSourceType.STANDARD,
+        validate_default=True,
+        json_schema_extra={"enum": [ProductionSourceType.STANDARD.value]},
+    )
+
+    @field_validator("production_type")
+    @classmethod
+    def require_branded_stock(cls, value: ProductionType) -> ProductionType:
+        if value is not ProductionType.BRANDED_STOCK:
+            raise ValueError("branded-stock create output requires branded_stock")
+        return value
+
+    @field_validator("source_type")
+    @classmethod
+    def require_standard_source(cls, value: ProductionSourceType) -> ProductionSourceType:
+        if value is not ProductionSourceType.STANDARD:
+            raise ValueError("branded-stock create output requires standard source")
+        return value
+
+
+class ClientOrderProductionOrderCreateOut(ProductionOrderOut):
+    """Canonical output contract for client-order Planning creation only."""
+
+    production_type: ProductionType = Field(
+        json_schema_extra={"enum": [ProductionType.CLIENT_ORDER.value]},
+    )
+    source_type: ProductionSourceType = Field(
+        default=ProductionSourceType.STANDARD,
+        validate_default=True,
+        json_schema_extra={"enum": [ProductionSourceType.STANDARD.value]},
+    )
+
+    @field_validator("production_type")
+    @classmethod
+    def require_client_order(cls, value: ProductionType) -> ProductionType:
+        if value is not ProductionType.CLIENT_ORDER:
+            raise ValueError("client-order create output requires client_order")
+        return value
+
+    @field_validator("source_type")
+    @classmethod
+    def require_standard_source(cls, value: ProductionSourceType) -> ProductionSourceType:
+        if value is not ProductionSourceType.STANDARD:
+            raise ValueError("client-order create output requires standard source")
+        return value
 
 
 class WorkOrderOut(ORMModel):
@@ -250,6 +317,36 @@ class ProductionOrderDetail(ProductionOrderOut):
     batches: list[ProductionBatchOut] = []
     items: list[ProductionOrderItemOut] = []
     work_orders: list[WorkOrderOut] = []
+
+
+class StandardProductionOrderCreateDetail(ProductionOrderDetail):
+    """Detail response for the generic standard-order create operation."""
+
+    production_type: ProductionType = Field(
+        json_schema_extra={"enum": [
+            ProductionType.CLIENT_ORDER.value,
+            ProductionType.BRANDED_STOCK.value,
+        ]},
+    )
+    source_type: ProductionSourceType = Field(
+        default=ProductionSourceType.STANDARD,
+        validate_default=True,
+        json_schema_extra={"enum": [ProductionSourceType.STANDARD.value]},
+    )
+
+    @field_validator("production_type")
+    @classmethod
+    def require_standard_production_type(cls, value: ProductionType) -> ProductionType:
+        if value not in {ProductionType.CLIENT_ORDER, ProductionType.BRANDED_STOCK}:
+            raise ValueError("standard production-order create output requires a standard order type")
+        return value
+
+    @field_validator("source_type")
+    @classmethod
+    def require_standard_source(cls, value: ProductionSourceType) -> ProductionSourceType:
+        if value is not ProductionSourceType.STANDARD:
+            raise ValueError("standard production-order create output requires standard source")
+        return value
 
 
 class WorkOrderUpdate(BaseModel):

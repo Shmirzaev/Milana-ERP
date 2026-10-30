@@ -16,6 +16,7 @@ records. Business services live in models/*_service.py.
 - [ProductionBatch](production.py)
 - [ProductionOrderItem](production.py)
 - [WorkOrder](production.py)
+- [same-Session creation persistence](production_persistence.py)
 - [CuttingRecord](production.py)
 - [CuttingMaterialUsage](production.py)
 - [CuttingBeikaMaterialUsage](production.py)
@@ -32,6 +33,14 @@ records. Business services live in models/*_service.py.
 These links follow business ownership; some point to mixed files in another group
 or shared core.py. Keep one authoritative mapping per table. Moving individual
 classes out of mixed files is a separate approved change.
+
+`production_persistence.py` owns focused constructors and mapped workflow-state
+mutations for ProductionOrder, material/item children, ProductionBatch and
+WorkOrder creation. It accepts typed values from the service, flushes using the
+supplied Session at the preserved operation boundaries, and never commits. The
+Production services continue to own eligibility, numbering, stock checks,
+department selection and transition decisions. This helper file does not imply
+that all Production writers or lifecycle operations are schema-owned or verified.
 
 ## How to make a file here
 

@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.libs.dto.production.production import ProductionOrderIn
 from app.libs.enums.planning import BrandedPlanningOrderStatus, BrandedPlanningOrderType
+from app.libs.enums.production import ProductionType
 from app.models.audit_service import log_action
 from app.models.numbering_service import next_branded_planning_order_no
 from app.models.planning.branded_orders_service import BRANDED_ORDER_PARTIES
@@ -38,7 +39,7 @@ CLIENT_ORDER_STATUSES = {"confirmed", "pending_sales_approval", "planning_approv
 
 def create_client_order_production(db: Session, payload: ProductionOrderIn, current: User):
     """Open a production order for a confirmed client sales order."""
-    if payload.production_type != "client_order":
+    if payload.production_type is not ProductionType.CLIENT_ORDER:
         raise HTTPException(400, "Use /planning/create-branded-production for branded_stock")
     so = db.get(SalesOrder, payload.sales_order_id) if payload.sales_order_id else None
     if not so:
@@ -48,7 +49,7 @@ def create_client_order_production(db: Session, payload: ProductionOrderIn, curr
     printing_attachments = printing_attachments_for_storage(payload.printing_attachments)
     po = create_production_order(
         db,
-        production_type="client_order",
+        production_type=ProductionType.CLIENT_ORDER,
         model_id=payload.model_id,
         brand_id=payload.brand_id,
         fabric_batch_id=payload.fabric_batch_id,
@@ -59,11 +60,11 @@ def create_client_order_production(db: Session, payload: ProductionOrderIn, curr
         estimated_material_code=payload.estimated_material_code,
         estimated_material_amount=payload.estimated_material_amount,
         estimated_material_unit=payload.estimated_material_unit,
-        materials=[row.model_dump() for row in payload.materials],
+        materials=payload.materials,
         printing_instructions=payload.printing_instructions,
         printing_attachments=printing_attachments,
         destination_warehouse_id=payload.destination_warehouse_id,
-        items=[i.model_dump() for i in payload.items],
+        items=payload.items,
         created_by=current.id,
     )
     if payload.batches:
@@ -89,7 +90,7 @@ def create_client_order_production(db: Session, payload: ProductionOrderIn, curr
 
 def create_branded_stock_production(db: Session, payload: ProductionOrderIn, current: User):
     """Open a production order for branded stock on an open branded planning order."""
-    if payload.production_type != "branded_stock":
+    if payload.production_type is not ProductionType.BRANDED_STOCK:
         raise HTTPException(400, "production_type must be branded_stock")
     planning_order = db.get(BrandedPlanningOrder, payload.planning_order_id) if payload.planning_order_id else None
     if payload.planning_order_id and not planning_order:
@@ -112,7 +113,7 @@ def create_branded_stock_production(db: Session, payload: ProductionOrderIn, cur
     printing_attachments = printing_attachments_for_storage(payload.printing_attachments)
     po = create_production_order(
         db,
-        production_type="branded_stock",
+        production_type=ProductionType.BRANDED_STOCK,
         planning_order_id=planning_order.id,
         model_id=payload.model_id,
         brand_id=payload.brand_id,
@@ -125,11 +126,11 @@ def create_branded_stock_production(db: Session, payload: ProductionOrderIn, cur
         estimated_material_code=payload.estimated_material_code,
         estimated_material_amount=payload.estimated_material_amount,
         estimated_material_unit=payload.estimated_material_unit,
-        materials=[row.model_dump() for row in payload.materials],
+        materials=payload.materials,
         printing_instructions=payload.printing_instructions,
         printing_attachments=printing_attachments,
         destination_warehouse_id=payload.destination_warehouse_id,
-        items=[i.model_dump() for i in payload.items],
+        items=payload.items,
         created_by=current.id,
     )
     if payload.batches:

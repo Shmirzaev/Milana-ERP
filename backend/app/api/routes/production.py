@@ -43,13 +43,14 @@ from app.schemas import (
 )
 from app.libs.dto.inventory.material_reservation_output import MaterialReservationOut, MaterialReservationStatusOut
 from app.libs.dto.production.production import (
-    ProductionOrderIn, ProductionOrderUpdateIn, ProductionOrderOut, ProductionOrderDetail, ProductionOrderPageOut,
+    ProductionOrderIn, ProductionOrderUpdateIn, ProductionOrderOut, ProductionOrderDetail,
+    StandardProductionOrderCreateDetail, ProductionOrderPageOut,
     WorkOrderOut, WorkOrderUpdate,
     CuttingMaterialUsageIn, CuttingRecordIn, PrintingRecordIn, SewingRecordIn, PackagingRecordIn,
     QualityCheckIn, QualityCheckOut,
     ProductionOrderSizesIn,
 )
-from app.libs.enums.production import WorkOrderStatus
+from app.libs.enums.production import ProductionType, WorkOrderStatus
 from app.core.dt import as_utc
 from app.models.audit_service import log_action
 from app.models.production.sewing_service import record_sewing_output
@@ -541,7 +542,7 @@ def list_pos(
     db: DbSession,
     _: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS)),
     status: str | None = None,
-    production_type: str | None = None,
+    production_type: ProductionType | None = None,
     q: Annotated[str | None, Query(max_length=100)] = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=500)] = 50,
@@ -556,7 +557,7 @@ def list_pos(
         ProductionOrder.source_type == "standard"
     )
     if status: qry = qry.filter(ProductionOrder.status == status)
-    if production_type: qry = qry.filter(ProductionOrder.production_type == production_type)
+    if production_type: qry = qry.filter(ProductionOrder.production_type == production_type.value)
     needle = (q or "").strip()
     if needle:
         escaped_needle = (
@@ -588,7 +589,7 @@ def list_pos(
     }
 
 
-@router.post("/production-orders", response_model=ProductionOrderDetail, status_code=201)
+@router.post("/production-orders", response_model=StandardProductionOrderCreateDetail, status_code=201)
 def create_po(payload: ProductionOrderIn, db: DbSession, current: User = Depends(require_permissions("planning.production", "*"))):
     printing_attachments = printing_attachments_for_storage(payload.printing_attachments)
     po = create_production_order(
@@ -605,11 +606,11 @@ def create_po(payload: ProductionOrderIn, db: DbSession, current: User = Depends
         estimated_material_code=payload.estimated_material_code,
         estimated_material_amount=payload.estimated_material_amount,
         estimated_material_unit=payload.estimated_material_unit,
-        materials=[row.model_dump() for row in payload.materials],
+        materials=payload.materials,
         printing_instructions=payload.printing_instructions,
         printing_attachments=printing_attachments,
         destination_warehouse_id=payload.destination_warehouse_id,
-        items=[i.model_dump() for i in payload.items],
+        items=payload.items,
         created_by=current.id,
     )
     if payload.batches:
