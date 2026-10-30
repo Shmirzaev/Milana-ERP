@@ -314,8 +314,8 @@
       ]
     },
     "test_sewing_output_postgres": {
-      "revision": "0ac5e8b5b1c87cb0942df9891d57108c8fbe3d56",
-      "git_blob_sha256": "d4cf41d73174a13f8cf731a48479fc0e9dd0b8b6e25bdbb0814976a8c234e0be",
+      "revision": "5e18621d77419576f38689393ebd82bb810db520",
+      "git_blob_sha256": "76fd4a71dc343d707367649e3c0063b013153342a091b6b6be31926af37587b6",
       "selected_functions": [
         "test_pg_factory_output_persists_all_participants_and_replays_once",
         "test_pg_band_output_uses_the_same_operation_and_preserves_retry_contract",
