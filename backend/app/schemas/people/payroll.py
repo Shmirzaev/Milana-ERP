@@ -4,8 +4,72 @@ from decimal import Decimal
 
 from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, JSON, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.types import TypeDecorator
 
 from app.db.base import Base, PkMixin, TimestampMixin
+from app.libs.enums.factory import FactoryCode
+from app.libs.enums.people import PayrollAdjustmentType
+
+
+PAYROLL_ADJUSTMENT_TYPE_VALUES = tuple(adjustment_type.value for adjustment_type in PayrollAdjustmentType)
+PAYROLL_ADJUSTMENT_FACTORY_VALUES = tuple(factory_code.value for factory_code in FactoryCode)
+PAYROLL_ADJUSTMENT_TYPE_CHECK = "adjustment_type IN (" + ", ".join(
+    f"'{value}'" for value in PAYROLL_ADJUSTMENT_TYPE_VALUES
+) + ")"
+PAYROLL_ADJUSTMENT_FACTORY_CHECK = "factory_code IN (" + ", ".join(
+    f"'{value}'" for value in PAYROLL_ADJUSTMENT_FACTORY_VALUES
+) + ")"
+
+
+class FactoryCodeStorage(TypeDecorator):
+    """Map canonical factory codes while preserving raw-string SQL callers."""
+
+    impl = String
+    cache_ok = True
+
+    def __init__(self, length: int = 3) -> None:
+        super().__init__(length)
+        self.length = length
+
+    def process_bind_param(self, value: FactoryCode | str | None, dialect) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, FactoryCode):
+            return value.value
+        return value
+
+    def process_result_value(self, value: str | None, dialect) -> FactoryCode | None:
+        if value is None:
+            return None
+        return FactoryCode(value)
+
+
+class PayrollAdjustmentTypeStorage(TypeDecorator):
+    """Map canonical values while preserving legacy raw-string ORM writes.
+
+    The mapped field remains enum-typed. This adapter accepts a raw string at
+    the SQLAlchemy boundary for existing callers, leaving validation and the
+    database CHECK constraint responsible for rejecting unsupported values.
+    """
+
+    impl = String
+    cache_ok = True
+
+    def __init__(self, length: int = 16) -> None:
+        super().__init__(length)
+        self.length = length
+
+    def process_bind_param(self, value: PayrollAdjustmentType | str | None, dialect) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, PayrollAdjustmentType):
+            return value.value
+        return value
+
+    def process_result_value(self, value: str | None, dialect) -> PayrollAdjustmentType | None:
+        if value is None:
+            return None
+        return PayrollAdjustmentType(value)
 
 
 class PayrollPeriod(Base, PkMixin, TimestampMixin):
@@ -143,16 +207,20 @@ class PayrollAdjustment(Base, PkMixin):
     __tablename__ = "payroll_adjustments"
     __table_args__ = (
         CheckConstraint("amount >= 0", name="ck_payroll_adjustments_amount_nonnegative"),
-        CheckConstraint("adjustment_type IN ('bonus', 'deduction')", name="ck_payroll_adjustments_type"),
-        CheckConstraint("factory_code IN ('MIL', 'BST', 'ECO')", name="ck_payroll_adjustments_factory_code"),
+        CheckConstraint(PAYROLL_ADJUSTMENT_TYPE_CHECK, name="ck_payroll_adjustments_type"),
+        CheckConstraint(PAYROLL_ADJUSTMENT_FACTORY_CHECK, name="ck_payroll_adjustments_factory_code"),
         UniqueConstraint("source_payroll_record_id", name="uq_payroll_adjustments_source_record"),
     )
 
-    factory_code: Mapped[str] = mapped_column(String(3), nullable=False, default="MIL", server_default="MIL", index=True)
+    factory_code: Mapped[FactoryCode] = mapped_column(
+        FactoryCodeStorage(3), nullable=False, default=FactoryCode.MIL, server_default=FactoryCode.MIL.value, index=True
+    )
     payroll_period_id: Mapped[int | None] = mapped_column(ForeignKey("payroll_periods.id"), index=True)
     source_payroll_record_id: Mapped[int | None] = mapped_column(ForeignKey("payroll_records.id"), index=True)
     employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), nullable=False, index=True)
-    adjustment_type: Mapped[str] = mapped_column(String(16), default="bonus", nullable=False)
+    adjustment_type: Mapped[PayrollAdjustmentType] = mapped_column(
+        PayrollAdjustmentTypeStorage(16), default=PayrollAdjustmentType.BONUS, nullable=False
+    )
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(8), default="UZS", nullable=False)
     reason: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -162,4 +230,4 @@ class PayrollAdjustment(Base, PkMixin):
     @property
     def signed_amount(self) -> Decimal:
         amount = self.amount or Decimal("0")
-        return -amount if self.adjustment_type == "deduction" else amount
+        return -amount if self.adjustment_type == PayrollAdjustmentType.DEDUCTION else amount

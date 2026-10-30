@@ -8,6 +8,7 @@ from sqlalchemy import event
 
 from app.api.routes.payroll import list_adjustments
 from app.schemas import AuditLog, Employee, PayrollAdjustment
+from app.libs.enums.people import PayrollAdjustmentType
 from app.libs.dto.people.payroll import PayrollAdjustmentOut
 from app.tests.conftest import TestSessionLocal, test_engine
 
@@ -35,7 +36,7 @@ def _seed_adjustments(count: int, *, factory_code: str = "MIL") -> tuple[int, li
             PayrollAdjustment(
                 factory_code=factory_code,
                 employee_id=employee.id,
-                adjustment_type="bonus",
+                adjustment_type=PayrollAdjustmentType.BONUS,
                 amount=Decimal(index + 1),
                 currency="UZS",
                 reason=f"Pagination adjustment {marker}-{index}",

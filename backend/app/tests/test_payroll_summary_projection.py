@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import event
 
 from app.api.routes.payroll import payroll_summary
+from app.libs.enums.people import PayrollAdjustmentType
 from app.schemas import (
     Department,
     Employee,
@@ -72,7 +73,7 @@ def _seed_summary_rows(count):
                 factory_code="ECO",
                 payroll_period_id=period.id,
                 employee_id=employee.id,
-                adjustment_type="bonus",
+                adjustment_type=PayrollAdjustmentType.BONUS,
                 amount=Decimal("1"),
                 reason="summary projection test",
             )
