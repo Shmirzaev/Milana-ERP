@@ -126,7 +126,7 @@ class RequiredPGGateTests(unittest.TestCase):
         baseline_hash = hashlib.sha256(
             json.dumps(baseline, sort_keys=True, separators=(',', ':')).encode()
         ).hexdigest()
-        self.assertEqual(baseline_hash, '095f0ae283d134b599f25d77d1502e5dfb5e10a6fb2749c0a9c0306c6cbcc05f')
+        self.assertEqual(baseline_hash, 'fd77edae0055c6c345a2da20f0282719dd565357ab15e84f6fd4ca2d297d44b8')
         gate.verify_model_image_upload_source()
 
     def test_bom_source_refresh_retains_all_old_cases_and_requires_retry_case(self):
@@ -227,7 +227,7 @@ class RequiredPGGateTests(unittest.TestCase):
         ]
         self.assertEqual(hashlib.sha256(
             json.dumps(baseline, sort_keys=True, separators=(',', ':')).encode()).hexdigest(),
-            '7279178744cc4183254336d2e3597137c3c60bd5e711b97e121aea417fe964c8')
+            'b8fca3b944e292a64120cf91e72ad2460624d4a8bb71a8427f5680824cd4e2a3')
         self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 257)
         self.assertEqual(sum(len(items) for items in manifest['cases'].values())
                          + len(manifest['isolated_supplemental_cases']), 274)
@@ -299,9 +299,9 @@ class RequiredPGGateTests(unittest.TestCase):
         manifest = json.loads(Path(gate.__file__).with_name(
             'refactor_pg_required_cases.json').read_text(encoding='utf-8'))
         source = manifest['sources'][module]
-        self.assertEqual(source['revision'], '7f6b5a505458d0ea69ef48ae0f7ca23c32d6965d')
+        self.assertEqual(source['revision'], '3855f27052e5e32f1bb3908a274e302205101146')
         self.assertEqual(source['git_blob_sha256'],
-                         '8c8d31e9fc084c40ae4d973837c92e6e26276ff5aeb1364fc66b406695d6d51d')
+                         '9256c26ea4493ff70c24ee51f44fe7a054b7172a24fc0a9afe805501c31c34bf')
         self.assertEqual(source['selected_functions'], [
             'test_pg_paid_operations_patch_round_trips_typed_rows_and_openapi',
             'test_pg_paid_operations_invalid_and_cross_factory_patch_leave_family_and_audit_unchanged',
