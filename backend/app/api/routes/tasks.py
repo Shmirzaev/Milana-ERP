@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import func
 
@@ -7,13 +6,13 @@ from app.schemas import Task
 from app.libs.enums.work_management import TaskStatus
 from app.libs.dto.work_management.tasks import TaskIn, TaskUpdate, TaskOut
 from app.models.audit_service import log_action
-from app.models.notifications_service import notify
 from app.models.work_management.tasks_service import (
     TaskCreateRefused,
+    TaskCompleteRefused,
     TaskUpdateRefused,
     can_manage_tasks as _can_manage,
+    complete_user_task,
     create_user_task,
-    task_notification_link as _task_link,
     update_user_task,
 )
 
@@ -115,20 +114,12 @@ def delete_task(tid: int, db: DbSession, current: CurrentUser):
 
 @router.post("/{tid}/complete", response_model=TaskOut)
 def complete_task(tid: int, db: DbSession, current: CurrentUser):
-    t = db.get(Task, tid)
-    if not t: raise HTTPException(404, "Task not found")
-    if t.assigned_to != current.id and not _can_manage(current):
-        raise HTTPException(403, "Only the assignee or a manager may complete this task")
-    t.status = TaskStatus.COMPLETED.value
-    t.completed_at = datetime.now(timezone.utc)
-    # Notify creator that the task is done.
-    if t.created_by and t.created_by != current.id:
-        notify(
-            db, user_id=t.created_by,
-            title=f"Task completed: {t.title}",
-            message=f"Completed by user #{current.id}",
-            link=_task_link(t),
-        )
-    log_action(db, current, "complete", "Task", t.id)
-    db.commit(); db.refresh(t)
-    return t
+    try:
+        return complete_user_task(db, current, tid)
+    except TaskCompleteRefused as refusal:
+        if refusal.reason == "task_missing":
+            raise HTTPException(404, "Task not found") from refusal
+        raise HTTPException(
+            403,
+            "Only the assignee or a manager may complete this task",
+        ) from refusal

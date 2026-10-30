@@ -1,9 +1,9 @@
 # Tasks and notifications
 
 Business-service group guide, relocated into models/ on 24 October 2026.
-`tasks_service.py` contains the generic user-facing Task CREATE operation and the
-separate focused system stock-shortage participant. Other Task operations remain
-independent route-owned work.
+`tasks_service.py` contains the user-facing Task CREATE, PATCH and COMPLETE
+operations and the separate focused system stock-shortage participant. Deletion
+remains an independent route-owned operation.
 
 **Purpose:** Own task assignment/status and notification delivery/read-state behavior.
 
@@ -21,7 +21,7 @@ operations; audit uses the shared hash-chain service. This service owns the one
 outer commit and refreshes the first created task for the existing 201 response.
 It preserves current assignment permissions, inactive existing-assignee behavior,
 notification payloads, broadcast ordering/cap and rollback semantics. It adds no
-idempotency or task locks. Update, delete and complete remain separate operations.
+idempotency or task locks. PATCH, COMPLETE and delete remain separate operations.
 
 ## User-facing Task PATCH
 
@@ -35,10 +35,21 @@ this extraction does not silently define a new HTTP validation policy. The
 dedicated `/complete` operation remains separate, including its notification and
 audit behavior.
 
-TaskStatus/TaskPriority are now canonical fixed-vocabulary contracts for task
-create/update/output and status filtering; the mapped columns remain VARCHAR with
-string values. Historical stored values were not censused here, so output/runtime
-compatibility and visual/database acceptance remain required gates.
+TaskStatus/TaskPriority are canonical fixed-vocabulary contracts for task
+create/update/complete/output and status filtering; the mapped columns remain
+VARCHAR with string values. Historical stored values were not censused here, so
+output/runtime compatibility and visual/database acceptance remain required gates.
+
+## User-facing Task COMPLETE
+
+`complete_user_task` owns the existing assignee-or-manager check, status/timestamp
+write, conditional creator notification, completion audit, one commit and refresh.
+The Work Management schema participant assigns the canonical completed value and
+timestamp on the caller's attached Task row without flushing or committing.
+Repeated calls intentionally retain current behavior: each sets a fresh completion
+timestamp and creates another completion audit and (when the creator differs from
+the actor) another creator notification. This operation does not deduplicate or
+add locks. Its notification text/link and audit shape remain distinct from PATCH.
 
 ## System stock-shortage participant
 

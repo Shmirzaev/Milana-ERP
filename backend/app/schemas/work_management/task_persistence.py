@@ -1,4 +1,4 @@
-"""Schema-owned Task inserts and mapped user-update participation."""
+"""Schema-owned Task inserts and mapped user-update/completion participation."""
 from datetime import datetime
 from sqlalchemy.orm import Session, object_session
 
@@ -75,3 +75,16 @@ def apply_user_task_update(
         row.entity_id = command.entity_id
     if completed_at.should_write:
         row.completed_at = completed_at.value
+
+
+def apply_user_task_completion(
+    db: Session,
+    row: Task,
+    *,
+    completed_at: datetime,
+) -> None:
+    """Stage the existing user-facing completion fields on the caller's Session."""
+    if object_session(row) is not db:
+        raise ValueError("Task completion requires the caller's attached Task row")
+    row.status = TaskStatus.COMPLETED.value
+    row.completed_at = completed_at

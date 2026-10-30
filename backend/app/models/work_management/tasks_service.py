@@ -19,6 +19,7 @@ from app.schemas import Task, User
 from app.schemas.work_management.task_persistence import (
     add_stock_shortage_task,
     add_user_created_task,
+    apply_user_task_completion,
     apply_user_task_update,
 )
 
@@ -287,6 +288,40 @@ def update_user_task(db: Session, current: User, task_id: int, payload: TaskUpda
         task.id,
         new_value=_task_update_audit_values(command),
     )
+    db.commit()
+    db.refresh(task)
+    return task
+
+
+TaskCompleteRefusalReason = Literal["task_missing", "not_allowed"]
+
+
+class TaskCompleteRefused(Exception):
+    """A Task completion refusal translated to the established HTTP response."""
+
+    def __init__(self, reason: TaskCompleteRefusalReason):
+        self.reason = reason
+        super().__init__(reason)
+
+
+def complete_user_task(db: Session, current: User, task_id: int) -> Task:
+    """Complete one Task and preserve its existing notice, audit and commit policy."""
+    task = db.get(Task, task_id)
+    if task is None:
+        raise TaskCompleteRefused("task_missing")
+    if task.assigned_to != current.id and not can_manage_tasks(current):
+        raise TaskCompleteRefused("not_allowed")
+
+    apply_user_task_completion(db, task, completed_at=datetime.now(timezone.utc))
+    if task.created_by and task.created_by != current.id:
+        notify(
+            db,
+            user_id=task.created_by,
+            title=f"Task completed: {task.title}",
+            message=f"Completed by user #{current.id}",
+            link=task_notification_link(task),
+        )
+    log_action(db, current, "complete", "Task", task.id)
     db.commit()
     db.refresh(task)
     return task
