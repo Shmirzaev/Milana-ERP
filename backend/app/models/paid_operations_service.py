@@ -5,6 +5,8 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from app.libs.dto.catalog.model_input import PaidOperationIn
+from app.libs.enums.catalog import normalize_paid_operation_factory_value
 from app.schemas import User
 
 
@@ -13,23 +15,9 @@ FACTORY_BY_DEPARTMENT_CODE = {
     "BST": "besttex",
     "ECO": "eco_cotton",
 }
-FACTORY_ALIASES = {
-    "MIL": "milana",
-    "MILANA": "milana",
-    "SML": "milana",
-    "BST": "besttex",
-    "BESTTEX": "besttex",
-    "BTX": "besttex",
-    "ECO": "eco_cotton",
-    "ECO_COTTON": "eco_cotton",
-    "ECOCOTTON": "eco_cotton",
-}
-
-
 def normalize_paid_operation_factory(value: object) -> str | None:
-    normalized = str(value or "").strip().upper().replace("-", " ").replace("_", " ")
-    normalized = " ".join(normalized.split())
-    return FACTORY_ALIASES.get(normalized) or FACTORY_ALIASES.get(normalized.replace(" ", "_"))
+    normalized = normalize_paid_operation_factory_value(value)
+    return normalized.value if normalized else None
 
 
 def paid_operation_factory(row: object) -> str | None:
@@ -131,6 +119,39 @@ def merge_scoped_paid_operations(existing_details: object, incoming_details: obj
     return incoming
 
 
+def merge_scoped_paid_operation_update(
+    existing_details: object,
+    incoming_details: object,
+    rows: list[PaidOperationIn],
+    factory: str | None,
+) -> dict:
+    """Merge typed PATCH rows with opaque stored rows, serializing at JSON output."""
+    incoming = deepcopy(incoming_details) if isinstance(incoming_details, dict) else {}
+    key = "paid_operations" if "paid_operations" in incoming else "paidOperations" if "paidOperations" in incoming else None
+    if key is None:
+        return incoming
+
+    if not factory:
+        incoming[key] = [row.model_dump(exclude_unset=True, mode="json") for row in rows]
+        return incoming
+
+    forbidden = [
+        row for row in rows
+        if row.factory_was_explicit and row.resolved_factory_hint != factory
+    ]
+    if forbidden:
+        raise HTTPException(403, "A sewing master cannot change another sewing factory's paid operations")
+    serialized = [row.model_dump(exclude_unset=True, mode="json") for row in rows]
+    hidden_rows = [
+        deepcopy(row)
+        for row in paid_operations_from_details(existing_details)
+        if not has_explicit_paid_operation_factory(row) or paid_operation_factory(row) != factory
+    ]
+    incoming["paid_operations"] = serialized + hidden_rows
+    incoming.pop("paidOperations", None)
+    return incoming
+
+
 def filter_operation_rows(rows: list[dict[str, Any]], factory_code: str | None) -> list[dict[str, Any]]:
     if factory_code is None:
         return rows
@@ -138,17 +159,21 @@ def filter_operation_rows(rows: list[dict[str, Any]], factory_code: str | None) 
     return _rows_for_factory(rows, factory)
 
 
-def replace_factory_paid_operations(details: object, rows: list[dict], factory: str | None) -> dict:
+def replace_factory_paid_operations(details: object, rows: list[PaidOperationIn], factory: str | None) -> dict:
     """Replace one factory's template, retaining other factories' effective rows.
 
     Materialize old shared rows for the other factories so clearing this factory
     cannot make its deleted legacy operations reappear on the next load.
     """
     result = deepcopy(details) if isinstance(details, dict) else {}
-    incoming = deepcopy(rows)
+    incoming: list[dict]
     if factory:
-        if any(has_explicit_paid_operation_factory(row) and paid_operation_factory(row) != factory for row in incoming):
+        if any(
+            row.factory_was_explicit and row.resolved_factory_hint != factory
+            for row in rows
+        ):
             raise HTTPException(403, "Cannot change another sewing factory's paid operations")
+        incoming = [row.model_dump(exclude_unset=True, mode="json") for row in rows]
         for row in incoming:
             row["sewingFactory"] = factory
         existing = paid_operations_from_details(details)
@@ -171,6 +196,8 @@ def replace_factory_paid_operations(details: object, rows: list[dict], factory: 
                 copy.update(id=identity, legacySourceId=source_id, sewingFactory=other)
                 hidden.append(copy)
         incoming.extend(hidden)
+    else:
+        incoming = [row.model_dump(exclude_unset=True, mode="json") for row in rows]
     result["paid_operations"] = incoming
     result.pop("paidOperations", None)
     return result
