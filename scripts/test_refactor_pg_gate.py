@@ -126,7 +126,7 @@ class RequiredPGGateTests(unittest.TestCase):
         baseline_hash = hashlib.sha256(
             json.dumps(baseline, sort_keys=True, separators=(',', ':')).encode()
         ).hexdigest()
-        self.assertEqual(baseline_hash, '42416b8d82f2d2111c31aea841c681041edc0142e7e484e0a30c047431be9e28')
+        self.assertEqual(baseline_hash, 'fc2abb07f10caffc16aeda488bad2acfce1ff52b58a8251e37bbc2cdc729bb23')
         gate.verify_model_image_upload_source()
 
     def test_each_model_image_upload_identity_cannot_be_missing_replaced_or_nonpassing(self):
@@ -181,9 +181,9 @@ class RequiredPGGateTests(unittest.TestCase):
         manifest = json.loads(Path(gate.__file__).with_name(
             'refactor_pg_required_cases.json').read_text(encoding='utf-8'))
         source = manifest['sources'][module]
-        self.assertEqual(source['revision'], '7f6b5a505458d0ea69ef48ae0f7ca23c32d6965d')
+        self.assertEqual(source['revision'], '36719660419bc507a6db334167c04a8239af8de1')
         self.assertEqual(source['git_blob_sha256'],
-                         '8c8d31e9fc084c40ae4d973837c92e6e26276ff5aeb1364fc66b406695d6d51d')
+                         '9256c26ea4493ff70c24ee51f44fe7a054b7172a24fc0a9afe805501c31c34bf')
         self.assertEqual(source['selected_functions'], [
             'test_pg_paid_operations_patch_round_trips_typed_rows_and_openapi',
             'test_pg_paid_operations_invalid_and_cross_factory_patch_leave_family_and_audit_unchanged',
