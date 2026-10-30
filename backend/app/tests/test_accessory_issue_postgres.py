@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from decimal import Decimal
-from threading import Barrier
+from threading import Barrier, Event
 from time import monotonic, sleep
 from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
@@ -43,7 +43,7 @@ from app.tests.test_sewing_output_postgres import sewing_case  # noqa: F401
 
 def _client_for(sessions, actor_id: int | None) -> TestClient:
     app = FastAPI()
-    app.include_router(router)
+    app.include_router(router, prefix="/api")
 
     def isolated_db():
         with sessions() as db:
@@ -529,12 +529,42 @@ def test_pg_issue_failure_rolls_back_and_retries_on_same_session(
     chain(sessions)
 
 
+def _blocking_chain_to_holder(
+    pid: int,
+    holder_pid: int,
+    graph: dict[int, tuple[str | None, tuple[int, ...]]],
+    visited: frozenset[int] = frozenset(),
+) -> list[int] | None:
+    if pid == holder_pid:
+        return [holder_pid]
+    if pid in visited:
+        return None
+    sample = graph.get(pid)
+    if sample is None or sample[0] != "Lock":
+        return None
+    for blocker in sample[1]:
+        chain_to_holder = _blocking_chain_to_holder(
+            blocker, holder_pid, graph, visited | {pid},
+        )
+        if chain_to_holder is not None:
+            return [pid, *chain_to_holder]
+    return None
+
+
 def test_pg_issue_batch_lock_prevents_physical_oversell_with_observed_blocker(
     customer_pg_sessions, sewing_case, monkeypatch, record_property,
 ):
     sessions = customer_pg_sessions
     case = _seed_accessory(sessions, sewing_case, quantities=(4,), required_quantity=10)
-    barrier = Barrier(2)
+    workers_ready = Event()
+    ready_at: list[float] = []
+
+    def record_rendezvous():
+        if not workers_ready.is_set():
+            ready_at.append(monotonic())
+            workers_ready.set()
+
+    barrier = Barrier(2, action=record_rendezvous)
     worker_pids: dict[int, int] = {}
     holder = sessions()
     holder_pid = int(holder.execute(text("SELECT pg_backend_pid()")).scalar_one())
@@ -567,39 +597,74 @@ def test_pg_issue_batch_lock_prevents_physical_oversell_with_observed_blocker(
     executor = ThreadPoolExecutor(max_workers=2)
     futures = [executor.submit(worker, index) for index in range(2)]
     saw_waits = False
-    deadline = monotonic() + 8
+    rendezvous_ok = False
+    holder_relation_lock = False
+    last_graph: dict[int, tuple[str | None, tuple[int, ...]]] = {}
+    observed_chains: dict[int, list[int]] = {}
     try:
+        rendezvous_ok = workers_ready.wait(timeout=8)
+        deadline = ready_at[0] + 5 if rendezvous_ok else monotonic()
         while monotonic() < deadline:
             if len(worker_pids) == 2:
                 with sessions() as observer:
                     waits = observer.execute(text(
                         "SELECT pid, wait_event_type, pg_blocking_pids(pid) "
-                        "FROM pg_stat_activity WHERE pid IN (:p0, :p1) AND state = 'active'"
-                    ), {"p0": worker_pids[0], "p1": worker_pids[1]}).all()
-                blocked = {
-                    int(pid) for pid, wait_type, blockers in waits
-                    if wait_type == "Lock" and holder_pid in blockers
+                        "FROM pg_stat_activity "
+                        "WHERE datname = current_database() AND state = 'active'"
+                    )).all()
+                    holder_relation_lock = bool(observer.execute(text(
+                        "SELECT EXISTS (SELECT 1 FROM pg_locks "
+                        "WHERE pid = :holder AND relation = 'stock_batches'::regclass "
+                        "AND mode = 'RowShareLock' AND granted)"
+                    ), {"holder": holder_pid}).scalar_one())
+                last_graph = {
+                    int(pid): (wait_type, tuple(int(value) for value in blockers))
+                    for pid, wait_type, blockers in waits
                 }
-                if blocked == set(worker_pids.values()):
+                observed_chains = {}
+                for pid in worker_pids.values():
+                    lock_chain = _blocking_chain_to_holder(pid, holder_pid, last_graph)
+                    if lock_chain is not None:
+                        observed_chains[pid] = lock_chain
+                if (holder_relation_lock
+                        and len(set(worker_pids.values())) == 2
+                        and holder_pid not in worker_pids.values()
+                        and set(observed_chains) == set(worker_pids.values())):
                     saw_waits = True
                     break
             sleep(0.02)
     finally:
-        holder.rollback()
-        holder.close()
-    try:
-        outcomes = [future.result(timeout=30) for future in futures]
-    finally:
-        executor.shutdown(wait=True, cancel_futures=False)
+        try:
+            holder.rollback()
+        finally:
+            holder.close()
+            try:
+                outcomes = [future.result(timeout=30) for future in futures]
+            finally:
+                executor.shutdown(wait=True, cancel_futures=False)
 
     record_property("accessory_issue_batch_lock_witness", {
         "holder_pid": holder_pid,
+        "holder_locked_batch_id": case["batch_ids"][0],
+        "holder_stock_batches_row_share_lock_observed": holder_relation_lock,
         "worker_pids": sorted(worker_pids.values()),
+        "workers_reached_availability_barrier": rendezvous_ok,
         "both_workers_observed_blocked_by_holder": saw_waits,
+        "worker_to_exact_holder_chains": observed_chains,
+        "last_wait_graph": {
+            pid: {"wait_event_type": value[0], "blockers": list(value[1])}
+            for pid, value in last_graph.items()
+        },
         "outcomes": outcomes,
-        "observer_timeout_seconds": 8,
+        "rendezvous_timeout_seconds": 8,
+        "observer_window_after_rendezvous_seconds": 5,
     })
-    assert saw_waits, f"workers did not both show lock waits behind holder {holder_pid}: {worker_pids}"
+    assert rendezvous_ok, f"workers did not reach the availability barrier: {worker_pids}"
+    assert saw_waits, (
+        f"both worker lock chains must reach exact batch holder {holder_pid}; "
+        f"workers={worker_pids}, graph={last_graph}, chains={observed_chains}, "
+        f"holder_relation_lock={holder_relation_lock}"
+    )
     assert sorted(outcome[0] for outcome in outcomes) == ["http", "ok"]
     assert next(outcome[1] for outcome in outcomes if outcome[0] == "http") == 409
     with sessions() as db:
