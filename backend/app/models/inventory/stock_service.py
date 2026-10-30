@@ -8,6 +8,7 @@ module never recomputes it.
 """
 
 from datetime import date, datetime
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
@@ -25,7 +26,8 @@ from app.core.order_reference import (
 from app.core.pagination import clamp_pagination
 from app.libs.dto.inventory.accessory_issue_input import AccessoryIssueIn
 from app.libs.dto.inventory.accessory_issue_output import (
-    AccessoryIssueRequestRow, AccessoryIssueSummaryRow,
+    AccessoryIssueLineOut, AccessoryIssueOut, AccessoryIssueRequestRow,
+    AccessoryIssueSummaryRow,
 )
 from app.libs.dto.inventory.accessory_return_input import AccessoryReturnIn
 from app.libs.dto.inventory.item_input import ItemIn
@@ -41,6 +43,8 @@ from app.libs.dto.inventory.stock_quantity_adjustment_output import StockQuantit
 from app.libs.dto.inventory.warehouse_input import WarehouseIn
 from app.libs.enums.inventory import StockBatchQcStatus, StockMovementType
 from app.libs.types.inventory import (
+    AccessoryIssueCommand,
+    AccessoryIssueLineCommand,
     ItemInsertCommand,
     PurchaseOrderStockReceiptCommand,
     PurchaseOrderStockReceiptResult,
@@ -52,20 +56,22 @@ from app.models.catalog import models_service as catalog_models_service
 from app.models.audit_service import log_action
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 from app.models.inventory_service import (
+    ACCESSORY_CATEGORIES,
     accessory_issue_plan,
     accessory_issue_requests,
     accessory_issue_summary,
     available_stock_for_batch,
+    available_stock_for_item,
     categories_for_group,
     current_stock_for_item,
-    issue_accessories_to_production_order,
     release_material_reservation,
     reserved_stock_for_batch,
     reserved_stock_for_item,
     stock_summary,
+    sync_sewing_accessory_block,
 )
 from app.models.material_rolls_service import normalize_material_roll_lengths, normalize_material_roll_weights
-from app.models.workflow_service import archive_depleted_material_batch
+from app.models.workflow_service import archive_depleted_material_batch, consume_item_from_batches
 from app.schemas import (
     CuttingMaterialUsage,
     CuttingRecord,
@@ -83,6 +89,7 @@ from app.schemas import (
     Warehouse,
     WasteRecord,
 )
+from app.schemas.inventory import accessory_issue_persistence
 from app.schemas.inventory import item_persistence
 from app.schemas.inventory import stock_movement_persistence
 from app.schemas.inventory import stock_receipt_persistence
@@ -959,26 +966,138 @@ def collect_back_accessory(
     return response
 
 
-def issue_accessories(db, payload: AccessoryIssueIn, current: User) -> dict:
+def issue_accessories(db: Session, payload: AccessoryIssueIn, current: User) -> AccessoryIssueOut:
     inventory_access.require_accessories(current)
-    result = issue_accessories_to_production_order(
-        db,
+    command = AccessoryIssueCommand(
         production_order_id=payload.production_order_id,
-        lines=[line.model_dump() for line in payload.lines],
-        user_id=current.id,
+        lines=tuple(
+            AccessoryIssueLineCommand(
+                item_id=line.item_id,
+                item_sku=line.item_sku,
+                item_name=line.item_name,
+                quantity=line.quantity,
+                unit=line.unit,
+                manual=line.manual,
+            )
+            for line in payload.lines
+        ),
+        actor_id=int(current.id),
     )
+    result = _stage_accessories_for_production_order(db, command)
     log_action(
         db,
         current,
         "issue_accessories",
         "ProductionOrder",
         payload.production_order_id,
-        new_value={"issued": result["issued"], "notes": payload.notes},
+        new_value={
+            "issued": [line.model_dump() for line in result.issued],
+            "notes": payload.notes,
+        },
     )
     db.commit()
     return result
 
 
+def _stage_accessories_for_production_order(
+    db: Session,
+    command: AccessoryIssueCommand,
+) -> AccessoryIssueOut:
+    """Apply validated accessory lines; the public service owns audit/commit."""
+    production_order_id = command.production_order_id
+    plan = accessory_issue_plan(db, production_order_id)
+    po = db.get(ProductionOrder, production_order_id)
+    if not po:
+        raise HTTPException(404, "Production order not found")
+
+    plan_by_item_id = {int(row["item_id"]): row for row in plan["rows"]}
+    issued: list[AccessoryIssueLineOut] = []
+    for line in command.lines:
+        item_id = int(line.item_id or 0)
+        quantity = Decimal(str(line.quantity or 0))
+        if quantity <= 0:
+            continue
+
+        item = db.get(Item, item_id) if item_id else None
+        manual = line.manual or item_id <= 0
+        if manual:
+            unit = str(line.unit or (item.unit if item else "") or "pcs").strip() or "pcs"
+            item_sku = str(line.item_sku or (item.sku if item else "") or "").strip()
+            item_name = str(line.item_name or (item.name if item else "") or item_sku).strip()
+            if not item_name:
+                raise HTTPException(400, "Manual accessory name is required")
+            accessory_issue_persistence.add_manual_accessory_issue(
+                db,
+                production_order_id=int(po.id),
+                item_id=int(item.id) if item else None,
+                line=line,
+                item_sku=item_sku or None,
+                item_name=item_name,
+                unit=unit,
+                created_by=command.actor_id,
+            )
+            issued.append(AccessoryIssueLineOut(
+                item_id=int(item.id) if item else 0,
+                item_sku=item_sku or item_name,
+                item_name=item_name,
+                item_image_url=item.image_url if item else None,
+                quantity=float(quantity),
+                unit=unit,
+            ))
+            continue
+
+        quantity_float = float(quantity)
+        item = db.get(Item, item_id)
+        if not item or item.category not in ACCESSORY_CATEGORIES:
+            raise HTTPException(400, f"Item #{item_id} is not an accessory item")
+
+        plan_row = plan_by_item_id.get(item_id)
+        if plan_row:
+            remaining = float(plan_row.get("remaining_quantity") or 0)
+            if quantity_float > remaining + EPSILON:
+                raise HTTPException(
+                    409,
+                    f"Issue quantity for {plan_row['item_sku']} exceeds remaining accessory requirement",
+                )
+
+        available = available_stock_for_item(db, int(item.id))
+        if quantity_float > available + EPSILON:
+            raise HTTPException(
+                409,
+                f"Insufficient available stock for {item.sku}: available {available:g}, requested {quantity_float:g}",
+            )
+
+        unit = str(line.unit or (plan_row or {}).get("unit") or item.unit or "").strip() or item.unit
+        if unit != item.unit:
+            raise HTTPException(409, "Accessory issue unit must match the item unit")
+        consumed = consume_item_from_batches(
+            db,
+            item_id=int(item.id),
+            quantity=quantity_float,
+            unit=unit,
+            reference_type="ProductionOrder",
+            reference_id=int(po.id),
+            user_id=command.actor_id,
+            require_available=True,
+        )
+        issued.append(AccessoryIssueLineOut(
+            item_id=int(item.id),
+            item_sku=item.sku,
+            item_name=item.name,
+            item_image_url=item.image_url,
+            quantity=consumed,
+            unit=unit,
+        ))
+
+    if not issued:
+        raise HTTPException(400, "No accessory issue quantities provided")
+    sync_sewing_accessory_block(db, production_order_id)
+    return AccessoryIssueOut(
+        production_order_id=int(po.id),
+        production_no=po.production_no,
+        order_no=po.order_no,
+        issued=issued,
+    )
 def accessory_issue_plan_view(db, user: User, production_order_id: int) -> dict:
     """The accessory issue plan for one production order."""
     inventory_access.require_accessories(user)

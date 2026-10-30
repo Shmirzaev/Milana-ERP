@@ -13,8 +13,10 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException
 
 from app.api.routes.production import post_sewing
+from app.libs.dto.inventory.accessory_issue_input import AccessoryIssueIn, AccessoryIssueLineIn
 from app.libs.dto.production.production import SewingRecordIn
 from app.models.idempotency_service import bind_idempotency_identity
+from app.models.inventory.stock_service import issue_accessories
 from app.schemas import (
     AuditLog, Bundle, CuttingRecord, Department, IdempotencyRecord, Item, ManualAccessoryIssue, Model, ModelBOM, Notification,
     ProductionOrder, SewingAssignment, SewingFlow, SewingRecord, StockMovement, User,
@@ -263,14 +265,16 @@ def test_pg_real_accessory_gate_refusal_rolls_back_flushed_block_then_retry(cust
         assert db.query(ManualAccessoryIssue).filter_by(production_order_id=case["order_id"]).count() == 0
         # Satisfy the existing accessory handoff through its actual issuer; keep
         # the required BOM in place and retry the same idempotency key.
-        from app.models.inventory_service import issue_accessories_to_production_order
-
-        issue_accessories_to_production_order(
-            db, production_order_id=case["order_id"], user_id=actor.id,
-            lines=[{
-                "item_id": 0, "manual": True, "item_sku": accessory_sku,
-                "item_name": accessory_name, "quantity": 50, "unit": "pcs",
-            }],
+        issue_accessories(
+            db,
+            AccessoryIssueIn(
+                production_order_id=case["order_id"],
+                lines=[AccessoryIssueLineIn(
+                    item_id=0, manual=True, item_sku=accessory_sku,
+                    item_name=accessory_name, quantity=50, unit="pcs",
+                )],
+            ),
+            actor,
         )
         db.flush()
         assert db.get(ModelBOM, requirement_id) is not None

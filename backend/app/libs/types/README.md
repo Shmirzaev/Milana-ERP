@@ -13,6 +13,13 @@ needs its producer, consumer and verification evidence.
 manual-package and piece-stock reserve operation; the route maps those outcomes
 to its existing, branch-specific HTTP response shapes.
 
+`inventory.py` now carries the used `AccessoryIssueCommand` and
+`AccessoryIssueLineCommand` from the Inventory service into its issue staging
+operation, plus `StockConsumptionCommand` from the shared workflow consumer to
+the schema-owned batch/movement writer. The movement kind is the existing
+`StockMovementType`; item units, labels and polymorphic reference strings remain
+free-form/configurable storage values.
+
 ## Purpose
 
 Describe data passed between internal operations when its shape differs from an

@@ -5,7 +5,12 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, NotRequired, TypedDict
 
-from app.libs.enums.inventory import FabricScanDepartment, FabricScanDirection, StockBatchQcStatus
+from app.libs.enums.inventory import (
+    FabricScanDepartment,
+    FabricScanDirection,
+    StockBatchQcStatus,
+    StockMovementType,
+)
 
 if TYPE_CHECKING:
     from app.schemas.inventory.inventory import StockMovement
@@ -31,6 +36,47 @@ class FabricScanCreateCommand:
 class ItemCompositionValue(TypedDict):
     name: str
     percentage: float
+
+
+@dataclass(frozen=True)
+class AccessoryIssueLineCommand:
+    """One validated line for Inventory's accessory issue operation.
+
+    SKU, labels and units stay strings because they are configurable catalog or
+    operator-entered data; ``manual`` is a mode flag, not a stored vocabulary.
+    """
+
+    item_id: int | None
+    item_sku: str | None
+    item_name: str | None
+    quantity: Decimal
+    unit: str | None
+    manual: bool
+    notes: str | None = None
+
+
+@dataclass(frozen=True)
+class AccessoryIssueCommand:
+    """Business-approved accessory issue lines staged on the supplied Session."""
+
+    production_order_id: int
+    lines: tuple[AccessoryIssueLineCommand, ...]
+    actor_id: int | None
+
+
+@dataclass(frozen=True)
+class StockConsumptionCommand:
+    """One already-calculated stock decrement and its movement ledger row."""
+
+    movement_type: StockMovementType
+    item_id: int
+    batch_id: int | None
+    from_warehouse_id: int | None
+    quantity: float
+    unit: str
+    reference_type: str
+    reference_id: int | None
+    actor_id: int | None
 
 
 class StockBatchEditValues(TypedDict, total=False):
