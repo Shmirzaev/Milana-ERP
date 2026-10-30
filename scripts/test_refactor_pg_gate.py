@@ -61,7 +61,73 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 218)
+        self.assertEqual(sum(counts.values()), 229)
+
+    def test_task_create_source_pin_and_all_literal_case_identities_are_frozen(self):
+        module = 'test_task_create_postgres'
+        functions = (
+            'test_pg_task_create_self_and_single_assignment_share_session_and_audit',
+            'test_pg_task_broadcast_is_bounded_active_ordered_and_atomic',
+            'test_pg_task_create_denials_leave_no_task_notification_or_audit',
+            'test_pg_task_create_failure_after_flush_or_audit_commit_rolls_back_then_retry',
+            'test_pg_repeated_identical_task_create_requests_remain_distinct',
+            'test_pg_task_broadcast_refuses_when_authenticated_actor_becomes_inactive_before_recipient_select',
+            'test_pg_concurrent_task_creates_keep_audit_chain',
+        )
+        cases = (
+            'test_pg_task_create_self_and_single_assignment_share_session_and_audit',
+            'test_pg_task_broadcast_is_bounded_active_ordered_and_atomic',
+            'test_pg_task_create_denials_leave_no_task_notification_or_audit',
+            'test_pg_task_create_failure_after_flush_or_audit_commit_rolls_back_then_retry[assigned-notification_after_flush]',
+            'test_pg_task_create_failure_after_flush_or_audit_commit_rolls_back_then_retry[broadcast-notification_after_flush]',
+            'test_pg_task_create_failure_after_flush_or_audit_commit_rolls_back_then_retry[self-audit_commit]',
+            'test_pg_task_create_failure_after_flush_or_audit_commit_rolls_back_then_retry[assigned-audit_commit]',
+            'test_pg_task_create_failure_after_flush_or_audit_commit_rolls_back_then_retry[broadcast-audit_commit]',
+            'test_pg_repeated_identical_task_create_requests_remain_distinct',
+            'test_pg_task_broadcast_refuses_when_authenticated_actor_becomes_inactive_before_recipient_select',
+            'test_pg_concurrent_task_creates_keep_audit_chain',
+        )
+        manifest = json.loads(Path(gate.__file__).with_name(
+            'refactor_pg_required_cases.json').read_text(encoding='utf-8'))
+        source = manifest['sources'][module]
+        self.assertEqual(source['revision'], '0567be4da6a86b5cdc494ba09dd5362c0914c0fc')
+        self.assertEqual(source['git_blob_sha256'],
+                         'd698d8f4f013ca9c7143ef4e45aad655e0a21dd67227e883aea4b39ac2ab12e8')
+        self.assertEqual(tuple(source['selected_functions']), functions)
+        self.assertEqual(tuple(manifest['cases'][module]), cases)
+        self.assertEqual(gate.GROUPS[module], (11, functions))
+        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 229)
+        self.assertEqual(len(manifest['isolated_supplemental_cases']), 17)
+
+    def test_each_task_create_case_is_required_and_nonpasses_fail(self):
+        module = 'test_task_create_postgres'
+        for required_name in gate.REQUIRED_CASES[module]:
+            for invalid in ('replacement', 'skipped', 'failure', 'error'):
+                with self.subTest(case=required_name, invalid=invalid):
+                    tree = self.report()
+                    case = next(item for item in tree.iter('testcase')
+                                if item.get('classname') == f'app.tests.{module}'
+                                and item.get('name') == required_name)
+                    if invalid == 'replacement':
+                        case.set('name', 'unrelated_task_create_case')
+                    else:
+                        ET.SubElement(case, invalid)
+                    with self.assertRaises(ValueError):
+                        gate.check_report(self.write_report(tree))
+
+    def test_task_create_group_cannot_be_replaced_by_unrelated_primary_cases(self):
+        module = 'test_task_create_postgres'
+        tree = self.report()
+        suite = next(tree.iter('testsuite'))
+        selected = [case for case in tree.iter('testcase')
+                    if case.get('classname') == f'app.tests.{module}']
+        for case in selected:
+            suite.remove(case)
+        for index in range(len(selected)):
+            ET.SubElement(suite, 'testcase', classname='app.tests.test_bom_add_characterization',
+                          name=f'task_replacement_{index}')
+        with self.assertRaisesRegex(ValueError, 'expected at least'):
+            gate.check_report(self.write_report(tree))
 
     def test_skipped_failed_and_error_evidence_are_rejected(self):
         for tag in ('skipped', 'failure', 'error'):

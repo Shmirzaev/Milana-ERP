@@ -122,7 +122,14 @@ GROUPS = {'test_customer_delete_postgres': (9,
                                                   'test_pg_direct_reserve_denied_actor_makes_no_business_writes',
                                                   'test_pg_direct_reserve_competing_piece_requests_do_not_oversell',
                                                   'test_pg_direct_reserve_failure_rolls_back_then_retry')),
- 'test_support_settings_postgres': (16, ('test_pg_section_merge_waits_on_exact_missing_or_existing_lock', 'test_pg_logo_update_waits_on_shared_company_info_lock', 'test_pg_existing_row_wait_refreshes_after_preexisting_row_lock', 'test_pg_settings_failure_rolls_back_and_retry_persists_once', 'test_pg_typed_route_persists_wire_defaults_null_and_audit', 'test_pg_typed_route_denials_invalid_and_unknown_have_no_writes', 'test_pg_typed_route_uses_schema_writer_session_and_one_commit'))}
+ 'test_support_settings_postgres': (16, ('test_pg_section_merge_waits_on_exact_missing_or_existing_lock', 'test_pg_logo_update_waits_on_shared_company_info_lock', 'test_pg_existing_row_wait_refreshes_after_preexisting_row_lock', 'test_pg_settings_failure_rolls_back_and_retry_persists_once', 'test_pg_typed_route_persists_wire_defaults_null_and_audit', 'test_pg_typed_route_denials_invalid_and_unknown_have_no_writes', 'test_pg_typed_route_uses_schema_writer_session_and_one_commit')),
+ 'test_task_create_postgres': (11, ('test_pg_task_create_self_and_single_assignment_share_session_and_audit',
+                                     'test_pg_task_broadcast_is_bounded_active_ordered_and_atomic',
+                                     'test_pg_task_create_denials_leave_no_task_notification_or_audit',
+                                     'test_pg_task_create_failure_after_flush_or_audit_commit_rolls_back_then_retry',
+                                     'test_pg_repeated_identical_task_create_requests_remain_distinct',
+                                     'test_pg_task_broadcast_refuses_when_authenticated_actor_becomes_inactive_before_recipient_select',
+                                     'test_pg_concurrent_task_creates_keep_audit_chain'))}
 REQUIRED_CASES = json.loads(
     Path(__file__).with_name("refactor_pg_required_cases.json").read_text(encoding="utf-8")
 )["cases"]

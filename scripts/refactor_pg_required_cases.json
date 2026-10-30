@@ -308,6 +308,19 @@
         "test_pg_typed_route_denials_invalid_and_unknown_have_no_writes",
         "test_pg_typed_route_uses_schema_writer_session_and_one_commit"
       ]
+    },
+    "test_task_create_postgres": {
+      "revision": "0567be4da6a86b5cdc494ba09dd5362c0914c0fc",
+      "git_blob_sha256": "d698d8f4f013ca9c7143ef4e45aad655e0a21dd67227e883aea4b39ac2ab12e8",
+      "selected_functions": [
+        "test_pg_task_create_self_and_single_assignment_share_session_and_audit",
+        "test_pg_task_broadcast_is_bounded_active_ordered_and_atomic",
+        "test_pg_task_create_denials_leave_no_task_notification_or_audit",
+        "test_pg_task_create_failure_after_flush_or_audit_commit_rolls_back_then_retry",
+        "test_pg_repeated_identical_task_create_requests_remain_distinct",
+        "test_pg_task_broadcast_refuses_when_authenticated_actor_becomes_inactive_before_recipient_select",
+        "test_pg_concurrent_task_creates_keep_audit_chain"
+      ]
     }
   },
   "cases": {
@@ -586,6 +599,19 @@
       "test_pg_typed_route_persists_wire_defaults_null_and_audit[preferences_wire]",
       "test_pg_typed_route_denials_invalid_and_unknown_have_no_writes",
       "test_pg_typed_route_uses_schema_writer_session_and_one_commit"
+    ],
+    "test_task_create_postgres": [
+      "test_pg_task_create_self_and_single_assignment_share_session_and_audit",
+      "test_pg_task_broadcast_is_bounded_active_ordered_and_atomic",
+      "test_pg_task_create_denials_leave_no_task_notification_or_audit",
+      "test_pg_task_create_failure_after_flush_or_audit_commit_rolls_back_then_retry[assigned-notification_after_flush]",
+      "test_pg_task_create_failure_after_flush_or_audit_commit_rolls_back_then_retry[broadcast-notification_after_flush]",
+      "test_pg_task_create_failure_after_flush_or_audit_commit_rolls_back_then_retry[self-audit_commit]",
+      "test_pg_task_create_failure_after_flush_or_audit_commit_rolls_back_then_retry[assigned-audit_commit]",
+      "test_pg_task_create_failure_after_flush_or_audit_commit_rolls_back_then_retry[broadcast-audit_commit]",
+      "test_pg_repeated_identical_task_create_requests_remain_distinct",
+      "test_pg_task_broadcast_refuses_when_authenticated_actor_becomes_inactive_before_recipient_select",
+      "test_pg_concurrent_task_creates_keep_audit_chain"
     ]
   },
   "isolated_supplemental_cases": [
