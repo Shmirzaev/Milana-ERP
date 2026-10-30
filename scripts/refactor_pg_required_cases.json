@@ -1,6 +1,35 @@
 {
   "description": "Required business case identities; additional cases allowed, removals need review.",
   "collection_method": "Frozen function signatures/literal pytest parameter decorators only; no application/fixture code imported",
+  "approved_case_transitions": [
+    {
+      "module": "test_model_paid_operations_postgres",
+      "previous_revision": "2430deeea65094606de1870560287127c7e6e4fa",
+      "previous_git_blob_sha256": "a2eef29c70c2fd5d4afefafab6d5c91df717aca6a974c5196963d21430fed322",
+      "removed_required_case": "test_pg_model_create_keeps_historical_paid_operation_json_opaque",
+      "transition": "Malformed paid-operation values on new Model CREATE are now rejected by the approved typed CREATE contract. The case that expected malformed new rows to persist opaquely is replaced by typed/scope/presence cases; a separate pre-existing opaque row GET test preserves historical read compatibility.",
+      "approved_review": "CAT_MODEL_CREATE_SOURCE_INDEPENDENT_REVIEW_20261030.md",
+      "approved_review_sha256": "a811298062a2b7eb873eb756b2ab9359c4493cf89f83b582464281607ac1886b",
+      "new_revision": "7f6b5a505458d0ea69ef48ae0f7ca23c32d6965d",
+      "new_git_blob_sha256": "8c8d31e9fc084c40ae4d973837c92e6e26276ff5aeb1364fc66b406695d6d51d",
+      "retained_prior_module_case_count": 9,
+      "replacement_model_create_case_count": 16,
+      "historical_receipts": [
+        {
+          "file": "PR351_CI_PG_ACCEPTANCE_BCAFC730_20261030.json",
+          "sha256": "aaaebcb9996499fae454a57f1560c9a3e732554bfece5752d481f810f5321e26",
+          "run": 41000316321,
+          "meaning": "Historical pass for the old 2430 source and old required case set only; does not verify the replacement semantics."
+        },
+        {
+          "file": "PR351_FULL_CI_ACCEPTANCE_BCAFC730_20261030.json",
+          "sha256": "af55735958ef8c3938d513becd6699ed77973c458e924ab07709ae6a4a70fc15",
+          "run": 41000316322,
+          "meaning": "Historical full-CI pass for the prior component source; does not verify this Model CREATE registration."
+        }
+      ]
+    }
+  ],
   "sources": {
     "test_brand_create_postgres": {
       "revision": "53ba460e85bb8b7e5ee9803affd624099276f9fe",
@@ -274,14 +303,21 @@
       ]
     },
     "test_model_paid_operations_postgres": {
-      "revision": "2430deeea65094606de1870560287127c7e6e4fa",
-      "git_blob_sha256": "a2eef29c70c2fd5d4afefafab6d5c91df717aca6a974c5196963d21430fed322",
+      "revision": "7f6b5a505458d0ea69ef48ae0f7ca23c32d6965d",
+      "git_blob_sha256": "8c8d31e9fc084c40ae4d973837c92e6e26276ff5aeb1364fc66b406695d6d51d",
       "selected_functions": [
         "test_pg_paid_operations_patch_round_trips_typed_rows_and_openapi",
         "test_pg_paid_operations_invalid_and_cross_factory_patch_leave_family_and_audit_unchanged",
         "test_pg_paid_operations_scoped_save_keeps_other_factory_opaque_legacy_and_other_family",
         "test_pg_usluga_paid_operation_routes_apply_eco_factory_and_typed_sections",
-        "test_pg_model_create_keeps_historical_paid_operation_json_opaque",
+        "test_pg_model_create_uses_typed_paid_operation_rows_and_keeps_open_metadata",
+        "test_pg_model_create_paid_operation_key_presence_and_scope_merge",
+        "test_pg_model_create_keeps_preexisting_opaque_paid_operation_json_readable",
+        "test_pg_legacy_variant_create_retains_payload_approval_without_family_sibling",
+        "test_pg_model_create_wrong_factory_paid_operation_refuses_before_writes",
+        "test_pg_model_create_audit_failure_rolls_back_then_same_session_retry",
+        "test_pg_model_create_automatic_number_and_model_rollback_retry_together",
+        "test_pg_model_create_variant_waits_for_family_approval_lock",
         "test_pg_paid_operations_failure_rolls_back_then_same_session_retry",
         "test_pg_paid_operations_concurrent_factories_serialize_same_family_and_prove_row_lock_wait"
       ]
@@ -556,7 +592,22 @@
       "test_pg_paid_operations_scoped_save_keeps_other_factory_opaque_legacy_and_other_family",
       "test_pg_usluga_paid_operation_routes_apply_eco_factory_and_typed_sections[usluga-dedicated-patch]",
       "test_pg_usluga_paid_operation_routes_apply_eco_factory_and_typed_sections[usluga-whole-model-patch]",
-      "test_pg_model_create_keeps_historical_paid_operation_json_opaque",
+      "test_pg_model_create_uses_typed_paid_operation_rows_and_keeps_open_metadata[standard-create]",
+      "test_pg_model_create_uses_typed_paid_operation_rows_and_keeps_open_metadata[usluga-create]",
+      "test_pg_model_create_paid_operation_key_presence_and_scope_merge[omitted-unscoped]",
+      "test_pg_model_create_paid_operation_key_presence_and_scope_merge[sparse-row-explicit-null-unscoped]",
+      "test_pg_model_create_paid_operation_key_presence_and_scope_merge[snake-scoped]",
+      "test_pg_model_create_paid_operation_key_presence_and_scope_merge[camel-scoped]",
+      "test_pg_model_create_paid_operation_key_presence_and_scope_merge[both-scoped-canonical-wins]",
+      "test_pg_model_create_paid_operation_key_presence_and_scope_merge[snake-null-scoped]",
+      "test_pg_model_create_paid_operation_key_presence_and_scope_merge[camel-null-scoped]",
+      "test_pg_model_create_paid_operation_key_presence_and_scope_merge[camel-null-unscoped]",
+      "test_pg_model_create_keeps_preexisting_opaque_paid_operation_json_readable",
+      "test_pg_legacy_variant_create_retains_payload_approval_without_family_sibling",
+      "test_pg_model_create_wrong_factory_paid_operation_refuses_before_writes",
+      "test_pg_model_create_audit_failure_rolls_back_then_same_session_retry",
+      "test_pg_model_create_automatic_number_and_model_rollback_retry_together",
+      "test_pg_model_create_variant_waits_for_family_approval_lock",
       "test_pg_paid_operations_failure_rolls_back_then_same_session_retry[audit-failure]",
       "test_pg_paid_operations_failure_rolls_back_then_same_session_retry[postflush-failure]",
       "test_pg_paid_operations_concurrent_factories_serialize_same_family_and_prove_row_lock_wait"

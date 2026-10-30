@@ -1,5 +1,6 @@
 """Offline red/green checks for missing or skipped required PG evidence."""
 import json
+import hashlib
 import os
 from pathlib import Path
 import tempfile
@@ -61,7 +62,121 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 218)
+        self.assertEqual(sum(counts.values()), 233)
+
+    def test_model_create_transition_source_cases_and_unrelated_registry_are_frozen(self):
+        module = 'test_model_paid_operations_postgres'
+        retained = (
+            'test_pg_paid_operations_patch_round_trips_typed_rows_and_openapi[dedicated-patch]',
+            'test_pg_paid_operations_patch_round_trips_typed_rows_and_openapi[whole-model-patch]',
+            'test_pg_paid_operations_invalid_and_cross_factory_patch_leave_family_and_audit_unchanged',
+            'test_pg_paid_operations_scoped_save_keeps_other_factory_opaque_legacy_and_other_family',
+            'test_pg_usluga_paid_operation_routes_apply_eco_factory_and_typed_sections[usluga-dedicated-patch]',
+            'test_pg_usluga_paid_operation_routes_apply_eco_factory_and_typed_sections[usluga-whole-model-patch]',
+            'test_pg_paid_operations_failure_rolls_back_then_same_session_retry[audit-failure]',
+            'test_pg_paid_operations_failure_rolls_back_then_same_session_retry[postflush-failure]',
+            'test_pg_paid_operations_concurrent_factories_serialize_same_family_and_prove_row_lock_wait',
+        )
+        new_create = (
+            'test_pg_model_create_uses_typed_paid_operation_rows_and_keeps_open_metadata[standard-create]',
+            'test_pg_model_create_uses_typed_paid_operation_rows_and_keeps_open_metadata[usluga-create]',
+            'test_pg_model_create_paid_operation_key_presence_and_scope_merge[omitted-unscoped]',
+            'test_pg_model_create_paid_operation_key_presence_and_scope_merge[sparse-row-explicit-null-unscoped]',
+            'test_pg_model_create_paid_operation_key_presence_and_scope_merge[snake-scoped]',
+            'test_pg_model_create_paid_operation_key_presence_and_scope_merge[camel-scoped]',
+            'test_pg_model_create_paid_operation_key_presence_and_scope_merge[both-scoped-canonical-wins]',
+            'test_pg_model_create_paid_operation_key_presence_and_scope_merge[snake-null-scoped]',
+            'test_pg_model_create_paid_operation_key_presence_and_scope_merge[camel-null-scoped]',
+            'test_pg_model_create_paid_operation_key_presence_and_scope_merge[camel-null-unscoped]',
+            'test_pg_model_create_keeps_preexisting_opaque_paid_operation_json_readable',
+            'test_pg_legacy_variant_create_retains_payload_approval_without_family_sibling',
+            'test_pg_model_create_wrong_factory_paid_operation_refuses_before_writes',
+            'test_pg_model_create_audit_failure_rolls_back_then_same_session_retry',
+            'test_pg_model_create_automatic_number_and_model_rollback_retry_together',
+            'test_pg_model_create_variant_waits_for_family_approval_lock',
+        )
+        manifest = json.loads(Path(gate.__file__).with_name(
+            'refactor_pg_required_cases.json').read_text(encoding='utf-8'))
+        source = manifest['sources'][module]
+        self.assertEqual(source['revision'], '7f6b5a505458d0ea69ef48ae0f7ca23c32d6965d')
+        self.assertEqual(source['git_blob_sha256'],
+                         '8c8d31e9fc084c40ae4d973837c92e6e26276ff5aeb1364fc66b406695d6d51d')
+        self.assertEqual(source['selected_functions'], [
+            'test_pg_paid_operations_patch_round_trips_typed_rows_and_openapi',
+            'test_pg_paid_operations_invalid_and_cross_factory_patch_leave_family_and_audit_unchanged',
+            'test_pg_paid_operations_scoped_save_keeps_other_factory_opaque_legacy_and_other_family',
+            'test_pg_usluga_paid_operation_routes_apply_eco_factory_and_typed_sections',
+            'test_pg_model_create_uses_typed_paid_operation_rows_and_keeps_open_metadata',
+            'test_pg_model_create_paid_operation_key_presence_and_scope_merge',
+            'test_pg_model_create_keeps_preexisting_opaque_paid_operation_json_readable',
+            'test_pg_legacy_variant_create_retains_payload_approval_without_family_sibling',
+            'test_pg_model_create_wrong_factory_paid_operation_refuses_before_writes',
+            'test_pg_model_create_audit_failure_rolls_back_then_same_session_retry',
+            'test_pg_model_create_automatic_number_and_model_rollback_retry_together',
+            'test_pg_model_create_variant_waits_for_family_approval_lock',
+            'test_pg_paid_operations_failure_rolls_back_then_same_session_retry',
+            'test_pg_paid_operations_concurrent_factories_serialize_same_family_and_prove_row_lock_wait',
+        ])
+        self.assertEqual(tuple(manifest['cases'][module]), retained[:6] + new_create + retained[6:])
+        self.assertEqual(gate.GROUPS[module][0], 25)
+        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 233)
+        self.assertEqual(len(manifest['isolated_supplemental_cases']), 17)
+        transition = manifest['approved_case_transitions'][0]
+        self.assertEqual(transition['removed_required_case'],
+                         'test_pg_model_create_keeps_historical_paid_operation_json_opaque')
+        self.assertEqual(transition['previous_revision'],
+                         '2430deeea65094606de1870560287127c7e6e4fa')
+        self.assertEqual(transition['retained_prior_module_case_count'], 9)
+        self.assertEqual(transition['replacement_model_create_case_count'], 16)
+        self.assertEqual(transition['approved_review_sha256'],
+                         'a811298062a2b7eb873eb756b2ab9359c4493cf89f83b582464281607ac1886b')
+        self.assertEqual(tuple((receipt['file'], receipt['sha256'], receipt['run'])
+                               for receipt in transition['historical_receipts']), (
+            ('PR351_CI_PG_ACCEPTANCE_BCAFC730_20261030.json',
+             'aaaebcb9996499fae454a57f1560c9a3e732554bfece5752d481f810f5321e26', 41000316321),
+            ('PR351_FULL_CI_ACCEPTANCE_BCAFC730_20261030.json',
+             'af55735958ef8c3938d513becd6699ed77973c458e924ab07709ae6a4a70fc15', 41000316322),
+        ))
+        self.assertTrue(all('Historical' in receipt['meaning']
+                            for receipt in transition['historical_receipts']))
+        self.assertNotIn('test_pg_model_create_keeps_historical_paid_operation_json_opaque',
+                         manifest['cases'][module])
+
+        unrelated = {
+            'description': manifest['description'],
+            'collection_method': manifest['collection_method'],
+            'sources': {key: value for key, value in manifest['sources'].items() if key != module},
+            'cases': {key: value for key, value in manifest['cases'].items() if key != module},
+            'isolated_supplemental_cases': manifest['isolated_supplemental_cases'],
+        }
+        digest = hashlib.sha256(json.dumps(unrelated, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+        self.assertEqual(digest, 'c5b1c515459d0d6e1f116c8d11d2b66051309195d6a43ecb37307d08e4b8b89d')
+
+    def test_each_new_model_create_identity_is_required_and_nonpasses_fail(self):
+        module = 'test_model_paid_operations_postgres'
+        new_cases = [name for name in gate.REQUIRED_CASES[module]
+                     if name.startswith(('test_pg_model_create_uses_typed_paid_operation_rows',
+                                         'test_pg_model_create_paid_operation_key_presence',
+                                         'test_pg_model_create_keeps_preexisting_opaque',
+                                         'test_pg_legacy_variant_create',
+                                         'test_pg_model_create_wrong_factory',
+                                         'test_pg_model_create_audit_failure',
+                                         'test_pg_model_create_automatic_number',
+                                         'test_pg_model_create_variant_waits'))]
+        self.assertEqual(len(new_cases), 16)
+        for required_name in new_cases:
+            for invalid in ('replacement', 'skipped', 'failure', 'error'):
+                with self.subTest(case=required_name, invalid=invalid):
+                    tree = self.report()
+                    case = next(item for item in tree.iter('testcase')
+                                if item.get('classname') == f'app.tests.{module}'
+                                and item.get('name') == required_name)
+                    if invalid == 'replacement':
+                        case.set('name', 'unrelated_model_create_case')
+                    else:
+                        ET.SubElement(case, invalid)
+                    with self.assertRaises(ValueError):
+                        gate.check_report(self.write_report(tree))
 
     def test_skipped_failed_and_error_evidence_are_rejected(self):
         for tag in ('skipped', 'failure', 'error'):
