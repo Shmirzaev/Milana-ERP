@@ -1,4 +1,5 @@
 """Offline red/green checks for missing or skipped required PG evidence."""
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -61,7 +62,7 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 229)
+        self.assertEqual(sum(counts.values()), 244)
 
     def test_task_create_source_pin_and_all_literal_case_identities_are_frozen(self):
         module = 'test_task_create_postgres'
@@ -96,8 +97,111 @@ class RequiredPGGateTests(unittest.TestCase):
         self.assertEqual(tuple(source['selected_functions']), functions)
         self.assertEqual(tuple(manifest['cases'][module]), cases)
         self.assertEqual(gate.GROUPS[module], (11, functions))
-        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 229)
+        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 244)
         self.assertEqual(len(manifest['isolated_supplemental_cases']), 17)
+
+    def test_task_update_source_pin_all_literal_cases_and_upstream_manifest_are_frozen(self):
+        module = 'test_task_update_postgres'
+        functions = (
+            'test_pg_task_patch_reassignment_notification_audit_and_shared_session',
+            'test_pg_task_patch_denials_preserve_task_notifications_and_audit',
+            'test_pg_task_patch_preserves_omission_nullable_values_and_completion_time',
+            'test_pg_task_patch_explicit_null_not_null_fields_keep_database_failure_semantics',
+            'test_pg_task_patch_failure_rolls_back_then_retry',
+            'test_pg_task_patch_concurrent_disjoint_fields_merge_with_two_audits',
+            'test_pg_task_patch_repeat_has_no_idempotency_or_repeat_assignment_notice',
+        )
+        cases = (
+            'test_pg_task_patch_reassignment_notification_audit_and_shared_session',
+            'test_pg_task_patch_denials_preserve_task_notifications_and_audit[outsider-payload0-403-Not allowed]',
+            'test_pg_task_patch_denials_preserve_task_notifications_and_audit[assignee-payload1-403-Assignees can only change status]',
+            'test_pg_task_patch_denials_preserve_task_notifications_and_audit[creator-payload2-403-Only managers can assign tasks to other users]',
+            'test_pg_task_patch_denials_preserve_task_notifications_and_audit[denied_manager-payload3-403-Only managers can assign tasks to other users]',
+            'test_pg_task_patch_denials_preserve_task_notifications_and_audit[manager-payload4-404-Assigned user not found]',
+            'test_pg_task_patch_preserves_omission_nullable_values_and_completion_time',
+            'test_pg_task_patch_explicit_null_not_null_fields_keep_database_failure_semantics[title]',
+            'test_pg_task_patch_explicit_null_not_null_fields_keep_database_failure_semantics[status]',
+            'test_pg_task_patch_explicit_null_not_null_fields_keep_database_failure_semantics[priority]',
+            'test_pg_task_patch_failure_rolls_back_then_retry[after_notification_flush]',
+            'test_pg_task_patch_failure_rolls_back_then_retry[audit_finalize]',
+            'test_pg_task_patch_failure_rolls_back_then_retry[before_commit_hook]',
+            'test_pg_task_patch_concurrent_disjoint_fields_merge_with_two_audits',
+            'test_pg_task_patch_repeat_has_no_idempotency_or_repeat_assignment_notice',
+        )
+        manifest = json.loads(
+            Path(gate.__file__).with_name('refactor_pg_required_cases.json')
+            .read_text(encoding='utf-8')
+        )
+        source = manifest['sources'][module]
+        self.assertEqual(source['revision'], 'b194c7123546033dd1f881ebfdf9ce28f6a23e04')
+        self.assertEqual(
+            source['git_blob_sha256'],
+            '37d85902e1bb0eae228ac8928eb9372816bde7f24c1f5e03e7912345d705234e',
+        )
+        self.assertEqual(tuple(source['selected_functions']), functions)
+        self.assertEqual(tuple(manifest['cases'][module]), cases)
+        self.assertEqual(gate.GROUPS[module], (15, functions))
+        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 244)
+        self.assertEqual(len(manifest['isolated_supplemental_cases']), 17)
+
+        # Check upstream bytes semantically without consulting any Git history.
+        upstream = json.loads(json.dumps(manifest))
+        upstream['sources'].pop(module)
+        upstream['cases'].pop(module)
+        canonical = json.dumps(upstream, sort_keys=True, separators=(',', ':')).encode('utf-8')
+        self.assertEqual(
+            hashlib.sha256(canonical).hexdigest(),
+            '240356974f18b2a3b689d50a2466bb3836cbcc77b215570dea62e69a672f0800',
+        )
+
+    def test_each_task_update_case_is_required_and_nonpasses_fail(self):
+        module = 'test_task_update_postgres'
+        for required_name in gate.REQUIRED_CASES[module]:
+            for invalid in ('replacement', 'missing', 'skipped', 'failure', 'error'):
+                with self.subTest(case=required_name, invalid=invalid):
+                    tree = self.report()
+                    case = next(
+                        item for item in tree.iter('testcase')
+                        if item.get('classname') == f'app.tests.{module}'
+                        and item.get('name') == required_name
+                    )
+                    if invalid == 'replacement':
+                        case.set('name', 'unrelated_task_update_case')
+                    elif invalid == 'missing':
+                        next(tree.iter('testsuite')).remove(case)
+                        ET.SubElement(
+                            next(tree.iter('testsuite')),
+                            'testcase',
+                            classname='app.tests.test_bom_add_characterization',
+                            name='missing_task_update_replacement',
+                        )
+                    else:
+                        ET.SubElement(case, invalid)
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        'required PG group|required PG function missing|case identities missing|did not pass',
+                    ):
+                        gate.check_report(self.write_report(tree))
+
+    def test_task_update_group_cannot_be_replaced_by_other_cases(self):
+        module = 'test_task_update_postgres'
+        tree = self.report()
+        suite = next(tree.iter('testsuite'))
+        selected = [
+            case for case in tree.iter('testcase')
+            if case.get('classname') == f'app.tests.{module}'
+        ]
+        for case in selected:
+            suite.remove(case)
+        for index in range(len(selected)):
+            ET.SubElement(
+                suite,
+                'testcase',
+                classname='app.tests.test_bom_add_characterization',
+                name=f'task_update_replacement_{index}',
+            )
+        with self.assertRaisesRegex(ValueError, 'expected at least'):
+            gate.check_report(self.write_report(tree))
 
     def test_each_task_create_case_is_required_and_nonpasses_fail(self):
         module = 'test_task_create_postgres'

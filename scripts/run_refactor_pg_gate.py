@@ -129,7 +129,14 @@ GROUPS = {'test_customer_delete_postgres': (9,
                                      'test_pg_task_create_failure_after_flush_or_audit_commit_rolls_back_then_retry',
                                      'test_pg_repeated_identical_task_create_requests_remain_distinct',
                                      'test_pg_task_broadcast_refuses_when_authenticated_actor_becomes_inactive_before_recipient_select',
-                                     'test_pg_concurrent_task_creates_keep_audit_chain'))}
+                                     'test_pg_concurrent_task_creates_keep_audit_chain')),
+ 'test_task_update_postgres': (15, ('test_pg_task_patch_reassignment_notification_audit_and_shared_session',
+                                    'test_pg_task_patch_denials_preserve_task_notifications_and_audit',
+                                    'test_pg_task_patch_preserves_omission_nullable_values_and_completion_time',
+                                    'test_pg_task_patch_explicit_null_not_null_fields_keep_database_failure_semantics',
+                                    'test_pg_task_patch_failure_rolls_back_then_retry',
+                                    'test_pg_task_patch_concurrent_disjoint_fields_merge_with_two_audits',
+                                    'test_pg_task_patch_repeat_has_no_idempotency_or_repeat_assignment_notice'))}
 REQUIRED_CASES = json.loads(
     Path(__file__).with_name("refactor_pg_required_cases.json").read_text(encoding="utf-8")
 )["cases"]

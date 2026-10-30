@@ -321,6 +321,19 @@
         "test_pg_task_broadcast_refuses_when_authenticated_actor_becomes_inactive_before_recipient_select",
         "test_pg_concurrent_task_creates_keep_audit_chain"
       ]
+    },
+    "test_task_update_postgres": {
+      "revision": "b194c7123546033dd1f881ebfdf9ce28f6a23e04",
+      "git_blob_sha256": "37d85902e1bb0eae228ac8928eb9372816bde7f24c1f5e03e7912345d705234e",
+      "selected_functions": [
+        "test_pg_task_patch_reassignment_notification_audit_and_shared_session",
+        "test_pg_task_patch_denials_preserve_task_notifications_and_audit",
+        "test_pg_task_patch_preserves_omission_nullable_values_and_completion_time",
+        "test_pg_task_patch_explicit_null_not_null_fields_keep_database_failure_semantics",
+        "test_pg_task_patch_failure_rolls_back_then_retry",
+        "test_pg_task_patch_concurrent_disjoint_fields_merge_with_two_audits",
+        "test_pg_task_patch_repeat_has_no_idempotency_or_repeat_assignment_notice"
+      ]
     }
   },
   "cases": {
@@ -612,6 +625,23 @@
       "test_pg_repeated_identical_task_create_requests_remain_distinct",
       "test_pg_task_broadcast_refuses_when_authenticated_actor_becomes_inactive_before_recipient_select",
       "test_pg_concurrent_task_creates_keep_audit_chain"
+    ],
+    "test_task_update_postgres": [
+      "test_pg_task_patch_reassignment_notification_audit_and_shared_session",
+      "test_pg_task_patch_denials_preserve_task_notifications_and_audit[outsider-payload0-403-Not allowed]",
+      "test_pg_task_patch_denials_preserve_task_notifications_and_audit[assignee-payload1-403-Assignees can only change status]",
+      "test_pg_task_patch_denials_preserve_task_notifications_and_audit[creator-payload2-403-Only managers can assign tasks to other users]",
+      "test_pg_task_patch_denials_preserve_task_notifications_and_audit[denied_manager-payload3-403-Only managers can assign tasks to other users]",
+      "test_pg_task_patch_denials_preserve_task_notifications_and_audit[manager-payload4-404-Assigned user not found]",
+      "test_pg_task_patch_preserves_omission_nullable_values_and_completion_time",
+      "test_pg_task_patch_explicit_null_not_null_fields_keep_database_failure_semantics[title]",
+      "test_pg_task_patch_explicit_null_not_null_fields_keep_database_failure_semantics[status]",
+      "test_pg_task_patch_explicit_null_not_null_fields_keep_database_failure_semantics[priority]",
+      "test_pg_task_patch_failure_rolls_back_then_retry[after_notification_flush]",
+      "test_pg_task_patch_failure_rolls_back_then_retry[audit_finalize]",
+      "test_pg_task_patch_failure_rolls_back_then_retry[before_commit_hook]",
+      "test_pg_task_patch_concurrent_disjoint_fields_merge_with_two_audits",
+      "test_pg_task_patch_repeat_has_no_idempotency_or_repeat_assignment_notice"
     ]
   },
   "isolated_supplemental_cases": [
