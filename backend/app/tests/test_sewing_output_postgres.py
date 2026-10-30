@@ -229,6 +229,10 @@ def test_pg_real_accessory_gate_refusal_rolls_back_flushed_block_then_retry(cust
         )
         db.add_all([requirement, cutting_output])
         db.commit()
+        # Rollback expires mapped attributes, including primary keys. Keep only
+        # primitive fixture identities across the following request boundary.
+        requirement_id = int(requirement.id)
+        accessory_sku, accessory_name = accessory.sku, accessory.name
 
         actor = db.get(User, case["actor_id"])
         bind_idempotency_identity(db, actor)
@@ -255,7 +259,7 @@ def test_pg_real_accessory_gate_refusal_rolls_back_flushed_block_then_retry(cust
         assert db.query(AuditLog).filter_by(entity_type="SewingRecord", user_id=case["actor_id"]).count() == 0
         assert db.query(IdempotencyRecord).filter(IdempotencyRecord.key.like("accessory-gate-%")).count() == 0
         assert db.query(StockMovement).filter(StockMovement.reference_type == "ProductionOrderAccessory").count() == 0
-        assert db.query(ModelBOM).filter_by(id=requirement.id).count() == 1
+        assert db.query(ModelBOM).filter_by(id=requirement_id).count() == 1
         assert db.query(ManualAccessoryIssue).filter_by(production_order_id=case["order_id"]).count() == 0
         # Satisfy the existing accessory handoff through its actual issuer; keep
         # the required BOM in place and retry the same idempotency key.
@@ -264,12 +268,12 @@ def test_pg_real_accessory_gate_refusal_rolls_back_flushed_block_then_retry(cust
         issue_accessories_to_production_order(
             db, production_order_id=case["order_id"], user_id=actor.id,
             lines=[{
-                "item_id": 0, "manual": True, "item_sku": accessory.sku,
-                "item_name": accessory.name, "quantity": 50, "unit": "pcs",
+                "item_id": 0, "manual": True, "item_sku": accessory_sku,
+                "item_name": accessory_name, "quantity": 50, "unit": "pcs",
             }],
         )
         db.flush()
-        assert db.get(ModelBOM, requirement.id) is not None
+        assert db.get(ModelBOM, requirement_id) is not None
         assert db.query(ManualAccessoryIssue).filter_by(production_order_id=case["order_id"]).count() == 1
         db.commit()
         actor = db.get(User, case["actor_id"])
