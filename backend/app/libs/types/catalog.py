@@ -124,6 +124,13 @@ class StockBatchBomRelinkCommand(TypedDict):
     item_id: int
 
 
+class ModelImageUploadResult(TypedDict):
+    """Mapping returned by the upload worker and adapted to the HTTP DTO."""
+
+    id: int
+    file_url: str
+
+
 @dataclass(frozen=True)
 class ModelImageUploadCommand:
     """Validated file metadata and primary-image decision for one upload row."""

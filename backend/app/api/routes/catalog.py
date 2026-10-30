@@ -13,6 +13,7 @@ from app.libs.dto.catalog.model_bom_output import ModelBOMCreateOut
 from app.libs.dto.catalog.model_bom_update import ModelBOMUpdate
 from app.libs.dto.catalog.model_color_input import ModelColorIn
 from app.libs.dto.catalog.model_image_input import ModelImageIn, ModelImageUploadInput
+from app.libs.dto.catalog.model_image_output import ModelImageUploadOut
 from app.libs.dto.catalog.model_input import (
     ModelCreateIn,
     ModelPaidOperationsIn,
@@ -351,7 +352,7 @@ def add_image(
     return models_service.add_image(current, db, mid, payload, catalog_scope)
 
 
-@router.post("/models/{mid}/images/upload", status_code=201)
+@router.post("/models/{mid}/images/upload", response_model=ModelImageUploadOut, status_code=201)
 async def upload_image(
     mid: int,
     db: DbSession,

@@ -20,7 +20,9 @@ from app.api.routes.usluga import router as usluga_router
 from app.core.config import settings
 from app.core.deps import get_current_user, get_db
 from app.libs.dto.catalog.model_image_input import ModelImageUploadInput
+from app.libs.dto.catalog.model_image_output import ModelImageUploadOut
 from app.libs.enums.catalog import ModelImageUploadType
+from app.libs.types.catalog import ModelImageUploadResult
 from app.models.catalog import models_service
 from app.models import image_storage_service
 from app.schemas import AuditLog, Model, ModelImage, User
@@ -166,6 +168,31 @@ def test_upload_form_openapi_exposes_enum_contract_for_both_catalog_scopes(custo
         assert "image_type" not in body_schema.get("required", [])
 
 
+def test_upload_response_openapi_preserves_exact_two_key_contract(customer_pg_sessions):
+    client, _ = _upload_client(customer_pg_sessions, 1)
+    spec = client.app.openapi()
+    components = spec["components"]["schemas"]
+
+    for path in ("/api/models/{mid}/images/upload", "/api/usluga/models/{mid}/images/upload"):
+        response_schema = spec["paths"][path]["post"]["responses"]["201"]["content"]["application/json"]["schema"]
+        resolved = _resolve_openapi_schema(response_schema, components)
+        assert set(resolved["properties"]) == {"id", "file_url"}
+        assert set(resolved["required"]) == {"id", "file_url"}
+
+
+def test_upload_response_dto_has_exact_two_key_json_contract():
+    result = ModelImageUploadOut(id=17, file_url="/storage/model-files/model_17.webp")
+    service_result: ModelImageUploadResult = {
+        "id": 17,
+        "file_url": "/storage/model-files/model_17.webp",
+    }
+    assert result.model_dump(mode="json") == {
+        "id": 17,
+        "file_url": "/storage/model-files/model_17.webp",
+    }
+    assert service_result == result.model_dump(mode="json")
+
+
 @pytest.mark.parametrize(("scope", "factory"), [("standard", "MIL"), ("usluga", "ECO")])
 def test_pg_upload_form_rejects_unknown_enum_before_storage_or_rows(
     customer_pg_sessions, tmp_path, monkeypatch, scope, factory,
@@ -225,6 +252,7 @@ def test_pg_upload_persists_typed_image_through_worker_session_and_audits_once(
         )
         assert response.status_code == 201, response.text
         result = response.json()
+        assert set(result) == {"id", "file_url"}
         detail_response = client.get(f"/api/{'usluga/' if scope == 'usluga' else ''}models/{model_id}")
         assert detail_response.status_code == 200, detail_response.text
         visible_image = next(
@@ -307,6 +335,10 @@ def test_pg_upload_pattern_type_keeps_nonprimary_contract(customer_pg_sessions, 
         result = asyncio.run(models_service.upload_image(
             current, request_db, model_id, file=_upload(), image_type=ModelImageUploadType.PATTERN,
         ))
+        assert isinstance(result, dict)
+        assert set(result) == {"id", "file_url"}
+        assert all(isinstance(result[key], int) if key == "id" else isinstance(result[key], str)
+                   for key in result)
 
     with sessions() as db:
         previous = db.get(ModelImage, old_image_id)
@@ -331,6 +363,7 @@ def test_pg_upload_null_type_preserves_existing_primary(customer_pg_sessions, tm
     )
     assert response.status_code == 201, response.text
     result = response.json()
+    assert set(result) == {"id", "file_url"}
 
     with sessions() as db:
         previous = db.get(ModelImage, old_image_id)
