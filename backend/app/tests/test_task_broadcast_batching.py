@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from app.api.routes import tasks
 from app.db.base import Base
 from app.db.session import SessionLocal
+from app.models.work_management import tasks_service
 from app.schemas import AuditLog, Notification, Task, User
 from app.libs.dto.work_management.tasks import TaskIn
 
@@ -98,7 +99,7 @@ def test_failed_broadcast_can_roll_back_tasks_and_notifications(broadcast_sessio
         def fail_audit(*args, **kwargs):
             raise RuntimeError("Synthetic audit failure")
 
-        monkeypatch.setattr(tasks, "log_action", fail_audit)
+        monkeypatch.setattr(tasks_service, "log_action", fail_audit)
         with pytest.raises(RuntimeError, match="Synthetic audit failure"):
             tasks.create_task(TaskIn(title=marker, assigned_to=-1), db, admin)
         db.rollback()

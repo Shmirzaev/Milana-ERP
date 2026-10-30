@@ -1,5 +1,4 @@
 from datetime import datetime, timezone
-import os
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -11,7 +10,7 @@ from app.core.pagination import clamp_pagination
 from app.schemas import Department, Notification, Role, User
 from app.libs.dto.work_management.tasks import NotificationOut
 from app.models.audit_service import log_action
-from app.models.notifications_service import notify_many
+from app.models.notifications_service import max_bulk_recipients, notify_many
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -26,14 +25,6 @@ class NotificationSendIn(BaseModel):
     link: str | None = Field(default=None, max_length=512)
     entity_type: str | None = Field(default=None, max_length=64)
     entity_id: int | None = Field(default=None, ge=1)
-
-
-def _max_bulk_recipients() -> int:
-    try:
-        value = int(os.getenv("ERP_MCP_MAX_BULK_RECIPIENTS", "25"))
-    except ValueError:
-        value = 25
-    return max(1, min(value, 250))
 
 
 def _safe_link(link: str | None) -> str | None:
@@ -147,7 +138,7 @@ def send_notification(
     db: DbSession,
     current: User = Depends(require_permissions("management.view", "*")),
 ):
-    max_recipients = _max_bulk_recipients()
+    max_recipients = max_bulk_recipients()
     recipients = _resolve_recipients(payload, db, max_recipients=max_recipients)
     if not recipients:
         raise HTTPException(404, "No active recipients found")

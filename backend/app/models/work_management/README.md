@@ -1,8 +1,8 @@
 # Tasks and notifications
 
 Business-service group guide, relocated into models/ on 24 October 2026.
-`tasks_service.py` now contains the focused system stock-shortage participant;
-general Task CRUD and other proposed extractions remain pending.
+`tasks_service.py` contains the user-facing Task CREATE, PATCH, COMPLETE and
+DELETE operations and the separate focused system stock-shortage participant.
 
 **Purpose:** Own task assignment/status and notification delivery/read-state behavior.
 
@@ -10,6 +10,56 @@ general Task CRUD and other proposed extractions remain pending.
 **Business acceptance:** Shavkat with operators.
 This owner covers the feature's routes, DTOs, enums, database definitions and tests.
 See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordination.
+
+## User-facing Task CREATE
+
+`create_user_task` coordinates the existing self, manager-assignment and bounded
+manager-broadcast behaviors on the supplied Session. Task rows are staged through
+the Work Management schema participant; notifications use shared notification
+operations; audit uses the shared hash-chain service. This service owns the one
+outer commit and refreshes the first created task for the existing 201 response.
+It preserves current assignment permissions, inactive existing-assignee behavior,
+notification payloads, broadcast ordering/cap and rollback semantics. It adds no
+idempotency or task locks. PATCH, COMPLETE and delete remain separate operations.
+
+## User-facing Task PATCH
+
+`update_user_task` coordinates the existing creator/manager/assignee rules,
+reassignment notice, completion timestamp and update audit on the request's
+Session. The mapped Task changes are applied by the Work Management schema
+participant; the service owns the single commit and refresh. PATCH presence is
+carried in a typed command so omission remains distinct from explicit null. Null
+for database-required title/status/priority remains a database constraint failure;
+this extraction does not silently define a new HTTP validation policy. The
+dedicated `/complete` operation remains separate, including its notification and
+audit behavior.
+
+TaskStatus/TaskPriority are canonical fixed-vocabulary contracts for task
+create/update/complete/output and status filtering; the mapped columns remain
+VARCHAR with string values. Historical stored values were not censused here, so
+output/runtime compatibility and visual/database acceptance remain required gates.
+
+## User-facing Task COMPLETE
+
+`complete_user_task` owns the existing assignee-or-manager check, status/timestamp
+write, conditional creator notification, completion audit, one commit and refresh.
+The Work Management schema participant assigns the canonical completed value and
+timestamp on the caller's attached Task row without flushing or committing.
+Repeated calls intentionally retain current behavior: each sets a fresh completion
+timestamp and creates another completion audit and (when the creator differs from
+the actor) another creator notification. This operation does not deduplicate or
+add locks. Its notification text/link and audit shape remain distinct from PATCH.
+
+## User-facing Task DELETE
+
+`delete_user_task` keeps the existing lookup-before-authorization behavior and
+the creator-or-manager permission rule. It stages the hard delete through the
+Work Management schema participant, appends the existing `delete` audit on that
+Session, and owns the one outer commit. Audit's current flush/finalization order
+is preserved. The route remains an empty 204; missing Tasks remain 404 and
+non-manager/non-creator actors remain 403. Task notifications are not linked by
+foreign key and remain unchanged after deletion. DELETE adds no soft-delete,
+status policy, lock, notification cleanup or idempotency behavior.
 
 ## System stock-shortage participant
 
@@ -21,9 +71,9 @@ deduplication, audit, notification or permission behavior. No Task ORM object is
 returned to Sales. This is the already assigned task-creation responsibility;
 it does not introduce a generic CRUD API or migrate user-facing task routes.
 
-Canonical TaskStatus/TaskPriority are used by this writer and schema defaults.
-General Task input/update/output enum conversion and historical-value audit remain
-pending; raw stored values remain strings with unchanged column definitions.
+Canonical TaskStatus/TaskPriority remain used by this writer and schema defaults.
+It remains a separate caller-owned participant; no generic CRUD, notification or
+audit behavior was added to it.
 
 ## Existing code to study first
 
@@ -39,7 +89,7 @@ particular operation and every caller/write before choosing what belongs here.
 
 | Proposed file | Responsibility |
 | --- | --- |
-| `tasks_service.py` | Task create/update/assignment/state rules. |
+| `tasks_service.py` | Task create/update/delete/assignment/state rules. |
 | `notifications_service.py` | Notification creation, visibility and delivery coordination. |
 
 Use snake_case_service.py filenames and operation names such as `create_*`, `record_*`,

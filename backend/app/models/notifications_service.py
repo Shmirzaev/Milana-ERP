@@ -1,7 +1,18 @@
+import os
+
 from sqlalchemy.orm import Session
 
 from app.schemas import Notification
 from app.schemas.core_persistence import add_notification_row, add_notification_rows
+
+
+def max_bulk_recipients() -> int:
+    """Return the shared, bounded notification fan-out limit."""
+    try:
+        value = int(os.getenv("ERP_MCP_MAX_BULK_RECIPIENTS", "25"))
+    except ValueError:
+        value = 25
+    return max(1, min(value, 250))
 
 
 def notify(
