@@ -132,9 +132,11 @@ GROUPS = {'test_customer_delete_postgres': (9,
                                                   'test_pg_direct_reserve_competing_piece_requests_do_not_oversell',
                                                   'test_pg_direct_reserve_failure_rolls_back_then_retry')),
  'test_support_settings_postgres': (16, ('test_pg_section_merge_waits_on_exact_missing_or_existing_lock', 'test_pg_logo_update_waits_on_shared_company_info_lock', 'test_pg_existing_row_wait_refreshes_after_preexisting_row_lock', 'test_pg_settings_failure_rolls_back_and_retry_persists_once', 'test_pg_typed_route_persists_wire_defaults_null_and_audit', 'test_pg_typed_route_denials_invalid_and_unknown_have_no_writes', 'test_pg_typed_route_uses_schema_writer_session_and_one_commit')),
- 'test_model_image_upload_postgres': (23, ('test_upload_image_type_preserves_null_and_normalization_contract',
+ 'test_model_image_upload_postgres': (25, ('test_upload_image_type_preserves_null_and_normalization_contract',
                                            'test_upload_image_type_rejects_values_outside_the_action_subset',
                                            'test_upload_form_openapi_exposes_enum_contract_for_both_catalog_scopes',
+                                           'test_upload_response_openapi_preserves_exact_two_key_contract',
+                                           'test_upload_response_dto_has_exact_two_key_json_contract',
                                            'test_pg_upload_form_rejects_unknown_enum_before_storage_or_rows',
                                            'test_pg_upload_persists_typed_image_through_worker_session_and_audits_once',
                                            'test_pg_upload_route_permission_denial_writes_nothing',
@@ -154,13 +156,15 @@ REQUIRED_SOURCES = json.loads(
 )["sources"]
 
 _MODEL_IMAGE_UPLOAD_MODULE = "test_model_image_upload_postgres"
-_MODEL_IMAGE_UPLOAD_REVISION = "3d88b492d2ed559432664086ab1efb46c225a725"
-_MODEL_IMAGE_UPLOAD_BLOB_OID = "f21801e3d5e379fa8bec77936aa09c213de8f530"
-_MODEL_IMAGE_UPLOAD_BLOB_SHA256 = "8f490043b172294636d7070d3baa326ae948b13c7332d5f78c655c99bafe62c0"
+_MODEL_IMAGE_UPLOAD_REVISION = "13ea17fcdb438680096fc5003b8f127dbb6f11e2"
+_MODEL_IMAGE_UPLOAD_BLOB_OID = "38ce2a27b5c0121318af52c843686cbd7eac0ccc"
+_MODEL_IMAGE_UPLOAD_BLOB_SHA256 = "47e9e840c08f6225eb943e949c73678e21a6a0f9d882fda1d75e23e0e31ee1c1"
 _MODEL_IMAGE_UPLOAD_FUNCTIONS = (
     "test_upload_image_type_preserves_null_and_normalization_contract",
     "test_upload_image_type_rejects_values_outside_the_action_subset",
     "test_upload_form_openapi_exposes_enum_contract_for_both_catalog_scopes",
+    "test_upload_response_openapi_preserves_exact_two_key_contract",
+    "test_upload_response_dto_has_exact_two_key_json_contract",
     "test_pg_upload_form_rejects_unknown_enum_before_storage_or_rows",
     "test_pg_upload_persists_typed_image_through_worker_session_and_audits_once",
     "test_pg_upload_route_permission_denial_writes_nothing",

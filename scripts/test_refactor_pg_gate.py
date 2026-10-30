@@ -62,7 +62,7 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 256)
+        self.assertEqual(sum(counts.values()), 258)
 
     def test_model_image_upload_source_and_all_case_nodes_are_frozen(self):
         module = 'test_model_image_upload_postgres'
@@ -70,6 +70,8 @@ class RequiredPGGateTests(unittest.TestCase):
             'test_upload_image_type_preserves_null_and_normalization_contract',
             'test_upload_image_type_rejects_values_outside_the_action_subset',
             'test_upload_form_openapi_exposes_enum_contract_for_both_catalog_scopes',
+            'test_upload_response_openapi_preserves_exact_two_key_contract',
+            'test_upload_response_dto_has_exact_two_key_json_contract',
             'test_pg_upload_form_rejects_unknown_enum_before_storage_or_rows',
             'test_pg_upload_persists_typed_image_through_worker_session_and_audits_once',
             'test_pg_upload_route_permission_denial_writes_nothing',
@@ -90,6 +92,8 @@ class RequiredPGGateTests(unittest.TestCase):
             'test_upload_image_type_preserves_null_and_normalization_contract[pattern-pattern]',
             'test_upload_image_type_rejects_values_outside_the_action_subset',
             'test_upload_form_openapi_exposes_enum_contract_for_both_catalog_scopes',
+            'test_upload_response_openapi_preserves_exact_two_key_contract',
+            'test_upload_response_dto_has_exact_two_key_json_contract',
             'test_pg_upload_form_rejects_unknown_enum_before_storage_or_rows[standard-MIL]',
             'test_pg_upload_form_rejects_unknown_enum_before_storage_or_rows[usluga-ECO]',
             'test_pg_upload_persists_typed_image_through_worker_session_and_audits_once[standard-MIL]',
@@ -110,14 +114,14 @@ class RequiredPGGateTests(unittest.TestCase):
         manifest = json.loads(Path(gate.__file__).with_name(
             'refactor_pg_required_cases.json').read_text(encoding='utf-8'))
         source = manifest['sources'][module]
-        self.assertEqual(source['revision'], '3d88b492d2ed559432664086ab1efb46c225a725')
-        self.assertEqual(source['git_blob_oid'], 'f21801e3d5e379fa8bec77936aa09c213de8f530')
+        self.assertEqual(source['revision'], '13ea17fcdb438680096fc5003b8f127dbb6f11e2')
+        self.assertEqual(source['git_blob_oid'], '38ce2a27b5c0121318af52c843686cbd7eac0ccc')
         self.assertEqual(source['git_blob_sha256'],
-                         '8f490043b172294636d7070d3baa326ae948b13c7332d5f78c655c99bafe62c0')
+                         '47e9e840c08f6225eb943e949c73678e21a6a0f9d882fda1d75e23e0e31ee1c1')
         self.assertEqual(tuple(source['selected_functions']), functions)
         self.assertEqual(tuple(manifest['cases'][module]), cases)
-        self.assertEqual(gate.GROUPS[module], (23, functions))
-        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 256)
+        self.assertEqual(gate.GROUPS[module], (25, functions))
+        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 258)
         self.assertEqual(len(manifest['isolated_supplemental_cases']), 17)
 
         baseline = dict(manifest)
@@ -202,7 +206,7 @@ class RequiredPGGateTests(unittest.TestCase):
         ])
         self.assertEqual(tuple(manifest['cases'][module]), retained[:6] + new_create + retained[6:])
         self.assertEqual(gate.GROUPS[module][0], 25)
-        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 256)
+        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 258)
         self.assertEqual(len(manifest['isolated_supplemental_cases']), 17)
         transition = manifest['approved_case_transitions'][0]
         self.assertEqual(transition['removed_required_case'],
@@ -233,7 +237,7 @@ class RequiredPGGateTests(unittest.TestCase):
             'isolated_supplemental_cases': manifest['isolated_supplemental_cases'],
         }
         digest = hashlib.sha256(json.dumps(unrelated, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-        self.assertEqual(digest, 'c51e1912d02be17a0986108c6dd3a2c7b039138b9ebfa1a8f5b4617071d86f77')
+        self.assertEqual(digest, 'c2a8092db4c12c41cd8681e52a9bb4d456616705bac7fac529e3dc52928b4c7a')
 
     def test_each_new_model_create_identity_is_required_and_nonpasses_fail(self):
         module = 'test_model_paid_operations_postgres'
