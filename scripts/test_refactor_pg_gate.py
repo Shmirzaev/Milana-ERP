@@ -98,9 +98,9 @@ class RequiredPGGateTests(unittest.TestCase):
         manifest = json.loads(Path(gate.__file__).with_name(
             'refactor_pg_required_cases.json').read_text(encoding='utf-8'))
         source = manifest['sources'][module]
-        self.assertEqual(source['revision'], '7f6b5a505458d0ea69ef48ae0f7ca23c32d6965d')
+        self.assertEqual(source['revision'], 'fc2c44a7405219e6bdc23460d74c85ac9e87c04f')
         self.assertEqual(source['git_blob_sha256'],
-                         '8c8d31e9fc084c40ae4d973837c92e6e26276ff5aeb1364fc66b406695d6d51d')
+                         '9256c26ea4493ff70c24ee51f44fe7a054b7172a24fc0a9afe805501c31c34bf')
         self.assertEqual(source['selected_functions'], [
             'test_pg_paid_operations_patch_round_trips_typed_rows_and_openapi',
             'test_pg_paid_operations_invalid_and_cross_factory_patch_leave_family_and_audit_unchanged',
@@ -151,6 +151,22 @@ class RequiredPGGateTests(unittest.TestCase):
         }
         digest = hashlib.sha256(json.dumps(unrelated, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
         self.assertEqual(digest, 'c5b1c515459d0d6e1f116c8d11d2b66051309195d6a43ecb37307d08e4b8b89d')
+
+    def test_model_create_positive_and_rejection_clients_mount_requested_scope(self):
+        import ast
+
+        path = Path(gate.__file__).resolve().parents[1] / 'backend/app/tests/test_model_paid_operations_postgres.py'
+        tree = ast.parse(path.read_text(encoding='utf-8'))
+        function = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                        and node.name == 'test_pg_model_create_uses_typed_paid_operation_rows_and_keeps_open_metadata')
+        clients = [node for node in ast.walk(function) if isinstance(node, ast.Call)
+                   and isinstance(node.func, ast.Name) and node.func.id == '_client']
+        self.assertEqual(len(clients), 2)
+        for client in clients:
+            scope = next((item.value for item in client.keywords if item.arg == 'include_usluga'), None)
+            self.assertIsNotNone(scope, 'Both CREATE and rejection must mount the selected route')
+            expected = ast.parse("scope == 'usluga'", mode='eval').body
+            self.assertEqual(ast.dump(scope), ast.dump(expected))
 
     def test_each_new_model_create_identity_is_required_and_nonpasses_fail(self):
         module = 'test_model_paid_operations_postgres'
