@@ -58,6 +58,7 @@ from app.libs.types.catalog import (
     ModelCreateCommand,
     ModelCreateDetails,
     ModelImageUploadCommand,
+    ModelImageUploadResult,
     ModelInsert,
     NormalizedBomCreate,
     NormalizedBomUpdate,
@@ -2653,7 +2654,7 @@ def _create_uploaded_model_image(
     original_name: str,
     stored_content_type: str,
     image_type: ModelImageUploadType | None,
-) -> int:
+) -> ModelImageUploadResult:
     _require_catalog_upload_model(db, model_id, catalog_scope)
     actor = _upload_actor(db, actor_id)
     make_primary = image_type is ModelImageUploadType.MODEL
@@ -2676,7 +2677,7 @@ def _create_uploaded_model_image(
         image_id,
         new_value={"model_id": model_id, "file_url": file_url},
     )
-    return image_id
+    return {"id": image_id, "file_url": file_url}
 
 
 def _audit_uploaded_bom_photo(
@@ -2706,7 +2707,7 @@ async def upload_image(
     file: UploadFile,
     image_type: ModelImageUploadType | None = None,
     catalog_scope: str = "standard",
-):
+) -> ModelImageUploadResult:
     actor_id = int(current.id)
     worker_sessions = upload_session_factory(db)
     # Pre-flight: refuse an unknown or out-of-scope model before reading a body.
@@ -2743,7 +2744,7 @@ async def upload_image(
         # The write re-checks the model and its scope on the worker's own
         # session, so a model that moved scope while the file was being
         # processed cannot be written to.
-        image_id = await run_upload_db_work(
+        result = await run_upload_db_work(
             worker_sessions,
             partial(
                 _create_uploaded_model_image,
@@ -2766,7 +2767,7 @@ async def upload_image(
         elif document_state.created and document_target is not None:
             await _discard_model_document(document_target)
         raise
-    return {"id": image_id, "file_url": file_url}
+    return result
 
 
 def delete_image(

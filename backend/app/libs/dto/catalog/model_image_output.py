@@ -12,3 +12,10 @@ class ModelImageOut(ORMModel):
     image_type: Optional[str] = None
     is_primary: bool
     created_at: datetime
+
+
+class ModelImageUploadOut(ORMModel):
+    """Stable response contract for one completed multipart image upload."""
+
+    id: int
+    file_url: str
