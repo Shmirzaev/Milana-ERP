@@ -87,3 +87,45 @@ class StockBatchEditCommand:
     actor_id: int
     relink_item_id: int | None = None
     item_movements: tuple["StockMovement", ...] = ()
+
+
+@dataclass(frozen=True)
+class PurchaseOrderStockReceiptCommand:
+    """Normalized stock write requested by Purchasing on one Session.
+
+    Purchasing owns validation and the outer receipt transaction. Inventory
+    owns the batch and movement construction; this command crosses that public
+    participant boundary without exposing the HTTP DTO or ORM rows.
+    """
+
+    item_id: int
+    batch_no: str
+    internal_batch_no: str
+    supplier_id: int | None
+    color: str | None
+    old_code: str | None
+    color_code: str | None
+    color_status: str | None
+    order_no: str | None
+    width: float | None
+    gsm: float | None
+    quantity: float
+    piece_count: int | None
+    roll_weights_kg: list[float]
+    processes: str | None
+    unit: str
+    cost_per_unit: Decimal
+    image_url: str | None
+    warehouse_id: int
+    qc_status: StockBatchQcStatus
+    purchase_order_line_id: int
+    created_by: int | None
+
+
+@dataclass(frozen=True)
+class PurchaseOrderStockReceiptResult:
+    """Flushed Inventory facts needed by Purchasing's existing audit payload."""
+
+    batch_id: int
+    batch_no: str
+    internal_batch_no: str | None

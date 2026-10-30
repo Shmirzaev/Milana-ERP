@@ -1,8 +1,10 @@
 """Inventory stock: master data, warehouses, receipts, adjustments and batches.
 
-Every operation here owns its transaction for the write it performs. Stock truth
-(available/reserved quantities) stays in `app.models.inventory_service`; this module
-never recomputes it.
+User-facing write operations own their outer transaction. The public
+``record_purchase_order_stock_receipt`` participant is the exception: Purchasing
+owns that cross-domain transaction and passes its Session. Stock truth
+(available/reserved quantities) stays in ``app.models.inventory_service``; this
+module never recomputes it.
 """
 
 from datetime import date, datetime
@@ -38,7 +40,13 @@ from app.libs.dto.inventory.stock_quantity_adjustment_input import StockQuantity
 from app.libs.dto.inventory.stock_quantity_adjustment_output import StockQuantityAdjustmentOut
 from app.libs.dto.inventory.warehouse_input import WarehouseIn
 from app.libs.enums.inventory import StockBatchQcStatus, StockMovementType
-from app.libs.types.inventory import ItemInsertCommand, StockBatchEditCommand, StockBatchEditValues
+from app.libs.types.inventory import (
+    ItemInsertCommand,
+    PurchaseOrderStockReceiptCommand,
+    PurchaseOrderStockReceiptResult,
+    StockBatchEditCommand,
+    StockBatchEditValues,
+)
 from app.models import inventory_access_service as inventory_access
 from app.models.catalog import models_service as catalog_models_service
 from app.models.audit_service import log_action
@@ -674,6 +682,58 @@ def _stock_batch_fingerprint_payload(payload: StockBatchIn) -> dict:
     if not payload.roll_lengths_m:
         fingerprint_payload.pop("roll_lengths_m", None)
     return fingerprint_payload
+
+
+def record_purchase_order_stock_receipt(
+    db: Session,
+    *,
+    command: PurchaseOrderStockReceiptCommand,
+) -> PurchaseOrderStockReceiptResult:
+    """Write Inventory's batch and movement for a validated Purchasing receipt.
+
+    Purchasing owns the checks, audit, idempotency and outer transaction. This
+    public same-Session participant only delegates the stock-owned mappings and
+    preserves the receipt's batch flush for its generated identifier.
+    """
+    batch = stock_receipt_persistence.add_stock_batch(
+        db,
+        item_id=command.item_id,
+        batch_no=command.batch_no,
+        internal_batch_no=command.internal_batch_no,
+        supplier_id=command.supplier_id,
+        color=command.color,
+        old_code=command.old_code,
+        color_code=command.color_code,
+        color_status=command.color_status,
+        order_no=command.order_no,
+        width=command.width,
+        gsm=command.gsm,
+        quantity=command.quantity,
+        piece_count=command.piece_count,
+        roll_weights_kg=command.roll_weights_kg,
+        processes=command.processes,
+        unit=command.unit,
+        cost_per_unit=command.cost_per_unit,
+        image_url=command.image_url,
+        warehouse_id=command.warehouse_id,
+        qc_status=command.qc_status,
+    )
+    stock_receipt_persistence.add_receive_movement(
+        db,
+        item_id=command.item_id,
+        batch_id=batch.id,
+        to_warehouse_id=command.warehouse_id,
+        quantity=command.quantity,
+        unit=command.unit,
+        reference_type="PurchaseOrderLine",
+        reference_id=command.purchase_order_line_id,
+        created_by=command.created_by,
+    )
+    return PurchaseOrderStockReceiptResult(
+        batch_id=int(batch.id),
+        batch_no=batch.batch_no,
+        internal_batch_no=batch.internal_batch_no,
+    )
 
 
 def receive_stock(

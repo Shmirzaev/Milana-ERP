@@ -45,3 +45,9 @@ class PurchaseOrderCreationOut(PurchaseOrderOut):
     """Result of creating or converting an order, with a canonical status."""
 
     status: PurchaseOrderStatus
+
+
+class PurchaseOrderReceiptOut(PurchaseOrderOut):
+    """Receipt response with a canonical lifecycle status."""
+
+    status: PurchaseOrderStatus

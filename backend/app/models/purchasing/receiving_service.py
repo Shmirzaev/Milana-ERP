@@ -19,7 +19,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session, lazyload, selectinload
 
 from app.libs.dto.purchasing.purchase_order_input import PurchaseOrderReceiveIn
-from app.libs.dto.purchasing.purchase_order_output import PurchaseOrderOut
+from app.libs.dto.purchasing.purchase_order_output import PurchaseOrderReceiptOut
 from app.models import purchasing_service as purchasing_core
 from app.models.factory_scope_service import selected_factory_code
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
@@ -91,7 +91,7 @@ def receive_purchase_order(
     db.refresh(order, ["updated_at"])
     # The receipt, its stock, its audit trail and the replay record are written
     # by one commit; a failure here must leave no stock and no replay row.
-    response = PurchaseOrderOut.model_validate(order).model_dump(mode="json")
+    response = PurchaseOrderReceiptOut.model_validate(order).model_dump(mode="json")
     store_idempotent_response(
         db, scope=scope, key=idempotency_key, payload=fingerprint_payload,
         response=response, user=current, status_code=200,

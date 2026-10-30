@@ -58,6 +58,16 @@ See [schema migration rules](../README.md), [DTO conventions](../../libs/dto/REA
 [the business plan](../../../../docs/REFACTOR_PLAN.md) and
 [team ownership](../../../../docs/TEAM_OWNERSHIP.md).
 
+Purchase-order receipt's public Inventory participant
+`models.inventory.stock_service.record_purchase_order_stock_receipt` uses the
+same stock receipt persistence functions as the Inventory endpoint, on
+Purchasing's supplied Session. It flushes each batch only for its generated ID,
+then stages the `PurchaseOrderLine` movement without a separate flush or commit.
+Its required `internal_batch_no` preserves the PO number already stored by this
+path; absent length/roll-length values retain the mapped defaults. The normal
+Inventory `receive_stock` operation remains the transaction owner for its
+endpoint and keeps its own idempotency scope and output contract.
+
 The daily fabric scan register's `fabric_scan_persistence.add_fabric_scan`
 operation maps a validated, server-built snapshot command into one `FabricScan`
 row and attaches it to the supplied Session. It does not flush, commit, roll
