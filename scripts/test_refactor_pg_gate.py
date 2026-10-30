@@ -62,7 +62,7 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 257)
+        self.assertEqual(sum(counts.values()), 259)
 
     def test_model_image_upload_source_and_all_case_nodes_are_frozen(self):
         module = 'test_model_image_upload_postgres'
@@ -70,6 +70,8 @@ class RequiredPGGateTests(unittest.TestCase):
             'test_upload_image_type_preserves_null_and_normalization_contract',
             'test_upload_image_type_rejects_values_outside_the_action_subset',
             'test_upload_form_openapi_exposes_enum_contract_for_both_catalog_scopes',
+            'test_upload_response_openapi_preserves_exact_two_key_contract',
+            'test_upload_response_dto_has_exact_two_key_json_contract',
             'test_pg_upload_form_rejects_unknown_enum_before_storage_or_rows',
             'test_pg_upload_persists_typed_image_through_worker_session_and_audits_once',
             'test_pg_upload_route_permission_denial_writes_nothing',
@@ -90,6 +92,8 @@ class RequiredPGGateTests(unittest.TestCase):
             'test_upload_image_type_preserves_null_and_normalization_contract[pattern-pattern]',
             'test_upload_image_type_rejects_values_outside_the_action_subset',
             'test_upload_form_openapi_exposes_enum_contract_for_both_catalog_scopes',
+            'test_upload_response_openapi_preserves_exact_two_key_contract',
+            'test_upload_response_dto_has_exact_two_key_json_contract',
             'test_pg_upload_form_rejects_unknown_enum_before_storage_or_rows[standard-MIL]',
             'test_pg_upload_form_rejects_unknown_enum_before_storage_or_rows[usluga-ECO]',
             'test_pg_upload_persists_typed_image_through_worker_session_and_audits_once[standard-MIL]',
@@ -110,14 +114,14 @@ class RequiredPGGateTests(unittest.TestCase):
         manifest = json.loads(Path(gate.__file__).with_name(
             'refactor_pg_required_cases.json').read_text(encoding='utf-8'))
         source = manifest['sources'][module]
-        self.assertEqual(source['revision'], '7290b56545c2c6257d6eb9ce9f0a1376e1c7f8e2')
-        self.assertEqual(source['git_blob_oid'], 'f21801e3d5e379fa8bec77936aa09c213de8f530')
+        self.assertEqual(source['revision'], 'ee2e8f01313e6f637fe842a5b6e5f8e1608b5165')
+        self.assertEqual(source['git_blob_oid'], '38ce2a27b5c0121318af52c843686cbd7eac0ccc')
         self.assertEqual(source['git_blob_sha256'],
-                         '8f490043b172294636d7070d3baa326ae948b13c7332d5f78c655c99bafe62c0')
+                         '47e9e840c08f6225eb943e949c73678e21a6a0f9d882fda1d75e23e0e31ee1c1')
         self.assertEqual(tuple(source['selected_functions']), functions)
         self.assertEqual(tuple(manifest['cases'][module]), cases)
-        self.assertEqual(gate.GROUPS[module], (23, functions))
-        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 257)
+        self.assertEqual(gate.GROUPS[module], (25, functions))
+        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 259)
         self.assertEqual(len(manifest['isolated_supplemental_cases']), 17)
 
         baseline = dict(manifest)
@@ -136,6 +140,17 @@ class RequiredPGGateTests(unittest.TestCase):
             git_blob_oid='01944edceced564efb7fd829f202c06f8ff3b607',
             git_blob_sha256='97f0633077c4907b5fd3197447ecca40554750e2c1e29f84647ce4d020c236d7',
         )
+        new_image_functions = (
+            'test_upload_response_openapi_preserves_exact_two_key_contract',
+            'test_upload_response_dto_has_exact_two_key_json_contract',
+        )
+        historical['sources'][module]['selected_functions'] = [
+            name for name in functions if name not in new_image_functions
+        ]
+        historical['cases'][module] = [
+            name for name in cases if name not in new_image_functions
+        ]
+        self.assertEqual(len(historical['cases'][module]), 23)
         old_bom_baseline = dict(historical)
         old_bom_baseline['sources'] = {
             name: value for name, value in historical['sources'].items()
@@ -165,6 +180,67 @@ class RequiredPGGateTests(unittest.TestCase):
             json.dumps(old_model_baseline, sort_keys=True, separators=(',', ':')).encode()
         ).hexdigest(), '93610adfe0a6bdc2a7cc59080070a0b3112d94f2f4f570f07cbe179f0e1b4f90')
         gate.verify_model_image_upload_source()
+
+    def test_immediate_parent_image_refresh_reconstructs_pre_refresh_baselines(self):
+        """Reconstruct the exact pre-refresh manifest without Git history lookup."""
+        module = 'test_model_image_upload_postgres'
+        new_cases = (
+            'test_upload_response_openapi_preserves_exact_two_key_contract',
+            'test_upload_response_dto_has_exact_two_key_json_contract',
+        )
+        manifest = json.loads(Path(gate.__file__).with_name(
+            'refactor_pg_required_cases.json').read_text(encoding='utf-8'))
+        parent = json.loads(json.dumps(manifest))
+        parent['sources'][module].update(
+            revision='7290b56545c2c6257d6eb9ce9f0a1376e1c7f8e2',
+            git_blob_oid='f21801e3d5e379fa8bec77936aa09c213de8f530',
+            git_blob_sha256='8f490043b172294636d7070d3baa326ae948b13c7332d5f78c655c99bafe62c0',
+        )
+        parent['sources'][module]['selected_functions'] = [
+            name for name in parent['sources'][module]['selected_functions']
+            if name not in new_cases
+        ]
+        parent['cases'][module] = [
+            name for name in parent['cases'][module] if name not in new_cases
+        ]
+        self.assertEqual(len(parent['sources'][module]['selected_functions']), 14)
+        self.assertEqual(len(parent['cases'][module]), 23)
+        self.assertEqual(sum(len(items) for items in parent['cases'].values()), 257)
+        self.assertEqual(len(parent['isolated_supplemental_cases']), 17)
+
+        parent_digest = hashlib.sha256(json.dumps(
+            parent, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+        self.assertEqual(parent_digest, '47793e2f610ffd2bef39f2d3ff9928de8ad05c1c8f8bc5231270315e1dfb52ce')
+
+        without_bom = dict(parent)
+        without_bom['sources'] = {
+            key: value for key, value in parent['sources'].items()
+            if key != 'test_bom_add_characterization'
+        }
+        without_bom['cases'] = {
+            key: value for key, value in parent['cases'].items()
+            if key != 'test_bom_add_characterization'
+        }
+        without_bom['approved_case_transitions'] = [
+            item for item in parent['approved_case_transitions']
+            if item.get('module') != 'test_bom_add_characterization'
+        ]
+        self.assertEqual(hashlib.sha256(json.dumps(
+            without_bom, sort_keys=True, separators=(',', ':')).encode()).hexdigest(),
+            'bd3fca3b95320acf08722aa940d1b5a9406100e4cb8ca0da37935fc6d2173399')
+
+        without_model = {
+            'description': parent['description'],
+            'collection_method': parent['collection_method'],
+            'sources': {key: value for key, value in parent['sources'].items()
+                        if key != 'test_model_paid_operations_postgres'},
+            'cases': {key: value for key, value in parent['cases'].items()
+                      if key != 'test_model_paid_operations_postgres'},
+            'isolated_supplemental_cases': parent['isolated_supplemental_cases'],
+        }
+        self.assertEqual(hashlib.sha256(json.dumps(
+            without_model, sort_keys=True, separators=(',', ':')).encode()).hexdigest(),
+            '280d087d712f13d194f341ed5d85fd1440a2865af133d556bebe69df89a9d40c')
 
     def test_bom_source_refresh_retains_all_old_cases_and_requires_retry_case(self):
         module = 'test_bom_add_characterization'
@@ -264,10 +340,10 @@ class RequiredPGGateTests(unittest.TestCase):
         ]
         self.assertEqual(hashlib.sha256(
             json.dumps(baseline, sort_keys=True, separators=(',', ':')).encode()).hexdigest(),
-            'bd3fca3b95320acf08722aa940d1b5a9406100e4cb8ca0da37935fc6d2173399')
-        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 257)
+            'ae7acbc08e0b9d2d1c26ce531e9e6f29de9403085e328131578e6a823f1762e1')
+        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 259)
         self.assertEqual(sum(len(items) for items in manifest['cases'].values())
-                         + len(manifest['isolated_supplemental_cases']), 274)
+                         + len(manifest['isolated_supplemental_cases']), 276)
 
         for invalid in ('missing', 'replacement', 'skipped', 'failure', 'error'):
             tree = self.report()
@@ -357,7 +433,7 @@ class RequiredPGGateTests(unittest.TestCase):
         ])
         self.assertEqual(tuple(manifest['cases'][module]), retained[:6] + new_create + retained[6:])
         self.assertEqual(gate.GROUPS[module][0], 25)
-        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 257)
+        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 259)
         self.assertEqual(len(manifest['isolated_supplemental_cases']), 17)
         transition = manifest['approved_case_transitions'][0]
         self.assertEqual(transition['removed_required_case'],
@@ -388,7 +464,7 @@ class RequiredPGGateTests(unittest.TestCase):
             'isolated_supplemental_cases': manifest['isolated_supplemental_cases'],
         }
         digest = hashlib.sha256(json.dumps(unrelated, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-        self.assertEqual(digest, '280d087d712f13d194f341ed5d85fd1440a2865af133d556bebe69df89a9d40c')
+        self.assertEqual(digest, '5fc48338fa57705b02f8ad02a39b97542eb6304550fe7d0fff4992d9f1518182')
 
     def test_each_new_model_create_identity_is_required_and_nonpasses_fail(self):
         module = 'test_model_paid_operations_postgres'
