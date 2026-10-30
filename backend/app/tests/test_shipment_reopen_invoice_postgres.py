@@ -21,6 +21,7 @@ from app.libs.enums.finance import InvoiceStatus
 from app.libs.enums.fulfillment import FinishedGoodsStatus
 from app.models.finance.invoices_service import void_invoices_for_shipment_reopen
 from app.models.finance.payments_service import record_invoice_payment
+from app.models.idempotency_service import bind_idempotency_identity
 from app.models import shipment_reopen_service
 from app.schemas import (
     AuditLog,
@@ -423,7 +424,11 @@ def test_pg_shipment_reopen_audit_failure_rolls_back_and_retry_commits_all(
             entity_type="Shipment", entity_id=case["shipment_id"], action="reopen_shipment",
         ).count()
 
-    def fail_audit(*args, **kwargs):
+    audit_hook_witness = []
+
+    def fail_audit(db, *args, **kwargs):
+        staged_invoice = db.get(Invoice, case["invoice_id"])
+        audit_hook_witness.append((staged_invoice.status, staged_invoice.amount))
         raise RuntimeError("injected PG shipment reopen audit failure")
 
     with monkeypatch.context() as scoped:
@@ -434,6 +439,7 @@ def test_pg_shipment_reopen_audit_failure_rolls_back_and_retry_commits_all(
                 json=_payload(case).model_dump(mode="json"),
             )
         assert response.status_code == 500
+        assert audit_hook_witness == [(InvoiceStatus.VOID, Decimal("0.00"))]
 
     with sessions() as db:
         invoice = db.get(Invoice, case["invoice_id"])
@@ -502,6 +508,7 @@ def test_pg_invoice_payment_and_shipment_reopen_serialize_on_invoice_row(
     def payment_worker():
         with sessions() as db:
             actor = db.get(User, shipment_actors["finance"])
+            bind_idempotency_identity(db, actor)
             pids.put(int(db.execute(text("SELECT pg_backend_pid()")).scalar_one()))
             barrier.wait(timeout=10)
             try:
