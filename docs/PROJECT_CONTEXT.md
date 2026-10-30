@@ -28,14 +28,28 @@ its exact `f35eb109` backend/frontend CI and 199 required PG cases passed. PR350
 shipment-reopen invoice participant passed full CI/169 PG cases at `703e0130`;
 PR351's typed model paid-operation updates passed full CI/175 exact PG cases at
 `bcafc730`. PR352 freezes direct manual/piece stock reservation at `b9e75544`,
-with source review accepted and 171 exact required PG cases passed; full CI remains pending.
-An isolated combined candidate preserves 219 unique required PG identities across
-these inputs; its own execution, Computer/readback, postvisual checks and final
+with source review, full backend/frontend CI and 171 exact required PG cases passed.
+Combined draft PR353 at `1842ee72` passed all 219 unique required PG cases with
+zero failures/errors/skips, both recorded concurrent lock proofs and owned cleanup.
+Its full backend/frontend CI passed: 4,981 main backend cases, 638 opt-in skips,
+and 36 passing subtests; release was skipped. These results belong to `1842ee72`,
+not later stacked changes. Computer/readback, postvisual checks and final combined
 acceptance remain pending. Original candidates remain frozen; the owner requires
 Comet, Chrome and Telegram to stay open, and local runtime guards remain enforced.
 Collection's canonical/public legacy status typing gap remains explicitly open.
 See [the current operation backlog](REFACTOR_COVERAGE.md#current-integration-and-active-work--30-october-2026).
 No whole-domain, system-wide type or human production acceptance is claimed.
+
+The isolated SUP-01 settings PATCH draft builds on PR353 and introduces typed
+three-section routes, a Support business service and supplied-Session schema
+persistence. Independent source review accepted the corrected approved fixture,
+exact lock witnesses, rollback/retry tests and typed/body-shape contracts. Required
+CI registration now adds all 16 cases to the required gate without removing the
+219 upstream cases: 235 cases are required. Exact-source runtime results remain
+pending; the prior combined CI cannot verify this new Support change.
+Canonical language values are `en`/`ru`/`uz`; actual historical settings values still
+need the authorized read-only census. Currency, timezone and model types remain
+configurable. Logo upload and its file/transaction lifecycle remain separate work.
 
 ## Current green release (29 October)
 

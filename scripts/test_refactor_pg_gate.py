@@ -30,9 +30,38 @@ class RequiredPGGateTests(unittest.TestCase):
         ET.ElementTree(tree).write(path)
         return path
 
+
+    def test_support_required_cases_cannot_be_replaced_or_skipped(self):
+        module = 'test_support_settings_postgres'
+        expected = ('test_pg_section_merge_waits_on_exact_missing_or_existing_lock[company_info_missing]', 'test_pg_section_merge_waits_on_exact_missing_or_existing_lock[company_info_existing]', 'test_pg_section_merge_waits_on_exact_missing_or_existing_lock[financial_missing]', 'test_pg_section_merge_waits_on_exact_missing_or_existing_lock[financial_existing]', 'test_pg_section_merge_waits_on_exact_missing_or_existing_lock[preferences_missing]', 'test_pg_section_merge_waits_on_exact_missing_or_existing_lock[preferences_existing]', 'test_pg_logo_update_waits_on_shared_company_info_lock', 'test_pg_existing_row_wait_refreshes_after_preexisting_row_lock', 'test_pg_settings_failure_rolls_back_and_retry_persists_once[after_flush]', 'test_pg_settings_failure_rolls_back_and_retry_persists_once[after_audit]', 'test_pg_settings_failure_rolls_back_and_retry_persists_once[before_commit]', 'test_pg_typed_route_persists_wire_defaults_null_and_audit[company_info_wire]', 'test_pg_typed_route_persists_wire_defaults_null_and_audit[financial_wire]', 'test_pg_typed_route_persists_wire_defaults_null_and_audit[preferences_wire]', 'test_pg_typed_route_denials_invalid_and_unknown_have_no_writes', 'test_pg_typed_route_uses_schema_writer_session_and_one_commit')
+        self.assertEqual(tuple(gate.REQUIRED_CASES[module]), expected)
+        self.assertEqual(gate.GROUPS[module][0], 16)
+        for name in expected:
+            for invalid in ('replacement', 'skipped', 'failure', 'error'):
+                with self.subTest(name=name, invalid=invalid):
+                    tree = self.report()
+                    case = next(c for c in tree.iter('testcase')
+                                if c.get('classname') == f'app.tests.{module}'
+                                and c.get('name') == name)
+                    if invalid == 'replacement':
+                        case.set('name', 'unrelated_support_case')
+                    else:
+                        ET.SubElement(case, invalid)
+                    with self.assertRaises(ValueError):
+                        gate.check_report(self.write_report(tree))
+
+    def test_support_source_pin_and_selected_functions_are_frozen(self):
+        manifest = json.loads(Path(gate.__file__).with_name(
+            'refactor_pg_required_cases.json').read_text(encoding='utf-8'))
+        source = manifest['sources']['test_support_settings_postgres']
+        self.assertEqual(source['revision'], 'c356294fc483cbcd28b9f18b6ba7b029c60d3d49')
+        self.assertEqual(source['git_blob_sha256'], '70a512b0ef76028b40a1e25e96174feba8996b4f66b864131592bae8fd853be6')
+        self.assertEqual(tuple(source['selected_functions']), ('test_pg_section_merge_waits_on_exact_missing_or_existing_lock', 'test_pg_logo_update_waits_on_shared_company_info_lock', 'test_pg_existing_row_wait_refreshes_after_preexisting_row_lock', 'test_pg_settings_failure_rolls_back_and_retry_persists_once', 'test_pg_typed_route_persists_wire_defaults_null_and_audit', 'test_pg_typed_route_denials_invalid_and_unknown_have_no_writes', 'test_pg_typed_route_uses_schema_writer_session_and_one_commit'))
+        self.assertEqual(gate.GROUPS['test_support_settings_postgres'][1], ('test_pg_section_merge_waits_on_exact_missing_or_existing_lock', 'test_pg_logo_update_waits_on_shared_company_info_lock', 'test_pg_existing_row_wait_refreshes_after_preexisting_row_lock', 'test_pg_settings_failure_rolls_back_and_retry_persists_once', 'test_pg_typed_route_persists_wire_defaults_null_and_audit', 'test_pg_typed_route_denials_invalid_and_unknown_have_no_writes', 'test_pg_typed_route_uses_schema_writer_session_and_one_commit'))
+
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 202)
+        self.assertEqual(sum(counts.values()), 218)
 
     def test_skipped_failed_and_error_evidence_are_rejected(self):
         for tag in ('skipped', 'failure', 'error'):

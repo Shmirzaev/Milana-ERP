@@ -1,26 +1,35 @@
 """Partial settings updates preserve omitted fields and reject malformed input."""
 
-import asyncio
-import os
 from io import BytesIO
-from concurrent.futures import ThreadPoolExecutor
-from queue import Queue
-from threading import Event
-from time import monotonic, sleep
-from types import SimpleNamespace
-from uuid import uuid4
 
 import pytest
 from PIL import Image
-from fastapi import HTTPException
-from sqlalchemy import create_engine, text
-from sqlalchemy.engine import make_url
-from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import settings as settings_routes
-from app.db.base import Base
-from app.schemas import AuditLog, SystemSetting, User
+from app.libs.dto.support.company_info_input import CompanyInfoUpdate
+from app.libs.dto.support.financial_settings_input import FinancialSettingsUpdate
+from app.libs.dto.support.system_preferences_input import SystemPreferencesUpdate
+from app.libs.dto.support.company_info_output import CompanyInfoOut
+from app.libs.dto.support.financial_settings_output import FinancialSettingsOut
+from app.libs.dto.support.system_preferences_output import SystemPreferencesOut
+from app.models.support import settings_service
+from app.schemas import AuditLog, SystemSetting
 from app.tests.conftest import TestSessionLocal
+
+
+_SECTION_MODELS = {
+    "company_info": (CompanyInfoUpdate, CompanyInfoOut),
+    "financial": (FinancialSettingsUpdate, FinancialSettingsOut),
+    "preferences": (SystemPreferencesUpdate, SystemPreferencesOut),
+}
+
+
+def _default_json(section):
+    return _SECTION_MODELS[section][1]().model_dump(mode="json")
+
+
+def _patch_model(section, payload):
+    return _SECTION_MODELS[section][0](**payload)
 
 
 def _seed(section, value):
@@ -78,7 +87,7 @@ def test_explicit_null_clears_optional_value_but_empty_patch_preserves_all(clien
     ("preferences", {"unknown_setting": "typo"}, "unknown_setting"),
 ])
 def test_invalid_patch_returns_422_and_changes_nothing(client, auth_headers, section, payload, field):
-    _seed(section, settings_routes._SCHEMAS[section]().model_dump())
+    _seed(section, _default_json(section))
     before = _state()
     response = client.patch(f"/api/settings/{section}", headers=auth_headers, json=payload)
     assert response.status_code == 422, response.text
@@ -117,19 +126,99 @@ def test_permissions_and_missing_section_unchanged(client, auth_headers):
     assert _state() == before
 
 
+@pytest.mark.parametrize("body", [None, [], "not-an-object"])
+def test_settings_section_route_body_shape_preserved(client, auth_headers, body):
+    response = client.patch("/api/settings/unknown", headers=auth_headers, json=body)
+    assert response.status_code == 422, response.text
+
+    for section in ("company_info", "financial", "preferences"):
+        known = client.patch(f"/api/settings/{section}", headers=auth_headers, json=body)
+        assert known.status_code == 422, known.text
+
+
+def test_unknown_settings_section_still_returns_404_for_object_body(client, auth_headers):
+    response = client.patch("/api/settings/unknown", headers=auth_headers, json={})
+    assert response.status_code == 404
+
+
+def test_preference_language_contract_and_legacy_unknown_stored_value(client, auth_headers):
+    defaults = client.get("/api/settings", headers=auth_headers)
+    assert defaults.status_code == 200
+    assert defaults.json()["preferences"]["default_language"] == "en"
+
+    _seed("preferences", {**_default_json("preferences"), "default_language": "xx"})
+    before = _state()
+    rejected = client.patch("/api/settings/preferences", headers=auth_headers, json={})
+    assert rejected.status_code == 422
+    assert _state() == before
+    unsupported = client.patch(
+        "/api/settings/preferences", headers=auth_headers, json={"default_language": "xx"}
+    )
+    assert unsupported.status_code == 422
+    assert _state() == before
+    # The read contract fails closed instead of silently rewriting unknown
+    # historical values; the stored row remains available for the value audit.
+    assert client.get("/api/settings", headers=auth_headers).status_code == 500
+    assert _state() == before
+
+
 def test_audit_failure_rolls_back_patch(client, auth_headers, monkeypatch):
     _seed("financial", {"default_currency": "UZS", "fiscal_year_start_month": 4})
     before = _state()
-    original = settings_routes.log_action
+    original = settings_service.log_action
 
     def fail(*args, **kwargs):
         original(*args, **kwargs)
         raise RuntimeError("Synthetic settings audit failure")
 
-    monkeypatch.setattr(settings_routes, "log_action", fail)
+    monkeypatch.setattr(settings_service, "log_action", fail)
     with pytest.raises(RuntimeError, match="Synthetic settings audit failure"):
         client.patch("/api/settings/financial", headers=auth_headers, json={"fiscal_year_start_month": 6})
     assert _state() == before
+    monkeypatch.setattr(settings_service, "log_action", original)
+    retried = client.patch("/api/settings/financial", headers=auth_headers, json={"fiscal_year_start_month": 6})
+    assert retried.status_code == 200
+    assert _state()[0]["financial"]["fiscal_year_start_month"] == 6
+
+
+def test_service_uses_one_session_and_one_outer_commit(client, auth_headers, monkeypatch):
+    original_writer = settings_service.write_settings_section
+    captured = []
+
+    def capture_writer(db, **kwargs):
+        captured.append(db)
+        return original_writer(db, **kwargs)
+
+    monkeypatch.setattr(settings_service, "write_settings_section", capture_writer)
+    from sqlalchemy.orm import Session
+
+    original_commit = Session.commit
+    commits = []
+
+    def count_commit(db):
+        if any(db is seen for seen in captured):
+            commits.append(db)
+        return original_commit(db)
+
+    monkeypatch.setattr(Session, "commit", count_commit)
+    response = client.patch("/api/settings/financial", headers=auth_headers, json={"default_currency": "UZS"})
+    assert response.status_code == 200, response.text
+    assert len(captured) == 1 and len(commits) == 1
+    assert commits[0] is captured[0]
+
+
+def test_cutting_reservation_preference_remains_visible_to_existing_reader(client, auth_headers):
+    response = client.patch(
+        "/api/settings/preferences",
+        headers=auth_headers,
+        json={"require_material_reservation_before_cutting": True},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["require_material_reservation_before_cutting"] is True
+    from app.models.inventory_service import require_material_reservation_before_cutting
+
+    with TestSessionLocal() as db:
+        assert require_material_reservation_before_cutting(db) is True
 
 
 def test_real_logo_upload_and_partial_patch_preserve_company_fields(client, auth_headers):
@@ -144,120 +233,6 @@ def test_real_logo_upload_and_partial_patch_preserve_company_fields(client, auth
     patched = client.patch("/api/settings/company_info", headers=auth_headers, json={"phone": "456"})
     assert patched.status_code == 200
     assert patched.json() == {"name": "Synthetic", "address": "Keep address", "phone": "456", "email": None, "logo_url": logo}
-
-
-@pytest.fixture(scope="module")
-def settings_postgres():
-    raw = os.environ.get("STABILIZATION_POSTGRES_URL")
-    if not raw:
-        pytest.skip("Requires disposable PostgreSQL settings concurrency coverage")
-    url = make_url(raw)
-    if url.get_backend_name() != "postgresql" or url.host not in {"127.0.0.1", "localhost", "::1"} or url.query:
-        pytest.fail("Settings tests require loopback PostgreSQL without connection overrides")
-    schema = f"settings_patch_{uuid4().hex}"
-    engine = create_engine(url, pool_size=4, max_overflow=0, isolation_level="READ COMMITTED",
-                           connect_args={"options": f"-csearch_path={schema} -clock_timeout=15000 -cstatement_timeout=20000"})
-    with engine.begin() as connection:
-        connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
-    try:
-        tables = {SystemSetting.__table__, User.__table__, AuditLog.__table__}
-        pending = list(tables)
-        while pending:
-            for fk in pending.pop().foreign_keys:
-                if fk.column.table not in tables:
-                    tables.add(fk.column.table)
-                    pending.append(fk.column.table)
-        Base.metadata.create_all(engine, tables=list(tables))
-        yield engine
-    finally:
-        with engine.begin() as connection:
-            connection.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
-        engine.dispose()
-
-
-@pytest.mark.parametrize("case", ["existing", "first_create", "rollback", "logo"])
-def test_postgres_partial_updates_merge_after_waiting(settings_postgres, monkeypatch, case):
-    engine = settings_postgres
-    sessions = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
-    section = "company_info" if case == "logo" else "financial"
-    with sessions() as db:
-        db.query(SystemSetting).filter_by(key=section).delete()
-        if case != "first_create":
-            db.add(SystemSetting(key=section, value_json=settings_routes._SCHEMAS[section]().model_dump()))
-        user = User(name="Synthetic settings admin", email=f"settings-{uuid4().hex}@example.com", password_hash="unused")
-        db.add(user)
-        db.commit()
-        uid = user.id
-    if case == "logo":
-        from app.models import image_storage_service as image_storage
-
-        async def fake_store(*args, **kwargs):
-            return SimpleNamespace(file_url="/synthetic-upload.webp")
-
-        monkeypatch.setattr(image_storage, "store_uploaded_image", fake_store)
-    held, release = Event(), Event()
-    ready = Queue()
-    original_audit = settings_routes.log_action
-
-    def hold_first_audit(db, *args, **kwargs):
-        original_audit(db, *args, **kwargs)
-        if db.info.get("settings_worker") == "first":
-            held.set()
-            assert release.wait(12), "First settings patch was not released"
-            if case == "rollback":
-                raise HTTPException(503, "Synthetic settings rollback")
-
-    monkeypatch.setattr(settings_routes, "log_action", hold_first_audit)
-
-    def worker(name):
-        with sessions() as db:
-            db.info["settings_worker"] = name
-            actor = db.get(User, uid)
-            if name == "second":
-                # Existing identity-map state must be refreshed after the lock.
-                cached = db.query(SystemSetting).filter_by(key=section).first()
-                ready.put(db.execute(text("SELECT pg_backend_pid()")).scalar_one())
-            try:
-                if case == "logo" and name == "second":
-                    return 201, asyncio.run(settings_routes.upload_company_logo(db, file=None, current=actor))
-                payload = ({"address": "Changed address"} if case == "logo" else
-                           {"fiscal_year_start_month": 4} if name == "first" else {"default_currency": "UZS"})
-                result = settings_routes.save_settings_section(section, payload, db, current=actor)
-                if name == "second" and cached is not None:
-                    assert cached.value_json == result
-                return 200, result
-            except HTTPException as exc:
-                db.rollback()
-                return exc.status_code, exc.detail
-
-    with ThreadPoolExecutor(max_workers=2) as workers:
-        first = workers.submit(worker, "first")
-        second = None
-        try:
-            assert held.wait(10), "First settings patch did not reach its audit"
-            second = workers.submit(worker, "second")
-            pid = ready.get(timeout=10)
-            with engine.connect() as observer:
-                deadline = monotonic() + 10
-                while monotonic() < deadline:
-                    if observer.execute(text("SELECT pg_blocking_pids(:pid)"), {"pid": pid}).scalar_one():
-                        break
-                    sleep(0.02)
-                else:
-                    pytest.fail("Second settings write did not wait on the section lock")
-        finally:
-            release.set()
-        assert first.result(timeout=10)[0] == (503 if case == "rollback" else 200)
-        assert second is not None and second.result(timeout=10)[0] == (201 if case == "logo" else 200)
-    with sessions() as db:
-        rows = db.query(SystemSetting).filter_by(key=section).all()
-        assert len(rows) == 1
-        if case == "logo":
-            assert rows[0].value_json["address"] == "Changed address"
-            assert rows[0].value_json["logo_url"] == "/synthetic-upload.webp"
-        else:
-            assert rows[0].value_json == {"default_currency": "UZS", "fiscal_year_start_month": 1 if case == "rollback" else 4}
-        assert db.query(AuditLog).filter_by(user_id=uid).count() == (1 if case == "rollback" else 2)
 
 
 @pytest.mark.parametrize("fail_commit", [False, True])
