@@ -18,6 +18,11 @@ command keeps known paid-operation rows as `PaidOperationIn` through business
 factory-scope checks; the schema operation serializes them at persistence.
 Model status remains raw pending the legacy vocabulary census.
 
+The same catalog module carries `ModelImageUploadCommand` from the upload
+service to its schema writer. Its `image_type` field uses the multipart
+action's `ModelImageUploadType` subset and its primary flag is an explicit
+service decision; this does not canonicalize all historical ModelImage rows.
+
 ## Purpose
 
 Describe data passed between internal operations when its shape differs from an

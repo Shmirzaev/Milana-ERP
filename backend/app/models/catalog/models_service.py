@@ -52,12 +52,13 @@ from app.libs.dto.catalog.model_input import ModelCreateIn, ModelPaidOperationsI
 from app.libs.dto.catalog.model_size_input import ModelSizeIn
 from app.libs.dto.catalog.model_output import ModelCreateOut, ModelDetail, ModelImageOut, ModelOut, ModelSummaryOut
 from app.libs.dto.catalog.process_qr_sizes_input import ProcessQrSizesIn
-from app.libs.enums.catalog import BomMaterialRole, CatalogScope, PaidOperationFactory
+from app.libs.enums.catalog import BomMaterialRole, CatalogScope, ModelImageUploadType, PaidOperationFactory
 from app.libs.enums.factory import FactoryCode
 from app.libs.types.catalog import (
     ModelApprovalInheritance,
     ModelCreateCommand,
     ModelCreateDetails,
+    ModelImageUploadCommand,
     ModelInsert,
     NormalizedBomCreate,
     NormalizedBomUpdate,
@@ -71,10 +72,10 @@ from app.models.image_storage_service import (
     discard_stored_image,
     run_blocking_to_completion,
     run_upload_db_work,
-    run_upload_file_write,
     store_uploaded_image,
     upload_processing_slot,
     upload_session_factory,
+    write_uploaded_file_atomically,
 )
 from app.models.model_family_images_service import (
     _family_key,
@@ -121,6 +122,7 @@ from app.schemas.catalog.bom_persistence import (
     update_model_bom,
 )
 from app.schemas.catalog.model_paid_operations_persistence import persist_model_paid_operations
+from app.schemas.catalog.model_image_persistence import insert_uploaded_model_image
 from app.schemas.catalog.model_persistence import insert_model, serialize_model_create_details
 
 # A model's details_json is per-model modelling metadata: identity, costing and
@@ -309,16 +311,16 @@ def _validate_file_url(file_url: str) -> str:
     raise HTTPException(400, "File URL must be an uploaded file path or an http(s) URL")
 
 
-def _normalize_image_type(value: str | None) -> str | None:
+def _normalize_attached_image_type(value: str | None) -> ModelImageUploadType | None:
     if not value:
         return None
     normalized = value.strip().lower()
     if not normalized:
         return None
-    allowed = {"model", "material", "pattern"}
-    if normalized not in allowed:
+    try:
+        return ModelImageUploadType(normalized)
+    except ValueError:
         raise HTTPException(400, "Image type must be model, material, or pattern")
-    return normalized
 
 
 def _image_payload(img: ModelImage) -> dict:
@@ -2538,7 +2540,8 @@ def add_image(
     if not _catalog_model(db, mid, catalog_scope): raise HTTPException(404, "Model not found")
     data = payload.model_dump()
     data["file_url"] = _validate_file_url(data["file_url"])
-    data["image_type"] = _normalize_image_type(data.get("image_type"))
+    normalized_type = _normalize_attached_image_type(data.get("image_type"))
+    data["image_type"] = normalized_type.value if normalized_type else None
     if data.get("is_primary"):
         db.query(ModelImage).filter(ModelImage.model_id == mid, ModelImage.is_primary.is_(True)).update(
             {"is_primary": False},
@@ -2550,11 +2553,6 @@ def add_image(
     log_action(db, current, "create", "ModelImage", img.id, new_value={"model_id": mid, "file_url": img.file_url})
     db.commit(); db.refresh(img)
     return {"id": img.id}
-
-
-def _write_new_model_document(target: Path, content: bytes) -> None:
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(content)
 
 
 async def _discard_model_document(target: Path) -> None:
@@ -2583,38 +2581,31 @@ def _create_uploaded_model_image(
     file_url: str,
     original_name: str,
     stored_content_type: str,
-    image_type: str | None,
+    image_type: ModelImageUploadType | None,
 ) -> int:
     _require_catalog_upload_model(db, model_id, catalog_scope)
     actor = _upload_actor(db, actor_id)
-    is_primary = image_type == "model"
-    if is_primary:
-        db.query(ModelImage).filter(
-            ModelImage.model_id == model_id,
-            ModelImage.is_primary.is_(True),
-        ).update({"is_primary": False}, synchronize_session=False)
-    image = ModelImage(
-        model_id=model_id,
-        file_url=file_url,
-        file_name=original_name,
-        content_type=stored_content_type,
-        # The file is already persisted in MODEL_FILES_DIR. Keeping another
-        # multi-megabyte copy in PostgreSQL makes remote uploads needlessly slow.
-        file_data=None,
-        image_type=image_type,
-        is_primary=is_primary,
+    make_primary = image_type is ModelImageUploadType.MODEL
+    image_id = insert_uploaded_model_image(
+        db,
+        ModelImageUploadCommand(
+            model_id=model_id,
+            file_url=file_url,
+            original_name=original_name,
+            stored_content_type=stored_content_type,
+            image_type=image_type,
+            make_primary=make_primary,
+        ),
     )
-    db.add(image)
-    db.flush()
     log_action(
         db,
         actor,
         "create",
         "ModelImage",
-        image.id,
+        image_id,
         new_value={"model_id": model_id, "file_url": file_url},
     )
-    return int(image.id)
+    return image_id
 
 
 def _audit_uploaded_bom_photo(
@@ -2642,7 +2633,7 @@ async def upload_image(
     db: Session,
     mid: int,
     file: UploadFile,
-    image_type: str | None = None,
+    image_type: ModelImageUploadType | None = None,
     catalog_scope: str = "standard",
 ):
     actor_id = int(current.id)
@@ -2653,7 +2644,6 @@ async def upload_image(
         partial(_require_catalog_upload_model, model_id=mid, catalog_scope=catalog_scope),
     )
     ext = extension_for_upload(file, SAFE_IMAGE_EXTENSIONS | SAFE_DOCUMENT_EXTENSIONS)
-    normalized_image_type = _normalize_image_type(image_type)
     stored_image = None
     document_target = None
     document_state = UploadFileWriteState()
@@ -2676,10 +2666,7 @@ async def upload_image(
             document_target = Path(settings.MODEL_FILES_DIR) / safe_name
             async with upload_processing_slot():
                 content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
-                await run_upload_file_write(
-                    partial(_write_new_model_document, document_target, content),
-                    document_state,
-                )
+                await write_uploaded_file_atomically(document_target, content, document_state)
             file_url = f"/storage/model-files/{safe_name}"
             stored_content_type = safe_content_type(ext)
         # The write re-checks the model and its scope on the worker's own
@@ -2695,7 +2682,7 @@ async def upload_image(
                 file_url=file_url,
                 original_name=file.filename or safe_name,
                 stored_content_type=stored_content_type,
-                image_type=normalized_image_type,
+                image_type=image_type,
             ),
             commit=True,
             commit_state=commit_state,

@@ -11,7 +11,7 @@ from app.libs.dto.catalog.model_bom_input import ModelBOMIn
 from app.libs.dto.catalog.model_bom_output import ModelBOMCreateOut
 from app.libs.dto.catalog.model_bom_update import ModelBOMUpdate
 from app.libs.dto.catalog.model_color_input import ModelColorIn
-from app.libs.dto.catalog.model_image_input import ModelImageIn
+from app.libs.dto.catalog.model_image_input import ModelImageIn, ModelImageUploadInput
 from app.libs.dto.catalog.model_input import (
     ModelCreateIn,
     ModelPaidOperationsIn,
@@ -355,7 +355,7 @@ async def upload_image(
     mid: int,
     db: DbSession,
     file: UploadFile = File(...),
-    image_type: str | None = Form(None),
+    image_type: ModelImageUploadInput = Form(None),
     current: User = Depends(require_permissions("modeling.models", "*")),
     catalog_scope: str = Depends(_standard_catalog_scope),
 ):

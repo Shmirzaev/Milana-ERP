@@ -207,6 +207,22 @@ async def run_upload_file_write(work: Callable[[], object], state: UploadFileWri
     await run_blocking_to_completion(write_and_mark_created)
 
 
+async def write_uploaded_file_atomically(
+    target: str | Path,
+    content: bytes,
+    state: UploadFileWriteState,
+) -> None:
+    """Atomically create a validated non-image upload and track its commit.
+
+    The target is marked created only after the same-directory temporary file
+    has been replaced successfully. Failed writes remove the temporary file and
+    leave no partial destination for the caller's upload cleanup to miss.
+    """
+
+    destination = Path(target)
+    await run_upload_file_write(partial(_atomic_write, destination, content), state)
+
+
 @dataclass(frozen=True)
 class ConvertedImage:
     data: bytes

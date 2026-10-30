@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import asyncio
 from io import BytesIO
 
 import pytest
 from PIL import Image, ImageChops, ImageStat
 
 from app.models import image_storage_service as image_storage
-from app.models.image_storage_service import convert_image_to_webp, prebuild_webp_thumbnails
+from app.models.image_storage_service import (
+    UploadFileWriteState,
+    convert_image_to_webp,
+    prebuild_webp_thumbnails,
+    write_uploaded_file_atomically,
+)
 
 
 def _image_bytes(fmt: str, mode: str = "RGB") -> bytes:
@@ -79,3 +85,30 @@ def test_prebuilt_thumbnails_roll_back_when_a_later_size_fails(tmp_path, monkeyp
     assert pre_existing.read_bytes() == b"keep the previous thumbnail"
     assert unrelated.read_bytes() == b"keep this unrelated thumbnail"
     assert not (tmp_path / "320_sample.webp.webp").exists()
+
+
+def test_document_upload_atomic_write_marks_complete_file(tmp_path):
+    target = tmp_path / "model_12_test.pdf"
+    state = UploadFileWriteState()
+
+    asyncio.run(write_uploaded_file_atomically(target, b"%PDF-1.7 fixture", state))
+
+    assert state.created is True
+    assert target.read_bytes() == b"%PDF-1.7 fixture"
+    assert list(tmp_path.iterdir()) == [target]
+
+
+def test_document_upload_atomic_write_failure_leaves_no_partial_file(tmp_path, monkeypatch):
+    target = tmp_path / "model_12_test.pdf"
+    state = UploadFileWriteState()
+
+    def fail_replace(_temporary, _destination):
+        raise OSError("synthetic replace failure")
+
+    monkeypatch.setattr(image_storage.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="synthetic replace failure"):
+        asyncio.run(write_uploaded_file_atomically(target, b"partial document", state))
+
+    assert state.created is False
+    assert not target.exists()
+    assert list(tmp_path.iterdir()) == []

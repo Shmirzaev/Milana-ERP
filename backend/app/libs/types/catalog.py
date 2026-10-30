@@ -12,7 +12,13 @@ from datetime import datetime
 from typing import NotRequired, TypedDict
 
 from app.libs.dto.catalog.model_input import PaidOperationIn
-from app.libs.enums.catalog import BomMaterialRole, CatalogScope, CollectionStatus, PaidOperationFactory
+from app.libs.enums.catalog import (
+    BomMaterialRole,
+    CatalogScope,
+    CollectionStatus,
+    ModelImageUploadType,
+    PaidOperationFactory,
+)
 from app.libs.enums.factory import FactoryCode
 
 
@@ -116,6 +122,18 @@ class StockBatchBomRelinkCommand(TypedDict):
 
     stock_batch_id: int
     item_id: int
+
+
+@dataclass(frozen=True)
+class ModelImageUploadCommand:
+    """Validated file metadata and primary-image decision for one upload row."""
+
+    model_id: int
+    file_url: str
+    original_name: str
+    stored_content_type: str
+    image_type: ModelImageUploadType | None
+    make_primary: bool
 
 
 @dataclass(frozen=True)

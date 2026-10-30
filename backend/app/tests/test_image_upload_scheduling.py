@@ -33,6 +33,7 @@ import pytest
 from anyio import CapacityLimiter
 from fastapi import HTTPException, UploadFile
 from PIL import Image
+from app.libs.enums.catalog import ModelImageUploadType
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
@@ -485,7 +486,7 @@ def test_model_image_upload_commits_its_row_and_audit(upload_postgres, tmp_path,
     with upload_postgres() as request_db:
         current = request_db.get(User, user_id)
         result = asyncio.run(models_service.upload_image(
-            current, request_db, model_id, file=upload, image_type="model",
+            current, request_db, model_id, file=upload, image_type=ModelImageUploadType.MODEL,
             catalog_scope="standard",
         ))
 
@@ -535,7 +536,7 @@ def test_model_image_upload_cancel_rolls_back_the_row_and_removes_the_file(
 
         async def run():
             task = asyncio.create_task(models_service.upload_image(
-                current, request_db, model_id, file=upload, image_type="material",
+                current, request_db, model_id, file=upload, image_type=ModelImageUploadType.MATERIAL,
                 catalog_scope="standard",
             ))
             for _ in range(500):
@@ -580,7 +581,7 @@ def test_model_image_upload_keeps_the_file_when_the_transaction_committed(
 
         async def run():
             task = asyncio.create_task(models_service.upload_image(
-                current, request_db, model_id, file=upload, image_type="material",
+                current, request_db, model_id, file=upload, image_type=ModelImageUploadType.MATERIAL,
                 catalog_scope="standard",
             ))
             for _ in range(500):
@@ -611,7 +612,7 @@ def test_model_image_upload_rejects_a_model_outside_the_requested_scope(
         current = request_db.get(User, user_id)
         with pytest.raises(HTTPException) as refused:
             asyncio.run(models_service.upload_image(
-                current, request_db, usluga_model_id, file=upload, image_type="model",
+                current, request_db, usluga_model_id, file=upload, image_type=ModelImageUploadType.MODEL,
                 catalog_scope="standard",
             ))
 
@@ -649,7 +650,7 @@ def test_model_image_scope_is_rechecked_where_the_worker_writes(upload_postgres,
         current = request_db.get(User, user_id)
         with pytest.raises(HTTPException) as refused:
             asyncio.run(models_service.upload_image(
-                current, request_db, model_id, file=upload, image_type="model",
+                current, request_db, model_id, file=upload, image_type=ModelImageUploadType.MODEL,
                 catalog_scope="standard",
             ))
 

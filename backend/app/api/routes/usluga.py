@@ -36,7 +36,7 @@ from app.models.production_service import create_production_order, create_work_o
 from app.libs.dto.catalog.model_bom_input import ModelBOMIn
 from app.libs.dto.catalog.model_bom_update import ModelBOMUpdate
 from app.libs.dto.catalog.model_color_input import ModelColorIn
-from app.libs.dto.catalog.model_image_input import ModelImageIn
+from app.libs.dto.catalog.model_image_input import ModelImageIn, ModelImageUploadInput
 from app.libs.dto.catalog.model_input import (
     ModelCreateIn,
     ModelPaidOperationsIn,
@@ -534,7 +534,7 @@ async def upload_usluga_model_image(
     mid: int,
     db: DbSession,
     file: UploadFile = File(...),
-    image_type: str | None = Form(None),
+    image_type: ModelImageUploadInput = Form(None),
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)

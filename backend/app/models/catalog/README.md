@@ -65,6 +65,23 @@ accept pass-through values without a proven closed stored vocabulary; no status
 enum or policy change is claimed. Required PostgreSQL/browser/readback checks
 remain pending.
 
+### Model image UPLOAD persistence
+
+Standard and Usluga multipart image uploads share the Catalog upload service,
+which owns scope and actor rechecks, file validation/conversion, worker-session
+coordination, cancellation cleanup, audit and the one outer commit. Its
+`ModelImageUploadCommand` carries the normalized action-specific
+`ModelImageUploadType` to `schemas/catalog/model_image_persistence.py`, which
+clears current primary flags when requested, inserts and flushes one row on that
+same worker Session, and never commits. The enum documents only `model`,
+`material` and `pattern` values accepted by multipart upload; it does not close
+the historical `ModelImage.image_type` vocabulary. Both multipart form
+boundaries now expose the nullable enum: case/whitespace and blank normalization
+remain, while unknown input receives HTTP 422 before upload work. URL attach
+retains its separate string-input HTTP 400 validation edge. Attach-URL, delete,
+clone and variant image writes remain separate operations. Approved-PG/runtime
+and browser/readback checks for this extraction are pending.
+
 Every service function takes the acting user and the `Session` first, then the
 operation input, and owns its own transaction: no helper commits and no
 service imports a router. The routers in

@@ -29,6 +29,19 @@ class CatalogScope(str, Enum):
     USLUGA = "usluga"
 
 
+class ModelImageUploadType(str, Enum):
+    """Image types accepted by the Model multipart-upload action.
+
+    This action-specific input subset is not the table-wide ModelImage
+    vocabulary, which includes values written by other operations and legacy
+    rows.
+    """
+
+    MODEL = "model"
+    MATERIAL = "material"
+    PATTERN = "pattern"
+
+
 class PaidProcessSection(str, Enum):
     SEWING = "sewing"
     CUTTING = "cutting"

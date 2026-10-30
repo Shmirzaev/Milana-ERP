@@ -29,6 +29,7 @@ existing duplicate-name race behavior.
 - [Model](catalog.py)
 - [Model paid-operation persistence](model_paid_operations_persistence.py)
 - [Model CREATE persistence](model_persistence.py)
+- [Model image upload persistence](model_image_persistence.py)
 - [CollectionModel](catalog.py)
 - [ModelImage](catalog.py)
 - [ModelSize](catalog.py)
@@ -47,6 +48,16 @@ Model CREATE uses `model_persistence.insert_model` for the mapped row and
 inherited approval assignments. The service keeps family selection/locking,
 audit and the outer commit. Typed paid-operation rows serialize at this mapped
 JSON persistence boundary; historical read rows are unchanged.
+
+Model image upload uses `model_image_persistence.insert_uploaded_model_image`
+for the primary-flag bulk update and new `ModelImage` row on the service's
+worker-owned Session. The operation flushes for its ID and does not commit;
+the service retains upload lifecycle, worker-session commit and audit. Both
+multipart routes accept the nullable `ModelImageUploadType` form contract;
+supported values still normalize case/whitespace and blank values remain null.
+Unknown values now receive request validation HTTP 422 before upload work.
+URL attachment retains its separate string-input/HTTP 400 validation edge,
+and table-wide/historical image type storage remains string-valued.
 
 ## How to make a file here
 
