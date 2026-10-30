@@ -4,14 +4,13 @@ import re
 from typing import Annotated
 from urllib.parse import parse_qs, urlparse
 from fastapi import Header
-from app.models.idempotency_service import replay_idempotent_response
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 
 from app.core.deps import CurrentUser, DbSession, require_permissions
-from app.schemas import Bundle, SewingAssignment, SewingFlow, SewingRecord, User, WorkOrder
+from app.schemas import Bundle, SewingAssignment, SewingFlow, User, WorkOrder
 from app.libs.dto.production.production import SewingRecordIn
 from app.models.audit_service import log_action
 from app.models.sewing_band_progress_service import band_board
@@ -204,42 +203,12 @@ def own_assignment(db, current, aid):
 @router.post("/{aid}/output")
 def record_output(aid: int, payload: SewingRecordIn, db: DbSession, current: CurrentUser,
                   idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None):
-    from app.api.routes.production import post_sewing
-    assignment = own_assignment(db, current, aid)
-    if (payload.input_qty != 0 or payload.rework_qty != 0 or payload.rejected_qty != 0
-            or payload.operator_id not in (None, current.id)
-            or payload.sewn_qty != payload.passed_qty + payload.failed_qty
-            or payload.sewn_qty <= 0):
-        raise HTTPException(400, "Enter positive final accepted/defective quantities; receipt input is recorded separately")
-    if payload.failed_qty and not (payload.defect_reason or "").strip():
-        raise HTTPException(400, "A defect reason is required")
-    if payload.work_order_id != assignment.work_order_id or payload.sewing_assignment_id != assignment.id:
-        raise HTTPException(403, "Output must belong to the selected assignment")
-    if payload.production_batch_id != assignment.production_batch_id:
-        raise HTTPException(403, "Output must belong to the selected batch")
-    replay = replay_idempotent_response(db, scope="sewing:output", key=idempotency_key, payload=payload.model_dump())
-    if replay is not None:
-        return replay
-    # Lock in the same order as the existing final-output handler.
-    db.query(WorkOrder).filter(WorkOrder.id == assignment.work_order_id).with_for_update().one()
-    db.refresh(assignment)
-    if assignment.sewing_flow_id != current.sewing_band_id or assignment.status not in ("planned", "in_progress", "completed"):
-        raise HTTPException(409, "This assignment changed; refresh before recording output")
-    if payload.passed_qty + payload.failed_qty + payload.rejected_qty > max(0, assignment.quantity - assignment.completed_qty):
-        raise HTTPException(400, "Output exceeds the remaining assignment quantity")
-    wo = db.get(WorkOrder, assignment.work_order_id)
-    received = db.query(func.coalesce(func.sum(Bundle.quantity), 0)).filter(
-        Bundle.production_order_id == wo.production_order_id, Bundle.status == "received_sewing", Bundle.sewing_factory_code == "ECO",
-    )
-    recorded = db.query(func.coalesce(func.sum(SewingRecord.passed_qty + SewingRecord.failed_qty + SewingRecord.rejected_qty), 0)).filter(
-        SewingRecord.work_order_id == wo.id,
-    )
-    if assignment.production_batch_id is not None:
-        received = received.filter(Bundle.production_batch_id == assignment.production_batch_id)
-        recorded = recorded.filter(SewingRecord.production_batch_id == assignment.production_batch_id)
-    if int(recorded.scalar()) + payload.sewn_qty > int(received.scalar()):
-        raise HTTPException(409, "Final output exceeds bundles received for this work")
-    return post_sewing(payload, db, current, idempotency_key)
+    from app.models.production.sewing_service import SewingOutputError, record_sewing_output
+    try:
+        return record_sewing_output(db, actor=current, payload=payload, idempotency_key=idempotency_key,
+                                    band_assignment_id=aid)
+    except SewingOutputError as exc:
+        raise HTTPException(exc.status_code, exc.detail) from exc
 
 
 class FinishIn(BaseModel):

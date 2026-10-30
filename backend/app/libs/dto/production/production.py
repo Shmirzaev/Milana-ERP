@@ -4,6 +4,7 @@ from typing import Annotated, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.libs.dto.common import ORMModel, SchemaModel
+from app.libs.enums.production import WorkOrderStatus
 from app.libs.dto.inventory.item_input import ItemComposition
 from app.libs.enums.production import SewingFactoryCode
 
@@ -217,7 +218,7 @@ class WorkOrderOut(ORMModel):
     batch_planned_quantity: Optional[int] = None
     department_id: int
     operation: str
-    status: str
+    status: WorkOrderStatus
     planned_input_qty: int
     planned_output_qty: int
     actual_input_qty: int
@@ -252,7 +253,7 @@ class ProductionOrderDetail(ProductionOrderOut):
 
 
 class WorkOrderUpdate(BaseModel):
-    status: Optional[str] = None
+    status: Optional[WorkOrderStatus] = None
     assigned_to: Optional[int] = None
     sewing_flow_id: Optional[int] = None
     deadline: Optional[datetime] = None

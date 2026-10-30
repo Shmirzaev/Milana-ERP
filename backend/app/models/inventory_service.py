@@ -2871,6 +2871,7 @@ def accessory_issue_requests(
 
 
 def sync_sewing_accessory_block(db: Session, production_order_id: int) -> dict:
+    from app.schemas.production.sewing_output_persistence import set_work_order_accessory_block
     plan = accessory_issue_plan(db, production_order_id)
     upstream_output = float(
         db.query(func.coalesce(func.sum(CuttingRecord.passed_pieces), 0))
@@ -2898,12 +2899,10 @@ def sync_sewing_accessory_block(db: Session, production_order_id: int) -> dict:
     if upstream_output <= EPSILON or plan.get("is_complete"):
         for wo in sewing_orders:
             if wo.block_reason == ACCESSORY_SEWING_BLOCK_REASON:
-                wo.is_blocked = False
-                wo.block_reason = None
+                set_work_order_accessory_block(wo, blocked=False, reason=None)
     else:
         for wo in sewing_orders:
-            wo.is_blocked = True
-            wo.block_reason = ACCESSORY_SEWING_BLOCK_REASON
+            set_work_order_accessory_block(wo, blocked=True, reason=ACCESSORY_SEWING_BLOCK_REASON)
     db.flush()
     return plan
 

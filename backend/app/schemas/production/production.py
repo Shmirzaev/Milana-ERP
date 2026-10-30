@@ -6,6 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, PkMixin, TimestampMixin
 from app.libs.enums.planning import BrandedPlanningOrderStatus, BrandedPlanningOrderType
+from app.libs.enums.production import WorkOrderStatus
 
 if TYPE_CHECKING:
     from app.schemas.catalog.partners import Customer
@@ -197,8 +198,7 @@ class WorkOrder(Base, PkMixin, TimestampMixin):
         CheckConstraint("failed_qty >= 0", name="ck_work_orders_failed_nonnegative"),
         CheckConstraint("rework_qty >= 0", name="ck_work_orders_rework_nonnegative"),
         CheckConstraint(
-            "status IN ('new', 'planning', 'waiting', 'pending', 'ready', 'collected', 'in_progress', 'paused', "
-            "'completed', 'rejected', 'cancelled')",
+            "status IN (" + ", ".join(f"'{member.value}'" for member in WorkOrderStatus) + ")",
             name="ck_work_orders_status",
         ),
         UniqueConstraint("production_order_id", "production_batch_id", "operation", name="uq_work_orders_order_batch_operation"),
@@ -207,7 +207,7 @@ class WorkOrder(Base, PkMixin, TimestampMixin):
     production_batch_id: Mapped[int | None] = mapped_column(ForeignKey("production_batches.id"))
     department_id: Mapped[int] = mapped_column(ForeignKey("departments.id"), nullable=False)
     operation: Mapped[str] = mapped_column(String(32), nullable=False)
-    status: Mapped[str] = mapped_column(String(32), default="waiting", nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default=WorkOrderStatus.WAITING.value, nullable=False)
     planned_input_qty: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     planned_output_qty: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     actual_input_qty: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
