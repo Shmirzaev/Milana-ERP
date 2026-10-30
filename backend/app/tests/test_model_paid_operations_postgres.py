@@ -2,6 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
+import json
 from queue import Queue
 from threading import Barrier
 from time import monotonic, sleep
@@ -279,7 +280,7 @@ def test_pg_paid_operations_scoped_save_keeps_other_factory_opaque_legacy_and_ot
         response = client.patch(
             f"/api/models/{ids[0]}/paid-operations",
             headers=_headers(actor_id, "MIL"),
-            json={"sewing_factory": "MIL", "paid_operations": [
+            json={"sewing_factory": "milana", "paid_operations": [
                 {"id": "new-mil", "section": "sewing", "rate": "9"},
             ]},
         )
@@ -445,7 +446,9 @@ def test_pg_paid_operations_failure_rolls_back_then_same_session_retry(customer_
     chain(sessions)
 
 
-def test_pg_paid_operations_concurrent_factories_serialize_same_family_and_prove_row_lock_wait(customer_pg_sessions):
+def test_pg_paid_operations_concurrent_factories_serialize_same_family_and_prove_row_lock_wait(
+    customer_pg_sessions, record_property
+):
     sessions = customer_pg_sessions
     mil_id = _actor(sessions, ["payroll.manage"], "MIL")
     bst_id = _actor(sessions, ["payroll.manage"], "BST")
@@ -484,26 +487,58 @@ def test_pg_paid_operations_concurrent_factories_serialize_same_family_and_prove
     holder.query(Model).filter(Model.id == ids[0]).with_for_update().one()
     pool = ThreadPoolExecutor(max_workers=2)
     worker_pid = Queue()
-    start = Barrier(2)
+    start = Barrier(3)
     workers = [
         pool.submit(save, actor_id, factory, prefix, start, worker_pid)
         for actor_id, factory, prefix in ((mil_id, "MIL", "mil"), (bst_id, "BST", "bst"))
     ]
     observer = sessions()
-    lock_witnesses = set()
-    deadline = monotonic() + 8
+    lock_witnesses = {}
+    wait_diagnostics = {}
+    blocked_pids = set()
+    snapshot_refreshes = 0
     try:
         blocked_pids = {worker_pid.get(timeout=5), worker_pid.get(timeout=5)}
+        # Join after both worker connections are known while the holder still
+        # owns the family row, then start the 8s observer.
+        start.wait(timeout=8)
+        wait_diagnostics = {pid: {} for pid in blocked_pids}
+        deadline = monotonic() + 8
         while monotonic() < deadline:
             observer.execute(text("SELECT pg_stat_clear_snapshot()"))
+            snapshot_refreshes += 1
             for blocked_pid in blocked_pids:
                 state = observer.execute(text("""
-                    SELECT wait_event_type, query, pg_blocking_pids(pid) AS blocking_pids
+                    SELECT wait_event_type, wait_event, query, length(query) AS query_length,
+                           current_setting('track_activity_query_size') AS query_size_limit,
+                           pg_blocking_pids(pid) AS blocking_pids
                       FROM pg_stat_activity WHERE pid = :pid
                 """), {"pid": blocked_pid}).one_or_none()
-                if state and state.wait_event_type == "Lock" and state.blocking_pids:
-                    seen = set(state.blocking_pids)
-                    frontier = list(state.blocking_pids)
+                lock_rows = observer.execute(text("""
+                    SELECT l.locktype, l.mode, l.granted, l.page, l.tuple,
+                           l.transactionid, n.nspname, c.relname
+                      FROM pg_locks AS l
+                      LEFT JOIN pg_class AS c ON c.oid = l.relation
+                      LEFT JOIN pg_namespace AS n ON n.oid = c.relnamespace
+                     WHERE l.pid = :pid
+                """), {"pid": blocked_pid}).mappings().all()
+                if state:
+                    model_row_share = any(
+                        row["granted"] and row["locktype"] == "relation"
+                        and row["nspname"] == "public" and row["relname"] == "models"
+                        and row["mode"] == "RowShareLock"
+                        for row in lock_rows
+                    )
+                    waiting_transaction = any(
+                        not row["granted"] and row["locktype"] in {"transactionid", "tuple"}
+                        for row in lock_rows
+                    )
+                    waiting_advisory = any(
+                        not row["granted"] and row["locktype"] == "advisory"
+                        for row in lock_rows
+                    )
+                    seen = set(state.blocking_pids or ())
+                    frontier = list(seen)
                     while frontier:
                         parent_pid = frontier.pop()
                         blockers = observer.execute(text("SELECT pg_blocking_pids(:pid)"), {"pid": parent_pid}).scalar_one()
@@ -511,14 +546,36 @@ def test_pg_paid_operations_concurrent_factories_serialize_same_family_and_prove
                             if blocker not in seen:
                                 seen.add(blocker)
                                 frontier.append(blocker)
-                    query = state.query.lower()
-                    is_expected_lock = (
-                        ("models" in query and "for update" in query)
-                        or "pg_advisory_xact_lock" in query
+                    expected_lock = (
+                        (model_row_share and waiting_transaction)
+                        or waiting_advisory
                     )
-                    if holder_pid in seen and is_expected_lock:
-                        lock_witnesses.add(blocked_pid)
-            if lock_witnesses == blocked_pids or all(worker.done() for worker in workers):
+                    wait_diagnostics[blocked_pid] = {
+                        "wait_event_type": state.wait_event_type,
+                        "wait_event": state.wait_event,
+                        "query_length": state.query_length,
+                        "query_size_limit": state.query_size_limit,
+                        "query_has_for_update": "for update" in (state.query or "").lower(),
+                        "snapshot_refreshes": snapshot_refreshes,
+                        "query_prefix": (state.query or "")[:100],
+                        "model_row_share": model_row_share,
+                        "waiting_transaction": waiting_transaction,
+                        "waiting_advisory": waiting_advisory,
+                        "non_granted_locks": [
+                            {"locktype": row["locktype"], "mode": row["mode"],
+                             "relation": f"{row['nspname']}.{row['relname']}" if row["relname"] else None,
+                             "page": row["page"], "tuple": row["tuple"],
+                             "transactionid": str(row["transactionid"]) if row["transactionid"] else None}
+                            for row in lock_rows if not row["granted"]
+                        ][:8],
+                        "blocking_chain": [
+                            holder_pid,
+                            *sorted(pid for pid in seen if pid != holder_pid)[:15],
+                        ],
+                    }
+                    if state.wait_event_type == "Lock" and holder_pid in seen and expected_lock:
+                        lock_witnesses[blocked_pid] = wait_diagnostics[blocked_pid]
+            if set(lock_witnesses) == blocked_pids or all(worker.done() for worker in workers):
                 break
             sleep(0.02)
     finally:
@@ -530,8 +587,22 @@ def test_pg_paid_operations_concurrent_factories_serialize_same_family_and_prove
         # Surface worker errors (for example a rejected enum request) before
         # reporting the more general absence of a lock-chain witness.
         worker.result(timeout=15)
-    assert lock_witnesses == blocked_pids, (
-        "every worker must show a PostgreSQL Model row/advisory lock wait whose blocker chain reaches the holder"
+    record_property(
+        "paid_operations_postgres_lock_witnesses",
+        json.dumps(
+            {
+                "holder_pid": holder_pid,
+                "worker_pids": sorted(blocked_pids),
+                "snapshot_refreshes": snapshot_refreshes,
+                "witnesses": lock_witnesses,
+            },
+            sort_keys=True,
+        ),
+    )
+    assert set(lock_witnesses) == blocked_pids, (
+        "each worker needs a live PG lock wait witnessed by catalog/advisory locks and a blocker chain to the holder; "
+        f"pids={sorted(blocked_pids)}, witnesses={lock_witnesses}, "
+        f"snapshot_refreshes={snapshot_refreshes}, latest={wait_diagnostics}"
     )
     for model_id in ids:
         rows = _stored(sessions, model_id)["paid_operations"]
