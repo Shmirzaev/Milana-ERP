@@ -32,7 +32,7 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 182)
+        self.assertEqual(sum(counts.values()), 186)
 
     def test_skipped_failed_and_error_evidence_are_rejected(self):
         for tag in ('skipped', 'failure', 'error'):
@@ -330,6 +330,38 @@ class RequiredPGGateTests(unittest.TestCase):
             with patch.dict(os.environ, {'GITHUB_ACTIONS': 'true'}, clear=True), self.assertRaises(ValueError):
                 gate.configure_ci(identity, env)
             self.assertFalse(env.exists())
+
+    def test_shipment_reopen_source_pin_and_every_required_case_are_frozen(self):
+        module = 'test_shipment_reopen_invoice_postgres'
+        manifest = json.loads(
+            (Path(gate.__file__).with_name('refactor_pg_required_cases.json'))
+            .read_text(encoding='utf-8')
+        )
+        expected = (
+            'test_pg_shipment_reopen_finance_participant_same_session_and_no_early_commit',
+            'test_pg_shipment_reopen_preflights_every_invoice_before_any_finance_write',
+            'test_pg_shipment_reopen_audit_failure_rolls_back_and_retry_commits_all',
+            'test_pg_invoice_payment_and_shipment_reopen_serialize_on_invoice_row',
+        )
+        source = manifest['sources'][module]
+        self.assertEqual(source['revision'], 'bb00ca3921404fe8482f774752ee0d05db45c180')
+        self.assertEqual(
+            source['git_blob_sha256'],
+            'e03a4da9b9da696ede2f908fa9a5b1f6d95fdad17fd77c310167c2950cd24f97',
+        )
+        self.assertEqual(tuple(source['selected_functions']), expected)
+        self.assertEqual(tuple(manifest['cases'][module]), expected)
+        self.assertEqual(gate.GROUPS[module], (4, expected))
+
+        tree = self.report()
+        replacement = next(
+            case for case in tree.iter('testcase')
+            if case.get('classname') == f'app.tests.{module}'
+        )
+        replacement.set('name', 'unrelated_replacement_case')
+        with self.assertRaisesRegex(ValueError, 'case identities missing|required PG function missing'):
+            gate.check_report(self.write_report(tree))
+
 
 
 if __name__ == '__main__':
