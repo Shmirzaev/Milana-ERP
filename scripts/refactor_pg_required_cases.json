@@ -196,6 +196,16 @@
         "test_pg_payment_commit_after_guards_before_delete_flush",
         "test_pg_delete_flush_blocks_payment_until_commit"
       ]
+    },
+    "test_direct_finished_goods_reserve_postgres": {
+      "revision": "3aa8b6f277f63ddd85c8deb55e405aa8ab6b8975",
+      "git_blob_sha256": "3bc3831a9f9ef1c242a5c2b3289d280504b6c8646a1a3d01a16bd9d1f8174a74",
+      "selected_functions": [
+        "test_pg_direct_reserve_manual_package_persists_rows_and_audit",
+        "test_pg_direct_reserve_denied_actor_makes_no_business_writes",
+        "test_pg_direct_reserve_competing_piece_requests_do_not_oversell",
+        "test_pg_direct_reserve_failure_rolls_back_then_retry"
+      ]
     }
   },
   "cases": {
@@ -382,6 +392,14 @@
     "test_customer_delete_reference_race_postgres": [
       "test_pg_payment_commit_after_guards_before_delete_flush",
       "test_pg_delete_flush_blocks_payment_until_commit"
+    ],
+    "test_direct_finished_goods_reserve_postgres": [
+      "test_pg_direct_reserve_manual_package_persists_rows_and_audit",
+      "test_pg_direct_reserve_denied_actor_makes_no_business_writes",
+      "test_pg_direct_reserve_competing_piece_requests_do_not_oversell",
+      "test_pg_direct_reserve_failure_rolls_back_then_retry[audit_enqueue]",
+      "test_pg_direct_reserve_failure_rolls_back_then_retry[audit_finalize]",
+      "test_pg_direct_reserve_failure_rolls_back_then_retry[before_commit]"
     ]
   },
   "isolated_supplemental_cases": [
