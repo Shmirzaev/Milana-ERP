@@ -30,6 +30,13 @@ service to its schema writer. Its `image_type` field uses the multipart
 action's `ModelImageUploadType` subset and its primary flag is an explicit
 service decision; this does not canonicalize all historical ModelImage rows.
 
+`inventory.py` now carries the used `AccessoryIssueCommand` and
+`AccessoryIssueLineCommand` from the Inventory service into its issue staging
+operation, plus `StockConsumptionCommand` from the shared workflow consumer to
+the schema-owned batch/movement writer. The movement kind is the existing
+`StockMovementType`; item units, labels and polymorphic reference strings remain
+free-form/configurable storage values.
+
 ## Purpose
 
 Describe data passed between internal operations when its shape differs from an

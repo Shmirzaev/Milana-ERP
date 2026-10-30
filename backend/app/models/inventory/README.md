@@ -31,7 +31,7 @@ This directory is the group's service package. Each module owns one responsibili
 
 | File | Responsibility | Owns |
 | --- | --- | --- |
-| [stock_service.py](stock_service.py) | Items, warehouses, stock view, stock adjustment, receipts, accessory issue/return, batch edits, archive/restore, batch list. | commits user-facing writes; public `record_purchase_order_stock_receipt` is a same-Session participant for Purchasing; batch row locks (`_locked_stock_batch_statement`, `_locked_active_batch_reservations_statement`); QC normalisation; image-URL policy; force-override refusal; materials-only scope. |
+| [stock_service.py](stock_service.py) | Items, warehouses, stock view, stock adjustment, receipts, accessory issue/return, batch edits, archive/restore, batch list. | commits user-facing writes; accessory issue owns one supplied-Session operation and calls schema-owned manual/stock-consumption writers; public `record_purchase_order_stock_receipt` is a same-Session participant for Purchasing; batch row locks (`_locked_stock_batch_statement`, `_locked_active_batch_reservations_statement`); QC normalisation; image-URL policy; force-override refusal; materials-only scope. |
 | [reservations_service.py](reservations_service.py) | Reserve, auto-reserve, release and consume material reservations, and the reservation plan. | commit for every write; idempotency scope `inventory.reservations.create`; failure audit for refused creates. |
 | [transfers_service.py](transfers_service.py) | Material transfers between warehouses and the Eco Cotton fabric register (scan/send/return/report/PDF). | commit for every write; batch-before-item lock order; `inventory.transfer` idempotency scope; Eco ownership and outstanding-roll refusals. |
 | [fabric_scans_service.py](fabric_scans_service.py) | Daily fabric scan register plus the shared roll-code parser `parse_roll` and the Tashkent business date. | Owns the authorization/validation and duplicate-query order, immutable roll snapshot, duplicate replay and one commit; it uses the schema-owned scan insert with the same Session. |
@@ -46,7 +46,7 @@ those reads use.
 
 Supporting services that stay the single source for their concern:
 [inventory_service.py](../inventory_service.py) (availability, reservations,
-accessory issue), [inventory_access_service.py](../inventory_access_service.py)
+accessory planning and the Sewing gate), [inventory_access_service.py](../inventory_access_service.py)
 (materials-only scope), [inventory_reports_service.py](../inventory_reports_service.py)
 (material reports), [material_rolls_service.py](../material_rolls_service.py) (roll
 normalisation), [eco_transfer_pdf_service.py](../eco_transfer_pdf_service.py) (Eco PDF).
@@ -79,6 +79,22 @@ normalisation), [eco_transfer_pdf_service.py](../eco_transfer_pdf_service.py) (E
   normalized command. It stages Inventory's batch/movement pair in Purchasing's
   transaction; it does not duplicate Inventory's endpoint authorization, replay,
   audit or commit behavior.
+- `POST /api/inventory/accessory-issues` is coordinated by
+  `stock_service.issue_accessories`. It owns the outer commit and audit call,
+  returns `AccessoryIssueOut`, and stages manual rows through
+  `schemas/inventory/accessory_issue_persistence.py`. The shared workflow
+  `consume_item_from_batches` preserves its FIFO row selection/locking and
+  availability recheck while delegating each batch decrement plus `consume`
+  movement to `schemas/inventory/stock_movement_persistence.py`. The existing
+  Production schema setter continues to own Sewing gate mapped-field updates.
+  This is source extraction evidence only; approved PostgreSQL, visual UI,
+  persisted readback, stress and human acceptance gates remain pending.
+  The issue path has no idempotency key/record or ProductionOrder lock, and each
+  duplicate item line is checked against the pre-loop plan snapshot; no replay,
+  cumulative-limit or new-lock policy is implied by this extraction. The
+  inventory main page currently sends `manual: true` for extra rows even when
+  an Item is selected, while the receive page sends planned stock-backed rows;
+  preserve this existing distinction pending owner/business review.
 - The daily fabric scan operation delegates its one register-row insert to
   `schemas/inventory/fabric_scan_persistence.py`. It never writes stock or
   movements. Its typed request/result/report use the fixed direction and

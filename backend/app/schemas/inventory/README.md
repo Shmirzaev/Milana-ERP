@@ -73,3 +73,12 @@ operation maps a validated, server-built snapshot command into one `FabricScan`
 row and attaches it to the supplied Session. It does not flush, commit, roll
 back, query Inventory or create movements. The scan service retains duplicate
 lookup, commit, and `IntegrityError` rollback/requery ownership.
+
+Accessory issue's `accessory_issue_persistence.add_manual_accessory_issue`
+stages the normalized `ManualAccessoryIssue` row on the caller's Session without
+a flush or commit. `stock_movement_persistence.record_stock_consumption` applies
+one service-calculated batch quantity decrement and its canonical
+`StockMovementType.CONSUME` ledger row, also without flushing. The shared
+workflow service still owns FIFO selection, row locking, stock/unit checks and
+material archive policy; the Inventory issue service owns the outer operation.
+The existing Production schema setter owns the related Sewing block field.

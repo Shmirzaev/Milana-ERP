@@ -34,8 +34,11 @@ from app.schemas import (
 from app.models.audit_service import log_action
 from app.models.numbering_service import next_invoice_no
 from app.libs.enums.finance import InvoiceStatus
+from app.libs.enums.inventory import StockMovementType
 from app.libs.enums.production import WorkOrderStatus
 from app.models.passport_nastil_service import has_pending_passport_batches
+from app.libs.types.inventory import StockConsumptionCommand
+from app.schemas.inventory import stock_movement_persistence
 
 WORKFLOW_SEQUENCE = ["cutting", "printing", "sewing", "packaging", "storage_transfer"]
 _OP_INDEX = {op: idx for idx, op in enumerate(WORKFLOW_SEQUENCE)}
@@ -613,20 +616,20 @@ def consume_item_from_batches(
     for b, take in planned_batches:
         if left <= 0:
             break
-        b.quantity = float(b.quantity or 0) - take
-        db.add(
-            StockMovement(
-                movement_type="consume",
+        stock_movement_persistence.record_stock_consumption(
+            db,
+            batch=b,
+            command=StockConsumptionCommand(
+                movement_type=StockMovementType.CONSUME,
                 item_id=item_id,
-                batch_id=b.id,
+                batch_id=int(b.id),
                 from_warehouse_id=b.warehouse_id,
-                to_warehouse_id=None,
                 quantity=take,
                 unit=effective_unit,
                 reference_type=reference_type,
                 reference_id=reference_id,
-                created_by=user_id,
-            )
+                actor_id=user_id,
+            ),
         )
         archive_depleted_material_batch(db, b, user_id=user_id, item_cache=item_cache)
         consumed += take
@@ -634,19 +637,20 @@ def consume_item_from_batches(
 
     if consumed <= 0:
         # Keep movement ledger complete even when no batch rows are available.
-        db.add(
-            StockMovement(
-                movement_type="consume",
+        stock_movement_persistence.record_stock_consumption(
+            db,
+            batch=None,
+            command=StockConsumptionCommand(
+                movement_type=StockMovementType.CONSUME,
                 item_id=item_id,
                 batch_id=None,
                 from_warehouse_id=None,
-                to_warehouse_id=None,
                 quantity=quantity,
                 unit=effective_unit,
                 reference_type=reference_type,
                 reference_id=reference_id,
-                created_by=user_id,
-            )
+                actor_id=user_id,
+            ),
         )
         consumed = quantity
     return consumed

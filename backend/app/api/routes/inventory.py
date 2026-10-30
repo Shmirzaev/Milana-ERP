@@ -341,7 +341,7 @@ def issue_accessories(
     payload: AccessoryIssueIn,
     db: DbSession,
     current: User = Depends(require_permissions("storage.transfer", "*")),
-):
+) -> AccessoryIssueOut:
     return stock_service.issue_accessories(db, payload, current)
 
 

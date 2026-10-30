@@ -5,6 +5,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.libs.enums.inventory import StockBatchQcStatus, StockMovementType
+from app.libs.types.inventory import StockConsumptionCommand
 from app.schemas.inventory.inventory import StockBatch, StockMovement
 
 
@@ -108,4 +109,34 @@ def insert_stock_movement(
     )
     db.add(movement)
     db.flush()
+    return movement
+
+
+def record_stock_consumption(
+    db: Session,
+    *,
+    batch: StockBatch | None,
+    command: StockConsumptionCommand,
+) -> StockMovement:
+    """Apply one service-calculated consumption and append its ledger row.
+
+    The caller owns batch selection/locking, availability checks, FIFO order,
+    archive policy and the outer transaction. This writer does not flush.
+    """
+    if batch is not None:
+        batch.quantity = float(batch.quantity or 0) - command.quantity
+
+    movement = StockMovement(
+        movement_type=command.movement_type.value,
+        item_id=command.item_id,
+        batch_id=command.batch_id,
+        from_warehouse_id=command.from_warehouse_id,
+        to_warehouse_id=None,
+        quantity=command.quantity,
+        unit=command.unit,
+        reference_type=command.reference_type,
+        reference_id=command.reference_id,
+        created_by=command.actor_id,
+    )
+    db.add(movement)
     return movement
