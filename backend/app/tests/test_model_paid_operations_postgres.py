@@ -568,10 +568,10 @@ def test_pg_paid_operations_concurrent_factories_serialize_same_family_and_prove
                              "transactionid": str(row["transactionid"]) if row["transactionid"] else None}
                             for row in lock_rows if not row["granted"]
                         ][:8],
-                        "blocking_chain": [
-                            holder_pid,
-                            *sorted(pid for pid in seen if pid != holder_pid)[:15],
-                        ],
+                        "blocking_chain": (
+                            ([holder_pid] if holder_pid in seen else [])
+                            + sorted(seen - {holder_pid})[:15]
+                        ),
                     }
                     if state.wait_event_type == "Lock" and holder_pid in seen and expected_lock:
                         lock_witnesses[blocked_pid] = wait_diagnostics[blocked_pid]

@@ -38,8 +38,27 @@ slice adds canonical adjustment and factory types while preserving stored values
 query binding, constraints, scope/lock order and the separate reversal writer.
 Six approved receipt cases and two approved payroll race/rollback wrappers are
 added to the existing 191-case gate: 182 primary plus 17 supplemental cases.
-Combined execution is pending at this source freeze. The original operation
-branches, failed local runs and exact-source receipts remain preserved.
+PR349 froze this successor at `f35eb109`; exact-head backend/frontend CI and all
+199 required PG cases passed. Actual Computer/readback and postvisual acceptance
+remain pending. The original operation branches, failed local runs and exact-source
+receipts remain preserved.
+
+The current isolated verification branch combines four frozen candidates:
+
+| Candidate | Frozen source | Component evidence | Remaining gates |
+| --- | --- | --- | --- |
+| PR349 | `f35eb109` | Backend/frontend CI and 199 required PG cases passed | Computer, persisted readback, postvisual and combined acceptance |
+| PR350 | `703e0130` | Shipment-reopen Finance invoice participant; backend/frontend CI and 169 required PG cases passed | Computer, persisted readback, postvisual and combined acceptance |
+| PR351 | `bcafc730` | Typed standard/Usluga model paid-operation PATCH and schema-owned JSON persistence; backend/frontend CI and 175 exact PG cases passed, including recorded two-worker lock evidence | Computer, persisted readback, historical mapped/read contracts and combined acceptance |
+| PR352 | `b9e75544` | Direct manual/piece finished-goods reserve extraction and typed outputs; source review, 21 stdlib guards and 171 exact PG cases passed, including both observed package-lock waits | Full current CI, API-explorer/adjacent-page visual assessment, readback and combined acceptance |
+
+Component case totals overlap. Their combined registry preserves the union of
+202 primary and 17 supplemental identities: **219 required cases**, not the sum
+of the component totals. No combined runtime pass is claimed yet. The only
+application merge conflict was resolved by retaining both Catalog persistence
+imports; CI conflicts retain both parents' cases, pins and guard methods. A
+diagnostic-only correction prevents reporting an unobserved blocker PID.
+The shared integration branch is unchanged by this isolated preparation.
 
 The integrator owns shared files and serializes landing. Existing operation/type
 gaps, actual browser/readback, bounded recovery/cleanup and independent combined
@@ -48,10 +67,10 @@ are unchanged.
 
 | Remaining scope | Current next work / evidence required |
 | --- | --- |
-| Catalog | Collection canonical/public legacy status gap; paid-process, model/counter, BOM and image operations |
+| Catalog | PR351 typed paid-operation update verification; Collection/public historical status and stored JSON/mapped/read gaps; model/counter, BOM and image operations |
 | Purchasing | Remaining costing/type consumers, approval/rejection, conversion, orders and receiving |
 | Inventory | Batch-edit candidate verification; receiving/receipt types, transfers, reservations, stocktake, accessory returns and waste handoffs |
-| Sales | Create/update, cancellation/release and Fulfillment public operation/lock boundary |
+| Sales | Existing typed ready-stock participants retained; direct Fulfillment reserve candidate, release/metadata-repair boundary and broader create/update/cancellation consumers |
 | Planning | Broader order creation, alternate Production writer, requirements and costing contracts |
 | Finance | Remaining payment consumers/types; invoice issuance/void/reopen, advances and ledger/shipment writers |
 | Production | Shared Sewing and stage transitions, correction paths and route/private-helper reach-through |
