@@ -451,7 +451,7 @@ def test_paid_record_reversal_posts_one_audited_deduction_to_open_period(client,
     assert body["source_payroll_record_id"] == created.json()["id"]
     assert body["payroll_period_id"] == target_period["id"]
     assert body["employee_id"] == employee["id"]
-    assert body["factory_code"] == "MIL"
+    assert body["factory_code"] == employee["factory_code"]
     assert client.delete(f"/api/payroll/adjustments/{body['id']}", headers=auth_headers).status_code == 409
     assert body["adjustment_type"] == "deduction"
     assert float(body["amount"]) == 2500

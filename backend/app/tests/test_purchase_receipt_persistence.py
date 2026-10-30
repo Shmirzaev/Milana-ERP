@@ -102,8 +102,8 @@ def test_purchase_receipt_uses_public_inventory_and_purchasing_writers_same_sess
         return original_header(order, **kwargs)
 
     monkeypatch.setattr(inventory_stock, "record_purchase_order_stock_receipt", inventory_writer)
-    monkeypatch.setattr(purchase_order_persistence, "apply_purchase_order_line_receipt", line_writer)
-    monkeypatch.setattr(purchase_order_persistence, "apply_purchase_order_receipt_status", header_writer)
+    monkeypatch.setattr(purchasing_service, "apply_purchase_order_line_receipt", line_writer)
+    monkeypatch.setattr(purchasing_service, "apply_purchase_order_receipt_status", header_writer)
     try:
         actor = db.query(User).filter_by(email="admin@example.com").one()
         order = purchasing_service.receive_purchase_order(

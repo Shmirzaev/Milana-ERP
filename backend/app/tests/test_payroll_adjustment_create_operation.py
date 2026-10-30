@@ -17,16 +17,55 @@ from app.tests.conftest import TestSessionLocal
 @pytest.mark.parametrize(
     ("fields", "expected"),
     [
-        ({}, PayrollAdjustmentType.BONUS),
-        ({"adjustment_type": None}, PayrollAdjustmentType.BONUS),
-        ({"adjustment_type": "   "}, PayrollAdjustmentType.BONUS),
+        ({}, None),
+        ({"adjustment_type": None}, None),
+        ({"adjustment_type": "   "}, None),
+        ({"adjustment_type": "  BoNuS  "}, PayrollAdjustmentType.BONUS),
         ({"adjustment_type": "  DeDuCtIoN  "}, PayrollAdjustmentType.DEDUCTION),
     ],
 )
-def test_manual_adjustment_dto_normalizes_legacy_type_inputs_to_enum(fields, expected):
+def test_manual_adjustment_dto_preserves_inference_and_normalizes_explicit_types(fields, expected):
     payload = PayrollAdjustmentIn(employee_id=1, amount="1.00", reason="Normalize type", **fields)
 
     assert payload.adjustment_type is expected
+
+
+@pytest.mark.parametrize("fields", [{}, {"adjustment_type": None}, {"adjustment_type": "   "}])
+@pytest.mark.parametrize(
+    ("amount", "expected_type", "signed_amount"),
+    [("12.30", PayrollAdjustmentType.BONUS, Decimal("12.30")),
+     ("-12.30", PayrollAdjustmentType.DEDUCTION, Decimal("-12.30"))],
+)
+def test_manual_adjustment_api_infers_type_from_sign_and_persists(
+    client, auth_headers, fields, amount, expected_type, signed_amount,
+):
+    employee = client.post(
+        "/api/employees",
+        json={"full_name": f"Inference Worker {uuid4().hex[:8]}", "position": "Operator", "status": "active"},
+        headers=auth_headers,
+    )
+    assert employee.status_code == 201, employee.text
+    reason = f"Sign inference {uuid4().hex}"
+    response = client.post(
+        "/api/payroll/adjustments",
+        json={"employee_id": employee.json()["id"], "amount": amount, "reason": reason, **fields},
+        headers=auth_headers,
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["adjustment_type"] == expected_type.value
+    assert Decimal(str(body["amount"])) == Decimal("12.30")
+    assert Decimal(str(body["signed_amount"])) == signed_amount
+    assert body["factory_code"] == employee.json()["factory_code"]
+    with TestSessionLocal() as db:
+        row = db.get(PayrollAdjustment, body["id"])
+        assert row.adjustment_type is expected_type
+        assert row.amount == Decimal("12.30")
+        assert row.signed_amount == signed_amount
+        assert row.reason == reason
+        assert db.query(AuditLog).filter_by(
+            entity_type="PayrollAdjustment", entity_id=row.id, action="create",
+        ).count() == 1
 
 
 def test_payroll_adjustment_type_mapping_keeps_existing_string_storage_and_check():
