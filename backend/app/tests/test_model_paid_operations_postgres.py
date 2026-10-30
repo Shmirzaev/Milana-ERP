@@ -79,7 +79,6 @@ def _family(sessions, marker, *, legacy=False):
                 details_json={"general": {"model_no": model_no, "variant_no": "1"}},
             ),
         ]
-        db.add_all(members)
         if legacy:
             members.append(Model(
                 code=f"{model_no}-LEGACY",
@@ -87,6 +86,7 @@ def _family(sessions, marker, *, legacy=False):
                 details_json={"general": {"model_no": model_no}, "legacy_import": True,
                               "paid_operations": [{"id": "legacy", "section": "historic"}]},
             ))
+        db.add_all(members)
         db.flush()
         return [row.id for row in members]
 
@@ -339,7 +339,10 @@ def test_pg_usluga_paid_operation_routes_apply_eco_factory_and_typed_sections(cu
         "sewing", "cutting", "packaging", "cleaning", "pressing", "control", "storage",
         "tikuv", "transfer", "snaps", "buttons", "cord", "sorting",
     }
-    assert {row["sewingFactory"] for row in saved["paid_operations"]} == {"eco_cotton"}
+    if writer == "dedicated":
+        assert {row["sewingFactory"] for row in saved["paid_operations"]} == {"eco_cotton"}
+    else:
+        assert all("sewingFactory" not in row for row in saved["paid_operations"])
     assert all(row["extra"] == {"keep": True} for row in saved["paid_operations"])
     assert len(_audits(sessions, [model_id])) == 1
     chain(sessions)
@@ -466,7 +469,7 @@ def test_pg_paid_operations_concurrent_factories_serialize_same_family_and_prove
             if start_barrier:
                 start_barrier.wait(timeout=8)
             body = ModelPaidOperationsIn.model_validate({
-                "sewing_factory": factory,
+                "sewing_factory": {"MIL": "milana", "BST": "besttex"}[factory],
                 "paid_operations": [
                     {"id": f"{marker}-a", "section": "sewing", "rate": "10", "extension": {"factory": factory}},
                     {"id": f"{marker}-b", "section": "cutting", "rate": "20", "extension": {"factory": factory}},
@@ -523,11 +526,13 @@ def test_pg_paid_operations_concurrent_factories_serialize_same_family_and_prove
         holder.close()
         observer.close()
         pool.shutdown(wait=True, cancel_futures=True)
+    for worker in workers:
+        # Surface worker errors (for example a rejected enum request) before
+        # reporting the more general absence of a lock-chain witness.
+        worker.result(timeout=15)
     assert lock_witnesses == blocked_pids, (
         "every worker must show a PostgreSQL Model row/advisory lock wait whose blocker chain reaches the holder"
     )
-    for worker in workers:
-        worker.result(timeout=15)
     for model_id in ids:
         rows = _stored(sessions, model_id)["paid_operations"]
         by_factory = {row.get("sewingFactory"): row for row in rows}
