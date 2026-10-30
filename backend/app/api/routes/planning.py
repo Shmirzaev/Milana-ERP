@@ -8,7 +8,11 @@ from app.libs.dto.planning.branded_planning_order_input import (
 )
 from app.libs.dto.planning.material_requirement_output import MaterialRequirement
 from app.libs.dto.planning.branded_planning_order_output import BrandedPlanningOrderOut
-from app.libs.dto.production.production import ProductionOrderIn, ProductionOrderOut
+from app.libs.dto.production.production import (
+    BrandedStockProductionOrderCreateOut,
+    ClientOrderProductionOrderCreateOut,
+    ProductionOrderIn,
+)
 from app.libs.enums.planning import BrandedPlanningOrderStatus
 from app.models.planning import branded_orders_service, production_planning_service
 from app.models.planning_service import material_requirements_for_sales_order
@@ -69,11 +73,11 @@ def get_material_requirements(
     return [MaterialRequirement(**r) for r in rows]
 
 
-@router.post("/create-production-order", response_model=ProductionOrderOut, status_code=201)
+@router.post("/create-production-order", response_model=ClientOrderProductionOrderCreateOut, status_code=201)
 def create_for_client_order(payload: ProductionOrderIn, db: DbSession, current: User = Depends(require_permissions("planning.production", "*"))):
     return production_planning_service.create_client_order_production(db, payload, current)
 
 
-@router.post("/create-branded-production", response_model=ProductionOrderOut, status_code=201)
+@router.post("/create-branded-production", response_model=BrandedStockProductionOrderCreateOut, status_code=201)
 def create_for_branded(payload: ProductionOrderIn, db: DbSession, current: User = Depends(require_permissions("planning.production", "*"))):
     return production_planning_service.create_branded_stock_production(db, payload, current)

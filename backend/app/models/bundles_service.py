@@ -222,6 +222,7 @@ def _assign_work_order_department(
     fallback_code: str,
     receipt_context: SewingReceiptContext | None = None,
 ) -> str:
+    from app.schemas.production.sewing_output_persistence import set_work_order_department
     target = _dept(db, department_code, receipt_context) or _dept(db, fallback_code, receipt_context)
     if not target:
         return fallback_code
@@ -229,7 +230,7 @@ def _assign_work_order_department(
         db, production_order_id, production_batch_id, operation, receipt_context
     ):
         if wo.department_id != target.id:
-            wo.department_id = target.id
+            set_work_order_department(wo, target.id)
     return target.code
 
 

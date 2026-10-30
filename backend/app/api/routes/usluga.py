@@ -12,6 +12,8 @@ from sqlalchemy.orm import selectinload
 from app.core.deps import DbSession, require_permissions
 from app.libs.dto.catalog.model_bom_output import ModelBOMCreateOut
 from app.libs.enums.catalog import CatalogScope
+from app.libs.enums.production import ProductionSourceType, ProductionType
+from app.libs.dto.production.production import ProductionOrderItemIn
 from app.schemas import (
     Bundle,
     CuttingRecord,
@@ -713,19 +715,19 @@ def create_usluga_order(
         raise HTTPException(404, "Usluga model not found")
     plan_lines = _normalized_plan_lines(payload, model)
     items = [
-        {
-            "model_id": model.id,
-            "color": row.color,
-            "size": row.size,
-            "planned_quantity": row.quantity,
-            "printing_required": False,
-        }
+        ProductionOrderItemIn(
+            model_id=model.id,
+            color=row.color,
+            size=row.size,
+            planned_quantity=row.quantity,
+            printing_required=False,
+        )
         for row in plan_lines
     ]
     order = create_production_order(
         db,
-        production_type="service_order",
-        source_type="usluga",
+        production_type=ProductionType.SERVICE_ORDER,
+        source_type=ProductionSourceType.USLUGA,
         model_id=model.id,
         planned_quantity=sum(row.quantity for row in plan_lines),
         deadline=payload.deadline,

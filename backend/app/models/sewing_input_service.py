@@ -3,6 +3,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.schemas import Bundle, SewingRecord, WorkOrder
+from app.schemas.production.sewing_output_persistence import set_work_order_actual_input
 
 
 def sync_sewing_input(db: Session, wo: WorkOrder) -> None:
@@ -25,5 +26,8 @@ def sync_sewing_input(db: Session, wo: WorkOrder) -> None:
     received = dict(received_query.group_by(Bundle.production_batch_id).all())
     # A shared work order can contain several Nastils. Receipt for Nastil 1
     # must not hide separately recorded input for Nastil 2.
-    wo.actual_input_qty = sum(max(int(recorded.get(batch_id) or 0), int(received.get(batch_id) or 0))
-        for batch_id in recorded.keys() | received.keys())
+    set_work_order_actual_input(
+        wo,
+        sum(max(int(recorded.get(batch_id) or 0), int(received.get(batch_id) or 0))
+            for batch_id in recorded.keys() | received.keys()),
+    )

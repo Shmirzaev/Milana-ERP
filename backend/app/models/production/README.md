@@ -17,7 +17,7 @@ records verification and pending human/release acceptance.
 Business-service group guide, relocated into models/ on 24 October 2026. This
 directory contains the released Besttex read-only compatibility service below;
 other existing implementations remain the *_service.py files linked below.
-The proposed files describe later approved operation extractions.
+The dated operation sections distinguish extracted candidates from later proposals.
 
 ## Besttex read-only compatibility operation
 
@@ -85,6 +85,8 @@ Database definitions have moved to schemas/; business operations use
 operation is extracted and all callers are updated.
 
 **First operation to study:** Pilot record_sewing_output: trace production.post_sewing, the band caller, corrections, receipts, locks, audit and idempotency. Preserve existing production_service.py operations and schemas/production/production.py mappings during later extraction.
+
+**Implementation candidate (2026-10-30):** the isolated `codex/refactor-sewing-output-20261030` worktree now contains the shared factory/band `record_sewing_output` operation and same-Session schema-owned participants for Sewing records/counters, WorkOrder/ProductionOrder transitions, defect WasteRecord insertion, and existing workflow side effects. Both write routes delegate to the operation; corrections, receipts, assignment planning and package/finished-goods creation remain separate commands. The canonical `WorkOrderStatus` covers the existing 11-value ORM constraint while the mapped column remains `String`/`Mapped[str]`. This is source work only: approved PostgreSQL cases have not run locally, and owner/business/reviewer, legacy-data, browser and full CI acceptance remain open. See [the implementation evidence packet](../../../../docs/PRD_SHARED_SEWING_OUTPUT_IMPLEMENTATION_20261030.md).
 
 ### RF-001 Sewing output seam: proposal for Mirshoir
 

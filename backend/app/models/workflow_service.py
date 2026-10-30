@@ -8,6 +8,10 @@ from sqlalchemy.orm import Session, lazyload
 
 from app.schemas.core_persistence import add_notification_row
 from app.schemas.inventory import stock_movement_persistence
+from app.schemas.inventory.waste_persistence import insert_waste_record
+from app.schemas.production.sewing_output_persistence import (
+    set_production_order_status, set_work_order_transition,
+)
 
 from app.schemas import (
     Department,
@@ -30,11 +34,15 @@ from app.schemas import (
 from app.models.audit_service import log_action
 from app.models.numbering_service import next_invoice_no
 from app.libs.enums.finance import InvoiceStatus
+from app.libs.enums.production import WorkOrderStatus
 from app.models.passport_nastil_service import has_pending_passport_batches
 
 WORKFLOW_SEQUENCE = ["cutting", "printing", "sewing", "packaging", "storage_transfer"]
 _OP_INDEX = {op: idx for idx, op in enumerate(WORKFLOW_SEQUENCE)}
-_STARTED_WORK_ORDER_STATUSES = {"in_progress", "pending", "collected", "ready"}
+_STARTED_WORK_ORDER_STATUSES = {
+    WorkOrderStatus.IN_PROGRESS, WorkOrderStatus.PENDING,
+    WorkOrderStatus.COLLECTED, WorkOrderStatus.READY,
+}
 _MATERIAL_BATCH_CATEGORIES = {"fabric", "semi_finished"}
 _STOCK_EPSILON = 1e-9
 
@@ -99,16 +107,17 @@ def _next_existing_operation(operation: str, by_op: dict[str, WorkOrder]) -> str
 
 
 def _start_if_waiting(wo: WorkOrder) -> None:
-    if wo.status in ("new", "planning", "waiting"):
-        wo.status = "in_progress"
-        if not wo.start_time:
-            wo.start_time = datetime.now(timezone.utc)
+    if wo.status in (WorkOrderStatus.NEW, WorkOrderStatus.PLANNING, WorkOrderStatus.WAITING):
+        set_work_order_transition(wo, status=WorkOrderStatus.IN_PROGRESS,
+                                  start_time=wo.start_time or datetime.now(timezone.utc))
 
 
 def _queue_printing_if_waiting(wo: WorkOrder) -> None:
     """Printing starts in a pending queue until master collects it."""
-    if wo.operation == "printing" and wo.status in ("new", "planning", "waiting"):
-        wo.status = "pending"
+    if wo.operation == "printing" and wo.status in (
+        WorkOrderStatus.NEW, WorkOrderStatus.PLANNING, WorkOrderStatus.WAITING,
+    ):
+        set_work_order_transition(wo, status=WorkOrderStatus.PENDING)
 
 
 def _upstream_failed_qty(db: Session, wo: WorkOrder) -> int:
@@ -226,12 +235,10 @@ def _complete_if_done(db: Session, wo: WorkOrder) -> None:
             return
     planned = int(wo.planned_output_qty or 0)
     processed = processed_work_order_qty(db, wo)
-    if planned > 0 and processed >= planned and not pending_sewing and wo.status != "completed":
-        wo.status = "completed"
-        wo.end_time = datetime.now(timezone.utc)
-    elif wo.operation in ("sewing", "packaging") and (processed < planned or pending_sewing) and wo.status == "completed":
-        wo.status = "in_progress"
-        wo.end_time = None
+    if planned > 0 and processed >= planned and not pending_sewing and wo.status != WorkOrderStatus.COMPLETED:
+        set_work_order_transition(wo, status=WorkOrderStatus.COMPLETED, end_time=datetime.now(timezone.utc))
+    elif wo.operation in ("sewing", "packaging") and (processed < planned or pending_sewing) and wo.status == WorkOrderStatus.COMPLETED:
+        set_work_order_transition(wo, status=WorkOrderStatus.IN_PROGRESS, clear_end=True)
 
 
 def _work_order_has_started(wo: WorkOrder) -> bool:
@@ -331,19 +338,23 @@ def sync_production_order_status(
         return
     all_wos = work_orders if work_orders is not None else db.query(WorkOrder).filter(WorkOrder.production_order_id == production_order_id).all()
     if not all_wos:
-        po.status = "planning"
+        set_production_order_status(po, "planning")
         return
 
-    active = [w for w in all_wos if w.status not in ("completed", "rejected", "cancelled")]
+    active = [w for w in all_wos if w.status not in (
+        WorkOrderStatus.COMPLETED, WorkOrderStatus.REJECTED, WorkOrderStatus.CANCELLED,
+    )]
     if not active:
-        po.status = "ready_for_handover" if po.source_type == "usluga" and not po.handed_over_at else "finished_storage"
+        set_production_order_status(
+            po, "ready_for_handover" if po.source_type == "usluga" and not po.handed_over_at else "finished_storage",
+        )
         return
     started = [w for w in active if _work_order_has_started(w)]
     if started:
         current = max(started, key=lambda w: (_OP_INDEX.get(w.operation, -1), w.id))
     else:
         current = min(active, key=lambda w: (_OP_INDEX.get(w.operation, 999), w.id))
-    po.status = current.operation
+    set_production_order_status(po, current.operation)
 
 
 def sync_storage_transfer_work_order(db: Session, production_order_id: int) -> None:
@@ -718,7 +729,8 @@ def create_waste_record(
 ) -> WasteRecord | None:
     if quantity <= 0:
         return None
-    rec = WasteRecord(
+    return insert_waste_record(
+        db,
         production_order_id=production_order_id,
         work_order_id=work_order_id,
         source_department_id=source_department_id,
@@ -728,13 +740,11 @@ def create_waste_record(
         quantity=quantity,
         unit=unit,
         reason=reason,
+        created_by=created_by,
         sellable=False,
         estimated_value=0,
         status="recorded",
-        created_by=created_by,
     )
-    db.add(rec)
-    return rec
 
 
 def decrement_finished_goods_for_package(

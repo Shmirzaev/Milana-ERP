@@ -1,5 +1,4 @@
 from fastapi import Header
-from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -44,14 +43,18 @@ from app.schemas import (
 )
 from app.libs.dto.inventory.material_reservation_output import MaterialReservationOut, MaterialReservationStatusOut
 from app.libs.dto.production.production import (
-    ProductionOrderIn, ProductionOrderUpdateIn, ProductionOrderOut, ProductionOrderDetail, ProductionOrderPageOut,
+    ProductionOrderIn, ProductionOrderUpdateIn, ProductionOrderOut, ProductionOrderDetail,
+    StandardProductionOrderCreateDetail, ProductionOrderPageOut,
     WorkOrderOut, WorkOrderUpdate,
     CuttingMaterialUsageIn, CuttingRecordIn, PrintingRecordIn, SewingRecordIn, PackagingRecordIn,
     QualityCheckIn, QualityCheckOut,
     ProductionOrderSizesIn,
 )
+from app.libs.enums.production import WorkOrderStatus
 from app.core.dt import as_utc
 from app.models.audit_service import log_action
+from app.models.production.sewing_service import record_sewing_output
+from app.models.production.sewing_service import SewingOutputError
 from app.models.packaging_scope_service import (
     normalize_packaging_department_code,
     packaging_department_scope,
@@ -82,10 +85,8 @@ from app.models.bundles_service import (
     resolve_sewing_factory_code,
     sewing_department_code_for_bundle_route,
     sync_textile_departments_for_bundle_route,
-    sync_packaging_department_for_bundle_route,
 )
 from app.models.sewing_scope_service import sewing_line_factory_scope
-from app.models.sewing_input_service import sync_sewing_input
 from app.models.workflow_service import (
     WORKFLOW_SEQUENCE,
     advance_workflow,
@@ -142,9 +143,17 @@ def _require_standard_production_order_update(
 ) -> ProductionOrder:
     return _require_standard_production_order(db, pid)
 
-_ACTIVE_WO_STATUSES = ("waiting", "pending", "collected", "ready", "in_progress", "paused", "new", "planning")
+_ACTIVE_WO_STATUSES = (
+    WorkOrderStatus.WAITING, WorkOrderStatus.PENDING, WorkOrderStatus.COLLECTED,
+    WorkOrderStatus.READY, WorkOrderStatus.IN_PROGRESS, WorkOrderStatus.PAUSED,
+    WorkOrderStatus.NEW, WorkOrderStatus.PLANNING,
+)
+_ACTIVE_WO_STATUS_VALUES = tuple(status.value for status in _ACTIVE_WO_STATUSES)
 _ASSIGNMENT_MANAGED_STATUSES = ("planned", "in_progress", "completed")
-_PRE_CUTTING_EDIT_STATUSES = ("new", "planning", "pending", "waiting", "ready")
+_PRE_CUTTING_EDIT_STATUSES = (
+    WorkOrderStatus.NEW, WorkOrderStatus.PLANNING, WorkOrderStatus.PENDING,
+    WorkOrderStatus.WAITING, WorkOrderStatus.READY,
+)
 _PO_PRE_CUTTING_EDIT_FIELDS = {
     "model_id",
     "sales_order_id",
@@ -494,7 +503,7 @@ def _flow_committed_today(db: DbSession, flow_id: int, now: datetime) -> int:
     ).join(
         WorkOrder, WorkOrder.id == SewingAssignment.work_order_id,
     ).filter(
-        WorkOrder.status.in_(_ACTIVE_WO_STATUSES),
+        WorkOrder.status.in_(_ACTIVE_WO_STATUS_VALUES),
     ).all()
     for a in assignments:
         remaining_qty = max(0, int(a.quantity or 0) - int(a.completed_qty or 0))
@@ -512,7 +521,7 @@ def _flow_committed_today(db: DbSession, flow_id: int, now: datetime) -> int:
     direct_wos = db.query(WorkOrder).filter(
         WorkOrder.sewing_flow_id == flow_id,
         WorkOrder.operation == "sewing",
-        WorkOrder.status.in_(_ACTIVE_WO_STATUSES),
+        WorkOrder.status.in_(_ACTIVE_WO_STATUS_VALUES),
     ).all()
     for w in direct_wos:
         has_split = db.query(SewingAssignment.id).filter(
@@ -533,6 +542,8 @@ def list_pos(
     db: DbSession,
     _: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS)),
     status: str | None = None,
+    # This is a lossless read filter over an unconstrained historical column;
+    # CREATE DTOs keep their action-specific ProductionType contracts.
     production_type: str | None = None,
     q: Annotated[str | None, Query(max_length=100)] = None,
     page: Annotated[int, Query(ge=1)] = 1,
@@ -580,7 +591,7 @@ def list_pos(
     }
 
 
-@router.post("/production-orders", response_model=ProductionOrderDetail, status_code=201)
+@router.post("/production-orders", response_model=StandardProductionOrderCreateDetail, status_code=201)
 def create_po(payload: ProductionOrderIn, db: DbSession, current: User = Depends(require_permissions("planning.production", "*"))):
     printing_attachments = printing_attachments_for_storage(payload.printing_attachments)
     po = create_production_order(
@@ -597,11 +608,11 @@ def create_po(payload: ProductionOrderIn, db: DbSession, current: User = Depends
         estimated_material_code=payload.estimated_material_code,
         estimated_material_amount=payload.estimated_material_amount,
         estimated_material_unit=payload.estimated_material_unit,
-        materials=[row.model_dump() for row in payload.materials],
+        materials=payload.materials,
         printing_instructions=payload.printing_instructions,
         printing_attachments=printing_attachments,
         destination_warehouse_id=payload.destination_warehouse_id,
-        items=[i.model_dump() for i in payload.items],
+        items=payload.items,
         created_by=current.id,
     )
     if payload.batches:
@@ -1807,7 +1818,7 @@ def list_wos(
     db: DbSession,
     current: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS)),
     department_id: int | None = None,
-    status: str | None = None,
+    status: WorkOrderStatus | None = None,
     production_order_id: int | None = None,
     operation: str | None = None,
     only_active: bool = False,
@@ -1819,10 +1830,10 @@ def list_wos(
     if selected_factory_code(current) != "ECO":
         qry = qry.filter(~WorkOrder.production_order.has(ProductionOrder.source_type == "usluga"))
     if department_id: qry = qry.filter(WorkOrder.department_id == department_id)
-    if status: qry = qry.filter(WorkOrder.status == status)
+    if status: qry = qry.filter(WorkOrder.status == status.value)
     if production_order_id: qry = qry.filter(WorkOrder.production_order_id == production_order_id)
     if operation: qry = qry.filter(WorkOrder.operation == operation)
-    if only_active: qry = qry.filter(WorkOrder.status.in_(_ACTIVE_WO_STATUSES))
+    if only_active: qry = qry.filter(WorkOrder.status.in_(_ACTIVE_WO_STATUS_VALUES))
     if unassigned_flow:
         if not operation:
             qry = qry.filter(WorkOrder.operation == "sewing")
@@ -5302,199 +5313,10 @@ def _validated_sewing_size_quantities(
 @router.post("/sewing/records", status_code=201)
 def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(require_permissions("sewing.records", "*")),
                 idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None):
-    replay = replay_idempotent_response(db, scope="sewing:output", key=idempotency_key, payload=payload.model_dump())
-    if replay is not None:
-        return replay
-    wo = db.query(WorkOrder).filter(WorkOrder.id == payload.work_order_id).with_for_update().first()
-    if not wo: raise HTTPException(404, "Work order not found")
-    from app.models.factory_scope_service import require_work_order_factory_access
-    require_work_order_factory_access(current, db, wo)
-    if wo.operation != "sewing": raise HTTPException(400, "Work order is not a sewing operation")
-    ensure_accessories_issued_for_sewing(db, int(wo.production_order_id))
-    _gate_record_submission(wo)
-
-    assignment = None
-    if payload.sewing_assignment_id:
-        assignment = db.get(SewingAssignment, payload.sewing_assignment_id)
-        if not assignment:
-            raise HTTPException(404, "Sewing assignment not found")
-        if assignment.work_order_id != wo.id:
-            raise HTTPException(400, "Selected sewing assignment does not belong to this work order")
-        if assignment.status not in ("planned", "in_progress", "completed"):
-            raise HTTPException(409, "Sewing assignment has been returned or cancelled")
-    elif payload.line_name:
-        line_key = payload.line_name.strip().lower()
-        if line_key:
-            assignment = (
-                db.query(SewingAssignment)
-                .join(SewingFlow, SewingFlow.id == SewingAssignment.sewing_flow_id)
-                .filter(SewingAssignment.work_order_id == wo.id)
-                .filter(SewingAssignment.status.in_(["planned", "in_progress", "completed"]))
-                .filter(
-                    (func.lower(SewingFlow.code) == line_key)
-                    | (func.lower(SewingFlow.name) == line_key)
-                )
-                .order_by(SewingAssignment.id.desc())
-                .first()
-            )
-
-    payload_batch_id = payload.production_batch_id
-    if assignment and assignment.production_batch_id is not None:
-        assignment_batch_id = int(assignment.production_batch_id)
-        if payload_batch_id and int(payload_batch_id) != assignment_batch_id:
-            raise HTTPException(400, "Selected sewing assignment belongs to a different production batch")
-        payload_batch_id = assignment_batch_id
-
-    batch_id = _resolve_record_batch_id(
-        db,
-        wo,
-        payload_batch_id,
-        operation_name="sewing",
-    )
-    size_quantities = _validated_sewing_size_quantities(db, wo, batch_id, payload)
-
-    # Rule: sewing cannot receive more than cutting/printing passed
-    upstream_passed = 0
-    cutting_passed = 0
-    cut_wo = _context_work_order(db, wo, "cutting")
-    prt_wo = _context_work_order(db, wo, "printing")
-    if batch_id is not None:
-        printing_passed = 0
-        if prt_wo:
-            printing_passed = int(
-                db.query(func.coalesce(func.sum(PrintingRecord.passed_qty), 0))
-                .filter(
-                    PrintingRecord.work_order_id == prt_wo.id,
-                    PrintingRecord.production_batch_id == batch_id,
-                )
-                .scalar()
-                or 0
-            )
-        if cut_wo:
-            cutting_passed = int(
-                db.query(func.coalesce(func.sum(CuttingRecord.passed_pieces), 0))
-                .filter(
-                    CuttingRecord.work_order_id == cut_wo.id,
-                    CuttingRecord.production_batch_id == batch_id,
-                )
-                .scalar()
-                or 0
-            )
-        upstream_passed = printing_passed if printing_passed > 0 else cutting_passed
-        if not prt_wo or prt_wo.status == "skipped":
-            upstream_passed = _revised_sewing_input_limit(db, wo, batch_id, cutting_passed)
-        current_input = int(
-            db.query(func.coalesce(func.sum(SewingRecord.input_qty), 0))
-            .filter(
-                SewingRecord.work_order_id == wo.id,
-                SewingRecord.production_batch_id == batch_id,
-            )
-            .scalar()
-            or 0
-        )
-        next_total = current_input + int(payload.input_qty or 0)
-        if next_total > upstream_passed:
-            raise HTTPException(400, f"Sewing input {next_total} exceeds upstream passed {upstream_passed} for this batch")
-    else:
-        cutting_passed = int(cut_wo.passed_qty or 0) if cut_wo else 0
-        if prt_wo and prt_wo.passed_qty > 0:
-            upstream_passed = prt_wo.passed_qty
-        elif cut_wo:
-            upstream_passed = cut_wo.passed_qty
-        # Bundle receiving also populates actual_input_qty. Validate the record
-        # ledger, just as the batched path does, rather than adding it twice.
-        current_input = int(db.query(func.coalesce(func.sum(SewingRecord.input_qty), 0)).filter(
-            SewingRecord.work_order_id == wo.id,
-        ).scalar() or 0)
-        next_total = current_input + int(payload.input_qty or 0)
-        if next_total > upstream_passed:
-            raise HTTPException(400, f"Sewing input {next_total} exceeds upstream passed {upstream_passed}")
-
-    _require_confirmed_cutting_output(
-        cutting_passed, payload.input_qty, payload.sewn_qty, payload.passed_qty,
-        payload.failed_qty, payload.rejected_qty, payload.rework_qty,
-    )
-
-    rec_data = payload.model_dump(exclude={"sewing_assignment_id", "size_quantities"})
-    rec_data["production_batch_id"] = batch_id
-    rec_data["size_quantities"] = size_quantities
-    rec = SewingRecord(**rec_data)
-    rec.sewing_assignment_id = assignment.id if assignment else None
-    rec.assignment_applied_qty = 0
-    rec.operator_id = payload.operator_id or current.id
-    db.add(rec)
-    db.flush()
-    sync_sewing_input(db, wo)
-    wo.actual_output_qty += payload.passed_qty
-    wo.passed_qty += payload.passed_qty
-    defect_qty = int(payload.failed_qty or 0) + int(payload.rejected_qty or 0)
-    wo.failed_qty += defect_qty
-    wo.rework_qty += payload.rework_qty
-    consumed_total = int(payload.passed_qty or 0) + int(payload.failed_qty or 0) + int(payload.rejected_qty or 0)
-    if assignment and consumed_total > 0:
-        assignment.quantity = max(int(assignment.quantity or 0), int(assignment.completed_qty or 0) + consumed_total)
-        remaining = max(0, int(assignment.quantity or 0) - int(assignment.completed_qty or 0))
-        consumed = min(remaining, consumed_total)
-        rec.assignment_applied_qty = consumed
-        if consumed > 0:
-            assignment.completed_qty = int(assignment.completed_qty or 0) + consumed
-        if assignment.completed_qty > 0 and assignment.status == "planned":
-            assignment.status = "in_progress"
-            if not assignment.actual_start:
-                assignment.actual_start = datetime.now(timezone.utc)
-        if assignment.completed_qty >= int(assignment.quantity or 0):
-            assignment.completed_qty = int(assignment.quantity or 0)
-            assignment.status = "completed"
-            if not assignment.actual_start:
-                assignment.actual_start = datetime.now(timezone.utc)
-            assignment.actual_end = datetime.now(timezone.utc)
-    create_waste_record(
-        db,
-        production_order_id=wo.production_order_id,
-        work_order_id=wo.id,
-        source_department_id=wo.department_id,
-        item_id=None,
-        batch_id=None,
-        waste_type="sewing_defect",
-        quantity=float(defect_qty),
-        unit="pcs",
-        reason=payload.defect_reason or "Auto-created from sewing record",
-        created_by=current.id,
-    )
-    packaging_department_code = sync_packaging_department_for_bundle_route(db, wo.production_order_id, batch_id)
-    # Actual Sewing output can exceed Cutting's count. Keep downstream plans
-    # large enough while the Packaging input gate still uses passed records.
-    _lift_sewing_output_plans(db, wo)
-    advance_workflow(db, wo, trigger_output_qty=int(payload.passed_qty or 0))
-    if int(payload.passed_qty or 0) > 0:
-        pkg_wo = _context_work_order(db, wo, "packaging")
-        message = f"Order {wo.order_no or wo.id} has {payload.passed_qty} pcs ready for packaging."
-        notify_department(
-            db,
-            department_code=packaging_department_code,
-            title="Awaiting packaging",
-            message=message,
-            link=f"/work-orders/{pkg_wo.id}/packaging" if pkg_wo else "/packages",
-        )
-    log_action(
-        db,
-        current,
-        "create",
-        "SewingRecord",
-        rec.id,
-        new_value={
-            "work_order_id": wo.id,
-            "production_batch_id": batch_id,
-            "input_qty": rec.input_qty,
-            "passed_qty": rec.passed_qty,
-            "size_quantities": size_quantities,
-        },
-    )
-    store_idempotent_response(db, scope="sewing:output", key=idempotency_key, payload=payload.model_dump(), response={"id": rec.id}, user=current)
-    db.commit(); db.refresh(rec)
-    return {
-        "id": rec.id,
-    }
+    try:
+        return record_sewing_output(db, actor=current, payload=payload, idempotency_key=idempotency_key)
+    except SewingOutputError as exc:
+        raise HTTPException(exc.status_code, exc.detail) from exc
 
 
 @router.get("/sewing/records/{rid}")

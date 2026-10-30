@@ -2,17 +2,42 @@
 from datetime import datetime, timezone
 import math
 import re
+from typing import cast
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.schemas import (
     Brand, Department, Item, Model, ProductionBatch, ProductionOrder,
-    ProductionOrderItem, ProductionOrderMaterial, SalesOrder, StockBatch, WorkOrder,
+    SalesOrder, StockBatch, WorkOrder,
 )
 from app.core.signing import strip_signature
 from app.models.numbering_service import next_production_order_no, next_usluga_order_no
 from app.models.inventory_service import available_stock_for_batch, missing_material_reservation_for_cutting
 from app.models.model_images_service import model_print_image_url
+from app.libs.enums.production import ProductionSourceType, ProductionType, SewingFactoryCode, WorkOrderStatus
+from app.libs.dto.production.production import (
+    ProductionOrderItemIn,
+    ProductionOrderMaterialIn,
+    ProductionOrderPrintingAttachment,
+)
+from app.libs.types.production import (
+    ProductionBatchCreateValues,
+    ProductionOrderCreateValues,
+    ProductionOrderItemCreateValues,
+    ProductionOrderMaterialCreateValues,
+    ProductionBatchInputValues,
+    ProductionOrderItemInputValues,
+    ProductionOrderPrintingAttachmentValues,
+    WorkOrderCreateValues,
+    WorkOrderInitialState,
+)
+from app.schemas.production.production_persistence import (
+    add_work_orders,
+    apply_initial_production_workflow_state,
+    insert_production_batches as persist_production_batches,
+    insert_production_order,
+    insert_production_order_components,
+)
 
 
 # Department code -> operation
@@ -43,9 +68,11 @@ _NUMERIC_SIZE_RANGE = re.compile(r"^\s*(\d+)\s*[-\u2013\u2014]\s*(\d+)\s*$")
 _MAX_ESTIMATED_MATERIAL_AMOUNT = 9_999_999_999.9999
 
 
-def expand_production_size_range_items(items: list[dict] | None) -> list[dict]:
+def expand_production_size_range_items(
+    items: list[ProductionOrderItemIn | ProductionOrderItemInputValues] | None,
+) -> list[ProductionOrderItemInputValues]:
     """Expand apparel ranges such as 46-56 and preserve the exact item total."""
-    expanded: list[dict] = []
+    expanded: list[ProductionOrderItemInputValues] = []
     for raw in items or []:
         item = raw.model_dump() if hasattr(raw, "model_dump") else dict(raw)
         size = str(item.get("size") or "").strip()
@@ -81,21 +108,25 @@ def _get_dept(db: Session, code: str) -> Department:
     return dept
 
 
-def printing_attachments_for_storage(attachments) -> list[dict]:
+def printing_attachments_for_storage(
+    attachments: list[
+        ProductionOrderPrintingAttachment | ProductionOrderPrintingAttachmentValues
+    ] | None,
+) -> list[ProductionOrderPrintingAttachmentValues]:
     """Persist bare storage paths; signed URLs are regenerated on read."""
-    out: list[dict] = []
+    out: list[ProductionOrderPrintingAttachmentValues] = []
     for attachment in attachments or []:
         data = attachment.model_dump() if hasattr(attachment, "model_dump") else dict(attachment)
         if data.get("file_url"):
             data["file_url"] = strip_signature(data["file_url"])
-        out.append(data)
+        out.append(cast(ProductionOrderPrintingAttachmentValues, data))
     return out
 
 
 def create_production_order(
     db: Session,
     *,
-    production_type: str,
+    production_type: ProductionType,
     model_id: int,
     brand_id: int | None = None,
     fabric_batch_id: int | None = None,
@@ -108,25 +139,27 @@ def create_production_order(
     estimated_material_code: str | None = None,
     estimated_material_amount: float | None = None,
     estimated_material_unit: str | None = None,
-    materials: list[dict] | None = None,
+    materials: list[ProductionOrderMaterialIn] | None = None,
     printing_instructions: str | None = None,
-    printing_attachments: list[dict] | None = None,
+    printing_attachments: list[ProductionOrderPrintingAttachmentValues] | None = None,
     destination_warehouse_id: int | None = None,
-    items: list[dict] | None = None,
+    items: list[ProductionOrderItemIn] | None = None,
     created_by: int | None = None,
-    source_type: str = "standard",
+    source_type: ProductionSourceType = ProductionSourceType.STANDARD,
     service_customer_name: str | None = None,
     service_customer_reference: str | None = None,
     service_material_description: str | None = None,
     service_material_usage_kg: float | None = None,
     service_material_notes: str | None = None,
 ) -> ProductionOrder:
-    if production_type not in ("client_order", "branded_stock", "service_order"):
+    if production_type not in (ProductionType.CLIENT_ORDER, ProductionType.BRANDED_STOCK, ProductionType.SERVICE_ORDER):
         raise HTTPException(400, "Invalid production_type")
-    source_type = str(source_type or "standard").strip().lower()
-    if source_type not in {"standard", "usluga"}:
+    production_type = ProductionType(production_type)
+    source_type_value = str(source_type or ProductionSourceType.STANDARD.value).strip().lower()
+    if source_type_value not in {member.value for member in ProductionSourceType}:
         raise HTTPException(400, "Invalid production source_type")
-    if (production_type == "service_order") != (source_type == "usluga"):
+    source_type = ProductionSourceType(source_type_value)
+    if (production_type is ProductionType.SERVICE_ORDER) != (source_type is ProductionSourceType.USLUGA):
         raise HTTPException(400, "service_order and usluga source_type must be used together")
 
     # Usluga model labels such as "40-42" represent one paired garment size,
@@ -134,26 +167,31 @@ def create_production_order(
     # aligned with the model so Cutting and its bundle passports use the same
     # size identity. Standard production retains its established range split.
     normalized_items = (
-        [raw.model_dump() if hasattr(raw, "model_dump") else dict(raw) for raw in (items or [])]
-        if source_type == "usluga"
-        else expand_production_size_range_items(items)
+        list(items or [])
+        if source_type is ProductionSourceType.USLUGA
+        else [
+            ProductionOrderItemIn.model_validate(row)
+            for row in expand_production_size_range_items(
+                [item.model_dump() for item in (items or [])]
+            )
+        ]
     )
 
     model = db.get(Model, model_id)
     if not model:
         raise HTTPException(404, "Model not found")
-    if source_type == "usluga":
+    if source_type is ProductionSourceType.USLUGA:
         if model.catalog_scope != "usluga" or model.factory_code != "ECO":
             raise HTTPException(400, "Usluga production requires an Eco Cotton Usluga model")
         if not str(service_customer_name or "").strip():
             raise HTTPException(400, "Usluga customer/company is required")
         if fabric_batch_id is not None or materials:
             raise HTTPException(400, "Usluga material must not be linked to inventory")
-    elif model.catalog_scope != "standard":
+    elif model.catalog_scope != ProductionSourceType.STANDARD.value:
         raise HTTPException(404, "Model not found")
-    if production_type == "branded_stock" and model.status != "approved":
+    if production_type is ProductionType.BRANDED_STOCK and model.status != "approved":
         raise HTTPException(400, "Branded stock production requires an approved model")
-    if production_type == "client_order" and not sales_order_id:
+    if production_type is ProductionType.CLIENT_ORDER and not sales_order_id:
         raise HTTPException(400, "Client order production requires sales_order_id")
 
     so = None
@@ -171,13 +209,13 @@ def create_production_order(
         if not brand.is_active:
             raise HTTPException(400, "Brand is inactive")
 
-    normalized_materials: list[dict] = []
+    normalized_materials: list[ProductionOrderMaterialCreateValues] = []
+    selected_material_refs: list[tuple[StockBatch, Item]] = []
     seen_batch_ids: set[int] = set()
     for index, raw in enumerate(materials or [], start=1):
-        row = raw.model_dump() if hasattr(raw, "model_dump") else dict(raw)
         try:
-            batch_id = int(row.get("stock_batch_id") or 0)
-            quantity = float(row.get("estimated_quantity") or 0)
+            batch_id = int(raw.stock_batch_id or 0)
+            quantity = float(raw.estimated_quantity or 0)
         except (TypeError, ValueError):
             raise HTTPException(400, f"Material #{index} has an invalid batch or quantity")
         if batch_id <= 0:
@@ -194,26 +232,25 @@ def create_production_order(
             raise HTTPException(400, f"Material #{index} is not a fabric inventory batch")
         if available_stock_for_batch(db, int(batch.id)) <= 0:
             raise HTTPException(400, f"Material #{index} batch has no available stock")
-        unit = str(row.get("unit") or batch.unit or item.unit or "kg").strip()
+        unit = str(raw.unit or batch.unit or item.unit or "kg").strip()
         if not unit:
             raise HTTPException(400, f"Material #{index} requires a unit")
         seen_batch_ids.add(batch_id)
-        normalized_materials.append({
-            "stock_batch_id": batch_id,
-            "estimated_quantity": quantity,
-            "unit": unit,
-            "batch": batch,
-            "item": item,
-        })
+        normalized_materials.append(ProductionOrderMaterialCreateValues(
+            stock_batch_id=batch_id,
+            estimated_quantity=quantity,
+            unit=unit,
+            position=index,
+        ))
+        selected_material_refs.append((batch, item))
 
     if normalized_materials:
         primary_material = normalized_materials[0]
-        fabric_batch_id = int(primary_material["stock_batch_id"])
-        selected_fabric_batch = primary_material["batch"]
-        selected_fabric_item = primary_material["item"]
+        fabric_batch_id = primary_material.stock_batch_id
+        selected_fabric_batch, selected_fabric_item = selected_material_refs[0]
         material_code = selected_fabric_item.sku
-        material_unit = primary_material["unit"]
-        material_amount = float(primary_material["estimated_quantity"])
+        material_unit = primary_material.unit
+        material_amount = float(primary_material.estimated_quantity)
     else:
         selected_fabric_batch = db.get(StockBatch, fabric_batch_id) if fabric_batch_id else None
         if fabric_batch_id and not selected_fabric_batch:
@@ -246,23 +283,22 @@ def create_production_order(
 
     production_no = (
         next_usluga_order_no(db)
-        if source_type == "usluga"
+        if source_type is ProductionSourceType.USLUGA
         else next_production_order_no(db)
     )
     print_notes = str(printing_instructions or "").strip() or None
 
-    po = ProductionOrder(
+    po = insert_production_order(db, ProductionOrderCreateValues(
         production_no=production_no,
         production_type=production_type,
         source_type=source_type,
-        sales_order_id=sales_order_id,
-        planning_order_id=planning_order_id,
-        collection_id=collection_id,
         model_id=model_id,
         brand_id=selected_brand_id,
         fabric_batch_id=fabric_batch_id,
-        status="new",
-        planned_quantity=planned_quantity or sum(int(i.get("planned_quantity", 0)) for i in normalized_items),
+        sales_order_id=sales_order_id,
+        planning_order_id=planning_order_id,
+        collection_id=collection_id,
+        planned_quantity=planned_quantity or sum(item.planned_quantity for item in normalized_items),
         start_date=start_date,
         deadline=deadline,
         estimated_material_code=material_code,
@@ -277,36 +313,30 @@ def create_production_order(
         service_material_usage_kg=service_material_usage_kg,
         service_material_notes=str(service_material_notes or "").strip() or None,
         created_by=created_by,
-    )
-    db.add(po)
-    db.flush()
+    ))
 
-    for position, row in enumerate(normalized_materials, start=1):
-        db.add(ProductionOrderMaterial(
-            production_order_id=po.id,
-            stock_batch_id=row["stock_batch_id"],
-            estimated_quantity=row["estimated_quantity"],
-            unit=row["unit"],
-            position=position,
-        ))
-
-    for it in normalized_items:
-        db.add(ProductionOrderItem(
-            production_order_id=po.id,
-            model_id=it.get("model_id", model_id),
-            color=it["color"],
-            size=it["size"],
-            planned_quantity=int(it.get("planned_quantity", 0)),
-            printing_required=bool(it.get("printing_required")) or (
-                source_type == "standard"
-                and bool(model_print_image_url(db.get(Model, it.get("model_id") or model_id)))
+    item_values = [
+        ProductionOrderItemCreateValues(
+            model_id=int(item.model_id or model_id),
+            color=item.color,
+            size=item.size,
+            planned_quantity=item.planned_quantity,
+            printing_required=bool(item.printing_required) or (
+                source_type is ProductionSourceType.STANDARD
+                and bool(model_print_image_url(db.get(Model, item.model_id or model_id)))
             ),
-        ))
-    db.flush()
+        )
+        for item in normalized_items
+    ]
+    insert_production_order_components(db, int(po.id), normalized_materials, item_values)
     return po
 
 
-def create_production_batches(db: Session, production_order_id: int, batches: list[dict] | None) -> list[ProductionBatch]:
+def create_production_batches(
+    db: Session,
+    production_order_id: int,
+    batches: list[ProductionBatchInputValues] | None,
+) -> list[ProductionBatch]:
     po = db.get(ProductionOrder, production_order_id)
     if not po:
         raise HTTPException(404, "Production order not found")
@@ -319,7 +349,7 @@ def create_production_batches(db: Session, production_order_id: int, batches: li
         return existing
 
     used_nos: set[str] = set()
-    created: list[ProductionBatch] = []
+    created: list[ProductionBatchCreateValues] = []
     for idx, raw in enumerate(batches, start=1):
         raw_quantity = raw.get("planned_quantity", 0)
         if isinstance(raw_quantity, bool):
@@ -345,8 +375,7 @@ def create_production_batches(db: Session, production_order_id: int, batches: li
             suffix += 1
         used_nos.add(batch_no.lower())
 
-        b = ProductionBatch(
-            production_order_id=po.id,
+        created.append(ProductionBatchCreateValues(
             batch_no=batch_no,
             batch_index=idx,
             name=(str(raw.get("name") or "").strip() or f"Nastil {idx}"),
@@ -354,12 +383,9 @@ def create_production_batches(db: Session, production_order_id: int, batches: li
             start_date=raw.get("start_date"),
             deadline=raw.get("deadline"),
             notes=(str(raw.get("notes") or "").strip() or None),
-        )
-        db.add(b)
-        created.append(b)
+        ))
 
-    db.flush()
-    return created
+    return persist_production_batches(db, po.id, created)
 
 
 def create_work_orders(
@@ -367,8 +393,8 @@ def create_work_orders(
     production_order_id: int,
     include_printing: bool = False,
     cutting_department_code: str = "CUT",
-    factory_code: str = "MIL",
-    sewing_factory_code: str | None = None,
+    factory_code: SewingFactoryCode | str = SewingFactoryCode.MILANA,
+    sewing_factory_code: SewingFactoryCode | str | None = None,
     include_storage_transfer: bool = True,
 ) -> list[WorkOrder]:
     po = db.get(ProductionOrder, production_order_id)
@@ -376,32 +402,45 @@ def create_work_orders(
         raise HTTPException(404, "Production order not found")
 
     include_printing = include_printing or any(item.printing_required for item in po.items) or (
-        po.source_type == "standard" and bool(model_print_image_url(db.get(Model, po.model_id)))
+        po.source_type == ProductionSourceType.STANDARD.value
+        and bool(model_print_image_url(db.get(Model, po.model_id)))
     )
     existing_ops = {
         str(wo.operation)
         for wo in db.query(WorkOrder).filter(WorkOrder.production_order_id == po.id).all()
     }
-    created: list[WorkOrder] = []
+    create_values: list[WorkOrderCreateValues] = []
     planned_qty = int(po.planned_quantity or 0)
 
     # Keep one WO per operation even when the PO has internal batches.
     # Batches are managed inside the operation screen, not by duplicating WOs.
-    normalized_factory = str(factory_code or "MIL").strip().upper()
-    if normalized_factory not in {"MIL", "BST", "ECO"}:
+    factory_value = str(factory_code or SewingFactoryCode.MILANA.value).strip().upper()
+    try:
+        normalized_factory = SewingFactoryCode(factory_value)
+    except ValueError:
         raise HTTPException(400, "Factory must be MIL, BST, or ECO")
-    normalized_sewing_factory = str(sewing_factory_code or normalized_factory).strip().upper()
-    if normalized_sewing_factory not in {"MIL", "BST", "ECO"}:
+    sewing_factory_value = str(sewing_factory_code or normalized_factory.value).strip().upper()
+    try:
+        normalized_sewing_factory = SewingFactoryCode(sewing_factory_value)
+    except ValueError:
         raise HTTPException(400, "Sewing factory must be MIL, BST, or ECO")
-    normalized_cutting_code = str(cutting_department_code or ("ECT" if normalized_factory == "ECO" else "CUT")).strip().upper()
+    normalized_cutting_code = str(
+        cutting_department_code or (
+            "ECT" if normalized_factory is SewingFactoryCode.ECO_COTTON else "CUT"
+        )
+    ).strip().upper()
     if normalized_cutting_code not in {"CUT", "ECT"}:
         raise HTTPException(400, f"Unsupported cutting department '{cutting_department_code}'")
 
     department_by_operation = {
         "cutting": normalized_cutting_code,
         "printing": "PRT",
-        "sewing": normalized_sewing_factory,
-        "packaging": {"MIL": "PKG", "BST": "BPK", "ECO": "ECP"}[normalized_factory],
+        "sewing": normalized_sewing_factory.value,
+        "packaging": {
+            SewingFactoryCode.MILANA.value: "PKG",
+            SewingFactoryCode.BESTTEX.value: "BPK",
+            SewingFactoryCode.ECO_COTTON.value: "ECP",
+        }[normalized_factory.value],
         "storage_transfer": "FGS",
     }
 
@@ -413,19 +452,17 @@ def create_work_orders(
         if op in existing_ops:
             continue
         dept = _get_dept(db, department_by_operation[op])
-        wo = WorkOrder(
-            production_order_id=po.id,
-            production_batch_id=None,
+        create_values.append(WorkOrderCreateValues(
             department_id=dept.id,
             operation=op,
-            status="waiting",
+            status=WorkOrderStatus.WAITING,
             planned_input_qty=planned_qty,
             planned_output_qty=planned_qty,
             deadline=po.deadline,
-        )
-        db.add(wo)
-        created.append(wo)
+        ))
         existing_ops.add(op)
+
+    created = add_work_orders(db, int(po.id), create_values)
 
     # Orders should enter cutting immediately; planning only assigns sewing lines.
     cutting_wos = (
@@ -438,22 +475,40 @@ def create_work_orders(
         .all()
     )
     if cutting_wos:
-        reservation_missing = po.source_type != "usluga" and missing_material_reservation_for_cutting(db, int(po.id))
+        reservation_missing = (
+            po.source_type != ProductionSourceType.USLUGA.value
+            and missing_material_reservation_for_cutting(db, int(po.id))
+        )
         # Start only one cutting WO when there are duplicates from legacy data.
         first_started = False
+        state_changes: list[tuple[WorkOrder, WorkOrderInitialState]] = []
         for cutting_wo in cutting_wos:
-            if cutting_wo.status in ("new", "planning", "waiting"):
+            if cutting_wo.status in (
+                WorkOrderStatus.NEW,
+                WorkOrderStatus.PLANNING,
+                WorkOrderStatus.WAITING,
+            ):
                 if not first_started and not reservation_missing:
-                    cutting_wo.status = "in_progress"
-                    if not cutting_wo.start_time:
-                        cutting_wo.start_time = datetime.now(timezone.utc)
+                    start_time = cutting_wo.start_time or datetime.now(timezone.utc)
+                    state_changes.append((cutting_wo, WorkOrderInitialState(
+                        work_order_id=int(cutting_wo.id),
+                        status=WorkOrderStatus.IN_PROGRESS,
+                        start_time=start_time,
+                        set_start_time=True,
+                    )))
                     first_started = True
                 else:
-                    cutting_wo.status = "waiting"
-            elif cutting_wo.status in ("in_progress", "paused"):
+                    state_changes.append((cutting_wo, WorkOrderInitialState(
+                        work_order_id=int(cutting_wo.id),
+                        status=WorkOrderStatus.WAITING,
+                        start_time=None,
+                        set_start_time=False,
+                    )))
+            elif cutting_wo.status in (WorkOrderStatus.IN_PROGRESS, WorkOrderStatus.PAUSED):
                 first_started = True
-        po.status = "planning" if reservation_missing and not first_started else "cutting"
+        po_status = "planning" if reservation_missing and not first_started else "cutting"
     else:
-        po.status = "planning"
-    db.flush()
+        state_changes = []
+        po_status = "planning"
+    apply_initial_production_workflow_state(db, po, po_status, state_changes)
     return created
