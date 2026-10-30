@@ -5,14 +5,15 @@ from uuid import uuid4
 import os
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import tasks
 from app.db.base import Base
-from app.libs.dto.work_management.tasks import TaskIn
-from app.schemas import SalesOrder, User
+from app.libs.dto.work_management.tasks import TaskIn, TaskUpdate
+from app.schemas import AuditLog, Notification, SalesOrder, Task, User
 
 
 @pytest.fixture
@@ -80,3 +81,61 @@ def test_reference_delete_waits_for_task_commit(pg_sessions, monkeypatch):
         assert writer.result(timeout=5) > 0
         deleter.result(timeout=5)
         assert delete_done.is_set()
+
+
+@pytest.mark.parametrize("reassign", [False, True], ids=["status", "reassignment"])
+def test_patch_after_concurrent_delete_matches_missing_task(pg_sessions, monkeypatch, reassign):
+    with pg_sessions() as db:
+        actor = User(name="Task race actor", email=f"api02-{uuid4().hex}@example.invalid",
+                     password_hash="unused", extra_permissions=["tasks.manage"])
+        recipient = User(name="Task race recipient", email=f"api02-{uuid4().hex}@example.invalid",
+                         password_hash="unused")
+        db.add_all((actor, recipient))
+        db.flush()
+        task = Task(title="Deleted during patch", created_by=actor.id, assigned_to=actor.id)
+        db.add(task)
+        db.commit()
+        actor_id, recipient_id, tid = actor.id, recipient.id, task.id
+
+    payload = TaskUpdate(assigned_to=recipient_id) if reassign else TaskUpdate(status="completed")
+    read, deleted = Event(), Event()
+    original_validate = tasks.validate_task_reference_update
+
+    def pause_after_read(*args, **kwargs):
+        reference = original_validate(*args, **kwargs)
+        read.set()
+        assert deleted.wait(5), "Concurrent deletion did not finish"
+        return reference
+
+    monkeypatch.setattr(tasks, "validate_task_reference_update", pause_after_read)
+
+    def patch():
+        with pg_sessions() as db:
+            try:
+                return tasks.update_task(tid, payload, db, db.get(User, actor_id))
+            except HTTPException:
+                assert db.is_active, "PATCH must roll back its failed flush"
+                assert db.query(Notification).count() == 0
+                raise
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        writer = pool.submit(patch)
+        try:
+            assert read.wait(5), "PATCH did not load the task"
+            with pg_sessions() as db:
+                tasks.delete_task(tid, db, db.get(User, actor_id))
+        finally:
+            deleted.set()
+        with pytest.raises(HTTPException) as raced:
+            writer.result(timeout=5)
+
+    with pg_sessions() as db:
+        with pytest.raises(HTTPException) as missing:
+            tasks.update_task(tid, payload, db, db.get(User, actor_id))
+        assert (raced.value.status_code, raced.value.detail) == (
+            missing.value.status_code, missing.value.detail
+        ) == (404, "Task not found")
+        assert db.get(Task, tid) is None
+        assert db.query(Notification).count() == 0
+        audits = db.query(AuditLog).filter_by(entity_type="Task", entity_id=tid).all()
+        assert [entry.action for entry in audits] == ["delete"]

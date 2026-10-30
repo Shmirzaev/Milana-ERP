@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import func
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.api.routes.notifications import _max_bulk_recipients
 from app.core.deps import DbSession, CurrentUser, is_admin, user_permissions
@@ -236,17 +237,22 @@ def update_task(tid: int, payload: TaskUpdate, db: DbSession, current: CurrentUs
     elif changes.get("status") and changes["status"] != "completed":
         t.completed_at = None
 
-    # Notify new assignee if task was reassigned.
-    if "assigned_to" in changes and t.assigned_to and t.assigned_to != previous_assignee:
-        notify(
-            db, user_id=t.assigned_to,
-            title=f"Task reassigned to you: {t.title}",
-            message=(t.description or "")[:280],
-            link=_task_link(t, db=db, reference=reference),
-        )
+    try:
+        # Notify new assignee if task was reassigned.
+        if "assigned_to" in changes and t.assigned_to and t.assigned_to != previous_assignee:
+            notify(
+                db, user_id=t.assigned_to,
+                title=f"Task reassigned to you: {t.title}",
+                message=(t.description or "")[:280],
+                link=_task_link(t, db=db, reference=reference),
+            )
 
-    log_action(db, current, "update", "Task", t.id, new_value=changes)
-    db.commit(); db.refresh(t)
+        log_action(db, current, "update", "Task", t.id, new_value=changes)
+        db.commit()
+    except StaleDataError as exc:
+        db.rollback()
+        raise HTTPException(404, "Task not found") from exc
+    db.refresh(t)
     return t
 
 
