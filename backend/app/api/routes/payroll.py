@@ -82,10 +82,16 @@ from app.models.payroll_factory_scope_service import production_order_factory_co
 from app.models.payroll_reports_service import ReportLanguage, build_sewing_production_report_xlsx, build_sewing_salary_summary_xlsx, salary_report_days
 from app.models.employee_aliases_service import merged_employee
 from app.libs.dto.people.payroll_split_correction import SplitAllocationOut, SplitAllocationUpdate
+from app.libs.enums.factory import FactoryCode
+from app.libs.enums.people import PayrollAdjustmentType
 from app.models.payroll_split_correction_service import correct_split_allocation, read_split_allocation, render_split_allocation_labels
 from app.models.payroll_labels_service import split_labels_print_response
 from app.models.payroll_period_lock_service import lock_period_schedule as _lock_period_schedule
 from app.models.payroll_operation_service import is_control_operation as _is_control_operation
+from app.models.people.payroll_adjustment_service import (
+    PayrollAdjustmentOperationError,
+    create_manual_payroll_adjustment,
+)
 
 router = APIRouter(prefix="/payroll", tags=["payroll"])
 
@@ -107,10 +113,8 @@ PERIOD_MANAGE_STATUS_TRANSITIONS = {
 }
 RECORD_STATUSES = {"recorded", "voided", "approved", "paid"}
 MUTATION_LOCKED_PERIOD_STATUSES = {"locked", "approved", "paid", "cancelled"}
-ADJUSTMENT_TYPES = {"bonus", "deduction"}
 PAYROLL_RECORD_COMPONENT_MAX = Decimal("9999999999.9999")
 PAYROLL_RECORD_TOTAL_MAX = Decimal("999999999999.99")
-PAYROLL_ADJUSTMENT_MAX_AMOUNT = Decimal("999999999999.99")
 PAYROLL_WORK_UNITS = {"piece", "work_unit"}
 PAYROLL_QR_TOKEN_LENGTH = 9
 PAYROLL_EMPLOYEE_TOKEN_PREFIX = "1"
@@ -190,40 +194,8 @@ def _work_label_id_from_token(token: str) -> int | None:
     return int(normalized[1:])
 
 
-def _to_money_decimal(value: Any) -> Decimal:
-    if not _present(value):
-        raise HTTPException(400, "amount is required")
-    try:
-        amount = Decimal(str(value))
-        if not amount.is_finite():
-            raise HTTPException(400, f"Invalid numeric value: {value}")
-        cents = amount.quantize(Decimal("0.01"))
-        if amount != cents:
-            raise HTTPException(400, "Adjustment amount supports at most 2 decimal places")
-        return cents
-    except (InvalidOperation, ValueError, TypeError):
-        raise HTTPException(400, f"Invalid numeric value: {value}")
-
-
-def _normalize_adjustment_amount(payload: PayrollAdjustmentIn) -> tuple[Decimal, str]:
-    raw_amount = _to_money_decimal(payload.amount)
-    if abs(raw_amount) > PAYROLL_ADJUSTMENT_MAX_AMOUNT:
-        raise HTTPException(400, "Adjustment amount exceeds the supported maximum of 999999999999.99")
-    adjustment_type = (payload.adjustment_type or "").strip().lower()
-    if adjustment_type and adjustment_type not in ADJUSTMENT_TYPES:
-        raise HTTPException(400, "adjustment_type must be bonus or deduction")
-    if raw_amount == 0:
-        raise HTTPException(400, "Adjustment amount must be non-zero")
-    if raw_amount < 0:
-        if adjustment_type == "bonus":
-            raise HTTPException(400, "Negative adjustments must use adjustment_type=deduction")
-        return abs(raw_amount), "deduction"
-    return raw_amount, adjustment_type or "bonus"
-
-
 def _adjustment_signed_amount(adjustment: PayrollAdjustment) -> Decimal:
-    amount = adjustment.amount or Decimal("0")
-    return -amount if adjustment.adjustment_type == "deduction" else amount
+    return adjustment.signed_amount
 
 
 def _compact_field(value: str | None) -> str | None:
@@ -4109,11 +4081,11 @@ def reverse_record_as_adjustment(
     if len(reason) < 3:
         raise HTTPException(400, "A reversal reason is required")
     adjustment = PayrollAdjustment(
-        factory_code=factory_code,
+        factory_code=FactoryCode(factory_code),
         payroll_period_id=target_period.id,
         source_payroll_record_id=record.id,
         employee_id=record.employee_id,
-        adjustment_type="deduction",
+        adjustment_type=PayrollAdjustmentType.DEDUCTION,
         amount=record.total_amount,
         currency=record.currency,
         reason=reason,
@@ -4276,7 +4248,7 @@ def payroll_summary(
         current["adjustment_count"] += 1
         current["adjustment_amount"] += signed_amount
         current["total_amount"] += signed_amount
-        if adjustment.adjustment_type == "deduction":
+        if adjustment.adjustment_type == PayrollAdjustmentType.DEDUCTION:
             amount = adjustment.amount or Decimal("0")
             deduction_amount += amount
             current["deduction_amount"] += amount
@@ -4503,50 +4475,10 @@ def create_adjustment(
     db: DbSession,
     current: User = Depends(require_permissions("payroll.manage", "*")),
 ):
-    factory_code = selected_factory_code(current)
-    period = db.query(PayrollPeriod).filter(
-        PayrollPeriod.id == payload.payroll_period_id,
-        PayrollPeriod.factory_code == factory_code,
-    ).populate_existing().with_for_update().first() if payload.payroll_period_id else None
-    if payload.payroll_period_id and not period:
-        raise HTTPException(404, "Payroll period not found")
-    _assert_period_accepts_adjustments(period)
-    if not db.query(Employee.id).filter(
-        Employee.id == payload.employee_id,
-        Employee.factory_code == factory_code,
-    ).first():
-        raise HTTPException(404, "Employee not found")
-    amount, adjustment_type = _normalize_adjustment_amount(payload)
-    adjustment = PayrollAdjustment(
-        factory_code=factory_code,
-        payroll_period_id=payload.payroll_period_id,
-        employee_id=payload.employee_id,
-        adjustment_type=adjustment_type,
-        amount=amount,
-        currency=(payload.currency or "UZS").upper()[:8],
-        reason=payload.reason,
-        created_by=current.id,
-        created_at=utcnow(),
-    )
-    db.add(adjustment)
-    db.flush()
-    log_action(
-        db,
-        current,
-        "create",
-        "PayrollAdjustment",
-        adjustment.id,
-        new_value={
-            "employee_id": adjustment.employee_id,
-            "adjustment_type": adjustment.adjustment_type,
-            "amount": adjustment.amount,
-            "signed_amount": _adjustment_signed_amount(adjustment),
-            "reason": adjustment.reason,
-        },
-    )
-    db.commit()
-    db.refresh(adjustment)
-    return adjustment
+    try:
+        return create_manual_payroll_adjustment(db, payload, current)
+    except PayrollAdjustmentOperationError as exc:
+        raise HTTPException(exc.status_code, exc.detail) from exc
 
 
 @router.delete("/adjustments/{adjustment_id}", status_code=204)
@@ -4587,7 +4519,7 @@ def delete_adjustment(
         "factory_code": adjustment.factory_code,
         "employee_id": adjustment.employee_id,
         "payroll_period_id": adjustment.payroll_period_id,
-        "adjustment_type": adjustment.adjustment_type,
+        "adjustment_type": adjustment.adjustment_type.value,
         "amount": adjustment.amount,
         "signed_amount": _adjustment_signed_amount(adjustment),
         "currency": adjustment.currency,

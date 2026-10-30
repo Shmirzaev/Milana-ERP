@@ -27,6 +27,7 @@ existing duplicate-name race behavior.
 - [Brand](catalog.py)
 - [Collection](catalog.py)
 - [Model](catalog.py)
+- [Model paid-operation persistence](model_paid_operations_persistence.py)
 - [CollectionModel](catalog.py)
 - [ModelImage](catalog.py)
 - [ModelSize](catalog.py)

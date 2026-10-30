@@ -8,22 +8,10 @@ from sqlalchemy.orm import Session, lazyload
 
 from app.core.order_reference import canonical_business_order_reference
 from app.core.costs import round_unit_cost
-
-from app.schemas import (
-    Item,
-    PurchaseOrder,
-    PurchaseRequest,
-    SalesOrder,
-    StockBatch,
-    StockMovement,
-    Supplier,
-    User,
-    Warehouse,
-    ProductionOrder,
-)
 from app.libs.dto.purchasing.purchase_quantity import MAX_PURCHASE_QUANTITY
 from app.libs.enums.inventory import StockBatchQcStatus
 from app.libs.enums.purchasing import PurchaseOrderStatus, PurchaseRequestStatus
+from app.libs.types.inventory import PurchaseOrderStockReceiptCommand
 from app.libs.types.purchasing import (
     PurchaseOrderCreateCommand,
     PurchaseOrderReceiptCommand,
@@ -34,14 +22,28 @@ from app.libs.types.purchasing import (
     PurchaseRequestLineCommand,
 )
 from app.models import inventory_access_service as inventory_access
+from app.models.inventory import stock_service as inventory_stock
 from app.models.audit_service import log_action
 from app.models.material_rolls_service import normalize_material_roll_weights
 from app.models.numbering_service import next_purchase_order_no, next_purchase_request_no
 from app.models.planning_service import material_requirements_for_sales_order
 from app.models.workflow_service import notify_department
+
+from app.schemas import (
+    Item,
+    PurchaseOrder,
+    PurchaseRequest,
+    SalesOrder,
+    Supplier,
+    User,
+    Warehouse,
+    ProductionOrder,
+)
 from app.schemas.purchasing.purchase_order_persistence import (
     add_purchase_order_line_row,
     add_purchase_order_row,
+    apply_purchase_order_line_receipt,
+    apply_purchase_order_receipt_status,
     apply_purchase_request_conversion,
 )
 from app.schemas.purchasing.purchase_request_persistence import (
@@ -69,7 +71,11 @@ ORDER_CREATE_STATUSES: frozenset[PurchaseOrderStatus] = frozenset({
     PurchaseOrderStatus.DRAFT,
     PurchaseOrderStatus.SENT,
 })
-ORDER_RECEIVABLE_STATUSES = {"sent", "approved", "partially_received"}
+ORDER_RECEIVABLE_STATUSES: frozenset[PurchaseOrderStatus] = frozenset({
+    PurchaseOrderStatus.SENT,
+    PurchaseOrderStatus.APPROVED,
+    PurchaseOrderStatus.PARTIALLY_RECEIVED,
+})
 
 # One bound parameter per id, so keep each batch well under the driver's limit.
 _REFERENCE_CHUNK = 400
@@ -631,14 +637,28 @@ def convert_purchase_request_to_order(
     return order
 
 
-def _purchase_order_status(order: PurchaseOrder) -> str:
+def _purchase_order_status(order: PurchaseOrder) -> PurchaseOrderStatus:
     if not order.lines:
-        return order.status
+        return PurchaseOrderStatus(order.status)
     if all(_num(line.received_quantity) >= _num(line.ordered_quantity) - 1e-9 for line in order.lines):
-        return "received"
+        return PurchaseOrderStatus.RECEIVED
     if any(_num(line.received_quantity) > 1e-9 for line in order.lines):
-        return "partially_received"
-    return order.status
+        return PurchaseOrderStatus.PARTIALLY_RECEIVED
+    return PurchaseOrderStatus(order.status)
+
+
+def _purchase_receipt_qc_status(value: object) -> StockBatchQcStatus:
+    """Adapt supported legacy core strings to the canonical storage member.
+
+    HTTP DTOs already provide the enum and retain raw QC only for replay
+    fingerprints. Direct core callers historically supplied the supported
+    string spellings, with empty/missing values meaning passed.
+    """
+    if isinstance(value, StockBatchQcStatus):
+        return value
+    if value is None or value == "":
+        return StockBatchQcStatus.PASSED
+    return StockBatchQcStatus(value)
 
 
 def receive_purchase_order(db: Session, *, order_id: int, data: PurchaseOrderReceiptCommand, current: User) -> PurchaseOrder:
@@ -653,7 +673,11 @@ def receive_purchase_order(db: Session, *, order_id: int, data: PurchaseOrderRec
     order = order_query.one_or_none()
     if not order:
         raise HTTPException(404, "Purchase order not found")
-    if order.status not in ORDER_RECEIVABLE_STATUSES:
+    try:
+        order_status = PurchaseOrderStatus(order.status)
+    except ValueError:
+        order_status = None
+    if order_status not in ORDER_RECEIVABLE_STATUSES:
         raise HTTPException(409, f"Cannot receive a purchase order in status '{order.status}'")
 
     line_inputs = data.get("lines") or []
@@ -683,7 +707,14 @@ def receive_purchase_order(db: Session, *, order_id: int, data: PurchaseOrderRec
         if value is not None:
             effective_costs[line_id] = cost
 
-    for raw, cost_per_unit in zip(line_inputs, line_costs):
+    # Resolve every fixed-vocabulary QC value before the first stock write.
+    # This keeps a bad later direct-core command from leaving earlier lines
+    # staged when a caller catches the validation error in the same Session.
+    line_qc_statuses = [
+        _purchase_receipt_qc_status(raw.get("qc_status")) for raw in line_inputs
+    ]
+
+    for raw, cost_per_unit, qc_status in zip(line_inputs, line_costs, line_qc_statuses):
         line_id = int(raw.get("purchase_order_line_id") or 0)
         line = order_lines_by_id.get(line_id)
         if not line:
@@ -715,61 +746,55 @@ def receive_purchase_order(db: Session, *, order_id: int, data: PurchaseOrderRec
             piece_count=raw.get("piece_count"),
         )
 
-        batch = StockBatch(
-            item_id=item.id,
-            batch_no=batch_no,
-            internal_batch_no=order.po_no,
-            supplier_id=supplier_id,
-            color=raw.get("color"),
-            old_code=raw.get("old_code"),
-            color_code=raw.get("color_code"),
-            color_status=raw.get("color_status"),
-            order_no=canonical_business_order_reference(db, raw.get("order_no")) or order.po_no,
-            width=raw.get("width"),
-            gsm=raw.get("gsm"),
-            quantity=quantity,
-            piece_count=piece_count,
-            roll_weights_kg=roll_weights,
-            processes=raw.get("processes") or f"Purchase order {order.po_no}",
-            unit=unit,
-            cost_per_unit=cost_per_unit,
-            image_url=str(line.photo_url or item.image_url or "").strip() or None,
-            warehouse_id=warehouse_id,
-            # Route inputs now carry the canonical member. Existing direct
-            # core callers still supply legacy strings and retain their rules.
-            qc_status=(raw["qc_status"].value if isinstance(raw.get("qc_status"), StockBatchQcStatus)
-                       else raw.get("qc_status") or StockBatchQcStatus.PASSED.value),
+        batch_image_url = str(line.photo_url or item.image_url or "").strip() or None
+        batch_order_no = canonical_business_order_reference(db, raw.get("order_no")) or order.po_no
+        batch_processes = raw.get("processes") or f"Purchase order {order.po_no}"
+        receipt = inventory_stock.record_purchase_order_stock_receipt(
+            db,
+            command=PurchaseOrderStockReceiptCommand(
+                item_id=item.id,
+                batch_no=batch_no,
+                internal_batch_no=order.po_no,
+                supplier_id=supplier_id,
+                color=raw.get("color"),
+                old_code=raw.get("old_code"),
+                color_code=raw.get("color_code"),
+                color_status=raw.get("color_status"),
+                order_no=batch_order_no,
+                width=raw.get("width"),
+                gsm=raw.get("gsm"),
+                quantity=quantity,
+                piece_count=piece_count,
+                roll_weights_kg=roll_weights,
+                processes=batch_processes,
+                unit=unit,
+                cost_per_unit=cost_per_unit,
+                image_url=batch_image_url,
+                warehouse_id=warehouse_id,
+                qc_status=qc_status,
+                purchase_order_line_id=int(line.id),
+                created_by=current.id,
+            ),
         )
-        db.add(batch)
-        db.flush()
-
-        movement = StockMovement(
-            movement_type="receive",
-            item_id=item.id,
-            batch_id=batch.id,
-            to_warehouse_id=warehouse_id,
-            quantity=quantity,
-            unit=unit,
-            reference_type="PurchaseOrderLine",
-            reference_id=line.id,
-            created_by=current.id,
+        line_received_quantity = float(total_received)
+        line_unit_cost = cost_per_unit if raw.get("cost_per_unit") is not None else None
+        line_warehouse_id = warehouse_id if not line.warehouse_id else None
+        apply_purchase_order_line_receipt(
+            line,
+            received_quantity=line_received_quantity,
+            unit_cost=line_unit_cost,
+            warehouse_id=line_warehouse_id,
         )
-        db.add(movement)
-        line.received_quantity = float(total_received)
-        if raw.get("cost_per_unit") is not None:
-            line.unit_cost = cost_per_unit
-        if not line.warehouse_id:
-            line.warehouse_id = warehouse_id
 
         log_action(
             db,
             current,
             "receive",
             "StockBatch",
-            batch.id,
+            receipt.batch_id,
             new_value={
-                "batch_no": batch.batch_no,
-                "internal_batch_no": batch.internal_batch_no,
+                "batch_no": receipt.batch_no,
+                "internal_batch_no": receipt.internal_batch_no,
                 "po_no": order.po_no,
                 "qty": quantity,
             },
@@ -782,11 +807,11 @@ def receive_purchase_order(db: Session, *, order_id: int, data: PurchaseOrderRec
             line.id,
             new_value={
                 "po_no": order.po_no,
-                "batch_no": batch.batch_no,
-                "internal_batch_no": batch.internal_batch_no,
+                "batch_no": receipt.batch_no,
+                "internal_batch_no": receipt.internal_batch_no,
                 "item_id": item.id,
                 "received_quantity": quantity,
-                "total_received": float(line.received_quantity or 0),
+                "total_received": line_received_quantity,
             },
         )
 
@@ -795,10 +820,10 @@ def receive_purchase_order(db: Session, *, order_id: int, data: PurchaseOrderRec
         max(0.0, _num(line.ordered_quantity) - _num(line.received_quantity))
         for line in order.lines
     )
-    new_status = "received" if close_order else _purchase_order_status(order)
-    if new_status != old_status:
-        order.status = new_status
-        new_value = {"status": new_status, "po_no": order.po_no}
+    new_status = PurchaseOrderStatus.RECEIVED if close_order else _purchase_order_status(order)
+    if new_status.value != old_status:
+        apply_purchase_order_receipt_status(order, status=new_status)
+        new_value = {"status": new_status.value, "po_no": order.po_no}
         if close_order and remaining_quantity > 1e-9:
             new_value.update({
                 "short_receipt_closed": True,

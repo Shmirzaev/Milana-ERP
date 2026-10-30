@@ -2,8 +2,8 @@
 
 ## Current integration and active work — 30 October 2026
 
-`clone_main` is verified at `d235cf9e9a44b1de81428beb261f8fab837cbe87`, tree
-`33b45e218c57e285e14df48bd166fe04309c95b9`. PR343 merged Supplier DELETE,
+`clone_main` is verified at `ff1542f02c137f24fc9fe78492aa69aa463a7293`, tree
+`649f430e01a1fabc6d97055d91c9bdd009bf7f3a`. Earlier PR343 merged Supplier DELETE,
 Inventory Item CREATE and Sales DELETE after exact-source CI, Computer visual
 checks, persisted/audit readback, independent review, and 40 explicit PostgreSQL
 cases with zero failures/errors/skips. Owned disposable targets and runtimes
@@ -13,22 +13,68 @@ in the source-checkpoint queue must not be read as current status.
 
 The owner explicitly resumed the full remaining scope on 30 October, requesting
 cheap parallel subagents. This includes all 13 domains and shared writers; named
-human accountability below is unchanged. Three isolated workers are preparing
-Collection UPDATE, Finance payment-output typing and Purchasing costing-update
-on the current base. The integrator owns shared notification persistence and
-serializes combined-source verification. None of these new candidates is yet
-runtime-verified or merged. Previously frozen candidates remain preserved.
+human accountability below is unchanged. PR347 merged Collection UPDATE
+persistence, Finance typed payment results/replay and Purchasing costing/shared
+notification persistence. Exact candidate `0c198e9e` / tree `649f430e` passed 19 focused
+cases, 10 explicit PostgreSQL cases before and after actual Computer checks, current CI,
+separate persisted/audit readbacks and independent review. Both UI targets and
+owned runtimes cleaned up; the merge tree equals the verified candidate tree.
+Browser evidence is desktop English with synthetic allowed roles. Collection's
+public/raw legacy status typing remains unresolved; no domain or production
+acceptance is implied.
+
+PR348 freezes Inventory batch-edit and Packaging selected print-run persistence
+at `e6935401` / tree `331cb9aa`. Its 116 focused unit/API results belong to the
+application-equivalent initial `78de8944` source; exact-head backend/frontend CI
+and all 191 mandatory PostgreSQL cases passed, including successful owned-container
+cleanup. Actual Computer checks, persisted readback and postvisual checks remain
+pending; PR348 is draft and unmerged.
+
+The isolated successor `codex/refactor-receipts-payroll-combined-20261030` combines
+that source with independently reviewed Purchase Order receiving persistence and
+manual payroll adjustment creation. Its shared Inventory imports/types preserve
+the prior edit behavior and the reviewed public receipt participant. The People
+slice adds canonical adjustment and factory types while preserving stored values,
+query binding, constraints, scope/lock order and the separate reversal writer.
+Six approved receipt cases and two approved payroll race/rollback wrappers are
+added to the existing 191-case gate: 182 primary plus 17 supplemental cases.
+PR349 froze this successor at `f35eb109`; exact-head backend/frontend CI and all
+199 required PG cases passed. Actual Computer/readback and postvisual acceptance
+remain pending. The original operation branches, failed local runs and exact-source
+receipts remain preserved.
+
+The current isolated verification branch combines four frozen candidates:
+
+| Candidate | Frozen source | Component evidence | Remaining gates |
+| --- | --- | --- | --- |
+| PR349 | `f35eb109` | Backend/frontend CI and 199 required PG cases passed | Computer, persisted readback, postvisual and combined acceptance |
+| PR350 | `703e0130` | Shipment-reopen Finance invoice participant; backend/frontend CI and 169 required PG cases passed | Computer, persisted readback, postvisual and combined acceptance |
+| PR351 | `bcafc730` | Typed standard/Usluga model paid-operation PATCH and schema-owned JSON persistence; backend/frontend CI and 175 exact PG cases passed, including recorded two-worker lock evidence | Computer, persisted readback, historical mapped/read contracts and combined acceptance |
+| PR352 | `b9e75544` | Direct manual/piece finished-goods reserve extraction and typed outputs; source review, 21 stdlib guards and 171 exact PG cases passed, including both observed package-lock waits | Full current CI, API-explorer/adjacent-page visual assessment, readback and combined acceptance |
+
+Component case totals overlap. Their combined registry preserves the union of
+202 primary and 17 supplemental identities: **219 required cases**, not the sum
+of the component totals. No combined runtime pass is claimed yet. The only
+application merge conflict was resolved by retaining both Catalog persistence
+imports; CI conflicts retain both parents' cases, pins and guard methods. A
+diagnostic-only correction prevents reporting an unobserved blocker PID.
+The shared integration branch is unchanged by this isolated preparation.
+
+The integrator owns shared files and serializes landing. Existing operation/type
+gaps, actual browser/readback, bounded recovery/cleanup and independent combined
+acceptance remain open. The full 13-domain scope and named human accountability
+are unchanged.
 
 | Remaining scope | Current next work / evidence required |
 | --- | --- |
-| Catalog | Collection UPDATE (including same-value attribute events and legacy status compatibility); paid-process, model/counter, BOM and image operations |
-| Purchasing | Costing update and shared notification transaction; approval/rejection, conversion, orders and receiving |
-| Inventory | Receiving/receipt edits, transfers, reservations, stocktake, accessory returns and waste handoffs |
-| Sales | Create/update, cancellation/release and Fulfillment public operation/lock boundary |
+| Catalog | PR351 typed paid-operation update verification; Collection/public historical status and stored JSON/mapped/read gaps; model/counter, BOM and image operations |
+| Purchasing | Remaining costing/type consumers, approval/rejection, conversion, orders and receiving |
+| Inventory | Batch-edit candidate verification; receiving/receipt types, transfers, reservations, stocktake, accessory returns and waste handoffs |
+| Sales | Existing typed ready-stock participants retained; direct Fulfillment reserve candidate, release/metadata-repair boundary and broader create/update/cancellation consumers |
 | Planning | Broader order creation, alternate Production writer, requirements and costing contracts |
-| Finance | Typed payment result/replay; invoice issuance/void/reopen, advances and ledger/shipment writers |
+| Finance | Remaining payment consumers/types; invoice issuance/void/reopen, advances and ledger/shipment writers |
 | Production | Shared Sewing and stage transitions, correction paths and route/private-helper reach-through |
-| Packaging | Contents, allocation/identity, corrections, labels and lifecycle writers |
+| Packaging | Selected print-run candidate verification; contents, allocation/identity, corrections, labels and lifecycle writers |
 | Fulfillment | Receipts/finished stock, reservation/release, shipment/delivery/reversal and returns |
 | Identity | Factory/auth context, user access and account operations |
 | People | Employee/attendance/payroll contracts, writes and locking |

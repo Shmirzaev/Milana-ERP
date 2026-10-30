@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from fastapi import HTTPException
+from app.libs.enums.factory import FactoryCode
 from app.models.user_access_service import apply_policy, denied_for, policy_for
 
-FACTORY_CODES = ("MIL", "BST", "ECO")
+FACTORY_CODES = tuple(factory_code.value for factory_code in FactoryCode)
 FACTORY_LABELS = {"MIL": "Milana", "BST": "Besttex", "ECO": "Eco Cotton"}
 FACTORY_PERMISSION_PREFIX = "factory:"
 DEPARTMENT_FACTORIES = {

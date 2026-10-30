@@ -10,7 +10,7 @@ transaction stay in
 
 from sqlalchemy.orm import Session
 
-from app.libs.types.catalog import NormalizedBomCreate, NormalizedBomUpdate
+from app.libs.types.catalog import NormalizedBomCreate, NormalizedBomUpdate, StockBatchBomRelinkCommand
 from app.schemas.catalog.catalog import ModelBOM
 
 
@@ -69,3 +69,10 @@ def delete_model_bom(db: Session, row: ModelBOM) -> None:
     helper performs no query, flush, commit or rollback.
     """
     db.delete(row)
+
+
+def relink_stock_batch_boms(db: Session, command: StockBatchBomRelinkCommand) -> int:
+    """Update the Catalog-owned BOM links selected by one stock batch id."""
+    return db.query(ModelBOM).filter(
+        ModelBOM.stock_batch_id == command["stock_batch_id"],
+    ).update({ModelBOM.item_id: command["item_id"]}, synchronize_session=False)

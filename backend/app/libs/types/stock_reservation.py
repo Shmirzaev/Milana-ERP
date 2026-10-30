@@ -50,3 +50,23 @@ class PieceReservationResult:
 class PackReservationResult:
     reservations: tuple[ReservationSummary, ...]
     piece_quantities_by_demand: dict[str, int]
+
+
+@dataclass(frozen=True)
+class ManualPackageReservationResult:
+    """Saved direct reservation of one complete manual package."""
+
+    stock_id: int
+    package_id: int
+    quantity: int
+
+
+@dataclass(frozen=True)
+class PieceStockReservationResult:
+    """Saved direct piece reservation of one stock row."""
+
+    stock_id: int
+    quantity: int
+
+
+DirectStockReservationResult = ManualPackageReservationResult | PieceStockReservationResult

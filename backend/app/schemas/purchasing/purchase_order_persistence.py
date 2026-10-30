@@ -86,3 +86,27 @@ def apply_purchase_request_conversion(
     The caller owns the lock, the flush and the outer transaction.
     """
     request.status = status.value
+
+
+def apply_purchase_order_line_receipt(
+    line: PurchaseOrderLine,
+    *,
+    received_quantity: float,
+    unit_cost: Decimal | None,
+    warehouse_id: int | None,
+) -> None:
+    """Apply receipt values already decided by the Purchasing service."""
+    line.received_quantity = received_quantity
+    if unit_cost is not None:
+        line.unit_cost = unit_cost
+    if warehouse_id is not None:
+        line.warehouse_id = warehouse_id
+
+
+def apply_purchase_order_receipt_status(
+    order: PurchaseOrder,
+    *,
+    status: PurchaseOrderStatus,
+) -> None:
+    """Store the receiving service's decided lifecycle status."""
+    order.status = status.value

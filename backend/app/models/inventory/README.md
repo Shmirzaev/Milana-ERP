@@ -31,7 +31,7 @@ This directory is the group's service package. Each module owns one responsibili
 
 | File | Responsibility | Owns |
 | --- | --- | --- |
-| [stock_service.py](stock_service.py) | Items, warehouses, stock view, stock adjustment, receipts, accessory issue/return, batch edits, archive/restore, batch list. | commit for every write; batch row locks (`_locked_stock_batch_statement`, `_locked_active_batch_reservations_statement`); QC normalisation; image-URL policy; force-override refusal; materials-only scope. |
+| [stock_service.py](stock_service.py) | Items, warehouses, stock view, stock adjustment, receipts, accessory issue/return, batch edits, archive/restore, batch list. | commits user-facing writes; public `record_purchase_order_stock_receipt` is a same-Session participant for Purchasing; batch row locks (`_locked_stock_batch_statement`, `_locked_active_batch_reservations_statement`); QC normalisation; image-URL policy; force-override refusal; materials-only scope. |
 | [reservations_service.py](reservations_service.py) | Reserve, auto-reserve, release and consume material reservations, and the reservation plan. | commit for every write; idempotency scope `inventory.reservations.create`; failure audit for refused creates. |
 | [transfers_service.py](transfers_service.py) | Material transfers between warehouses and the Eco Cotton fabric register (scan/send/return/report/PDF). | commit for every write; batch-before-item lock order; `inventory.transfer` idempotency scope; Eco ownership and outstanding-roll refusals. |
 | [fabric_scans_service.py](fabric_scans_service.py) | Daily fabric scan register plus the shared roll-code parser `parse_roll` and the Tashkent business date. | Owns the authorization/validation and duplicate-query order, immutable roll snapshot, duplicate replay and one commit; it uses the schema-owned scan insert with the same Session. |
@@ -74,6 +74,11 @@ normalisation), [eco_transfer_pdf_service.py](../eco_transfer_pdf_service.py) (E
   schema-owned audit/idempotency writers and one outer service commit. Other
   Inventory operations still contain direct writes and require their own study,
   extraction and verification; the service-folder move did not complete them.
+- Purchase order receiving calls Inventory's public
+  `stock_service.record_purchase_order_stock_receipt` participant with a typed
+  normalized command. It stages Inventory's batch/movement pair in Purchasing's
+  transaction; it does not duplicate Inventory's endpoint authorization, replay,
+  audit or commit behavior.
 - The daily fabric scan operation delegates its one register-row insert to
   `schemas/inventory/fabric_scan_persistence.py`. It never writes stock or
   movements. Its typed request/result/report use the fixed direction and

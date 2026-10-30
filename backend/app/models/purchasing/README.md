@@ -111,9 +111,55 @@ Receipt QC uses `StockBatchQcStatus` in the HTTP contract and validated command;
 storage stays a plain string. Empty input retains the historical `passed`
 fallback and its original idempotency fingerprint. Unsupported nonempty QC
 values now receive 422 at request validation rather than failing a later
-database CHECK; direct legacy core callers still retain their old string path.
-Receipt stock, movement and order-line/header mapped writes remain a separate
-schema-owned persistence migration. This enum change does not complete that work.
+database CHECK. The only production caller of the core is the typed receiving
+service; supported direct legacy test values pass through an explicit
+Purchasing adapter to the canonical enum. An unsupported value supplied by an
+internal direct caller now raises `ValueError` during an all-lines preflight,
+before any receipt write is staged, instead of reaching the old database CHECK
+and raising an integrity error. The old CHECK rejects these values, so no
+accepted QC value is removed. The HTTP request's original
+QC text remains private to the replay fingerprint. PO receipt stock writes enter
+Inventory through `record_purchase_order_stock_receipt` on the caller's Session;
+Purchasing retains the single outer commit. Inventory owns batch/movement
+construction; Purchasing's schema operations own line and header mutations. The
+participant does not perform access checks, replay, audit or commit.
+
+The receive route and replay snapshot use `PurchaseOrderReceiptOut` with
+`PurchaseOrderStatus`; it preserves the existing five wire strings. General
+`PurchaseOrderOut` remains string-typed because its readers historically accept
+custom stored values. The mapped status is an unconstrained `String(32)` and no
+authorized production snapshot was read for this operation. An existing test's
+`historical_custom` value documents acceptance at the general read contract, but
+does not establish production prevalence. The receipt DTO intentionally rejects
+values outside the canonical enum; resolving historical data remains a separate
+source/value reconciliation item, with no coercion or storage rewrite here.
+
+### Receipt operation value ledger
+
+- Converted consumers: the receive command uses its existing canonical
+  `StockBatchQcStatus`; the Inventory participant command also uses that enum.
+  Receiving checks and writes use `PurchaseOrderStatus` for the receivable subset
+  and decided header status. The receive route and its saved response use
+  `PurchaseOrderReceiptOut.status: PurchaseOrderStatus`.
+- Preserved storage and wire values: QC and order status remain String columns;
+  enum `.value` is used at the schema boundary. The route's raw QC spelling is
+  retained only for the original idempotency fingerprint; direct core callers'
+  supported raw QC strings are adapted at the Purchasing boundary.
+- Intentional invalid internal-input change: an unsupported direct-core QC
+  value now raises `ValueError` in the all-lines preflight before any receipt
+  participant is called. Previously it reached the database CHECK and raised
+  an integrity error; the constraint rejects it, and the typed production
+  caller cannot provide such a value. A regression test covers a valid first
+  line followed by invalid QC, no staged/committed effects, rollback and one
+  successful retry.
+- Retained general read contract: list/create/conversion consumers that use
+  `PurchaseOrderOut` keep its historical `status: str` projection. Its old
+  `historical_custom` characterization remains valid. Actual production values
+  outside `PurchaseOrderStatus` were not inspected; the receipt-specific DTO
+  rejects such values without coercion, leaving real historical prevalence open.
+- Retained free-form values: `StockBatch.color_status`, descriptive batch text,
+  and identifiers remain strings. Movement type is serialized by Inventory's
+  stock persistence writer as canonical `StockMovementType.RECEIVE`.
 
 Verify partial/repeated receiving, kg versus metre quantities, item access, totals and rollback. Visually check purchase request approval, order receiving and the resulting stock batch.
 

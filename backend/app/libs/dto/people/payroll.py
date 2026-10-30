@@ -1,10 +1,13 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic_core import PydanticCustomError
 
 from app.libs.dto.common import ORMModel
+from app.libs.enums.factory import FactoryCode
+from app.libs.enums.people import PayrollAdjustmentType
 
 
 PayrollQrStoredAmount = Annotated[
@@ -467,7 +470,7 @@ class PayrollSummaryOut(BaseModel):
 class PayrollAdjustmentIn(BaseModel):
     payroll_period_id: int | None = None
     employee_id: int
-    adjustment_type: Literal["bonus", "deduction"] | None = None
+    adjustment_type: PayrollAdjustmentType | None = None
     amount: Decimal | float | int | str
     currency: str = "UZS"
     reason: str = Field(max_length=255)
@@ -477,9 +480,25 @@ class PayrollAdjustmentIn(BaseModel):
     def normalize_adjustment_type(cls, value):
         if value is None:
             return None
+        if isinstance(value, PayrollAdjustmentType):
+            return value
         if isinstance(value, str):
-            return value.strip().lower() or None
-        return value
+            normalized = value.strip().lower()
+            if not normalized:
+                return None
+            try:
+                return PayrollAdjustmentType(normalized)
+            except ValueError as exc:
+                raise PydanticCustomError(
+                    "literal_error",
+                    "Input should be {expected}",
+                    {"expected": "'bonus' or 'deduction'"},
+                ) from exc
+        raise PydanticCustomError(
+            "literal_error",
+            "Input should be {expected}",
+            {"expected": "'bonus' or 'deduction'"},
+        )
 
 
 class PayrollRecordReversalIn(BaseModel):
@@ -489,11 +508,11 @@ class PayrollRecordReversalIn(BaseModel):
 
 class PayrollAdjustmentOut(ORMModel):
     id: int
-    factory_code: str
+    factory_code: FactoryCode
     payroll_period_id: int | None = None
     source_payroll_record_id: int | None = None
     employee_id: int
-    adjustment_type: str
+    adjustment_type: PayrollAdjustmentType
     amount: Decimal
     signed_amount: Decimal
     currency: str

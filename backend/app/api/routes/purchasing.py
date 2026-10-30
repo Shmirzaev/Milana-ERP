@@ -5,7 +5,10 @@ from fastapi import APIRouter, Depends, File, Header, Query, UploadFile
 
 from app.core.deps import DbSession, require_permissions
 from app.libs.dto.purchasing.purchase_order_input import PurchaseOrderIn, PurchaseOrderReceiveIn
-from app.libs.dto.purchasing.purchase_order_output import PurchaseOrderCreationOut, PurchaseOrderOut
+from app.libs.dto.purchasing.purchase_order_output import (
+    PurchaseOrderCreationOut,
+    PurchaseOrderReceiptOut,
+)
 from app.libs.dto.purchasing.purchase_request_input import (
     PurchaseRequestApprovalIn,
     PurchaseRequestIn,
@@ -116,7 +119,7 @@ def create_order(
     return orders_service.create_purchase_order(db, payload=payload, current=current)
 
 
-@router.post("/orders/{order_id}/receive", response_model=PurchaseOrderOut)
+@router.post("/orders/{order_id}/receive", response_model=PurchaseOrderReceiptOut)
 def receive_order(
     order_id: int,
     payload: PurchaseOrderReceiveIn,

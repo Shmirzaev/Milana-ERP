@@ -17,11 +17,23 @@ not appended here. This summary does not replace live release verification.
 
 ## Active whole-ERP refactor
 
-PR343 merged three verified persistence operations into `clone_main` at
-`d235cf9e9a44b1de81428beb261f8fab837cbe87`; this did not deploy them. The owner
-resumed all remaining domains with cheap isolated subagents on 30 October.
-Collection UPDATE, Purchasing costing/notification persistence and typed Finance
-payment results are the current candidate batch, with verification still pending.
+PR347 merged the verified Collection UPDATE, Purchasing costing/notification
+persistence and typed Finance payment-result slice into `clone_main` at
+`ff1542f02c137f24fc9fe78492aa69aa463a7293`, following PR343. No deployment occurred.
+The owner resumed all remaining domains with cheap isolated subagents on 30 October.
+PR348 freezes Inventory batch-edit and Packaging selected print-run persistence
+at `e6935401`; exact-head backend/frontend and 191 mandatory PG cases passed.
+PR349 adds reviewed Purchase Order receiving and manual payroll adjustment creation;
+its exact `f35eb109` backend/frontend CI and 199 required PG cases passed. PR350's
+shipment-reopen invoice participant passed full CI/169 PG cases at `703e0130`;
+PR351's typed model paid-operation updates passed full CI/175 exact PG cases at
+`bcafc730`. PR352 freezes direct manual/piece stock reservation at `b9e75544`,
+with source review accepted and 171 exact required PG cases passed; full CI remains pending.
+An isolated combined candidate preserves 219 unique required PG identities across
+these inputs; its own execution, Computer/readback, postvisual checks and final
+acceptance remain pending. Original candidates remain frozen; the owner requires
+Comet, Chrome and Telegram to stay open, and local runtime guards remain enforced.
+Collection's canonical/public legacy status typing gap remains explicitly open.
 See [the current operation backlog](REFACTOR_COVERAGE.md#current-integration-and-active-work--30-october-2026).
 No whole-domain, system-wide type or human production acceptance is claimed.
 

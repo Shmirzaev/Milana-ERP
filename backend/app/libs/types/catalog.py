@@ -104,3 +104,10 @@ class NormalizedBomUpdate(TypedDict, total=False):
     quantity_per_piece: float | None
     unit: str | None
     waste_percent: float | None
+
+
+class StockBatchBomRelinkCommand(TypedDict):
+    """Inventory-requested Catalog linkage update, scoped by stock batch."""
+
+    stock_batch_id: int
+    item_id: int

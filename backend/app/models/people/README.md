@@ -54,6 +54,10 @@ Identity owns login accounts/permissions; Production supplies work evidence. Pay
 
 Verify overlapping periods, duplicate scans, locked/paid periods, reversals, factory scope and protected salary fields. Visually check employee editing, attendance reconciliation and payroll approval with allowed/denied roles.
 
+## Current focused operation
+
+- [Manual payroll adjustment creation](payroll_adjustment_create.md) owns only `POST /api/payroll/adjustments`. The separate payroll-record reversal writer and period lifecycle remain outside that slice.
+
 ## Migration steps
 
 Follow [the shared sequence](../README.md#migration-sequence): study route/DB/rules
