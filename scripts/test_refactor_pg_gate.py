@@ -32,7 +32,7 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 148)
+        self.assertEqual(sum(counts.values()), 174)
 
     def test_skipped_failed_and_error_evidence_are_rejected(self):
         for tag in ('skipped', 'failure', 'error'):
@@ -90,6 +90,67 @@ class RequiredPGGateTests(unittest.TestCase):
                       classname='app.tests.test_bom_add_characterization', name='new_case')
         counts = gate.check_report(self.write_report(tree))
         self.assertEqual(counts['test_bom_add_characterization'], 55)
+
+    def test_each_new_refactor_pg_case_identity_is_required(self):
+        new_modules = (
+            'test_stock_batch_edit_postgres',
+            'test_finance_payment_output_postgres',
+            'test_collection_update_postgres',
+            'test_price_calculation_purchasing_postgres',
+            'test_package_print_run_postgres',
+        )
+        for module in new_modules:
+            for required_name in gate.REQUIRED_CASES[module]:
+                with self.subTest(module=module, case=required_name):
+                    tree = self.report()
+                    case = next(
+                        item for item in tree.iter('testcase')
+                        if item.get('classname') == f'app.tests.{module}'
+                        and item.get('name') == required_name
+                    )
+                    case.set('name', 'unrelated_replacement_case')
+                    with self.assertRaisesRegex(ValueError, 'function missing|case identities missing'):
+                        gate.check_report(self.write_report(tree))
+
+    def test_each_new_refactor_pg_group_is_required_even_when_total_is_preserved(self):
+        new_modules = (
+            'test_stock_batch_edit_postgres',
+            'test_finance_payment_output_postgres',
+            'test_collection_update_postgres',
+            'test_price_calculation_purchasing_postgres',
+            'test_package_print_run_postgres',
+        )
+        for module in new_modules:
+            with self.subTest(module=module):
+                tree = self.report()
+                suite = next(tree.iter('testsuite'))
+                selected = [
+                    case for case in tree.iter('testcase')
+                    if case.get('classname') == f'app.tests.{module}'
+                ]
+                for case in selected:
+                    suite.remove(case)
+                for index in range(len(selected)):
+                    ET.SubElement(
+                        suite,
+                        'testcase',
+                        classname='app.tests.test_bom_add_characterization',
+                        name=f'extra_replacement_{module}_{index}',
+                    )
+                with self.assertRaisesRegex(ValueError, 'expected at least'):
+                    gate.check_report(self.write_report(tree))
+
+    def test_skip_in_new_refactor_pg_case_is_rejected(self):
+        tree = self.report()
+        case = next(
+            item for item in tree.iter('testcase')
+            if item.get('classname') == 'app.tests.test_stock_batch_edit_postgres'
+            and item.get('name') ==
+            'test_pg_batch_edit_refusals_leave_all_rows_and_audit_unchanged[reserved_warehouse]'
+        )
+        ET.SubElement(case, 'skipped')
+        with self.assertRaisesRegex(ValueError, 'did not pass'):
+            gate.check_report(self.write_report(tree))
 
     def test_empty_and_malformed_evidence_fail(self):
         with self.assertRaisesRegex(ValueError, 'no test cases'):

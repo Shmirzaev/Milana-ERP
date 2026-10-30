@@ -2,8 +2,8 @@
 
 ## Current integration and active work — 30 October 2026
 
-`clone_main` is verified at `d235cf9e9a44b1de81428beb261f8fab837cbe87`, tree
-`33b45e218c57e285e14df48bd166fe04309c95b9`. PR343 merged Supplier DELETE,
+`clone_main` is verified at `ff1542f02c137f24fc9fe78492aa69aa463a7293`, tree
+`649f430e01a1fabc6d97055d91c9bdd009bf7f3a`. Earlier PR343 merged Supplier DELETE,
 Inventory Item CREATE and Sales DELETE after exact-source CI, Computer visual
 checks, persisted/audit readback, independent review, and 40 explicit PostgreSQL
 cases with zero failures/errors/skips. Owned disposable targets and runtimes
@@ -13,22 +13,43 @@ in the source-checkpoint queue must not be read as current status.
 
 The owner explicitly resumed the full remaining scope on 30 October, requesting
 cheap parallel subagents. This includes all 13 domains and shared writers; named
-human accountability below is unchanged. Three isolated workers are preparing
-Collection UPDATE, Finance payment-output typing and Purchasing costing-update
-on the current base. The integrator owns shared notification persistence and
-serializes combined-source verification. None of these new candidates is yet
-runtime-verified or merged. Previously frozen candidates remain preserved.
+human accountability below is unchanged. PR347 merged Collection UPDATE
+persistence, Finance typed payment results/replay and Purchasing costing/shared
+notification persistence. Exact candidate `0c198e9e` / tree `649f430e` passed 19 focused
+cases, 10 explicit PostgreSQL cases before and after actual Computer checks, current CI,
+separate persisted/audit readbacks and independent review. Both UI targets and
+owned runtimes cleaned up; the merge tree equals the verified candidate tree.
+Browser evidence is desktop English with synthetic allowed roles. Collection's
+public/raw legacy status typing remains unresolved; no domain or production
+acceptance is implied.
+
+The next isolated combined candidate applies Inventory batch-edit and Packaging
+selected print-run freezes to that merge base. Initial combined `78de8944` / tree
+`66811238` passed 116 focused unit/API cases with zero failures/errors/skips. Inventory's
+new identity-pinned PostgreSQL cases include actual edits, cross-domain relinks,
+refusals, rollback/retry and audit-chain checks. The corrected 26-case selection
+(9 Inventory, 7 Packaging and 10 PR347 regression cases) collected successfully.
+Local execution failed on earlier test assumptions and a RAM-reserve stop; the
+interrupted cluster remains preserved offline and will not be reused. The owner
+requires Comet, Chrome and Telegram to remain open, so these 26 cases are being
+added to the existing CI-owned PostgreSQL gate: 174 primary cases plus the unchanged
+17 supplemental cases. Existing 165-case CI success excludes these new cases;
+no expanded PostgreSQL pass is claimed yet. Computer checks, persisted readback,
+bounded integrity/recovery and independent combined acceptance remain pending;
+PR348 stays draft and unmerged.
+The integrator owns shared files and serializes landing. Frozen author candidates
+and earlier failed evidence remain preserved.
 
 | Remaining scope | Current next work / evidence required |
 | --- | --- |
-| Catalog | Collection UPDATE (including same-value attribute events and legacy status compatibility); paid-process, model/counter, BOM and image operations |
-| Purchasing | Costing update and shared notification transaction; approval/rejection, conversion, orders and receiving |
-| Inventory | Receiving/receipt edits, transfers, reservations, stocktake, accessory returns and waste handoffs |
+| Catalog | Collection canonical/public legacy status gap; paid-process, model/counter, BOM and image operations |
+| Purchasing | Remaining costing/type consumers, approval/rejection, conversion, orders and receiving |
+| Inventory | Batch-edit candidate verification; receiving/receipt types, transfers, reservations, stocktake, accessory returns and waste handoffs |
 | Sales | Create/update, cancellation/release and Fulfillment public operation/lock boundary |
 | Planning | Broader order creation, alternate Production writer, requirements and costing contracts |
-| Finance | Typed payment result/replay; invoice issuance/void/reopen, advances and ledger/shipment writers |
+| Finance | Remaining payment consumers/types; invoice issuance/void/reopen, advances and ledger/shipment writers |
 | Production | Shared Sewing and stage transitions, correction paths and route/private-helper reach-through |
-| Packaging | Contents, allocation/identity, corrections, labels and lifecycle writers |
+| Packaging | Selected print-run candidate verification; contents, allocation/identity, corrections, labels and lifecycle writers |
 | Fulfillment | Receipts/finished stock, reservation/release, shipment/delivery/reversal and returns |
 | Identity | Factory/auth context, user access and account operations |
 | People | Employee/attendance/payroll contracts, writes and locking |

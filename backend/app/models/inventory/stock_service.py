@@ -38,8 +38,9 @@ from app.libs.dto.inventory.stock_quantity_adjustment_input import StockQuantity
 from app.libs.dto.inventory.stock_quantity_adjustment_output import StockQuantityAdjustmentOut
 from app.libs.dto.inventory.warehouse_input import WarehouseIn
 from app.libs.enums.inventory import StockBatchQcStatus, StockMovementType
-from app.libs.types.inventory import ItemInsertCommand
+from app.libs.types.inventory import ItemInsertCommand, StockBatchEditCommand, StockBatchEditValues
 from app.models import inventory_access_service as inventory_access
+from app.models.catalog import models_service as catalog_models_service
 from app.models.audit_service import log_action
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 from app.models.inventory_service import (
@@ -77,6 +78,7 @@ from app.schemas import (
 from app.schemas.inventory import item_persistence
 from app.schemas.inventory import stock_movement_persistence
 from app.schemas.inventory import stock_receipt_persistence
+from app.schemas.inventory import stock_batch_persistence
 from app.schemas.inventory import warehouse_persistence
 from app.schemas.inventory.eco_transfer import EcoFabricRoll
 
@@ -99,7 +101,7 @@ def _validate_receiving_warehouse(item: Item, warehouse: Warehouse) -> None:
         raise HTTPException(400, f"{item.name} must be received into {expected_name}")
 
 
-def _normalize_stock_batch_qc_status(value: StockBatchQcStatus | None) -> str:
+def _normalize_stock_batch_qc_status(value: StockBatchQcStatus | None) -> StockBatchQcStatus:
     """Unwrap the validated update member at the existing string storage boundary.
 
     The DTO owns normalization and membership validation. Explicit null still
@@ -107,7 +109,7 @@ def _normalize_stock_batch_qc_status(value: StockBatchQcStatus | None) -> str:
     """
     if value is None:
         raise HTTPException(400, "Invalid QC status")
-    return value.value
+    return value
 
 
 def _require_admin_force(current: User, force: bool) -> None:
@@ -148,28 +150,6 @@ def _delete_stock_batch_receipt_movements(db, movements: list[StockMovement]) ->
     # StockBatch has no ORM relationship to StockMovement, so SQLAlchemy cannot
     # infer the FK delete order. Flush child deletions before deleting the batch.
     db.flush()
-
-
-def _relink_stock_batch_item_references(
-    db,
-    batch_id: int,
-    target_item_id: int,
-    movements: list[StockMovement],
-) -> dict[str, int]:
-    for movement in movements:
-        movement.item_id = target_item_id
-    return {
-        "stock_movements": len(movements),
-        "material_reservations": db.query(MaterialReservation).filter(
-            MaterialReservation.stock_batch_id == batch_id,
-        ).update({MaterialReservation.item_id: target_item_id}, synchronize_session=False),
-        "model_bom": db.query(ModelBOM).filter(
-            ModelBOM.stock_batch_id == batch_id,
-        ).update({ModelBOM.item_id: target_item_id}, synchronize_session=False),
-        "waste_records": db.query(WasteRecord).filter(
-            WasteRecord.batch_id == batch_id,
-        ).update({WasteRecord.item_id: target_item_id}, synchronize_session=False),
-    }
 
 
 def _validate_item_image_url(image_url: str | None) -> str | None:
@@ -1120,7 +1100,6 @@ def update_batch(db, batch_id: int, payload: StockBatchUpdate, current: User, fo
         )
     target_warehouse_id = int(values.get("warehouse_id", old_warehouse_id))
     target_unit = str(values.get("unit", old_unit))
-    delta = target_quantity - old_quantity
     target_item = item
     item_movements: list[StockMovement] = []
     if "item_id" in values:
@@ -1181,50 +1160,83 @@ def update_batch(db, batch_id: int, payload: StockBatchUpdate, current: User, fo
 
     if batch.roll_lengths_m and "piece_count" in values and values["piece_count"] != batch.piece_count:
         raise HTTPException(409, "Cannot change roll count after individual roll lengths have been recorded")
-    for key, value in values.items():
-        setattr(batch, key, value)
-    relinked_item_references: dict[str, int] | None = None
-    if target_item.id != item.id:
-        relinked_item_references = _relink_stock_batch_item_references(
-            db,
-            batch_id,
-            target_item.id,
-            item_movements,
+    edit_values: StockBatchEditValues = {}
+    if "item_id" in values:
+        edit_values["item_id"] = values["item_id"]
+    if "batch_no" in values:
+        edit_values["batch_no"] = values["batch_no"]
+    if "supplier_id" in values:
+        edit_values["supplier_id"] = values["supplier_id"]
+    if "color" in values:
+        edit_values["color"] = values["color"]
+    if "old_code" in values:
+        edit_values["old_code"] = values["old_code"]
+    if "color_code" in values:
+        edit_values["color_code"] = values["color_code"]
+    if "color_status" in values:
+        edit_values["color_status"] = values["color_status"]
+    if "order_no" in values:
+        edit_values["order_no"] = values["order_no"]
+    if "width" in values:
+        edit_values["width"] = values["width"]
+    if "length_m" in values:
+        edit_values["length_m"] = values["length_m"]
+    if "gsm" in values:
+        edit_values["gsm"] = values["gsm"]
+    if "quantity" in values:
+        edit_values["quantity"] = values["quantity"]
+    if "piece_count" in values:
+        edit_values["piece_count"] = values["piece_count"]
+    if "processes" in values:
+        edit_values["processes"] = values["processes"]
+    if "unit" in values:
+        edit_values["unit"] = values["unit"]
+    if "cost_per_unit" in values:
+        edit_values["cost_per_unit"] = values["cost_per_unit"]
+    if "image_url" in values:
+        edit_values["image_url"] = values["image_url"]
+    if "received_date" in values:
+        edit_values["received_date"] = values["received_date"]
+    if "warehouse_id" in values:
+        edit_values["warehouse_id"] = values["warehouse_id"]
+    if "qc_status" in values:
+        edit_values["qc_status"] = values["qc_status"]
+    edit_command = StockBatchEditCommand(
+            values=edit_values,
+            old_warehouse_id=old_warehouse_id,
+            target_warehouse_id=target_warehouse_id,
+            target_quantity=target_quantity,
+            old_quantity=old_quantity,
+            target_unit=target_unit,
+            actor_id=current.id,
+            relink_item_id=int(target_item.id) if target_item.id != item.id else None,
+            item_movements=tuple(item_movements),
         )
+    relinked_item_references = stock_batch_persistence.apply_batch_edit(db, batch, edit_command)
+    if target_item.id != item.id:
+        relinked_item_references["model_bom"] = catalog_models_service.relink_stock_batch_boms_for_inventory(
+            db,
+            stock_batch_id=batch_id,
+            item_id=int(target_item.id),
+        )
+        relinked_item_references["waste_records"] = stock_batch_persistence.relink_batch_waste_items(
+            db,
+            batch_id=batch_id,
+            item_id=int(target_item.id),
+        )
+    stock_batch_persistence.add_batch_edit_movements(db, batch, edit_command)
+    if target_item.id != item.id:
         item = target_item
-
-    if abs(delta) > EPSILON:
-        db.add(StockMovement(
-            movement_type="adjustment" if delta > 0 else "issue",
-            item_id=batch.item_id,
-            batch_id=batch.id,
-            from_warehouse_id=old_warehouse_id if delta < 0 else None,
-            to_warehouse_id=old_warehouse_id if delta > 0 else None,
-            quantity=abs(delta),
-            unit=target_unit,
-            reference_type="StockBatchAdjustment",
-            reference_id=batch.id,
-            created_by=current.id,
-        ))
-    if target_warehouse_id != old_warehouse_id and target_quantity > EPSILON:
-        db.add(StockMovement(
-            movement_type="transfer",
-            item_id=batch.item_id,
-            batch_id=batch.id,
-            from_warehouse_id=old_warehouse_id,
-            to_warehouse_id=target_warehouse_id,
-            quantity=target_quantity,
-            unit=target_unit,
-            reference_type="StockBatchEdit",
-            reference_id=batch.id,
-            created_by=current.id,
-        ))
 
     archive_depleted_material_batch(db, batch, user_id=current.id)
 
     db.flush()
     new_value = {
-        key: (value.isoformat() if isinstance(value, datetime) else value)
+        key: (
+            value.value if isinstance(value, StockBatchQcStatus)
+            else value.isoformat() if isinstance(value, datetime)
+            else value
+        )
         for key, value in values.items()
     }
     if relinked_item_references is not None:
