@@ -116,9 +116,9 @@ class RequiredPGGateTests(unittest.TestCase):
         manifest = json.loads(Path(gate.__file__).with_name(
             'refactor_pg_required_cases.json').read_text(encoding='utf-8'))
         source = manifest['sources'][module]
-        self.assertEqual(source['revision'], '0ac5e8b5b1c87cb0942df9891d57108c8fbe3d56')
+        self.assertEqual(source['revision'], 'ad19fa1082bb8da9621e5d01a3491dd71c917219')
         self.assertEqual(source['git_blob_sha256'],
-                         'd4cf41d73174a13f8cf731a48479fc0e9dd0b8b6e25bdbb0814976a8c234e0be')
+                         '76fd4a71dc343d707367649e3c0063b013153342a091b6b6be31926af37587b6')
         self.assertEqual(tuple(source['selected_functions']), functions)
         self.assertEqual(tuple(manifest['cases'][module]), cases)
         self.assertEqual(gate.GROUPS[module], (20, functions))
