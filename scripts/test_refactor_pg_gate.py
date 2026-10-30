@@ -205,10 +205,10 @@ class RequiredPGGateTests(unittest.TestCase):
             'test_pg_invoice_payment_and_shipment_reopen_serialize_on_invoice_row',
         )
         source = manifest['sources'][module]
-        self.assertEqual(source['revision'], '501b5275b642cab0175e30db2d5c12efacff0b99')
+        self.assertEqual(source['revision'], 'bb00ca3921404fe8482f774752ee0d05db45c180')
         self.assertEqual(
             source['git_blob_sha256'],
-            '8d05b24814032dc01baab55e110a799daf5868962ad3dc4e88c286847fd737cf',
+            'e03a4da9b9da696ede2f908fa9a5b1f6d95fdad17fd77c310167c2950cd24f97',
         )
         self.assertEqual(tuple(source['selected_functions']), expected)
         self.assertEqual(tuple(manifest['cases'][module]), expected)
