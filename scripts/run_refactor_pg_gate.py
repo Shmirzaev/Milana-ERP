@@ -6,6 +6,8 @@ discovers a local server or creates that record from an arbitrary endpoint.
 from __future__ import annotations
 
 import argparse
+import ast
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -129,10 +131,48 @@ GROUPS = {'test_customer_delete_postgres': (9,
                                                   'test_pg_direct_reserve_denied_actor_makes_no_business_writes',
                                                   'test_pg_direct_reserve_competing_piece_requests_do_not_oversell',
                                                   'test_pg_direct_reserve_failure_rolls_back_then_retry')),
- 'test_support_settings_postgres': (16, ('test_pg_section_merge_waits_on_exact_missing_or_existing_lock', 'test_pg_logo_update_waits_on_shared_company_info_lock', 'test_pg_existing_row_wait_refreshes_after_preexisting_row_lock', 'test_pg_settings_failure_rolls_back_and_retry_persists_once', 'test_pg_typed_route_persists_wire_defaults_null_and_audit', 'test_pg_typed_route_denials_invalid_and_unknown_have_no_writes', 'test_pg_typed_route_uses_schema_writer_session_and_one_commit'))}
+ 'test_support_settings_postgres': (16, ('test_pg_section_merge_waits_on_exact_missing_or_existing_lock', 'test_pg_logo_update_waits_on_shared_company_info_lock', 'test_pg_existing_row_wait_refreshes_after_preexisting_row_lock', 'test_pg_settings_failure_rolls_back_and_retry_persists_once', 'test_pg_typed_route_persists_wire_defaults_null_and_audit', 'test_pg_typed_route_denials_invalid_and_unknown_have_no_writes', 'test_pg_typed_route_uses_schema_writer_session_and_one_commit')),
+ 'test_model_image_upload_postgres': (23, ('test_upload_image_type_preserves_null_and_normalization_contract',
+                                           'test_upload_image_type_rejects_values_outside_the_action_subset',
+                                           'test_upload_form_openapi_exposes_enum_contract_for_both_catalog_scopes',
+                                           'test_pg_upload_form_rejects_unknown_enum_before_storage_or_rows',
+                                           'test_pg_upload_persists_typed_image_through_worker_session_and_audits_once',
+                                           'test_pg_upload_route_permission_denial_writes_nothing',
+                                           'test_pg_upload_pattern_type_keeps_nonprimary_contract',
+                                           'test_pg_upload_null_type_preserves_existing_primary',
+                                           'test_pg_document_upload_persists_one_managed_file_without_thumbnails',
+                                           'test_pg_document_upload_precommit_audit_failure_rolls_back_row_and_file',
+                                           'test_pg_document_upload_partial_write_failure_leaves_no_file_or_row',
+                                           'test_pg_cancel_after_worker_commit_keeps_file_and_row',
+                                           'test_pg_cancel_during_image_processing_cleans_files_before_database_write',
+                                           'test_pg_upload_scope_is_rechecked_in_worker_before_mapped_insert'))}
 REQUIRED_CASES = json.loads(
     Path(__file__).with_name("refactor_pg_required_cases.json").read_text(encoding="utf-8")
 )["cases"]
+REQUIRED_SOURCES = json.loads(
+    Path(__file__).with_name("refactor_pg_required_cases.json").read_text(encoding="utf-8")
+)["sources"]
+
+_MODEL_IMAGE_UPLOAD_MODULE = "test_model_image_upload_postgres"
+_MODEL_IMAGE_UPLOAD_REVISION = "35dad5f0fea1a013584da263e1dbc5e76fc0f7f1"
+_MODEL_IMAGE_UPLOAD_BLOB_OID = "01944edceced564efb7fd829f202c06f8ff3b607"
+_MODEL_IMAGE_UPLOAD_BLOB_SHA256 = "97f0633077c4907b5fd3197447ecca40554750e2c1e29f84647ce4d020c236d7"
+_MODEL_IMAGE_UPLOAD_FUNCTIONS = (
+    "test_upload_image_type_preserves_null_and_normalization_contract",
+    "test_upload_image_type_rejects_values_outside_the_action_subset",
+    "test_upload_form_openapi_exposes_enum_contract_for_both_catalog_scopes",
+    "test_pg_upload_form_rejects_unknown_enum_before_storage_or_rows",
+    "test_pg_upload_persists_typed_image_through_worker_session_and_audits_once",
+    "test_pg_upload_route_permission_denial_writes_nothing",
+    "test_pg_upload_pattern_type_keeps_nonprimary_contract",
+    "test_pg_upload_null_type_preserves_existing_primary",
+    "test_pg_document_upload_persists_one_managed_file_without_thumbnails",
+    "test_pg_document_upload_precommit_audit_failure_rolls_back_row_and_file",
+    "test_pg_document_upload_partial_write_failure_leaves_no_file_or_row",
+    "test_pg_cancel_after_worker_commit_keeps_file_and_row",
+    "test_pg_cancel_during_image_processing_cleans_files_before_database_write",
+    "test_pg_upload_scope_is_rechecked_in_worker_before_mapped_insert",
+)
 
 
 def required_nodes() -> list[str]:
@@ -144,6 +184,41 @@ def required_nodes() -> list[str]:
         else:
             result.append(path)
     return result
+
+
+def verify_model_image_upload_source() -> None:
+    """Verify the pinned source from Git objects without resolving HEAD/history."""
+    source = REQUIRED_SOURCES.get(_MODEL_IMAGE_UPLOAD_MODULE)
+    if (not source
+            or source.get("revision") != _MODEL_IMAGE_UPLOAD_REVISION
+            or source.get("git_blob_oid") != _MODEL_IMAGE_UPLOAD_BLOB_OID
+            or source.get("git_blob_sha256") != _MODEL_IMAGE_UPLOAD_BLOB_SHA256
+            or tuple(source.get("selected_functions", ())) != _MODEL_IMAGE_UPLOAD_FUNCTIONS):
+        raise ValueError("required Model image-upload source manifest pin changed")
+
+    repo = Path(__file__).resolve().parents[1]
+    relative_path = f"backend/app/tests/{_MODEL_IMAGE_UPLOAD_MODULE}.py"
+    blob = subprocess.run(
+        ["git", "cat-file", "blob", _MODEL_IMAGE_UPLOAD_BLOB_OID],
+        cwd=repo, check=True, stdout=subprocess.PIPE,
+    ).stdout
+    if hashlib.sha256(blob).hexdigest() != _MODEL_IMAGE_UPLOAD_BLOB_SHA256:
+        raise ValueError("required Model image-upload Git blob hash changed")
+
+    module = ast.parse(blob.decode("utf-8"), filename=relative_path)
+    functions = tuple(
+        node.name for node in module.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_")
+    )
+    if functions != _MODEL_IMAGE_UPLOAD_FUNCTIONS:
+        raise ValueError("required Model image-upload test function identities changed")
+
+    worktree_oid = subprocess.run(
+        ["git", "hash-object", f"--path={relative_path}", "--", relative_path],
+        cwd=repo, check=True, stdout=subprocess.PIPE, text=True,
+    ).stdout.strip()
+    if worktree_oid != _MODEL_IMAGE_UPLOAD_BLOB_OID:
+        raise ValueError("Model image-upload worktree file differs from its pinned Git blob")
 
 
 def check_report(report: Path) -> dict[str, int]:
@@ -222,6 +297,10 @@ def main() -> int:
         return 0
     if os.environ.get("MILANA_REQUIRE_TEST_PG") != "1" or not os.environ.get("MILANA_TEST_PG_INSTANCE"):
         parser.error("required PG gate needs MILANA_REQUIRE_TEST_PG=1 and explicit approved instance")
+    try:
+        verify_model_image_upload_source()
+    except (OSError, subprocess.CalledProcessError, UnicodeDecodeError, ValueError) as exc:
+        parser.error(f"required Model image-upload source verification failed: {exc}")
     report = args.report.resolve()
     # Never accept a stale report after a failed or interrupted pytest process.
     if report.exists():

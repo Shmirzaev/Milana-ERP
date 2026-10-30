@@ -62,7 +62,90 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 233)
+        self.assertEqual(sum(counts.values()), 256)
+
+    def test_model_image_upload_source_and_all_case_nodes_are_frozen(self):
+        module = 'test_model_image_upload_postgres'
+        functions = (
+            'test_upload_image_type_preserves_null_and_normalization_contract',
+            'test_upload_image_type_rejects_values_outside_the_action_subset',
+            'test_upload_form_openapi_exposes_enum_contract_for_both_catalog_scopes',
+            'test_pg_upload_form_rejects_unknown_enum_before_storage_or_rows',
+            'test_pg_upload_persists_typed_image_through_worker_session_and_audits_once',
+            'test_pg_upload_route_permission_denial_writes_nothing',
+            'test_pg_upload_pattern_type_keeps_nonprimary_contract',
+            'test_pg_upload_null_type_preserves_existing_primary',
+            'test_pg_document_upload_persists_one_managed_file_without_thumbnails',
+            'test_pg_document_upload_precommit_audit_failure_rolls_back_row_and_file',
+            'test_pg_document_upload_partial_write_failure_leaves_no_file_or_row',
+            'test_pg_cancel_after_worker_commit_keeps_file_and_row',
+            'test_pg_cancel_during_image_processing_cleans_files_before_database_write',
+            'test_pg_upload_scope_is_rechecked_in_worker_before_mapped_insert',
+        )
+        cases = (
+            'test_upload_image_type_preserves_null_and_normalization_contract[None-None]',
+            'test_upload_image_type_preserves_null_and_normalization_contract[   -None]',
+            'test_upload_image_type_preserves_null_and_normalization_contract[ MODEL -model]',
+            'test_upload_image_type_preserves_null_and_normalization_contract[Material-material]',
+            'test_upload_image_type_preserves_null_and_normalization_contract[pattern-pattern]',
+            'test_upload_image_type_rejects_values_outside_the_action_subset',
+            'test_upload_form_openapi_exposes_enum_contract_for_both_catalog_scopes',
+            'test_pg_upload_form_rejects_unknown_enum_before_storage_or_rows[standard-MIL]',
+            'test_pg_upload_form_rejects_unknown_enum_before_storage_or_rows[usluga-ECO]',
+            'test_pg_upload_persists_typed_image_through_worker_session_and_audits_once[standard-MIL]',
+            'test_pg_upload_persists_typed_image_through_worker_session_and_audits_once[usluga-ECO]',
+            'test_pg_upload_route_permission_denial_writes_nothing[standard]',
+            'test_pg_upload_route_permission_denial_writes_nothing[usluga]',
+            'test_pg_upload_pattern_type_keeps_nonprimary_contract',
+            'test_pg_upload_null_type_preserves_existing_primary[None]',
+            'test_pg_upload_null_type_preserves_existing_primary[   ]',
+            'test_pg_document_upload_persists_one_managed_file_without_thumbnails[standard-MIL]',
+            'test_pg_document_upload_persists_one_managed_file_without_thumbnails[usluga-ECO]',
+            'test_pg_document_upload_precommit_audit_failure_rolls_back_row_and_file',
+            'test_pg_document_upload_partial_write_failure_leaves_no_file_or_row',
+            'test_pg_cancel_after_worker_commit_keeps_file_and_row',
+            'test_pg_cancel_during_image_processing_cleans_files_before_database_write',
+            'test_pg_upload_scope_is_rechecked_in_worker_before_mapped_insert',
+        )
+        manifest = json.loads(Path(gate.__file__).with_name(
+            'refactor_pg_required_cases.json').read_text(encoding='utf-8'))
+        source = manifest['sources'][module]
+        self.assertEqual(source['revision'], '35dad5f0fea1a013584da263e1dbc5e76fc0f7f1')
+        self.assertEqual(source['git_blob_oid'], '01944edceced564efb7fd829f202c06f8ff3b607')
+        self.assertEqual(source['git_blob_sha256'],
+                         '97f0633077c4907b5fd3197447ecca40554750e2c1e29f84647ce4d020c236d7')
+        self.assertEqual(tuple(source['selected_functions']), functions)
+        self.assertEqual(tuple(manifest['cases'][module]), cases)
+        self.assertEqual(gate.GROUPS[module], (23, functions))
+        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 256)
+        self.assertEqual(len(manifest['isolated_supplemental_cases']), 17)
+
+        baseline = dict(manifest)
+        baseline['sources'] = {name: value for name, value in manifest['sources'].items() if name != module}
+        baseline['cases'] = {name: value for name, value in manifest['cases'].items() if name != module}
+        baseline_hash = hashlib.sha256(
+            json.dumps(baseline, sort_keys=True, separators=(',', ':')).encode()
+        ).hexdigest()
+        self.assertEqual(baseline_hash, '42416b8d82f2d2111c31aea841c681041edc0142e7e484e0a30c047431be9e28')
+        gate.verify_model_image_upload_source()
+
+    def test_each_model_image_upload_identity_cannot_be_missing_replaced_or_nonpassing(self):
+        module = 'test_model_image_upload_postgres'
+        for required_name in gate.REQUIRED_CASES[module]:
+            for invalid in ('missing', 'replacement', 'skipped', 'failure', 'error'):
+                with self.subTest(case=required_name, invalid=invalid):
+                    tree = self.report()
+                    case = next(item for item in tree.iter('testcase')
+                                if item.get('classname') == f'app.tests.{module}'
+                                and item.get('name') == required_name)
+                    if invalid == 'missing':
+                        next(tree.iter('testsuite')).remove(case)
+                    elif invalid == 'replacement':
+                        case.set('name', 'unrelated_image_upload_case')
+                    else:
+                        ET.SubElement(case, invalid)
+                    with self.assertRaises(ValueError):
+                        gate.check_report(self.write_report(tree))
 
     def test_model_create_transition_source_cases_and_unrelated_registry_are_frozen(self):
         module = 'test_model_paid_operations_postgres'
@@ -119,7 +202,7 @@ class RequiredPGGateTests(unittest.TestCase):
         ])
         self.assertEqual(tuple(manifest['cases'][module]), retained[:6] + new_create + retained[6:])
         self.assertEqual(gate.GROUPS[module][0], 25)
-        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 233)
+        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 256)
         self.assertEqual(len(manifest['isolated_supplemental_cases']), 17)
         transition = manifest['approved_case_transitions'][0]
         self.assertEqual(transition['removed_required_case'],
@@ -150,7 +233,7 @@ class RequiredPGGateTests(unittest.TestCase):
             'isolated_supplemental_cases': manifest['isolated_supplemental_cases'],
         }
         digest = hashlib.sha256(json.dumps(unrelated, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-        self.assertEqual(digest, 'c5b1c515459d0d6e1f116c8d11d2b66051309195d6a43ecb37307d08e4b8b89d')
+        self.assertEqual(digest, 'a7d2c5f103d702198c8e383eba93cff8528ae5e8b996f12741c2628fa9197bf7')
 
     def test_each_new_model_create_identity_is_required_and_nonpasses_fail(self):
         module = 'test_model_paid_operations_postgres'
