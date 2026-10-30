@@ -48,6 +48,12 @@ GROUPS = {
         "test_concurrent_creation_does_not_duplicate_invoice_numbers",
     )),
     "test_customer_invoice_creation_race": (10, ()),
+    "test_shipment_reopen_invoice_postgres": (4, (
+        "test_pg_shipment_reopen_finance_participant_same_session_and_no_early_commit",
+        "test_pg_shipment_reopen_preflights_every_invoice_before_any_finance_write",
+        "test_pg_shipment_reopen_audit_failure_rolls_back_and_retry_commits_all",
+        "test_pg_invoice_payment_and_shipment_reopen_serialize_on_invoice_row",
+    )),
 }
 REQUIRED_CASES = json.loads(
     Path(__file__).with_name("refactor_pg_required_cases.json").read_text(encoding="utf-8")

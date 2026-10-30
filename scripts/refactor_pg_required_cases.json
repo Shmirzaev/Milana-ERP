@@ -196,6 +196,16 @@
         "test_pg_payment_commit_after_guards_before_delete_flush",
         "test_pg_delete_flush_blocks_payment_until_commit"
       ]
+    },
+    "test_shipment_reopen_invoice_postgres": {
+      "revision": "501b5275b642cab0175e30db2d5c12efacff0b99",
+      "git_blob_sha256": "8d05b24814032dc01baab55e110a799daf5868962ad3dc4e88c286847fd737cf",
+      "selected_functions": [
+        "test_pg_shipment_reopen_finance_participant_same_session_and_no_early_commit",
+        "test_pg_shipment_reopen_preflights_every_invoice_before_any_finance_write",
+        "test_pg_shipment_reopen_audit_failure_rolls_back_and_retry_commits_all",
+        "test_pg_invoice_payment_and_shipment_reopen_serialize_on_invoice_row"
+      ]
     }
   },
   "cases": {
@@ -382,6 +392,12 @@
     "test_customer_delete_reference_race_postgres": [
       "test_pg_payment_commit_after_guards_before_delete_flush",
       "test_pg_delete_flush_blocks_payment_until_commit"
+    ],
+    "test_shipment_reopen_invoice_postgres": [
+      "test_pg_shipment_reopen_finance_participant_same_session_and_no_early_commit",
+      "test_pg_shipment_reopen_preflights_every_invoice_before_any_finance_write",
+      "test_pg_shipment_reopen_audit_failure_rolls_back_and_retry_commits_all",
+      "test_pg_invoice_payment_and_shipment_reopen_serialize_on_invoice_row"
     ]
   },
   "isolated_supplemental_cases": [
