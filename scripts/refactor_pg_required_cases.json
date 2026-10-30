@@ -310,8 +310,8 @@
       ]
     },
     "test_sewing_output_postgres": {
-      "revision": "ad19fa1082bb8da9621e5d01a3491dd71c917219",
-      "git_blob_sha256": "76fd4a71dc343d707367649e3c0063b013153342a091b6b6be31926af37587b6",
+      "revision": "19e095c238356bc90229f927887d63b77e85cf1a",
+      "git_blob_sha256": "a5e7f9aa5a9f2488078bca6a8fb2218501aceb9de8d7cf579c0606e3644fc050",
       "selected_functions": [
         "test_pg_factory_output_persists_all_participants_and_replays_once",
         "test_pg_band_output_uses_the_same_operation_and_preserves_retry_contract",
@@ -322,6 +322,20 @@
         "test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds",
         "test_pg_sewing_output_waits_on_real_work_order_lock",
         "test_pg_band_output_waits_on_same_work_order_lock"
+      ]
+    },
+    "test_accessory_issue_postgres": {
+      "revision": "19e095c238356bc90229f927887d63b77e85cf1a",
+      "git_blob_sha256": "089341420fe4fb49d44296615732e33466aa26b3",
+      "selected_functions": [
+        "test_pg_route_stock_issue_persists_fifo_gate_and_audit_same_session",
+        "test_pg_route_manual_issue_records_without_stock_or_movement",
+        "test_pg_route_permission_denials_leave_business_and_audit_rows_unchanged",
+        "test_pg_repeated_manual_issue_posts_keep_existing_no_idempotency_behavior",
+        "test_pg_duplicate_stock_lines_keep_current_preloop_bom_limit_check",
+        "test_pg_route_refusals_leave_issue_rows_stock_gate_and_audit_unchanged",
+        "test_pg_issue_failure_rolls_back_and_retries_on_same_session",
+        "test_pg_issue_batch_lock_prevents_physical_oversell_with_observed_blocker"
       ]
     }
   },
@@ -623,6 +637,22 @@
       "test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[outer_commit_call]",
       "test_pg_sewing_output_waits_on_real_work_order_lock",
       "test_pg_band_output_waits_on_same_work_order_lock"
+    ],
+    "test_accessory_issue_postgres": [
+      "test_pg_route_stock_issue_persists_fifo_gate_and_audit_same_session",
+      "test_pg_route_manual_issue_records_without_stock_or_movement",
+      "test_pg_route_permission_denials_leave_business_and_audit_rows_unchanged[permissions0]",
+      "test_pg_route_permission_denials_leave_business_and_audit_rows_unchanged[permissions1]",
+      "test_pg_repeated_manual_issue_posts_keep_existing_no_idempotency_behavior",
+      "test_pg_duplicate_stock_lines_keep_current_preloop_bom_limit_check",
+      "test_pg_route_refusals_leave_issue_rows_stock_gate_and_audit_unchanged[wrong_unit]",
+      "test_pg_route_refusals_leave_issue_rows_stock_gate_and_audit_unchanged[over_remaining]",
+      "test_pg_route_refusals_leave_issue_rows_stock_gate_and_audit_unchanged[insufficient]",
+      "test_pg_route_refusals_leave_issue_rows_stock_gate_and_audit_unchanged[manual_name]",
+      "test_pg_issue_failure_rolls_back_and_retries_on_same_session[after_audit_flush]",
+      "test_pg_issue_failure_rolls_back_and_retries_on_same_session[audit_finalize]",
+      "test_pg_issue_failure_rolls_back_and_retries_on_same_session[before_commit]",
+      "test_pg_issue_batch_lock_prevents_physical_oversell_with_observed_blocker"
     ]
   },
   "isolated_supplemental_cases": [

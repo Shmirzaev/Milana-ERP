@@ -131,7 +131,15 @@ GROUPS = {'test_customer_delete_postgres': (9,
                                       'test_pg_work_order_status_filter_uses_enum_and_wire_value',
                                       'test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds',
                                       'test_pg_sewing_output_waits_on_real_work_order_lock',
-                                      'test_pg_band_output_waits_on_same_work_order_lock'))}
+                                      'test_pg_band_output_waits_on_same_work_order_lock')),
+ 'test_accessory_issue_postgres': (14, ('test_pg_route_stock_issue_persists_fifo_gate_and_audit_same_session',
+                                        'test_pg_route_manual_issue_records_without_stock_or_movement',
+                                        'test_pg_route_permission_denials_leave_business_and_audit_rows_unchanged',
+                                        'test_pg_repeated_manual_issue_posts_keep_existing_no_idempotency_behavior',
+                                        'test_pg_duplicate_stock_lines_keep_current_preloop_bom_limit_check',
+                                        'test_pg_route_refusals_leave_issue_rows_stock_gate_and_audit_unchanged',
+                                        'test_pg_issue_failure_rolls_back_and_retries_on_same_session',
+                                        'test_pg_issue_batch_lock_prevents_physical_oversell_with_observed_blocker'))}
 REQUIRED_CASES = json.loads(
     Path(__file__).with_name("refactor_pg_required_cases.json").read_text(encoding="utf-8")
 )["cases"]

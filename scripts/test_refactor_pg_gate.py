@@ -25,6 +25,11 @@ def _unrelated_manifest_digest(manifest, excluded_module):
         frozen, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
+def _canonical_manifest_digest(manifest):
+    return hashlib.sha256(json.dumps(
+        manifest, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
 class RequiredPGGateTests(unittest.TestCase):
     def setUp(self):
         # Avoid changing global tmp settings; these tests never touch a database.
@@ -76,7 +81,7 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 238)
+        self.assertEqual(sum(counts.values()), 252)
 
     def test_sewing_output_source_pin_literal_cases_and_upstream_registry_are_frozen(self):
         module = 'test_sewing_output_postgres'
@@ -116,17 +121,35 @@ class RequiredPGGateTests(unittest.TestCase):
         manifest = json.loads(Path(gate.__file__).with_name(
             'refactor_pg_required_cases.json').read_text(encoding='utf-8'))
         source = manifest['sources'][module]
-        self.assertEqual(source['revision'], 'ad19fa1082bb8da9621e5d01a3491dd71c917219')
+        self.assertEqual(source['revision'], '19e095c238356bc90229f927887d63b77e85cf1a')
         self.assertEqual(source['git_blob_sha256'],
-                         '76fd4a71dc343d707367649e3c0063b013153342a091b6b6be31926af37587b6')
+                         'a5e7f9aa5a9f2488078bca6a8fb2218501aceb9de8d7cf579c0606e3644fc050')
         self.assertEqual(tuple(source['selected_functions']), functions)
         self.assertEqual(tuple(manifest['cases'][module]), cases)
         self.assertEqual(gate.GROUPS[module], (20, functions))
-        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 238)
+        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 252)
         self.assertEqual(len(manifest['isolated_supplemental_cases']), 17)
 
+        # Removing only the new accessory module reconstructs the prior 255-case
+        # manifest. The Sewing source pin is also restored explicitly for clarity.
+        prior_manifest = json.loads(json.dumps(manifest))
+        prior_manifest['sources'].pop('test_accessory_issue_postgres')
+        prior_manifest['cases'].pop('test_accessory_issue_postgres')
+        prior_manifest['sources'][module]['revision'] = 'ad19fa1082bb8da9621e5d01a3491dd71c917219'
+        prior_manifest['sources'][module]['git_blob_sha256'] = (
+            '76fd4a71dc343d707367649e3c0063b013153342a091b6b6be31926af37587b6')
+        self.assertEqual(sum(len(items) for items in prior_manifest['cases'].values()), 238)
+        self.assertEqual(len(prior_manifest['isolated_supplemental_cases']), 17)
+        self.assertEqual(
+            _canonical_manifest_digest(prior_manifest),
+            '834f6ab5d5d9b394c286b802c2984f922fb0a78b5cbb1d6f3a2d092efff074ac',
+        )
+        self.assertEqual(
+            _unrelated_manifest_digest(prior_manifest, module),
+            'c71bc5d2cf0e00281c2aa92d05a09bdb0a6559a5d2152d85e9e68b8b7ce0c0c9',
+        )
         digest = _unrelated_manifest_digest(manifest, module)
-        self.assertEqual(digest, 'c71bc5d2cf0e00281c2aa92d05a09bdb0a6559a5d2152d85e9e68b8b7ce0c0c9')
+        self.assertEqual(digest, '9a21b9cf754e798ee6f3d116c5703a493b8d60e1518569749aeaf2e856d9d0a3')
 
     def test_sewing_upstream_digest_works_without_git_history_or_checkout_cwd(self):
         module = 'test_sewing_output_postgres'
@@ -137,9 +160,85 @@ class RequiredPGGateTests(unittest.TestCase):
             try:
                 os.chdir(outside_checkout)
                 self.assertEqual(_unrelated_manifest_digest(manifest, module),
-                                 'c71bc5d2cf0e00281c2aa92d05a09bdb0a6559a5d2152d85e9e68b8b7ce0c0c9')
+                                 '9a21b9cf754e798ee6f3d116c5703a493b8d60e1518569749aeaf2e856d9d0a3')
             finally:
                 os.chdir(original_cwd)
+
+    def test_accessory_issue_source_pin_all_14_cases_and_upstream_registry_are_frozen(self):
+        module = 'test_accessory_issue_postgres'
+        functions = (
+            'test_pg_route_stock_issue_persists_fifo_gate_and_audit_same_session',
+            'test_pg_route_manual_issue_records_without_stock_or_movement',
+            'test_pg_route_permission_denials_leave_business_and_audit_rows_unchanged',
+            'test_pg_repeated_manual_issue_posts_keep_existing_no_idempotency_behavior',
+            'test_pg_duplicate_stock_lines_keep_current_preloop_bom_limit_check',
+            'test_pg_route_refusals_leave_issue_rows_stock_gate_and_audit_unchanged',
+            'test_pg_issue_failure_rolls_back_and_retries_on_same_session',
+            'test_pg_issue_batch_lock_prevents_physical_oversell_with_observed_blocker',
+        )
+        cases = (
+            'test_pg_route_stock_issue_persists_fifo_gate_and_audit_same_session',
+            'test_pg_route_manual_issue_records_without_stock_or_movement',
+            'test_pg_route_permission_denials_leave_business_and_audit_rows_unchanged[permissions0]',
+            'test_pg_route_permission_denials_leave_business_and_audit_rows_unchanged[permissions1]',
+            'test_pg_repeated_manual_issue_posts_keep_existing_no_idempotency_behavior',
+            'test_pg_duplicate_stock_lines_keep_current_preloop_bom_limit_check',
+            'test_pg_route_refusals_leave_issue_rows_stock_gate_and_audit_unchanged[wrong_unit]',
+            'test_pg_route_refusals_leave_issue_rows_stock_gate_and_audit_unchanged[over_remaining]',
+            'test_pg_route_refusals_leave_issue_rows_stock_gate_and_audit_unchanged[insufficient]',
+            'test_pg_route_refusals_leave_issue_rows_stock_gate_and_audit_unchanged[manual_name]',
+            'test_pg_issue_failure_rolls_back_and_retries_on_same_session[after_audit_flush]',
+            'test_pg_issue_failure_rolls_back_and_retries_on_same_session[audit_finalize]',
+            'test_pg_issue_failure_rolls_back_and_retries_on_same_session[before_commit]',
+            'test_pg_issue_batch_lock_prevents_physical_oversell_with_observed_blocker',
+        )
+        manifest = json.loads(Path(gate.__file__).with_name(
+            'refactor_pg_required_cases.json').read_text(encoding='utf-8'))
+        source = manifest['sources'][module]
+        self.assertEqual(source['revision'], '19e095c238356bc90229f927887d63b77e85cf1a')
+        self.assertEqual(source['git_blob_sha256'],
+                         '089341420fe4fb49d44296615732e33466aa26b3')
+        self.assertEqual(tuple(source['selected_functions']), functions)
+        self.assertEqual(tuple(manifest['cases'][module]), cases)
+        self.assertEqual(gate.GROUPS[module], (14, functions))
+        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 252)
+        self.assertEqual(len(manifest['isolated_supplemental_cases']), 17)
+
+        prior_manifest = json.loads(json.dumps(manifest))
+        prior_manifest['sources'].pop(module)
+        prior_manifest['cases'].pop(module)
+        prior_manifest['sources']['test_sewing_output_postgres']['revision'] = (
+            'ad19fa1082bb8da9621e5d01a3491dd71c917219')
+        prior_manifest['sources']['test_sewing_output_postgres']['git_blob_sha256'] = (
+            '76fd4a71dc343d707367649e3c0063b013153342a091b6b6be31926af37587b6')
+        self.assertEqual(sum(len(items) for items in prior_manifest['cases'].values()), 238)
+        self.assertEqual(len(prior_manifest['isolated_supplemental_cases']), 17)
+        self.assertEqual(
+            _canonical_manifest_digest(prior_manifest),
+            '834f6ab5d5d9b394c286b802c2984f922fb0a78b5cbb1d6f3a2d092efff074ac',
+        )
+        self.assertEqual(
+            _unrelated_manifest_digest(prior_manifest, 'test_sewing_output_postgres'),
+            'c71bc5d2cf0e00281c2aa92d05a09bdb0a6559a5d2152d85e9e68b8b7ce0c0c9',
+        )
+
+    def test_every_accessory_issue_case_is_required_and_nonpasses_fail(self):
+        module = 'test_accessory_issue_postgres'
+        for required_name in gate.REQUIRED_CASES[module]:
+            for invalid in ('replacement', 'skipped', 'failure', 'error'):
+                with self.subTest(case=required_name, invalid=invalid):
+                    tree = self.report()
+                    case = next(
+                        item for item in tree.iter('testcase')
+                        if item.get('classname') == f'app.tests.{module}'
+                        and item.get('name') == required_name
+                    )
+                    if invalid == 'replacement':
+                        case.set('name', 'unrelated_accessory_issue_case')
+                    else:
+                        ET.SubElement(case, invalid)
+                    with self.assertRaises(ValueError):
+                        gate.check_report(self.write_report(tree))
 
     def test_every_sewing_output_case_is_required_and_nonpasses_fail(self):
         module = 'test_sewing_output_postgres'
@@ -221,6 +320,7 @@ class RequiredPGGateTests(unittest.TestCase):
             'test_collection_update_postgres',
             'test_price_calculation_purchasing_postgres',
             'test_package_print_run_postgres',
+            'test_accessory_issue_postgres',
         )
         for module in new_modules:
             for required_name in gate.REQUIRED_CASES[module]:
@@ -242,6 +342,7 @@ class RequiredPGGateTests(unittest.TestCase):
             'test_collection_update_postgres',
             'test_price_calculation_purchasing_postgres',
             'test_package_print_run_postgres',
+            'test_accessory_issue_postgres',
         )
         for module in new_modules:
             with self.subTest(module=module):
