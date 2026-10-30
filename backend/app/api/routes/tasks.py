@@ -3,26 +3,21 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy import func
 
 from app.core.deps import DbSession, CurrentUser
-from app.schemas import Task, User
-from app.libs.enums.work_management import TaskPriority, TaskStatus
+from app.schemas import Task
+from app.libs.enums.work_management import TaskStatus
 from app.libs.dto.work_management.tasks import TaskIn, TaskUpdate, TaskOut
 from app.models.audit_service import log_action
 from app.models.notifications_service import notify
 from app.models.work_management.tasks_service import (
     TaskCreateRefused,
+    TaskUpdateRefused,
     can_manage_tasks as _can_manage,
     create_user_task,
     task_notification_link as _task_link,
+    update_user_task,
 )
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
-
-
-def _require_single_assignee(assigned: int | None, db: DbSession, current: User, is_manager: bool) -> None:
-    if assigned != current.id and not is_manager:
-        raise HTTPException(403, "Only managers can assign tasks to other users")
-    if assigned is not None and not db.get(User, assigned):
-        raise HTTPException(404, "Assigned user not found")
 
 
 @router.get("", response_model=list[TaskOut])
@@ -93,47 +88,18 @@ def get_task(tid: int, db: DbSession, current: CurrentUser):
 
 @router.patch("/{tid}", response_model=TaskOut)
 def update_task(tid: int, payload: TaskUpdate, db: DbSession, current: CurrentUser):
-    t = db.get(Task, tid)
-    if not t: raise HTTPException(404, "Task not found")
-    # Assignees may update status; only managers / creator may change other fields.
-    changes = payload.model_dump(exclude_unset=True)
-    is_assignee = t.assigned_to == current.id
-    is_manager = _can_manage(current)
-    can_edit = is_manager or t.created_by == current.id
-
-    if not can_edit:
-        if not is_assignee:
-            raise HTTPException(403, "Not allowed")
-        # Restrict assignees to status-only changes.
-        allowed = {"status"}
-        if set(changes.keys()) - allowed:
-            raise HTTPException(403, "Assignees can only change status")
-
-    previous_assignee = t.assigned_to
-    if "assigned_to" in changes and changes["assigned_to"] != previous_assignee:
-        _require_single_assignee(changes["assigned_to"], db, current, is_manager)
-    for k, v in changes.items():
-        stored_value = v.value if isinstance(v, (TaskStatus, TaskPriority)) else v
-        setattr(t, k, stored_value)
-        changes[k] = stored_value
-
-    if changes.get("status") == TaskStatus.COMPLETED.value and not t.completed_at:
-        t.completed_at = datetime.now(timezone.utc)
-    elif changes.get("status") and changes["status"] != TaskStatus.COMPLETED.value:
-        t.completed_at = None
-
-    # Notify new assignee if task was reassigned.
-    if "assigned_to" in changes and t.assigned_to and t.assigned_to != previous_assignee:
-        notify(
-            db, user_id=t.assigned_to,
-            title=f"Task reassigned to you: {t.title}",
-            message=(t.description or "")[:280],
-            link=_task_link(t),
-        )
-
-    log_action(db, current, "update", "Task", t.id, new_value=changes)
-    db.commit(); db.refresh(t)
-    return t
+    try:
+        return update_user_task(db, current, tid, payload)
+    except TaskUpdateRefused as refusal:
+        details = {
+            "task_missing": (404, "Task not found"),
+            "not_allowed": (403, "Not allowed"),
+            "assignee_status_only": (403, "Assignees can only change status"),
+            "manager_required": (403, "Only managers can assign tasks to other users"),
+            "assignee_missing": (404, "Assigned user not found"),
+        }
+        status_code, detail = details[refusal.reason]
+        raise HTTPException(status_code, detail) from refusal
 
 
 @router.delete("/{tid}", status_code=204)

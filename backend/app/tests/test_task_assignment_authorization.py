@@ -3,9 +3,9 @@ from uuid import uuid4
 
 import pytest
 
-from app.api.routes import tasks
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
+from app.models.work_management import tasks_service
 from app.schemas import AuditLog, Notification, Role, Task, User
 
 
@@ -290,17 +290,17 @@ def test_assignment_failure_rolls_back_notification_task_and_audit(client, monke
     target, _ = _actor()
     tid = _task(creator, creator)
     before = _snapshot(tid)
-    original = tasks.log_action
+    original = tasks_service.log_action
 
     def fail_after_audit(*args, **kwargs):
         original(*args, **kwargs)
         raise RuntimeError("Synthetic task audit failure")
 
-    monkeypatch.setattr(tasks, "log_action", fail_after_audit)
+    monkeypatch.setattr(tasks_service, "log_action", fail_after_audit)
     with pytest.raises(RuntimeError, match="Synthetic task audit failure"):
         client.patch(f"/api/tasks/{tid}", headers=headers, json={"assigned_to": target})
     assert _snapshot(tid) == before
-    monkeypatch.setattr(tasks, "log_action", original)
+    monkeypatch.setattr(tasks_service, "log_action", original)
     assert client.patch(f"/api/tasks/{tid}", headers=headers, json={"assigned_to": target}).status_code == 200
     after = _snapshot(tid)
     assert after["notifications"] == before["notifications"] + 1 and after["audits"] == before["audits"] + 1

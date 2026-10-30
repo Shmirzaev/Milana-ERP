@@ -1,18 +1,26 @@
-"""Work-management operations for task creation."""
-from datetime import datetime
-from typing import Literal
+"""Work-management operations for user Tasks and system participants."""
+from datetime import datetime, timezone
+from typing import Literal, cast
 
 from sqlalchemy.orm import Session
 
 from app.core.deps import is_admin, user_permissions
 from app.libs.enums.work_management import TaskPriority, TaskStatus
-from app.libs.dto.work_management.tasks import TaskIn
+from app.libs.dto.work_management.tasks import TaskIn, TaskUpdate
+from app.libs.types.work_management import (
+    TaskCompletionTimestampChange,
+    TaskUpdateCommand,
+    TaskUpdateField,
+)
 from app.models.audit_service import log_action
 from app.models.notifications_service import max_bulk_recipients, notify, notify_many
 from app.models.user_access_service import access_configured, permission_denied
 from app.schemas import Task, User
-from app.schemas.work_management.task_persistence import add_stock_shortage_task
-from app.schemas.work_management.task_persistence import add_user_created_task
+from app.schemas.work_management.task_persistence import (
+    add_stock_shortage_task,
+    add_user_created_task,
+    apply_user_task_update,
+)
 
 
 TaskCreateRefusalReason = Literal[
@@ -162,6 +170,123 @@ def create_user_task(db: Session, current: User, payload: TaskIn) -> Task:
         )
     log_action(db, current, "create", "Task", task.id,
                new_value={"title": task.title, "assigned_to": assigned})
+    db.commit()
+    db.refresh(task)
+    return task
+
+
+TaskUpdateRefusalReason = Literal[
+    "task_missing",
+    "not_allowed",
+    "assignee_status_only",
+    "manager_required",
+    "assignee_missing",
+]
+
+
+class TaskUpdateRefused(Exception):
+    """A Task PATCH refusal translated to the established HTTP response."""
+
+    def __init__(self, reason: TaskUpdateRefusalReason):
+        self.reason = reason
+        super().__init__(reason)
+
+
+def _task_update_command(payload: TaskUpdate) -> TaskUpdateCommand:
+    """Keep the DTO's declared fields and explicit-null presence as a typed input."""
+    present_fields = cast(frozenset[TaskUpdateField], frozenset(payload.model_fields_set))
+    return TaskUpdateCommand(
+        present_fields=present_fields,
+        title=payload.title,
+        description=payload.description,
+        assigned_to=payload.assigned_to,
+        status=payload.status,
+        priority=payload.priority,
+        due_date=payload.due_date,
+        entity_type=payload.entity_type,
+        entity_id=payload.entity_id,
+    )
+
+
+def _task_update_audit_values(command: TaskUpdateCommand) -> dict[str, object]:
+    """Serialize only supplied PATCH fields, retaining null and enum wire values."""
+    values: dict[str, object] = {}
+    fields = command.present_fields
+    if "title" in fields:
+        values["title"] = command.title
+    if "description" in fields:
+        values["description"] = command.description
+    if "assigned_to" in fields:
+        values["assigned_to"] = command.assigned_to
+    if "status" in fields:
+        values["status"] = command.status.value if command.status is not None else None
+    if "priority" in fields:
+        values["priority"] = command.priority.value if command.priority is not None else None
+    if "due_date" in fields:
+        values["due_date"] = command.due_date
+    if "entity_type" in fields:
+        values["entity_type"] = command.entity_type
+    if "entity_id" in fields:
+        values["entity_id"] = command.entity_id
+    return values
+
+
+def update_user_task(db: Session, current: User, task_id: int, payload: TaskUpdate) -> Task:
+    """Update one Task, preserving its authorization, side-effect and commit policy."""
+    task = db.get(Task, task_id)
+    if task is None:
+        raise TaskUpdateRefused("task_missing")
+
+    command = _task_update_command(payload)
+    is_assignee = task.assigned_to == current.id
+    is_manager = can_manage_tasks(current)
+    can_edit = is_manager or task.created_by == current.id
+    if not can_edit:
+        if not is_assignee:
+            raise TaskUpdateRefused("not_allowed")
+        if command.present_fields - {"status"}:
+            raise TaskUpdateRefused("assignee_status_only")
+
+    previous_assignee = task.assigned_to
+    if "assigned_to" in command.present_fields and command.assigned_to != previous_assignee:
+        if command.assigned_to != current.id and not is_manager:
+            raise TaskUpdateRefused("manager_required")
+        if command.assigned_to is not None and db.get(User, command.assigned_to) is None:
+            raise TaskUpdateRefused("assignee_missing")
+
+    timestamp_change = TaskCompletionTimestampChange(should_write=False)
+    if "status" in command.present_fields:
+        if command.status is TaskStatus.COMPLETED and not task.completed_at:
+            timestamp_change = TaskCompletionTimestampChange(
+                should_write=True,
+                value=datetime.now(timezone.utc),
+            )
+        elif command.status is not None and command.status is not TaskStatus.COMPLETED:
+            timestamp_change = TaskCompletionTimestampChange(should_write=True, value=None)
+
+    apply_user_task_update(db, task, command, completed_at=timestamp_change)
+
+    if (
+        "assigned_to" in command.present_fields
+        and task.assigned_to
+        and task.assigned_to != previous_assignee
+    ):
+        notify(
+            db,
+            user_id=task.assigned_to,
+            title=f"Task reassigned to you: {task.title}",
+            message=(task.description or "")[:280],
+            link=task_notification_link(task),
+        )
+
+    log_action(
+        db,
+        current,
+        "update",
+        "Task",
+        task.id,
+        new_value=_task_update_audit_values(command),
+    )
     db.commit()
     db.refresh(task)
     return task

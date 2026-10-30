@@ -1,8 +1,9 @@
-"""Schema-owned task insert for the system stock-shortage participant only."""
+"""Schema-owned Task inserts and mapped user-update participation."""
 from datetime import datetime
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.libs.enums.work_management import TaskPriority, TaskStatus
+from app.libs.types.work_management import TaskCompletionTimestampChange, TaskUpdateCommand
 from app.schemas.work_management.tasks import Task
 
 
@@ -43,3 +44,34 @@ def add_user_created_task(
     )
     db.add(row)
     return row
+
+
+def apply_user_task_update(
+    db: Session,
+    row: Task,
+    command: TaskUpdateCommand,
+    *,
+    completed_at: TaskCompletionTimestampChange,
+) -> None:
+    """Apply known user PATCH fields to an attached Task without flushing."""
+    if object_session(row) is not db:
+        raise ValueError("Task PATCH requires the caller's attached Task row")
+    fields = command.present_fields
+    if "title" in fields:
+        row.title = command.title
+    if "description" in fields:
+        row.description = command.description
+    if "assigned_to" in fields:
+        row.assigned_to = command.assigned_to
+    if "status" in fields:
+        row.status = command.status.value if command.status is not None else None
+    if "priority" in fields:
+        row.priority = command.priority.value if command.priority is not None else None
+    if "due_date" in fields:
+        row.due_date = command.due_date
+    if "entity_type" in fields:
+        row.entity_type = command.entity_type
+    if "entity_id" in fields:
+        row.entity_id = command.entity_id
+    if completed_at.should_write:
+        row.completed_at = completed_at.value

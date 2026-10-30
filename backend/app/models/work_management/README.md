@@ -23,6 +23,18 @@ It preserves current assignment permissions, inactive existing-assignee behavior
 notification payloads, broadcast ordering/cap and rollback semantics. It adds no
 idempotency or task locks. Update, delete and complete remain separate operations.
 
+## User-facing Task PATCH
+
+`update_user_task` coordinates the existing creator/manager/assignee rules,
+reassignment notice, completion timestamp and update audit on the request's
+Session. The mapped Task changes are applied by the Work Management schema
+participant; the service owns the single commit and refresh. PATCH presence is
+carried in a typed command so omission remains distinct from explicit null. Null
+for database-required title/status/priority remains a database constraint failure;
+this extraction does not silently define a new HTTP validation policy. The
+dedicated `/complete` operation remains separate, including its notification and
+audit behavior.
+
 TaskStatus/TaskPriority are now canonical fixed-vocabulary contracts for task
 create/update/output and status filtering; the mapped columns remain VARCHAR with
 string values. Historical stored values were not censused here, so output/runtime
