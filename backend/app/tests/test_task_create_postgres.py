@@ -255,6 +255,45 @@ def test_pg_repeated_identical_task_create_requests_remain_distinct(customer_pg_
     chain(sessions)
 
 
+def test_pg_task_broadcast_refuses_when_authenticated_actor_becomes_inactive_before_recipient_select(
+    customer_pg_sessions,
+):
+    from fastapi import HTTPException
+
+    sessions = customer_pg_sessions
+    manager_id = _actor(sessions, manager=True)
+    title = f"No active broadcast recipients {uuid4().hex}"
+
+    with sessions() as db:
+        # The current-user object represents an actor authenticated while
+        # active. Deactivate every persisted user after that read, leaving the
+        # request's already-resolved actor object intact for this race case.
+        manager = _load_actor(db, manager_id)
+        assert manager.is_active is True
+        db.query(User).update({"is_active": False}, synchronize_session=False)
+        db.commit()
+        assert manager.is_active is True
+        before = _counts(db)
+        commits = []
+
+        def record_commit(session):
+            commits.append(session)
+
+        event.listen(db, "after_commit", record_commit)
+        try:
+            with pytest.raises(HTTPException) as refused:
+                task_routes.create_task(
+                    TaskIn.model_validate({"title": title, "assigned_to": -1}), db, manager
+                )
+        finally:
+            event.remove(db, "after_commit", record_commit)
+
+        assert refused.value.status_code == 404
+        assert refused.value.detail == "No active users found"
+        assert _counts(db) == before
+        assert not db.new and commits == []
+
+
 def test_pg_concurrent_task_creates_keep_audit_chain(customer_pg_sessions):
     sessions = customer_pg_sessions
     actor_id = _actor(sessions)
