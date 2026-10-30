@@ -57,7 +57,14 @@ GROUPS = {'test_customer_delete_postgres': (9,
  'test_brand_create_postgres': (2,
                                 ('test_pg_create_duplicate_and_audit',
                                  'test_pg_audit_failure_rolls_back_then_retry')),
- 'test_planning_alternate_creation_postgres': (5, ()),
+ 'test_planning_alternate_creation_postgres': (14,
+                                               ('test_pg_alternate_create_and_existing_order_handoff',
+                                                'test_pg_alternate_optional_material_printing_and_full_children',
+                                                'test_pg_shared_production_writer_keeps_client_general_and_usluga_callers',
+                                                'test_pg_alternate_missing_and_closed_orders_refused',
+                                                'test_pg_alternate_postflush_and_audit_failure_rollback_retry',
+                                                'test_pg_alternate_commit_failure_rolls_back_audit_and_retries_same_session',
+                                                'test_pg_alternate_concurrent_implicit_orders_witness_number_lock_chain')),
  'test_purchase_conversion_postgres': (7, ()),
  'test_bom_add_characterization': (55, ()),
  'test_forecast_review_postgres': (9, ()),
@@ -147,7 +154,57 @@ GROUPS = {'test_customer_delete_postgres': (9,
                                            'test_pg_document_upload_partial_write_failure_leaves_no_file_or_row',
                                            'test_pg_cancel_after_worker_commit_keeps_file_and_row',
                                            'test_pg_cancel_during_image_processing_cleans_files_before_database_write',
-                                           'test_pg_upload_scope_is_rechecked_in_worker_before_mapped_insert'))}
+                                           'test_pg_upload_scope_is_rechecked_in_worker_before_mapped_insert')),
+ 'test_sewing_output_postgres': (20,
+                                 ('test_pg_factory_output_persists_all_participants_and_replays_once',
+                                  'test_pg_band_output_uses_the_same_operation_and_preserves_retry_contract',
+                                  'test_pg_sewing_output_refusals_have_no_persistent_effects',
+                                  'test_pg_real_accessory_gate_refusal_rolls_back_flushed_block_then_retry',
+                                  'test_pg_zero_defect_output_does_not_create_waste_or_advance_its_sequence',
+                                  'test_pg_work_order_status_filter_uses_enum_and_wire_value',
+                                  'test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds',
+                                  'test_pg_sewing_output_waits_on_real_work_order_lock',
+                                  'test_pg_band_output_waits_on_same_work_order_lock')),
+ 'test_task_create_postgres': (11,
+                               ('test_pg_task_create_self_and_single_assignment_share_session_and_audit',
+                                'test_pg_task_broadcast_is_bounded_active_ordered_and_atomic',
+                                'test_pg_task_create_denials_leave_no_task_notification_or_audit',
+                                'test_pg_task_create_failure_after_flush_or_audit_commit_rolls_back_then_retry',
+                                'test_pg_repeated_identical_task_create_requests_remain_distinct',
+                                'test_pg_task_broadcast_refuses_when_authenticated_actor_becomes_inactive_before_recipient_select',
+                                'test_pg_concurrent_task_creates_keep_audit_chain')),
+ 'test_task_update_postgres': (15,
+                               ('test_pg_task_patch_reassignment_notification_audit_and_shared_session',
+                                'test_pg_task_patch_denials_preserve_task_notifications_and_audit',
+                                'test_pg_task_patch_preserves_omission_nullable_values_and_completion_time',
+                                'test_pg_task_patch_explicit_null_not_null_fields_keep_database_failure_semantics',
+                                'test_pg_task_patch_failure_rolls_back_then_retry',
+                                'test_pg_task_patch_concurrent_disjoint_fields_merge_with_two_audits',
+                                'test_pg_task_patch_repeat_has_no_idempotency_or_repeat_assignment_notice')),
+ 'test_task_complete_postgres': (15,
+                                 ('test_pg_task_complete_actor_notification_audit_and_shared_session',
+                                  'test_pg_task_complete_does_not_notify_without_distinct_creator',
+                                  'test_pg_task_complete_denials_preserve_all_task_effects',
+                                  'test_pg_task_complete_missing_row_precedes_actor_authorization',
+                                  'test_pg_task_complete_http_failure_rolls_back_then_fresh_request_retry',
+                                  'test_pg_task_complete_same_session_rollback_clears_audit_state_then_retry',
+                                  'test_pg_task_complete_repeat_resets_timestamp_and_duplicates_notice_and_audit',
+                                  'test_pg_task_complete_concurrent_calls_remain_distinct_without_deduplication')),
+ 'test_task_delete_postgres': (11,
+                               ('test_pg_task_delete_creator_and_manager_share_session_audit_and_keep_notice',
+                                'test_pg_task_delete_denials_preserve_task_notice_audit_and_commit_state',
+                                'test_pg_task_delete_missing_row_precedes_authorization_without_writes',
+                                'test_pg_task_delete_failure_rolls_back_and_retries_on_same_session',
+                                'test_pg_task_delete_two_authorized_sessions_keep_current_duplicate_request_semantics')),
+ 'test_accessory_issue_postgres': (14,
+                                   ('test_pg_route_stock_issue_persists_fifo_gate_and_audit_same_session',
+                                    'test_pg_route_manual_issue_records_without_stock_or_movement',
+                                    'test_pg_route_permission_denials_leave_business_and_audit_rows_unchanged',
+                                    'test_pg_repeated_manual_issue_posts_keep_existing_no_idempotency_behavior',
+                                    'test_pg_duplicate_stock_lines_keep_current_preloop_bom_limit_check',
+                                    'test_pg_route_refusals_leave_issue_rows_stock_gate_and_audit_unchanged',
+                                    'test_pg_issue_failure_rolls_back_and_retries_on_same_session',
+                                    'test_pg_issue_batch_lock_prevents_physical_oversell_with_observed_blocker'))}
 REQUIRED_CASES = json.loads(
     Path(__file__).with_name("refactor_pg_required_cases.json").read_text(encoding="utf-8")
 )["cases"]
@@ -207,6 +264,31 @@ _BOM_UPDATE_FUNCTIONS = (
     "test_post_openapi_nullable_canonical_role_and_id_only_wire",
     "test_blanket_strict_role_mutation_would_break_inventory_compatibility",
 )
+_COMBINED_CASE_SHA256 = {
+    "test_planning_alternate_creation_postgres": "c09a220c6581ca4c4e6f9f70b5077ebd4d14d08c336dcd0e86ed924815df60ed",
+    "test_sewing_output_postgres": "250516d66f65a2f8b58a585a8bba42186ba5b894e2a666d5f1ab0a10f1a0701b",
+    "test_task_create_postgres": "7bdf2d0674e5d53429b12c7d9df62285f0173334398ea06248d382b2a25809ca",
+    "test_task_update_postgres": "634f674398e6ecfbc64a9182377502154a1d288472de97278acf1dcf3b7e5283",
+    "test_task_complete_postgres": "1d71a979423c645da4366572a8437771306a12047a897b482cad413fbac0f05c",
+    "test_task_delete_postgres": "6a110490d8cc0ce3eddad9af2a20fdb2b42220318d44f5ae9b7d9d7174881fad",
+    "test_accessory_issue_postgres": "7c2d430610b5c37c1db5650055ddbd94f321e938624305b8c8266f02ab6b78a7",
+}
+_COMBINED_SOURCE_PINS = {
+    "test_planning_alternate_creation_postgres": (
+        "a93021ff77392f5748563a48e8f98813c635f7f5", "08c60cdd2e8c946223c31ee76b16abc66373520a", "b66fa4b8b08533dc6da6515f01a77deb601fcbccfe95d84f7e134399d17b2620"),
+    "test_sewing_output_postgres": (
+        "a93021ff77392f5748563a48e8f98813c635f7f5", "99950fb85b394e32e95035e0ad8f258f7963b6db", "a5e7f9aa5a9f2488078bca6a8fb2218501aceb9de8d7cf579c0606e3644fc050"),
+    "test_task_create_postgres": (
+        "a93021ff77392f5748563a48e8f98813c635f7f5", "518eae9a7c6b54f46211b065f00613afb0e92ae3", "d698d8f4f013ca9c7143ef4e45aad655e0a21dd67227e883aea4b39ac2ab12e8"),
+    "test_task_update_postgres": (
+        "a93021ff77392f5748563a48e8f98813c635f7f5", "b7d5edd931ae72a74c050aa548e758eb871994db", "37d85902e1bb0eae228ac8928eb9372816bde7f24c1f5e03e7912345d705234e"),
+    "test_task_complete_postgres": (
+        "a93021ff77392f5748563a48e8f98813c635f7f5", "355d0a9d76656281a4b947d11a654aa5b9121eb6", "27483adb76a148d9456f73c2505f6637e70b291e8e1c6f84a82fc3819967ab5f"),
+    "test_task_delete_postgres": (
+        "a93021ff77392f5748563a48e8f98813c635f7f5", "628aba150eb3e62e4ffe2784954a664c2965c744", "1d0fcdbd22a0dc7a3e5608ca19a67b96bfb48da6e7303963768955e5bbcdaf1d"),
+    "test_accessory_issue_postgres": (
+        "a93021ff77392f5748563a48e8f98813c635f7f5", "089341420fe4fb49d44296615732e33466aa26b3", "c09341cdf005973a937603d81372d97b5a4338b079393a8995d355b9dd1990a9"),
+}
 
 
 def required_nodes() -> list[str]:
@@ -290,6 +372,48 @@ def verify_bom_update_source() -> None:
         raise ValueError("BOM characterization worktree file differs from its pinned Git blob")
 
 
+def verify_combined_registration_sources() -> None:
+    """Pin the integrated Planning, Sewing, Task and accessory case union."""
+    repo = Path(__file__).resolve().parents[1]
+    for module, (revision, blob_oid, blob_sha256) in _COMBINED_SOURCE_PINS.items():
+        source = REQUIRED_SOURCES.get(module)
+        functions = GROUPS[module][1]
+        cases = REQUIRED_CASES.get(module, ())
+        if (not source
+                or source.get("revision") != revision
+                or source.get("git_blob_oid") != blob_oid
+                or source.get("git_blob_sha256") != blob_sha256
+                or tuple(source.get("selected_functions", ())) != functions):
+            raise ValueError(f"required combined source manifest pin changed: {module}")
+        case_hash = hashlib.sha256(
+            json.dumps(list(cases), separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        if case_hash != _COMBINED_CASE_SHA256[module]:
+            raise ValueError(f"required combined case identities changed: {module}")
+
+        relative_path = f"backend/app/tests/{module}.py"
+        blob = subprocess.run(
+            ["git", "cat-file", "blob", blob_oid], cwd=repo, check=True,
+            stdout=subprocess.PIPE,
+        ).stdout
+        if hashlib.sha256(blob).hexdigest() != blob_sha256:
+            raise ValueError(f"required combined Git blob hash changed: {module}")
+        parsed = ast.parse(blob.decode("utf-8"), filename=relative_path)
+        actual_functions = tuple(
+            node.name for node in parsed.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name.startswith("test_")
+        )
+        if actual_functions != functions:
+            raise ValueError(f"required combined test functions changed: {module}")
+        worktree_oid = subprocess.run(
+            ["git", "hash-object", f"--path={relative_path}", "--", relative_path],
+            cwd=repo, check=True, stdout=subprocess.PIPE, text=True,
+        ).stdout.strip()
+        if worktree_oid != blob_oid:
+            raise ValueError(f"combined source differs from pinned Git blob: {module}")
+
+
 def check_report(report: Path) -> dict[str, int]:
     cases = list(ET.parse(report).getroot().iter("testcase"))
     if not cases:
@@ -369,6 +493,7 @@ def main() -> int:
     try:
         verify_model_image_upload_source()
         verify_bom_update_source()
+        verify_combined_registration_sources()
     except (OSError, subprocess.CalledProcessError, UnicodeDecodeError, ValueError) as exc:
         parser.error(f"required test source verification failed: {exc}")
     report = args.report.resolve()

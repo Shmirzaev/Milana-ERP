@@ -178,12 +178,17 @@
       ]
     },
     "test_planning_alternate_creation_postgres": {
-      "revision": "e02ecd1648ffebe943872e1eeed4063a5601fd41",
-      "git_blob_sha256": "a4746e221335620f03b7469886d5c0e1a9bff17ed1e88fb2454142bd2a031952",
+      "revision": "a93021ff77392f5748563a48e8f98813c635f7f5",
+      "git_blob_oid": "08c60cdd2e8c946223c31ee76b16abc66373520a",
+      "git_blob_sha256": "b66fa4b8b08533dc6da6515f01a77deb601fcbccfe95d84f7e134399d17b2620",
       "selected_functions": [
         "test_pg_alternate_create_and_existing_order_handoff",
+        "test_pg_alternate_optional_material_printing_and_full_children",
+        "test_pg_shared_production_writer_keeps_client_general_and_usluga_callers",
         "test_pg_alternate_missing_and_closed_orders_refused",
-        "test_pg_alternate_postflush_and_audit_failure_rollback_retry"
+        "test_pg_alternate_postflush_and_audit_failure_rollback_retry",
+        "test_pg_alternate_commit_failure_rolls_back_audit_and_retries_same_session",
+        "test_pg_alternate_concurrent_implicit_orders_witness_number_lock_chain"
       ]
     },
     "test_customer_create_postgres": {
@@ -402,6 +407,92 @@
         "test_pg_cancel_during_image_processing_cleans_files_before_database_write",
         "test_pg_upload_scope_is_rechecked_in_worker_before_mapped_insert"
       ]
+    },
+    "test_accessory_issue_postgres": {
+      "revision": "a93021ff77392f5748563a48e8f98813c635f7f5",
+      "git_blob_oid": "089341420fe4fb49d44296615732e33466aa26b3",
+      "git_blob_sha256": "c09341cdf005973a937603d81372d97b5a4338b079393a8995d355b9dd1990a9",
+      "selected_functions": [
+        "test_pg_route_stock_issue_persists_fifo_gate_and_audit_same_session",
+        "test_pg_route_manual_issue_records_without_stock_or_movement",
+        "test_pg_route_permission_denials_leave_business_and_audit_rows_unchanged",
+        "test_pg_repeated_manual_issue_posts_keep_existing_no_idempotency_behavior",
+        "test_pg_duplicate_stock_lines_keep_current_preloop_bom_limit_check",
+        "test_pg_route_refusals_leave_issue_rows_stock_gate_and_audit_unchanged",
+        "test_pg_issue_failure_rolls_back_and_retries_on_same_session",
+        "test_pg_issue_batch_lock_prevents_physical_oversell_with_observed_blocker"
+      ]
+    },
+    "test_sewing_output_postgres": {
+      "revision": "a93021ff77392f5748563a48e8f98813c635f7f5",
+      "git_blob_oid": "99950fb85b394e32e95035e0ad8f258f7963b6db",
+      "git_blob_sha256": "a5e7f9aa5a9f2488078bca6a8fb2218501aceb9de8d7cf579c0606e3644fc050",
+      "selected_functions": [
+        "test_pg_factory_output_persists_all_participants_and_replays_once",
+        "test_pg_band_output_uses_the_same_operation_and_preserves_retry_contract",
+        "test_pg_sewing_output_refusals_have_no_persistent_effects",
+        "test_pg_real_accessory_gate_refusal_rolls_back_flushed_block_then_retry",
+        "test_pg_zero_defect_output_does_not_create_waste_or_advance_its_sequence",
+        "test_pg_work_order_status_filter_uses_enum_and_wire_value",
+        "test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds",
+        "test_pg_sewing_output_waits_on_real_work_order_lock",
+        "test_pg_band_output_waits_on_same_work_order_lock"
+      ]
+    },
+    "test_task_complete_postgres": {
+      "revision": "a93021ff77392f5748563a48e8f98813c635f7f5",
+      "git_blob_oid": "355d0a9d76656281a4b947d11a654aa5b9121eb6",
+      "git_blob_sha256": "27483adb76a148d9456f73c2505f6637e70b291e8e1c6f84a82fc3819967ab5f",
+      "selected_functions": [
+        "test_pg_task_complete_actor_notification_audit_and_shared_session",
+        "test_pg_task_complete_does_not_notify_without_distinct_creator",
+        "test_pg_task_complete_denials_preserve_all_task_effects",
+        "test_pg_task_complete_missing_row_precedes_actor_authorization",
+        "test_pg_task_complete_http_failure_rolls_back_then_fresh_request_retry",
+        "test_pg_task_complete_same_session_rollback_clears_audit_state_then_retry",
+        "test_pg_task_complete_repeat_resets_timestamp_and_duplicates_notice_and_audit",
+        "test_pg_task_complete_concurrent_calls_remain_distinct_without_deduplication"
+      ]
+    },
+    "test_task_create_postgres": {
+      "revision": "a93021ff77392f5748563a48e8f98813c635f7f5",
+      "git_blob_oid": "518eae9a7c6b54f46211b065f00613afb0e92ae3",
+      "git_blob_sha256": "d698d8f4f013ca9c7143ef4e45aad655e0a21dd67227e883aea4b39ac2ab12e8",
+      "selected_functions": [
+        "test_pg_task_create_self_and_single_assignment_share_session_and_audit",
+        "test_pg_task_broadcast_is_bounded_active_ordered_and_atomic",
+        "test_pg_task_create_denials_leave_no_task_notification_or_audit",
+        "test_pg_task_create_failure_after_flush_or_audit_commit_rolls_back_then_retry",
+        "test_pg_repeated_identical_task_create_requests_remain_distinct",
+        "test_pg_task_broadcast_refuses_when_authenticated_actor_becomes_inactive_before_recipient_select",
+        "test_pg_concurrent_task_creates_keep_audit_chain"
+      ]
+    },
+    "test_task_delete_postgres": {
+      "revision": "a93021ff77392f5748563a48e8f98813c635f7f5",
+      "git_blob_oid": "628aba150eb3e62e4ffe2784954a664c2965c744",
+      "git_blob_sha256": "1d0fcdbd22a0dc7a3e5608ca19a67b96bfb48da6e7303963768955e5bbcdaf1d",
+      "selected_functions": [
+        "test_pg_task_delete_creator_and_manager_share_session_audit_and_keep_notice",
+        "test_pg_task_delete_denials_preserve_task_notice_audit_and_commit_state",
+        "test_pg_task_delete_missing_row_precedes_authorization_without_writes",
+        "test_pg_task_delete_failure_rolls_back_and_retries_on_same_session",
+        "test_pg_task_delete_two_authorized_sessions_keep_current_duplicate_request_semantics"
+      ]
+    },
+    "test_task_update_postgres": {
+      "revision": "a93021ff77392f5748563a48e8f98813c635f7f5",
+      "git_blob_oid": "b7d5edd931ae72a74c050aa548e758eb871994db",
+      "git_blob_sha256": "37d85902e1bb0eae228ac8928eb9372816bde7f24c1f5e03e7912345d705234e",
+      "selected_functions": [
+        "test_pg_task_patch_reassignment_notification_audit_and_shared_session",
+        "test_pg_task_patch_denials_preserve_task_notifications_and_audit",
+        "test_pg_task_patch_preserves_omission_nullable_values_and_completion_time",
+        "test_pg_task_patch_explicit_null_not_null_fields_keep_database_failure_semantics",
+        "test_pg_task_patch_failure_rolls_back_then_retry",
+        "test_pg_task_patch_concurrent_disjoint_fields_merge_with_two_audits",
+        "test_pg_task_patch_repeat_has_no_idempotency_or_repeat_assignment_notice"
+      ]
     }
   },
   "cases": {
@@ -527,11 +618,20 @@
       "test_pg_concurrent_conversion_serializes_and_refuses_second"
     ],
     "test_planning_alternate_creation_postgres": [
+      "test_pg_alternate_commit_failure_rolls_back_audit_and_retries_same_session",
+      "test_pg_alternate_concurrent_implicit_orders_witness_number_lock_chain",
       "test_pg_alternate_create_and_existing_order_handoff",
       "test_pg_alternate_missing_and_closed_orders_refused[closed-400]",
       "test_pg_alternate_missing_and_closed_orders_refused[missing-404]",
+      "test_pg_alternate_optional_material_printing_and_full_children",
+      "test_pg_alternate_postflush_and_audit_failure_rollback_retry[add_work_orders]",
+      "test_pg_alternate_postflush_and_audit_failure_rollback_retry[apply_initial_production_workflow_state]",
       "test_pg_alternate_postflush_and_audit_failure_rollback_retry[insert_branded_planning_order]",
-      "test_pg_alternate_postflush_and_audit_failure_rollback_retry[log_action]"
+      "test_pg_alternate_postflush_and_audit_failure_rollback_retry[insert_production_order]",
+      "test_pg_alternate_postflush_and_audit_failure_rollback_retry[insert_production_order_components]",
+      "test_pg_alternate_postflush_and_audit_failure_rollback_retry[log_action]",
+      "test_pg_alternate_postflush_and_audit_failure_rollback_retry[persist_production_batches]",
+      "test_pg_shared_production_writer_keeps_client_general_and_usluga_callers"
     ],
     "test_customer_create_postgres": [
       "test_pg_route_saves_all_fields_and_audit_same_session",
@@ -723,6 +823,104 @@
       "test_pg_cancel_after_worker_commit_keeps_file_and_row",
       "test_pg_cancel_during_image_processing_cleans_files_before_database_write",
       "test_pg_upload_scope_is_rechecked_in_worker_before_mapped_insert"
+    ],
+    "test_accessory_issue_postgres": [
+      "test_pg_duplicate_stock_lines_keep_current_preloop_bom_limit_check",
+      "test_pg_issue_batch_lock_prevents_physical_oversell_with_observed_blocker",
+      "test_pg_issue_failure_rolls_back_and_retries_on_same_session[after_audit_flush]",
+      "test_pg_issue_failure_rolls_back_and_retries_on_same_session[audit_finalize]",
+      "test_pg_issue_failure_rolls_back_and_retries_on_same_session[before_commit]",
+      "test_pg_repeated_manual_issue_posts_keep_existing_no_idempotency_behavior",
+      "test_pg_route_manual_issue_records_without_stock_or_movement",
+      "test_pg_route_permission_denials_leave_business_and_audit_rows_unchanged[permissions0]",
+      "test_pg_route_permission_denials_leave_business_and_audit_rows_unchanged[permissions1]",
+      "test_pg_route_refusals_leave_issue_rows_stock_gate_and_audit_unchanged[insufficient]",
+      "test_pg_route_refusals_leave_issue_rows_stock_gate_and_audit_unchanged[manual_name]",
+      "test_pg_route_refusals_leave_issue_rows_stock_gate_and_audit_unchanged[over_remaining]",
+      "test_pg_route_refusals_leave_issue_rows_stock_gate_and_audit_unchanged[wrong_unit]",
+      "test_pg_route_stock_issue_persists_fifo_gate_and_audit_same_session"
+    ],
+    "test_sewing_output_postgres": [
+      "test_pg_band_output_uses_the_same_operation_and_preserves_retry_contract",
+      "test_pg_band_output_waits_on_same_work_order_lock",
+      "test_pg_factory_output_persists_all_participants_and_replays_once",
+      "test_pg_real_accessory_gate_refusal_rolls_back_flushed_block_then_retry",
+      "test_pg_sewing_output_refusals_have_no_persistent_effects",
+      "test_pg_sewing_output_waits_on_real_work_order_lock",
+      "test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[accessory_block]",
+      "test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[accounting]",
+      "test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[actual_input]",
+      "test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[audit]",
+      "test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[department]",
+      "test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[idempotency]",
+      "test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[notification]",
+      "test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[outer_commit_call]",
+      "test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[plans]",
+      "test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[record]",
+      "test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[waste]",
+      "test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[workflow]",
+      "test_pg_work_order_status_filter_uses_enum_and_wire_value",
+      "test_pg_zero_defect_output_does_not_create_waste_or_advance_its_sequence"
+    ],
+    "test_task_complete_postgres": [
+      "test_pg_task_complete_actor_notification_audit_and_shared_session[assignee]",
+      "test_pg_task_complete_actor_notification_audit_and_shared_session[manager]",
+      "test_pg_task_complete_concurrent_calls_remain_distinct_without_deduplication",
+      "test_pg_task_complete_denials_preserve_all_task_effects[denied_manager]",
+      "test_pg_task_complete_denials_preserve_all_task_effects[outsider]",
+      "test_pg_task_complete_does_not_notify_without_distinct_creator[missing_creator]",
+      "test_pg_task_complete_does_not_notify_without_distinct_creator[same_actor]",
+      "test_pg_task_complete_http_failure_rolls_back_then_fresh_request_retry[after_notification_flush]",
+      "test_pg_task_complete_http_failure_rolls_back_then_fresh_request_retry[audit_finalize]",
+      "test_pg_task_complete_http_failure_rolls_back_then_fresh_request_retry[before_commit_hook]",
+      "test_pg_task_complete_missing_row_precedes_actor_authorization",
+      "test_pg_task_complete_repeat_resets_timestamp_and_duplicates_notice_and_audit",
+      "test_pg_task_complete_same_session_rollback_clears_audit_state_then_retry[after_notification_flush]",
+      "test_pg_task_complete_same_session_rollback_clears_audit_state_then_retry[audit_finalize]",
+      "test_pg_task_complete_same_session_rollback_clears_audit_state_then_retry[before_commit_hook]"
+    ],
+    "test_task_create_postgres": [
+      "test_pg_concurrent_task_creates_keep_audit_chain",
+      "test_pg_repeated_identical_task_create_requests_remain_distinct",
+      "test_pg_task_broadcast_is_bounded_active_ordered_and_atomic",
+      "test_pg_task_broadcast_refuses_when_authenticated_actor_becomes_inactive_before_recipient_select",
+      "test_pg_task_create_denials_leave_no_task_notification_or_audit",
+      "test_pg_task_create_failure_after_flush_or_audit_commit_rolls_back_then_retry[assigned-audit_commit]",
+      "test_pg_task_create_failure_after_flush_or_audit_commit_rolls_back_then_retry[assigned-notification_after_flush]",
+      "test_pg_task_create_failure_after_flush_or_audit_commit_rolls_back_then_retry[broadcast-audit_commit]",
+      "test_pg_task_create_failure_after_flush_or_audit_commit_rolls_back_then_retry[broadcast-notification_after_flush]",
+      "test_pg_task_create_failure_after_flush_or_audit_commit_rolls_back_then_retry[self-audit_commit]",
+      "test_pg_task_create_self_and_single_assignment_share_session_and_audit"
+    ],
+    "test_task_delete_postgres": [
+      "test_pg_task_delete_creator_and_manager_share_session_audit_and_keep_notice[creator-pending]",
+      "test_pg_task_delete_creator_and_manager_share_session_audit_and_keep_notice[creator_with_manager_denied-completed]",
+      "test_pg_task_delete_creator_and_manager_share_session_audit_and_keep_notice[manager-cancelled]",
+      "test_pg_task_delete_denials_preserve_task_notice_audit_and_commit_state[assignee]",
+      "test_pg_task_delete_denials_preserve_task_notice_audit_and_commit_state[denied_manager]",
+      "test_pg_task_delete_denials_preserve_task_notice_audit_and_commit_state[outsider]",
+      "test_pg_task_delete_failure_rolls_back_and_retries_on_same_session[after_delete_flush]",
+      "test_pg_task_delete_failure_rolls_back_and_retries_on_same_session[audit_finalize]",
+      "test_pg_task_delete_failure_rolls_back_and_retries_on_same_session[before_commit_hook]",
+      "test_pg_task_delete_missing_row_precedes_authorization_without_writes",
+      "test_pg_task_delete_two_authorized_sessions_keep_current_duplicate_request_semantics"
+    ],
+    "test_task_update_postgres": [
+      "test_pg_task_patch_concurrent_disjoint_fields_merge_with_two_audits",
+      "test_pg_task_patch_denials_preserve_task_notifications_and_audit[assignee-payload1-403-Assignees can only change status]",
+      "test_pg_task_patch_denials_preserve_task_notifications_and_audit[creator-payload2-403-Only managers can assign tasks to other users]",
+      "test_pg_task_patch_denials_preserve_task_notifications_and_audit[denied_manager-payload3-403-Only managers can assign tasks to other users]",
+      "test_pg_task_patch_denials_preserve_task_notifications_and_audit[manager-payload4-404-Assigned user not found]",
+      "test_pg_task_patch_denials_preserve_task_notifications_and_audit[outsider-payload0-403-Not allowed]",
+      "test_pg_task_patch_explicit_null_not_null_fields_keep_database_failure_semantics[priority]",
+      "test_pg_task_patch_explicit_null_not_null_fields_keep_database_failure_semantics[status]",
+      "test_pg_task_patch_explicit_null_not_null_fields_keep_database_failure_semantics[title]",
+      "test_pg_task_patch_failure_rolls_back_then_retry[after_notification_flush]",
+      "test_pg_task_patch_failure_rolls_back_then_retry[audit_finalize]",
+      "test_pg_task_patch_failure_rolls_back_then_retry[before_commit_hook]",
+      "test_pg_task_patch_preserves_omission_nullable_values_and_completion_time",
+      "test_pg_task_patch_reassignment_notification_audit_and_shared_session",
+      "test_pg_task_patch_repeat_has_no_idempotency_or_repeat_assignment_notice"
     ]
   },
   "isolated_supplemental_cases": [

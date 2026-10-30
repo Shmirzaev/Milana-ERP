@@ -11,6 +11,157 @@ import xml.etree.ElementTree as ET
 import run_refactor_pg_gate as gate
 
 
+_COMBINED_EXPECTED_CASES = {
+    'test_planning_alternate_creation_postgres': (
+        'test_pg_alternate_commit_failure_rolls_back_audit_and_retries_same_session',
+        'test_pg_alternate_concurrent_implicit_orders_witness_number_lock_chain',
+        'test_pg_alternate_create_and_existing_order_handoff',
+        'test_pg_alternate_missing_and_closed_orders_refused[closed-400]',
+        'test_pg_alternate_missing_and_closed_orders_refused[missing-404]',
+        'test_pg_alternate_optional_material_printing_and_full_children',
+        'test_pg_alternate_postflush_and_audit_failure_rollback_retry[add_work_orders]',
+        'test_pg_alternate_postflush_and_audit_failure_rollback_retry[apply_initial_production_workflow_state]',
+        'test_pg_alternate_postflush_and_audit_failure_rollback_retry[insert_branded_planning_order]',
+        'test_pg_alternate_postflush_and_audit_failure_rollback_retry[insert_production_order]',
+        'test_pg_alternate_postflush_and_audit_failure_rollback_retry[insert_production_order_components]',
+        'test_pg_alternate_postflush_and_audit_failure_rollback_retry[log_action]',
+        'test_pg_alternate_postflush_and_audit_failure_rollback_retry[persist_production_batches]',
+        'test_pg_shared_production_writer_keeps_client_general_and_usluga_callers',
+    ),
+    'test_sewing_output_postgres': (
+        'test_pg_band_output_uses_the_same_operation_and_preserves_retry_contract',
+        'test_pg_band_output_waits_on_same_work_order_lock',
+        'test_pg_factory_output_persists_all_participants_and_replays_once',
+        'test_pg_real_accessory_gate_refusal_rolls_back_flushed_block_then_retry',
+        'test_pg_sewing_output_refusals_have_no_persistent_effects',
+        'test_pg_sewing_output_waits_on_real_work_order_lock',
+        'test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[accessory_block]',
+        'test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[accounting]',
+        'test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[actual_input]',
+        'test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[audit]',
+        'test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[department]',
+        'test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[idempotency]',
+        'test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[notification]',
+        'test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[outer_commit_call]',
+        'test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[plans]',
+        'test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[record]',
+        'test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[waste]',
+        'test_pg_sewing_output_writer_failure_rolls_back_and_retry_succeeds[workflow]',
+        'test_pg_work_order_status_filter_uses_enum_and_wire_value',
+        'test_pg_zero_defect_output_does_not_create_waste_or_advance_its_sequence',
+    ),
+    'test_task_create_postgres': (
+        'test_pg_concurrent_task_creates_keep_audit_chain',
+        'test_pg_repeated_identical_task_create_requests_remain_distinct',
+        'test_pg_task_broadcast_is_bounded_active_ordered_and_atomic',
+        'test_pg_task_broadcast_refuses_when_authenticated_actor_becomes_inactive_before_recipient_select',
+        'test_pg_task_create_denials_leave_no_task_notification_or_audit',
+        'test_pg_task_create_failure_after_flush_or_audit_commit_rolls_back_then_retry[assigned-audit_commit]',
+        'test_pg_task_create_failure_after_flush_or_audit_commit_rolls_back_then_retry[assigned-notification_after_flush]',
+        'test_pg_task_create_failure_after_flush_or_audit_commit_rolls_back_then_retry[broadcast-audit_commit]',
+        'test_pg_task_create_failure_after_flush_or_audit_commit_rolls_back_then_retry[broadcast-notification_after_flush]',
+        'test_pg_task_create_failure_after_flush_or_audit_commit_rolls_back_then_retry[self-audit_commit]',
+        'test_pg_task_create_self_and_single_assignment_share_session_and_audit',
+    ),
+    'test_task_update_postgres': (
+        'test_pg_task_patch_concurrent_disjoint_fields_merge_with_two_audits',
+        'test_pg_task_patch_denials_preserve_task_notifications_and_audit[assignee-payload1-403-Assignees can only change status]',
+        'test_pg_task_patch_denials_preserve_task_notifications_and_audit[creator-payload2-403-Only managers can assign tasks to other users]',
+        'test_pg_task_patch_denials_preserve_task_notifications_and_audit[denied_manager-payload3-403-Only managers can assign tasks to other users]',
+        'test_pg_task_patch_denials_preserve_task_notifications_and_audit[manager-payload4-404-Assigned user not found]',
+        'test_pg_task_patch_denials_preserve_task_notifications_and_audit[outsider-payload0-403-Not allowed]',
+        'test_pg_task_patch_explicit_null_not_null_fields_keep_database_failure_semantics[priority]',
+        'test_pg_task_patch_explicit_null_not_null_fields_keep_database_failure_semantics[status]',
+        'test_pg_task_patch_explicit_null_not_null_fields_keep_database_failure_semantics[title]',
+        'test_pg_task_patch_failure_rolls_back_then_retry[after_notification_flush]',
+        'test_pg_task_patch_failure_rolls_back_then_retry[audit_finalize]',
+        'test_pg_task_patch_failure_rolls_back_then_retry[before_commit_hook]',
+        'test_pg_task_patch_preserves_omission_nullable_values_and_completion_time',
+        'test_pg_task_patch_reassignment_notification_audit_and_shared_session',
+        'test_pg_task_patch_repeat_has_no_idempotency_or_repeat_assignment_notice',
+    ),
+    'test_task_complete_postgres': (
+        'test_pg_task_complete_actor_notification_audit_and_shared_session[assignee]',
+        'test_pg_task_complete_actor_notification_audit_and_shared_session[manager]',
+        'test_pg_task_complete_concurrent_calls_remain_distinct_without_deduplication',
+        'test_pg_task_complete_denials_preserve_all_task_effects[denied_manager]',
+        'test_pg_task_complete_denials_preserve_all_task_effects[outsider]',
+        'test_pg_task_complete_does_not_notify_without_distinct_creator[missing_creator]',
+        'test_pg_task_complete_does_not_notify_without_distinct_creator[same_actor]',
+        'test_pg_task_complete_http_failure_rolls_back_then_fresh_request_retry[after_notification_flush]',
+        'test_pg_task_complete_http_failure_rolls_back_then_fresh_request_retry[audit_finalize]',
+        'test_pg_task_complete_http_failure_rolls_back_then_fresh_request_retry[before_commit_hook]',
+        'test_pg_task_complete_missing_row_precedes_actor_authorization',
+        'test_pg_task_complete_repeat_resets_timestamp_and_duplicates_notice_and_audit',
+        'test_pg_task_complete_same_session_rollback_clears_audit_state_then_retry[after_notification_flush]',
+        'test_pg_task_complete_same_session_rollback_clears_audit_state_then_retry[audit_finalize]',
+        'test_pg_task_complete_same_session_rollback_clears_audit_state_then_retry[before_commit_hook]',
+    ),
+    'test_task_delete_postgres': (
+        'test_pg_task_delete_creator_and_manager_share_session_audit_and_keep_notice[creator-pending]',
+        'test_pg_task_delete_creator_and_manager_share_session_audit_and_keep_notice[creator_with_manager_denied-completed]',
+        'test_pg_task_delete_creator_and_manager_share_session_audit_and_keep_notice[manager-cancelled]',
+        'test_pg_task_delete_denials_preserve_task_notice_audit_and_commit_state[assignee]',
+        'test_pg_task_delete_denials_preserve_task_notice_audit_and_commit_state[denied_manager]',
+        'test_pg_task_delete_denials_preserve_task_notice_audit_and_commit_state[outsider]',
+        'test_pg_task_delete_failure_rolls_back_and_retries_on_same_session[after_delete_flush]',
+        'test_pg_task_delete_failure_rolls_back_and_retries_on_same_session[audit_finalize]',
+        'test_pg_task_delete_failure_rolls_back_and_retries_on_same_session[before_commit_hook]',
+        'test_pg_task_delete_missing_row_precedes_authorization_without_writes',
+        'test_pg_task_delete_two_authorized_sessions_keep_current_duplicate_request_semantics',
+    ),
+    'test_accessory_issue_postgres': (
+        'test_pg_duplicate_stock_lines_keep_current_preloop_bom_limit_check',
+        'test_pg_issue_batch_lock_prevents_physical_oversell_with_observed_blocker',
+        'test_pg_issue_failure_rolls_back_and_retries_on_same_session[after_audit_flush]',
+        'test_pg_issue_failure_rolls_back_and_retries_on_same_session[audit_finalize]',
+        'test_pg_issue_failure_rolls_back_and_retries_on_same_session[before_commit]',
+        'test_pg_repeated_manual_issue_posts_keep_existing_no_idempotency_behavior',
+        'test_pg_route_manual_issue_records_without_stock_or_movement',
+        'test_pg_route_permission_denials_leave_business_and_audit_rows_unchanged[permissions0]',
+        'test_pg_route_permission_denials_leave_business_and_audit_rows_unchanged[permissions1]',
+        'test_pg_route_refusals_leave_issue_rows_stock_gate_and_audit_unchanged[insufficient]',
+        'test_pg_route_refusals_leave_issue_rows_stock_gate_and_audit_unchanged[manual_name]',
+        'test_pg_route_refusals_leave_issue_rows_stock_gate_and_audit_unchanged[over_remaining]',
+        'test_pg_route_refusals_leave_issue_rows_stock_gate_and_audit_unchanged[wrong_unit]',
+        'test_pg_route_stock_issue_persists_fifo_gate_and_audit_same_session',
+    ),
+}
+
+def pre_registration_manifest(manifest):
+    """Reconstruct the complete 276-case BOM baseline before this registration."""
+    prior = json.loads(json.dumps(manifest))
+    prior['cases'].pop('test_sewing_output_postgres')
+    prior['sources'].pop('test_sewing_output_postgres')
+    prior['cases'].pop('test_task_create_postgres')
+    prior['sources'].pop('test_task_create_postgres')
+    prior['cases'].pop('test_task_update_postgres')
+    prior['sources'].pop('test_task_update_postgres')
+    prior['cases'].pop('test_task_complete_postgres')
+    prior['sources'].pop('test_task_complete_postgres')
+    prior['cases'].pop('test_task_delete_postgres')
+    prior['sources'].pop('test_task_delete_postgres')
+    prior['cases'].pop('test_accessory_issue_postgres')
+    prior['sources'].pop('test_accessory_issue_postgres')
+    prior['cases']['test_planning_alternate_creation_postgres'] = [
+        'test_pg_alternate_create_and_existing_order_handoff',
+        'test_pg_alternate_missing_and_closed_orders_refused[closed-400]',
+        'test_pg_alternate_missing_and_closed_orders_refused[missing-404]',
+        'test_pg_alternate_postflush_and_audit_failure_rollback_retry[insert_branded_planning_order]',
+        'test_pg_alternate_postflush_and_audit_failure_rollback_retry[log_action]',
+    ]
+    prior['sources']['test_planning_alternate_creation_postgres'] = {
+        'revision': 'e02ecd1648ffebe943872e1eeed4063a5601fd41',
+        'git_blob_sha256': 'a4746e221335620f03b7469886d5c0e1a9bff17ed1e88fb2454142bd2a031952',
+        'selected_functions': [
+            'test_pg_alternate_create_and_existing_order_handoff',
+            'test_pg_alternate_missing_and_closed_orders_refused',
+            'test_pg_alternate_postflush_and_audit_failure_rollback_retry',
+        ],
+    }
+    return prior
+
+
 class RequiredPGGateTests(unittest.TestCase):
     def setUp(self):
         # Avoid changing global tmp settings; these tests never touch a database.
@@ -62,7 +213,7 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 259)
+        self.assertEqual(sum(counts.values()), 354)
 
     def test_model_image_upload_source_and_all_case_nodes_are_frozen(self):
         module = 'test_model_image_upload_postgres'
@@ -111,8 +262,8 @@ class RequiredPGGateTests(unittest.TestCase):
             'test_pg_cancel_during_image_processing_cleans_files_before_database_write',
             'test_pg_upload_scope_is_rechecked_in_worker_before_mapped_insert',
         )
-        manifest = json.loads(Path(gate.__file__).with_name(
-            'refactor_pg_required_cases.json').read_text(encoding='utf-8'))
+        manifest = pre_registration_manifest(json.loads(Path(gate.__file__).with_name(
+            'refactor_pg_required_cases.json').read_text(encoding='utf-8')))
         source = manifest['sources'][module]
         self.assertEqual(source['revision'], 'ee2e8f01313e6f637fe842a5b6e5f8e1608b5165')
         self.assertEqual(source['git_blob_oid'], '38ce2a27b5c0121318af52c843686cbd7eac0ccc')
@@ -188,8 +339,8 @@ class RequiredPGGateTests(unittest.TestCase):
             'test_upload_response_openapi_preserves_exact_two_key_contract',
             'test_upload_response_dto_has_exact_two_key_json_contract',
         )
-        manifest = json.loads(Path(gate.__file__).with_name(
-            'refactor_pg_required_cases.json').read_text(encoding='utf-8'))
+        manifest = pre_registration_manifest(json.loads(Path(gate.__file__).with_name(
+            'refactor_pg_required_cases.json').read_text(encoding='utf-8')))
         parent = json.loads(json.dumps(manifest))
         parent['sources'][module].update(
             revision='7290b56545c2c6257d6eb9ce9f0a1376e1c7f8e2',
@@ -245,8 +396,8 @@ class RequiredPGGateTests(unittest.TestCase):
     def test_bom_source_refresh_retains_all_old_cases_and_requires_retry_case(self):
         module = 'test_bom_add_characterization'
         new_case = 'test_patch_late_audit_failure_rolls_back_and_same_session_retry'
-        manifest = json.loads(Path(gate.__file__).with_name(
-            'refactor_pg_required_cases.json').read_text(encoding='utf-8'))
+        manifest = pre_registration_manifest(json.loads(Path(gate.__file__).with_name(
+            'refactor_pg_required_cases.json').read_text(encoding='utf-8')))
         source = manifest['sources'][module]
         expected_functions = (
             'test_manual_normalizes_role_name_and_discards_stale_references',
@@ -409,8 +560,8 @@ class RequiredPGGateTests(unittest.TestCase):
             'test_pg_model_create_automatic_number_and_model_rollback_retry_together',
             'test_pg_model_create_variant_waits_for_family_approval_lock',
         )
-        manifest = json.loads(Path(gate.__file__).with_name(
-            'refactor_pg_required_cases.json').read_text(encoding='utf-8'))
+        manifest = pre_registration_manifest(json.loads(Path(gate.__file__).with_name(
+            'refactor_pg_required_cases.json').read_text(encoding='utf-8')))
         source = manifest['sources'][module]
         self.assertEqual(source['revision'], '3855f27052e5e32f1bb3908a274e302205101146')
         self.assertEqual(source['git_blob_sha256'],
@@ -820,6 +971,58 @@ class RequiredPGGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'case identities missing|required PG function missing'):
             gate.check_report(self.write_report(tree))
 
+
+
+    def test_combined_registration_exact_union_and_prior_bom_manifest_are_frozen(self):
+        manifest = json.loads(Path(gate.__file__).with_name(
+            'refactor_pg_required_cases.json').read_text(encoding='utf-8'))
+        self.assertEqual(hashlib.sha256(json.dumps(
+            manifest, sort_keys=True, separators=(',', ':')).encode()
+        ).hexdigest(), '26fe2ea3fecc24c54e58dbec5807aada19b539f537df2fdc09fc5ee919cb1d99')
+        expected_modules = set(_COMBINED_EXPECTED_CASES)
+        self.assertEqual(set(expected_modules) - set(manifest['cases']), set())
+        for module, expected in _COMBINED_EXPECTED_CASES.items():
+            self.assertEqual(tuple(manifest['cases'][module]), expected)
+            self.assertEqual(tuple(gate.REQUIRED_CASES[module]), expected)
+            self.assertEqual(gate.GROUPS[module][0], len(expected))
+            self.assertEqual(set(gate.GROUPS[module][1]), {
+                name.split('[', 1)[0] for name in expected
+            })
+        self.assertEqual(sum(map(len, manifest['cases'].values())), 354)
+        self.assertEqual(len(manifest['cases']), 36)
+        self.assertEqual(len(manifest['isolated_supplemental_cases']), 17)
+        self.assertEqual(gate.verify_combined_registration_sources(), None)
+
+        prior = pre_registration_manifest(manifest)
+        self.assertEqual(sum(map(len, prior['cases'].values())), 259)
+        self.assertEqual(len(prior['cases']), 30)
+        self.assertEqual(len(prior['isolated_supplemental_cases']), 17)
+        self.assertEqual(hashlib.sha256(json.dumps(
+            prior, sort_keys=True, separators=(',', ':')).encode()
+        ).hexdigest(), '41fce3eba85bc816dae05534436487c4b6997c985cca20d9dff8c7eed78ccf7c')
+        added_modules = expected_modules - set(prior['cases'])
+        self.assertEqual(set(manifest['cases']), set(prior['cases']) | added_modules)
+        for module, old_cases in prior['cases'].items():
+            if module == 'test_planning_alternate_creation_postgres':
+                self.assertTrue(set(old_cases).issubset(manifest['cases'][module]))
+            else:
+                self.assertEqual(manifest['cases'][module], old_cases)
+        for module, expected in _COMBINED_EXPECTED_CASES.items():
+            for name in expected:
+                for invalid in ('missing', 'replacement', 'skipped', 'failure', 'error'):
+                    with self.subTest(module=module, case=name, invalid=invalid):
+                        tree = self.report()
+                        node = next(item for item in tree.iter('testcase')
+                                    if item.get('classname') == f'app.tests.{module}'
+                                    and item.get('name') == name)
+                        if invalid == 'missing':
+                            next(tree.iter('testsuite')).remove(node)
+                        elif invalid == 'replacement':
+                            node.set('name', 'unregistered_replacement')
+                        else:
+                            ET.SubElement(node, invalid)
+                        with self.assertRaises(ValueError):
+                            gate.check_report(self.write_report(tree))
 
 
 if __name__ == '__main__':
