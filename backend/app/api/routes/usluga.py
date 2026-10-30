@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -534,7 +535,7 @@ async def upload_usluga_model_image(
     mid: int,
     db: DbSession,
     file: UploadFile = File(...),
-    image_type: ModelImageUploadInput = Form(None),
+    image_type: Annotated[ModelImageUploadInput, Form()] = None,
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)
