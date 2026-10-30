@@ -59,7 +59,7 @@ GROUPS = {'test_customer_delete_postgres': (9,
                                  'test_pg_audit_failure_rolls_back_then_retry')),
  'test_planning_alternate_creation_postgres': (5, ()),
  'test_purchase_conversion_postgres': (7, ()),
- 'test_bom_add_characterization': (54, ()),
+ 'test_bom_add_characterization': (55, ()),
  'test_forecast_review_postgres': (9, ()),
  'test_stock_movement_and_reservation_postgres': (7, ()),
  'test_sales_update_old_behavior': (4,
@@ -173,6 +173,36 @@ _MODEL_IMAGE_UPLOAD_FUNCTIONS = (
     "test_pg_cancel_during_image_processing_cleans_files_before_database_write",
     "test_pg_upload_scope_is_rechecked_in_worker_before_mapped_insert",
 )
+_BOM_UPDATE_MODULE = "test_bom_add_characterization"
+_BOM_UPDATE_REVISION = "52102d4764544e0906f24630f434377b7e7ac259"
+_BOM_UPDATE_BLOB_OID = "812d64c8baf12c812b83f8d8f8968bace1fba442"
+_BOM_UPDATE_BLOB_SHA256 = "eb92b3c28e49b7e77f94452bdaed5e2b008a59716d0052d0b38220a21cecc150"
+_BOM_UPDATE_FUNCTIONS = (
+    "test_manual_normalizes_role_name_and_discards_stale_references",
+    "test_manual_invalid_role_is_currently_service400_and_no_write",
+    "test_inventory_link_ignores_supplied_role_and_whitespace_name",
+    "test_inventory_role_length_still_validated_before_normalization",
+    "test_standard_fabric_discards_nonexistent_batch_and_fills_blank_unit",
+    "test_usluga_disallows_inventory_fabric_and_nonaccessory_categories",
+    "test_batch_link_defaults_and_explicit_overrides",
+    "test_reference_and_photo_failures_do_not_write",
+    "test_batch_must_belong_to_selected_item",
+    "test_wrong_catalog_scope_is404",
+    "test_permission_revocation_is_enforced",
+    "test_usluga_requires_selected_eco_factory",
+    "test_existing_numeric_policy_and_pg_rounding_preserved",
+    "test_second_main409_secondary_repeated_and_other_model_main_allowed",
+    "test_patch_uses_canonical_roles_and_output_keeps_legacy_projection",
+    "test_patch_late_audit_failure_rolls_back_and_same_session_retry",
+    "test_clone_and_variant_copy_roles_without_calling_add_bom",
+    "test_same_session_audit_outer_commit_and_precommit_invisibility",
+    "test_real_audit_failure_rolls_back_bom_and_audit",
+    "test_actual_migration_checks_reject_invalid_storage",
+    "test_nullable_sql_check_is_not_a_nonnull_role_guarantee",
+    "test_competing_main_creates_reach_unique_index_one_business_outcome",
+    "test_post_openapi_nullable_canonical_role_and_id_only_wire",
+    "test_blanket_strict_role_mutation_would_break_inventory_compatibility",
+)
 
 
 def required_nodes() -> list[str]:
@@ -219,6 +249,41 @@ def verify_model_image_upload_source() -> None:
     ).stdout.strip()
     if worktree_oid != _MODEL_IMAGE_UPLOAD_BLOB_OID:
         raise ValueError("Model image-upload worktree file differs from its pinned Git blob")
+
+
+def verify_bom_update_source() -> None:
+    """Verify the BOM characterization source from pinned Git objects only."""
+    source = REQUIRED_SOURCES.get(_BOM_UPDATE_MODULE)
+    if (not source
+            or source.get("revision") != _BOM_UPDATE_REVISION
+            or source.get("git_blob_oid") != _BOM_UPDATE_BLOB_OID
+            or source.get("git_blob_sha256") != _BOM_UPDATE_BLOB_SHA256
+            or tuple(source.get("selected_functions", ())) != _BOM_UPDATE_FUNCTIONS):
+        raise ValueError("required BOM characterization source manifest pin changed")
+
+    repo = Path(__file__).resolve().parents[1]
+    relative_path = f"backend/app/tests/{_BOM_UPDATE_MODULE}.py"
+    blob = subprocess.run(
+        ["git", "cat-file", "blob", _BOM_UPDATE_BLOB_OID],
+        cwd=repo, check=True, stdout=subprocess.PIPE,
+    ).stdout
+    if hashlib.sha256(blob).hexdigest() != _BOM_UPDATE_BLOB_SHA256:
+        raise ValueError("required BOM characterization Git blob hash changed")
+
+    module = ast.parse(blob.decode("utf-8"), filename=relative_path)
+    functions = tuple(
+        node.name for node in module.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_")
+    )
+    if functions != _BOM_UPDATE_FUNCTIONS:
+        raise ValueError("required BOM characterization test function identities changed")
+
+    worktree_oid = subprocess.run(
+        ["git", "hash-object", f"--path={relative_path}", "--", relative_path],
+        cwd=repo, check=True, stdout=subprocess.PIPE, text=True,
+    ).stdout.strip()
+    if worktree_oid != _BOM_UPDATE_BLOB_OID:
+        raise ValueError("BOM characterization worktree file differs from its pinned Git blob")
 
 
 def check_report(report: Path) -> dict[str, int]:
@@ -299,8 +364,9 @@ def main() -> int:
         parser.error("required PG gate needs MILANA_REQUIRE_TEST_PG=1 and explicit approved instance")
     try:
         verify_model_image_upload_source()
+        verify_bom_update_source()
     except (OSError, subprocess.CalledProcessError, UnicodeDecodeError, ValueError) as exc:
-        parser.error(f"required Model image-upload source verification failed: {exc}")
+        parser.error(f"required test source verification failed: {exc}")
     report = args.report.resolve()
     # Never accept a stale report after a failed or interrupted pytest process.
     if report.exists():

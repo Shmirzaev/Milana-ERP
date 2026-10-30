@@ -28,6 +28,39 @@
           "meaning": "Historical full-CI pass for the prior component source; does not verify this Model CREATE registration."
         }
       ]
+    },
+    {
+      "module": "test_bom_add_characterization",
+      "transition_kind": "SOURCE_REFRESH",
+      "previous_revision": "1e9d983e2b856cb66aaa32ea61c05505651996af",
+      "previous_declared_content_sha256": "457f7831ed3b468bd59b291f3e9042e51a8ef73ce7b86ea3e90d7c474567fb4c",
+      "previous_content_provenance": {
+        "audit_file": "PG_REQUIRED_SOURCE_PROVENANCE_AUDIT_20261030.md",
+        "audit_sha256": "c1120ca6701324cda9c93a820a320ce2ee407e1bad515fd49b26c986ed2670b0",
+        "verified_content_commit": "5b76a7108a33ec57cceacfd8c780cdde0a45f687",
+        "verified_git_blob_oid": "fca5e5ea536b09ce6aab5399c956abdd2ed58a8d",
+        "meaning": "The prior manifest hash is a historical content SHA-256; its revision label does not resolve in this checkout. The provenance audit verified the hash against this reachable historical Git blob."
+      },
+      "new_revision": "52102d4764544e0906f24630f434377b7e7ac259",
+      "new_git_blob_oid": "812d64c8baf12c812b83f8d8f8968bace1fba442",
+      "new_git_blob_sha256": "eb92b3c28e49b7e77f94452bdaed5e2b008a59716d0052d0b38220a21cecc150",
+      "approved_reviews": [
+        {
+          "file": "CAT_BOM_UPDATE_SOURCE_INDEPENDENT_REVIEW_20261030.md",
+          "sha256": "3a81045fa82efdbae3f0df91546977728c547950a187aeabc272d100b96eb732"
+        },
+        {
+          "file": "CAT_BOM_UPDATE_SOURCE_DELTA_REVIEW_20261030.md",
+          "sha256": "b82298b6e6edc08c184cf9a908e0e12253932ba9ddea6c58a96e88e63c7395c8"
+        }
+      ],
+      "source_change": "Typed ModelBOM UPDATE producer and ORM assignment-order correction; focused assertions were added/strengthened without weakening existing cases. One approved-fixture rollback/retry case was added.",
+      "retained_prior_module_case_count": 54,
+      "added_required_cases": [
+        "test_patch_late_audit_failure_rolls_back_and_same_session_retry"
+      ],
+      "removed_required_cases": [],
+      "historical_runtime_receipts_reused": []
     }
   ],
   "sources": {
@@ -40,8 +73,9 @@
       ]
     },
     "test_bom_add_characterization": {
-      "revision": "1e9d983e2b856cb66aaa32ea61c05505651996af",
-      "git_blob_sha256": "457f7831ed3b468bd59b291f3e9042e51a8ef73ce7b86ea3e90d7c474567fb4c",
+      "revision": "52102d4764544e0906f24630f434377b7e7ac259",
+      "git_blob_oid": "812d64c8baf12c812b83f8d8f8968bace1fba442",
+      "git_blob_sha256": "eb92b3c28e49b7e77f94452bdaed5e2b008a59716d0052d0b38220a21cecc150",
       "selected_functions": [
         "test_manual_normalizes_role_name_and_discards_stale_references",
         "test_manual_invalid_role_is_currently_service400_and_no_write",
@@ -58,6 +92,7 @@
         "test_existing_numeric_policy_and_pg_rounding_preserved",
         "test_second_main409_secondary_repeated_and_other_model_main_allowed",
         "test_patch_uses_canonical_roles_and_output_keeps_legacy_projection",
+        "test_patch_late_audit_failure_rolls_back_and_same_session_retry",
         "test_clone_and_variant_copy_roles_without_calling_add_bom",
         "test_same_session_audit_outer_commit_and_precommit_invisibility",
         "test_real_audit_failure_rolls_back_bom_and_audit",
@@ -414,6 +449,7 @@
       "test_existing_numeric_policy_and_pg_rounding_preserved[0.12345]",
       "test_second_main409_secondary_repeated_and_other_model_main_allowed",
       "test_patch_uses_canonical_roles_and_output_keeps_legacy_projection",
+      "test_patch_late_audit_failure_rolls_back_and_same_session_retry",
       "test_clone_and_variant_copy_roles_without_calling_add_bom",
       "test_same_session_audit_outer_commit_and_precommit_invisibility",
       "test_real_audit_failure_rolls_back_bom_and_audit[queued]",

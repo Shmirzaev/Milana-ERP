@@ -62,7 +62,7 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 256)
+        self.assertEqual(sum(counts.values()), 257)
 
     def test_model_image_upload_source_and_all_case_nodes_are_frozen(self):
         module = 'test_model_image_upload_postgres'
@@ -117,7 +117,7 @@ class RequiredPGGateTests(unittest.TestCase):
         self.assertEqual(tuple(source['selected_functions']), functions)
         self.assertEqual(tuple(manifest['cases'][module]), cases)
         self.assertEqual(gate.GROUPS[module], (23, functions))
-        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 256)
+        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 257)
         self.assertEqual(len(manifest['isolated_supplemental_cases']), 17)
 
         baseline = dict(manifest)
@@ -126,8 +126,126 @@ class RequiredPGGateTests(unittest.TestCase):
         baseline_hash = hashlib.sha256(
             json.dumps(baseline, sort_keys=True, separators=(',', ':')).encode()
         ).hexdigest()
-        self.assertEqual(baseline_hash, '42416b8d82f2d2111c31aea841c681041edc0142e7e484e0a30c047431be9e28')
+        self.assertEqual(baseline_hash, '095f0ae283d134b599f25d77d1502e5dfb5e10a6fb2749c0a9c0306c6cbcc05f')
         gate.verify_model_image_upload_source()
+
+    def test_bom_source_refresh_retains_all_old_cases_and_requires_retry_case(self):
+        module = 'test_bom_add_characterization'
+        new_case = 'test_patch_late_audit_failure_rolls_back_and_same_session_retry'
+        manifest = json.loads(Path(gate.__file__).with_name(
+            'refactor_pg_required_cases.json').read_text(encoding='utf-8'))
+        source = manifest['sources'][module]
+        expected_functions = (
+            'test_manual_normalizes_role_name_and_discards_stale_references',
+            'test_manual_invalid_role_is_currently_service400_and_no_write',
+            'test_inventory_link_ignores_supplied_role_and_whitespace_name',
+            'test_inventory_role_length_still_validated_before_normalization',
+            'test_standard_fabric_discards_nonexistent_batch_and_fills_blank_unit',
+            'test_usluga_disallows_inventory_fabric_and_nonaccessory_categories',
+            'test_batch_link_defaults_and_explicit_overrides',
+            'test_reference_and_photo_failures_do_not_write',
+            'test_batch_must_belong_to_selected_item',
+            'test_wrong_catalog_scope_is404',
+            'test_permission_revocation_is_enforced',
+            'test_usluga_requires_selected_eco_factory',
+            'test_existing_numeric_policy_and_pg_rounding_preserved',
+            'test_second_main409_secondary_repeated_and_other_model_main_allowed',
+            'test_patch_uses_canonical_roles_and_output_keeps_legacy_projection',
+            new_case,
+            'test_clone_and_variant_copy_roles_without_calling_add_bom',
+            'test_same_session_audit_outer_commit_and_precommit_invisibility',
+            'test_real_audit_failure_rolls_back_bom_and_audit',
+            'test_actual_migration_checks_reject_invalid_storage',
+            'test_nullable_sql_check_is_not_a_nonnull_role_guarantee',
+            'test_competing_main_creates_reach_unique_index_one_business_outcome',
+            'test_post_openapi_nullable_canonical_role_and_id_only_wire',
+            'test_blanket_strict_role_mutation_would_break_inventory_compatibility',
+        )
+        self.assertEqual(source['revision'], '52102d4764544e0906f24630f434377b7e7ac259')
+        self.assertEqual(source['git_blob_oid'], '812d64c8baf12c812b83f8d8f8968bace1fba442')
+        self.assertEqual(source['git_blob_sha256'],
+                         'eb92b3c28e49b7e77f94452bdaed5e2b008a59716d0052d0b38220a21cecc150')
+        self.assertEqual(tuple(source['selected_functions']), expected_functions)
+        self.assertEqual(gate.GROUPS[module], (55, ()))
+        self.assertEqual(tuple(gate.REQUIRED_CASES[module]), tuple(manifest['cases'][module]))
+        self.assertEqual(manifest['cases'][module].count(new_case), 1)
+        prior_case_ids = [name for name in manifest['cases'][module] if name != new_case]
+        self.assertEqual(len(prior_case_ids), 54)
+        self.assertEqual(hashlib.sha256(
+            json.dumps(prior_case_ids, separators=(',', ':')).encode()).hexdigest(),
+            '0240903765081c312548d4c8bacb44ef4c92dc61d6996ca3712b3346ecab7943')
+        prior_functions = [name for name in source['selected_functions'] if name != new_case]
+        self.assertEqual(hashlib.sha256(
+            json.dumps(prior_functions, separators=(',', ':')).encode()).hexdigest(),
+            'ba559af056cff240178660c61828318f15ea5cb37ba61fcd06fcdecac031ccdd')
+
+        transition = next(item for item in manifest['approved_case_transitions']
+                          if item.get('module') == module)
+        self.assertEqual(transition['transition_kind'], 'SOURCE_REFRESH')
+        self.assertEqual(transition['previous_revision'],
+                         '1e9d983e2b856cb66aaa32ea61c05505651996af')
+        self.assertEqual(transition['previous_declared_content_sha256'],
+                         '457f7831ed3b468bd59b291f3e9042e51a8ef73ce7b86ea3e90d7c474567fb4c')
+        self.assertEqual(transition['previous_content_provenance'], {
+            'audit_file': 'PG_REQUIRED_SOURCE_PROVENANCE_AUDIT_20261030.md',
+            'audit_sha256': 'c1120ca6701324cda9c93a820a320ce2ee407e1bad515fd49b26c986ed2670b0',
+            'verified_content_commit': '5b76a7108a33ec57cceacfd8c780cdde0a45f687',
+            'verified_git_blob_oid': 'fca5e5ea536b09ce6aab5399c956abdd2ed58a8d',
+            'meaning': ('The prior manifest hash is a historical content SHA-256; its revision label does not '
+                        'resolve in this checkout. The provenance audit verified the hash against this '
+                        'reachable historical Git blob.'),
+        })
+        self.assertEqual(transition['new_revision'], source['revision'])
+        self.assertEqual(transition['new_git_blob_oid'], source['git_blob_oid'])
+        self.assertEqual(transition['new_git_blob_sha256'], source['git_blob_sha256'])
+        self.assertEqual(transition['approved_reviews'], [
+            {
+                'file': 'CAT_BOM_UPDATE_SOURCE_INDEPENDENT_REVIEW_20261030.md',
+                'sha256': '3a81045fa82efdbae3f0df91546977728c547950a187aeabc272d100b96eb732',
+            },
+            {
+                'file': 'CAT_BOM_UPDATE_SOURCE_DELTA_REVIEW_20261030.md',
+                'sha256': 'b82298b6e6edc08c184cf9a908e0e12253932ba9ddea6c58a96e88e63c7395c8',
+            },
+        ])
+        self.assertEqual(transition['retained_prior_module_case_count'], 54)
+        self.assertEqual(transition['added_required_cases'], [new_case])
+        self.assertEqual(transition['removed_required_cases'], [])
+        self.assertEqual(transition['historical_runtime_receipts_reused'], [])
+        gate.verify_bom_update_source()
+
+        # Removing only this reviewed module's new source/case/transition delta
+        # must reproduce the pre-refresh unrelated registry exactly.
+        baseline = dict(manifest)
+        baseline['sources'] = {name: value for name, value in manifest['sources'].items()
+                               if name != module}
+        baseline['cases'] = {name: value for name, value in manifest['cases'].items()
+                             if name != module}
+        baseline['approved_case_transitions'] = [
+            item for item in manifest['approved_case_transitions']
+            if item.get('module') != module
+        ]
+        self.assertEqual(hashlib.sha256(
+            json.dumps(baseline, sort_keys=True, separators=(',', ':')).encode()).hexdigest(),
+            '7279178744cc4183254336d2e3597137c3c60bd5e711b97e121aea417fe964c8')
+        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 257)
+        self.assertEqual(sum(len(items) for items in manifest['cases'].values())
+                         + len(manifest['isolated_supplemental_cases']), 274)
+
+        for invalid in ('missing', 'replacement', 'skipped', 'failure', 'error'):
+            tree = self.report()
+            suite = next(tree.iter('testsuite'))
+            case = next(item for item in tree.iter('testcase')
+                        if item.get('classname') == f'app.tests.{module}'
+                        and item.get('name') == new_case)
+            if invalid == 'missing':
+                suite.remove(case)
+            elif invalid == 'replacement':
+                case.set('name', 'unrelated_bom_case')
+            else:
+                ET.SubElement(case, invalid)
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                gate.check_report(self.write_report(tree))
 
     def test_each_model_image_upload_identity_cannot_be_missing_replaced_or_nonpassing(self):
         module = 'test_model_image_upload_postgres'
@@ -202,7 +320,7 @@ class RequiredPGGateTests(unittest.TestCase):
         ])
         self.assertEqual(tuple(manifest['cases'][module]), retained[:6] + new_create + retained[6:])
         self.assertEqual(gate.GROUPS[module][0], 25)
-        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 256)
+        self.assertEqual(sum(len(items) for items in manifest['cases'].values()), 257)
         self.assertEqual(len(manifest['isolated_supplemental_cases']), 17)
         transition = manifest['approved_case_transitions'][0]
         self.assertEqual(transition['removed_required_case'],
@@ -233,7 +351,7 @@ class RequiredPGGateTests(unittest.TestCase):
             'isolated_supplemental_cases': manifest['isolated_supplemental_cases'],
         }
         digest = hashlib.sha256(json.dumps(unrelated, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-        self.assertEqual(digest, 'a7d2c5f103d702198c8e383eba93cff8528ae5e8b996f12741c2628fa9197bf7')
+        self.assertEqual(digest, '93610adfe0a6bdc2a7cc59080070a0b3112d94f2f4f570f07cbe179f0e1b4f90')
 
     def test_each_new_model_create_identity_is_required_and_nonpasses_fail(self):
         module = 'test_model_paid_operations_postgres'
@@ -316,7 +434,7 @@ class RequiredPGGateTests(unittest.TestCase):
         ET.SubElement(next(tree.iter('testsuite')), 'testcase',
                       classname='app.tests.test_bom_add_characterization', name='new_case')
         counts = gate.check_report(self.write_report(tree))
-        self.assertEqual(counts['test_bom_add_characterization'], 55)
+        self.assertEqual(counts['test_bom_add_characterization'], 56)
 
     def test_each_new_refactor_pg_case_identity_is_required(self):
         new_modules = (
