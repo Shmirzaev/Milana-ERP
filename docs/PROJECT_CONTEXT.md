@@ -17,39 +17,40 @@ not appended here. This summary does not replace live release verification.
 
 ## Active whole-ERP refactor
 
-PR347 merged the verified Collection UPDATE, Purchasing costing/notification
-persistence and typed Finance payment-result slice into `clone_main` at
-`ff1542f02c137f24fc9fe78492aa69aa463a7293`, following PR343. No deployment occurred.
-The owner resumed all remaining domains with cheap isolated subagents on 30 October.
-PR348 freezes Inventory batch-edit and Packaging selected print-run persistence
-at `e6935401`; exact-head backend/frontend and 191 mandatory PG cases passed.
-PR349 adds reviewed Purchase Order receiving and manual payroll adjustment creation;
-its exact `f35eb109` backend/frontend CI and 199 required PG cases passed. PR350's
-shipment-reopen invoice participant passed full CI/169 PG cases at `703e0130`;
-PR351's typed model paid-operation updates passed full CI/175 exact PG cases at
-`bcafc730`. PR352 freezes direct manual/piece stock reservation at `b9e75544`,
-with source review, full backend/frontend CI and 171 exact required PG cases passed.
-Combined draft PR353 at `1842ee72` passed all 219 unique required PG cases with
-zero failures/errors/skips, both recorded concurrent lock proofs and owned cleanup.
-Its full backend/frontend CI passed: 4,981 main backend cases, 638 opt-in skips,
-and 36 passing subtests; release was skipped. These results belong to `1842ee72`,
-not later stacked changes. Computer/readback, postvisual checks and final combined
-acceptance remain pending. Original candidates remain frozen; the owner requires
-Comet, Chrome and Telegram to stay open, and local runtime guards remain enforced.
-Collection's canonical/public legacy status typing gap remains explicitly open.
-See [the current operation backlog](REFACTOR_COVERAGE.md#current-integration-and-active-work--30-october-2026).
-No whole-domain, system-wide type or human production acceptance is claimed.
+This checkpoint is bounded by the immutable goal-state snapshot
+[`REFACTOR_GOAL_STATE_SNAPSHOT_20261030T112519Z.json`](../../pr-review-20261027/REFACTOR_GOAL_STATE_SNAPSHOT_20261030T112519Z.json),
+SHA-256 `6b40cac1ce022a51e11cd32b462fcf8669434092384d763bf43957a6ad67bf1e`.
+The original historical inventory remains 97 tables/1,303 columns; all 13 domains,
+their operation queues, system-wide typing, and human acceptance remain incomplete.
 
-The isolated SUP-01 settings PATCH draft builds on PR353 and introduces typed
-three-section routes, a Support business service and supplied-Session schema
-persistence. Independent source review accepted the corrected approved fixture,
-exact lock witnesses, rollback/retry tests and typed/body-shape contracts. Required
-CI registration now adds all 16 cases to the required gate without removing the
-219 upstream cases: 235 cases are required. Exact-source runtime results remain
-pending; the prior combined CI cannot verify this new Support change.
-Canonical language values are `en`/`ru`/`uz`; actual historical settings values still
-need the authorized read-only census. Currency, timezone and model types remain
-configurable. Logo upload and its file/transaction lifecycle remain separate work.
+`clone_main` remains verified at `ff1542f02c137f24fc9fe78492aa69aa463a7293`;
+PR347 is merged but not deployed. PR349 through PR352 remain separate, preserved
+operation candidates whose component PG totals overlap. Draft PR348 (`e6935401`)
+contains Inventory StockBatch UPDATE and Packaging selected print-run creation;
+its 191-case PG and exact backend/frontend CI passed, but Computer/readback and
+postvisual checks remain pending. Draft PR353 (`1842ee72`) retains its exact
+219-case PostgreSQL and full backend/frontend CI pass. Draft PR354 (`693f7f47`)
+passed its exact 235-case PG and full CI gates; Support census, Computer/readback,
+postvisual checks, and final acceptance remain pending. Details and immutable
+receipt references are in the [current coverage checkpoint](REFACTOR_COVERAGE.md#current-integration-and-active-work--30-october-2026).
+PR354's PG and full-CI receipts are PR354_CI_PG_ACCEPTANCE_693F7F47_20261030.json
+(SHA-256 bab88806a6b7a481b813d71c275a60e1bb869830c411d7e0da5f72686fc2cc04)
+and PR354_FULL_CI_ACCEPTANCE_693F7F47_20261030.json
+(SHA-256 04db10e6a041483263d09ffc487a92dda04ace5cc2f0d7333ef79022a54b18c1).
+
+At the snapshot cut, Planning (`0d7e427f`), Image (`364d9ff4`), Model CREATE
+(`bbd98a07`), Task CREATE/UPDATE/COMPLETE/DELETE, and shared Sewing (`76bedae2`)
+had exact required PG and full ERP CI passes. BOM (`b997f493`) had its 276-case
+PG pass while its full ERP run was still live. Accessory issue (`19e095c2`) had
+14 PG cases registered and 36 offline guards passed; independent registration
+review was still running, and the branch was not pushed. These are operation-level
+candidate results, not domain completion or human approval.
+
+Comet, Chrome and Telegram must remain open. The verified awake helper PID is 3252;
+the snapshot records 1,319 MiB free physical and 2,493 MiB free virtual, below
+local runtime admission, so local application/PG/UI execution remains false.
+Collection's public/raw legacy status typing gap remains open. No merge,
+deployment, or whole-domain completion is claimed.
 
 ## Current green release (29 October)
 

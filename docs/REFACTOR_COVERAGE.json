@@ -2951,8 +2951,8 @@
     "connection_policy": "OFFLINE - Engine connections refused; no app.main/db.session import",
     "result_policy": "Fresh immutable extraction; sorted checks; newly generated artifact SHA, not promised original byte identity"
   },
-  "operation_checkpoint_as_of": "2026-10-26",
-  "operation_checkpoint_document": "archive/ISMAIL_OPERATION_CHECKPOINT_2026-10-26.md",
+  "operation_checkpoint_as_of": "2026-10-30T11:25:19.549561+00:00",
+  "operation_checkpoint_document": "pr-review-20261027/REFACTOR_GOAL_STATE_SNAPSHOT_20261030T112519Z.json",
   "execution_resume": {
     "as_of": "2026-10-26",
     "human_instruction": "do the rest iwth codex subagents !",
@@ -2963,5 +2963,378 @@
     "release_spending_authority": "No new authority",
     "evidence_policy": "Historical operation_checkpoint and source inventory remain unchanged; this execution update confers no runtime pass",
     "all_domains_complete": false
+  },
+  "current_operation_evidence": {
+    "as_of": "2026-10-30T11:25:19.549561+00:00",
+    "scope": "All 13 domains; no whole domain complete",
+    "policy": "The 26 October 97-table/1303-column inventory is historical. Candidate evidence is operation-scoped and confers no field/domain/human/production acceptance.",
+    "immutable_goal_state_snapshot": {
+      "file": "pr-review-20261027/REFACTOR_GOAL_STATE_SNAPSHOT_20261030T112519Z.json",
+      "sha256": "6b40cac1ce022a51e11cd32b462fcf8669434092384d763bf43957a6ad67bf1e",
+      "scope": "Immutable bounded state cut; later activity does not change the snapshot."
+    },
+    "last_verified_integration": "ff1542f02c137f24fc9fe78492aa69aa463a7293",
+    "combined_pr353": {
+      "head": "1842ee729b07a8d7d47329953d9bc1c245d2614b",
+      "tree": "2cef4b10c5349dafa461357c2d093ddebf113e9b",
+      "required_pg": {
+        "primary": 202,
+        "supplemental": 17,
+        "total": 219,
+        "nonpasses": 0,
+        "cleanup": "PASS"
+      },
+      "pg_receipt": {
+        "path": "pr-review-20261027/PR353_CI_PG_ACCEPTANCE_1842EE72_20261030.json"
+      },
+      "full_ci": {
+        "run": 41003482482,
+        "backend": "SUCCESS",
+        "frontend": "SUCCESS",
+        "passed": 4981,
+        "opt_in_skips": 638,
+        "subtests": 36,
+        "owned_cleanup": "SUCCESS",
+        "release": "SKIPPED",
+        "receipt": {
+          "path": "pr-review-20261027/PR353_FULL_CI_ACCEPTANCE_1842EE72_20261030.json"
+        }
+      },
+      "state": "DRAFT; Computer/readback/postvisual and combined acceptance pending"
+    },
+    "support_pr354": {
+      "head": "693f7f473c3c26a72dd3994cb0b7478809501d84",
+      "tree": "f266e9f3f29dd695f346a5c9cdffbb8d20fc05a6",
+      "required_pg": {
+        "primary": 218,
+        "supplemental": 17,
+        "total": 235,
+        "nonpasses": 0,
+        "cleanup": "PASS",
+        "support_json_lock_witnesses": 8
+      },
+      "pg_receipt": {
+        "path": "pr-review-20261027/PR354_CI_PG_ACCEPTANCE_693F7F47_20261030.json",
+        "sha256": "bab88806a6b7a481b813d71c275a60e1bb869830c411d7e0da5f72686fc2cc04"
+      },
+      "full_ci": {
+        "run": 41008452253,
+        "backend": "SUCCESS",
+        "frontend": "LINT_TYPECHECK_BUILD_PASS",
+        "passed": 4988,
+        "opt_in_skips": 650,
+        "subtests": 36,
+        "qa_runtime_manifest_stage_smoke_upload": "SKIPPED",
+        "release": "SKIPPED",
+        "receipt": {
+          "path": "pr-review-20261027/PR354_FULL_CI_ACCEPTANCE_693F7F47_20261030.json",
+          "sha256": "04db10e6a041483263d09ffc487a92dda04ace5cc2f0d7333ef79022a54b18c1"
+        }
+      },
+      "state": "DRAFT; census, Computer/readback, postvisual and final acceptance pending"
+    },
+    "runtime_admission": {
+      "local_runtime_admitted": false,
+      "free_physical_mib": 1319,
+      "reason": "Below local runtime admission thresholds at snapshot; preserve Comet, Chrome and Telegram open.",
+      "awake_helper_pid": 3252,
+      "awake_helper_state": "confirmed alive",
+      "free_virtual_mib": 2493
+    },
+    "all_domains_complete": false,
+    "human_approval": "NOT_RECORDED_FOR_PENDING_CANDIDATES",
+    "deployed": false,
+    "next": "Continue bounded candidate gates and current operation work; all 13 domain queues remain incomplete.",
+    "next_status_updates": {
+      "planning_alternate_production_create": {
+        "head": "0d7e427f577b922d70270442a1fedecb4d0fc0b4",
+        "tree": "f9074c814ded43b2cb2f11ff4862b2a83474279e",
+        "required_pg": {
+          "primary": 247,
+          "supplemental": 17,
+          "total": 264,
+          "nonpasses": 0,
+          "cleanup": "PASS"
+        },
+        "pg_receipt": {
+          "path": "pr-review-20261027/PLANNING_PAGINATION_FIX_CI_PG_SUCCESS_0D7E427F_41044164834.md",
+          "sha256": "139988d4dce2e7810f49bd446de8e246a1da0ffae1f92f4ade5709a313e8e0b9"
+        },
+        "full_erp": {
+          "run": 41044164703,
+          "backend": "SUCCESS",
+          "frontend": "SUCCESS",
+          "passed": 4989,
+          "opt_in_skips": 679,
+          "subtests": 36,
+          "qa_runtime": "SKIPPED",
+          "release": "SKIPPED",
+          "receipt": {
+            "path": "pr-review-20261027/PLANNING_PAGINATION_FIX_FULL_ERP_SUCCESS_0D7E427F_41044164703.md",
+            "sha256": "94af9573bae47cf09162e28174a91c88e856b5c37471d2ad00385a2a33120f58"
+          }
+        },
+        "remaining": "Computer/readback, census and human acceptance pending"
+      },
+      "catalog_model_create": {
+        "head": "bbd98a07440ae4e4c3a782c16f8f0bbe23ee330c",
+        "tree": "8c93eebb10a705ec63f9b6f333956367f751bd39",
+        "required_pg": {
+          "primary": 233,
+          "supplemental": 17,
+          "total": 250,
+          "nonpasses": 0,
+          "cleanup": "PASS",
+          "family_lock_witnesses": 2
+        },
+        "pg_receipt": {
+          "path": "pr-review-20261027/MODEL_CREATE_CI_PG_SUCCESS_BBD98A_41030723675.md",
+          "sha256": "92569ffefc0b580d21d89ab0509ff8a86cf85821d519a7222377abef4e91ca1e"
+        },
+        "full_erp": {
+          "run": 41030723706,
+          "backend": "SUCCESS",
+          "frontend": "SUCCESS",
+          "passed": 4990,
+          "opt_in_skips": 665,
+          "subtests": 36,
+          "qa_runtime": "SKIPPED",
+          "release": "SKIPPED",
+          "receipt": {
+            "path": "pr-review-20261027/MODEL_CREATE_FULL_ERP_SUCCESS_BBD98A_41030723706.md",
+            "sha256": "306965a195acddbda61c01931e9c5205d7116efa8399519ed19181bab4717546"
+          }
+        },
+        "remaining": "Imported-status/value census, Computer/readback and human acceptance pending"
+      },
+      "work_management_task_create": {
+        "head": "245104eb1ed667497a4010c1df891990f81bf605",
+        "tree": "0c5ea4eb9d5537336de5e4c25cba1b9fb66151ac",
+        "required_pg": {
+          "total": 246,
+          "nonpasses": 0,
+          "cleanup": "PASS"
+        },
+        "pg_receipt": {
+          "path": "pr-review-20261027/TASK_CREATE_CI_PG_ACCEPTANCE_245104EB_20261030.json"
+        },
+        "full_ci": {
+          "run": 41027227056,
+          "backend": "SUCCESS",
+          "frontend": "SUCCESS",
+          "qa_runtime": "SKIPPED",
+          "release": "SKIPPED",
+          "receipt": {
+            "path": "pr-review-20261027/TASK_CREATE_FULL_CI_ACCEPTANCE_245104EB_20261030.json",
+            "sha256": "f857e5c7285cc29c521976052fa33ce6eb4fec0cef651d73172c3b910bcf294c"
+          }
+        },
+        "remaining": "Computer/readback and human acceptance pending"
+      },
+      "work_management_task_update": {
+        "head": "0548058ea0738d3220f06bca0eb67ee91e197c76",
+        "tree": "9220c92f1ddb8e804440b53ce67a78ff8f5e9f4a",
+        "required_pg": {
+          "total": 261,
+          "nonpasses": 0,
+          "cleanup": "PASS"
+        },
+        "pg_receipt": {
+          "path": "pr-review-20261027/TASK_PATCH_CI_PG_ACCEPTANCE_054805_20261030.json",
+          "sha256": "5d643ab4b86a2b58add8a1c5a7a6ebf3232f02132595184e7e287b134215c95a"
+        },
+        "full_ci": {
+          "backend": "SUCCESS",
+          "frontend": "SUCCESS",
+          "qa_runtime": "SKIPPED",
+          "release": "SKIPPED",
+          "receipt": {
+            "path": "pr-review-20261027/TASK_PATCH_FULL_CI_ACCEPTANCE_054805_20261030.json",
+            "sha256": "cf5f0311aebe6f16d5453332a70cec4090ff896797def61f855a30f63ebbbffc"
+          }
+        },
+        "remaining": "Computer/readback and human acceptance pending"
+      },
+      "work_management_task_complete": {
+        "head": "9597f5808cd1d02acdc4d0dcfad42c031d301614",
+        "tree": "3bb4799357c984b460441973c43a4e9a776acf01",
+        "required_pg": {
+          "total": 276,
+          "nonpasses": 0,
+          "cleanup": "PASS"
+        },
+        "pg_receipt": {
+          "path": "pr-review-20261027/TASK_COMPLETE_CI_PG_ACCEPTANCE_9597F580_20261030.json",
+          "sha256": "b7f542add40a90f5f9e207107f68ec3db3018ad8ddb2f158f3b408d70aff8622"
+        },
+        "full_ci": {
+          "backend": "SUCCESS",
+          "frontend": "SUCCESS",
+          "owned_cleanup": "SUCCESS",
+          "qa_runtime_stages": "SKIPPED",
+          "release": "SKIPPED",
+          "receipt": {
+            "path": "pr-review-20261027/TASK_COMPLETE_FULL_CI_ACCEPTANCE_9597F580_20261030.json",
+            "sha256": "600aae41bcf7b005dd58a90522479bd8cbb70a0a4c28aaf1e9498b697921dd0b"
+          }
+        },
+        "remaining": "Computer/readback and human acceptance pending"
+      },
+      "work_management_task_delete": {
+        "head": "66cb7222d5e4fde711ebb0a53e78662885056892",
+        "tree": "e052b94bbaddb346a069a08b89e47a4a9f1f0ee3",
+        "required_pg": {
+          "total": 287,
+          "nonpasses": 0,
+          "cleanup": "PASS"
+        },
+        "pg_receipt": {
+          "path": "pr-review-20261027/WRK_TASK_DELETE_PG_EXACT_HEAD_RECEIPT_20261030.md",
+          "sha256": "b60d6b17ec12983a851fe87de997e0350d5e1f20c3c955ecbfcfe10bff05493a"
+        },
+        "full_ci": {
+          "backend": "SUCCESS",
+          "frontend": "SUCCESS",
+          "receipt": {
+            "path": "pr-review-20261027/WRK_TASK_DELETE_ERP_EXACT_HEAD_RECEIPT_20261030.md",
+            "sha256": "d309bc97ff6209a43908fcd8adf75c9f12ca2b42d53dbf845a87f9227a27be1d"
+          }
+        },
+        "remaining": "Computer/readback and human acceptance pending"
+      },
+      "production_sewing_output": {
+        "head": "76bedae291fd6c51ce72b723cd26b1c135c03428",
+        "tree": "cbfc73802a456f385fb29c54a28b02553a01706e",
+        "required_pg": {
+          "total": 255,
+          "nonpasses": 0,
+          "cleanup": "PASS"
+        },
+        "pg_receipt": {
+          "path": "pr-review-20261027/SEWING_CI_PG_ACCEPTANCE_76BEDAE2_20261030.json",
+          "sha256": "6144b00243aaa63ff9084eeb95a42dabad2e7734415b5bf37fd89ac05c53c337"
+        },
+        "full_ci": {
+          "backend": "SUCCESS",
+          "frontend": "SUCCESS",
+          "receipt": {
+            "path": "pr-review-20261027/SEWING_FULL_ERP_CI_ACCEPTANCE_76BEDAE2_20261030.json",
+            "sha256": "a1899d20116636985aa5673d56c1a444c5b8378cfab061475dbbb6e8ce0da652"
+          }
+        },
+        "remaining": "Computer/readback and human acceptance pending"
+      },
+      "catalog_model_image_upload": {
+        "head": "364d9ff484d1bbca0f8089a95add1a5d14a78aee",
+        "tree": "21397282388e2b55b7a1ca279217fd0fc16b9cbd",
+        "required_pg": {
+          "primary": 258,
+          "supplemental": 17,
+          "total": 275,
+          "nonpasses": 0,
+          "cleanup": "PASS"
+        },
+        "pg_receipt": {
+          "path": "pr-review-20261027/CAT_MODEL_IMAGE_UPLOAD_PG_EXACT_HEAD_RECEIPT_20261030.md",
+          "sha256": "2ee5202a835f2868570a001f6960d38a8957d157cfdaf5612bf898ea87aa1b98"
+        },
+        "full_erp": {
+          "run": 41045436789,
+          "backend": "SUCCESS",
+          "frontend": "SUCCESS",
+          "passed": 4999,
+          "opt_in_skips": 683,
+          "subtests": 36,
+          "qa_runtime": "SKIPPED",
+          "release": "SKIPPED",
+          "receipt": {
+            "path": "pr-review-20261027/CAT_MODEL_IMAGE_UPLOAD_FULL_ERP_EXACT_HEAD_RECEIPT_20261030.md",
+            "sha256": "40bb9f403da5c13d0fcde7d52bb98e0d11fec67b5e0a58adbe3865e4e4acc851"
+          }
+        },
+        "remaining": "Computer/readback and human acceptance pending"
+      },
+      "catalog_bom_update": {
+        "head": "b997f4939f812a607231bbe82db1c130c29b51c5",
+        "tree": "e5b54f4f629c2bfc18495efebbd56a8219e21c2e",
+        "required_pg": {
+          "primary": 259,
+          "supplemental": 17,
+          "total": 276,
+          "nonpasses": 0,
+          "cleanup": "PASS"
+        },
+        "pg_receipt": {
+          "path": "pr-review-20261027/BOM_CI_PG_ACCEPTANCE_B997F493_20261030.json",
+          "sha256": "4430d0fa106182daf421838c6de81df7185e61e988227c8ac2b6f04db88ce42b"
+        },
+        "full_erp": {
+          "run": 41046549577,
+          "status_at_snapshot": "IN_PROGRESS_NO_RESULT_CLAIM"
+        },
+        "remaining": "Full ERP result, Computer/readback and human acceptance pending"
+      },
+      "inventory_accessory_issue": {
+        "head": "19e095c238356bc90229f927887d63b77e85cf1a",
+        "tree": "10f87deafff53e78e1ceee527207516f60268c6a",
+        "defined_pg_cases": 14,
+        "offline_ci_guards": 36,
+        "state_at_snapshot": "SOURCE_COMMITTED_CI269_DEFINITION_FROZEN_INDEPENDENT_REGISTRATION_REVIEW_RUNNING",
+        "pushed": false,
+        "source_review_sha256": "901318dba9e43dd3257e470e295684b4da1c822b45e66ec19840a3debd949bff",
+        "corrected_oracle_review_sha256": "3edc9b3df09344074b6d9c0a308699c5a2cc6070a8faf00f4cd55626907b9b93",
+        "pg_test_raw_git_sha256": "c09341cdf005973a937603d81372d97b5a4338b079393a8995d355b9dd1990a9",
+        "packet": "refactor-accessory-issue-20261030/.codex-work/refactor-handoff/INVENTORY_ACCESSORY_ISSUE_OPERATION_PACKET_20261030.md",
+        "remaining": "Independent registration review and upload approval pending; no hosted execution claim"
+      },
+      "pr348_inventory_packaging": {
+        "head": "e6935401d477ac40bf82a28e4d23e1b76b482e5f",
+        "tree": "331cb9aa79504ee823329fc4b4a4bc889764d1e",
+        "operations": [
+          "Inventory StockBatch UPDATE",
+          "Packaging selected print-run creation"
+        ],
+        "required_pg": {
+          "primary": 174,
+          "supplemental": 17,
+          "total": 191,
+          "nonpasses": 0,
+          "cleanup": "PASS"
+        },
+        "pg_receipt": {
+          "path": "pr-review-20261027/PR348_CI_PG_ACCEPTANCE_E6935401_20261030.json"
+        },
+        "full_ci": "Backend/frontend SUCCESS; release SKIPPED",
+        "focused_unit_result": {
+          "passed": 116,
+          "failures": 0,
+          "errors": 0,
+          "skips": 0,
+          "source": "78de8944e02ce0ef342c72a42827b7aa342ff101",
+          "scope": "Application-equivalent initial source; later docs-only source update, not exact e693 unit claim"
+        },
+        "state": "DRAFT_UNMERGED; Computer/readback/postvisual and final combined acceptance pending"
+      }
+    },
+    "historical_source_assignments_before_current_updates": {
+      "catalog_model_create": {
+        "author": "cheap_catalog",
+        "owner": "Ismail",
+        "reviewer": "Mirshoir",
+        "state": "IMPLEMENTATION_ASSIGNED_NOT_ACCEPTED"
+      },
+      "work_management_task_create": {
+        "author": "cheap_finance",
+        "owner": "Dilmurod",
+        "reviewer": "Mirshoir",
+        "state": "IMPLEMENTATION_ASSIGNED_NOT_ACCEPTED"
+      },
+      "production_sewing": {
+        "state": "SOURCE_AUDIT_ONLY"
+      },
+      "identity_factory_selection": {
+        "state": "SOURCE_AUDIT_ONLY"
+      }
+    }
   }
 }

@@ -1,4 +1,33 @@
-# Operation queue: source checkpoint 28 October 2026
+# Operation queue: current snapshot and historical source checkpoint
+
+Current state is bounded by the immutable goal snapshot
+../../pr-review-20261027/REFACTOR_GOAL_STATE_SNAPSHOT_20261030T112519Z.json,
+SHA-256 6b40cac1ce022a51e11cd32b462fcf8669434092384d763bf43957a6ad67bf1e
+(captured 2026-10-30 11:25 UTC). The original 13-domain owner queues remain
+INCOMPLETE; this checkpoint does not grant domain, human, merge, or deployment
+acceptance. The historical queue entries below retain their original scope and
+must not override these snapshot-bound statuses.
+
+- PR348 e6935401: Inventory StockBatch UPDATE and Packaging selected print-run
+  creation; 191 exact PG cases and full backend/frontend CI passed, but
+  Computer/readback and postvisual checks remain pending.
+- Planning alternate Production CREATE 0d7e427f: 264 exact PG cases and full ERP CI passed.
+- Catalog Model Image upload 364d9ff4: 275 exact PG cases and full ERP CI passed.
+- Catalog BOM UPDATE b997f493: 276 exact PG cases passed; full ERP run 41046549577 was live at snapshot time.
+- Work-management Task CREATE/UPDATE/COMPLETE/DELETE: exact PG and full ERP CI passed at their frozen heads; respective totals 246/261/276/287.
+- Catalog Model CREATE bbd98a07 and Production Sewing 76bedae2: exact PG and full ERP CI passed (250 and 255 cases respectively).
+- Inventory accessory issue 19e095c2: 14 PG cases defined and 36 offline CI guards passed; independent registration review was running, branch not pushed.
+
+PR353 retains 219 exact PG cases and full backend/frontend CI success; PR354 retains
+235 exact PG cases and full backend/frontend CI success, with Support census,
+Computer/readback and postvisual acceptance still pending. PR349-PR352 component
+results are preserved; their case totals overlap with PR353 and must not be summed.
+The immutable snapshot lists actual receipt names/hashes in
+REFACTOR_COVERAGE.md#current-integration-and-active-work--30-october-2026.
+
+Comet, Chrome and Telegram remain open by explicit user direction. The verified
+awake helper PID is 3252. The snapshot records 1,319 MiB free physical and 2,493
+MiB free virtual, below local runtime admission; no local runtime is admitted.
 
 This queue describes the Customer DELETE candidate based on PR340 merge `4238974a82801a4734928cf32d3e1d9a1f5c3ef6`, tree `acd3e1acd4be55b3aa8e4521ff91cd09ebe9d772`. This candidate is not proof of deployment or human production acceptance. Ismail owns these Catalog and Inventory operations; Mirshoir reviews. Each operation requires its own independent review and evidence under the [engineering workflow](ENGINEERING_WORKFLOW.md). The six Ismail areas and system-wide types remain incomplete.
 

@@ -2,108 +2,61 @@
 
 ## Current integration and active work — 30 October 2026
 
-`clone_main` is verified at `ff1542f02c137f24fc9fe78492aa69aa463a7293`, tree
-`649f430e01a1fabc6d97055d91c9bdd009bf7f3a`. Earlier PR343 merged Supplier DELETE,
-Inventory Item CREATE and Sales DELETE after exact-source CI, Computer visual
-checks, persisted/audit readback, independent review, and 40 explicit PostgreSQL
-cases with zero failures/errors/skips. Owned disposable targets and runtimes
-were cleaned up. This is integration evidence, not deployment or personal human
-production acceptance. PR341 also merged Customer DELETE; older pending wording
-in the source-checkpoint queue must not be read as current status.
+This checkpoint is as of 2026-10-30 11:25 UTC and is tied to the immutable
+goal-state snapshot at
+../../pr-review-20261027/REFACTOR_GOAL_STATE_SNAPSHOT_20261030T112519Z.json,
+SHA-256 6b40cac1ce022a51e11cd32b462fcf8669434092384d763bf43957a6ad67bf1e.
+It records a bounded status only. The historical 26 October inventory remains 97
+tables and 1,303 columns; all 13 owner/domain queues remain INCOMPLETE. Current
+operation receipts below do not complete a domain, close the system-wide type
+ledger, grant human approval, or establish deployment.
 
-The owner explicitly resumed the full remaining scope on 30 October, requesting
-cheap parallel subagents. This includes all 13 domains and shared writers; named
-human accountability below is unchanged. PR347 merged Collection UPDATE
-persistence, Finance typed payment results/replay and Purchasing costing/shared
-notification persistence. Exact candidate `0c198e9e` / tree `649f430e` passed 19 focused
-cases, 10 explicit PostgreSQL cases before and after actual Computer checks, current CI,
-separate persisted/audit readbacks and independent review. Both UI targets and
-owned runtimes cleaned up; the merge tree equals the verified candidate tree.
-Browser evidence is desktop English with synthetic allowed roles. Collection's
-public/raw legacy status typing remains unresolved; no domain or production
-acceptance is implied.
+clone_main remains verified at ff1542f02c137f24fc9fe78492aa69aa463a7293,
+tree 649f430e01a1fabc6d97055d91c9bdd009bf7f3a. PR347 is merged but not deployed.
+Draft PR348 at e6935401d477ac40bf82a28e4d23e1b76b482e5f combines Inventory
+StockBatch UPDATE and Packaging selected print-run creation. Its exact 191-case
+PG gate, backend/frontend CI and owned cleanup passed; release was skipped.
+The 116 focused unit results belong to application-equivalent initial source
+78de8944, not the later integrated commit. Computer/readback and postvisual checks
+remain pending. Receipt: pr-review-20261027/PR348_CI_PG_ACCEPTANCE_E6935401_20261030.json.
+The isolated PR353 candidate 1842ee729b07a8d7d47329953d9bc1c245d2614b retained
+its exact 219-case PostgreSQL pass, full backend/frontend CI pass, lock evidence
+and owned cleanup; Computer/readback and final combined acceptance remain pending.
+Stacked Support draft PR354 at 693f7f473c3c26a72dd3994cb0b7478809501d84
+passed 235 exact PG cases, the eight Support JSON lock witnesses, full backend/
+frontend CI and cleanup; QA runtime artifacts and release were skipped. Settings
+census, Computer/readback, postvisual and final acceptance remain pending.
 
-PR348 freezes Inventory batch-edit and Packaging selected print-run persistence
-at `e6935401` / tree `331cb9aa`. Its 116 focused unit/API results belong to the
-application-equivalent initial `78de8944` source; exact-head backend/frontend CI
-and all 191 mandatory PostgreSQL cases passed, including successful owned-container
-cleanup. Actual Computer checks, persisted readback and postvisual checks remain
-pending; PR348 is draft and unmerged.
+PR353 receipts: pr-review-20261027/PR353_CI_PG_ACCEPTANCE_1842EE72_20261030.json
+and PR353_FULL_CI_ACCEPTANCE_1842EE72_20261030.json; frontend artifact reuse is
+separately bounded by PR353_FRONTEND_EQUIVALENCE_20261030.json. PR354 receipts:
+pr-review-20261027/PR354_CI_PG_ACCEPTANCE_693F7F47_20261030.json (SHA-256
+bab88806a6b7a481b813d71c275a60e1bb869830c411d7e0da5f72686fc2cc04) and
+PR354_FULL_CI_ACCEPTANCE_693F7F47_20261030.json (SHA-256
+04db10e6a041483263d09ffc487a92dda04ace5cc2f0d7333ef79022a54b18c1).
+PR349-PR352 remain preserved component candidates; their PG totals overlap with
+the PR353 combined union and must not be added together.
 
-The isolated successor `codex/refactor-receipts-payroll-combined-20261030` combines
-that source with independently reviewed Purchase Order receiving persistence and
-manual payroll adjustment creation. Its shared Inventory imports/types preserve
-the prior edit behavior and the reviewed public receipt participant. The People
-slice adds canonical adjustment and factory types while preserving stored values,
-query binding, constraints, scope/lock order and the separate reversal writer.
-Six approved receipt cases and two approved payroll race/rollback wrappers are
-added to the existing 191-case gate: 182 primary plus 17 supplemental cases.
-PR349 froze this successor at `f35eb109`; exact-head backend/frontend CI and all
-199 required PG cases passed. Actual Computer/readback and postvisual acceptance
-remain pending. The original operation branches, failed local runs and exact-source
-receipts remain preserved.
+## Exact candidate evidence at the snapshot cut
 
-The current isolated verification branch combines four frozen candidates:
-
-| Candidate | Frozen source | Component evidence | Remaining gates |
+| Operation | Frozen source and current evidence | Receipt paths from the snapshot ledger | Remaining gates |
 | --- | --- | --- | --- |
-| PR349 | `f35eb109` | Backend/frontend CI and 199 required PG cases passed | Computer, persisted readback, postvisual and combined acceptance |
-| PR350 | `703e0130` | Shipment-reopen Finance invoice participant; backend/frontend CI and 169 required PG cases passed | Computer, persisted readback, postvisual and combined acceptance |
-| PR351 | `bcafc730` | Typed standard/Usluga model paid-operation PATCH and schema-owned JSON persistence; backend/frontend CI and 175 exact PG cases passed, including recorded two-worker lock evidence | Computer, persisted readback, historical mapped/read contracts and combined acceptance |
-| PR352 | `b9e75544` | Direct manual/piece finished-goods reserve extraction and typed outputs; source review, 21 stdlib guards, full backend/frontend CI and 171 exact PG cases passed, including both observed package-lock waits | API-explorer/adjacent-page visual assessment, readback and combined acceptance |
+| Planning alternate Production CREATE | 0d7e427f; 264 exact PG cases passed, full ERP passed (4,989 backend, 679 opt-in skips, 36 subtests); QA runtime and release skipped | pr-review-20261027/PLANNING_PAGINATION_FIX_CI_PG_SUCCESS_0D7E427F_41044164834.md (SHA-256 139988d4dce2e7810f49bd446de8e246a1da0ffae1f92f4ade5709a313e8e0b9); pr-review-20261027/PLANNING_PAGINATION_FIX_FULL_ERP_SUCCESS_0D7E427F_41044164703.md (SHA-256 94af9573bae47cf09162e28174a91c88e856b5c37471d2ad00385a2a33120f58) | Computer/readback, census and human acceptance |
+| Catalog Model CREATE | bbd98a07; 250 exact PG cases passed with both family-lock witnesses and cleanup; full ERP passed (4,990 backend, 665 opt-in skips, 36 subtests); QA runtime artifacts and release skipped | pr-review-20261027/MODEL_CREATE_CI_PG_SUCCESS_BBD98A_41030723675.md (SHA-256 92569ffefc0b580d21d89ab0509ff8a86cf85821d519a7222377abef4e91ca1e); pr-review-20261027/MODEL_CREATE_FULL_ERP_SUCCESS_BBD98A_41030723706.md (SHA-256 306965a195acddbda61c01931e9c5205d7116efa8399519ed19181bab4717546) | Imported-status/value census, Computer/readback and human acceptance |
+| Work-management Task CREATE | 245104eb; 246 exact PG cases and full backend/frontend CI passed; QA runtime stages and release skipped | pr-review-20261027/TASK_CREATE_CI_PG_ACCEPTANCE_245104EB_20261030.json; pr-review-20261027/TASK_CREATE_FULL_CI_ACCEPTANCE_245104EB_20261030.json (SHA-256 f857e5c7285cc29c521976052fa33ce6eb4fec0cef651d73172c3b910bcf294c) | Computer/readback and human acceptance |
+| Work-management Task UPDATE | 0548058e; 261 exact PG cases and full backend/frontend CI passed; QA runtime stages and release skipped | pr-review-20261027/TASK_PATCH_CI_PG_ACCEPTANCE_054805_20261030.json (SHA-256 5d643ab4b86a2b58add8a1c5a7a6ebf3232f02132595184e7e287b134215c95a); pr-review-20261027/TASK_PATCH_FULL_CI_ACCEPTANCE_054805_20261030.json (SHA-256 cf5f0311aebe6f16d5453332a70cec4090ff896797def61f855a30f63ebbbffc) | Computer/readback and human acceptance |
+| Work-management Task COMPLETE | 9597f580; 276 exact PG cases and full backend/frontend CI/owned cleanup passed; QA runtime stages and release skipped | pr-review-20261027/TASK_COMPLETE_CI_PG_ACCEPTANCE_9597F580_20261030.json (SHA-256 b7f542add40a90f5f9e207107f68ec3db3018ad8ddb2f158f3b408d70aff8622); pr-review-20261027/TASK_COMPLETE_FULL_CI_ACCEPTANCE_9597F580_20261030.json (SHA-256 600aae41bcf7b005dd58a90522479bd8cbb70a0a4c28aaf1e9498b697921dd0b) | Computer/readback and human acceptance |
+| Work-management Task DELETE | 66cb7222; 287 exact PG cases and full ERP CI passed | pr-review-20261027/WRK_TASK_DELETE_PG_EXACT_HEAD_RECEIPT_20261030.md (SHA-256 b60d6b17ec12983a851fe87de997e0350d5e1f20c3c955ecbfcfe10bff05493a); pr-review-20261027/WRK_TASK_DELETE_ERP_EXACT_HEAD_RECEIPT_20261030.md (SHA-256 d309bc97ff6209a43908fcd8adf75c9f12ca2b42d53dbf845a87f9227a27be1d) | Computer/readback and human acceptance |
+| Production Sewing output | 76bedae2; 255 exact PG cases and full ERP CI passed | pr-review-20261027/SEWING_CI_PG_ACCEPTANCE_76BEDAE2_20261030.json (SHA-256 6144b00243aaa63ff9084eeb95a42dabad2e7734415b5bf37fd89ac05c53c337); pr-review-20261027/SEWING_FULL_ERP_CI_ACCEPTANCE_76BEDAE2_20261030.json (SHA-256 a1899d20116636985aa5673d56c1a444c5b8378cfab061475dbbb6e8ce0da652) | Computer/readback and human acceptance |
+| Catalog Model Image upload | 364d9ff4; 275 exact PG cases and full backend/frontend CI passed (4,999 backend, 683 opt-in skips, 36 subtests); QA runtime/release skipped | pr-review-20261027/CAT_MODEL_IMAGE_UPLOAD_PG_EXACT_HEAD_RECEIPT_20261030.md (SHA-256 2ee5202a835f2868570a001f6960d38a8957d157cfdaf5612bf898ea87aa1b98); pr-review-20261027/CAT_MODEL_IMAGE_UPLOAD_FULL_ERP_EXACT_HEAD_RECEIPT_20261030.md (SHA-256 40bb9f403da5c13d0fcde7d52bb98e0d11fec67b5e0a58adbe3865e4e4acc851) | Computer/readback and human acceptance |
+| Catalog BOM UPDATE | b997f493; 276 exact PG cases passed with cleanup; full ERP run 41046549577 was still live at snapshot time | pr-review-20261027/BOM_CI_PG_ACCEPTANCE_B997F493_20261030.json (SHA-256 4430d0fa106182daf421838c6de81df7185e61e988227c8ac2b6f04db88ce42b) | Full ERP result, Computer/readback and human acceptance |
+| Inventory accessory issue | 19e095c2; 14 PG cases defined, 36 offline CI guards passed; independent registration review was running and branch not pushed | refactor-accessory-issue-20261030/.codex-work/refactor-handoff/INVENTORY_ACCESSORY_ISSUE_OPERATION_PACKET_20261030.md; pr-review-20261027/INV_ACCESSORY_ISSUE_SOURCE_INDEPENDENT_REVIEW_20261030.md (SHA-256 901318dba9e43dd3257e470e295684b4da1c822b45e66ec19840a3debd949bff) | Registration review, hosted gates, Computer/readback and human acceptance |
 
-Component case totals overlap. Their combined registry preserves the union of
-202 primary and 17 supplemental identities: **219 required cases**, not the sum
-of the component totals. Combined draft PR353 at `1842ee72` passed all 219 exact
-cases with zero failures/errors/skips, both actual lock/blocker-chain proofs and
-owned-container cleanup. Full combined CI also passed backend/frontend checks:
-4,981 main backend cases passed, 638 opt-in cases were skipped, and 36 subtests
-passed. Additional PostgreSQL/migration/concurrency/numbering and cleanup gates
-passed; release was skipped. The only
-application merge conflict was resolved by retaining both Catalog persistence
-imports; CI conflicts retain both parents' cases, pins and guard methods. A
-diagnostic-only correction prevents reporting an unobserved blocker PID.
-The shared integration branch is unchanged by this isolated preparation.
-
-SUP-01 is a separate, uncommitted draft based on that combined revision. It moves
-the three existing settings PATCH sections into typed routes, a Support service
-and schema-owned supplied-Session persistence. Independent source review accepted
-the approved-fixture replacement, exact lock witnesses with JSON evidence,
-rollback/retry tests, restored unknown-section body-shape semantics and typed
-internal dispatch. Independent registration review accepted all 16 PostgreSQL
-cases in the required gate, preserving every upstream case and source pin:
-218 primary plus 17 supplemental cases are required (235 total), with no runtime
-pass yet claimed for the Support candidate.
-No preceding CI result covers this draft. Actual language-value census and all
-runtime, browser/readback and acceptance gates remain pending; logo upload stays
-an explicitly separate operation.
-
-The integrator owns shared files and serializes landing. Existing operation/type
-gaps, actual browser/readback, bounded recovery/cleanup and independent combined
-acceptance remain open. The full 13-domain scope and named human accountability
-are unchanged.
-
-| Remaining scope | Current next work / evidence required |
-| --- | --- |
-| Catalog | PR351 typed paid-operation update verification; Collection/public historical status and stored JSON/mapped/read gaps; model/counter, BOM and image operations |
-| Purchasing | Remaining costing/type consumers, approval/rejection, conversion, orders and receiving |
-| Inventory | Batch-edit candidate verification; receiving/receipt types, transfers, reservations, stocktake, accessory returns and waste handoffs |
-| Sales | Existing typed ready-stock participants retained; direct Fulfillment reserve candidate, release/metadata-repair boundary and broader create/update/cancellation consumers |
-| Planning | Broader order creation, alternate Production writer, requirements and costing contracts |
-| Finance | Remaining payment consumers/types; invoice issuance/void/reopen, advances and ledger/shipment writers |
-| Production | Shared Sewing and stage transitions, correction paths and route/private-helper reach-through |
-| Packaging | Selected print-run candidate verification; contents, allocation/identity, corrections, labels and lifecycle writers |
-| Fulfillment | Receipts/finished stock, reservation/release, shipment/delivery/reversal and returns |
-| Identity | Factory/auth context, user access and account operations |
-| People | Employee/attendance/payroll contracts, writes and locking |
-| Support | Settings, shared audit/idempotency and other root writers |
-| Work management | Task CRUD/transitions and notification operations |
-
-Every row retains operation-sized enum/type classification, caller/alternate
-writer tracing, same-Session persistence, tests, actual visual/readback, bounded
-integrity/stress and independent acceptance gates. This is an execution backlog,
-not exhaustive source discovery or a completion percentage. The initial table/
-field JSON inventory below remains historical and must not be relabelled current.
+BOM’s historical ae94 full-CI receipt is not a result for current b997. Likewise,
+source/test-definition and static-guard passes do not substitute for hosted PG,
+full ERP, browser/readback, or owner acceptance where those gates are pending.
+The next-operation source studies and original 13-domain queue below remain
+separate planning work, not evidence of completion.
 
 Initial candidate-source ledger, 26 October 2026. **The architectural/type target is incomplete.**
 Six Ismail pilots are rollout steps; the other owners remain in scope. Use the
@@ -234,7 +187,7 @@ above remain pending.
 - **PRD-01 — Shared Sewing output:** `backend/app/api/routes/production.py::post_sewing`. Mirshoir agrees shared normal/band operation; preserve WorkOrder/assignment lock order, output limits, corrections, Packaging handoff and retry identity.
 - **PUR-01 — Create purchase request, direct and from Sales:** `backend/app/models/purchasing/requests_service.py::create_purchase_request`. Typed command; legal draft/pending_approval creation subset; header/lines plus shared audit/notification persistence.
 - **SAL-01 — Create standard sales order:** `backend/app/models/sales/orders_service.py::create_sales_order`. Real order/source enums; ready-stock reservation and metadata repair require Fulfillment ownership; no Sales-owned stock writer.
-- **SUP-01 — Patch one settings section:** `backend/app/api/routes/settings.py::save_company_info`, `save_financial_settings`, and `save_system_preferences` delegate to Support service and schema persistence on one Session. Preserve section-specific validation, absent-row advisory lock, JSON merge and audit; section discriminator is distinct from configurable values. Stored-language value audit and all runtime verification remain pending.
+- **SUP-01 — Patch one settings section:** `backend/app/api/routes/settings.py::save_company_info`, `save_financial_settings`, and `save_system_preferences` delegate to Support service and schema persistence on one Session. PR354 at `693f7f47` passed exact-source full CI and 235 required PostgreSQL cases. Section discriminator and language contracts are canonical; currency/timezone/model types remain configurable. Stored-language census, actual Computer/readback, postvisual checks and acceptance remain pending; logo upload is separate.
 - **WRK-01 — Create task and notification:** `backend/app/api/routes/tasks.py::create_task`. Single recipient and manager broadcast are one operation family; preserve recipient bounds, status/priority semantics and atomic task/notification/audit effects.
 
 Fulfillment reservation work is an immediate dependency of the Sales pilot, not
