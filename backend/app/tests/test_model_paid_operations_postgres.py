@@ -435,7 +435,7 @@ def test_pg_model_create_uses_typed_paid_operation_rows_and_keeps_open_metadata(
         assert db.query(ModelBOM).filter_by(model_id=created.id).count() == 0
         assert db.query(CollectionModel).filter_by(model_id=created.id).count() == 0
         created_id = created.id
-    with _client(sessions) as client:
+    with _client(sessions, include_usluga=(scope == "usluga")) as client:
         invalid = client.post(url, headers=_headers(actor_id, factory), json={
             "code": invalid_code, "name": "Invalid new row",
             "details_json": {"paid_operations": [{"section": "historic-section", "rate": True}]},
