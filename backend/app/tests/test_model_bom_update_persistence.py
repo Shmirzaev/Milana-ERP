@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -468,6 +468,133 @@ def test_service_cannot_bypass_schema_owned_setter(seeded, session_factory, monk
     with session_factory() as db, pytest.raises(AssertionError, match="setter was bypassed"):
         _patch(db, seeded, ModelBOMUpdate(quantity_per_piece=5))
     assert events == []
+
+
+def test_service_produces_typed_partial_update_and_canonical_role(
+    seeded, session_factory, monkeypatch
+):
+    commands: list[NormalizedBomUpdate] = []
+    original_update = bom_persistence.update_model_bom
+
+    def capture(db, *, row, values):
+        commands.append(dict(values))
+        return original_update(db, row=row, values=values)
+
+    monkeypatch.setattr(models_service, "update_model_bom", capture)
+    with session_factory() as db:
+        _patch(db, seeded, ModelBOMUpdate(color=None))
+        assert commands[-1] == {"color": None}
+
+        model = db.get(Model, seeded[0])
+        row = db.get(ModelBOM, seeded[1])
+        model.catalog_scope = "usluga"
+        model.factory_code = "ECO"
+        row.item_id = None
+        row.material_name = "Cotton"
+        row.material_role = "main"
+        row.stock_batch_id = None
+        db.commit()
+        _patch(db, seeded, ModelBOMUpdate(material_role=" SECONDARY "), scope="usluga")
+
+    command = commands[-1]
+    assert command == {
+        "item_id": None,
+        "material_name": "Cotton",
+        "material_role": BomMaterialRole.SECONDARY,
+        "stock_batch_id": None,
+        "color": None,
+        "photo_url": "/storage/model-files/current.webp",
+        "unit": "kg",
+    }
+    assert command["material_role"] is BomMaterialRole.SECONDARY
+
+
+def test_normalized_update_keeps_same_value_attribute_assignments(
+    seeded, session_factory
+):
+    with session_factory() as db:
+        model = db.get(Model, seeded[0])
+        row = db.get(ModelBOM, seeded[1])
+        model.catalog_scope = "usluga"
+        model.factory_code = "ECO"
+        row.item_id = None
+        row.material_name = "Cotton"
+        row.material_role = "main"
+        row.stock_batch_id = None
+        row.color = None
+        row.photo_url = None
+        db.commit()
+
+    assignments: list[tuple[str, object, object]] = []
+    def capture(name):
+        def on_set(_target, value, oldvalue, _initiator):
+            assignments.append((name, value, oldvalue))
+            return value
+        return on_set
+
+    attributes = (
+        "item_id", "material_name", "material_role", "stock_batch_id",
+        "color", "photo_url", "unit", "size", "quantity_per_piece",
+    )
+    listeners = [(getattr(ModelBOM, name), capture(name)) for name in attributes]
+    for attribute, listener in listeners:
+        event.listen(attribute, "set", listener, retval=True)
+    try:
+        with session_factory() as db:
+            _patch(
+                db,
+                seeded,
+                ModelBOMUpdate(material_role="secondary", size="M", quantity_per_piece=1.25),
+                scope="usluga",
+            )
+    finally:
+        for attribute, listener in listeners:
+            event.remove(attribute, "set", listener)
+
+    assert [name for name, _value, _oldvalue in assignments] == list(attributes)
+    assert [(name, value) for name, value, oldvalue in assignments if value == oldvalue] == [
+        ("item_id", None),
+        ("material_name", "Cotton"),
+        ("stock_batch_id", None),
+        ("color", None),
+        ("photo_url", None),
+        ("unit", "kg"),
+        ("size", "M"),
+        ("quantity_per_piece", 1.25),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("values", "message"),
+    [
+        ({"unknown": 1}, "Unknown normalized BOM update fields"),
+        ({"material_role": "legacy"}, "material_role must be a BomMaterialRole"),
+        ({"item_id": "3"}, "item_id must be an integer"),
+    ],
+)
+def test_typed_update_command_rejects_unowned_or_untyped_values(values, message):
+    with pytest.raises(TypeError, match=message):
+        models_service._normalized_bom_update_command(values)
+
+
+def test_typed_update_command_covers_every_decided_field_and_null():
+    source = {
+        "item_id": 11,
+        "material_name": None,
+        "material_role": BomMaterialRole.MAIN,
+        "stock_batch_id": 12,
+        "size": "M",
+        "color": None,
+        "photo_url": "/storage/model-files/sample.webp",
+        "quantity_per_piece": 1.25,
+        "unit": "kg",
+        "waste_percent": 2.5,
+    }
+    command = models_service._normalized_bom_update_command(source)
+    assert command == source
+    assert command["material_role"] is BomMaterialRole.MAIN
+    assert command["material_name"] is None
+    assert command["color"] is None
 
 
 def test_schema_setter_assigns_only_present_fields_and_serializes_enum(

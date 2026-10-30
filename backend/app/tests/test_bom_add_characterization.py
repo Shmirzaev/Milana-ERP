@@ -25,6 +25,7 @@ from app.libs.dto.catalog.model_bom_input import ModelBOMIn
 from app.libs.dto.catalog.model_bom_update import ModelBOMUpdate
 from app.libs.dto.catalog.model_bom_output import ModelBOMOut
 from app.libs.dto.catalog.model_input import ModelVariantCreateIn
+from app.libs.enums.catalog import BomMaterialRole
 
 from alembic import command
 from alembic.config import Config
@@ -211,7 +212,7 @@ def test_second_main409_secondary_repeated_and_other_model_main_allowed(case,cli
     with Sessions() as db:service.add_bom(db.get(User,case['actors']['usluga']),db,other_id,ModelBOMIn(**manual()),'usluga')
     assert counts()==(4,4)
 
-def test_patch_uses_canonical_roles_and_output_keeps_legacy_projection(case,client):
+def test_patch_uses_canonical_roles_and_output_keeps_legacy_projection(case,client,monkeypatch):
     # Unsupported PATCH roles now fail binding under the approved enum contract.
     # Keep the GET projection permissive for historical stored values.
     with pytest.raises(ValidationError):
@@ -219,12 +220,85 @@ def test_patch_uses_canonical_roles_and_output_keeps_legacy_projection(case,clie
     legacy=ModelBOMOut.model_validate({'id':100,'material_role':'historical','quantity_per_piece':1,'unit':'kg','waste_percent':0})
     assert legacy.material_role=='historical'  # Contract evidence, not a claim migrated DB permits this value.
     r=post(client,case,'usluga',manual());bid=r.json()['id']
+    before_invalid=counts()
+    invalid=client.patch(
+        f"/api/usluga/models/{case['models']['usluga']}/bom/{bid}",
+        headers={'X-Review-Scope':'usluga'},
+        json={'material_role':'historical'},
+    )
+    assert invalid.status_code==422
+    assert counts()==before_invalid
+    commands=[]
+    original_update=service.update_model_bom
+    def capture_update(db,*,row,values):
+        commands.append(dict(values))
+        return original_update(db,row=row,values=values)
+    monkeypatch.setattr(service,'update_model_bom',capture_update)
     with Sessions() as db:
         actor=db.get(User,case['actors']['usluga'])
         service.update_bom(actor,db,case['models']['usluga'],bid,ModelBOMUpdate(quantity_per_piece=2),'usluga')
         assert db.get(ModelBOM,bid).material_role=='main'
+        assert commands[-1]=={'quantity_per_piece':2.0}
         service.update_bom(actor,db,case['models']['usluga'],bid,ModelBOMUpdate(material_role=' SECONDARY '),'usluga')
         assert db.get(ModelBOM,bid).material_role=='secondary'
+        assert commands[-1]=={
+            'item_id':None,
+            'material_name':'Cotton',
+            'material_role':BomMaterialRole.SECONDARY,
+            'stock_batch_id':None,
+            'color':None,
+            'photo_url':None,
+            'unit':'kg',
+        }
+        assert commands[-1]['material_role'] is BomMaterialRole.SECONDARY
+        audit_rows=db.query(AuditLog).order_by(AuditLog.id).all()
+        assert len(audit_rows)==3
+        assert audit_rows[-1].new_value_json=={
+            'model_id':case['models']['usluga'],
+            'item_id':None,
+            'material_name':'Cotton',
+            'material_role':'secondary',
+            'stock_batch_id':None,
+            'color':None,
+            'photo_url':None,
+            'unit':'kg',
+        }
+    with Sessions() as db:
+        persisted=db.get(ModelBOM,bid)
+        assert persisted.material_role=='secondary'
+        assert float(persisted.quantity_per_piece)==2.0
+
+
+def test_patch_late_audit_failure_rolls_back_and_same_session_retry(case,client,monkeypatch):
+    response=post(client,case,'standard')
+    assert response.status_code==201,response.text
+    bom_id=response.json()['id']
+    baseline=counts()
+    original=service.log_action
+    def fail_after_audit_queue(*args,**kwargs):
+        original(*args,**kwargs)
+        raise RuntimeError('BOM PATCH queued-audit failure challenge')
+    monkeypatch.setattr(service,'log_action',fail_after_audit_queue)
+    with Sessions() as db:
+        actor=db.get(User,case['actors']['standard'])
+        with pytest.raises(RuntimeError,match='queued-audit failure'):
+            service.update_bom(
+                actor,db,case['models']['standard'],bom_id,
+                ModelBOMUpdate(quantity_per_piece=2.5),'standard',
+            )
+        db.rollback()
+        monkeypatch.setattr(service,'log_action',original)
+        service.update_bom(
+            actor,db,case['models']['standard'],bom_id,
+            ModelBOMUpdate(quantity_per_piece=2.5),'standard',
+        )
+    assert counts()==(baseline[0],baseline[1]+1)
+    with Sessions() as db:
+        assert float(db.get(ModelBOM,bom_id).quantity_per_piece)==2.5
+        audit=db.query(AuditLog).order_by(AuditLog.id.desc()).first()
+        assert (audit.action,audit.entity_type,audit.entity_id)==('update','ModelBOM',bom_id)
+        assert audit.new_value_json=={'model_id':case['models']['standard'],'quantity_per_piece':2.5}
+        assert audit.entry_hash
 
 def test_clone_and_variant_copy_roles_without_calling_add_bom(case,client,monkeypatch):
     assert post(client,case,'usluga',manual(color='Original')).status_code==201

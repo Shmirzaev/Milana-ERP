@@ -22,7 +22,6 @@ import os
 from pathlib import Path
 import re
 from types import SimpleNamespace
-from typing import cast
 from uuid import uuid4
 from fastapi import HTTPException, UploadFile
 from sqlalchemy import and_, func, literal_column, or_, select
@@ -1160,6 +1159,78 @@ def _ensure_unique_usluga_main_material(
         qry = qry.filter(ModelBOM.id != exclude_bom_id)
     if qry.first():
         raise HTTPException(409, "This Usluga model already has a main fabric; change it to secondary first")
+
+
+def _normalized_bom_update_command(values: dict[str, object]) -> NormalizedBomUpdate:
+    """Build the typed partial-write contract after BOM policy normalization.
+
+    Presence is significant: an absent key is untouched, while a present None
+    clears a nullable column (or preserves the existing database constraint
+    failure for a non-null column). This is the service's producer boundary;
+    the schema persistence helper receives only these known, typed fields.
+    """
+    command: NormalizedBomUpdate = {}
+
+    # Preserve the original mapping order: the persistence operation performs
+    # ORM assignments in iteration order, which is observable to attribute
+    # listeners on a PATCH that combines normalized identity and scalar keys.
+    for key, value in values.items():
+        if key == "item_id":
+            if value is not None and not isinstance(value, int):
+                raise TypeError("Normalized BOM item_id must be an integer or None")
+            command["item_id"] = value
+        elif key == "material_name":
+            if value is not None and not isinstance(value, str):
+                raise TypeError("Normalized BOM material_name must be a string or None")
+            command["material_name"] = value
+        elif key == "material_role":
+            if value is None:
+                command["material_role"] = None
+            elif isinstance(value, BomMaterialRole):
+                command["material_role"] = value
+            elif isinstance(value, str):
+                # The normalization policy above has already accepted the value;
+                # convert it here so no raw known-vocabulary string crosses the
+                # service-to-schema boundary.
+                try:
+                    command["material_role"] = BomMaterialRole(value)
+                except ValueError as error:
+                    raise TypeError(
+                        "Normalized BOM material_role must be a BomMaterialRole or None"
+                    ) from error
+            else:
+                raise TypeError("Normalized BOM material_role must be a BomMaterialRole or None")
+        elif key == "stock_batch_id":
+            if value is not None and not isinstance(value, int):
+                raise TypeError("Normalized BOM stock_batch_id must be an integer or None")
+            command["stock_batch_id"] = value
+        elif key == "size":
+            if value is not None and not isinstance(value, str):
+                raise TypeError("Normalized BOM size must be a string or None")
+            command["size"] = value
+        elif key == "color":
+            if value is not None and not isinstance(value, str):
+                raise TypeError("Normalized BOM color must be a string or None")
+            command["color"] = value
+        elif key == "photo_url":
+            if value is not None and not isinstance(value, str):
+                raise TypeError("Normalized BOM photo_url must be a string or None")
+            command["photo_url"] = value
+        elif key == "quantity_per_piece":
+            if value is not None and not isinstance(value, (int, float)):
+                raise TypeError("Normalized BOM quantity_per_piece must be numeric or None")
+            command["quantity_per_piece"] = value
+        elif key == "unit":
+            if value is not None and not isinstance(value, str):
+                raise TypeError("Normalized BOM unit must be a string or None")
+            command["unit"] = value
+        elif key == "waste_percent":
+            if value is not None and not isinstance(value, (int, float)):
+                raise TypeError("Normalized BOM waste_percent must be numeric or None")
+            command["waste_percent"] = value
+        else:
+            raise TypeError(f"Unknown normalized BOM update field: {key}")
+    return command
 
 
 def _split_model_code(code: str | None) -> tuple[str, str]:
@@ -2935,9 +3006,7 @@ def update_bom(
     _ensure_unique_usluga_main_material(db, mid, data, exclude_bom_id=b.id)
     if "photo_url" in data and data["photo_url"]:
         data["photo_url"] = _validate_file_url(data["photo_url"])
-    write_values = cast(NormalizedBomUpdate, dict(data))
-    if "material_role" in write_values and write_values["material_role"] is not None:
-        write_values["material_role"] = BomMaterialRole(write_values["material_role"])
+    write_values = _normalized_bom_update_command(data)
     update_model_bom(db, row=b, values=write_values)
     log_action(db, current, "update", "ModelBOM", b.id, new_value={"model_id": mid, **data})
     db.commit(); db.refresh(b)
