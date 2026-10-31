@@ -1,5 +1,172 @@
 # Team bug tracker — clone_main
 
+## Gate-run findings and delivery reconciliation — 29–31 October 2026
+
+Recorded 1 November on fetched `origin/clone_main` `5bffd255`. Owner/reviewer
+assignments follow [TEAM_OWNERSHIP](../docs/TEAM_OWNERSHIP.md): domain owners
+own their UI/routes; shared platform/tests have Dilmurod as coordinator. No source
+fix, deployment, production access, independent/human acceptance or bug closure
+is performed by this register update. Existing IDs and historical evidence remain.
+
+### Acceptance checklist reference
+
+The 33 original-fix rows below are **merged, awaiting acceptance**, backed by their
+actual merge commits (all ancestors of `5bffd255`). Follow the user's local,
+intentionally Git-excluded `Acceptance_for_Shavkat.md` (the same entries referred
+to as `Checks_for_Shavkat.md`), including its separate engineering-only checklist.
+That checklist remains local and Git-excluded; this one-file PR does not publish it. Existing archived operator procedures remain authoritative.
+Older October 6 totals and develop comparison counts below are historical snapshots;
+this update is not a new whole-register census or a production acceptance record.
+
+### API02-POSTCOMMIT-DELETE-20261030 — task deleted between PATCH commit and refresh
+
+- **P2 · Open · Work management · Dilmurod; reviewer Mirshoir.** Separate residual
+  from [#314](https://github.com/Shmirzaev/Milana-ERP/pull/314)'s stale-flush fix.
+  PATCH commits, DELETE then commits before PATCH refreshes: refresh raises
+  `InvalidRequestError: Could not refresh instance`, which reaches the generic 500
+  handler. The task is absent and both update/delete audits remain; this is a
+  post-commit response failure, not a partially persisted PATCH.
+- Reproduced 1 November on isolated current `clone_main` `5bffd255`: actual handler,
+  two real PostgreSQL Sessions, deterministic in-memory scheduling on the test
+  Session only (not a live HTTP race). Sources: `backend/app/api/routes/tasks.py:229`,
+  `backend/app/main.py:300`; #314 runtime `31eaf5da` catches `StaleDataError` at
+  `tasks.py:252` but refresh at line 255 remains outside that catch.
+- Next: agree response semantics for disappearance after successful commit, then
+  add the separate fail-first post-commit test and smallest response mapping.
+  No fix or whole-race safety claim is included here. Local reproduction log:
+  `.codex-work/bug-register-permissions-20261101-6e8e414a/postcommit-race-result.json`.
+
+### OPS05-STORE-OUTAGE-20261030 — shared-store outage turns API requests into 500
+
+- **P1 · Waiting for Mirshoir's outage-behavior decision · Platform/Identity ·
+  Dilmurod; reviewer/decision owner Mirshoir.** [#311](https://github.com/Shmirzaev/Milana-ERP/pull/311)
+  readiness work does not fix this pre-existing behavior. The store is used by
+  the global request limiter and auth login/reset counters, not as the JWT/session
+  database; its failure escapes as an unhandled exception before route handling.
+- Plain `clone_main` `ff1542f0` reproduction: auth/me, tasks, notifications,
+  login-json validation and even a missing API route became 500 and recovered after
+  restore. Code applies this to requests reaching the enabled limiter; **not
+  literally every endpoint**: OPTIONS, /health and /ready are exempt, and earlier
+  middleware may refuse a request first. #311 connected run saw auth/me 500 while
+  health stayed 200 and its improved ready returned 503. Sources:
+  `backend/app/main.py:118,226,300`, `backend/app/api/routes/auth.py:80,89`;
+  [connected evidence](https://github.com/Shmirzaev/Milana-ERP/blob/86d0c97a/docs/archive/OPS05_READINESS_2026-10-26.md).
+- Decision: clean 503 preserves required abuse protection but blocks store-dependent
+  requests; approved fail-open paths preserve availability but weaken distributed
+  throttling/lockout. Login/reset need explicit treatment even if the global limiter
+  is bypassed. No 503/fail-open policy is implemented or accepted here.
+
+### RF013-BARE503-20261031 — failed frontend activation has no recovery UI
+
+- **P2 · Waiting for Mirshoir · Platform/operations · Dilmurod; reviewer Mirshoir.**
+  Built-image rehearsal [#366](https://github.com/Shmirzaev/Milana-ERP/pull/366),
+  follow-up to #324: /settings and /login show HAProxy's bare 503 “No server is
+  available to handle this request”, without app styling or Retry. Backend health
+  remains available in sampled checks. Browser first 503 at 23:52:15, last at 23:53:56,
+  first good reload at 23:54:07 Seoul on 31 October. Controller fault-to-recovered readback
+  **121.423 s**, including a deliberate two-minute browser observation window;
+  this is separate from immediate HTTP 41.31 s (earlier 41.41 s), not a production RTO.
+- [Report, seven screenshots and switch logs](https://github.com/Shmirzaev/Milana-ERP/blob/374fc6a3/docs/archive/rf013-browser-2026-10-31/RF013_BROWSER_RERUN_2026-10-31.md);
+  `scripts/rf013_local_rehearsal.py:270` generates the local router;
+  `deploy/slotctl.py` owns activation/reconciliation. Next: Mirshoir decides whether
+  a static fallback/retry page, operational compensation, or the current behavior
+  is acceptable. No design is approved. Live 23:44 switch, phone and RU/UZ unobserved.
+
+### DEV-LOOPBACK-20261031 — logged-out dev pages stay on Loading at 127.0.0.1
+
+- **P2 · Fix proposed in open [#365](https://github.com/Shmirzaev/Milana-ERP/pull/365),
+  not merged · Shared frontend/tooling · Dilmurod; reviewer Mirshoir.** Dev startup
+  blocks on the 127.0.0.1 origin; localhost works. Candidate `30ad1a02` explicitly
+  allows the loopback dev origin. Source: `frontend/next.config.js` allowedDevOrigins,
+  #365's before/after browser evidence. No production behavior change claimed.
+- Next: review/merge the scoped dev-origin fix, then record acceptance. Browser
+  handoffs continue using localhost. An open fix PR is not deployed/accepted status.
+
+### RF013-DEV-IMAGE-20261031 — rehearsal used development frontend images
+
+- **P2 · Fix proposed in open [#366](https://github.com/Shmirzaev/Milana-ERP/pull/366),
+  not merged · Platform/operations · Dilmurod; reviewer Mirshoir.** #324's runner
+  selected `scripts/rf013_frontend.Dockerfile` (next dev), so it did not exercise the
+  release frontend. Current `clone_main` source: `scripts/rf013_local_rehearsal.py:28,388`.
+- Candidate `f9e55970` builds each source's `frontend/Dockerfile` with root context,
+  its standalone `node server.js` release entrypoint and a baked local proxy URL;
+  backend already uses its release Dockerfile/Alembic/Uvicorn. HTTP and scoped
+  connected before/after evidence is in #366. Live rollback switch and human gates
+  remain uncovered; review/merge and acceptance remain pending.
+
+### TEST-PACKAGE-DISPLAY-20261029 — browser assertion targets the old page
+
+- **P2 · Fix in draft [#361](https://github.com/Shmirzaev/Milana-ERP/pull/361) · Shared
+  tests/Packaging · Dilmurod; reviewer Mirshoir (Packaging owner Mirshoir).** Test
+  `frontend/scripts/test-package-display.browser.mjs:16,26` renders /packages/scan
+  but waits 30 s for BJ5030-V-5796 print-run content moved by `283d0696` to
+  `frontend/src/app/(app)/packages/print-runs/page.tsx`. This is stale test targeting,
+  not evidence of a live Packaging rendering defect.
+- Draft `1b29bf4f` checks print-run labels on print-runs and keeps scan lookup/alignment
+  on scan. #361 records EN/RU/UZ x desktop/phone before: 0 passed / 6 failed / 0 skipped,
+  after: 6 passed / 0 failed / 0 skipped with unchanged assertions/fixtures/timeouts. Next:
+  Mirshoir OK/review; keep draft until that decision. No app fix or acceptance claim.
+
+### UI-TASK-TITLE-20261031 — English blank-title refusal exposes backend detail
+
+- **P2 · Open · Work management UI · Dilmurod; reviewer Mirshoir.** #314 connected
+  desktop EN showed `422: title: Value error, field must not be blank`; RU/UZ showed
+  a translated generic refusal (still prefixed 422). The invalid write was refused;
+  this is error presentation, not missing server validation.
+- Sources: `frontend/src/lib/errorMessages.ts:152–156` returns raw detail for EN;
+  `frontend/src/lib/api.ts:50–54`; [#314 report](https://github.com/Shmirzaev/Milana-ERP/blob/9025b839/docs/archive/api02-browser-2026-10-31/PR314_BROWSER_RESULTS_2026-10-31.md).
+  Next: agree readable localized title feedback in all three languages and retain
+  raw diagnostics separately; verify rejection has no persisted task/audit write.
+
+### UI-DASHBOARD-KPI-I18N-20261031 — dashboard subtitle remains English
+
+- **P2 · Open · Sales/Planning dashboard · Ismail; reviewer Mirshoir;
+  shared frontend coordinator Dilmurod.** “Planning + confirmed + in production”
+  stays English in RU/UZ in #314's connected desktop report/screenshots.
+- Source at `5bffd255`: `frontend/src/app/(app)/page.tsx:290` hardcodes the subtitle
+  instead of translating it. [Screenshots](https://github.com/Shmirzaev/Milana-ERP/blob/6aa67700/docs/archive/api02-browser-2026-10-31/screenshots-received.json).
+  Next: translate that literal for EN/RU/UZ without changing the underlying metric.
+
+### CATALOG-VIEWER-WRITES-20261031 — viewer-labelled fixture permits model mutations
+
+- **P2 · Permission/role-contract finding; waiting for Mirshoir · Catalog · Ismail;
+  reviewer Mirshoir; Identity coordination Dilmurod.** On fresh isolated
+  `clone_main` `5bffd255`, the exact #311 fixture role named “SEC04 Local Viewer”
+  has `modeling.models`. Server actually permits create 201, edit 200, clone 201,
+  attach-picture 201 and deletion of an unused clone 204; model/image readback confirms
+  the effects. File this as a permission finding because the observed account is
+  not refused, **not a demonstrated missing-grant authorization bypass**.
+- The grant is currently full model management, not read-only: all five routes
+  explicitly accept `modeling.models` or wildcard at `backend/app/api/routes/catalog.py:198,238,309,353,453`.
+  A negative-control account with only `dashboard.view` received 403 for all five
+  valid mutations and left business rows/audits unchanged. The word “viewer” in a
+  synthetic role name does not itself establish a business read-only policy.
+- Next: Mirshoir/Ismail decide whether a genuine read-only model role is required;
+  if yes, agree separate read/manage grants plus server refusals and matching UI;
+  otherwise correct the fixture/role expectation. No permission policy is changed.
+
+### UI-DASHBOARD-RESTRICTED-20261031 — restricted home shows unavailable work and New Order
+
+- **P2 · UI note, not a demonstrated permission bypass · Sales/home dashboard ·
+  Ismail; reviewer Mirshoir; Production coordination Mirshoir and shared frontend
+  coordination Dilmurod.** #314's `dashboard.view`-only account sees “Could not load
+  active production” and New Order. Fresh isolated current `clone_main` `5bffd255`
+  confirms active-production GET 403 and a valid New Order POST 403. All seven denied
+  model/dashboard/order requests left model/order/image/audit snapshots unchanged.
+- Sources: `frontend/src/app/(app)/page.tsx:135,284` fetches/renders these unconditionally;
+  server guards `backend/app/api/routes/dashboards.py:93` and
+  `backend/app/api/routes/sales.py:93` correctly refuse. Next: hide unavailable
+  actions/queries or render a deliberate no-access state; retain server guards.
+
+The local server study used only #319's fresh isolated PostgreSQL16/SQLite runner,
+synthetic accounts/model/PNG,12 sequential HTTP permission cases and a separate
+bounded two-Session task scheduling check; no production/shared environment or
+application edit. Evidence stays local under
+`.codex-work/bug-register-permissions-20261101-6e8e414a/` (`results.json`,
+`postcommit-race-result.json`). Initial login harness 422s lacked the form/required
+factory contract; those attempts exercised no business action and are not passes.
+The completed 12-case run used the real JSON login plus MIL factory selection.
+
 ## INV-INACTIVE-BATCH-20261029 — edit a batch retaining its inactive material
 
 - **Deployed to green `20261029_053553`; awaiting operator verification.** Inventory
@@ -56,7 +223,7 @@ New findings must name the actual current path and revision.
 
 ## QA-APP-ROUTES-20261028 — packaged QA site returns 404 before login
 
-- **P1 · NEEDS_REWORK · Verification infrastructure.** Dilmurod owns the area;
+- **P1 · merged, awaiting acceptance · Verification infrastructure.** Dilmurod owns the area;
   Mirshoir is the default technical reviewer; Ismail coordinates this repair.
 - Actual browser checks of the `bcfa658` QA artifact, whose executable app inputs
   match combined candidate `2b34fae`, returned Next.js 404 at `/login` and `/`.
@@ -65,11 +232,15 @@ New findings must name the actual current path and revision.
 - `frontend/scripts/stage_qa_runtime.py` omitted the build-generated root
   `.next/app-path-routes-manifest.json` and `.next/package.json`. Next16.3.8
   silently treats the missing route map as empty, while health rewrites still work.
-- The repair explicitly packages both inputs, reconciles all declared Next
-  runtime files and route-to-compiled-page mappings, and adds refusal tests.
-  A fresh artifact, actual packaged-login smoke, connected-browser desktop/mobile
-  checks, readback and independent review are required before a pass. Human
-  acceptance remains pending; this entry must not move to finished bugs yet.
+- Repair `2ac6436d` and combined gate reconciliation `f27bf640` are integrated;
+  tooling PR [#338](https://github.com/Shmirzaev/Milana-ERP/pull/338) merged as
+  `e6f59789`. The genuine repaired f27 artifact supported actual local login/UI.
+  [Integration checkpoint](../docs/archive/VERIFIED_INTEGRATION_2026-10-28.md)
+  supersedes the old NEEDS_REWORK label for this packaging defect, while preserving
+  the earlier failed 404 observation above. It does not certify every QA workflow
+  or erase the separate later failed/incomplete V23 window in that record.
+- [Acceptance reference](#acceptance-checklist-reference): human acceptance and
+  any uncovered browser/workflow scope remain pending; do not move to finished bugs.
 
 ## SALES-LIST-TRUTH-20261027 — fabricated quantity and progress
 
@@ -268,11 +439,11 @@ The Tracking cells below retain the per-task assignments and history; refer to s
 
 | 3 | **API06** | Editable name/email grants purchasing-price access. | Remove name/email privilege fallbacks from backend and frontend; require explicit permission. | `B:services/price_calculation.py:29`; `B:core/deps.py:164`; `F:lib/priceCalculationRequests.ts:60`; `d89059eb` | Done · @Ismail · [`e808891a`](https://github.com/Shmirzaev/Milana-ERP/commit/e808891a) · reproduced 17 failed/7 passed → 24 passed; +13 user-access, +3 price-workflow; frontend check fails on base, passes on fix; independent review APPROVE. **Deploy prerequisite:** staff relying on the name fallback need an explicit `price_calculation.purchasing` grant. |
 
-| 4 | **AT01** | Failed/unknown device events can establish attendance. | Apply shared accepted-result filtering to overview/usage/export and HR; preserve raw events and legacy NULL-result compatibility. | `B:api/routes/attendance.py:422`; `B:api/routes/hr_workspace.py:452`; `6afe7eb`; [regression](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/backend/app/tests/test_attendance_event_results.py) | Open · Dilmurod |
+| 4 | **AT01** | Failed/unknown device events can establish attendance. | Apply shared accepted-result filtering to overview/usage/export and HR; preserve raw events and legacy NULL-result compatibility. | `B:api/routes/attendance.py:422`; `B:api/routes/hr_workspace.py:452`; `6afe7eb`; [regression](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/backend/app/tests/test_attendance_event_results.py) | merged, awaiting acceptance · Dilmurod · [#267](https://github.com/Shmirzaev/Milana-ERP/pull/267) · [`f1aec09e`](https://github.com/Shmirzaev/Milana-ERP/commit/f1aec09eae1bce74f3f52b1c5faf9bc883dd9259) · [checklist](#acceptance-checklist-reference) |
 
-| 5 | **AT05** | HR attendance uses UTC days and unsafe legacy hour conversion. | Align Tashkent dates/default day, use one factory-settings read and bounded safe hour overrides/defaults; preserve factory isolation. | `B:api/routes/hr_workspace.py:449`; `B:api/routes/attendance.py:407`; `76388c2`; [regression](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/backend/app/tests/test_hr_attendance_validation.py) | Open · Dilmurod |
+| 5 | **AT05** | HR attendance uses UTC days and unsafe legacy hour conversion. | Align Tashkent dates/default day, use one factory-settings read and bounded safe hour overrides/defaults; preserve factory isolation. | `B:api/routes/hr_workspace.py:449`; `B:api/routes/attendance.py:407`; `76388c2`; [regression](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/backend/app/tests/test_hr_attendance_validation.py) | merged, awaiting acceptance · Dilmurod · [#268](https://github.com/Shmirzaev/Milana-ERP/pull/268) · [`e79862e0`](https://github.com/Shmirzaev/Milana-ERP/commit/e79862e01ddbf3509e05ba34beb3e2ad28e0744c) · [checklist](#acceptance-checklist-reference) |
 
-| 6 | **AT06** | Concurrent/stale attendance imports race identities and overwrite newer state. | Port API/connector shared locks, refreshed rows and durable source snapshot/checkpoint gates together; preserve factory/device-token scope, events, rollback and legacy transition. | `B:api/routes/attendance.py:165`; `connectors/hikvision_attendance/read_only_connector.py:474`; `853d2e4`, `b13bfdc`, `135d669`; [regression](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/backend/app/tests/test_attendance_import_races.py) | Open · Dilmurod |
+| 6 | **AT06** | Concurrent/stale attendance imports race identities and overwrite newer state. | Port API/connector shared locks, refreshed rows and durable source snapshot/checkpoint gates together; preserve factory/device-token scope, events, rollback and legacy transition. | `B:api/routes/attendance.py:165`; `connectors/hikvision_attendance/read_only_connector.py:474`; `853d2e4`, `b13bfdc`, `135d669`; [regression](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/backend/app/tests/test_attendance_import_races.py) | merged, awaiting acceptance · Dilmurod · [#269](https://github.com/Shmirzaev/Milana-ERP/pull/269) · [`1aac5e10`](https://github.com/Shmirzaev/Milana-ERP/commit/1aac5e1004e77c19c794b727f589df51f8cb2710) · [checklist](#acceptance-checklist-reference) |
 
 | 7 | **DB01-ADJUSTMENT** | Forced stock corrections leave reservations underbacked. | Enforce reservation floors on both item and batch correction, including force=true. | `B:api/routes/inventory.py:685`; `69ceef4e` | Done · @Ismail · [`56dded34`](https://github.com/Shmirzaev/Milana-ERP/commit/56dded34) · both item and batch floors fixed (donor covered item only); 5 failed/8 passed → 13 passed; +83 adjacent, +233 domain; force still permits multi-batch, linked-record and delete overrides; independent review APPROVE. |
 
@@ -282,41 +453,41 @@ The Tracking cells below retain the per-task assignments and history; refer to s
 
 | 10 | **FN04** | Concurrent invoice routes can bill one order twice. | Lock/refetch the SalesOrder before invoice existence checks in both finance and sales routes. | `B:api/routes/finance.py:65`; `B:api/routes/sales.py:1985`; `3881177e`, `6843712f` | Done · @Ismail · [`8e42807e`](https://github.com/Shmirzaev/Milana-ERP/commit/8e42807e) · reproduced 2 invoices per order on unfixed base → 9 passed incl. 4 real two-connection PostgreSQL race tests; +110 finance, +143 sales; independent review APPROVE. **Residual:** `partners.py:195` and `services/workflow.py:624` still create invoices without this lock; `invoices` has no unique `sales_order_id`. |
 
-| 11 | **FN06** | Generic retry keys replay across callers and race writes. | Scope replay to caller/key/payload and serialize same-key writes across every generic replay site. | `B:services/idempotency.py:31`; `c21e50bb` | Open · Dilmurod |
+| 11 | **FN06** | Generic retry keys replay across callers and race writes. | Scope replay to caller/key/payload and serialize same-key writes across every generic replay site. | `B:services/idempotency.py:31`; `c21e50bb` | merged, awaiting acceptance · Dilmurod · [#291](https://github.com/Shmirzaev/Milana-ERP/pull/291) · [`99af791c`](https://github.com/Shmirzaev/Milana-ERP/commit/99af791c0b21f586e456b3f77b637cda7088cbdc) · [checklist](#acceptance-checklist-reference) |
 
-| 12 | **FN07-ADJUSTMENT** | Payroll adjustment amount/type/reason validation is incomplete. | Validate finite cent-accurate amounts, supported adjustment types and stored reason length. | `B:schemas/payroll.py:456`; `B:api/routes/payroll.py`; `60f82357`, `4ae84350` | Open · Dilmurod |
+| 12 | **FN07-ADJUSTMENT** | Payroll adjustment amount/type/reason validation is incomplete. | Validate finite cent-accurate amounts, supported adjustment types and stored reason length. | `B:schemas/payroll.py:456`; `B:api/routes/payroll.py`; `60f82357`, `4ae84350` | merged, awaiting acceptance · Dilmurod · [#260](https://github.com/Shmirzaev/Milana-ERP/pull/260) · [`838bd12d`](https://github.com/Shmirzaev/Milana-ERP/commit/838bd12d2de3c57c218b6d8a3320b67427c270c6) · [checklist](#acceptance-checklist-reference) |
 
 | 13 | **FN07-INVOICE** | Invoice/payment money inputs can exceed precision/storage bounds. | Use storage-bounded Decimal amounts; reject nonfinite, overflowing and sub-cent inputs before writes. | `B:schemas/sales.py:162`; `B:api/routes/finance.py:74`; `5a68d122`, `6304934b` | Done · @Ismail · [`3b07db93`](https://github.com/Shmirzaev/Milana-ERP/commit/3b07db93) · real column types verified (NUMERIC(14,2) + CHECK constraints), not assumed; reproduced 21 failed with inf/NaN/overflow/sub-cent accepted and a live PG overflow → 37 passed; the FN04 order lock is preserved; merged-branch finance/invoice/payment/sales slice 265 passed. **Note:** rejecting `inf`/`NaN` directly made FastAPI's own 422 body unserializable, so the error `loc` is remapped. |
 
 | 14 | **FN07-PURCHASE-QUANTITY** | Purchase/receipt quantity fields lack finite/storage bounds. | Restore finite/storage quantity bounds after ST01; retain approved unit-cost rounding. | `B:schemas/purchasing.py:77`; `3e75ca62` | Done · @Ismail · [`f539b4e2`](https://github.com/Shmirzaev/Milana-ERP/commit/f539b4e2) · all three quantity inputs bounded to 9999999999.9999 with non-finite rejection, plus a Decimal running-total re-check so accumulation cannot overflow; reproduced 21 failed/1 passed → 22 passed; adjacent purchasing/receipt/material-roll/unit-cost slice 264 passed with PostgreSQL on, including the ST01 receipt tests. |
 
-| 15 | **FN07-RECORD** | Freeform payroll records lack finite/storage money bounds. | Validate representable payroll record amounts before and after trusted enrichment. | `B:api/routes/payroll.py:121`; `50cbbe84`, `764af788` | Open · Dilmurod |
+| 15 | **FN07-RECORD** | Freeform payroll records lack finite/storage money bounds. | Validate representable payroll record amounts before and after trusted enrichment. | `B:api/routes/payroll.py:121`; `50cbbe84`, `764af788` | merged, awaiting acceptance · Dilmurod · [#261](https://github.com/Shmirzaev/Milana-ERP/pull/261) · [`e2716f3e`](https://github.com/Shmirzaev/Milana-ERP/commit/e2716f3e641fd6aea770e4480269a7924c634430) · [checklist](#acceptance-checklist-reference) |
 
-| 16 | **PY01** | Fast badge/work scans credit the previous employee. | Queue badge/work/manual selection in arrival order; do not credit work before badge resolution. | `F:app/(app)/payroll/scan/page.tsx:948`; `3881177e` | Open · Dilmurod |
+| 16 | **PY01** | Fast badge/work scans credit the previous employee. | Queue badge/work/manual selection in arrival order; do not credit work before badge resolution. | `F:app/(app)/payroll/scan/page.tsx:948`; `3881177e` | merged, awaiting acceptance · Dilmurod · [#264](https://github.com/Shmirzaev/Milana-ERP/pull/264) · [`f47c96c1`](https://github.com/Shmirzaev/Milana-ERP/commit/f47c96c10030ddb6b65a0750a02f4242a3eb8ebd) · [checklist](#acceptance-checklist-reference) |
 
-| 17 | **PY02** | Payroll writes race period finalization. | Use shared refreshed period locks for all record writers and finalizers. | `B:api/routes/payroll.py:517`; `b285877b` | Open · Dilmurod |
+| 17 | **PY02** | Payroll writes race period finalization. | Use shared refreshed period locks for all record writers and finalizers. | `B:api/routes/payroll.py:517`; `b285877b` | merged, awaiting acceptance · Dilmurod · [#265](https://github.com/Shmirzaev/Milana-ERP/pull/265) · [`5c73ccb7`](https://github.com/Shmirzaev/Milana-ERP/commit/5c73ccb7ed52c6a31e906f9693124232f2e4ea5b) · [checklist](#acceptance-checklist-reference) |
 
-| 18 | **PY03** | Scanner permission can issue caller-priced payable labels. | Require manage permission for payable label issuance/values; scanners use trusted issued labels. | `B:api/routes/payroll.py:2091`; `900641e7` | Open · Dilmurod |
+| 18 | **PY03** | Scanner permission can issue caller-priced payable labels. | Require manage permission for payable label issuance/values; scanners use trusted issued labels. | `B:api/routes/payroll.py:2091`; `900641e7` | merged, awaiting acceptance · Dilmurod · [#262](https://github.com/Shmirzaev/Milana-ERP/pull/262) · [`88326411`](https://github.com/Shmirzaev/Milana-ERP/commit/8832641198e7f9d25f841039a1dbd15fd6b13b4e) · [checklist](#acceptance-checklist-reference) |
 
-| 19 | **PY04** | Unmatched work dates attach to the latest open period. | Use only the matching date period or no period; remove latest-open fallback in single/bulk paths. | `B:api/routes/payroll.py:540`; `adc79f77` | Open · Dilmurod |
+| 19 | **PY04** | Unmatched work dates attach to the latest open period. | Use only the matching date period or no period; remove latest-open fallback in single/bulk paths. | `B:api/routes/payroll.py:540`; `adc79f77` | merged, awaiting acceptance · Dilmurod · [#263](https://github.com/Shmirzaev/Milana-ERP/pull/263) · [`6a3d2683`](https://github.com/Shmirzaev/Milana-ERP/commit/6a3d26832f89dcab38566bd4052e4bfde8a9205c) · [checklist](#acceptance-checklist-reference) |
 
-| 20 | **PY05** | QR returns use a conflicting payroll lock order. | Use period -> label -> record lock order with fresh assignment checks for return/scan/finalization. | `B:api/routes/payroll.py:2907`; `a2082235` | Open · Dilmurod |
+| 20 | **PY05** | QR returns use a conflicting payroll lock order. | Use period -> label -> record lock order with fresh assignment checks for return/scan/finalization. | `B:api/routes/payroll.py:2907`; `a2082235` | merged, awaiting acceptance · Dilmurod · [#266](https://github.com/Shmirzaev/Milana-ERP/pull/266) · [`1c7021a0`](https://github.com/Shmirzaev/Milana-ERP/commit/1c7021a03d398205ee1df088f220ef309983a823) · [checklist](#acceptance-checklist-reference) |
 
 | 21 | **SEC04** | Disabled or revoked sessions still download model files. | Validate active user and token cutoff for model files; release the auth connection before streaming. | `B:main.py:378`; `3881177e` | Open · Dilmurod |
 
-| 22 | **SEC05** | Sibling reset links survive a password change. | Lock the account and invalidate sibling reset links on every supported password rotation. | `B:api/routes/auth.py:286`; `3881177e`, `f35a62e6` | Open · Dilmurod |
+| 22 | **SEC05** | Sibling reset links survive a password change. | Lock the account and invalidate sibling reset links on every supported password rotation. | `B:api/routes/auth.py:286`; `3881177e`, `f35a62e6` | merged, awaiting acceptance · Dilmurod · [#256](https://github.com/Shmirzaev/Milana-ERP/pull/256) · [`a14dcaec`](https://github.com/Shmirzaev/Milana-ERP/commit/a14dcaecff04c591d9d6396176ffd5aad9a91907) · [checklist](#acceptance-checklist-reference) |
 
-| 23 | **SEC06** | Concurrent admin removals can remove the final admin. | Serialize PATCH/DELETE membership changes with audit-compatible NO KEY UPDATE locks. | `B:api/routes/admin.py:600`; `74a2973` | Open · Dilmurod |
+| 23 | **SEC06** | Concurrent admin removals can remove the final admin. | Serialize PATCH/DELETE membership changes with audit-compatible NO KEY UPDATE locks. | `B:api/routes/admin.py:600`; `74a2973` | merged, awaiting acceptance · Dilmurod · [#259](https://github.com/Shmirzaev/Milana-ERP/pull/259) · [`f798cf04`](https://github.com/Shmirzaev/Milana-ERP/commit/f798cf049dfb899efeef043dea192adb953c1bc8) · [checklist](#acceptance-checklist-reference) |
 
 | 24 | **SEC07-ASSIGNMENT** | Assignment deletion bypasses factory and used-output guards. | Check flow/work-order factory and used/output history under locks before deletion. | `B:api/routes/production_extra.py:392`; `3881177e`, `df14ad66` | Open · Mirshoir |
 
 | 25 | **SEC07-FLOW** | Flow utilization exposes another factory. | Apply sewing-flow access checks to the direct utilization endpoint. | `B:api/routes/production_extra.py:483`; `40c681e` | Open · Mirshoir |
 
-| 26 | **SEC08** | Raw admin console bypasses business and audit safeguards. | Block generic raw UPDATE/DELETE; allow only named audited repairs and soft-deactivation. | `B:api/routes/super_data.py`; `e7782ec`, `297d808`, `df1d08f` | Open · Dilmurod |
+| 26 | **SEC08** | Raw admin console bypasses business and audit safeguards. | Block generic raw UPDATE/DELETE; allow only named audited repairs and soft-deactivation. | `B:api/routes/super_data.py`; `e7782ec`, `297d808`, `df1d08f` | merged, awaiting acceptance · Dilmurod · [#258](https://github.com/Shmirzaev/Milana-ERP/pull/258) · [`a4c1156c`](https://github.com/Shmirzaev/Milana-ERP/commit/a4c1156cc8c1c4d49528a458a25e8822d15246e7) · [checklist](#acceptance-checklist-reference) |
 
-| 27 | **SEC09-PROXY** | Forwarded client/scheme headers lack explicit proxy trust. | Validate trusted CIDRs and ordered forwarded headers; ignore untrusted client/scheme claims. | `B:api/routes/auth.py`; `B:main.py`; `b926fba`, `f35a62e6`, `0ad74a69`, `4fee48be` | Open · Dilmurod |
+| 27 | **SEC09-PROXY** | Forwarded client/scheme headers lack explicit proxy trust. | Validate trusted CIDRs and ordered forwarded headers; ignore untrusted client/scheme claims. | `B:api/routes/auth.py`; `B:main.py`; `b926fba`, `f35a62e6`, `0ad74a69`, `4fee48be` | merged, awaiting acceptance · Dilmurod · [#257](https://github.com/Shmirzaev/Milana-ERP/pull/257) · [`6b90a880`](https://github.com/Shmirzaev/Milana-ERP/commit/6b90a8803cecfb21d48ec650d75df47c36799326) · [checklist](#acceptance-checklist-reference) |
 
-| 28 | **SEC10** | Limited admin can delete a non-wildcard Super Admin. | Protect admin.super targets even when their permission list lacks wildcard. | `B:api/routes/admin.py:600`; `3881177e` | Open · Dilmurod |
+| 28 | **SEC10** | Limited admin can delete a non-wildcard Super Admin. | Protect admin.super targets even when their permission list lacks wildcard. | `B:api/routes/admin.py:600`; `3881177e` | merged, awaiting acceptance · Dilmurod · [#255](https://github.com/Shmirzaev/Milana-ERP/pull/255) · [`318aa22e`](https://github.com/Shmirzaev/Milana-ERP/commit/318aa22e49fde83ea9786d2c7917005498d4cc44) · [checklist](#acceptance-checklist-reference) |
 
 | 29 | **ST01** | Purchase receipt retries add stock twice. | Add caller/order/payload-scoped receipt identity, replay and locking so retries create one receipt. | `B:api/routes/purchasing.py:168`; `3881177e`, `641c0580` | Done · @Ismail · [`6fb88ee3`](https://github.com/Shmirzaev/Milana-ERP/commit/6fb88ee3) + [`4bea7a6c`](https://github.com/Shmirzaev/Milana-ERP/commit/4bea7a6c) · reproduced 10 failed/3 passed → 13 passed; +323 adjacent; real PostgreSQL two-connection receipt-concurrency tests pass; independent review APPROVE, its `updated_at` finding fixed in `4bea7a6c`. **Depends on `UI03-PURCHASE`:** the frontend still sends no `Idempotency-Key`, so the receiving UI will keep double-adding until a key is sent. |
 
@@ -350,9 +521,9 @@ The Tracking cells below retain the per-task assignments and history; refer to s
 
 | --- | --- | --- | --- | --- | --- |
 
-| 40 | **DB02-HR-STATUS** | Employee status writes accept unsupported vocabulary. | Validate newly supplied employee statuses while preserving historical read compatibility. | `B:api/routes/hr.py:21`; `bf364411` | Open · Dilmurod |
+| 40 | **DB02-HR-STATUS** | Employee status writes accept unsupported vocabulary. | Validate newly supplied employee statuses while preserving historical read compatibility. | `B:api/routes/hr.py:21`; `bf364411` | merged, awaiting acceptance · Dilmurod · [#270](https://github.com/Shmirzaev/Milana-ERP/pull/270) · [`94080c0f`](https://github.com/Shmirzaev/Milana-ERP/commit/94080c0ffd1499382d7f71b60ef0c1eeb933a730) · [checklist](#acceptance-checklist-reference) |
 
-| 41 | **DB03-HR-PROFILE** | Employee profile JSON lacks bounded shape/depth validation. | Validate profile shape/hours and 16 KiB/16-level limits; preserve unchanged legacy values. | `B:api/routes/hr.py:26`; `ada93f89`, `708475d2` | Open · Dilmurod |
+| 41 | **DB03-HR-PROFILE** | Employee profile JSON lacks bounded shape/depth validation. | Validate profile shape/hours and 16 KiB/16-level limits; preserve unchanged legacy values. | `B:api/routes/hr.py:26`; `ada93f89`, `708475d2` | merged, awaiting acceptance · Dilmurod · [#272](https://github.com/Shmirzaev/Milana-ERP/pull/272) · [`558d2279`](https://github.com/Shmirzaev/Milana-ERP/commit/558d22798186ab3b3e4bbc777df25883f4448b06) · [checklist](#acceptance-checklist-reference) |
 
 | 42 | **DB03-IMPORT-CORRECT** | Old-ERP correction script bypasses model JSON bounds. | After DB03-MODEL, restore b097037e validator guard before correction-script JSON writes. | `backend/scripts/correct_old_erp_models_local.py:2111`; `b097037e` | Done · @Ismail · [`53bedb59`](https://github.com/Shmirzaev/Milana-ERP/commit/53bedb59) · one ORM write, guarded at the single choke point in `plan_model_correction`, so the dry-run plan and the apply that persists it are both covered and a future caller cannot bypass it. Grandfathering passed deliberately: the write is gated on `details_changed`, so a changed document is always fully checked and the exemption can never grow a row. 8 failed / 4 passed → 12 passed; 117 green across six modules. Corrected an assumption in the brief: `NaN` does **not** silently become `null` on SQLite or PostgreSQL jsonb — it persists as a bare token that is not valid JSON per RFC 8259, which is the real defect. |
 
@@ -362,7 +533,7 @@ The Tracking cells below retain the per-task assignments and history; refer to s
 
 | 45 | **DB03-MODEL** | Model details JSON lacks size/depth/established-shape validation. | Restore common size/depth/shape validator across catalog writers, clones/variants and family saves. | `B:schemas/catalog.py:221`; `B:api/routes/catalog.py`; `fa3ba201` | Done · @Ismail · [`71383580`](https://github.com/Shmirzaev/Milana-ERP/commit/71383580) · six writers covered, not one: catalog create/update, clone, variant create/update, family paid-operations save, and the identity rewrite that fires whenever `general.model_no` changes. 64 KiB measured in **UTF-8 bytes of the serialized form** (40k Cyrillic chars = 80 KB rejected, so it is genuinely bytes), depth ceiling 16 against real documents at ~5. Depth walk is **iterative** and survives depth 1,000,000 with a clean 422, 62,500x the ceiling. Reproduced 12 failed / 3 passed → 15 passed; 179 assertions green across 179 adjacent. Sharpest base defect: a deep document was **committed to the database and only then died serializing the response**. **Corrects the donor's reading:** the "established shape" comparison is *grandfathering*, not key-preservation — it returns early for an unchanged legacy document so a pre-existing oversized row stays editable, and never raises on a key difference. |
 
-| 46 | **DB03-PAYROLL-SNAPSHOT** | Payroll employee/work snapshots are unbounded JSON. | Validate 16 KiB/16-level employee/work snapshots before and after trusted enrichment. | `B:api/routes/payroll.py`; `4f4efcb8` | Open · Dilmurod |
+| 46 | **DB03-PAYROLL-SNAPSHOT** | Payroll employee/work snapshots are unbounded JSON. | Validate 16 KiB/16-level employee/work snapshots before and after trusted enrichment. | `B:api/routes/payroll.py`; `4f4efcb8` | merged, awaiting acceptance · Dilmurod · [#273](https://github.com/Shmirzaev/Milana-ERP/pull/273) · [`d1c31091`](https://github.com/Shmirzaev/Milana-ERP/commit/d1c310911e15d18a832c49a31200996e73e66b84) · [checklist](#acceptance-checklist-reference) |
 
 | 47 | **DB05** | Migration impact preview/preflight tooling is missing. | Restore read-only predecessor-gated previews adapted to clone migration lineage. Never rerun old destructive/grant migrations; require exact impact, backup and owner approval for changes. | `backend/app/migrations/preflight.py (missing)`; `scripts/migration_preflight.py (missing)`; `backend/alembic/versions/0055_delete_mistaken_po15.py:52`; `d23738c7`, `0df2c172`, `2901212a`, `6118771b`; [regression](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/backend/app/tests/test_migration_preflight.py) | Review · @Ismail · [PR #279](https://github.com/Shmirzaev/Milana-ERP/pull/279) · Strict predecessor-gated READ ONLY preview retained; unsupported SQL/grants/repairs/DDL/helpers refuse before database access. Downgrade SQL excluded. Final schema/preflight suite: 51 passed on PostgreSQL 17.11. Earlier tooling `6681c61e`; production changes remain D2-gated. |
 
@@ -372,15 +543,15 @@ The Tracking cells below retain the per-task assignments and history; refer to s
 
 | 50 | **DB08** | ORM metadata disagrees with the existing migrated schema. | Align legacy model-less sales/Beyka ORM with existing clone migrations; test real migrated PostgreSQL. | `B:models/sales.py:51`; `1141d40` | Review · @Ismail · [PR #279](https://github.com/Shmirzaev/Milana-ERP/pull/279) · Remaining ORM contracts aligned; forward 0138 creates nine declared HR indexes. Exactly 21 DB08 and two DB06 differences are preserved verbatim as resolved evidence. Full migrated PostgreSQL baseline now has 94 accepted normalized differences, zero unresolved DB08 classifications. Earlier sales/Beyka fixes retained. Shared timestamp/global ORM parity not claimed; production application pending. |
 
-| 51 | **FN07-HR-SALARY** | Employee salary values lack storage validation. | Reject nonfinite, negative and column-overflow employee salaries before create/update. | `B:api/routes/hr.py:21`; `15833133`, `dd03309c` | Open · Dilmurod |
+| 51 | **FN07-HR-SALARY** | Employee salary values lack storage validation. | Reject nonfinite, negative and column-overflow employee salaries before create/update. | `B:api/routes/hr.py:21`; `15833133`, `dd03309c` | merged, awaiting acceptance · Dilmurod · [#271](https://github.com/Shmirzaev/Milana-ERP/pull/271) · [`b2adb84b`](https://github.com/Shmirzaev/Milana-ERP/commit/b2adb84bbbc9dd6af347e1699cbd99aa16fea93d) · [checklist](#acceptance-checklist-reference) |
 
 | 52 | **OPS05** | Readiness ignores a failed required shared store. | Probe PostgreSQL and required shared store under one bounded, single-flight readiness deadline. | `B:main.py:499`; `c275be7` | Open · Dilmurod |
 
 | 53 | **OPS06** | Recovery tooling cannot verify paired database/upload backups. | Add paired DB/upload manifest verification for dump identity and missing/changed/extra files. | `scripts/storage_recovery_manifest.py (missing)`; `13f5994` | Open · Dilmurod |
 
-| 54 | **OPS08** | Runtime/dependency hardening from develop is absent. | Review PyJWT/runtime migration; verify legacy tokens and run fresh dependency/built-image scans. | `B:core/security.py`; `frontend/Dockerfile`; `.github/workflows/ci.yml`; `06705b9`, `1896408`, `f288ada`, `f0a1536` | Open · Dilmurod |
+| 54 | **OPS08** | Runtime/dependency hardening from develop is absent. | Review PyJWT/runtime migration; verify legacy tokens and run fresh dependency/built-image scans. | `B:core/security.py`; `frontend/Dockerfile`; `.github/workflows/ci.yml`; `06705b9`, `1896408`, `f288ada`, `f0a1536` | Open · Dilmurod · Scoped candidates: Pillow [#355](https://github.com/Shmirzaev/Milana-ERP/pull/355), HMAC-only guard [#357](https://github.com/Shmirzaev/Milana-ERP/pull/357) (draft; operator must confirm production JWT_ALGORITHM), PyJWT [#364](https://github.com/Shmirzaev/Milana-ERP/pull/364) (draft, stacked on357), Node24 [#360](https://github.com/Shmirzaev/Milana-ERP/pull/360), backend image [#362](https://github.com/Shmirzaev/Milana-ERP/pull/362). All open/unmerged at 1 November; remaining token compatibility/scans and human decisions are not closed. |
 
-| 55 | **OPS09-WEB** | Production scripts lack nonce CSP and reliable HTTPS headers. | Restore nonce CSP/layout and trusted HTTPS/HSTS handling; keep 1C retired. | `frontend/next.config.js:32`; `aa8fac1`, `f35a62e6`, `0ad74a69`, `4fee48be` | Open · Dilmurod |
+| 55 | **OPS09-WEB** | Production scripts lack nonce CSP and reliable HTTPS headers. | Restore nonce CSP/layout and trusted HTTPS/HSTS handling; keep 1C retired. | `frontend/next.config.js:32`; `aa8fac1`, `f35a62e6`, `0ad74a69`, `4fee48be` | merged, awaiting acceptance · Dilmurod · [#277](https://github.com/Shmirzaev/Milana-ERP/pull/277) · [`fef59445`](https://github.com/Shmirzaev/Milana-ERP/commit/fef59445127fb61866e0fdb6d3c96b548f85f46f) · [checklist](#acceptance-checklist-reference) · Separate historical login formatter/hydration follow-up [#359](https://github.com/Shmirzaev/Milana-ERP/pull/359) open. |
 
 | 56 | **PERF01** | Package list still queries model/assets/BOM per row. | Preload model/asset/BOM contexts once and pass them into package serialization; preserve returns and QR repair. | `B:api/routes/packages.py:110`; `B:api/routes/packages.py:530`; `3881177`; [regression](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/backend/app/tests/test_package_query_growth.py) | Open · Mirshoir |
 
@@ -390,11 +561,11 @@ The Tracking cells below retain the per-task assignments and history; refer to s
 
 | 59 | **PERF04** | Bundle receive checks accessories again for each bundle. | Use one transaction/order-bound gate context per request; preserve scanner/factory checks, locks, transitions and rollback. Coordinate with PERF13 receipt context. | `B:api/routes/bundles.py:579`; `B:services/bundles.py:438`; `c72fcb7`; [regression](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/backend/app/tests/test_bundle_accessory_gate_batching.py) | Open · Mirshoir |
 
-| 60 | **PERF05** | Payroll label issuance repeats reference/duplicate checks per label. | Batch flow/work-order/factory, existing-label/record and canonical reference reads; preserve issued identity, ambiguity/UID rules and current payroll behavior. | `B:api/routes/payroll.py:2101`; `538ff66`; [regression](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/backend/app/tests/test_payroll_label_issuance_queries.py) | Open · Dilmurod |
+| 60 | **PERF05** | Payroll label issuance repeats reference/duplicate checks per label. | Batch flow/work-order/factory, existing-label/record and canonical reference reads; preserve issued identity, ambiguity/UID rules and current payroll behavior. | `B:api/routes/payroll.py:2101`; `538ff66`; [regression](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/backend/app/tests/test_payroll_label_issuance_queries.py) | merged, awaiting acceptance · Dilmurod · [#281](https://github.com/Shmirzaev/Milana-ERP/pull/281) · [`ae1d1f64`](https://github.com/Shmirzaev/Milana-ERP/commit/ae1d1f6432341c04973e7f635139c4c5fe80afd7) · [checklist](#acceptance-checklist-reference) |
 
-| 61 | **PERF06** | Bulk payroll is unbounded and misses batched validation. | Cap bulk payroll at 500; batch reference/duplicate validation and audit-head work. | `B:schemas/payroll.py:84`; `f42637c3`, `8240fc9`, `67f0309`, `c625aad` | Open · Dilmurod |
+| 61 | **PERF06** | Bulk payroll is unbounded and misses batched validation. | Cap bulk payroll at 500; batch reference/duplicate validation and audit-head work. | `B:schemas/payroll.py:84`; `f42637c3`, `8240fc9`, `67f0309`, `c625aad` | merged, awaiting acceptance · Dilmurod · [#284](https://github.com/Shmirzaev/Milana-ERP/pull/284) · [`3c068435`](https://github.com/Shmirzaev/Milana-ERP/commit/3c068435ecd49b1125a912d73c5fe5c97a7152bb) · [checklist](#acceptance-checklist-reference) · Corrected replay-test follow-up [#358](https://github.com/Shmirzaev/Milana-ERP/pull/358) open; original failure was a wrong audit expectation, not a new payroll defect. |
 
-| 62 | **PERF07** | Payroll labels resolve references separately per group. | Preload canonical references and aliases in bounded batches; preserve global counts, factory scope and current payroll identity rules. | `B:api/routes/payroll.py:2607`; `B:api/routes/payroll.py:202`; `6f5ee2e`; [regression](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/backend/app/tests/test_payroll_label_query_growth.py) | Open · Dilmurod |
+| 62 | **PERF07** | Payroll labels resolve references separately per group. | Preload canonical references and aliases in bounded batches; preserve global counts, factory scope and current payroll identity rules. | `B:api/routes/payroll.py:2607`; `B:api/routes/payroll.py:202`; `6f5ee2e`; [regression](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/backend/app/tests/test_payroll_label_query_growth.py) | merged, awaiting acceptance · Dilmurod · [#285](https://github.com/Shmirzaev/Milana-ERP/pull/285) · [`90906052`](https://github.com/Shmirzaev/Milana-ERP/commit/909060525272072819281dab380f691e16d0773e) · [checklist](#acceptance-checklist-reference) |
 
 | 63 | **PERF08** | Receiving queue loads all packages and detailed children. | Restore SQL paging/count and minimal queue DTO/removal contract; keep detail-by-ID, latest queue events and returned-package exclusion. | `B:api/routes/packages.py:142`; `B:api/routes/packages.py:1078`; `890177e`, `3da6174`, `cbebcd4`, `2dd8ef8`, `330374c`; [regression](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/backend/app/tests/test_receiving_queue_query_growth.py) | Open · Mirshoir |
 
@@ -442,7 +613,7 @@ The Tracking cells below retain the per-task assignments and history; refer to s
 
 | 85 | **PERF30** | Catalog rename/clone/approval still use broad scans and repeated probes. | Filter rename/collision reads, batch exact clone-code probes with namespace serialization and group BOM counts; preserve indexed family lookup and empty Usluga header exception. | `B:api/routes/catalog.py:1013`; `B:api/routes/catalog.py:1047`; `B:api/routes/catalog.py:2272`; `bb93fbca`, `4a4d0e66`, `0775eaf9`, `acea29dd`, `a5631ea4`, `b4db4b4d`; [regression](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/backend/app/tests/test_catalog_family_operations_query_growth.py) | Done · @Ismail · [`e2d8645f`](https://github.com/Shmirzaev/Milana-ERP/commit/e2d8645f) · three read paths, each growing with the wrong quantity. **Rename:** `_rename_model_group` loaded every model in the scope to find one family, then loaded every *other* model again for a collision map; the family read now uses the generated indexed `models.model_group_key` from migration `0084` — the same identity `_model_group_key` already computes in Python and the same lookup `_approval_family` uses — and the collision read probes only the planned codes. **Clone:** one query per rejected `-COPY` suffix meant 59 taken suffixes cost 60 statements; candidates are now probed in batches of 400 and the namespace is serialized with the advisory-lock pattern the approval family already uses, so two concurrent clones cannot both read the same free code. **Approval:** the main-fabric BOM count ran once per pending family member and is now one grouped read, with a model having no main fabric simply absent from the map so its count stays 0 and is still rejected. **The collision guard is where this could quietly weaken:** `_normalized_key` casefolds and collapses whitespace, so a stored code differing only in case or spacing is still a real collision — the narrowed read re-keys its candidates with that same Python normalization, and a test seeds codes differing only in case and only in whitespace to prove the 409 still fires. A second test asserts the stored generated key equals the Python `_model_group_key` on every family member, which is what makes the indexed path safe. The empty Usluga header exception is preserved and asserted separately. Measured on PostgreSQL 17.11 with the real generated columns applied from `0084`: a rename read **4 model rows → 612** once the catalogue held 300+, and taken copy suffixes cost **60 statements → 2**. **The statement count alone was a trap:** the unfixed rename issued a constant *two* statements while returning every row, so a statement budget passed against the defect — the first draft of the test measured statements and had to be rewritten to measure rows. 2 failed / 5 passed against the unfixed module, 7 passed after; 51 existing catalogue tests unchanged, **58 passed post-rebase**; the PG tests skip loudly when the URL is unset. SQLite metadata has no generated columns, so both dialects keep the Python fallback. |
 
-| 86 | **PERF31** | Attendance roster import queries each person separately. | Restore bounded 400-ID roster maps alongside AT06 locks/versioning; preserve counts, full/partial absence, duplicate rollback and factory/device boundaries. | `B:api/routes/attendance.py:221`; `a0b9862`; [regression](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/backend/app/tests/test_attendance_people_query_growth.py) | Open · Dilmurod |
+| 86 | **PERF31** | Attendance roster import queries each person separately. | Restore bounded 400-ID roster maps alongside AT06 locks/versioning; preserve counts, full/partial absence, duplicate rollback and factory/device boundaries. | `B:api/routes/attendance.py:221`; `a0b9862`; [regression](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/backend/app/tests/test_attendance_people_query_growth.py) | merged, awaiting acceptance · Dilmurod · [#289](https://github.com/Shmirzaev/Milana-ERP/pull/289) · [`42284682`](https://github.com/Shmirzaev/Milana-ERP/commit/42284682d70adafecef69d44bb291c14e38a7242) · [checklist](#acceptance-checklist-reference) |
 
 | 87 | **PERF32** | Inbox/forecast/context paths still load broad assets and per-group references. | Restore narrow chunked context maps/image metadata projections across inbox, forecast, process tracking, package lists and Data Console; preserve retained catalog projection and routing/image precedence. | `B:api/routes/inbox.py:535`; `B:services/forecasting.py:241`; `B:api/routes/process_tracking.py:942`; `B:api/routes/super_data.py:250`; `f79d195`, `6c2c5ac`, `b40cace`, `3cc7e67`, `ed4be77`; [regression](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/backend/app/tests/test_inbox_production_context_query_growth.py) | Open · Mirshoir |
 
@@ -454,21 +625,21 @@ The Tracking cells below retain the per-task assignments and history; refer to s
 
 | 91 | **PERF35-FINISHED-GOODS** | Finished-goods page loads unpaged stock/inbox graphs. | Page stock/branded/inbox data with exact totals and existing reservation/return behavior. | `F:app/(app)/finished-goods/page.tsx:24`; `7b45c231`, `1a030623`, `deef9c6d`, `59fea8bc` | Open · Mirshoir |
 
-| 92 | **PERF35-HR** | HR employee directory loads all employees/positions. | Use scoped 50-row employee search, exact metrics and lazy retained option pickers. | `F:app/(app)/hr/employees/page.tsx:59`; `9c53b633`, `36b8d225` | Open · Dilmurod |
+| 92 | **PERF35-HR** | HR employee directory loads all employees/positions. | Use scoped 50-row employee search, exact metrics and lazy retained option pickers. | `F:app/(app)/hr/employees/page.tsx:59`; `9c53b633`, `36b8d225` | merged, awaiting acceptance · Dilmurod · [#286](https://github.com/Shmirzaev/Milana-ERP/pull/286) · [`f7d685f1`](https://github.com/Shmirzaev/Milana-ERP/commit/f7d685f18a0583320892977717ab0e495262a7ea) · [checklist](#acceptance-checklist-reference) |
 
 | 93 | **PERF35-INBOX** | Department inbox fetches a broad order graph. | Restore canonical identity pages and page-only hydration, including replacement/batch queues. | `F:app/(app)/departments/[code]/page.tsx:101`; `6c412e44`, `3e6c5d43`, `bfb51a95`, `051a5a22`, `dc24cdfd` | Open · Mirshoir |
 
-| 94 | **PERF35-PAYROLL** | Payroll lists truncate records and load broad summaries/options. | Page records/summary/adjustments and employee options; remove the silent 300-record cutoff. | `F:app/(app)/payroll/page.tsx:218`; `2174ade0`, `b915b530`, `36b8d225` | Open · Dilmurod |
+| 94 | **PERF35-PAYROLL** | Payroll lists truncate records and load broad summaries/options. | Page records/summary/adjustments and employee options; remove the silent 300-record cutoff. | `F:app/(app)/payroll/page.tsx:218`; `2174ade0`, `b915b530`, `36b8d225` | merged, awaiting acceptance · Dilmurod · [#282](https://github.com/Shmirzaev/Milana-ERP/pull/282) · [`fbfc60f6`](https://github.com/Shmirzaev/Milana-ERP/commit/fbfc60f67f64b3aea6b62e319c8e2371a29798c0) · [checklist](#acceptance-checklist-reference) |
 
 | 95 | **PERF35-PRODUCTION** | Production directory uses an unpaged array. | Use bounded server search/pages with load more and retained selected/deep-linked orders. | `F:app/(app)/production-orders/page.tsx:31`; `45f24e8b`, `07b5b8fb` | Open · Mirshoir |
 
 | 96 | **PERF35-PURCHASING** | Receiving queue fetches broad order/supplier directories. | Page receiving orders by supplier and use bounded supplier options without losing receipt state. | `F:app/(app)/purchasing/receiving/page.tsx:117`; `59a86c5d`, `b3239284`, `b2e39065` | Done · @Ismail · shared branch independently landed the Purchasing counter fix at [`e79f0918`](https://github.com/Shmirzaev/Milana-ERP/commit/e79f0918), included in current `clone_main`. Latest source reconciled without duplicate receivable filters. Affected purchasing regressions passed in the 122-test stock/commercial run; browser receipt recovery remains covered by PR #279. |
 
-| 97 | **PERF36** | Fan-out hydrates broad users and flushes/counts once per row/table. | Use cap+1 projected recipients, batch task/notification flushes and count-free directories with on-demand counts; preserve authorization, targets, audit/rollback and counted API compatibility. | `B:api/routes/notifications.py:48`; `B:api/routes/tasks.py:98`; `B:api/routes/super_data.py:221`; `c5b2483`, `b6a8beb`, `1785a88`, `ebe8399`, `bd36441`; [regression](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/backend/app/tests/test_notification_fanout_batching.py) | Open · Dilmurod |
+| 97 | **PERF36** | Fan-out hydrates broad users and flushes/counts once per row/table. | Use cap+1 projected recipients, batch task/notification flushes and count-free directories with on-demand counts; preserve authorization, targets, audit/rollback and counted API compatibility. | `B:api/routes/notifications.py:48`; `B:api/routes/tasks.py:98`; `B:api/routes/super_data.py:221`; `c5b2483`, `b6a8beb`, `1785a88`, `ebe8399`, `bd36441`; [regression](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/backend/app/tests/test_notification_fanout_batching.py) | merged, awaiting acceptance · Dilmurod · [#288](https://github.com/Shmirzaev/Milana-ERP/pull/288) · [`f202fef1`](https://github.com/Shmirzaev/Milana-ERP/commit/f202fef12a8b70eec993c18e7dea05405fd2e42b) · [checklist](#acceptance-checklist-reference) |
 
-| 98 | **PERF37** | Rate-store I/O blocks the async request loop. | Move synchronous rate-store work to bounded worker capacity; test event-loop responsiveness. | `B:main.py:230`; `25fd549` | Open · Dilmurod |
+| 98 | **PERF37** | Rate-store I/O blocks the async request loop. | Move synchronous rate-store work to bounded worker capacity; test event-loop responsiveness. | `B:main.py:230`; `25fd549` | merged, awaiting acceptance · Dilmurod · [#280](https://github.com/Shmirzaev/Milana-ERP/pull/280) · [`3e98edef`](https://github.com/Shmirzaev/Milana-ERP/commit/3e98edefade7a699d0a8f4487756acfe77d1d987) · [checklist](#acceptance-checklist-reference) |
 
-| 99 | **PERF38** | Office users share one global per-IP budget. | Use authenticated identity buckets; retain IP-only login/reset limits and safe credential fallback. | `B:main.py:154`; `a8b1707` | Open · Dilmurod |
+| 99 | **PERF38** | Office users share one global per-IP budget. | Use authenticated identity buckets; retain IP-only login/reset limits and safe credential fallback. | `B:main.py:154`; `a8b1707` | merged, awaiting acceptance · Dilmurod · [#283](https://github.com/Shmirzaev/Milana-ERP/pull/283) · [`574d68d6`](https://github.com/Shmirzaev/Milana-ERP/commit/574d68d62ad25ef2be13589552166dca76462917) · [checklist](#acceptance-checklist-reference) |
 
 | 100 | **PERF39-MODEL** | Hidden model tabs still fetch BOM/seasons/all employees. | Fetch BOM/seasons only for visible tab/editor and use bounded employee options. | `F:app/(app)/models/[id]/page.tsx:209`; `be696e12`, `4c751606`, `2e60854f` | Done · @Ismail · [`bd810b8b`](https://github.com/Shmirzaev/Milana-ERP/commit/bd810b8b) · the model detail page fired five requests on every load, so nine of twelve tabs paid for data they never rendered: `/bom-items` returns the entire item catalogue and `/api/collections/seasons` was fetched although the season picker only appears in the general tab. SWR skips a null key, so both are now requested only when the reading tab is selected, and the `tab` state moved above the fetch calls to gate on it. **The BOM condition is `tab === 3 || tab === 6`, not the materials tab alone, and that is the substance of the change:** `materialRows` and `accessoryRows` split the BOM into fabrics and accessories by item category, and a second panel on tab 6 renders both lists — gating on tab 3 alone would have left that panel showing every row as a fabric and no accessories, with nothing failing visibly. **`/api/employees` deliberately left unconditional:** `saveModel` resolves the already-selected constructor and designer from that list, so deferring it could clear a value the operator never edited. Bounding it needs a searchable endpoint, which is PERF35-HR and owned with HR — `GET /api/employees` still returns every employee for the selected factory with no limit parameter. Verified as far as this environment allows: the file parses with no TypeScript parse diagnostics, the project type-check reports **920 pre-existing errors before and after** (all missing `react`/`next`/`swr` modules, none in the edited region), and there is no browser or DOM test, so the tab behaviour is argued from the render guards rather than executed. |
 
@@ -482,11 +653,11 @@ The Tracking cells below retain the per-task assignments and history; refer to s
 
 | 105 | **PERF42** | Sewing line context repeats capacity sums per assignment/work order. | Build line response capacity/batch maps once and pass them into work-order context; keep scalar write validation, top/bottom minimum limits, zero-clamping and planned fallback. | `B:api/routes/sewing_daily_reports.py:287`; `B:api/routes/sewing_daily_reports.py:189`; `2166dba`; [regression](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/backend/app/tests/test_sewing_line_context_query_growth.py) | Open · Mirshoir |
 
-| 106 | **SEC09-RESET-PROXY** | Frontend reset proxies accept unbounded bodies and stalled responses. | Bound incoming JSON and upstream full-response deadlines in forgot/reset proxies. | `F:app/api/auth/forgot-password/route.ts`; `F:app/api/auth/reset-password/route.ts`; `b926fba`, `f35a62e6` | Open · Dilmurod |
+| 106 | **SEC09-RESET-PROXY** | Frontend reset proxies accept unbounded bodies and stalled responses. | Bound incoming JSON and upstream full-response deadlines in forgot/reset proxies. | `F:app/api/auth/forgot-password/route.ts`; `F:app/api/auth/reset-password/route.ts`; `b926fba`, `f35a62e6` | merged, awaiting acceptance · Dilmurod · [#276](https://github.com/Shmirzaev/Milana-ERP/pull/276) · [`a496bf60`](https://github.com/Shmirzaev/Milana-ERP/commit/a496bf60e7cb0a5ac7db103d9c5e870801c835e6) · [checklist](#acceptance-checklist-reference) |
 
-| 107 | **UI01** | Temporary API/network failures log users out. | Preserve sessions on network/503 failures; logout only for definitive invalid/revoked authentication. | `F:lib/auth.ts:37`; `F:components/AuthGate.tsx:174`; `3881177e` | Open · Dilmurod |
+| 107 | **UI01** | Temporary API/network failures log users out. | Preserve sessions on network/503 failures; logout only for definitive invalid/revoked authentication. | `F:lib/auth.ts:37`; `F:components/AuthGate.tsx:174`; `3881177e` | merged, awaiting acceptance · Dilmurod · [#274](https://github.com/Shmirzaev/Milana-ERP/pull/274) · [`42df2b45`](https://github.com/Shmirzaev/Milana-ERP/commit/42df2b4588576b668f624da71c37bc4e5dc5d1ac) · [checklist](#acceptance-checklist-reference) |
 
-| 108 | **UI02** | Request deadlines end before response bodies finish. | Keep deadline/cancellation active through response-body consumption for JSON/form/label reads. | `F:lib/api.ts:20`; `3881177e` | Open · Dilmurod |
+| 108 | **UI02** | Request deadlines end before response bodies finish. | Keep deadline/cancellation active through response-body consumption for JSON/form/label reads. | `F:lib/api.ts:20`; `3881177e` | merged, awaiting acceptance · Dilmurod · [#275](https://github.com/Shmirzaev/Milana-ERP/pull/275) · [`83eacfcf`](https://github.com/Shmirzaev/Milana-ERP/commit/83eacfcfa2a65c9d80b0ed3db6291d8df96000e0) · [checklist](#acceptance-checklist-reference) |
 
 | 109 | **UI03-PURCHASE** | Purchase receipts have no durable retry/recovery UI. | After ST01, restore durable receipt key/payload recovery across reloads and ambiguous/rejected responses. | `F:app/(app)/purchasing/receiving/page.tsx:230`; `3881177e`, `641c0580`, `3532e8e4` | Done · @Ismail · [`6deb80a9`](https://github.com/Shmirzaev/Milana-ERP/commit/6deb80a9) + [`1a1f423d`](https://github.com/Shmirzaev/Milana-ERP/commit/1a1f423d) · the page now sends `Idempotency-Key` via the additive `api.postWithHeaders` from `15c77721`, with a key lifecycle mirroring `lib/packageWorkflow.ts`: stable across retries, **minted anew on any edit** (a reused key with a changed body would 409 and look like a server error), scoped per order+line, persisted in `sessionStorage` so a reload can retry, cleared on success and on a definite 4xx. Replay is reported as success; 409 gets a recoverable tone. Coordinator re-ran the check on the merged branch: retry now yields `received 5 across 1 receipts (replayed: true)`. **Unverified: no browser/DOM run** — reload survival and the operator-facing flow need a human pass. |
 
@@ -616,7 +787,7 @@ The [develop ledger](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1
 
 
 
-**Clone_main source assessment: 91 open/partial findings, 26 core fixes present, 7 operational findings still open and 3 retired/intentional.** Broad findings split into multiple implementation tasks. The four Completed sub-tasks are not four fully closed original findings; source presence is not a current runtime or production certification.
+**Historical source assessment at `38a56bbc` (not current status counts): 91 open/partial findings, 26 core fixes present, 7 operational findings still open and 3 retired/intentional.** Broad findings split into multiple implementation tasks. The four Completed sub-tasks are not four fully closed original findings; source presence is not a current runtime or production certification.
 
 
 
@@ -650,13 +821,13 @@ Comparison snapshots: `clone_main` `38a56bbc`, `develop` `2f549f9b`; source and 
 
 | 11 | **SEC01** | Legacy factory wildcard bypasses newer grant restrictions. | **Present** — Core source present; current regressions/measurement pending. `B:services/user_access.py:15` |
 
-| 12 | **SEC10** | Limited user-manager can delete a Super Admin without wildcard. | **Open** — Open/partial: `SEC10`. |
+| 12 | **SEC10** | Limited user-manager can delete a Super Admin without wildcard. | **Merged, awaiting acceptance** — original fix [#255](https://github.com/Shmirzaev/Milana-ERP/pull/255) / [`318aa22e`](https://github.com/Shmirzaev/Milana-ERP/commit/318aa22e49fde83ea9786d2c7917005498d4cc44) is in current `clone_main`; [acceptance checklist](#acceptance-checklist-reference). No production closure claimed. |
 
 | 13 | **API06** | Changing own name grants pricing-list access. | **Fixed on `clone_main`** — [`e808891a`](https://github.com/Shmirzaev/Milana-ERP/commit/e808891a). Deploy prerequisite: those staff need an explicit grant first. |
 
 | 14 | **SEC04** | Disabled user's cookie still downloads model files. | **Open** — Open/partial: `SEC04`. |
 
-| 15 | **SEC05** | Older unused reset link works after another reset succeeds. | **Open** — Open/partial: `SEC05`. |
+| 15 | **SEC05** | Older unused reset link works after another reset succeeds. | **Merged, awaiting acceptance** — original fix [#256](https://github.com/Shmirzaev/Milana-ERP/pull/256) / [`a14dcaec`](https://github.com/Shmirzaev/Milana-ERP/commit/a14dcaecff04c591d9d6396176ffd5aad9a91907) is in current `clone_main`; [acceptance checklist](#acceptance-checklist-reference). No production closure claimed. |
 
 | 16 | **SEC07** | Wrong-factory flow utilization returns data. | **Open** — Open/partial: `SEC07-FLOW`. |
 
@@ -664,17 +835,17 @@ Comparison snapshots: `clone_main` `38a56bbc`, `develop` `2f549f9b`; source and 
 
 | 18 | **SEC07** | Wrong-factory assignment DELETE succeeds. | **Open** — Open/partial: `SEC07-ASSIGNMENT`. |
 
-| 19 | **PY01** | Fast employee switch credits work to previous employee. | **Partial** — Open/partial: `PY01`. |
+| 19 | **PY01** | Fast employee switch credits work to previous employee. | **Merged, awaiting acceptance** — original fix [#264](https://github.com/Shmirzaev/Milana-ERP/pull/264) / [`f47c96c1`](https://github.com/Shmirzaev/Milana-ERP/commit/f47c96c10030ddb6b65a0750a02f4242a3eb8ebd) is in current `clone_main`; [acceptance checklist](#acceptance-checklist-reference). No production closure claimed. |
 
-| 20 | **UI01** | Temporary 503/network failure logs user out. | **Open** — Open/partial: `UI01`. |
+| 20 | **UI01** | Temporary 503/network failure logs user out. | **Merged, awaiting acceptance** — original fix [#274](https://github.com/Shmirzaev/Milana-ERP/pull/274) / [`42df2b45`](https://github.com/Shmirzaev/Milana-ERP/commit/42df2b4588576b668f624da71c37bc4e5dc5d1ac) is in current `clone_main`; [acceptance checklist](#acceptance-checklist-reference). No production closure claimed. |
 
-| 21 | **UI02** | Timeout stops at headers; response body can hang. | **Open** — Open/partial: `UI02`. |
+| 21 | **UI02** | Timeout stops at headers; response body can hang. | **Merged, awaiting acceptance** — original fix [#275](https://github.com/Shmirzaev/Milana-ERP/pull/275) / [`83eacfcf`](https://github.com/Shmirzaev/Milana-ERP/commit/83eacfcfa2a65c9d80b0ed3db6291d8df96000e0) is in current `clone_main`; [acceptance checklist](#acceptance-checklist-reference). No production closure claimed. |
 
 | 22 | **UI03** | Rejected pending receipt blocks corrected submission. | **Partial** — Open/partial: `UI03-PACKAGE`, `UI03-PURCHASE`. |
 
 | 23 | **PERF01** | Package list uses 152 SELECTs for fifty rows. | **Partial** — Open/partial source gap: `PERF01` above. |
 
-| 24 | **PERF07** | One-label payroll page uses 155 SELECTs with fifty reference groups; old code used seven. | **Partial** — Open/partial source gap: `PERF07` above. |
+| 24 | **PERF07** | One-label payroll page uses 155 SELECTs with fifty reference groups; old code used seven. | **Merged, awaiting acceptance** — original fix [#285](https://github.com/Shmirzaev/Milana-ERP/pull/285) / [`90906052`](https://github.com/Shmirzaev/Milana-ERP/commit/909060525272072819281dab380f691e16d0773e) is in current `clone_main`; [acceptance checklist](#acceptance-checklist-reference). No production closure claimed. |
 
 | 25 | **PERF41** | Eco history uses 54 SELECTs for fifty dispatches. | **Open** — Open/partial source gap: `PERF41` above. |
 
@@ -716,7 +887,7 @@ Comparison snapshots: `clone_main` `38a56bbc`, `develop` `2f549f9b`; source and 
 
 | 44 | **WF11** | Usluga handover and material edits use different lock rules. | **Present** — Core source present; rerun/measurement pending. `B:api/routes/usluga.py:161; B:api/routes/usluga.py:856` |
 
-| 45 | **AT01** | Failed/unknown device events can count as attendance. | **Open** — Open/partial source gap: `AT01` above. |
+| 45 | **AT01** | Failed/unknown device events can count as attendance. | **Merged, awaiting acceptance** — original fix [#267](https://github.com/Shmirzaev/Milana-ERP/pull/267) / [`f1aec09e`](https://github.com/Shmirzaev/Milana-ERP/commit/f1aec09eae1bce74f3f52b1c5faf9bc883dd9259) is in current `clone_main`; [acceptance checklist](#acceptance-checklist-reference). No production closure claimed. |
 
 | 46 | **AT02** | Incomplete device download advances the checkpoint. | **Present** — Core source present; rerun/measurement pending. `connectors/hikvision_attendance/read_only_connector.py:403` |
 
@@ -724,17 +895,17 @@ Comparison snapshots: `clone_main` `38a56bbc`, `develop` `2f549f9b`; source and 
 
 | 48 | **AT04** | Removing device profiles hides earlier attendance in reports. | **Present** — Core source present; rerun/measurement pending. `B:api/routes/attendance.py:437` |
 
-| 49 | **AT05** | HR and attendance use different day boundaries; weak hours validation. | **Open** — Open/partial source gap: `AT05` above. |
+| 49 | **AT05** | HR and attendance use different day boundaries; weak hours validation. | **Merged, awaiting acceptance** — original fix [#268](https://github.com/Shmirzaev/Milana-ERP/pull/268) / [`e79862e0`](https://github.com/Shmirzaev/Milana-ERP/commit/e79862e01ddbf3509e05ba34beb3e2ad28e0744c) is in current `clone_main`; [acceptance checklist](#acceptance-checklist-reference). No production closure claimed. |
 
-| 50 | **AT06** | Concurrent or out-of-order attendance imports conflict. | **Open** — Open/partial source gap: `AT06` above. |
+| 50 | **AT06** | Concurrent or out-of-order attendance imports conflict. | **Merged, awaiting acceptance** — original fix [#269](https://github.com/Shmirzaev/Milana-ERP/pull/269) / [`1aac5e10`](https://github.com/Shmirzaev/Milana-ERP/commit/1aac5e1004e77c19c794b727f589df51f8cb2710) is in current `clone_main`; [acceptance checklist](#acceptance-checklist-reference). No production closure claimed. |
 
-| 51 | **PY02** | Payroll writers can race with period finalization. | **Open** — Open/partial: `PY02`. |
+| 51 | **PY02** | Payroll writers can race with period finalization. | **Merged, awaiting acceptance** — original fix [#265](https://github.com/Shmirzaev/Milana-ERP/pull/265) / [`5c73ccb7`](https://github.com/Shmirzaev/Milana-ERP/commit/5c73ccb7ed52c6a31e906f9693124232f2e4ea5b) is in current `clone_main`; [acceptance checklist](#acceptance-checklist-reference). No production closure claimed. |
 
-| 52 | **PY03** | Scanner paths can accept caller-supplied payable values. | **Open** — Open/partial: `PY03`. |
+| 52 | **PY03** | Scanner paths can accept caller-supplied payable values. | **Merged, awaiting acceptance** — original fix [#262](https://github.com/Shmirzaev/Milana-ERP/pull/262) / [`88326411`](https://github.com/Shmirzaev/Milana-ERP/commit/8832641198e7f9d25f841039a1dbd15fd6b13b4e) is in current `clone_main`; [acceptance checklist](#acceptance-checklist-reference). No production closure claimed. |
 
-| 53 | **PY04** | Missing date match falls back to latest open period. | **Open** — Open/partial: `PY04`. |
+| 53 | **PY04** | Missing date match falls back to latest open period. | **Merged, awaiting acceptance** — original fix [#263](https://github.com/Shmirzaev/Milana-ERP/pull/263) / [`6a3d2683`](https://github.com/Shmirzaev/Milana-ERP/commit/6a3d26832f89dcab38566bd4052e4bfde8a9205c) is in current `clone_main`; [acceptance checklist](#acceptance-checklist-reference). No production closure claimed. |
 
-| 54 | **PY05** | QR return uses different locks from scan/finalization. | **Partial** — Open/partial: `PY05`. |
+| 54 | **PY05** | QR return uses different locks from scan/finalization. | **Merged, awaiting acceptance** — original fix [#266](https://github.com/Shmirzaev/Milana-ERP/pull/266) / [`1c7021a0`](https://github.com/Shmirzaev/Milana-ERP/commit/1c7021a03d398205ee1df088f220ef309983a823) is in current `clone_main`; [acceptance checklist](#acceptance-checklist-reference). No production closure claimed. |
 
 | 55 | **FN01** | 1C import continues after a failed database flush. | **Retired / intentional** — 1C integration retired by owner; preserve imported history/manual payments. |
 
@@ -742,15 +913,15 @@ Comparison snapshots: `clone_main` `38a56bbc`, `develop` `2f549f9b`; source and 
 
 | 57 | **FN05** | One-cent advance can leave payment undefined. | **Present** — Core source present; current regressions/measurement pending. `B:api/routes/partners.py:47` |
 
-| 58 | **FN06** | Legacy retry keys lack caller isolation and atomic conflict handling. | **Open** — Open/partial: `FN06`. |
+| 58 | **FN06** | Legacy retry keys lack caller isolation and atomic conflict handling. | **Merged, awaiting acceptance** — original fix [#291](https://github.com/Shmirzaev/Milana-ERP/pull/291) / [`99af791c`](https://github.com/Shmirzaev/Milana-ERP/commit/99af791c0b21f586e456b3f77b637cda7088cbdc) is in current `clone_main`; [acceptance checklist](#acceptance-checklist-reference). No production closure claimed. |
 
 | 59 | **FN07** | Financial types, states and input lists lack consistent bounds. | **Partial** — Open/partial: `FN07-*` (5 tasks). |
 
 | 60 | **FN08** | Reports mix cancelled invoices, current costs and unclear currency rules. | **Partial** — Cash-revenue sub-task Done; historical/current cost and currency policy remain pending: `FN08`. |
 
-| 61 | **SEC06** | Administrator PATCH locks membership; DELETE does not. | **Open** — Open/partial: `SEC06`. |
+| 61 | **SEC06** | Administrator PATCH locks membership; DELETE does not. | **Merged, awaiting acceptance** — original fix [#259](https://github.com/Shmirzaev/Milana-ERP/pull/259) / [`f798cf04`](https://github.com/Shmirzaev/Milana-ERP/commit/f798cf049dfb899efeef043dea192adb953c1bc8) is in current `clone_main`; [acceptance checklist](#acceptance-checklist-reference). No production closure claimed. |
 
-| 62 | **SEC08** | Super Admin raw edits bypass domain services. | **Open** — Open/partial: `SEC08`. |
+| 62 | **SEC08** | Super Admin raw edits bypass domain services. | **Merged, awaiting acceptance** — original fix [#258](https://github.com/Shmirzaev/Milana-ERP/pull/258) / [`a4c1156c`](https://github.com/Shmirzaev/Milana-ERP/commit/a4c1156cc8c1c4d49528a458a25e8822d15246e7) is in current `clone_main`; [acceptance checklist](#acceptance-checklist-reference). No production closure claimed. |
 
 | 63 | **SEC09** | Same-second token rotation, incomplete profile response and weak reset-proxy handling remain. | **Partial** — Open/partial: `SEC09-PROXY`, `SEC09-RESET-PROXY`. |
 
@@ -770,9 +941,9 @@ Comparison snapshots: `clone_main` `38a56bbc`, `develop` `2f549f9b`; source and 
 
 | 71 | **PERF04** | Bundle checks repeat accessory checks: B × A query component. | **Open** — Open/partial source gap: `PERF04` above. |
 
-| 72 | **PERF05** | Label issuance performs roughly two lookups per label, up to 5,000 labels. | **Open** — Open/partial source gap: `PERF05` above. |
+| 72 | **PERF05** | Label issuance performs roughly two lookups per label, up to 5,000 labels. | **Merged, awaiting acceptance** — original fix [#281](https://github.com/Shmirzaev/Milana-ERP/pull/281) / [`ae1d1f64`](https://github.com/Shmirzaev/Milana-ERP/commit/ae1d1f6432341c04973e7f635139c4c5fe80afd7) is in current `clone_main`; [acceptance checklist](#acceptance-checklist-reference). No production closure claimed. |
 
-| 73 | **PERF06** | Unbounded bulk payroll repeats validation and refreshes. | **Partial** — Open/partial: `PERF06`. |
+| 73 | **PERF06** | Unbounded bulk payroll repeats validation and refreshes. | **Merged, awaiting acceptance** — original fix [#284](https://github.com/Shmirzaev/Milana-ERP/pull/284) / [`3c068435`](https://github.com/Shmirzaev/Milana-ERP/commit/3c068435ecd49b1125a912d73c5fe5c97a7152bb) is in current `clone_main`; [acceptance checklist](#acceptance-checklist-reference). No production closure claimed. |
 
 | 74 | **PERF08** | Receiving queue loads all packages and detailed children. | **Open** — Open/partial source gap: `PERF08` above. |
 
@@ -820,7 +991,7 @@ Comparison snapshots: `clone_main` `38a56bbc`, `develop` `2f549f9b`; source and 
 
 | 96 | **PERF30** | Catalog clone/rename/approval repeats probes and broad scans. | **Partial** — Open/partial source gap: `PERF30` above. |
 
-| 97 | **PERF31** | Attendance person import reads each person separately. | **Open** — Open/partial source gap: `PERF31` above. |
+| 97 | **PERF31** | Attendance person import reads each person separately. | **Merged, awaiting acceptance** — original fix [#289](https://github.com/Shmirzaev/Milana-ERP/pull/289) / [`42284682`](https://github.com/Shmirzaev/Milana-ERP/commit/42284682d70adafecef69d44bb291c14e38a7242) is in current `clone_main`; [acceptance checklist](#acceptance-checklist-reference). No production closure claimed. |
 
 | 98 | **PERF32** | Inbox/forecast helpers conditionally load assets and references. | **Partial** — Open/partial source gap: `PERF32` above. |
 
@@ -830,11 +1001,11 @@ Comparison snapshots: `clone_main` `38a56bbc`, `develop` `2f549f9b`; source and 
 
 | 101 | **PERF35** | Growing business lists/reports/exports may load everything. | **Partial** — Open/partial: `PERF35-*` (7 tasks). |
 
-| 102 | **PERF36** | Notification/task fan-out and admin table counts grow with recipients/schema. | **Partial** — Open/partial source gap: `PERF36` above. |
+| 102 | **PERF36** | Notification/task fan-out and admin table counts grow with recipients/schema. | **Merged, awaiting acceptance** — original fix [#288](https://github.com/Shmirzaev/Milana-ERP/pull/288) / [`f202fef1`](https://github.com/Shmirzaev/Milana-ERP/commit/f202fef12a8b70eec993c18e7dea05405fd2e42b) is in current `clone_main`; [acceptance checklist](#acceptance-checklist-reference). No production closure claimed. |
 
-| 103 | **PERF37** | Async middleware calls blocking SQLite rate-store writes. | **Open** — Open/partial: `PERF37`. |
+| 103 | **PERF37** | Async middleware calls blocking SQLite rate-store writes. | **Merged, awaiting acceptance** — original fix [#280](https://github.com/Shmirzaev/Milana-ERP/pull/280) / [`3e98edef`](https://github.com/Shmirzaev/Milana-ERP/commit/3e98edefade7a699d0a8f4487756acfe77d1d987) is in current `clone_main`; [acceptance checklist](#acceptance-checklist-reference). No production closure claimed. |
 
-| 104 | **PERF38** | Historical per-IP budget is shared by office users. | **Open** — Open/partial: `PERF38`. |
+| 104 | **PERF38** | Historical per-IP budget is shared by office users. | **Merged, awaiting acceptance** — original fix [#283](https://github.com/Shmirzaev/Milana-ERP/pull/283) / [`574d68d6`](https://github.com/Shmirzaev/Milana-ERP/commit/574d68d62ad25ef2be13589552166dca76462917) is in current `clone_main`; [acceptance checklist](#acceptance-checklist-reference). No production closure claimed. |
 
 | 105 | **PERF39** | Frontend has dependent requests, duplicate keys and hidden-section fetches. | **Partial** — Open/partial: `PERF39-MODEL`, `PERF39-PACKAGES`, `PERF39-PRODUCTION`. |
 
