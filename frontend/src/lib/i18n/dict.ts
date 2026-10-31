@@ -5,7 +5,7 @@ import type { Lang } from "./types";
 export const dict: Record<Lang, Record<string, string>> = {
   en: {
     "sales.progressUnavailable": "Progress unavailable",
-    "page.processQr.autoSizeSplit": "Unallocated Sewing output was split evenly across model sizes. Review and adjust before issuing. Recorded size quantities are preserved.",
+    "page.processQr.autoSizeSplit": "Unallocated Sewing output was split evenly across order sizes. Review and adjust before issuing. Recorded size quantities are preserved.",
     "page.processQr.sizeSplitTotal": "Allocated: {assigned} / {total} pieces",
     "page.processQr.sizeSplitInvalid": "Use whole, non-negative quantities that total the recorded Sewing output. Existing recorded size quantities cannot be reduced.",
     "page.processQr.sizeSplitMissing": "No sizes are configured for this model or order. Configure the model sizes before issuing labels.",
@@ -2239,7 +2239,7 @@ export const dict: Record<Lang, Record<string, string>> = {
 
   ru: {
     "sales.progressUnavailable": "Прогресс недоступен",
-    "page.processQr.autoSizeSplit": "Выпуск швейного цеха без распределения разделён поровну по размерам модели. Проверьте и исправьте перед выпуском ярлыков. Записанные количества по размерам сохранены.",
+    "page.processQr.autoSizeSplit": "Выпуск швейного цеха без распределения разделён поровну по размерам заказа. Проверьте и исправьте перед выпуском ярлыков. Записанные количества по размерам сохранены.",
     "page.processQr.sizeSplitTotal": "Распределено: {assigned} / {total} шт.",
     "page.processQr.sizeSplitInvalid": "Введите целые неотрицательные количества, сумма которых равна выпуску швейного цеха. Уже записанные количества по размерам уменьшать нельзя.",
     "page.processQr.sizeSplitMissing": "Для модели или заказа не заданы размеры. Укажите размеры модели перед выпуском ярлыков.",
@@ -4347,7 +4347,7 @@ export const dict: Record<Lang, Record<string, string>> = {
 
   uz: {
     "sales.progressUnavailable": "Bajarilish ma’lumoti mavjud emas",
-    "page.processQr.autoSizeSplit": "O‘lchamlarga ajratilmagan tikuv miqdori model o‘lchamlariga teng taqsimlandi. Yorliqlarni chiqarishdan oldin tekshiring va tuzating. Avval kiritilgan o‘lcham miqdorlari saqlanadi.",
+    "page.processQr.autoSizeSplit": "O‘lchamlarga ajratilmagan tikuv miqdori buyurtma o‘lchamlariga teng taqsimlandi. Yorliqlarni chiqarishdan oldin tekshiring va tuzating. Avval kiritilgan o‘lcham miqdorlari saqlanadi.",
     "page.processQr.sizeSplitTotal": "Taqsimlangan: {assigned} / {total} dona",
     "page.processQr.sizeSplitInvalid": "Jami tikuv miqdoriga teng bo‘lgan butun, manfiy bo‘lmagan sonlarni kiriting. Avval kiritilgan o‘lcham miqdorlarini kamaytirib bo‘lmaydi.",
     "page.processQr.sizeSplitMissing": "Model yoki buyurtma uchun o‘lchamlar belgilanmagan. Yorliqlarni chiqarishdan oldin model o‘lchamlarini belgilang.",

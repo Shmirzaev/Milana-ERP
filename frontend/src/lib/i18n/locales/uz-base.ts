@@ -7,7 +7,7 @@ export default {
     "batch.deleteConfirm": "{name} va bichish yozuvlari o'chirilsinmi? Tasdiqlangan mato sarfi omborga qaytariladi. Tikuv natijasi yoki bog'langan ish haqi/qadoqlash yozuvlari bo'lsa o'chirib bo'lmaydi.",
     "nav.physicalPrintRuns": "Qadoqlarni chop etish guruhlari",
     "page.physicalPrintRuns.subtitle": "Chop etish guruhlarini ko‘ring, yorliqlarni qayta chop eting va xato haqiqiy qabullarni tuzating.",
-    "page.processQr.autoSizeSplit": "O‘lchamlarga ajratilmagan tikuv miqdori model o‘lchamlariga teng taqsimlandi. Yorliqlarni chiqarishdan oldin tekshiring va tuzating. Avval kiritilgan o‘lcham miqdorlari saqlanadi.",
+    "page.processQr.autoSizeSplit": "O‘lchamlarga ajratilmagan tikuv miqdori buyurtma o‘lchamlariga teng taqsimlandi. Yorliqlarni chiqarishdan oldin tekshiring va tuzating. Avval kiritilgan o‘lcham miqdorlari saqlanadi.",
     "page.processQr.sizeSplitTotal": "Taqsimlangan: {assigned} / {total} dona",
     "page.processQr.sizeSplitInvalid": "Jami tikuv miqdoriga teng bo‘lgan butun, manfiy bo‘lmagan sonlarni kiriting. Avval kiritilgan o‘lcham miqdorlarini kamaytirib bo‘lmaydi.",
     "page.processQr.sizeSplitMissing": "Model yoki buyurtma uchun o‘lchamlar belgilanmagan. Yorliqlarni chiqarishdan oldin model o‘lchamlarini belgilang.",

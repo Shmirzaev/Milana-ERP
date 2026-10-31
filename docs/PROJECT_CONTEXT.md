@@ -11,9 +11,19 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-10-29. Keep this file short: current decisions, release pointers and
+Last updated 2026-10-31. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## Process QR order sizes release candidate (31 October)
+
+The [reviewed QR size correction](archive/PROCESS_QR_ORDER_SIZES_2026-10-31.md)
+now has owner deployment authorization, with the 30-minute observation explicitly
+waived. Release candidate `20261031_092951` is exact active runtime `1344b572`
+plus only the reviewed frontend/test/localization patch; unrelated pending
+`clone_main` changes are excluded. Production remains `20261029_111113` until
+immutable CI artifacts and immediate source, backup, QA, performance and health
+gates pass. No business data edit or migration is part of this deployment.
 
 ## Current green release (29 October)
 
