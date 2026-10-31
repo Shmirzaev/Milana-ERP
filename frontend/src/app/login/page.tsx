@@ -65,6 +65,7 @@ export default function LoginPage() {
     style: "currency",
     currency: "USD",
     notation: "compact",
+    minimumFractionDigits: 0,
     maximumFractionDigits: 1,
   }), [locale]);
   const intFmt = useMemo(() => new Intl.NumberFormat(locale), [locale]);
