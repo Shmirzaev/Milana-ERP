@@ -11,7 +11,7 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Updated 2026-10-28. Keep this file short: current decisions, release pointers and
+Last updated 2026-10-31. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
@@ -31,6 +31,30 @@ controls. The shared Catalog BOM page also clears stale success and reports a
 refused write without clearing the form. These corrections require their own
 combined PostgreSQL/build/browser evidence; earlier ff7c UI passes do not verify
 this source. Full enum adoption and human acceptance remain open.
+
+## XJ3150 catalog sizes corrected (31 October)
+
+- Owner requested exactly `44, 46, 48, 50, 52, 54` for every XJ3150 variant.
+  All seven standard-catalog variants now have their own exact six-size chart:
+  V-5380, V-5381, V-5382, V-5383, V-5384, V-6668 and V-6669.
+  Added six rows to previously empty V-5380; changed V-5381's existing `56` row
+  to `44`. The five already-correct variants were preserved. Audit `163439`
+  records the owner-authorized transaction and its before/after evidence.
+- Validated PostgreSQL backup:
+  `/opt/milana-erp/shared/backups/milana_erp_pre_xj3150_sizes_20261031_035626.dump`,
+  100,647,804 bytes, mode 0600, 1,246 restore objects, SHA-256
+  `b532fc71ce446bc4cce3d40389c499e9ecf86e1ce27708056612262ce0c567d6`.
+- Rollback rehearsal, exact size/model checks, 16-table linked-row conservation,
+  unrelated-size conservation, independent persisted resolver readback for all
+  seven variants, audit-entry hash and four internal/public health/login checks
+  passed. Existing order, bundle, package, stock and payroll data were preserved.
+  Signed-in visual form verification was not performed; reopen the Planning form
+  to reload its cached model details.
+- Both application VMs still point to green `20261029_111113`, manifest
+  `93d632752aa355efad66fc67bf294fa6eb6321e90769106fc5de71c4cb6b7720`.
+  This matches the fetched `clone_main` production-base record; `origin/main`'s
+  `20261026_085306` baseline metadata remains stale and is not release authority.
+  No application deployment, migration or runtime-source edit occurred.
 
 The [manual Finance invoice candidate](archive/FINANCE_MANUAL_INVOICE_CREATE_2026-10-27.md)
 moves its insert into schema-owned persistence and types its actual UI response.
