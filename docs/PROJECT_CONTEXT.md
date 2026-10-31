@@ -11,9 +11,24 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-10-30. Keep this file short: current decisions, release pointers and
+Last updated 2026-10-31. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## PO-0260 quantity correction (31 October)
+
+Owner confirmed the actual quantity is 250, not 500. A guarded transaction corrected
+Cutting record 299 cut/passed pieces, Cutting work order 1116 actual input/output/passed,
+Sewing/Packaging/Storage work orders 1117–1119 input/output plans, and Sewing assignment
+161/163 quantities to 250. The cancelled assignment remains cancelled. Original order,
+Cutting plan and passport quantities of 300 remain the original plan. Five 50-piece
+received bundles, ten scans and all other linked records were conserved exactly.
+Audit 173981 records the authorized correction; its hash-chain continuation passed.
+Backup, rollback rehearsal, persisted resolver readback, signed-in browser Actual 250 /
+line 250/250 and all four health checks passed. See
+[the correction record](archive/PO0260_QUANTITY_CORRECTION_2026-10-31.md).
+No deployment or migration occurred. Both VMs remain on `20261029_111113`, manifest
+`93d632752aa355efad66fc67bf294fa6eb6321e90769106fc5de71c4cb6b7720`.
 
 ## Active whole-ERP refactor
 
