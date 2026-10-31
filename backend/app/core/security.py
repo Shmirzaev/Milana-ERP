@@ -1,7 +1,9 @@
+from calendar import timegm
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from jose import jwt, JWTError
+import jwt
+from jwt import InvalidTokenError
 from passlib.context import CryptContext
 
 from app.core.config import settings
@@ -78,6 +80,18 @@ def create_access_token(subject: str | int, extra: dict[str, Any] | None = None)
 
 def decode_token(token: str) -> dict[str, Any]:
     try:
-        return jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
-    except JWTError as e:
+        payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM],
+                             options={"verify_iat": False, "verify_exp": False})
+        # Preserve jose's iat coercion and whole-second exp < now boundary.
+        if "iat" in payload:
+            int(payload["iat"])
+        if "exp" in payload and int(payload["exp"]) < timegm(datetime.now(timezone.utc).utctimetuple()):
+            raise ValueError("Signature has expired.")
+        # The legacy decoder was given neither an audience nor an access token.
+        if "aud" in payload:
+            raise ValueError("Invalid audience")
+        if "at_hash" in payload:
+            raise ValueError("No access_token provided to compare against at_hash claim.")
+        return payload
+    except (InvalidTokenError, ValueError) as e:
         raise ValueError(f"Invalid token: {e}") from e

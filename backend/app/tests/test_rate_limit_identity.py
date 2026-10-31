@@ -1,7 +1,7 @@
 import asyncio
 from types import SimpleNamespace
 
-from jose import jwt
+import jwt
 import pytest
 from starlette.requests import Request
 from starlette.responses import Response
