@@ -1,0 +1,45 @@
+{
+  "/ready": {
+    "count": 42,
+    "statuses": {
+      "503": 36,
+      "200": 6
+    },
+    "max_ms": 19.32
+  },
+  "/health": {
+    "count": 42,
+    "statuses": {
+      "200": 42
+    },
+    "max_ms": 8.65
+  },
+  "processes": [
+    {
+      "event": "store_down",
+      "at": "2026-10-31T14:00:00.662802+00:00",
+      "identity": {
+        "8": {
+          "starttime": "2165147",
+          "threads": 7
+        }
+      }
+    },
+    {
+      "event": "store_up",
+      "at": "2026-10-31T14:03:00.666718+00:00",
+      "identity": {
+        "8": {
+          "starttime": "2165147",
+          "threads": 7
+        }
+      }
+    }
+  ],
+  "coverage": {
+    "desktop_en": "connected browser; four screenshots inspected",
+    "phone": "NOT COVERED",
+    "ru": "NOT COVERED",
+    "uz": "NOT COVERED"
+  }
+}
