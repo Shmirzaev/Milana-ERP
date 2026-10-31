@@ -293,6 +293,11 @@ and all four health checks passed. Backup and full evidence are in
 
 ## Required checks and open risks
 
+- OPS05 isolated candidate adds the shared-store readiness probe and a shared
+  bounded flight; `/health` stays dependency-free. Automated evidence and blocked
+  visual/stress gates are in [the task record](archive/OPS05_READINESS_2026-10-26.md).
+  This candidate is not merged, deployed or human-accepted.
+
 - Follow [verification gates](VERIFICATION.md) after each runtime migration/fix/feature:
   test validity, relevant automated tests, actual visual E2E with screenshot inspection,
   bounded isolated stress, persisted integrity/recovery, then human acceptance.
