@@ -37,6 +37,7 @@ const securityHeaders = [
 ];
 
 const nextConfig = {
+  ...(process.env.NODE_ENV === "development" ? { allowedDevOrigins: ["127.0.0.1"] } : {}),
   // Production is promoted as one immutable artifact. The standalone output
   // contains only the runtime server and traced dependencies, so production
   // never needs npm install or next build on the serving VM.

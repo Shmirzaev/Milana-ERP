@@ -2,6 +2,8 @@
 
 ## Scope and result
 
+**31 October clarification: release-image fidelity is BLOCKED.** Both frontend slots used `next dev`; this was not a rollback of production-built frontend release images. See the follow-up below.
+
 Task / state: RF-013 / AI checks recorded, awaiting Mirshoir review. Dilmurod owns the tooling; Mirshoir reviews the rollback procedure and limits. No production host, database, or `/app/storage` was used. The run created and removed a named local Docker network, PostgreSQL 16 database volume, application storage volume with a SQLite shared store, two backend containers, two frontend containers, and one real HAProxy container. Only loopback ports were published.
 
 Old source: `ec02b5f87ea3db9543be389b47d88358232b9a3d` (before the service namespace move). Candidate: `111a05c5fbc4e44790d6d075f8db78adaaffdf9f` from `clone_main`, plus this local rehearsal tool. Both sources used Alembic `0148_second_grade_packages`. This proves compatibility for the tested settings write across these two builds; it does **not** prove compatibility with future RF-005 writes or migrations. The same candidate revision's backend/frontend source was clean during the run.
@@ -60,3 +62,12 @@ The observation ran for about 54 seconds: 99 rounds, 297 GETs, about 5.5 request
 | Independent/human review | **PENDING** Mirshoir. No production release or cutover was attempted. |
 
 Human checklist: rerun on a machine with the stated resources; inspect the `candidate_active`, `candidate_write`, `old_restored`, `failed_frontend_switch`, and `reconciled_old` snapshots and matching HAProxy logs; confirm old reads candidate data, backend-first manual rollback restores both routes, and failure leaves routing/state divergent until explicit reconciliation. Decide whether the observed total outage and absence of an automatic compensating switch are acceptable for RF-005 cutover. Operator ownership for a production rollback still needs to be named at deployment time.
+
+
+## 31 October follow-up — release-image fidelity gap (BLOCKED)
+
+The RF-013 rehearsal's **both frontend slots run `next dev`, not the built production frontend image or `next start`**. The run's `scripts/rf013_frontend.Dockerfile:8` sets `NODE_ENV=development`, and line 9 executes `npm run dev -- --hostname 0.0.0.0 --port 3000`. `scripts/rf013_local_rehearsal.py:387–388` selects this Dockerfile for every frontend build, including old and candidate. These statements describe the exact retained rehearsal tooling, not a production host inspection.
+
+**Gap:** the technical routing/rollback observations do not establish rollback of real immutable frontend release images. A separate isolated rehearsal must stage and switch the actual reviewed production-built backend and frontend release images, then repeat logged-in browser checks and write/readback across rollback. This follow-up does not perform that rehearsal. The 31 October browser result remains **PARTIAL** and the RF-013 visual/release-image gate remains **BLOCKED**; no production compatibility or acceptance is claimed.
+
+The separate `127.0.0.1` development-origin fix addresses development startup only; it cannot close this release-image gap. The earlier “root cause unproven; no fix” notes above describe the evidence available at that time. Subsequent study identified the rejected development connection; source and browser evidence are in `.codex-work/auth-gate-study-20261031/` and the fail-first PR evidence in `.codex-work/next-dev-loopback-evidence-20261031/`. No production/shared environment was accessed.
