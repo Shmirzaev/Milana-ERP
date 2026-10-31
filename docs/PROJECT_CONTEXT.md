@@ -15,6 +15,10 @@ Last updated 2026-10-31. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## PDF.zip warehouse import (31 October)
+
+Added **1,168 packs / 63,517 pieces** from PDF.zip to Finished Goods. Skipped 1,164 previously recorded QR identities and 36 repeated label occurrences. All 187 catalog variants already exist; no models were created. Ten weights remain blank (nine absent, one conflicting across duplicate PDFs). Applied the owner-confirmed XJ3199 / V-6381 quantity of 32; zero packs remain awaiting review. Audit 167203 and complete committed readback/QR resolution pass, together with five public samples and four immediate health checks. Active green 20261029_111113, rollback blue 20261028_123531 and schema are unchanged. No application deployment or monitoring window. See [the import record](archive/PDF_WAREHOUSE_IMPORT_2026-10-31.md).
+
 ## Reviewed warehouse labels imported (31 October)
 
 Added **1,448 packs / 109,183 pieces** to Finished Goods from the owner-reviewed workbooks. Missing weights stay blank (1,169); known weight 7,133.148 kg. Applied the final TJ2158 / V-4053 count of 60, issued 129 new QR labels and retained 320 excluded source occurrences. The owner approved the final FJ6000 / QR 13388 pack (100 pieces) as warehouse-only with article blank: package 16321, audit 167134. **No current-batch packs remain awaiting review.** Eleven warehouse-only packs use hidden legacy identities; no visible Models entries were added. API readback exposed nullable-model response incompatibility; a backed-up, audited binding correction resolved it without source changes. Main audit 166818; binding audit 166840. Complete committed readbacks, all initial 1,447 warehouse QR resolutions, final-pack internal/public QR checks, public samples and four health checks pass. Active green/rollback/schema unchanged; no deployment or monitoring window. See [the complete import and correction record](archive/LABELS_WAREHOUSE_IMPORT_2026-10-31.md).
