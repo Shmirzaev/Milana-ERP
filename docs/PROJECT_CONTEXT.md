@@ -293,6 +293,13 @@ and all four health checks passed. Backup and full evidence are in
 
 ## Required checks and open risks
 
+- API02 candidate (re-aimed 29 October, Dilmurod; Mirshoir review): task write DTOs now
+  validate state, priority, date and reference input; task creation/reassignment
+  checks target visibility and holds a PostgreSQL key-share lock through commit.
+  Existing state reopening remains allowed pending a business transition policy.
+  Polymorphic task references still have no database FK, so later target deletion
+  can orphan a task. This is branch work, not a production fix; see the
+  [API02 verification record](archive/API02_TASK_VALIDATION_2026-10-26.md).
 - Follow [verification gates](VERIFICATION.md) after each runtime migration/fix/feature:
   test validity, relevant automated tests, actual visual E2E with screenshot inspection,
   bounded isolated stress, persisted integrity/recovery, then human acceptance.

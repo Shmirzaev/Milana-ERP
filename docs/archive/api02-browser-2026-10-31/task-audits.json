@@ -1,0 +1,122 @@
+[
+  {
+    "user_id": "2",
+    "action": "create",
+    "entity_type": "Task",
+    "entity_id": "3",
+    "old_value_json": "None",
+    "new_value_json": "{'title': 'CB314-A high self', 'assigned_to': 2}",
+    "prev_hash": "None",
+    "entry_hash": "0a21ed34c8387f549582cbf7b77a3eaef3c2ada80e57d0ce833fb1cdae251972",
+    "created_at": "2026-10-31 12:24:15.083789+00:00",
+    "id": "1"
+  },
+  {
+    "user_id": "2",
+    "action": "create",
+    "entity_type": "Task",
+    "entity_id": "4",
+    "old_value_json": "None",
+    "new_value_json": "{'title': 'CB314-B low to recipient', 'assigned_to': 4}",
+    "prev_hash": "0a21ed34c8387f549582cbf7b77a3eaef3c2ada80e57d0ce833fb1cdae251972",
+    "entry_hash": "8adfd4a3302e833f157f15fde7913888796471f6174f8c0501b72c1048830102",
+    "created_at": "2026-10-31 12:24:28.262045+00:00",
+    "id": "2"
+  },
+  {
+    "user_id": "2",
+    "action": "update",
+    "entity_type": "Task",
+    "entity_id": "3",
+    "old_value_json": "None",
+    "new_value_json": "{'status': 'in_progress'}",
+    "prev_hash": "8adfd4a3302e833f157f15fde7913888796471f6174f8c0501b72c1048830102",
+    "entry_hash": "43ed488bf87e05dea11be869b384e8d5a3b7ebdace86790afd0a7783812765a5",
+    "created_at": "2026-10-31 12:24:37.999247+00:00",
+    "id": "3"
+  },
+  {
+    "user_id": "2",
+    "action": "update",
+    "entity_type": "Task",
+    "entity_id": "2",
+    "old_value_json": "None",
+    "new_value_json": "{'status': 'in_progress'}",
+    "prev_hash": "43ed488bf87e05dea11be869b384e8d5a3b7ebdace86790afd0a7783812765a5",
+    "entry_hash": "32a373e5d404b37e81e705d0ba0c92542694887d443881fe2e9c239d36a70804",
+    "created_at": "2026-10-31 12:24:40.088813+00:00",
+    "id": "4"
+  },
+  {
+    "user_id": "2",
+    "action": "update",
+    "entity_type": "Task",
+    "entity_id": "3",
+    "old_value_json": "None",
+    "new_value_json": "{'status': 'completed'}",
+    "prev_hash": "32a373e5d404b37e81e705d0ba0c92542694887d443881fe2e9c239d36a70804",
+    "entry_hash": "8bafff785d33d951821ac062e1c8583aa72e3a27fb698b09ece8b54b37aa5e4a",
+    "created_at": "2026-10-31 12:24:46.680094+00:00",
+    "id": "5"
+  },
+  {
+    "user_id": "2",
+    "action": "update",
+    "entity_type": "Task",
+    "entity_id": "2",
+    "old_value_json": "None",
+    "new_value_json": "{'status': 'completed'}",
+    "prev_hash": "8bafff785d33d951821ac062e1c8583aa72e3a27fb698b09ece8b54b37aa5e4a",
+    "entry_hash": "0fad63bc3ba7d60b11b3a4d02f38589cb2c255f057fd7b77b457115922e0088b",
+    "created_at": "2026-10-31 12:24:55.328290+00:00",
+    "id": "6"
+  },
+  {
+    "user_id": "2",
+    "action": "update",
+    "entity_type": "Task",
+    "entity_id": "3",
+    "old_value_json": "None",
+    "new_value_json": "{'status': 'pending'}",
+    "prev_hash": "0fad63bc3ba7d60b11b3a4d02f38589cb2c255f057fd7b77b457115922e0088b",
+    "entry_hash": "0ce0f0f27de2ba467edba129351a18966f821b5a77a6c8c987954735b6413916",
+    "created_at": "2026-10-31 12:25:14.091121+00:00",
+    "id": "7"
+  },
+  {
+    "user_id": "2",
+    "action": "update",
+    "entity_type": "Task",
+    "entity_id": "2",
+    "old_value_json": "None",
+    "new_value_json": "{'status': 'pending'}",
+    "prev_hash": "0ce0f0f27de2ba467edba129351a18966f821b5a77a6c8c987954735b6413916",
+    "entry_hash": "00bd26f75a62ef2a25ee99894aa9856bb58c83073f1d2c6755f647d8301f8514",
+    "created_at": "2026-10-31 12:25:16.174427+00:00",
+    "id": "8"
+  },
+  {
+    "user_id": "3",
+    "action": "create",
+    "entity_type": "Task",
+    "entity_id": "5",
+    "old_value_json": "None",
+    "new_value_json": "{'title': 'CB314-C restricted own', 'assigned_to': 3}",
+    "prev_hash": "00bd26f75a62ef2a25ee99894aa9856bb58c83073f1d2c6755f647d8301f8514",
+    "entry_hash": "0acd8120936766240dc7229309ffdd32b75ff94d819ce980453f5a15e4b46851",
+    "created_at": "2026-10-31 12:27:18.583196+00:00",
+    "id": "9"
+  },
+  {
+    "user_id": "3",
+    "action": "update",
+    "entity_type": "Task",
+    "entity_id": "5",
+    "old_value_json": "None",
+    "new_value_json": "{'status': 'completed'}",
+    "prev_hash": "0acd8120936766240dc7229309ffdd32b75ff94d819ce980453f5a15e4b46851",
+    "entry_hash": "f9b5d5da4edb1b8a21ba3c99f429e7e1b9410d63ecc9d6085e8f36e079be813e",
+    "created_at": "2026-10-31 12:27:29.143561+00:00",
+    "id": "10"
+  }
+]
