@@ -11,9 +11,18 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-10-30. Keep this file short: current decisions, release pointers and
+Last updated 2026-10-31. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## Process QR order-size correction (local, 31 October)
+
+The [isolated correction and evidence](archive/PROCESS_QR_ORDER_SIZES_2026-10-31.md)
+make ERP label suggestions prefer production-order sizes over the model's broader
+size range. PO-0495 / Nastil 1 now previews five sizes at 50 each, excluding 56.
+Manual orders, recorded size output and issued-label conflict guards remain.
+This candidate is not deployed; production remains `20261029_111113`. Human
+acceptance and any release remain separate.
 
 ## Active whole-ERP refactor
 
