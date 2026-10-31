@@ -11,7 +11,7 @@
 - Worktree: `C:\ERP\.codex-work\process-qr-order-sizes-20261031`.
   Branch: `codex/process-qr-order-sizes-20261031`.
   Base: `origin/clone_main` at `5bffd255`; no legacy-checkout changes were copied.
-- Verified active backend/frontend release: `20261029_111113`, runtime commit
+- Initially verified backend/frontend release: `20261029_111113`, runtime commit
   `1344b572f8bff6f458892d3c2c8022560f306dbb`, manifest
   `93d632752aa355efad66fc67bf294fa6eb6321e90769106fc5de71c4cb6b7720`.
   Both complete production manifests passed verification. The fetched
@@ -69,7 +69,7 @@ transaction, schema-owned persistence, migration or payroll-rate change is neede
 
 ## Acceptance and handoff
 
-Status: **FIX VERIFIED; DEPLOYMENT ROLLED BACK AT PUBLIC PERFORMANCE GATE**. Owner decision on a measured latency exception is pending.
+Status: **DEPLOYED WITH OWNER-ACCEPTED INVENTORY STOCK P95 EXCEPTION**. Human operator acceptance remains pending.
 Backend/PostgreSQL write, locking and migration tests are not applicable: no
 backend, API, data model or production data was changed. UI issuance evidence
 uses disposable in-memory fixture storage, not a real payroll transaction.
@@ -99,8 +99,8 @@ branch `codex/process-qr-order-sizes-release-20261031`, based on exact active
 runtime `1344b572f8bff6f458892d3c2c8022560f306dbb`. The seven reviewed frontend,
 test and localization paths are byte-identical to implementation commit
 `c4ee4164`; the baseline metadata is refreshed from verified `clone_main`.
-Candidate release: `20261031_092951`. Production remains `20261029_111113` until
-activation passes. Other unreleased `clone_main` work is excluded. No business
+At initial staging, candidate release was `20261031_092951`; production remained
+`20261029_111113` until activation. Other unreleased `clone_main` work is excluded. No business
 data edit, schema migration or 30-minute observation is part of this deployment.
 
 
@@ -159,8 +159,8 @@ original runtime/source manifest/container IDs/images. All four health checks
 passed after rollback. Database remains 0149 with 40/100 connections and zero
 invalid indexes. Blue 20261031_092951 remains running but inactive. The public
 QR page was refreshed and confirmed the original six-size behavior after rollback.
-The user's deployment request remains open pending the explicit decision to
-accept this measured latency exception or leave the previous release active.
+After rollback the deployment request awaited an explicit latency-exception
+decision; that decision and re-promotion are recorded below.
 
 The original owner instruction “deploy without 30 minute monitoring” waived only
 timed observation. No 10- or 30-minute monitor or automation was run. It does not
@@ -209,3 +209,50 @@ The implementation branch merges the reviewed release ancestry with current
 clone_main for publication/review, without changing runtime application bytes
 from c4ee4164. Shared clone_main merge is not claimed. The legacy checkout's
 481 changes were preserved. Human operator/physical-label acceptance remains pending.
+
+
+## Owner-approved re-deployment after the performance rollback
+
+The owner answered the exact pending performance question: **“Re-deploy with this
+latency exception.”** This accepts only the already measured public Inventory
+Stock p95 of 178.73 ms versus 148.53 ms (+20.33%). It does not change the measured
+FAIL, explain its cause, waive another gate or authorize a general future exception.
+The original failed comparison and first activation/rollback/backup remain preserved.
+No replacement performance run was used to erase that result.
+
+The same CI source/images and retained blue container identities were reverified
+against the original healthy green state. GitHub `clone_main` remained `5bffd255`;
+no other PC release or pending application change was introduced. Both complete
+source manifests and the installed controller hash matched; both backend slots
+passed readiness and safe two-worker/8+4 pool checks. A fresh custom backup was
+taken before re-cutover:
+
+- Path: `/opt/milana-erp/shared/backups/milana_erp_pre_20261031_092951_20261031_102318.dump`.
+- Dump: 104,256,130 bytes, mode `0o600`, SHA-256 `abcaa1f3d5d62ac7af9f28186ea184baef4a5b66ae4aa2c014e9e09cac025e5e`.
+- Successful restore listing: 1246 objects, 89,402 bytes,
+  SHA-256 `d26fc96aeb95314f7a734326dd57efa2dae274f39057de1bef8cc42ca6d5f5e4`.
+- Candidate single head and no-op upgrade/current retained `0149_besttex_cutting_access`.
+
+Backend then frontend were reactivated on blue `20261031_092951` at 2026-10-31 15:24:00 Tashkent.
+Both current links/slot states agree, exact runtime `337ff3c01bb4778232dad9973d7c996396717e14` and full
+manifest `f270b044a9b67069e44e3954f671bd59f9456146afd13221584f12053c2a3a94`. Green `20261029_111113` remains running as the
+compatible rollback with original IDs/images. All four health endpoints,
+HAProxy service/configuration, exact source/image/slot identity, two backend
+workers, zero restarts/OOM, clean logs, both-slot readiness, database headroom
+(39/100 connections) and zero invalid indexes passed.
+
+Fresh public browser inspection after full page/model loading shows PO-0495 /
+0535-01 sizes 46/48/50/52/54 at 50 each, total 250 and no 56. Warning/error logs
+are zero; no label issuance or Save-to-model action was submitted. Ten order
+table fingerprints still match. Screenshot: the release worktree's
+`outputs/deployment/public-redeployed-five-sizes.png`. The live browser tab is
+retained for the user. The accepted latency result remains the only measured
+performance exception; all other original comparison checks passed.
+
+The owner's separate instruction to skip 30-minute monitoring remains effective.
+No timed observation or monitoring automation was run or claimed complete.
+Human operator/physical-label acceptance remains pending. Production-base metadata,
+this context, the machine record and the accessible Obsidian mirror are updated.
+PR363 remains draft/unmerged on `clone_main`; its documentation now reflects the
+actual active blue state. Deployment used the exact reviewed runtime `337ff3c0`,
+not the later documentation/integration commit or other pending clone_main changes.

@@ -2,16 +2,16 @@
 
 ## PAYROLL-QR-ORDER-SIZES-20261031 — model adds a size absent from the order
 
-- **Fix verified; deployment rolled back at public p95 gate.** Payroll owner
+- **Deployed to blue `20261031_092951` with owner-accepted latency exception.** Payroll owner
   Dilmurod; human reviewer Mirshoir. PO-0495 contains sizes 46–54, while its model
   also offers 56. Process QR preferred model sizes and split 250 pieces over six
   sizes. The candidate prefers order sizes, preserves recorded quantities and
   retains model/family fallbacks for orders without sizes.
 - [Exact scope, regressions, browser evidence and acceptance steps](../docs/archive/PROCESS_QR_ORDER_SIZES_2026-10-31.md).
-  Blue `20261031_092951` passed QR/paired/health checks but public Inventory
-  Stock p95 +20.33% exceeded budget; original green `20261029_111113` was restored.
-  Owner latency-exception decision and human production verification remain pending.
-  No business data or labels changed; do not close.
+  The owner explicitly accepted the measured Inventory Stock p95 +20.33% after
+  the initial rollback; the same tested runtime was re-deployed. All four health
+  checks and live five-size QR verification passed. Green rollback is retained.
+  No business data/labels changed; human production verification is pending, so do not close.
 
 ## INV-INACTIVE-BATCH-20261029 — edit a batch retaining its inactive material
 

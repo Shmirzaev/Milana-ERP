@@ -15,34 +15,35 @@ Last updated 2026-10-31. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Process QR fix: release attempt rolled back (31 October)
+## Active blue release: Process QR order sizes (31 October)
 
-The [reviewed correction and release record](archive/PROCESS_QR_ORDER_SIZES_2026-10-31.md)
-prefers order sizes; real candidate/public blue QA showed PO-0495 / Nastil 1 at
-five sizes of 50 with no 56. Exact runtime `337ff3c01bb4778232dad9973d7c996396717e14`, blue `20261031_092951`,
-passed CI, source/image verification, fresh backup, no-op schema, candidate QA,
-paired performance and immediate health/runtime checks. Other pending `clone_main`
-work was excluded from the release; the legacy checkout was preserved.
+The [reviewed fix and release evidence](archive/PROCESS_QR_ORDER_SIZES_2026-10-31.md)
+is live on blue `20261031_092951`, exact runtime `337ff3c01bb4778232dad9973d7c996396717e14`.
+Both verified source manifests are `f270b044a9b67069e44e3954f671bd59f9456146afd13221584f12053c2a3a94`.
+Green `20261029_111113` remains the compatible running rollback with original container
+identities/images unchanged. Public PO-0495 / Nastil 1 shows 46/48/50/52/54 at
+50 each and no 56. No business data or QR labels changed; ten table hashes match.
+The exact release contains only the reviewed frontend/test/localization patch on
+active runtime `1344b572`; other pending `clone_main` work was excluded.
 
-The closing public Inventory Stock p95 failed: 178.73 ms versus 148.53 ms,
-**+20.33%**, above the +15% budget. Median was unchanged; the other five endpoints
-passed. Independent review confirmed the arithmetic/method; cause remains unproven.
-No resampling or silent exception was used. Both roles/current links were restored
-to original green `20261029_111113`, runtime `1344b572f8bff6f458892d3c2c8022560f306dbb`,
-manifest `93d632752aa355efad66fc67bf294fa6eb6321e90769106fc5de71c4cb6b7720`. Original green container identities/images and all
-four health checks passed; database stays `0149_besttex_cutting_access`, with
-40/100 connections and zero invalid indexes. Ten affected-order table hashes
-match and no QR labels were issued. The old six-size QR behavior is therefore
-still live. Blue `20261031_092951` is retained as an inactive, tested candidate;
-owner decision on the specific latency exception is pending.
+Initial public Inventory Stock p95 failed at 178.73 ms versus 148.53 ms (+20.33%),
+and both roles were restored to green. The owner then explicitly answered
+**“Re-deploy with this latency exception.”** The same source/images were rechecked,
+a fresh verified backup was taken, and blue was reactivated at 2026-10-31 15:24:00 Tashkent.
+The failed measurement remains FAIL with that specific accepted exception; it
+was not resampled or relabeled PASS. Median was unchanged and the other five
+public endpoints passed; cause remains unproven. CI, required PostgreSQL suites,
+candidate/public QR browser, paired performance and fresh four-health/source/
+slot/router/worker/log/database/readiness checks passed. Schema stays
+`0149_besttex_cutting_access`; human operator acceptance remains pending.
 
-The owner waived only timed 30-minute monitoring; it was not run. The installed
-slot controller (`d422ff74`, `/health` probes) was preserved; explicit `/ready`
-and 48/100 overlap-pool checks passed on both backend slots. The three approved
-unused August folders were fully archived/compared/hashed and relocated to
-`C:\ERP\.codex-work\release-archives\legacy-approved-20261031_092951`, with recovery
-receipts retained on the server. Backend cleanup disk use was 78.11%; both staging
-checks passed below 80%, while the 70% alert remains applicable.
+The separate 30-minute monitoring waiver was honored; no timed monitor ran.
+Installed controller `d422ff74` (`/health` probes) was preserved, with explicit
+both-slot `/ready` and 48/100 overlap-pool checks. Three owner-approved unused
+August release folders were fully archived/compared/hashed and relocated to
+`C:\ERP\.codex-work\release-archives\legacy-approved-20261031_092951` before server
+copies were removed. Recovery receipts remain on the server. Cleanup disk use
+was 78.11%; staging was below 80%, while the 70% alert remains applicable.
 
 ## Active whole-ERP refactor
 
@@ -54,10 +55,10 @@ payment results are the current candidate batch, with verification still pending
 See [the current operation backlog](REFACTOR_COVERAGE.md#current-integration-and-active-work--30-october-2026).
 No whole-domain, system-wide type or human production acceptance is claimed.
 
-## Current green release (29 October)
+## Retained green rollback (29 October)
 
 The [multiple open shipment package split](archive/OPEN_SHIPMENT_PACKAGE_SPLIT_2026-10-29.md)
-is deployed on green `20261029_111113`, exact runtime `1344b572f8bff6f458892d3c2c8022560f306dbb`,
+is retained on green as rollback `20261029_111113`, exact runtime `1344b572f8bff6f458892d3c2c8022560f306dbb`,
 merged into `clone_main` through PR346. Both source manifests are
 `93d632752aa355efad66fc67bf294fa6eb6321e90769106fc5de71c4cb6b7720`. Saving a partial per-size selection releases the
 unallocated remainder immediately for another open shipment using the same QR;
@@ -71,8 +72,8 @@ was submitted; package PKG-2026-001240 still had all 60 claimed by open SH-2026-
 at the conserved readback. The operator must save the desired partial quantity
 there first. External earlier cancellations were not agent actions.
 The old blue `20261028_123531` containers were replaced during the 31 October
-QR attempt. Green `20261029_111113` is currently active after its performance
-rollback; inactive blue `20261031_092951` awaits the owner's latency-exception decision.
+QR release. After the documented rollback and explicit owner latency acceptance,
+blue `20261031_092951` is active and this green release is its compatible rollback.
 The owner's explicit 30-minute observation waiver was honored; no timed monitoring
 was performed. Human operator acceptance remains pending.
 
@@ -203,7 +204,7 @@ and all four health checks passed. Backup and full evidence are in
   reconciled with frozen refactor candidate `d0920f6367b702f63c88d5940cf1b44155b34aec`.
   This successor candidate is **not deployed, not AI-verified and not human-approved**.
   The prior invoice-only production release does not accept or deploy the refactor.
-- `deploy/production-base.json` records the verified 29 October runtime above. The following describes older integration evidence.
+- `deploy/production-base.json` records the verified 31 October runtime above. The following describes older integration evidence.
   Local successor merge `02c25ecf2c8acad55418d86cf5b067fc89307162` has actual
   parents `034cb788` and recorded production `439555`; all 36 released paths were
   reconciled, retaining reviewed namespace ports and both historical release records.

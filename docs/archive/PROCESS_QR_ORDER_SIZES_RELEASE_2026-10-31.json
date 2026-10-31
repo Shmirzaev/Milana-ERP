@@ -1,11 +1,11 @@
 {
-  "active_release": "20261029_111113",
-  "active_slot": "green",
-  "active_runtime_commit": "1344b572f8bff6f458892d3c2c8022560f306dbb",
-  "active_source_manifest": "93d632752aa355efad66fc67bf294fa6eb6321e90769106fc5de71c4cb6b7720",
+  "active_release": "20261031_092951",
+  "active_slot": "blue",
+  "active_runtime_commit": "337ff3c01bb4778232dad9973d7c996396717e14",
+  "active_source_manifest": "f270b044a9b67069e44e3954f671bd59f9456146afd13221584f12053c2a3a94",
   "candidate_release": "20261031_092951",
   "candidate_commit": "337ff3c01bb4778232dad9973d7c996396717e14",
-  "current_status": "ROLLED_BACK_PUBLIC_P95_GATE; owner latency-exception decision pending",
+  "current_status": "DEPLOYED_WITH_OWNER_ACCEPTED_INVENTORY_STOCK_P95_EXCEPTION; human operator acceptance pending",
   "ci": {
     "run": 41188970667,
     "commit": "337ff3c01bb4778232dad9973d7c996396717e14",
@@ -54,17 +54,17 @@
     "ci_run": 41188970667
   },
   "backup": {
-    "path": "/opt/milana-erp/shared/backups/milana_erp_pre_20261031_092951_20261031_100144.dump",
+    "path": "/opt/milana-erp/shared/backups/milana_erp_pre_20261031_092951_20261031_102318.dump",
     "restore_objects": 1246,
     "restore_list_bytes": 89402,
-    "restore_list_sha256": "022410decbeda95efda4d92537f243d79a933f03cc0c439a215983504374d58f",
-    "bytes": 104041731,
+    "restore_list_sha256": "d26fc96aeb95314f7a734326dd57efa2dae274f39057de1bef8cc42ca6d5f5e4",
+    "bytes": 104256130,
     "mode": "0o600",
-    "sha256": "d6efd68fb6a9dcb4a6c969caa7030262ea9f1f032c3c486c2f9db5203ee1070a"
+    "sha256": "abcaa1f3d5d62ac7af9f28186ea184baef4a5b66ae4aa2c014e9e09cac025e5e"
   },
   "database": {
     "revision": "0149_besttex_cutting_access",
-    "connections": 40,
+    "connections": 39,
     "maximum": 100,
     "invalid_indexes": 0
   },
@@ -410,10 +410,180 @@
     "owner_waiver": "deploy without 30 minute monitoring",
     "performed": false
   },
-  "independent_review": "Confirmed valid p95 calculation/method; no justified correction or proven cause; no resampling or waiver",
+  "independent_review": "Initial rollback review confirmed valid p95 calculation/method; no justified correction or proven cause; no resampling or waiver at that time. Subsequent explicit owner acceptance is recorded in performance_exception.",
   "limitations": [
+    "Original measured public inventory_stock p95 +20.33% remains FAIL with explicit owner acceptance; cause unproven",
     "Latency raw samples were not persisted, only summaries",
     "Human operator acceptance pending",
-    "No permission to waive this performance gate has been received"
-  ]
+    "Timed monitoring explicitly waived and not performed"
+  ],
+  "retained_rollback_release": "20261029_111113",
+  "performance_exception": {
+    "owner_approved": true,
+    "verbatim": "Re-deploy with this latency exception",
+    "time": "2026-10-31T10:23:09.913296+00:00",
+    "scope": "Only the already measured public inventory_stock p95 178.73ms versus148.53ms (+20.33%); other gates remain required; failed measurement retained",
+    "metric": "p95",
+    "endpoint": "inventory_stock",
+    "baseline_ms": 148.53,
+    "measured_ms": 178.73,
+    "change_pct": 20.33
+  },
+  "redeployment": {
+    "passed": true,
+    "time": "2026-10-31T10:24:06.189270+00:00",
+    "release": "20261031_092951",
+    "commit": "337ff3c01bb4778232dad9973d7c996396717e14",
+    "explicit_exception": {
+      "owner_approved": true,
+      "verbatim": "Re-deploy with this latency exception",
+      "time": "2026-10-31T10:23:09.913296+00:00",
+      "scope": "Only the already measured public inventory_stock p95 178.73ms versus148.53ms (+20.33%); other gates remain required; failed measurement retained",
+      "metric": "p95",
+      "endpoint": "inventory_stock",
+      "baseline_ms": 148.53,
+      "measured_ms": 178.73,
+      "change_pct": 20.33
+    },
+    "preserved_failed_public_gate": true,
+    "observation": "waived by owner; not performed"
+  },
+  "redeployment_activation": {
+    "passed": true,
+    "time": "2026-10-31T10:24:00.737202+00:00",
+    "slot": "blue",
+    "rollback": "20261029_111113"
+  },
+  "initial_backup": {
+    "path": "/opt/milana-erp/shared/backups/milana_erp_pre_20261031_092951_20261031_100144.dump",
+    "restore_objects": 1246,
+    "restore_list_bytes": 89402,
+    "restore_list_sha256": "022410decbeda95efda4d92537f243d79a933f03cc0c439a215983504374d58f",
+    "bytes": 104041731,
+    "mode": "0o600",
+    "sha256": "d6efd68fb6a9dcb4a6c969caa7030262ea9f1f032c3c486c2f9db5203ee1070a"
+  },
+  "redeployed_public_browser": {
+    "passed": true,
+    "order": "PO-0495",
+    "batch": "0535-01",
+    "rows": [
+      {
+        "quantity": 50,
+        "size": "46"
+      },
+      {
+        "quantity": 50,
+        "size": "48"
+      },
+      {
+        "quantity": 50,
+        "size": "50"
+      },
+      {
+        "quantity": 50,
+        "size": "52"
+      },
+      {
+        "quantity": 50,
+        "size": "54"
+      }
+    ],
+    "warningOrErrorCount": 0,
+    "noLabelsIssued": true,
+    "url": "https://erp.milanapremium.uz/process-qr"
+  },
+  "business_after_redeployment": {
+    "production_orders": {
+      "rows": 1,
+      "sha256": "7e8cbdedc9ad2979f90536535d5c4e98175466d5a968b471930499df7b4ee0e4"
+    },
+    "production_order_items": {
+      "rows": 5,
+      "sha256": "d576ed6c34f7bf35fe7feeada8f832c79ef048384cab5486f99e749fc2149e06"
+    },
+    "production_batches": {
+      "rows": 2,
+      "sha256": "1a516b8dac57a68836c8468dec283212342eba9064f1e0ca3e00906d1ed4ab0f"
+    },
+    "work_orders": {
+      "rows": 4,
+      "sha256": "734906e2e89505fea76302f727d7d7dad2dbd2c8003ea368f5cf8e10a23f4bae"
+    },
+    "cutting_records": {
+      "rows": 2,
+      "sha256": "5d0b5f641d7c4e7db602e79a1bc7ecf24884476f9e28c99e162de2f1c19e9d9a"
+    },
+    "sewing_records": {
+      "rows": 1,
+      "sha256": "0c209d1b257547f95e33e3e0e2e8492edd9c124db1a6b2ce93a1ab54159985ad"
+    },
+    "payroll_qr_labels": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "bundles": {
+      "rows": 10,
+      "sha256": "a07306e4850b822ac6066c434b3efd93fc25d268eb9630fb486fc8e8b8777f78"
+    },
+    "packaging_records": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "payroll_records": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    }
+  },
+  "redeployment_postflight": {
+    "passed": true,
+    "four_health_checks": "200",
+    "observation": "waived by owner; not run",
+    "roles": {
+      "backend": {
+        "state": {
+          "active_release": "20261031_092951",
+          "active_slot": "blue",
+          "role": "backend",
+          "rollback_release": "20261029_111113",
+          "rollback_slot": "green",
+          "updated_at": "2026-10-31T10:23:58.458148+00:00"
+        },
+        "active_id": "d8bee831dfe66451c7f1b193748c1c07fb9d79d61df4985f00557340c9a75b77",
+        "active_image": "sha256:2fbb47402f1efa1853b0cd315d174debe0ed28779d52f587a06ebdd6be80cc3c",
+        "active_commit": "337ff3c01bb4778232dad9973d7c996396717e14",
+        "rollback_id": "cfbdd0f0288e2ea088b59b2744ec7aed85142027e75553fb74402305eb48e2c3",
+        "rollback_image": "sha256:8e34ba5727ac67e3730192b358f97615f52a175fb27c4679e1720df6f65e5566",
+        "running": true,
+        "restarts": 0,
+        "oom": false,
+        "logs": {
+          "error_markers": 0,
+          "workers": 2
+        }
+      },
+      "frontend": {
+        "state": {
+          "active_release": "20261031_092951",
+          "active_slot": "blue",
+          "role": "frontend",
+          "rollback_release": "20261029_111113",
+          "rollback_slot": "green",
+          "updated_at": "2026-10-31T10:24:00.122815+00:00"
+        },
+        "active_id": "c612d1bb9f7e3d55716100112296a1be2eb67f2dbbb06c4025adfbcb2c50a6a9",
+        "active_image": "sha256:21ad5f760ba01a884c71526f58631bdb816fe259fbc2f1ba05a1bb429e4160e0",
+        "active_commit": "337ff3c01bb4778232dad9973d7c996396717e14",
+        "rollback_id": "f17e66c42b0a22ce474469a2942e0f455a45ff34a7c89c6f165399a387824c27",
+        "rollback_image": "sha256:77c1d42f7fcfac22103c0bba36547914d10519fcd80a60e88fea6a23aee6a9c4",
+        "running": true,
+        "restarts": 0,
+        "oom": false,
+        "logs": {
+          "error_markers": 0,
+          "workers": 0
+        }
+      }
+    }
+  }
 }
