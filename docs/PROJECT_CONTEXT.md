@@ -11,9 +11,13 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-10-30. Keep this file short: current decisions, release pointers and
+Last updated 2026-10-31. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## Reviewed warehouse labels imported (31 October)
+
+Added **1,447 packs / 109,083 pieces** to Finished Goods from the owner-reviewed workbooks. Missing weights stay blank (1,168); known weight 7,133.148 kg. Applied the final TJ2158 / V-4053 count of 60, issued 129 new QR labels, retained 320 excluded source occurrences, and held FJ6000 / QR 13388 (100 pieces) pending its missing-article decision. Ten warehouse-only packs use hidden legacy identities; no visible Models entries were added. API readback exposed nullable-model response incompatibility; a backed-up, audited binding correction resolved it without source changes. Main audit 166818; binding audit 166840. Full committed readback, all 1,447 warehouse QR resolutions, five public samples and four health checks pass. Active green/rollback/schema unchanged; no deployment or monitoring window. See [the complete import and correction record](archive/LABELS_WAREHOUSE_IMPORT_2026-10-31.md).
 
 ## Active whole-ERP refactor
 
