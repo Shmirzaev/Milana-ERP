@@ -15,6 +15,10 @@ Last updated 2026-10-31. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## Final archive workbook import (31 October)
+
+Added **143 packs / 7,925 pieces** from the final archive workbook to Finished Goods. Skipped five previously recorded QR identities and nine repeated source rows. Verified all 101 source-file hashes, corrected photo 15 QR to `uzerp_ii_18249_1`, and resolved two model mismatches through their unique article owners (V-4028 -> XJ3083; V-3553 -> TJ2107). All 42 catalog variants already exist; no models were created. Two missing weights remain blank; known weight 3,252.3900 kg. Zero packs await review. Audit 173186, complete committed stock/receipt readback, all 143 warehouse QR resolutions, seven signed public samples and four immediate health checks pass. Active green 20261029_111113, rollback blue 20261028_123531 and schema unchanged; no deployment or monitoring window. See [the import record](archive/ARCHIVE_WORKBOOK_WAREHOUSE_IMPORT_2026-10-31.md).
+
 ## PDF.zip warehouse import (31 October)
 
 Added **1,168 packs / 63,517 pieces** from PDF.zip to Finished Goods. Skipped 1,164 previously recorded QR identities and 36 repeated label occurrences. All 187 catalog variants already exist; no models were created. Ten weights remain blank (nine absent, one conflicting across duplicate PDFs). Applied the owner-confirmed XJ3199 / V-6381 quantity of 32; zero packs remain awaiting review. Audit 167203 and complete committed readback/QR resolution pass, together with five public samples and four immediate health checks. Active green 20261029_111113, rollback blue 20261028_123531 and schema are unchanged. No application deployment or monitoring window. See [the import record](archive/PDF_WAREHOUSE_IMPORT_2026-10-31.md).
