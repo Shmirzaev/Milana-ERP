@@ -7,7 +7,7 @@ export default {
     "batch.deleteConfirm": "Delete {name} and its cutting entries? Verified fabric consumption will be returned to inventory. Sewing output or linked payroll/packaging history blocks deletion.",
     "nav.physicalPrintRuns": "Physical print runs",
     "page.physicalPrintRuns.subtitle": "Review package print runs, reprint labels, and correct mistaken physical receipts.",
-    "page.processQr.autoSizeSplit": "Unallocated Sewing output was split evenly across model sizes. Review and adjust before issuing. Recorded size quantities are preserved.",
+    "page.processQr.autoSizeSplit": "Unallocated Sewing output was split evenly across order sizes. Review and adjust before issuing. Recorded size quantities are preserved.",
     "page.processQr.sizeSplitTotal": "Allocated: {assigned} / {total} pieces",
     "page.processQr.sizeSplitInvalid": "Use whole, non-negative quantities that total the recorded Sewing output. Existing recorded size quantities cannot be reduced.",
     "page.processQr.sizeSplitMissing": "No sizes are configured for this model or order. Configure the model sizes before issuing labels.",

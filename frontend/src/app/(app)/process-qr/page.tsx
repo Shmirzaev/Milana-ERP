@@ -957,7 +957,8 @@ export default function ProcessQrPage() {
     const ownSizes = selectedModel?.id === selectedModelId
       ? (selectedModel.sizes || []).map(row => row.size).filter(size => size?.trim() && size !== "-") : [];
     const orderSizes = (selectedProcess.sizes || []).map(row => row.size).filter(size => size?.trim() && size !== "-");
-    const modelSizes = [...(ownSizes.length ? ownSizes : orderSizes.length ? orderSizes : resolvedFamilySizes?.sizes || [])].sort(compareGarmentSizes);
+    // A model can offer sizes that were never included in this production order.
+    const modelSizes = [...(orderSizes.length ? orderSizes : ownSizes.length ? ownSizes : resolvedFamilySizes?.sizes || [])].sort(compareGarmentSizes);
     return new Map(batchOptions.map(batch => [batch.key, allocateLabelSizes(
       batch.sewingCompletedQuantity, batch.sewingSizes, modelSizes,
       batchSizeDrafts[`${allocationScope}:${batch.key}`],
