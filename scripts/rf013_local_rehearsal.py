@@ -25,7 +25,6 @@ import urllib.request
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FRONTEND_DOCKERFILE = ROOT / "scripts/rf013_frontend.Dockerfile"
 SLOTCTL_PATH = ROOT / "deploy/slotctl.py"
 HAPROXY_IMAGE = "haproxy:3.1-alpine"
 POSTGRES_IMAGE = "postgres:16-alpine"
@@ -385,7 +384,12 @@ backend rf013_frontend_active
         image = self.image(role, release)
         build = ["docker", "build", "-t", image]
         if role == "frontend":
-            build += ["-f", str(FRONTEND_DOCKERFILE), str(source)]
+            # Rewrites are baked at build time; keep them on this run's local network.
+            build += [
+                "-f", str(source / "frontend/Dockerfile"),
+                "--build-arg", f"API_URL=http://{self.proxy_name}:8000",
+                "--build-arg", "NEXT_PUBLIC_API_URL=", str(source),
+            ]
         else:
             build += [str(source / "backend")]
         log = self.dir / f"build-{role}-{release}.log"
@@ -393,6 +397,20 @@ backend rf013_frontend_active
             result = subprocess.run(build, stdout=stream, stderr=subprocess.STDOUT)
         if result.returncode:
             raise RuntimeError(f"{image} build failed; see {log}")
+        inspected = json.loads(docker("image", "inspect", image))[0]
+        config = inspected["Config"]
+        if role == "frontend" and (
+            "NODE_ENV=production" not in config.get("Env", [])
+            or config.get("Cmd") != ["node", "server.js"]
+        ):
+            raise RuntimeError(f"{image} is not the standalone production frontend")
+        self.evidence.setdefault("images", []).append({
+            "role": role, "release": release, "image": image, "id": inspected["Id"],
+            "dockerfile": str(source / ("frontend/Dockerfile" if role == "frontend" else "backend/Dockerfile")),
+            "command": config.get("Cmd"), "entrypoint": config.get("Entrypoint"),
+            "user": config.get("User"),
+            "node_env": next((item for item in config.get("Env", []) if item.startswith("NODE_ENV=")), None),
+        })
         self.event("image_built", image)
 
     def prepare(self) -> None:

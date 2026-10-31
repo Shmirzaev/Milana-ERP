@@ -60,3 +60,24 @@ The observation ran for about 54 seconds: 99 rounds, 297 GETs, about 5.5 request
 | Independent/human review | **PENDING** Mirshoir. No production release or cutover was attempted. |
 
 Human checklist: rerun on a machine with the stated resources; inspect the `candidate_active`, `candidate_write`, `old_restored`, `failed_frontend_switch`, and `reconciled_old` snapshots and matching HAProxy logs; confirm old reads candidate data, backend-first manual rollback restores both routes, and failure leaves routing/state divergent until explicit reconciliation. Decide whether the observed total outage and absence of an automatic compensating switch are acceptable for RF-005 cutover. Operator ownership for a production rollback still needs to be named at deployment time.
+
+
+## Built release-image HTTP follow-up — 31 October 2026
+
+Follow-up to #324. Dilmurod owns this tooling change; Mirshoir reviews it. User scope: replace the rehearsal's development frontend with built release images, rerun HTTP only, preserve the old evidence, and leave browser/independent/human gates unchanged. Tooling base: `5bffd255981c57e5f356f6f9b7fb568f55d585bf` on `clone_main`. No application, dependency, release Dockerfile or production change.
+
+Both frontend slots now build their source's `frontend/Dockerfile` with repository-root context and backend source available to its build contracts. They inherit the actual release standalone command `node server.js` and `NODE_ENV=production`; the release image does not use a literal `next start` command. The isolated HAProxy API address is supplied at build time because production rewrites are baked; the public API argument is empty. Runtime command overrides are not added. Both backend slots already build their source's `backend/Dockerfile` and retain Alembic/Uvicorn without reload. Image IDs, source paths, entrypoints and commands are captured in [the new evidence](rf013-release-images-2026-10-31/evidence.json). The earlier development Dockerfile is no longer referenced by this runner.
+
+The same historical sources were tested for comparability: old `ec02b5f87ea3db9543be389b47d88358232b9a3d`, candidate `111a05c5fbc4e44790d6d075f8db78adaaffdf9f`; both source trees were clean. Existing workload and bounds above were unchanged and declared before execution. Only run-owned local Docker network, slots, PostgreSQL/storage volumes and loopback listeners were used; all were removed afterward. No production or shared environment was contacted.
+
+| HTTP rehearsal | Earlier development frontend | Built release frontend |
+| --- | --- | --- |
+| Failure injection to recovered authenticated old readback | 41.41 s | **41.31 s** |
+| Manual reconciliation to authenticated old readback | 3.67 s | **3.73 s** |
+| HTTP/settings compatibility | PASS | **PASS** |
+
+The total measurement includes the failed activation wait and manual reconciliation; it is not a browser timing or a capacity claim. Sampling is every 0.5 s with a 2 s probe deadline. There were 94 observations per endpoint: `/health` 94 x 200; `/ready` 94 x 200; `/login` 27 x 200, 65 x 503 and two timeouts during the injected fault. Candidate UZS persisted through rollback; old read UZS, wrote USD and read USD; reconciled old read USD. Peak sampled PostgreSQL client connections: six, below the predeclared 60. Manual reconciliation remained below 30 s. Expected route/state mismatch occurred after frontend failure and was reconciled to old/blue for both roles. The detailed timestamps and samples remain in the new evidence; no claim of exact browser outage boundaries is made.
+
+Checks: the two new frontend regressions failed before the change (wrong Dockerfile and missing development-image refusal); all three final unit tests passed, including unchanged backend context. The existing slotctl readiness/liveness contract passed by direct invocation. Ruff with repository config and `git diff --check` passed. Independent Codex review (`/root/review_ops08_hmac_guard`) found no actionable source/test issue; it did not rerun builds or checks. Reviewed script SHA-256 `f9d1dab82fbdd4410397a643fcd1286d09b924388fcd1d9f674a28676a5d3649`, tests `11d22fb0ddef2cd1cffa6d081751d49ab44fd63644e1ab4199e03bcc9357e686`.
+
+**No RF-013 browser session was started.** The connected visual gate, independent rollback execution, human acceptance and Mirshoir's limit review remain pending; none is marked verified or accepted. This rerun tests the mechanism and these two historical revisions, not current production compatibility.
