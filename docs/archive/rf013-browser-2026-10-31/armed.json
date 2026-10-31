@@ -1,0 +1,28 @@
+{
+  "armed_at": {
+    "utc": "2026-10-31T14:15:03.445512+00:00",
+    "asia_seoul": "2026-10-31T23:15:03.445512+09:00"
+  },
+  "schedule": [
+    {
+      "step": "baseline",
+      "scheduled_at_seoul": "2026-10-31T23:36:00+09:00",
+      "scheduled_at_utc": "2026-10-31T14:36:00+00:00"
+    },
+    {
+      "step": "rollback_switch",
+      "scheduled_at_seoul": "2026-10-31T23:44:00+09:00",
+      "scheduled_at_utc": "2026-10-31T14:44:00+00:00"
+    },
+    {
+      "step": "failed_activation",
+      "scheduled_at_seoul": "2026-10-31T23:52:00+09:00",
+      "scheduled_at_utc": "2026-10-31T14:52:00+00:00"
+    },
+    {
+      "step": "recovery",
+      "scheduled_at_seoul": "2026-10-31T23:54:00+09:00",
+      "scheduled_at_utc": "2026-10-31T14:54:00+00:00"
+    }
+  ]
+}
