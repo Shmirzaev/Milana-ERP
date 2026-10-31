@@ -217,3 +217,25 @@ and screenshots (`{manager,denied}-{en,ru,uz}-{1280,390}-{refusal,reload}.png`,
 are local, not uploaded/committed. Earlier full-suite results were not rerun or
 promoted to this candidate. The temporary frontend was stopped and this run's
 Compose project/volumes removed; production and unrelated local stacks untouched.
+
+## Connected desktop browser and persisted readback — 31 October 2026
+
+Runtime **31eaf5dad5c24e445b5b640a97b23dc8f5879607**, `http://localhost:58860`, MIL; Webpack development frontend, Node 24.22.1, isolated PostgreSQL 16 / required SQLite project `milana-sec04-local-f073eca3`. This is a connected desktop follow-up. Earlier evidence and failures remain unchanged. No verified/accepted or human-production gate mark.
+
+Checker: Claude in the user's real Chrome on macOS, 21:23–21:28 Asia/Seoul, per the returned [unaltered browser report](api02-browser-2026-10-31/PR314_BROWSER_RESULTS_2026-10-31.md). **Reported PASS for checks run:** manager create/assign/Mine/All/Start/Done/Reopen with reloads; shortage task transitions; spaces-only title refusal; restricted account's own task and manager-control denial; desktop EN/RU/UZ. Native date input refused an impossible date; this does not prove an invalid-date request reached the backend.
+
+**Connected phone layout: NOT COVERED.** Chrome could not resize. Earlier standalone-Chromium phone observations remain separately attributed and do not fill this gap. Entity-reference controls and editing an existing task's date are not exposed in this UI. Full visual gate remains PARTIAL/BLOCKED for these gaps; human acceptance remains pending.
+
+| Browser task | DB ID | Persisted status | Priority | Due (UTC) | Assignee | Comparison |
+| --- | --- | --- | --- | --- | --- | --- |
+| CB314-A high self | 3 | pending | high | 2026-11-20T00:00:00Z | API02 manager (2) | Matches; completed_at null after Reopen |
+| CB314-B low to recipient | 4 | pending | low | 2026-11-25T00:00:00Z | API02 recipient (4) | Matches |
+| CB314-C restricted own | 5 | completed | medium | none | API02 denied (3) | Matches; completed_at 2026-10-31T12:27:29.152310Z |
+
+[Full row readback](api02-browser-2026-10-31/persisted-rows.json), [comparison](api02-browser-2026-10-31/readback-comparison.json) and [task audits](api02-browser-2026-10-31/task-audits.json) are retained. Audit records for task 3 and shortage task 2 show in_progress → completed → pending; task 5 shows completed. There are exactly four task rows (shortage plus A/B/C), ten task audit rows and one notification. No blank-title row exists. This corroborates the final state and transitions; database evidence alone does not prove every visual interaction.
+
+Four images are named: `pr314_manager_tasks_RU.jpg`, `pr314_manager_tasks_UZ.jpg`, `pr314_blank_title_refused_RU.png`, `pr314_restricted_tasks_EN.jpg`. **Attachment ingestion and inspection PENDING:** these files were not present in accessible attachment/filesystem paths, including exact-filename search. Their names are retained in [attachments.json](api02-browser-2026-10-31/attachments.json). Preflight screenshots are not substituted. Add and inspect the returned originals when available.
+
+The report preserves EN raw 422 title text versus RU generic translated 422 text, the retained 422 prefix, MM/DD/YYYY dates across languages, an English dashboard KPI subtitle, a restricted-role dashboard error/New Order button, and a time-of-day greeting mismatch. These are follow-up observations, not fixes or assertions that #314 introduced them.
+
+After preserving rows, audits and logs, the frontend process and only this Compose project's backend/database were stopped by explicit user instruction. Test containers/volumes remain retained. Exact stop time is in the local session record. No production/shared service or application code changed. Remaining image attachments and connected-phone coverage are outstanding.
