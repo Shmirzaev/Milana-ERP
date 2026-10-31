@@ -15,14 +15,34 @@ Last updated 2026-10-31. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Process QR order-size correction (local, 31 October)
+## Process QR fix: release attempt rolled back (31 October)
 
-The [isolated correction and evidence](archive/PROCESS_QR_ORDER_SIZES_2026-10-31.md)
-make ERP label suggestions prefer production-order sizes over the model's broader
-size range. PO-0495 / Nastil 1 now previews five sizes at 50 each, excluding 56.
-Manual orders, recorded size output and issued-label conflict guards remain.
-This candidate is not deployed; production remains `20261029_111113`. Human
-acceptance and any release remain separate.
+The [reviewed correction and release record](archive/PROCESS_QR_ORDER_SIZES_2026-10-31.md)
+prefers order sizes; real candidate/public blue QA showed PO-0495 / Nastil 1 at
+five sizes of 50 with no 56. Exact runtime `337ff3c01bb4778232dad9973d7c996396717e14`, blue `20261031_092951`,
+passed CI, source/image verification, fresh backup, no-op schema, candidate QA,
+paired performance and immediate health/runtime checks. Other pending `clone_main`
+work was excluded from the release; the legacy checkout was preserved.
+
+The closing public Inventory Stock p95 failed: 178.73 ms versus 148.53 ms,
+**+20.33%**, above the +15% budget. Median was unchanged; the other five endpoints
+passed. Independent review confirmed the arithmetic/method; cause remains unproven.
+No resampling or silent exception was used. Both roles/current links were restored
+to original green `20261029_111113`, runtime `1344b572f8bff6f458892d3c2c8022560f306dbb`,
+manifest `93d632752aa355efad66fc67bf294fa6eb6321e90769106fc5de71c4cb6b7720`. Original green container identities/images and all
+four health checks passed; database stays `0149_besttex_cutting_access`, with
+40/100 connections and zero invalid indexes. Ten affected-order table hashes
+match and no QR labels were issued. The old six-size QR behavior is therefore
+still live. Blue `20261031_092951` is retained as an inactive, tested candidate;
+owner decision on the specific latency exception is pending.
+
+The owner waived only timed 30-minute monitoring; it was not run. The installed
+slot controller (`d422ff74`, `/health` probes) was preserved; explicit `/ready`
+and 48/100 overlap-pool checks passed on both backend slots. The three approved
+unused August folders were fully archived/compared/hashed and relocated to
+`C:\ERP\.codex-work\release-archives\legacy-approved-20261031_092951`, with recovery
+receipts retained on the server. Backend cleanup disk use was 78.11%; both staging
+checks passed below 80%, while the 70% alert remains applicable.
 
 ## Active whole-ERP refactor
 
@@ -50,9 +70,9 @@ public benchmark. No latency exception was needed. No production business edit
 was submitted; package PKG-2026-001240 still had all 60 claimed by open SH-2026-000180
 at the conserved readback. The operator must save the desired partial quantity
 there first. External earlier cancellations were not agent actions.
-Blue `20261028_123531` containers/images/start times remain unchanged. Its old
-business code cannot safely handle mixed Nastil or multi-shipment claim data;
-recovery must use health-only backend maintenance until compatible green returns.
+The old blue `20261028_123531` containers were replaced during the 31 October
+QR attempt. Green `20261029_111113` is currently active after its performance
+rollback; inactive blue `20261031_092951` awaits the owner's latency-exception decision.
 The owner's explicit 30-minute observation waiver was honored; no timed monitoring
 was performed. Human operator acceptance remains pending.
 
