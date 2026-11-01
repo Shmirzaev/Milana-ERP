@@ -11,6 +11,7 @@ from app.schemas import (
     FinishedGoodsStock,
     Model,
     Package,
+    PackageItem,
     PackageScanLog,
     ProductionOrder,
     Role,
@@ -379,3 +380,39 @@ def test_ship_verified_packages_reads_locked_stock_and_claims_once(monkeypatch, 
     assert len(stock_reads) == 1, stock_reads
     assert len(claim_reads) == 1, claim_reads
     print(f"Shipment {package_count}: {len(stock_reads)} stock read, {len(claim_reads)} claim read")
+
+
+@pytest.mark.parametrize('package_count', [1,50,401])
+def test_new_frozen_claim_dispatch_batches_item_allocation_and_reservation_reads(package_count):
+    shipment_id=_shipment(package_count,with_stock_and_scans=True)
+    with SessionLocal() as db:
+        shipment=db.get(Shipment,shipment_id)
+        selections={}
+        for link in shipment.packages:
+            package=db.get(Package,link.package_id)
+            item=PackageItem(package_id=package.id,model_id=package.model_id,color=package.color,size='one',quantity=1)
+            db.add(item);db.flush()
+            selections[str(package.id)]={str(item.id):1}
+        shipment.dispatch_snapshot={'package_quantities':selections}
+        db.commit()
+    statements=[]
+    def capture(_connection,_cursor,statement,*_args):
+        sql=' '.join(statement.lower().split())
+        if sql.startswith('select'):statements.append(sql)
+    with SessionLocal() as db:
+        shipment=db.get(Shipment,shipment_id)
+        current=db.query(User).filter_by(email='admin@example.com').one()
+        event.listen(db.bind,'before_cursor_execute',capture)
+        try:
+            result=shipment_routes._ship_verified_packages(db,shipment,current)
+            db.commit()
+        finally:
+            event.remove(db.bind,'before_cursor_execute',capture)
+        assert result==(package_count,package_count)
+        assert sum(p.dispatched_quantity for p in db.query(Package).join(ShipmentPackage).filter(
+            ShipmentPackage.shipment_id==shipment_id))==package_count
+    for table,limit in [('package_items',2),('stock_reservations',2),('finished_goods_stock',1)]:
+        reads=[sql for sql in statements if f' from {table} ' in sql]
+        assert len(reads)<=limit,(table,len(reads))
+    other_claims=[sql for sql in statements if ' from shipment_packages join shipments ' in sql]
+    assert len(other_claims)==1,len(other_claims)

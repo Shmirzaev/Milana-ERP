@@ -11,14 +11,47 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-10-29. Keep this file short: current decisions, release pointers and
+Last updated 2026-10-30. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## Active whole-ERP refactor
+
+PR343 merged three verified persistence operations into `clone_main` at
+`d235cf9e9a44b1de81428beb261f8fab837cbe87`; this did not deploy them. The owner
+resumed all remaining domains with cheap isolated subagents on 30 October.
+Collection UPDATE, Purchasing costing/notification persistence and typed Finance
+payment results are the current candidate batch, with verification still pending.
+See [the current operation backlog](REFACTOR_COVERAGE.md#current-integration-and-active-work--30-october-2026).
+No whole-domain, system-wide type or human production acceptance is claimed.
+
 ## Current green release (29 October)
 
+The [multiple open shipment package split](archive/OPEN_SHIPMENT_PACKAGE_SPLIT_2026-10-29.md)
+is deployed on green `20261029_111113`, exact runtime `1344b572f8bff6f458892d3c2c8022560f306dbb`,
+merged into `clone_main` through PR346. Both source manifests are
+`93d632752aa355efad66fc67bf294fa6eb6321e90769106fc5de71c4cb6b7720`. Saving a partial per-size selection releases the
+unallocated remainder immediately for another open shipment using the same QR;
+either shipment may dispatch first. Existing valid package claims are supported.
+CI passed 4,874 backend cases (544 opt-in skips), both required PostgreSQL gates
+passed 165 cases with zero skips, and private browser/readback, paired/public
+120-sample performance, verified backup, no-op schema and four health/runtime
+checks passed. Temporary candidates were removed before the single closing
+public benchmark. No latency exception was needed. No production business edit
+was submitted; package PKG-2026-001240 still had all 60 claimed by open SH-2026-000180
+at the conserved readback. The operator must save the desired partial quantity
+there first. External earlier cancellations were not agent actions.
+Blue `20261028_123531` containers/images/start times remain unchanged. Its old
+business code cannot safely handle mixed Nastil or multi-shipment claim data;
+recovery must use health-only backend maintenance until compatible green returns.
+The owner's explicit 30-minute observation waiver was honored; no timed monitoring
+was performed. Human operator acceptance remains pending.
+
+The prior release remains documented below for its original five changes and
+PO-0377 correction; current runtime includes those changes.
+
 [Order artwork, Nastil factory selection, warehouse remainder and invoice
-sizing](archive/PRINT_NASTIL_WAREHOUSE_2026-10-29.md) is deployed on green
+sizing](archive/PRINT_NASTIL_WAREHOUSE_2026-10-29.md) was deployed on green
 `20261029_083228`, exact runtime `24f4f2310a2194afe9a589796347525e2a7759fa`,
 merged into `clone_main` through PR344. Both source manifests are
 `95d3be61132307dc41ec13fff4e51965ad460ab7faa4e5725448db488a13cd59`.
@@ -120,6 +153,11 @@ and all four health checks passed. Backup and full evidence are in
 ## Source and production
 
 - Shared integration/production branch: clone_main. origin/main is stale for this work.
+- Pending platform change: staged backend containers will receive `RELEASE_ID` from
+  `slotctl.py` and report it in `/health` and `/ready`. The backend VM's shared
+  slot manager must be updated from the reviewed release before staging. Existing
+  deployed slots have no process release ID until restaged; the observer still
+  checks status only.
 - Continue a suitable isolated worktree; preserve the legacy C:\ERP checkout.
   Use separate engineer work directories and one landing queue coordinated by Mirshoir.
 - [DEPLOYMENT.md](../DEPLOYMENT.md) is the only supported release procedure.
@@ -258,12 +296,35 @@ and all four health checks passed. Backup and full evidence are in
 - Shared [skills](AGENT_SKILLS.md): milana-refactor for extraction, milana-feature
   for new behavior; both Codex and Claude use repository-controlled instructions.
 
+## SEC04 model-file session authentication (branch review only)
+
+- The 27 October browser follow-up found that one-day file and one-week thumbnail
+  private caches let revoked users reopen prior images. The SEC04 branch now
+  requires revalidation after auth and returns byte-free 304s for active filesystem
+  images; legacy DB fallback is `no-store`. Isolated Chromium Gate 3 and bounded
+  HTTP Gate 4 passed on candidate `9f6895a9`; Mirshoir's review and human
+  acceptance remain pending. Previously cached old-policy images can outlive the
+  deploy until their old TTL expires; rollout handling is unresolved.
+  [Current evidence](../backend/app/tests/SEC04-model-file-auth-evidence.md#browser-cache-follow-up--2026-10-27).
+- Updated `codex/sec04-model-file-auth` with `clone_main` at `ba70e0cb`.
+  Model files/thumbnails use current-account authentication and immediately release
+  its DB session before file reads/streaming. Company-wide access is intentional;
+  no factory/per-model scope was added. Owner Dilmurod; reviewer Mirshoir (pending).
+- The evidence file retains the earlier 25 October BLOCKED record as history;
+  the 27 October local gates supersede it. No merge to `clone_main`, deployment,
+  production verification or business-data change. Release/rollback pointers
+  above are historical and were not reverified.
+
 ## Required checks and open risks
 
 - Follow [verification gates](VERIFICATION.md) after each runtime migration/fix/feature:
   test validity, relevant automated tests, actual visual E2E with screenshot inspection,
   bounded isolated stress, persisted integrity/recovery, then human acceptance.
   Required missing/skipped checks are BLOCKED, not PASS. No production stress/data fabrication.
+- The [local PostgreSQL runner adaptation](archive/LOCAL_POSTGRES_RUNNER_2026-10-29.md)
+  supplies legacy and approved-instance fixtures together. Its full local run had
+  5,375 passes, one stale S06 enum-call failure, and zero skips; required operation
+  and supplement groups passed. Mirshoir review remains pending; CI is unchanged.
 - Default backend pytest fixtures use SQLite. Real PostgreSQL checks need their
   documented setup/collection; do not infer locking correctness from SQLite success.
 - One write path per request and one outer transaction owner. Preserve locks, audit,

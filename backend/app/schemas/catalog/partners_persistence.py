@@ -83,3 +83,8 @@ def apply_customer_update(db: Session, customer: Customer, fields: CustomerUpdat
 def delete_customer_row(db: Session, customer: Customer) -> None:
     """Mark a customer for deletion in the caller's transaction."""
     db.delete(customer)
+
+
+def delete_supplier_row(db: Session, supplier: Supplier) -> None:
+    """Mark a supplier for deletion in the caller's transaction."""
+    db.delete(supplier)

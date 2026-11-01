@@ -2,7 +2,7 @@
 
 Contract for `record_invoice_payment`:
 * input: a validated `PaymentIn`, the acting user and the optional idempotency key
-* output: the stored `PaymentOut` snapshot as a dict
+* output: the typed `PaymentOut` snapshot
 * refusals: 404 when the invoice does not exist, 409 when the same key is reused
   with a different payload or with an inconsistent owner
 * records: one `payments` row, one `Payment` audit row and one idempotency row
@@ -20,16 +20,21 @@ from app.models.idempotency_service import replay_idempotent_response, store_ide
 from app.schemas import Invoice, User
 
 
-def record_invoice_payment(db: Session, payload: PaymentIn, actor: User, idempotency_key: str | None) -> dict:
+def record_invoice_payment(
+    db: Session,
+    payload: PaymentIn,
+    actor: User,
+    idempotency_key: str | None,
+) -> PaymentOut:
     """Record one payment against an invoice, or replay the stored response.
 
-    A replayed request returns the stored response as it is, without writing a
-    second payment.
+    A replayed request validates the stored response as `PaymentOut` without
+    writing a second payment or replacing the saved JSON snapshot.
     """
     fingerprint_payload = payload.model_dump(mode="json")
     replay = replay_idempotent_response(db, scope="finance.payments", key=idempotency_key, payload=fingerprint_payload)
     if replay:
-        return replay
+        return PaymentOut.model_validate(replay)
     inv = db.get(Invoice, payload.invoice_id)
     if not inv:
         raise HTTPException(404, "Invoice not found")
@@ -42,13 +47,14 @@ def record_invoice_payment(db: Session, payload: PaymentIn, actor: User, idempot
         notes=payload.notes,
     )
     log_action(db, actor, "create", "Payment", p.id, new_value={"amount": float(p.amount)})
-    response = PaymentOut.model_validate(p).model_dump(mode="json")
+    response = PaymentOut.model_validate(p)
+    response_json = response.model_dump(mode="json")
     store_idempotent_response(
         db,
         scope="finance.payments",
         key=idempotency_key,
         payload=fingerprint_payload,
-        response=response,
+        response=response_json,
         user=actor,
         status_code=201,
     )

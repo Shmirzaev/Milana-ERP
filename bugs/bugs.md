@@ -1,5 +1,24 @@
 # Team bug tracker — clone_main
 
+## SEC04 — model-file session authentication (2026-10-27 branch follow-up)
+
+- **Review · Dilmurod · reviewer Mirshoir (pending).** Updated the existing
+  `codex/sec04-model-file-auth` branch with browser-cache revalidation at
+  `9f6895a9`; not merged
+  into `clone_main` or deployed. Historical October rows below remain evidence.
+- Disabled/deleted accounts and revoked tokens must receive 401 on model files
+  and cached thumbnails. Active MIL/BST/ECO users retain company-wide access.
+  Authenticate through `CurrentUser`, then close the auth session before I/O.
+- The old cache policy let Chromium return 200 after revocation. The new
+  filesystem policy requires revalidation; authenticated ETag/Last-Modified
+  requests return 304, while revoked sessions return 401. Legacy DB fallback
+  is `no-store`. Four fail-first cases turned green; 57 focused tests passed.
+  [Verification record](../backend/app/tests/SEC04-model-file-auth-evidence.md)
+  has visually inspected isolated-browser Gate 3 and bounded HTTP Gate 4
+  technical PASS results; full backend suite: 3,892 passed / 312 skipped.
+  Existing browser entries with the old one-day/week
+  lifetime need rollout handling. Mirshoir's limits/review, human acceptance and
+  production verification are pending; this is not a Finished entry.
 ## INV-INACTIVE-BATCH-20261029 — edit a batch retaining its inactive material
 
 - **Deployed to green `20261029_053553`; awaiting operator verification.** Inventory

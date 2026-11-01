@@ -52,6 +52,7 @@ from app.schemas.sales.sales_order_persistence import (
     apply_sales_order_header_changes,
     create_sales_order_item,
     create_sales_order_row,
+    delete_sales_order_row,
     set_sales_order_total,
     set_sales_order_status,
 )
@@ -482,7 +483,7 @@ def delete_sales_order(sid: int, db: Session, current: User):
     if not so:
         raise HTTPException(404, "Sales order not found")
 
-    if so.status not in ("draft", "cancelled"):
+    if so.status not in (SalesOrderStatus.DRAFT.value, SalesOrderStatus.CANCELLED.value):
         raise HTTPException(409, "Only draft or cancelled sales orders can be deleted")
     if db.query(ProductionOrder).filter(ProductionOrder.sales_order_id == sid).first():
         raise HTTPException(409, "Sales order already has linked production orders")
@@ -491,6 +492,6 @@ def delete_sales_order(sid: int, db: Session, current: User):
     if db.query(StockReservation).filter(StockReservation.sales_order_id == sid).first():
         raise HTTPException(409, "Sales order already has stock reservations")
 
-    db.delete(so)
+    delete_sales_order_row(db, so)
     log_action(db, current, "delete", "SalesOrder", sid, new_value={"order_no": so.order_no})
     db.commit()

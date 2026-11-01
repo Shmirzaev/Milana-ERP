@@ -37,3 +37,17 @@ def test_slotctl_uses_readiness_for_backend_and_keeps_liveness_warmup():
     assert all(url.rsplit(":", 1)[-1] in {"13001/login", "13001/presentation"} for url in urls[7:])
     assert "option httpchk GET /ready" in slotctl.proxy_config("backend", "blue")
     assert "option httpchk GET /login" in slotctl.proxy_config("frontend", "blue")
+
+
+def test_backend_stage_passes_release_identity_to_process():
+    with patch.object(slotctl, "validate_backend_connection_budget"), \
+         patch.object(slotctl, "inspect_image"), \
+         patch.object(slotctl, "remove_inactive_container"), \
+         patch.object(slotctl, "run") as run, \
+         patch.object(slotctl, "wait_for_health"), \
+         patch.object(slotctl, "warm"):
+        slotctl.stage("backend", "blue", "20261027_120000", "backend-image")
+
+    command = run.call_args.args
+    index = command.index("RELEASE_ID=20261027_120000")
+    assert command[index - 1:index + 1] == ("-e", "RELEASE_ID=20261027_120000")
