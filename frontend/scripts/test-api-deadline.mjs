@@ -9,7 +9,12 @@ new Function("exports", ts.transpile(fs.readFileSync(new URL("../src/lib/errorMe
 new Function("exports", "require", ts.transpile(source, { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }))(exports, () => errorExports);
 const { api } = exports;
 const originalFetch = globalThis.fetch;
+const originalWindow = globalThis.window;
+const timeoutEvents = new EventTarget();
+let timeoutNotices = 0;
+timeoutEvents.addEventListener("milana:api-timeout", () => timeoutNotices++);
 try {
+  globalThis.window = timeoutEvents;
   // Real Response + abort-aware body: headers arrive immediately, body never ends.
   for (const status of [200, 503]) {
     let aborted = false;
@@ -32,6 +37,10 @@ try {
       assert.equal(aborted, true);
     }
   }
+  assert.equal(timeoutNotices, 4, "each real deadline must notify the UI");
+  globalThis.fetch = async () => Response.json({ detail: "Gateway Timeout" }, { status: 504 });
+  await assert.rejects(api.get("/test", 1000), /504:/);
+  assert.equal(timeoutNotices, 5, "server-side gateway timeouts must notify the UI");
   globalThis.fetch = async () => Response.json({ ok: true });
   assert.deepEqual(await api.get("/test", 20), { ok: true });
   globalThis.fetch = async () => new Response(null, { status: 204 });
@@ -45,6 +54,8 @@ try {
   const request = api.getWithSignal("/test", caller.signal, 1000);
   setTimeout(() => caller.abort(), 5);
   await assert.rejects(request, error => error.name === "AbortError");
+  assert.equal(timeoutNotices, 5, "caller cancellation must not notify the UI");
+  globalThis.window = originalWindow;
   // Cover fixed-timeout callers with accelerated timers; successful headers
   // must not allow a stalled body to escape the deadline either.
   const originalSetTimeout = globalThis.setTimeout;
@@ -80,4 +91,5 @@ try {
   console.log("API deadlines: JSON/form/error bodies bounded; cancellation and normal responses preserved.");
 } finally {
   globalThis.fetch = originalFetch;
+  globalThis.window = originalWindow;
 }
