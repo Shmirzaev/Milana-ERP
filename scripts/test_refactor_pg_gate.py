@@ -32,7 +32,7 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 148)
+        self.assertEqual(sum(counts.values()), 151)
 
     def test_skipped_failed_and_error_evidence_are_rejected(self):
         for tag in ('skipped', 'failure', 'error'):
@@ -124,6 +124,17 @@ class RequiredPGGateTests(unittest.TestCase):
                      if case.get('classname') == 'app.tests.test_brand_create_postgres')
         suite.remove(brand)
         ET.SubElement(suite, 'testcase', classname='app.tests.test_bom_add_characterization', name='extra')
+        with self.assertRaisesRegex(ValueError, 'expected at least'):
+            gate.check_report(self.write_report(tree))
+
+    def test_missing_employee_case_fails_even_if_other_group_has_extra(self):
+        tree = self.report()
+        suite = next(tree.iter('testsuite'))
+        employee = next(case for case in tree.iter('testcase')
+                        if case.get('classname') == 'app.tests.test_employee_create_postgres')
+        suite.remove(employee)
+        ET.SubElement(suite, 'testcase', classname='app.tests.test_brand_create_postgres',
+                      name='extra_employee_replacement')
         with self.assertRaisesRegex(ValueError, 'expected at least'):
             gate.check_report(self.write_report(tree))
 

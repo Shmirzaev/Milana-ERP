@@ -11,6 +11,18 @@ linked below. The proposed files describe later approved operation extractions.
 This owner covers the feature's routes, DTOs, enums, database definitions and tests.
 See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordination.
 
+## Employee CREATE candidate
+
+The PEO-01 candidate implements only Employee CREATE through
+`employees_service.create_employee`, the typed Employee input/output DTOs and
+`schemas/people/employee_persistence.insert_employee`. The service owns the
+transaction and existing shared audit append; persistence uses its supplied
+Session without committing. The canonical EmployeeStatus retains the five existing
+values. PATCH/lifecycle, attendance and payroll are not migrated by this candidate.
+Full CI and committed-source visual recheck are pending; the
+[operation ledger](../../../../docs/REFACTOR_COVERAGE.md#peo-01-candidate--1-november-2026)
+retains the remaining scope and human acceptance status.
+
 ## Existing code to study first
 
 - Routes: [hr.py](../../api/routes/hr.py), [hr_workspace.py](../../api/routes/hr_workspace.py), [attendance.py](../../api/routes/attendance.py), [payroll.py](../../api/routes/payroll.py), [admin.py](../../api/routes/admin.py).

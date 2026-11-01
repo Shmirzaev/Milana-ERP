@@ -143,13 +143,30 @@ folders, set service counts or authorize new business behavior.
 | identity / 3 | Dilmurod / Mirshoir | IDN-01: Select authenticated session factory | QUEUED_FOR_OWNER_AGREEMENT |
 | inventory / 14 | Ismail / Mirshoir | INV-01: Receive stock batch | FRONTEND_AND_INTEGRATION_PENDING |
 | packaging / 9 | Mirshoir / Ismail | PKG-01: Create package | QUEUED_FOR_OWNER_AGREEMENT |
-| people / 14 | Dilmurod / Mirshoir | PEO-01: Create employee | QUEUED_FOR_OWNER_AGREEMENT |
+| people / 14 | Dilmurod / Mirshoir | PEO-01: Create employee | CANDIDATE_LOCAL_CHECKS_PASS; full CI and committed-source visual recheck pending (1 November) |
 | planning / 3 | Ismail / Mirshoir | PLN-01: Create branded planning order | PILOT_REQUIRES_CORRECTION |
 | production / 18 | Mirshoir / Ismail | PRD-01: Shared Sewing output | QUEUED_FOR_OWNER_AGREEMENT |
 | purchasing / 4 | Ismail / Mirshoir | PUR-01: Create purchase request, direct and from Sales | AI_VERIFIED_AWAITING_HUMAN at 1a71f16 |
 | sales / 2 | Ismail / Mirshoir | SAL-01: Create standard sales order | FULFILLMENT_BOUNDARY_PENDING |
 | support / 4 | Dilmurod / Mirshoir | SUP-01: Patch one settings section | QUEUED_FOR_OWNER_AGREEMENT |
 | work_management / 2 | Dilmurod / Mirshoir | WRK-01: Create task and notification | QUEUED_FOR_OWNER_AGREEMENT |
+
+### PEO-01 candidate — 1 November 2026
+
+The owner resumed all remaining domains; the isolated Employee CREATE candidate
+is based on `clone_main` `5846e2c5`. Its 13 code/test paths match the previously
+reviewed Linux checkpoint; fresh combined checks passed 73 cases, including three
+real PostgreSQL cases, with zero skips. The earlier checkpoint also records actual
+browser, saved-record, audit and bounded integrity evidence. Full hosted ERP CI
+and a browser recheck on the frozen committed source remain pending; this is not
+human acceptance or a completed People migration.
+
+CREATE now uses typed Employee input/output DTOs, the canonical five-value
+EmployeeStatus, a business service owning authorization and the outer transaction,
+and schema-owned row insertion with the supplied Session. The import script uses
+that same operation. PATCH/lifecycle writers, attendance and payroll remain separate
+work; account-role vocabularies remain Identity-owned and configurable references
+remain data. No production values or database migration are included.
 
 ## Operation boundaries to agree and preserve
 

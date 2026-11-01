@@ -6,9 +6,10 @@ Dry-run by default; run --apply only for the explicitly authorized data change.
 import argparse
 import json
 
-from app.api.routes.hr import EmployeeIn, create_employee
 from app.core.deps import user_permissions
 from app.db.session import SessionLocal
+from app.libs.dto.people.employee_input import EmployeeCreateIn
+from app.models.people.employees_service import create_employee
 from app.schemas import Department, Employee, Role, User
 
 EXPECTED_EXISTING_NAME = "Алматова Мадинабону Абдумўмин қизи"
@@ -39,9 +40,14 @@ def main():
                 planned.append({"employee_no": number, "full_name": name, "state": "create"})
         for row in planned:
             if args.apply and row["state"] == "create":
-                created = create_employee(EmployeeIn(employee_no=row["employee_no"], full_name=row["full_name"],
-                    department_id=packaging.id, position="dazmolchi", status="active"), db, actor)
-                row["id"] = created["id"]
+                created = create_employee(actor, db, EmployeeCreateIn(
+                    employee_no=row["employee_no"],
+                    full_name=row["full_name"],
+                    department_id=packaging.id,
+                    position="dazmolchi",
+                    status="active",
+                ))
+                row["id"] = created.id
                 row["state"] = "created"
         print(json.dumps({"applied": args.apply, "preserved_employee_no": "2495", "employees": planned}, ensure_ascii=False))
 

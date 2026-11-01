@@ -203,6 +203,11 @@
       "test_pg_create_duplicate_and_audit",
       "test_pg_audit_failure_rolls_back_then_retry"
     ],
+    "test_employee_create_postgres": [
+      "test_pg_employee_and_audit_commit_together_and_read_back",
+      "test_pg_audit_fk_failure_rolls_back_employee_insert",
+      "test_pg_same_factory_number_race_has_one_employee_and_one_audit"
+    ],
     "test_bom_add_characterization": [
       "test_manual_normalizes_role_name_and_discards_stale_references[main]",
       "test_manual_normalizes_role_name_and_discards_stale_references[ MAIN ]",

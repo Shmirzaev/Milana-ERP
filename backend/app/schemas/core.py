@@ -5,6 +5,7 @@ from sqlalchemy import String, Integer, Boolean, ForeignKey, JSON, DateTime, Tex
 from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
 from app.db.base import Base, PkMixin, TimestampMixin
+from app.libs.enums.people import EmployeeStatus
 
 
 class Role(Base, PkMixin, TimestampMixin):
@@ -55,7 +56,11 @@ class Employee(Base, PkMixin, TimestampMixin):
     position: Mapped[str | None] = mapped_column(String(128))
     phone: Mapped[str | None] = mapped_column(String(64))
     salary: Mapped[float | None] = mapped_column(Numeric(14, 4))
-    status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32),
+        default=EmployeeStatus.ACTIVE.value,
+        nullable=False,
+    )
     joined_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Additive HR profile data. Existing operational columns above stay the
     # source of truth for payroll/production compatibility.
