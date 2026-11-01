@@ -165,6 +165,14 @@ Prefer forward-compatible migrations. Application rollback does not downgrade th
 
 ## Stage inactive slots
 
+On the backend VM, install the reviewed slot manager from the extracted release
+before staging. The shared copy is not updated by extracting source:
+
+```sh
+sudo install -m 0644 /opt/milana-erp/releases/<release_id>/deploy/slotctl.py /opt/milana-erp/shared/deploy/slotctl.py
+cmp /opt/milana-erp/releases/<release_id>/deploy/slotctl.py /opt/milana-erp/shared/deploy/slotctl.py
+```
+
 Read slot state:
 
 ```sh
@@ -188,6 +196,7 @@ sudo python /opt/milana-erp/shared/deploy/slotctl.py stage \
 ```
 
 The manager binds loopback-only candidates, refuses to replace the active slot, waits for health, and warms routes. Backend slots use two workers and an 8+4 pool per worker, keeping overlap below the 100-connection PostgreSQL ceiling.
+For the backend, `slotctl.py` also passes the staged release ID to the container as `RELEASE_ID`; `/health` and `/ready` report it as `release`. Use the ID from the reviewed release manifest when staging, and compare the stable endpoint's reported value after switching traffic. A backend started without this variable reports `unknown`.
 
 ## Performance and functional gate
 
@@ -283,8 +292,8 @@ python scripts/observe_release.py \
 For high or uncertain risk, use `--risk high` (the default); record the affected
 area in `--reason`. There is no arbitrary duration override. Before starting,
 verify that the supplied identity matches both active slot states and the reviewed
-artifact. The observer records this identity; HTTP health checks alone do not
-independently prove which release is serving traffic.
+artifact. Compare the `release` field from internal and public `/health` with that
+identity: the observer records the supplied ID but checks HTTP status only.
 
 The observer automatically checks all four required endpoints every 30 seconds
 using GET/HEAD only, records evidence, and reports start, failures and finish.
