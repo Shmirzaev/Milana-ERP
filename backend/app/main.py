@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 from alembic.config import Config as AlembicConfig
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security.utils import get_authorization_scheme_param
 from starlette.middleware.gzip import GZipMiddleware
@@ -20,7 +20,7 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.proxy_trust import client_ip, effective_request_scheme, validate_proxy_runtime_configuration
-from app.core.deps import DbSession
+from app.core.deps import CurrentUser, DbSession
 from app.core.security import decode_token
 from app.core.shared_store import get_shared_counter_store
 from app.api.router import api_router
@@ -257,16 +257,12 @@ async def _security_headers(request: Request, call_next):
     )
     if effective_request_scheme(request) == "https":
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-    # Uploaded files under /storage are served unauthenticated (so <img> tags can
-    # render them with bearer-token auth). They have unguessable UUID names; keep
-    # them out of shared caches and search indexes to limit URL-leak exposure.
+    # Model-file auth must run on every request, including cached images.
     if request.url.path.startswith("/storage/"):
         if response.status_code >= 400:
             response.headers["Cache-Control"] = "private, no-store"
-        elif request.url.path.startswith("/storage/model-files/thumb/"):
-            response.headers.setdefault("Cache-Control", "private, max-age=604800")
         elif request.url.path.startswith("/storage/model-files/"):
-            response.headers.setdefault("Cache-Control", "private, max-age=86400")
+            response.headers.setdefault("Cache-Control", "private, no-cache, must-revalidate")
         else:
             response.headers.setdefault("Cache-Control", "private, no-store")
         response.headers.setdefault("X-Robots-Tag", "noindex, nofollow")
@@ -340,6 +336,17 @@ app.mount("/storage/barcodes", StaticFiles(directory=settings.BARCODE_STORAGE_DI
 os.makedirs(settings.MODEL_FILES_DIR, exist_ok=True)
 _MODEL_FILES_ROOT = os.path.realpath(settings.MODEL_FILES_DIR)
 _MODEL_THUMBS_ROOT = os.path.realpath(os.path.join(settings.MODEL_FILES_DIR, "_thumbs"))
+_MODEL_FILES_CONDITIONAL = StaticFiles(directory=settings.MODEL_FILES_DIR)
+
+
+def _conditional_model_file_response(path: str, request: Request, media_type: str | None = None):
+    from fastapi.responses import FileResponse
+    from starlette.staticfiles import NotModifiedResponse
+
+    response = FileResponse(path, stat_result=os.stat(path), media_type=media_type)
+    if _MODEL_FILES_CONDITIONAL.is_not_modified(response.headers, request.headers):
+        return NotModifiedResponse(response.headers)
+    return response
 
 
 def _model_file_path_if_exists(name: str):
@@ -374,37 +381,24 @@ def _model_image_record(name: str, db: DbSession):
     )
 
 
-def _require_model_file_token(request: Request) -> None:
-    """Validate image access without checking out a database connection.
+def _require_model_file_token(_user: CurrentUser, db: DbSession) -> None:
+    """Check current session access, then release the authentication connection.
 
-    A model list can render hundreds of thumbnails at once. Using CurrentUser
-    here made every image reserve a database connection merely to re-check the
-    same signed JWT, which could exhaust the pool and block login/API requests.
+    CurrentUser rejects disabled/deleted accounts and revoked credentials. A
+    model list can render hundreds of thumbnails at once, so do not hold that
+    database connection during filesystem reads, image generation or streaming.
+    These routes use separate short-lived sessions for database image fallback.
     """
-    from fastapi import HTTPException, status
-
-    authorization = request.headers.get("authorization", "").strip()
-    token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
-    if not token:
-        token = request.cookies.get(settings.AUTH_COOKIE_NAME, "").strip()
-    try:
-        payload = decode_token(token) if token else None
-        user_id = int((payload or {}).get("sub") or 0)
-        if user_id <= 0:
-            raise ValueError("missing subject")
-    except Exception:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    db.close()
 
 
-@app.get("/storage/model-files/{name}")
+@app.get("/storage/model-files/{name}", dependencies=[Depends(_require_model_file_token)])
 def serve_model_file(name: str, request: Request):
     from fastapi import HTTPException
-    from fastapi.responses import FileResponse
 
-    _require_model_file_token(request)
     abs_path = _model_file_path_if_exists(name)
     if abs_path:
-        return FileResponse(abs_path)
+        return _conditional_model_file_response(abs_path, request)
 
     with SessionLocal() as db:
         img = _model_image_record(name, db)
@@ -415,17 +409,15 @@ def serve_model_file(name: str, request: Request):
     return Response(
         content=file_data,
         media_type=content_type or "application/octet-stream",
-        headers={"Cache-Control": "private, max-age=604800"},
+        headers={"Cache-Control": "private, no-store"},
     )
 
 
-@app.get("/storage/model-files/thumb/{name}")
+@app.get("/storage/model-files/thumb/{name}", dependencies=[Depends(_require_model_file_token)])
 def serve_model_thumbnail(name: str, request: Request, size: int = 320):
     from fastapi import HTTPException
-    from fastapi.responses import FileResponse
     from PIL import UnidentifiedImageError
 
-    _require_model_file_token(request)
     source_path = _model_file_path_if_exists(name)
     image_data = b""
     if not source_path:
@@ -456,11 +448,7 @@ def serve_model_thumbnail(name: str, request: Request, size: int = 320):
         except (UnidentifiedImageError, OSError, HTTPException):
             raise HTTPException(status_code=415, detail="File is not a previewable image")
 
-    return FileResponse(
-        thumb_path,
-        media_type="image/webp",
-        headers={"Cache-Control": "private, max-age=604800"},
-    )
+    return _conditional_model_file_response(thumb_path, request, media_type="image/webp")
 
 # Sales-order printing attachments may contain customer-supplied design files, so
 # they are NOT served from a public static mount. Access requires a short-lived
