@@ -74,13 +74,13 @@ this update is not a new whole-register census or a production acceptance record
 
 ### DEV-LOOPBACK-20261031 — logged-out dev pages stay on Loading at 127.0.0.1
 
-- **P2 · Fix proposed in open [#365](https://github.com/Shmirzaev/Milana-ERP/pull/365),
-  not merged · Shared frontend/tooling · Dilmurod; reviewer Mirshoir.** Dev startup
+- **P2 · Merged [#365](https://github.com/Shmirzaev/Milana-ERP/pull/365) as
+  [`61245cd8`](https://github.com/Shmirzaev/Milana-ERP/commit/61245cd850c1b6c199ef72b45a3a11e8867fadda); awaiting acceptance · Shared frontend/tooling · Dilmurod; reviewer Mirshoir.** Dev startup
   blocks on the 127.0.0.1 origin; localhost works. Candidate `30ad1a02` explicitly
   allows the loopback dev origin. Source: `frontend/next.config.js` allowedDevOrigins,
   #365's before/after browser evidence. No production behavior change claimed.
-- Next: review/merge the scoped dev-origin fix, then record acceptance. Browser
-  handoffs continue using localhost. An open fix PR is not deployed/accepted status.
+- Next: record acceptance of the scoped dev-origin fix. Browser handoffs continue
+  using localhost. The merge does not claim production deployment or acceptance.
 
 ### RF013-DEV-IMAGE-20261031 — rehearsal used development frontend images
 
@@ -551,7 +551,7 @@ The Tracking cells below retain the per-task assignments and history; refer to s
 
 | 54 | **OPS08** | Runtime/dependency hardening from develop is absent. | Review PyJWT/runtime migration; verify legacy tokens and run fresh dependency/built-image scans. | `B:core/security.py`; `frontend/Dockerfile`; `.github/workflows/ci.yml`; `06705b9`, `1896408`, `f288ada`, `f0a1536` | Open · Dilmurod · Scoped candidates: Pillow [#355](https://github.com/Shmirzaev/Milana-ERP/pull/355), HMAC-only guard [#357](https://github.com/Shmirzaev/Milana-ERP/pull/357) (draft; operator must confirm production JWT_ALGORITHM), PyJWT [#364](https://github.com/Shmirzaev/Milana-ERP/pull/364) (draft, stacked on357), Node24 [#360](https://github.com/Shmirzaev/Milana-ERP/pull/360), backend image [#362](https://github.com/Shmirzaev/Milana-ERP/pull/362). All open/unmerged at 1 November; remaining token compatibility/scans and human decisions are not closed. |
 
-| 55 | **OPS09-WEB** | Production scripts lack nonce CSP and reliable HTTPS headers. | Restore nonce CSP/layout and trusted HTTPS/HSTS handling; keep 1C retired. | `frontend/next.config.js:32`; `aa8fac1`, `f35a62e6`, `0ad74a69`, `4fee48be` | merged, awaiting acceptance · Dilmurod · [#277](https://github.com/Shmirzaev/Milana-ERP/pull/277) · [`fef59445`](https://github.com/Shmirzaev/Milana-ERP/commit/fef59445127fb61866e0fdb6d3c96b548f85f46f) · [checklist](#acceptance-checklist-reference) · Separate historical login formatter/hydration follow-up [#359](https://github.com/Shmirzaev/Milana-ERP/pull/359) open. |
+| 55 | **OPS09-WEB** | Production scripts lack nonce CSP and reliable HTTPS headers. | Restore nonce CSP/layout and trusted HTTPS/HSTS handling; keep 1C retired. | `frontend/next.config.js:32`; `aa8fac1`, `f35a62e6`, `0ad74a69`, `4fee48be` | merged, awaiting acceptance · Dilmurod · [#277](https://github.com/Shmirzaev/Milana-ERP/pull/277) · [`fef59445`](https://github.com/Shmirzaev/Milana-ERP/commit/fef59445127fb61866e0fdb6d3c96b548f85f46f) · [checklist](#acceptance-checklist-reference) · Separate historical login formatter/hydration follow-up [#359](https://github.com/Shmirzaev/Milana-ERP/pull/359) merged as [`b80fe8d5`](https://github.com/Shmirzaev/Milana-ERP/commit/b80fe8d5ce66fa0bd8ee7b5d3d2928a83c8e7d40); human/operator acceptance remains pending. |
 
 | 56 | **PERF01** | Package list still queries model/assets/BOM per row. | Preload model/asset/BOM contexts once and pass them into package serialization; preserve returns and QR repair. | `B:api/routes/packages.py:110`; `B:api/routes/packages.py:530`; `3881177`; [regression](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/backend/app/tests/test_package_query_growth.py) | Open · Mirshoir |
 
