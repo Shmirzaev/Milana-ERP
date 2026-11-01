@@ -2,7 +2,12 @@
 
 ## Gate-run findings and delivery reconciliation — 29–31 October 2026
 
-Recorded 1 November on fetched `origin/clone_main` `5bffd255`. Owner/reviewer
+Original findings recorded 1 November against fetched `origin/clone_main`
+`5bffd255`; subsequent merge-state updates were reconciled through `clone_main`
+`5846e2c5` on 1 November. The original snapshot counts below remain historical.
+The local PostgreSQL runner and fixture follow-up [#322](https://github.com/Shmirzaev/Milana-ERP/pull/322)
+is merged as [`5846e2c5`](https://github.com/Shmirzaev/Milana-ERP/commit/5846e2c508b5ebc780d97f728c5a5a8c7cf17e14),
+without claiming its historical full-suite failure resolved. Owner/reviewer
 assignments follow [TEAM_OWNERSHIP](../docs/TEAM_OWNERSHIP.md): domain owners
 own their UI/routes; shared platform/tests have Dilmurod as coordinator. No source
 fix, deployment, production access, independent/human acceptance or bug closure
@@ -51,6 +56,8 @@ this update is not a new whole-register census or a production acceptance record
   health stayed 200 and its improved ready returned 503. Sources:
   `backend/app/main.py:118,226,300`, `backend/app/api/routes/auth.py:80,89`;
   [connected evidence](https://github.com/Shmirzaev/Milana-ERP/blob/86d0c97a/docs/archive/OPS05_READINESS_2026-10-26.md).
+- PR #323 was subsequently merged into `clone_main` as
+  [`0d030116`](https://github.com/Shmirzaev/Milana-ERP/commit/0d0301164b40930c21908f1f3867567c288c3fa1). It adds the configured `RELEASE_ID` to `/health` and `/ready` and passes it to the staged backend; this identifies the configured release value, but does not change the shared-store outage behavior or prove serving-image authenticity.
 - Decision: clean 503 preserves required abuse protection but blocks store-dependent
   requests; approved fail-open paths preserve availability but weaken distributed
   throttling/lockout. Login/reset need explicit treatment even if the global limiter
@@ -167,6 +174,24 @@ application edit. Evidence stays local under
 factory contract; those attempts exercised no business action and are not passes.
 The completed 12-case run used the real JSON login plus MIL factory selection.
 
+
+## SEC04 — model-file session authentication (2026-10-27 branch follow-up)
+
+- **Merged in [#309](https://github.com/Shmirzaev/Milana-ERP/pull/309) as
+  [`c0b1c618`](https://github.com/Shmirzaev/Milana-ERP/commit/c0b1c618a84a89ffde1e7e26a36b545dcadf65e3); human acceptance and production verification pending · Dilmurod; reviewer Mirshoir.** The existing `codex/sec04-model-file-auth` branch's browser-cache revalidation at `9f6895a9` was merged into current `clone_main`. Historical October rows below remain evidence; this is not a Finished entry.
+- Disabled/deleted accounts and revoked tokens must receive 401 on model files
+  and cached thumbnails. Active MIL/BST/ECO users retain company-wide access.
+  Authenticate through `CurrentUser`, then close the auth session before I/O.
+- The old cache policy let Chromium return 200 after revocation. The new
+  filesystem policy requires revalidation; authenticated ETag/Last-Modified
+  requests return 304, while revoked sessions return 401. Legacy DB fallback
+  is `no-store`. Four fail-first cases turned green; 57 focused tests passed.
+  [Verification record](../backend/app/tests/SEC04-model-file-auth-evidence.md)
+  has visually inspected isolated-browser Gate 3 and bounded HTTP Gate 4
+  technical PASS results; full backend suite: 3,892 passed / 312 skipped.
+  Existing browser entries with the old one-day/week
+  lifetime need rollout handling. Mirshoir's limits/review, human acceptance and
+  production verification are pending; this is not a Finished entry.
 ## INV-INACTIVE-BATCH-20261029 — edit a batch retaining its inactive material
 
 - **Deployed to green `20261029_053553`; awaiting operator verification.** Inventory
@@ -327,7 +352,7 @@ Verified against remote `clone_main` at [`418d5215`](https://github.com/Shmirzae
 | Task | Responsible owner | Required completion |
 | --- | --- | --- |
 | **API02** | Dilmurod | Validate task states, dates and references; enforce permission/factory scope and reference locks. |
-| **SEC04** | Dilmurod | Reject disabled/revoked sessions downloading model files; release the authentication connection before streaming. A pushed branch is not merged delivery. |
+| **SEC04** | Dilmurod | Reject disabled/revoked sessions downloading model files; release the authentication connection before streaming. This historical missing item was later merged through #309 as [`c0b1c618`](https://github.com/Shmirzaev/Milana-ERP/commit/c0b1c618a84a89ffde1e7e26a36b545dcadf65e3); human acceptance remains pending. |
 | **OPS05** | Dilmurod | Probe PostgreSQL and the required shared store within one bounded readiness deadline. |
 | **OPS06** | Dilmurod | Verify paired database/upload backup identities and missing, changed or extra files. |
 | **OPS08** | Dilmurod | Complete runtime/dependency hardening, token compatibility checks and fresh dependency/image security scans. |
@@ -381,7 +406,7 @@ Verified against remote `clone_main` at [`418d5215`](https://github.com/Shmirzae
 
 
 
-Assignments were set on 2026-10-03. Each task has one owner for backend, frontend and regression checks. The table counts missing implementation delivery from the remote verification above. Historical per-row labels still include 73 Open, 7 Review and 31 Done and must be reconciled separately with completion/test evidence. The [earlier owner audit](../docs/audit-evidence/team-owner-audit-20261005.md) is a historical snapshot; subsequent PRs #279, #290, #291 and #292 are merged. SEC04 has a pushed branch but remains outside `clone_main`. Names are team assignments; account attribution uses commit identity.
+Assignments were set on 2026-10-03. Each task has one owner for backend, frontend and regression checks. The table counts missing implementation delivery from the remote verification above. Historical per-row labels still include 73 Open, 7 Review and 31 Done and must be reconciled separately with completion/test evidence. The [earlier owner audit](../docs/audit-evidence/team-owner-audit-20261005.md) is a historical snapshot; subsequent PRs #279, #290, #291 and #292 are merged. At that historical snapshot SEC04's pushed branch was outside `clone_main`; it was later merged through #309 as [`c0b1c618`](https://github.com/Shmirzaev/Milana-ERP/commit/c0b1c618a84a89ffde1e7e26a36b545dcadf65e3), with human acceptance and production verification still pending. Names are team assignments; account attribution uses commit identity.
 
 
 
@@ -473,7 +498,7 @@ The Tracking cells below retain the per-task assignments and history; refer to s
 
 | 20 | **PY05** | QR returns use a conflicting payroll lock order. | Use period -> label -> record lock order with fresh assignment checks for return/scan/finalization. | `B:api/routes/payroll.py:2907`; `a2082235` | merged, awaiting acceptance · Dilmurod · [#266](https://github.com/Shmirzaev/Milana-ERP/pull/266) · [`1c7021a0`](https://github.com/Shmirzaev/Milana-ERP/commit/1c7021a03d398205ee1df088f220ef309983a823) · [checklist](#acceptance-checklist-reference) |
 
-| 21 | **SEC04** | Disabled or revoked sessions still download model files. | Validate active user and token cutoff for model files; release the auth connection before streaming. | `B:main.py:378`; `3881177e` | Open · Dilmurod |
+| 21 | **SEC04** | Disabled or revoked sessions still download model files. | Validate active user and token cutoff for model files; release the auth connection before streaming. | `B:main.py:378`; `3881177e` | Historical Open (2026-10-06); merged through [#309](https://github.com/Shmirzaev/Milana-ERP/pull/309) as [`c0b1c618`](https://github.com/Shmirzaev/Milana-ERP/commit/c0b1c618a84a89ffde1e7e26a36b545dcadf65e3); human acceptance pending. |
 
 | 22 | **SEC05** | Sibling reset links survive a password change. | Lock the account and invalidate sibling reset links on every supported password rotation. | `B:api/routes/auth.py:286`; `3881177e`, `f35a62e6` | merged, awaiting acceptance · Dilmurod · [#256](https://github.com/Shmirzaev/Milana-ERP/pull/256) · [`a14dcaec`](https://github.com/Shmirzaev/Milana-ERP/commit/a14dcaecff04c591d9d6396176ffd5aad9a91907) · [checklist](#acceptance-checklist-reference) |
 
@@ -549,7 +574,7 @@ The Tracking cells below retain the per-task assignments and history; refer to s
 
 | 53 | **OPS06** | Recovery tooling cannot verify paired database/upload backups. | Add paired DB/upload manifest verification for dump identity and missing/changed/extra files. | `scripts/storage_recovery_manifest.py (missing)`; `13f5994` | Open · Dilmurod |
 
-| 54 | **OPS08** | Runtime/dependency hardening from develop is absent. | Review PyJWT/runtime migration; verify legacy tokens and run fresh dependency/built-image scans. | `B:core/security.py`; `frontend/Dockerfile`; `.github/workflows/ci.yml`; `06705b9`, `1896408`, `f288ada`, `f0a1536` | Open · Dilmurod · Scoped candidates: Pillow [#355](https://github.com/Shmirzaev/Milana-ERP/pull/355), HMAC-only guard [#357](https://github.com/Shmirzaev/Milana-ERP/pull/357) (draft; operator must confirm production JWT_ALGORITHM), PyJWT [#364](https://github.com/Shmirzaev/Milana-ERP/pull/364) (draft, stacked on357), Node24 [#360](https://github.com/Shmirzaev/Milana-ERP/pull/360), backend image [#362](https://github.com/Shmirzaev/Milana-ERP/pull/362). All open/unmerged at 1 November; remaining token compatibility/scans and human decisions are not closed. |
+| 54 | **OPS08** | Runtime/dependency hardening from develop remains incomplete. | Review PyJWT/runtime migration; verify legacy tokens and run fresh dependency/built-image scans. | `B:core/security.py`; `frontend/Dockerfile`; `.github/workflows/ci.yml`; `06705b9`, `1896408`, `f288ada`, `f0a1536` | Open · Dilmurod · Pillow [#355](https://github.com/Shmirzaev/Milana-ERP/pull/355) merged as [`f4b77764`](https://github.com/Shmirzaev/Milana-ERP/commit/f4b777644cea36a6d461fc9542df77df584c8d33); awaiting acceptance. HMAC-only guard [#357](https://github.com/Shmirzaev/Milana-ERP/pull/357) remains draft; operator must confirm production `JWT_ALGORITHM` before it can proceed. PyJWT [#364](https://github.com/Shmirzaev/Milana-ERP/pull/364) remains draft, stacked on #357. Node 24 [#360](https://github.com/Shmirzaev/Milana-ERP/pull/360) and backend image [#362](https://github.com/Shmirzaev/Milana-ERP/pull/362) remain open. Legacy-token compatibility, fresh dependency/image scans, and the outstanding human decision remain pending. |
 
 | 55 | **OPS09-WEB** | Production scripts lack nonce CSP and reliable HTTPS headers. | Restore nonce CSP/layout and trusted HTTPS/HSTS handling; keep 1C retired. | `frontend/next.config.js:32`; `aa8fac1`, `f35a62e6`, `0ad74a69`, `4fee48be` | merged, awaiting acceptance · Dilmurod · [#277](https://github.com/Shmirzaev/Milana-ERP/pull/277) · [`fef59445`](https://github.com/Shmirzaev/Milana-ERP/commit/fef59445127fb61866e0fdb6d3c96b548f85f46f) · [checklist](#acceptance-checklist-reference) · Separate historical login formatter/hydration follow-up [#359](https://github.com/Shmirzaev/Milana-ERP/pull/359) merged as [`b80fe8d5`](https://github.com/Shmirzaev/Milana-ERP/commit/b80fe8d5ce66fa0bd8ee7b5d3d2928a83c8e7d40); human/operator acceptance remains pending. |
 
@@ -563,7 +588,7 @@ The Tracking cells below retain the per-task assignments and history; refer to s
 
 | 60 | **PERF05** | Payroll label issuance repeats reference/duplicate checks per label. | Batch flow/work-order/factory, existing-label/record and canonical reference reads; preserve issued identity, ambiguity/UID rules and current payroll behavior. | `B:api/routes/payroll.py:2101`; `538ff66`; [regression](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/backend/app/tests/test_payroll_label_issuance_queries.py) | merged, awaiting acceptance · Dilmurod · [#281](https://github.com/Shmirzaev/Milana-ERP/pull/281) · [`ae1d1f64`](https://github.com/Shmirzaev/Milana-ERP/commit/ae1d1f6432341c04973e7f635139c4c5fe80afd7) · [checklist](#acceptance-checklist-reference) |
 
-| 61 | **PERF06** | Bulk payroll is unbounded and misses batched validation. | Cap bulk payroll at 500; batch reference/duplicate validation and audit-head work. | `B:schemas/payroll.py:84`; `f42637c3`, `8240fc9`, `67f0309`, `c625aad` | merged, awaiting acceptance · Dilmurod · [#284](https://github.com/Shmirzaev/Milana-ERP/pull/284) · [`3c068435`](https://github.com/Shmirzaev/Milana-ERP/commit/3c068435ecd49b1125a912d73c5fe5c97a7152bb) · [checklist](#acceptance-checklist-reference) · Corrected replay-test follow-up [#358](https://github.com/Shmirzaev/Milana-ERP/pull/358) open; original failure was a wrong audit expectation, not a new payroll defect. |
+| 61 | **PERF06** | Bulk payroll is unbounded and misses batched validation. | Cap bulk payroll at 500; batch reference/duplicate validation and audit-head work. | `B:schemas/payroll.py:84`; `f42637c3`, `8240fc9`, `67f0309`, `c625aad` | merged, awaiting acceptance · Dilmurod · [#284](https://github.com/Shmirzaev/Milana-ERP/pull/284) · [`3c068435`](https://github.com/Shmirzaev/Milana-ERP/commit/3c068435ecd49b1125a912d73c5fe5c97a7152bb) · [checklist](#acceptance-checklist-reference) · Corrected replay-test follow-up [#358](https://github.com/Shmirzaev/Milana-ERP/pull/358) merged as [`47c160cb`](https://github.com/Shmirzaev/Milana-ERP/commit/47c160cb7c864f7de35b2ac1b2afe0e4f6dd26ce); original failure was a wrong audit expectation, not a new payroll defect. Human acceptance remains pending. |
 
 | 62 | **PERF07** | Payroll labels resolve references separately per group. | Preload canonical references and aliases in bounded batches; preserve global counts, factory scope and current payroll identity rules. | `B:api/routes/payroll.py:2607`; `B:api/routes/payroll.py:202`; `6f5ee2e`; [regression](https://github.com/Shmirzaev/Milana-ERP/blob/2f549f9b202ef1a66ed6ffe17be07b5497ccdeab/backend/app/tests/test_payroll_label_query_growth.py) | merged, awaiting acceptance · Dilmurod · [#285](https://github.com/Shmirzaev/Milana-ERP/pull/285) · [`90906052`](https://github.com/Shmirzaev/Milana-ERP/commit/909060525272072819281dab380f691e16d0773e) · [checklist](#acceptance-checklist-reference) |
 
@@ -825,7 +850,7 @@ Comparison snapshots: `clone_main` `38a56bbc`, `develop` `2f549f9b`; source and 
 
 | 13 | **API06** | Changing own name grants pricing-list access. | **Fixed on `clone_main`** — [`e808891a`](https://github.com/Shmirzaev/Milana-ERP/commit/e808891a). Deploy prerequisite: those staff need an explicit grant first. |
 
-| 14 | **SEC04** | Disabled user's cookie still downloads model files. | **Open** — Open/partial: `SEC04`. |
+| 14 | **SEC04** | Disabled user's cookie still downloads model files. | **Historical Open; source fix merged through #309 as [`c0b1c618`](https://github.com/Shmirzaev/Milana-ERP/commit/c0b1c618a84a89ffde1e7e26a36b545dcadf65e3); human acceptance and production verification pending.** |
 
 | 15 | **SEC05** | Older unused reset link works after another reset succeeds. | **Merged, awaiting acceptance** — original fix [#256](https://github.com/Shmirzaev/Milana-ERP/pull/256) / [`a14dcaec`](https://github.com/Shmirzaev/Milana-ERP/commit/a14dcaecff04c591d9d6396176ffd5aad9a91907) is in current `clone_main`; [acceptance checklist](#acceptance-checklist-reference). No production closure claimed. |
 
