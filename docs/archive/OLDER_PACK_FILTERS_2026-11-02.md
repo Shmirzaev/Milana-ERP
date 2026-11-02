@@ -1,7 +1,8 @@
 # Older physical-pack history filters — 2 November 2026
 
-Status: **AI_VERIFIED_AWAITING_HUMAN** for the scoped filter candidate. No feature
-merge, production deployment or operator acceptance is claimed here.
+Status: **AI_VERIFIED_AWAITING_HUMAN**. PR369 merged at `1ed3c5c7`; deployed green
+`20261102_063110`, runtime `42078704`. Operator acceptance remains pending.
+See [release evidence](OLDER_PACK_FILTERS_RELEASE_2026-11-02.md); candidate evidence below is historical.
 
 ## Direct scope and source
 
@@ -86,8 +87,8 @@ Legacy callers without `page` keep their list response and 100-row bound.
    group appears even when it was beyond the first 100 rows.
 3. Apply a known Tashkent date range, then Received and Awaiting warehouse; verify
    totals, clear the filters and repeat on the warehouse phone/tablet in RU/UZ.
-4. Record operator acceptance of the exact candidate. Feature merge and any future
-   immutable-image deployment require their separate authorization and release gates.
+4. Record operator acceptance of the exact deployed release. The owner separately
+   authorized merge and deployment; this does not substitute for factory acceptance.
 
 Read-only history filtering adds no department write handoff. Existing creation,
 receipt, labels, deletion and dispatch behavior is covered by the adjacent regressions;

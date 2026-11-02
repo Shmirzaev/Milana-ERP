@@ -15,24 +15,41 @@ Last updated 2026-11-02. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Deployed QR correction reconciled; older-pack filters prepared (2 November)
+## Active green release: older physical-pack history (2 November)
 
-At the owner's explicit request, the deployed QR correction and its release evidence
-were merged and pushed to `clone_main` at `6e62ffd5`. The preserved production baseline
-now names blue `20261031_092951`, exact runtime `337ff3c0`; green `20261029_111113`
-remains rollback. No deployment or production data change occurred.
-The [older-pack history filter candidate](archive/OLDER_PACK_FILTERS_2026-11-02.md)
-adds full-history model/pack/PRN search, Tashkent date and receipt-status filters,
-and Previous/Next pages. Automated, independent, connected-browser and read-only
-PostgreSQL checks passed; human acceptance and any feature merge/deployment remain pending.
+PR369 merged into `clone_main` at `1ed3c5c7`; the owner authorized deployment.
+Active green `20261102_063110`, exact runtime `42078704df340558c8a21bf1ef14bf74cc87b222`, was finally
+activated at 2026-11-02 12:15:43 Tashkent. Both clean manifests are
+`becda671a332afe6fe86857ab948be2d686c984e81d02e6e68053ba83cb7a079`. Blue `20261031_092951` / runtime `337ff3c0`
+remains the running compatible rollback with original container identities.
+Schema remains `0149_besttex_cutting_access`; no business rows or labels changed.
+Only reviewed full-history model/pack/PRN search, Tashkent date/receipt filters
+and Previous/Next pages were added to exact previous runtime; other pending
+`clone_main` application changes were excluded.
 
-## Active blue release: Process QR order sizes (31 October)
+Exact-source CI (4,886 backend cases plus required PostgreSQL gates), independent
+review, actual candidate/public API/browser, paired and final public 120-sample
+performance and fresh four-health/source/slot/router/worker/database checks passed.
+Public lookup found October pack `PKG-2026-000159` / `PRN-2026-000012` among 377 groups.
+Console warnings/errors: zero. The first closing measurement aborted and triggered
+verified blue rollback; that failure remains recorded with unknown cause. One
+independently reviewed instrumentation retry retained the original baseline and
+all thresholds, used maximum live payload with constant row counts, and passed.
+No latency exception applies. The controller now matches exact release source
+`13a9e19d`; previous controller is backed up. Disk remains above 70% alert,
+below 80% hard staging limit. Timed 30-minute monitoring was explicitly waived and
+not run. Human operator acceptance remains pending.
+See [implementation/human checklist](archive/OLDER_PACK_FILTERS_2026-11-02.md) and
+[release evidence](archive/OLDER_PACK_FILTERS_RELEASE_2026-11-02.md).
+
+## Retained blue rollback: Process QR order sizes (31 October)
 
 The [reviewed fix and release evidence](archive/PROCESS_QR_ORDER_SIZES_2026-10-31.md)
-is live on blue `20261031_092951`, exact runtime `337ff3c01bb4778232dad9973d7c996396717e14`.
+was deployed on blue `20261031_092951`, exact runtime `337ff3c01bb4778232dad9973d7c996396717e14`,
+and is the running rollback after the final 2 November promotion; the first benchmark abort and temporary restoration remain in that release record.
 Both verified source manifests are `f270b044a9b67069e44e3954f671bd59f9456146afd13221584f12053c2a3a94`.
-Green `20261029_111113` remains the compatible running rollback with original container
-identities/images unchanged. Public PO-0495 / Nastil 1 shows 46/48/50/52/54 at
+Green `20261029_111113` was the compatible rollback at that release; its containers
+were replaced by the 2 November candidate. Public PO-0495 / Nastil 1 showed 46/48/50/52/54 at
 50 each and no 56. No business data or QR labels changed; ten table hashes match.
 The exact release contains only the reviewed frontend/test/localization patch on
 active runtime `1344b572`; other pending `clone_main` work was excluded.
@@ -66,10 +83,10 @@ payment results are the current candidate batch, with verification still pending
 See [the current operation backlog](REFACTOR_COVERAGE.md#current-integration-and-active-work--30-october-2026).
 No whole-domain, system-wide type or human production acceptance is claimed.
 
-## Retained green rollback (29 October)
+## Historical green release (29 October)
 
 The [multiple open shipment package split](archive/OPEN_SHIPMENT_PACKAGE_SPLIT_2026-10-29.md)
-is retained on green as rollback `20261029_111113`, exact runtime `1344b572f8bff6f458892d3c2c8022560f306dbb`,
+was retained on green as rollback `20261029_111113`, exact runtime `1344b572f8bff6f458892d3c2c8022560f306dbb`,
 merged into `clone_main` through PR346. Both source manifests are
 `93d632752aa355efad66fc67bf294fa6eb6321e90769106fc5de71c4cb6b7720`. Saving a partial per-size selection releases the
 unallocated remainder immediately for another open shipment using the same QR;
@@ -84,7 +101,8 @@ at the conserved readback. The operator must save the desired partial quantity
 there first. External earlier cancellations were not agent actions.
 The old blue `20261028_123531` containers were replaced during the 31 October
 QR release. After the documented rollback and explicit owner latency acceptance,
-blue `20261031_092951` is active and this green release is its compatible rollback.
+blue `20261031_092951` was active and this green release was its compatible rollback.
+On 2 November these green containers were replaced; its release files/images remain historical recovery material.
 The owner's explicit 30-minute observation waiver was honored; no timed monitoring
 was performed. Human operator acceptance remains pending.
 

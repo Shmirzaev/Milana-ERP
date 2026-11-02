@@ -2,13 +2,13 @@
 
 ## PACK-HISTORY-100-20261102 — older physical pack groups unreachable
 
-- **AI_VERIFIED_AWAITING_HUMAN; not deployed.** Packaging owner Mirshoir; reviewer
+- **AI_VERIFIED_AWAITING_HUMAN; deployed green `20261102_063110`.** Packaging owner Mirshoir; reviewer
   Ismail; implementation `/root`, independent AI review `/root/review_merge`.
   The print-run screen fetched the legacy newest-100 list without search or paging.
   Candidate uses scoped server filters before 50-row paging, including model/pack/PRN,
   inclusive Tashkent dates, and received/pending status; retired members remain excluded.
 - [Exact scope, evidence and human checklist](../docs/archive/OLDER_PACK_FILTERS_2026-11-02.md).
-  Keep this entry active until operator acceptance; no production deployment claimed.
+  PR369 merged at `1ed3c5c7`; runtime `42078704` deployed with [release evidence](../docs/archive/OLDER_PACK_FILTERS_RELEASE_2026-11-02.md). Keep this entry active until operator acceptance.
 
 ## Gate-run findings and delivery reconciliation — 29–31 October 2026
 
