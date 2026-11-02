@@ -4,6 +4,8 @@ These reports preserve what was observed at their recorded date. They are not
 current implementation instructions or proof of today's production state.
 Start with [current context](../PROJECT_CONTEXT.md) for active work.
 
+- [Older-pack history filters, 2 November 2026](OLDER_PACK_FILTERS_2026-11-02.md): deployed QR merge, scoped read-only history search/pagination candidate, checks and operator acceptance steps.
+
 - [One package in multiple open shipments, 29 October 2026](OPEN_SHIPMENT_PACKAGE_SPLIT_2026-10-29.md): immediate remaining-size claims before dispatch, exact green release and unchanged blue recovery guard.
 
 - [Order artwork, Nastil factories and warehouse corrections, 29 October 2026](PRINT_NASTIL_WAREHOUSE_2026-10-29.md): green release, audited PO-0377 correction, retained blue, explicit latency exception and monitoring waiver.
