@@ -1,4 +1,5 @@
 """Package workflow routes mounted before /packages/{pid}."""
+from datetime import date
 from fastapi import Query, APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import selectinload, load_only
@@ -22,6 +23,8 @@ from app.models.packages_service import (create_package, _packaging_record_total
 from app.models.packaging_scope_service import packaging_departments_for_order
 from app.models.numbering_service import next_package_nos
 from app.models.workflow_service import sync_production_order_status
+from app.libs.enums.packaging import PrintRunReceiptStatus
+from app.models.packaging import print_runs_service
 
 router = APIRouter()
 _PRINT_RUN_LABEL_LIMIT = 200
@@ -484,21 +487,13 @@ def create_packages_and_run(payload: PrintRunCreatePackagesIn, db: DbSession,
 @router.get("/print-runs")
 def list_print_runs(db: DbSession, production_order_id: int | None = None,
                     page: int | None = Query(None, ge=1), page_size: int = Query(50, ge=1, le=100),
+                    q: str = Query("", max_length=120), receipt_status: PrintRunReceiptStatus | None = None,
+                    created_from: date | None = None, created_to: date | None = None,
                     current: User = Depends(require_permissions("packaging.packages", "packaging.records", "storage.packages", "storage.shipment", "*"))):
-    query = db.query(PackagePrintRun).filter(PackagePrintRun.deleted_at.is_(None), PackagePrintRun.returned_at.is_(None), PackagePrintRun.superseded_at.is_(None))
-    if production_order_id:
-        query = query.filter(PackagePrintRun.id.in_(db.query(PackagePrintRunMember.run_id).join(
-            Package, Package.id == PackagePrintRunMember.package_id).filter(Package.production_order_id == production_order_id)))
-    permissions = set(user_permissions(current))
-    if not permissions.intersection({"storage.packages", "storage.shipment", "*"}):
-        query = query.filter(PackagePrintRun.packaging_department_code == packaging_department_scope(current))
-    if page is not None:
-        total = query.count()
-        runs = query.order_by(PackagePrintRun.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
-        return {"rows": service.run_list_payload(db, runs), "total": total, "page": page,
-                "page_size": page_size, "has_more": page * page_size < total}
-    runs = query.order_by(PackagePrintRun.id.desc()).limit(100).all()
-    return service.run_list_payload(db, runs)
+    return print_runs_service.list_print_runs(
+        db, current, production_order_id=production_order_id, page=page, page_size=page_size,
+        q=q, receipt_status=receipt_status, created_from=created_from, created_to=created_to,
+    )
 
 
 @router.get("/print-runs/resolve")

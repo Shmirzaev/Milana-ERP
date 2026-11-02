@@ -4,6 +4,10 @@ These reports preserve what was observed at their recorded date. They are not
 current implementation instructions or proof of today's production state.
 Start with [current context](../PROJECT_CONTEXT.md) for active work.
 
+- [Older-pack history filters, 2 November 2026](OLDER_PACK_FILTERS_2026-11-02.md): deployed QR merge, scoped read-only history search/pagination candidate, checks and operator acceptance steps.
+
+- [One package in multiple open shipments, 29 October 2026](OPEN_SHIPMENT_PACKAGE_SPLIT_2026-10-29.md): immediate remaining-size claims before dispatch, exact green release and unchanged blue recovery guard.
+
 - [Order artwork, Nastil factories and warehouse corrections, 29 October 2026](PRINT_NASTIL_WAREHOUSE_2026-10-29.md): green release, audited PO-0377 correction, retained blue, explicit latency exception and monitoring waiver.
 
 - [Production and clone_main reconciliation, 29 October 2026](CLONE_PRODUCTION_RECONCILIATION_2026-10-29.md): verified green release, preserved production fixes, retained blue rollback and explicit monitoring waiver.
@@ -32,3 +36,8 @@ New detailed dated events belong here; current summaries link to the relevant re
 - [Combined manual Packaging release, 28 October 2026](MANUAL_PACKAGING_RELEASE_2026-10-28.md):
   verified blue promotion, retained green rollback, exact CI/backup/QA and print acceptance limits.
 - [Manual Packaging and employee master correction, 28 October 2026](MANUAL_PACKAGING_2026-10-28.md).
+
+- [RF-009 create_user baseline](RF009_CREATE_USER_BASELINE_2026-10-29.md):
+  196 passing current-behavior cases; extraction agreement remains pending.
+- [Local PostgreSQL runner adaptation](LOCAL_POSTGRES_RUNNER_2026-10-29.md):
+  combined fixture wiring, zero skips and the remaining S06 test-contract failure.

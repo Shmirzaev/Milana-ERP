@@ -6,6 +6,9 @@ recovery and cancellation before warehouse receipt. Existing implementations
 remain in the shared *_service.py files linked below; other proposed files
 describe later approved operation extractions.
 
+`print_runs_service.py` owns read-only print-run history queries: existing department
+scope, full-history search/date/receipt filters, bounded paging and legacy list compatibility.
+
 **Purpose:** Own package creation, contents/allocation, identity, change approval and production of valid labels.
 
 **Engineering owner:** Mirshoir. **Reviewer:** Ismail.
