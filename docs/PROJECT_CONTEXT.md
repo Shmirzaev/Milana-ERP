@@ -11,9 +11,20 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-10-31. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-02. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## Deployed QR correction reconciled; older-pack filters prepared (2 November)
+
+At the owner's explicit request, the deployed QR correction and its release evidence
+were merged and pushed to `clone_main` at `6e62ffd5`. The preserved production baseline
+now names blue `20261031_092951`, exact runtime `337ff3c0`; green `20261029_111113`
+remains rollback. No deployment or production data change occurred.
+The [older-pack history filter candidate](archive/OLDER_PACK_FILTERS_2026-11-02.md)
+adds full-history model/pack/PRN search, Tashkent date and receipt-status filters,
+and Previous/Next pages. Automated, independent, connected-browser and read-only
+PostgreSQL checks passed; human acceptance and any feature merge/deployment remain pending.
 
 ## Active blue release: Process QR order sizes (31 October)
 
