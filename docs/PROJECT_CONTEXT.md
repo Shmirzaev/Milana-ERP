@@ -15,6 +15,23 @@ Last updated 2026-11-03. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## ECO material inventory and package visibility — local candidate, 3 November
+
+Separate [draft PR375](https://github.com/Shmirzaev/Milana-ERP/pull/375) targets
+`clone_main` for local review only. It verifies the existing passport Excel export,
+adds literal legacy model/variant numbers and actual sewing-factory package/stock
+filters, and introduces separate ECO balances with traced Milana dispatch/partial
+receipt and driver Excel documents. Existing custody/return tracking is preserved.
+ECO BSO accessory approval reserves stock; issuing deducts it. Target-factory
+handoff checks preserve mixed-factory and non-BSO Usluga behavior. Reapproval
+before ECO sewing retains issued evidence and releases only unused allocations.
+Seven additive tables use migrations `0150`/`0151`; no production migration,
+business-data conversion, role grants, merge or deployment occurred. PostgreSQL
+concurrency and full role/browser acceptance remain release gates, not inferred
+from SQLite tests. [Scope, evidence and local checklist](archive/ECO_INVENTORY_PACKAGE_UPDATES_2026-11-03.md).
+Recorded active/rollback releases below are unchanged and were not freshly
+verified through SSH in this task.
+
 ## Identity policy-helper prerequisite (3 November)
 
 The [approved policy-only split](archive/ACCESS_POLICY_HELPER_SPLIT_2026-11-03.md)

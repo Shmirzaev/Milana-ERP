@@ -18,6 +18,8 @@ See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordi
 
 - [inventory.py](../../api/routes/inventory.py) — items, warehouses, stock view, receipts, accessory issue/return, reservations, transfers, batches.
 - [eco_transfers.py](../../api/routes/eco_transfers.py) — Eco Cotton fabric dispatch register.
+- [eco_inventory.py](../../api/routes/eco_inventory.py) — isolated ECO stock and two-sided Milana fabric transfers (local candidate).
+- [eco_accessories.py](../../api/routes/eco_accessories.py) — ECO BSO requirements, approval, reserved allocations and stock-backed issue (local candidate).
 - [fabric_scans.py](../../api/routes/fabric_scans.py) — daily fabric scan register.
 - [stocktake.py](../../api/routes/stocktake.py) — warehouse counts.
 - [waste.py](../../api/routes/waste.py) — waste lifecycle.
@@ -26,6 +28,19 @@ No route in this group imports another route, queries the ORM, or commits. Every
 endpoint below has one owning service function.
 
 ## Service files
+
+The 3 November local candidate adds `eco_inventory_service.py`,
+`factory_fabric_transfers_service.py` and `eco_accessory_service.py`. They own
+rules, factory/permission checks and outer transactions; mapped writes are in
+`schemas/inventory/eco_inventory_persistence.py` and
+`eco_accessory_persistence.py`. ECO balances are deliberately separate from
+Milana StockBatch so inherited global stock writers cannot consume them. Shared
+Items remain catalog data. No historical custody record becomes an ECO receipt.
+Approval allocates ECO stock; issue removes stock and the allocation together.
+Reopening before ECO handoff preserves issued quantities while releasing only
+outstanding allocations. Factory-specific sewing gates remain distinct for mixed
+orders. New fixed lifecycle values use the canonical ECO enums; existing legacy
+Inventory writers remain the separately recorded migration debt below.
 
 This directory is the group's service package. Each module owns one responsibility:
 

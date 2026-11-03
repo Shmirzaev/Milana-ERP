@@ -193,6 +193,25 @@ def test_cutting_block_is_cleared_by_valid_eco_approval(scenario):
     _gate_record_submission(work)
 
 
+def test_approval_does_not_clear_an_unrelated_manual_block(scenario):
+    db, _, order, _, _ = scenario
+    approved(scenario)
+    work = db.query(WorkOrder).filter_by(production_order_id=order.id, operation="sewing").one()
+    work.is_blocked = True; work.block_reason = None; db.commit()
+    assert ensure_accessories_issued_for_sewing(db, order.id, sewing_factory_code="ECO")["is_complete"]
+    assert work.is_blocked and work.block_reason is None
+
+
+def test_cancelled_order_cannot_issue_reserved_accessories(scenario):
+    db, user, order, _, batch = scenario
+    plan = approved(scenario)
+    order.status = "cancelled"; db.commit()
+    with pytest.raises(HTTPException, match="sewingStarted"):
+        service.issue_plan(db, user, order.id, EcoAccessoryIssueIn(revision=plan.revision,
+            lines=[{"allocation_id": plan.lines[0].allocations[0].id, "quantity": "1"}]), "cancelled")
+    assert batch.quantity == 20 and batch.reserved_quantity == 12
+
+
 def test_milana_handoff_keeps_its_own_issue_requirement(scenario):
     from app.schemas import ModelBOM, CuttingRecord
     db, user, order, item, _ = scenario

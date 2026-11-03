@@ -300,6 +300,8 @@ def issue_plan(db: Session, current, order_id: int, payload: EcoAccessoryIssueIn
     cached = replay_idempotent_response(db, scope="eco.accessories.issue", key=key, payload=fingerprint)
     if cached:
         return EcoAccessoryPlanOut.model_validate(cached)
+    if order.status in {"completed", "finished_storage", "cancelled", "rejected"}:
+        raise HTTPException(409, "ecoAccessories.sewingStarted")
     plan = _plan(db, order_id, payload.revision)
     if not plan or plan.status != Status.APPROVED or not _snapshot_matches(plan, order):
         raise HTTPException(409, "ecoAccessories.approvalRequired")
@@ -382,7 +384,9 @@ def sync_eco_accessory_block(db: Session, order_id: int, *, batch_id: int | None
     if batch_id is not None:
         query = query.filter(or_(WorkOrder.production_batch_id == batch_id, WorkOrder.production_batch_id.is_(None)))
     for work in query.all():
-        if work.block_reason in {None, "Accessories must be issued before sewing.", "ecoAccessories.approvalRequired"}:
+        if (not work.is_blocked and work.block_reason is None) or work.block_reason in {
+            "Accessories must be issued before sewing.", "ecoAccessories.approvalRequired",
+        }:
             writes.set_sewing_block(db, work, blocked=not plan["is_complete"])
     db.flush()
     return plan

@@ -1,5 +1,17 @@
 # Team bug tracker — clone_main
 
+## ECO-MATERIALS-PACKAGES-20261103 — local review candidate
+
+- Draft [PR375](https://github.com/Shmirzaev/Milana-ERP/pull/375), target `clone_main`.
+  Implements requested ECO material balances/transfers/accessory approval and
+  package identity/sewing-origin visibility; verifies existing passport Excel.
+  Implementation Codex; domain owners/reviewers remain Ismail/Mirshoir per
+  TEAM_OWNERSHIP. Independent AI reviews found and prompted scope, retry and
+  legacy-placeholder corrections; human acceptance has not occurred.
+- [Task packet and local review instructions](../docs/archive/ECO_INVENTORY_PACKAGE_UPDATES_2026-11-03.md).
+  Production untouched. **Not AI_VERIFIED**: real PostgreSQL migration/concurrency
+  and full role/scanner/browser gates remain unverified. Keep this entry active.
+
 ## PACK-HISTORY-100-20261102 — older physical pack groups unreachable
 
 - **AI_VERIFIED_AWAITING_HUMAN; deployed green `20261102_063110`.** Packaging owner Mirshoir; reviewer
