@@ -32,7 +32,7 @@
   },
   "database": {
     "revision": "0150_package_customer_release",
-    "connections": 45,
+    "connections": 24,
     "maximum": 100,
     "invalid_indexes": 0
   },
@@ -160,7 +160,7 @@
     ],
     "FG_counter": null
   },
-  "state": "ROLLED_BACK_PERFORMANCE_GATE_AWAITING_OWNER_EXCEPTION",
+  "state": "DEPLOYED_WITH_OWNER_SPECIFIC_MODEL_OPTIONS_P95_EXCEPTION",
   "scope": "Only customer pack restriction/admin release and FG prefix; other clone_main runtime changes excluded",
   "integration": {
     "branch": "clone_main",
@@ -259,7 +259,9 @@
     "outputs/qa/candidate-admin-dialog.png": "8e91b447e95659346a7a93dc0750e378170eea3f314f5427725aff1d9b81b166",
     "outputs/qa/resumed-public-fg-preview.png": "19cc34da3139098fd225595c45e864e05fe77e2534900822eb06258cfb380349",
     "outputs/qa/resumed-public-admin-dialog.png": "bee819a644d149213966fedbb2c0bba686fbf8d0f717bea5fb5e5b021bc2c5e3",
-    "outputs/qa/final-recovered-production.png": "25d57f538af05743d210298fcfebc7b30fba4a7c726ac01429a38efee78910a0"
+    "outputs/qa/final-recovered-production.png": "25d57f538af05743d210298fcfebc7b30fba4a7c726ac01429a38efee78910a0",
+    "outputs/qa/exception-public-fg-preview.png": "19cc34da3139098fd225595c45e864e05fe77e2534900822eb06258cfb380349",
+    "outputs/qa/exception-public-admin-dialog.png": "bee819a644d149213966fedbb2c0bba686fbf8d0f717bea5fb5e5b021bc2c5e3"
   },
   "historical_oom": {
     "classification": "PREEXISTING_OOM; zero-OOM precheck remains failed",
@@ -281,7 +283,7 @@
     "source_commit": "37337ea6d30ce855c53d438ebeef056adc9efb43",
     "release": "20261103_112256",
     "ci_run": 41627068789,
-    "state": "ACTIVE_RECOVERY_ON_BOTH_HOSTS",
+    "state": "RETAINED_READY_GREEN_ROLLBACK_ON_BOTH_HOSTS",
     "application_delta_from_42078704": "none; identical0150 migration metadata only",
     "initial_failed_ci_run": 41620483143,
     "schema_contract_fix": "Exact compatibility-only reflected table contract:36realPGpass; mainintegration29pass7compat-onlyN/A",
@@ -358,62 +360,10 @@
   },
   "human_acceptance": "Separate from explicit owner push/merge/deploy authorization; not fabricated",
   "active_production": {
-    "release": "20261103_112256",
-    "source_manifest_sha256": "8c5521db580320842925229aff26e659202b4beef6752afa82d7b480dc677bbf",
-    "database_revision": "0150_package_customer_release",
-    "git_baseline_commit": "37337ea6d30ce855c53d438ebeef056adc9efb43"
-  },
-  "inactive_candidate": {
     "release": "20261103_094602",
-    "commit": "11f80a2995daeeb90b5c01318aec9e9c6a40f1c9",
-    "staged": {
-      "backend": {
-        "id": "38673b4706272e18e2838fa6d44963448d069d037ec619a2b959a1c4285cf36b",
-        "image": "sha256:f7467a79c4b513cc62d11b5106161f21430cf1e1e4bde739949e5bbcecbfa655",
-        "labels": {
-          "milana.release": "20261103_094602",
-          "milana.role": "backend",
-          "milana.slot": "blue",
-          "org.opencontainers.image.revision": "11f80a2995daeeb90b5c01318aec9e9c6a40f1c9"
-        },
-        "running": true,
-        "oom": false,
-        "restarts": 0,
-        "started_at": "2026-11-03T12:15:22.68736171Z",
-        "ports": {
-          "10000/tcp": [
-            {
-              "HostIp": "127.0.0.1",
-              "HostPort": "18001"
-            }
-          ]
-        }
-      },
-      "frontend": {
-        "id": "357595ba23444893a490684a70517afd50f85d8af922846e2e64ea5a90803e2b",
-        "image": "sha256:3fabcc509df640f0a183b065d58839a9ef61d73b36c8e4e189c5c825828e4a2a",
-        "labels": {
-          "milana.release": "20261103_094602",
-          "milana.role": "frontend",
-          "milana.slot": "blue",
-          "org.opencontainers.image.revision": "11f80a2995daeeb90b5c01318aec9e9c6a40f1c9"
-        },
-        "running": true,
-        "oom": false,
-        "restarts": 0,
-        "started_at": "2026-11-03T10:20:36.546020799Z",
-        "ports": {
-          "3000/tcp": [
-            {
-              "HostIp": "127.0.0.1",
-              "HostPort": "13001"
-            }
-          ]
-        }
-      }
-    },
-    "reactivation_authorized": false,
-    "reason": "Model Options public p95 162.26 ->193.23ms (+19.09%) exceeds15% automaticstop;30minute observation waiver does not waive performance"
+    "source_manifest_sha256": "ee765f999e782193878390897873c7b5865749460d4d776cf321fcd28490f8a9",
+    "database_revision": "0150_package_customer_release",
+    "git_baseline_commit": "11f80a2995daeeb90b5c01318aec9e9c6a40f1c9"
   },
   "first_attempt": {
     "activation": {
@@ -1822,6 +1772,15 @@
       "bytes": 111095463,
       "mode": "0o600",
       "sha256": "89ca31e6ae91dc84ff42936c17b752fe7f3a75cae26bec6471e691d109331b61"
+    },
+    "exception_backup": {
+      "path": "/opt/milana-erp/shared/backups/milana_erp_pre_exception_20261103_094602_20261103_123720.dump",
+      "restore_objects": 1251,
+      "restore_list_bytes": 89845,
+      "restore_list_sha256": "61f81fd598b9845687d34bb5a42272eb2c7f89f85ce40f454e9dec74d9eb9e50",
+      "bytes": 111104711,
+      "mode": "0o600",
+      "sha256": "f8b8a5dd976f678e9794b26fb3d0a18b366420bb519864b47b726e2998a87fb9"
     }
   },
   "startup_seed_incident": {
@@ -2182,9 +2141,9 @@
     "runtime_diff_from_origin_clone_main": "none; record branch contains only docs/CI/tests/tools relative tod6c2edd; HR source preserved and not deployed"
   },
   "open_risks": {
-    "latency_cause": "Unproven. Endpoint route/service/DTO/DBsession/dependencies unchanged; direct paired passed. Does not prove transport cause. No resampling or threshold exception approved.",
+    "latency_cause": "Unproven. Retained Model Options p95 FAIL accepted only by explicit owner exception for exact11f80a29; no resampling or blanket waiver. Other6 endpoints/rows/payload passed.",
     "disk_percent": {
-      "backend": 78.66,
+      "backend": 78.72,
       "frontend": 78.54
     },
     "disk_policy": "above70% alert, below80% hardstop",
@@ -2200,5 +2159,809 @@
       "result": "released own lease"
     }
   },
-  "updated_at": "2026-11-03T12:31:09.222884+00:00"
+  "updated_at": "2026-11-03T12:39:20.195302+00:00",
+  "pre_exception_production_checkpoint": {
+    "state": "ROLLED_BACK_PERFORMANCE_GATE_AWAITING_OWNER_EXCEPTION",
+    "active_production": {
+      "release": "20261103_112256",
+      "source_manifest_sha256": "8c5521db580320842925229aff26e659202b4beef6752afa82d7b480dc677bbf",
+      "database_revision": "0150_package_customer_release",
+      "git_baseline_commit": "37337ea6d30ce855c53d438ebeef056adc9efb43"
+    },
+    "inactive_candidate": {
+      "release": "20261103_094602",
+      "commit": "11f80a2995daeeb90b5c01318aec9e9c6a40f1c9",
+      "staged": {
+        "backend": {
+          "id": "38673b4706272e18e2838fa6d44963448d069d037ec619a2b959a1c4285cf36b",
+          "image": "sha256:f7467a79c4b513cc62d11b5106161f21430cf1e1e4bde739949e5bbcecbfa655",
+          "labels": {
+            "milana.release": "20261103_094602",
+            "milana.role": "backend",
+            "milana.slot": "blue",
+            "org.opencontainers.image.revision": "11f80a2995daeeb90b5c01318aec9e9c6a40f1c9"
+          },
+          "running": true,
+          "oom": false,
+          "restarts": 0,
+          "started_at": "2026-11-03T12:15:22.68736171Z",
+          "ports": {
+            "10000/tcp": [
+              {
+                "HostIp": "127.0.0.1",
+                "HostPort": "18001"
+              }
+            ]
+          }
+        },
+        "frontend": {
+          "id": "357595ba23444893a490684a70517afd50f85d8af922846e2e64ea5a90803e2b",
+          "image": "sha256:3fabcc509df640f0a183b065d58839a9ef61d73b36c8e4e189c5c825828e4a2a",
+          "labels": {
+            "milana.release": "20261103_094602",
+            "milana.role": "frontend",
+            "milana.slot": "blue",
+            "org.opencontainers.image.revision": "11f80a2995daeeb90b5c01318aec9e9c6a40f1c9"
+          },
+          "running": true,
+          "oom": false,
+          "restarts": 0,
+          "started_at": "2026-11-03T10:20:36.546020799Z",
+          "ports": {
+            "3000/tcp": [
+              {
+                "HostIp": "127.0.0.1",
+                "HostPort": "13001"
+              }
+            ]
+          }
+        }
+      },
+      "reactivation_authorized": false,
+      "reason": "Model Options public p95 162.26 ->193.23ms (+19.09%) exceeds15% automaticstop;30minute observation waiver does not waive performance"
+    },
+    "compatibility_state": "ACTIVE_RECOVERY_ON_BOTH_HOSTS"
+  },
+  "owner_p95_exception": {
+    "approved": true,
+    "exact_candidate": "11f80a2995daeeb90b5c01318aec9e9c6a40f1c9",
+    "endpoint": "model_options",
+    "baseline_p95_ms": 162.26,
+    "candidate_p95_ms": 193.23,
+    "change_pct": 19.09,
+    "baseline_median_ms": 153.52,
+    "candidate_median_ms": 153.81,
+    "median_change_pct": 0.19,
+    "owner_answer": "Re-deploy with this specific p95 exception",
+    "time": "2026-11-03T12:35:02.376175+00:00",
+    "scope": "Only this retained public Model Options p95 failure; other six endpoints/counts/payload pass; no blanket threshold waiver",
+    "observation_minutes": 0
+  },
+  "exception_phase": {
+    "exception_preflight": {
+      "passed": true,
+      "roles": {
+        "backend": {
+          "state": {
+            "active_release": "20261103_112256",
+            "active_slot": "green",
+            "role": "backend",
+            "rollback_release": "20261103_094602",
+            "rollback_slot": "blue",
+            "updated_at": "2026-11-03T12:27:31.226214+00:00"
+          },
+          "current": "/opt/milana-erp/releases/20261103_112256",
+          "proxy_sha256": "bf569704ceabb41a377b2334756836b569cfe34a0af5e49f1e84daae7a07c634",
+          "blue": {
+            "id": "38673b4706272e18e2838fa6d44963448d069d037ec619a2b959a1c4285cf36b",
+            "image": "sha256:f7467a79c4b513cc62d11b5106161f21430cf1e1e4bde739949e5bbcecbfa655",
+            "labels": {
+              "milana.release": "20261103_094602",
+              "milana.role": "backend",
+              "milana.slot": "blue",
+              "org.opencontainers.image.revision": "11f80a2995daeeb90b5c01318aec9e9c6a40f1c9"
+            },
+            "running": true,
+            "oom": false,
+            "restarts": 0,
+            "started_at": "2026-11-03T12:15:22.68736171Z",
+            "ports": {
+              "10000/tcp": [
+                {
+                  "HostIp": "127.0.0.1",
+                  "HostPort": "18001"
+                }
+              ]
+            }
+          },
+          "green": {
+            "id": "d562f84559f7058bd0fba99325c3bf3c34d5f3120a105acd0515d23055e3ee38",
+            "image": "sha256:bf8dd8a1a7f95e2cc178844391f3ed34ac02dcd429db2099922680f50f45b02f",
+            "labels": {
+              "milana.release": "20261103_112256",
+              "milana.role": "backend",
+              "milana.slot": "green",
+              "org.opencontainers.image.revision": "37337ea6d30ce855c53d438ebeef056adc9efb43"
+            },
+            "running": true,
+            "oom": false,
+            "restarts": 0,
+            "started_at": "2026-11-03T12:05:08.898205534Z",
+            "ports": {
+              "10000/tcp": [
+                {
+                  "HostIp": "127.0.0.1",
+                  "HostPort": "18002"
+                }
+              ]
+            }
+          }
+        },
+        "frontend": {
+          "state": {
+            "active_release": "20261103_112256",
+            "active_slot": "green",
+            "role": "frontend",
+            "rollback_release": "20261103_094602",
+            "rollback_slot": "blue",
+            "updated_at": "2026-11-03T12:27:36.316741+00:00"
+          },
+          "current": "/opt/milana-erp/releases/20261103_112256",
+          "proxy_sha256": "57902f19c0fa75ed7d89f7b0fe384775a13d6101c4505f09351b53d718332e60",
+          "blue": {
+            "id": "357595ba23444893a490684a70517afd50f85d8af922846e2e64ea5a90803e2b",
+            "image": "sha256:3fabcc509df640f0a183b065d58839a9ef61d73b36c8e4e189c5c825828e4a2a",
+            "labels": {
+              "milana.release": "20261103_094602",
+              "milana.role": "frontend",
+              "milana.slot": "blue",
+              "org.opencontainers.image.revision": "11f80a2995daeeb90b5c01318aec9e9c6a40f1c9"
+            },
+            "running": true,
+            "oom": false,
+            "restarts": 0,
+            "started_at": "2026-11-03T10:20:36.546020799Z",
+            "ports": {
+              "3000/tcp": [
+                {
+                  "HostIp": "127.0.0.1",
+                  "HostPort": "13001"
+                }
+              ]
+            }
+          },
+          "green": {
+            "id": "2be965637d2fc55d3b47ffe6e2d7f700013a47f4ab73d1eafe96a7e3323b5d70",
+            "image": "sha256:41e05facdcce1271896ec931dfe19f465b92c89021bdfcae3f1a848fda79c2d2",
+            "labels": {
+              "milana.release": "20261103_112256",
+              "milana.role": "frontend",
+              "milana.slot": "green",
+              "org.opencontainers.image.revision": "37337ea6d30ce855c53d438ebeef056adc9efb43"
+            },
+            "running": true,
+            "oom": false,
+            "restarts": 0,
+            "started_at": "2026-11-03T11:59:17.709988406Z",
+            "ports": {
+              "3000/tcp": [
+                {
+                  "HostIp": "127.0.0.1",
+                  "HostPort": "13002"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "disks": {
+        "backend": 0.7868300867000142,
+        "frontend": 0.7854174397958814
+      },
+      "baseline": {
+        "release": "20261103_112256",
+        "source_manifest_sha256": "8c5521db580320842925229aff26e659202b4beef6752afa82d7b480dc677bbf",
+        "database_revision": "0150_package_customer_release",
+        "git_baseline_commit": "37337ea6d30ce855c53d438ebeef056adc9efb43"
+      },
+      "time": "2026-11-03T12:37:03.359452+00:00",
+      "integration": "10c525c243ed391fe85086225fa946a03c85776a"
+    },
+    "exception_backup": {
+      "path": "/opt/milana-erp/shared/backups/milana_erp_pre_exception_20261103_094602_20261103_123720.dump",
+      "restore_objects": 1251,
+      "restore_list_bytes": 89845,
+      "restore_list_sha256": "61f81fd598b9845687d34bb5a42272eb2c7f89f85ce40f454e9dec74d9eb9e50",
+      "bytes": 111104711,
+      "mode": "0o600",
+      "sha256": "f8b8a5dd976f678e9794b26fb3d0a18b366420bb519864b47b726e2998a87fb9"
+    },
+    "exception_activation": {
+      "passed": true,
+      "activation": {
+        "passed": true,
+        "time": "2026-11-03T12:38:09.690946+00:00",
+        "active_release": "20261103_094602",
+        "rollback_release": "20261103_112256"
+      },
+      "exception": {
+        "approved": true,
+        "exact_candidate": "11f80a2995daeeb90b5c01318aec9e9c6a40f1c9",
+        "endpoint": "model_options",
+        "baseline_p95_ms": 162.26,
+        "candidate_p95_ms": 193.23,
+        "change_pct": 19.09,
+        "baseline_median_ms": 153.52,
+        "candidate_median_ms": 153.81,
+        "median_change_pct": 0.19,
+        "owner_answer": "Re-deploy with this specific p95 exception",
+        "time": "2026-11-03T12:35:02.376175+00:00",
+        "scope": "Only this retained public Model Options p95 failure; other six endpoints/counts/payload pass; no blanket threshold waiver",
+        "observation_minutes": 0
+      },
+      "failed_measurement_preserved": true,
+      "time": "2026-11-03T12:38:20.108436+00:00"
+    },
+    "exception_public_api_readback": {
+      "passed": true,
+      "total": 437,
+      "page_size": 50,
+      "all_rows_sha256": "195178e0372d2da965d4a57d72edfc2c784b51dacfde212bacd84f25b35efb71",
+      "old_run": "PRN-2026-000012",
+      "old_pack": "PKG-2026-000159",
+      "day": "2026-10-12",
+      "receipt": "received",
+      "checks": [
+        {
+          "filters": {
+            "q": "PRN-2026-000012"
+          },
+          "total": 1
+        },
+        {
+          "filters": {
+            "q": "PKG-2026-000159"
+          },
+          "total": 1
+        },
+        {
+          "filters": {
+            "q": "BM8010-V-6451"
+          },
+          "total": 2
+        },
+        {
+          "filters": {
+            "created_from": "2026-10-12",
+            "created_to": "2026-10-12",
+            "receipt_status": "received"
+          },
+          "total": 2
+        }
+      ],
+      "scope": {
+        "denied": 403,
+        "PKG": {
+          "status": 200,
+          "total": 241
+        },
+        "BPK": {
+          "status": 200,
+          "total": 196
+        }
+      },
+      "http_methods": [
+        "GET"
+      ]
+    },
+    "exception_public_browser": {
+      "passed": true,
+      "commit": "11f80a2995daeeb90b5c01318aec9e9c6a40f1c9",
+      "release": "20261103_094602",
+      "url": "https://erp.milanapremium.uz",
+      "browser": "Chrome new window; direct public authenticated session",
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "production_business_writes": 0,
+      "fg_selector": "FG",
+      "fg_preview": "FG202002",
+      "admin_warehouse_dialog": {
+        "pack": "PKG-2026-002282",
+        "selected_pack_count": 1,
+        "reason_required": true,
+        "submit_disabled_without_reason": true,
+        "cancelled": true
+      },
+      "console_warnings": 0,
+      "console_errors": 0,
+      "screenshots": [
+        "outputs/qa/exception-public-fg-preview.png",
+        "outputs/qa/exception-public-admin-dialog.png"
+      ],
+      "screenshot_sha256": {
+        "outputs/qa/exception-public-fg-preview.png": "19cc34da3139098fd225595c45e864e05fe77e2534900822eb06258cfb380349",
+        "outputs/qa/exception-public-admin-dialog.png": "bee819a644d149213966fedbb2c0bba686fbf8d0f717bea5fb5e5b021bc2c5e3"
+      },
+      "phase": "Owner-authorized exact11 reactivation with specific retained Model Options p95 exception",
+      "verified_at": "2026-11-03T12:38:56.909007+00:00"
+    },
+    "exception_final": {
+      "passed": true,
+      "time": "2026-11-03T12:39:18.513540+00:00",
+      "roles": {
+        "backend": {
+          "state": {
+            "active_release": "20261103_094602",
+            "active_slot": "blue",
+            "role": "backend",
+            "rollback_release": "20261103_112256",
+            "rollback_slot": "green",
+            "updated_at": "2026-11-03T12:38:00.467143+00:00"
+          },
+          "current": "/opt/milana-erp/releases/20261103_094602",
+          "proxy_sha256": "1a87e13ef3551318ac8558d9ddbcc4bac25145f2fadabed39895242e032589c3",
+          "blue": {
+            "id": "38673b4706272e18e2838fa6d44963448d069d037ec619a2b959a1c4285cf36b",
+            "image": "sha256:f7467a79c4b513cc62d11b5106161f21430cf1e1e4bde739949e5bbcecbfa655",
+            "labels": {
+              "milana.release": "20261103_094602",
+              "milana.role": "backend",
+              "milana.slot": "blue",
+              "org.opencontainers.image.revision": "11f80a2995daeeb90b5c01318aec9e9c6a40f1c9"
+            },
+            "running": true,
+            "oom": false,
+            "restarts": 0,
+            "started_at": "2026-11-03T12:15:22.68736171Z",
+            "ports": {
+              "10000/tcp": [
+                {
+                  "HostIp": "127.0.0.1",
+                  "HostPort": "18001"
+                }
+              ]
+            }
+          },
+          "green": {
+            "id": "d562f84559f7058bd0fba99325c3bf3c34d5f3120a105acd0515d23055e3ee38",
+            "image": "sha256:bf8dd8a1a7f95e2cc178844391f3ed34ac02dcd429db2099922680f50f45b02f",
+            "labels": {
+              "milana.release": "20261103_112256",
+              "milana.role": "backend",
+              "milana.slot": "green",
+              "org.opencontainers.image.revision": "37337ea6d30ce855c53d438ebeef056adc9efb43"
+            },
+            "running": true,
+            "oom": false,
+            "restarts": 0,
+            "started_at": "2026-11-03T12:05:08.898205534Z",
+            "ports": {
+              "10000/tcp": [
+                {
+                  "HostIp": "127.0.0.1",
+                  "HostPort": "18002"
+                }
+              ]
+            }
+          }
+        },
+        "frontend": {
+          "state": {
+            "active_release": "20261103_094602",
+            "active_slot": "blue",
+            "role": "frontend",
+            "rollback_release": "20261103_112256",
+            "rollback_slot": "green",
+            "updated_at": "2026-11-03T12:38:01.153249+00:00"
+          },
+          "current": "/opt/milana-erp/releases/20261103_094602",
+          "proxy_sha256": "4f932cd31ef67c2cdf3e353d76c2b21f3b726dcbda58203df2940113e737e614",
+          "blue": {
+            "id": "357595ba23444893a490684a70517afd50f85d8af922846e2e64ea5a90803e2b",
+            "image": "sha256:3fabcc509df640f0a183b065d58839a9ef61d73b36c8e4e189c5c825828e4a2a",
+            "labels": {
+              "milana.release": "20261103_094602",
+              "milana.role": "frontend",
+              "milana.slot": "blue",
+              "org.opencontainers.image.revision": "11f80a2995daeeb90b5c01318aec9e9c6a40f1c9"
+            },
+            "running": true,
+            "oom": false,
+            "restarts": 0,
+            "started_at": "2026-11-03T10:20:36.546020799Z",
+            "ports": {
+              "3000/tcp": [
+                {
+                  "HostIp": "127.0.0.1",
+                  "HostPort": "13001"
+                }
+              ]
+            }
+          },
+          "green": {
+            "id": "2be965637d2fc55d3b47ffe6e2d7f700013a47f4ab73d1eafe96a7e3323b5d70",
+            "image": "sha256:41e05facdcce1271896ec931dfe19f465b92c89021bdfcae3f1a848fda79c2d2",
+            "labels": {
+              "milana.release": "20261103_112256",
+              "milana.role": "frontend",
+              "milana.slot": "green",
+              "org.opencontainers.image.revision": "37337ea6d30ce855c53d438ebeef056adc9efb43"
+            },
+            "running": true,
+            "oom": false,
+            "restarts": 0,
+            "started_at": "2026-11-03T11:59:17.709988406Z",
+            "ports": {
+              "3000/tcp": [
+                {
+                  "HostIp": "127.0.0.1",
+                  "HostPort": "13002"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "ledger": {
+        "rows": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "database": {
+        "revision": "0150_package_customer_release",
+        "connections": 24,
+        "maximum": 100,
+        "invalid_indexes": 0
+      },
+      "disks": {
+        "backend": 0.7872347998964654,
+        "frontend": 0.7854191057982296
+      },
+      "resources": {
+        "blue": {
+          "id": "38673b4706272e18e2838fa6d44963448d069d037ec619a2b959a1c4285cf36b",
+          "worker_pids": [
+            1521495,
+            1521496
+          ],
+          "oom": 0,
+          "oom_kill": 0
+        },
+        "green": {
+          "id": "d562f84559f7058bd0fba99325c3bf3c34d5f3120a105acd0515d23055e3ee38",
+          "worker_pids": [
+            1510102,
+            1510103
+          ],
+          "oom": 0,
+          "oom_kill": 0
+        }
+      },
+      "four_health_checks": "200",
+      "observation_minutes": 0,
+      "failed_closing_preserved": true,
+      "owner_p95_exception": {
+        "approved": true,
+        "exact_candidate": "11f80a2995daeeb90b5c01318aec9e9c6a40f1c9",
+        "endpoint": "model_options",
+        "baseline_p95_ms": 162.26,
+        "candidate_p95_ms": 193.23,
+        "change_pct": 19.09,
+        "baseline_median_ms": 153.52,
+        "candidate_median_ms": 153.81,
+        "median_change_pct": 0.19,
+        "owner_answer": "Re-deploy with this specific p95 exception",
+        "time": "2026-11-03T12:35:02.376175+00:00",
+        "scope": "Only this retained public Model Options p95 failure; other six endpoints/counts/payload pass; no blanket threshold waiver",
+        "observation_minutes": 0
+      }
+    },
+    "independent_review": {
+      "reviewer": "/root/customer_guard_review",
+      "passed": true,
+      "scope": "specific owner exception/history/mainpin unchanged helper and images/fresh health API browser; no blocker"
+    },
+    "postflights": [
+      {
+        "passed": true,
+        "time": "2026-11-03T12:38:20.101437+00:00",
+        "four_health_checks": "200",
+        "roles": {
+          "backend": {
+            "state": {
+              "active_release": "20261103_094602",
+              "active_slot": "blue",
+              "role": "backend",
+              "rollback_release": "20261103_112256",
+              "rollback_slot": "green",
+              "updated_at": "2026-11-03T12:38:00.467143+00:00"
+            },
+            "current": "/opt/milana-erp/releases/20261103_094602",
+            "proxy_sha256": "1a87e13ef3551318ac8558d9ddbcc4bac25145f2fadabed39895242e032589c3",
+            "blue": {
+              "id": "38673b4706272e18e2838fa6d44963448d069d037ec619a2b959a1c4285cf36b",
+              "image": "sha256:f7467a79c4b513cc62d11b5106161f21430cf1e1e4bde739949e5bbcecbfa655",
+              "labels": {
+                "milana.release": "20261103_094602",
+                "milana.role": "backend",
+                "milana.slot": "blue",
+                "org.opencontainers.image.revision": "11f80a2995daeeb90b5c01318aec9e9c6a40f1c9"
+              },
+              "running": true,
+              "oom": false,
+              "restarts": 0,
+              "started_at": "2026-11-03T12:15:22.68736171Z",
+              "ports": {
+                "10000/tcp": [
+                  {
+                    "HostIp": "127.0.0.1",
+                    "HostPort": "18001"
+                  }
+                ]
+              }
+            },
+            "green": {
+              "id": "d562f84559f7058bd0fba99325c3bf3c34d5f3120a105acd0515d23055e3ee38",
+              "image": "sha256:bf8dd8a1a7f95e2cc178844391f3ed34ac02dcd429db2099922680f50f45b02f",
+              "labels": {
+                "milana.release": "20261103_112256",
+                "milana.role": "backend",
+                "milana.slot": "green",
+                "org.opencontainers.image.revision": "37337ea6d30ce855c53d438ebeef056adc9efb43"
+              },
+              "running": true,
+              "oom": false,
+              "restarts": 0,
+              "started_at": "2026-11-03T12:05:08.898205534Z",
+              "ports": {
+                "10000/tcp": [
+                  {
+                    "HostIp": "127.0.0.1",
+                    "HostPort": "18002"
+                  }
+                ]
+              }
+            }
+          },
+          "frontend": {
+            "state": {
+              "active_release": "20261103_094602",
+              "active_slot": "blue",
+              "role": "frontend",
+              "rollback_release": "20261103_112256",
+              "rollback_slot": "green",
+              "updated_at": "2026-11-03T12:38:01.153249+00:00"
+            },
+            "current": "/opt/milana-erp/releases/20261103_094602",
+            "proxy_sha256": "4f932cd31ef67c2cdf3e353d76c2b21f3b726dcbda58203df2940113e737e614",
+            "blue": {
+              "id": "357595ba23444893a490684a70517afd50f85d8af922846e2e64ea5a90803e2b",
+              "image": "sha256:3fabcc509df640f0a183b065d58839a9ef61d73b36c8e4e189c5c825828e4a2a",
+              "labels": {
+                "milana.release": "20261103_094602",
+                "milana.role": "frontend",
+                "milana.slot": "blue",
+                "org.opencontainers.image.revision": "11f80a2995daeeb90b5c01318aec9e9c6a40f1c9"
+              },
+              "running": true,
+              "oom": false,
+              "restarts": 0,
+              "started_at": "2026-11-03T10:20:36.546020799Z",
+              "ports": {
+                "3000/tcp": [
+                  {
+                    "HostIp": "127.0.0.1",
+                    "HostPort": "13001"
+                  }
+                ]
+              }
+            },
+            "green": {
+              "id": "2be965637d2fc55d3b47ffe6e2d7f700013a47f4ab73d1eafe96a7e3323b5d70",
+              "image": "sha256:41e05facdcce1271896ec931dfe19f465b92c89021bdfcae3f1a848fda79c2d2",
+              "labels": {
+                "milana.release": "20261103_112256",
+                "milana.role": "frontend",
+                "milana.slot": "green",
+                "org.opencontainers.image.revision": "37337ea6d30ce855c53d438ebeef056adc9efb43"
+              },
+              "running": true,
+              "oom": false,
+              "restarts": 0,
+              "started_at": "2026-11-03T11:59:17.709988406Z",
+              "ports": {
+                "3000/tcp": [
+                  {
+                    "HostIp": "127.0.0.1",
+                    "HostPort": "13002"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "passed": true,
+        "time": "2026-11-03T12:39:07.009923+00:00",
+        "four_health_checks": "200",
+        "roles": {
+          "backend": {
+            "state": {
+              "active_release": "20261103_094602",
+              "active_slot": "blue",
+              "role": "backend",
+              "rollback_release": "20261103_112256",
+              "rollback_slot": "green",
+              "updated_at": "2026-11-03T12:38:00.467143+00:00"
+            },
+            "current": "/opt/milana-erp/releases/20261103_094602",
+            "proxy_sha256": "1a87e13ef3551318ac8558d9ddbcc4bac25145f2fadabed39895242e032589c3",
+            "blue": {
+              "id": "38673b4706272e18e2838fa6d44963448d069d037ec619a2b959a1c4285cf36b",
+              "image": "sha256:f7467a79c4b513cc62d11b5106161f21430cf1e1e4bde739949e5bbcecbfa655",
+              "labels": {
+                "milana.release": "20261103_094602",
+                "milana.role": "backend",
+                "milana.slot": "blue",
+                "org.opencontainers.image.revision": "11f80a2995daeeb90b5c01318aec9e9c6a40f1c9"
+              },
+              "running": true,
+              "oom": false,
+              "restarts": 0,
+              "started_at": "2026-11-03T12:15:22.68736171Z",
+              "ports": {
+                "10000/tcp": [
+                  {
+                    "HostIp": "127.0.0.1",
+                    "HostPort": "18001"
+                  }
+                ]
+              }
+            },
+            "green": {
+              "id": "d562f84559f7058bd0fba99325c3bf3c34d5f3120a105acd0515d23055e3ee38",
+              "image": "sha256:bf8dd8a1a7f95e2cc178844391f3ed34ac02dcd429db2099922680f50f45b02f",
+              "labels": {
+                "milana.release": "20261103_112256",
+                "milana.role": "backend",
+                "milana.slot": "green",
+                "org.opencontainers.image.revision": "37337ea6d30ce855c53d438ebeef056adc9efb43"
+              },
+              "running": true,
+              "oom": false,
+              "restarts": 0,
+              "started_at": "2026-11-03T12:05:08.898205534Z",
+              "ports": {
+                "10000/tcp": [
+                  {
+                    "HostIp": "127.0.0.1",
+                    "HostPort": "18002"
+                  }
+                ]
+              }
+            }
+          },
+          "frontend": {
+            "state": {
+              "active_release": "20261103_094602",
+              "active_slot": "blue",
+              "role": "frontend",
+              "rollback_release": "20261103_112256",
+              "rollback_slot": "green",
+              "updated_at": "2026-11-03T12:38:01.153249+00:00"
+            },
+            "current": "/opt/milana-erp/releases/20261103_094602",
+            "proxy_sha256": "4f932cd31ef67c2cdf3e353d76c2b21f3b726dcbda58203df2940113e737e614",
+            "blue": {
+              "id": "357595ba23444893a490684a70517afd50f85d8af922846e2e64ea5a90803e2b",
+              "image": "sha256:3fabcc509df640f0a183b065d58839a9ef61d73b36c8e4e189c5c825828e4a2a",
+              "labels": {
+                "milana.release": "20261103_094602",
+                "milana.role": "frontend",
+                "milana.slot": "blue",
+                "org.opencontainers.image.revision": "11f80a2995daeeb90b5c01318aec9e9c6a40f1c9"
+              },
+              "running": true,
+              "oom": false,
+              "restarts": 0,
+              "started_at": "2026-11-03T10:20:36.546020799Z",
+              "ports": {
+                "3000/tcp": [
+                  {
+                    "HostIp": "127.0.0.1",
+                    "HostPort": "13001"
+                  }
+                ]
+              }
+            },
+            "green": {
+              "id": "2be965637d2fc55d3b47ffe6e2d7f700013a47f4ab73d1eafe96a7e3323b5d70",
+              "image": "sha256:41e05facdcce1271896ec931dfe19f465b92c89021bdfcae3f1a848fda79c2d2",
+              "labels": {
+                "milana.release": "20261103_112256",
+                "milana.role": "frontend",
+                "milana.slot": "green",
+                "org.opencontainers.image.revision": "37337ea6d30ce855c53d438ebeef056adc9efb43"
+              },
+              "running": true,
+              "oom": false,
+              "restarts": 0,
+              "started_at": "2026-11-03T11:59:17.709988406Z",
+              "ports": {
+                "3000/tcp": [
+                  {
+                    "HostIp": "127.0.0.1",
+                    "HostPort": "13002"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    ],
+    "failed_closing_retained": {
+      "passed": false,
+      "comparison": {
+        "failures": [
+          "model_options: p95 regressed 19.1%"
+        ],
+        "report": {
+          "global_search": {
+            "baseline_median_ms": 212.6,
+            "candidate_median_ms": 211.13,
+            "median_change_pct": -0.69,
+            "p95_change_pct": 13.37,
+            "payload_change_pct": 0.0
+          },
+          "inventory_batches": {
+            "baseline_median_ms": 151.76,
+            "candidate_median_ms": 151.11,
+            "median_change_pct": -0.43,
+            "p95_change_pct": -2.5,
+            "payload_change_pct": 0.0
+          },
+          "inventory_stock": {
+            "baseline_median_ms": 137.9,
+            "candidate_median_ms": 138.48,
+            "median_change_pct": 0.42,
+            "p95_change_pct": 0.47,
+            "payload_change_pct": 0.0
+          },
+          "model_groups": {
+            "baseline_median_ms": 189.26,
+            "candidate_median_ms": 185.6,
+            "median_change_pct": -1.93,
+            "p95_change_pct": -0.62,
+            "payload_change_pct": 0.0
+          },
+          "model_options": {
+            "baseline_median_ms": 153.52,
+            "candidate_median_ms": 153.81,
+            "median_change_pct": 0.19,
+            "p95_change_pct": 19.09,
+            "payload_change_pct": 0.0
+          },
+          "print_runs": {
+            "baseline_median_ms": 166.15,
+            "candidate_median_ms": 163.78,
+            "median_change_pct": -1.43,
+            "p95_change_pct": -2.92,
+            "payload_change_pct": 0.0
+          },
+          "process_qr": {
+            "baseline_median_ms": 391.8,
+            "candidate_median_ms": 388.01,
+            "median_change_pct": -0.97,
+            "p95_change_pct": -1.26,
+            "payload_change_pct": 0.0
+          }
+        }
+      },
+      "samples_per_endpoint": 120,
+      "client": "same recovered compatible green container for this complete resumption phase"
+    }
+  }
 }

@@ -15,44 +15,40 @@ Last updated 2026-11-03. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Customer-pack and FG release: rolled back on performance gate (3 November)
+## Customer-pack and FG release active with approved p95 exception (3 November)
 
-The owner authorized push/merge/deploy of only customer shipment-pack restriction,
-admin release and FG numbering, waiving only the 30-minute observer. PR376 merged
-at54a51d79; PR377 ancestry is preserved. Reviewed narrow runtime11f80a29 / blue
-20261103_094602 passed CI, required PostgreSQL, isolated complete shipment/admin/
-warehouse-role/FG-save workflows and connected public Chrome. Other clone_main
-runtime changes, including published HR0151, were excluded from production.
+Only customer shipment-pack restriction/admin release and FG numbering were pushed,
+merged and deployed. Runtime is blue `20261103_094602` / `11f80a29` on both hosts,
+manifest `ee765f999e782193878390897873c7b5865749460d4d776cf321fcd28490f8a9`,
+schema `0150_package_customer_release`. Compatible green `20261103_112256` /
+`37337ea6` remains the running rollback. Other clone_main runtime changes, including
+HR0151, were excluded. PR376/377 feature ancestry and PR383 incident records are
+preserved. Exact immutable CI passed 4,935 backend cases plus required PostgreSQL
+and frontend gates; isolated shipment denial/admin release/warehouse-role/FG-save
+workflows passed. Human production acceptance remains separate.
 
-Final active production is compatible green20261103_112256 /37337ea6 on BOTHhosts,
-manifest8c5521db580320842925229aff26e659202b4beef6752afa82d7b480dc677bbf,
-schema0150_package_customer_release. This contains exact old420 application plus
-identical0150 migration metadata. Immutable fullCI41627068789 includes actual
-strict default-CMD/two-worker/replacement/restart/shared-SQLite-counter checks.
-Inactive blue11f80a29 is retained as a candidate, NOT authorized for reactivation.
+The final public Model Options p95 failed: 162.26 -> 193.23 ms (+19.09%, above15%);
+median153.52 ->153.81 ms (+0.19%). Other six endpoints, rows and payload passed.
+Automatic recovery first restored both roles to37337ea6. The owner then explicitly
+answered **"Re-deploy with this specific p95 exception"**. The failed result remains
+FAIL with only that accepted exception; it was not resampled or relabeled PASS.
+Cause remains unproven. After a fresh verified full backup, the same11f80a29 images
+were reactivated at12:38:09UTC (17:38:09Tashkent). Fresh source/image/slot/proxy,
+default-command/no-seed/schema/readiness/pools/logs/workers/resources and four-health
+checks passed, followed by connected public Chrome and GET-only API readback.
+The separate 30-minute monitoring waiver was honored; no timed monitor ran.
 
-The first cutover's closing checks passed, but rollback verification failed on an
-omitted Docker entrypoint key and inherited startup auto-seeding. The helper was
-corrected without weakening startup guards; only RUN_SEED_ON_STARTUP was changed
-to false under backup/owned-lock/byte-CAS controls. Startup seed had reset one
-configured admin password hash. A fresh full backup, separately reviewed one-field
-row-lock/CAS restoration, actual PostgreSQL fault tests and independent readback
-proved the exact original hash restored with access/profile fields unchanged.
-No manufacturing/order/package/shipment/model form was submitted in production.
-
-The explicit resumption recreated inactive featureblue with seed disabled and
-passed fresh same-client publicbaseline and paired120-sample checks. Final public
-Model Options p95 was193.23ms vs162.26ms (+19.09%, above15% limit), median153.81ms
-vs153.52ms (+0.19%). Other6endpoints, rows and payload passed. Both roles were
-automatically restored to37337ea6; fourhealth/source/proxy/log/schema/readiness/
-worker/resource checks passed. Cause remains unproven; endpoint code is unchanged.
-No failed result was resampled or relabeled. An explicit owner p95 exception is
-required before reactivation. The separate30-minute observer was not run.
-
-Both backend slots have seed disabled, two workers, zero OOM/restarts; old historical
-OOM evidence is retained. Disk78.66%backend/78.54%frontend is above70%alert but below
-80%hardstop. Owned locks and local QA servers are released/stopped. Human operator
-acceptance remains separate. See [release/incident evidence](archive/PACK_CUSTOMER_FG_RELEASE_2026-11-03.md)
+Inherited startup seeding had reset one configured admin password hash during
+initial staging. Only RUN_SEED_ON_STARTUP was disabled under backed-up byte-CAS
+controls; both actual backend containers now have seedfalse. A separately reviewed,
+backed-up row-lock/CAS transaction restored the exact original credential; actual
+PostgreSQL fault tests and independent readback verified it with access/profile
+fields unchanged. Earlier partial recovery/helper failures remain in the archive.
+No production manufacturing/order/package/shipment/model form was submitted;
+the release ledger remains empty. Both backend slots have two workers, zero OOM
+and restarts; historical old-container OOM evidence is retained. Final DB24/100,
+invalidindexes0; disk78.72%backend/78.54%frontend remains above70%alert/below80%stop.
+Owned locks are released and task QA services stopped. See [release/incident evidence](archive/PACK_CUSTOMER_FG_RELEASE_2026-11-03.md)
 and [machine-readable record](archive/PACK_CUSTOMER_FG_RELEASE_2026-11-03.json).
 
 ## Turnstile enrollment development (3 November)
