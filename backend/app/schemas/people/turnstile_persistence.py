@@ -76,3 +76,19 @@ def compare_and_update_simulator_name(session: Session, *, binding_id: int, base
       .execution_options(synchronize_session="fetch"))
     session.flush()
     return result.rowcount == 1
+
+
+def compare_and_update_simulator_photo(session: Session, *, binding_id: int, baseline: SimulatorEvidence, accepted_revision: int, accepted_payload_hash: str, photo_sha256: str) -> bool:
+    session.flush()
+    result = session.execute(update(GateSimulatorPerson).where(
+        GateSimulatorPerson.binding_id == binding_id,
+        GateSimulatorPerson.accepted_revision == baseline["revision"],
+        GateSimulatorPerson.accepted_payload_hash == baseline["payload_hash"],
+        GateSimulatorPerson.full_name == baseline["full_name"],
+        GateSimulatorPerson.external_person_id == baseline["external_person_id"],
+        GateSimulatorPerson.photo_sha256 == baseline["photo_sha256"],
+    ).values(photo_sha256=photo_sha256, accepted_revision=accepted_revision,
+             accepted_payload_hash=accepted_payload_hash, write_count=GateSimulatorPerson.write_count + 1)
+      .execution_options(synchronize_session="fetch"))
+    session.flush()
+    return result.rowcount == 1

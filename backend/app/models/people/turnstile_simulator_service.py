@@ -14,7 +14,7 @@ from app.models.people.turnstile_access_service import authorize_gate_employee, 
 from app.schemas.people.turnstile import (GateEmployeeDevice, GateOperation, GatePhotoAsset,
     GateSimulatorDevice, GateSimulatorPerson, GateTarget)
 from app.schemas.people.turnstile_persistence import (set_simulator_device, transition_target,
-    update_binding_state_revision, upsert_simulator_person, compare_and_update_simulator_name)
+    update_binding_state_revision, upsert_simulator_person, compare_and_update_simulator_name, compare_and_update_simulator_photo)
 
 
 def _now() -> datetime:
@@ -71,13 +71,19 @@ def _baseline(target: GateTarget) -> SimulatorEvidence:
             "photo_sha256": target.baseline_photo_sha256}
 
 
-def _desired(target: GateTarget, op: GateOperation) -> SimulatorEvidence:
+def _desired(target: GateTarget, op: GateOperation, photo: GatePhotoAsset | None) -> SimulatorEvidence:
     baseline = _baseline(target)
     if target.desired_payload_hash is None:
         raise RuntimeError("Edit desired hash is missing")
+    if op.action == GateAction.EDIT:
+        name, photo_hash = op.full_name, baseline["photo_sha256"]
+    elif op.action == GateAction.PHOTO and photo is not None:
+        name, photo_hash = baseline["full_name"], photo.sha256
+    else:
+        raise RuntimeError("Unsupported simulator action or missing photo")
     return {"revision": op.revision, "payload_hash": target.desired_payload_hash,
-            "full_name": op.full_name, "external_person_id": baseline["external_person_id"],
-            "photo_sha256": baseline["photo_sha256"]}
+            "full_name": name, "external_person_id": baseline["external_person_id"],
+            "photo_sha256": photo_hash}
 
 
 class SimulatorAdapter:
@@ -112,14 +118,21 @@ class SimulatorAdapter:
                 return
             person = db.scalar(select(GateSimulatorPerson).where(GateSimulatorPerson.binding_id == binding.id))
             evidence = _evidence(person, binding)
-            if op.action == GateAction.EDIT:
+            if op.action in (GateAction.EDIT, GateAction.PHOTO):
                 if target.state != GateTargetState.PROCESSING:
                     raise RuntimeError("Edit reconciliation cannot accept a write")
                 if evidence == _baseline(target):
-                    compare_and_update_simulator_name(db, binding_id=binding.id, baseline=_baseline(target),
-                        accepted_revision=target.revision, accepted_payload_hash=target.desired_payload_hash, full_name=op.full_name)
+                    desired = _desired(target, op, photo)
+                    if op.action == GateAction.EDIT:
+                        compare_and_update_simulator_name(db, binding_id=binding.id, baseline=_baseline(target),
+                            accepted_revision=target.revision, accepted_payload_hash=desired["payload_hash"], full_name=op.full_name)
+                    else:
+                        compare_and_update_simulator_photo(db, binding_id=binding.id, baseline=_baseline(target),
+                            accepted_revision=target.revision, accepted_payload_hash=desired["payload_hash"], photo_sha256=desired["photo_sha256"])
                 db.commit()
                 return
+            if op.action != GateAction.ENROLL or photo is None:
+                raise RuntimeError("Unsupported simulator action or missing photo")
             if evidence is not None:
                 if not _matches(evidence, op, photo):
                     return
@@ -190,20 +203,22 @@ def _process(factory: sessionmaker[Session], target_id: int, adapter: SimulatorA
             target = db.get(GateTarget, target_id)
             op = db.get(GateOperation, target.operation_id)
             photo = db.get(GatePhotoAsset, op.photo_asset_id) if op.photo_asset_id is not None else None
-            edit = op.action == GateAction.EDIT
-            matches = evidence == _desired(target, op) if edit else _matches(evidence, op, photo)
-            baseline = _baseline(target) if edit else None
+            mutation = op.action in (GateAction.EDIT, GateAction.PHOTO)
+            if not mutation and (op.action != GateAction.ENROLL or photo is None):
+                raise RuntimeError("Unsupported simulator action or missing photo")
+            matches = evidence == _desired(target, op, photo) if mutation else _matches(evidence, op, photo)
+            baseline = _baseline(target) if mutation else None
             exhausted = target.attempts >= settings.TURNSTILE_SIMULATOR_MAX_ATTEMPTS
         if matches:
             _finish(factory, target_id, token, GateTargetState.SUCCEEDED, evidence=evidence)
-        elif edit and was_uncertain:
+        elif mutation and was_uncertain:
             if evidence is not None and evidence != baseline:
                 _finish(factory, target_id, token, GateTargetState.CONFLICT, GateErrorCode.PAYLOAD_CONFLICT, evidence)
             else:
                 _finish(factory, target_id, token, GateTargetState.UNCERTAIN, GateErrorCode.SIMULATOR_ERROR, evidence)
-        elif evidence is not None and (not edit or evidence != baseline):
+        elif evidence is not None and (not mutation or evidence != baseline):
             _finish(factory, target_id, token, GateTargetState.CONFLICT, GateErrorCode.PAYLOAD_CONFLICT, evidence)
-        elif edit and evidence is None:
+        elif mutation and evidence is None:
             _finish(factory, target_id, token, GateTargetState.CONFLICT, GateErrorCode.PAYLOAD_CONFLICT)
         elif was_uncertain and exhausted:
             _finish(factory, target_id, token, GateTargetState.UNCERTAIN, GateErrorCode.SIMULATOR_ERROR)
@@ -212,7 +227,7 @@ def _process(factory: sessionmaker[Session], target_id: int, adapter: SimulatorA
             online, evidence = adapter.read(target_id, token)
             if not online:
                 _finish(factory, target_id, token, GateTargetState.UNCERTAIN, GateErrorCode.DEVICE_OFFLINE)
-            elif (evidence == _desired(target, op) if edit else _matches(evidence, op, photo)):
+            elif (evidence == _desired(target, op, photo) if mutation else _matches(evidence, op, photo)):
                 _finish(factory, target_id, token, GateTargetState.SUCCEEDED, evidence=evidence)
             elif evidence is not None:
                 _finish(factory, target_id, token, GateTargetState.CONFLICT, GateErrorCode.PAYLOAD_CONFLICT, evidence)

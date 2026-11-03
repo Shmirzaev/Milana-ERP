@@ -63,3 +63,34 @@ class GateEditInput(BaseModel):
         if len({target.device_id for target in value}) != len(value):
             raise ValueError("device IDs must be unique")
         return value
+
+
+class GatePhotoReplacementInput(BaseModel):
+    """PHOTO shares the reviewed per-device baseline references used by EDIT."""
+    model_config = ConfigDict(extra="forbid")
+    expected_employee_no: str = Field(min_length=1, max_length=64)
+    photo_asset_id: int = Field(gt=0)
+    manual_face_reviewed: bool
+    action: GateAction = GateAction.PHOTO
+    targets: list[GateEditTargetInput] = Field(min_length=1, max_length=32)
+
+    @field_validator("manual_face_reviewed")
+    @classmethod
+    def validate_review(cls, value: bool) -> bool:
+        if not value:
+            raise ValueError("manual face review is required")
+        return value
+
+    @field_validator("action")
+    @classmethod
+    def validate_action(cls, value: GateAction) -> GateAction:
+        if value is not GateAction.PHOTO:
+            raise ValueError("only photo replacement is supported")
+        return value
+
+    @field_validator("targets")
+    @classmethod
+    def unique_devices(cls, value: list[GateEditTargetInput]) -> list[GateEditTargetInput]:
+        if len({target.device_id for target in value}) != len(value):
+            raise ValueError("device IDs must be unique")
+        return value
