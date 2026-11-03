@@ -1,5 +1,23 @@
 # Team bug tracker — clone_main
 
+## FRONTEND-PROXY-RESET-20261103 — one anonymous auth check returned 500 before the outage
+
+- **Watch · shared frontend infrastructure · Dilmurod.** In the isolated
+  [#373](https://github.com/Shmirzaev/Milana-ERP/pull/373) rehearsal, an
+  unauthenticated `GET /api/auth/me` returned 500 once at **08:34:06Z on
+  3 November**, about five minutes before the scheduled shared-store outage.
+  It returned 401 again eight seconds later and stayed 401 for the following
+  157 samples. The incident has not been reproduced.
+- Next's proxy logged `ECONNRESET` / `socket hang up` for `/api/auth/me`;
+  the backend logged no completed request or error at that time. The frontend
+  log lacks absolute timestamps, so the match to this single 500 is probable,
+  not proven. The underlying reset cause is **unknown**; the store controller
+  had not yet stopped the store. See the [browser timeline](https://github.com/Shmirzaev/Milana-ERP/blob/886835719c67cc5892e8a329d30b4c6400ead428/docs/archive/evidence/PR373_2026-11-03/PR373_BROWSER_RESULTS_2026-11-03.md)
+  and [log comparison](https://github.com/Shmirzaev/Milana-ERP/blob/886835719c67cc5892e8a329d30b4c6400ead428/docs/archive/SHARED_STORE_MIXED_OUTAGE_2026-11-03.md).
+- Next: watch for another proxy reset with timestamped frontend and backend
+  logs; investigate the transport path if it recurs. Do not attribute this
+  event to the store outage or mark it fixed.
+
 ## PACK-CUSTOMER-20261103 — customer-assigned packs can scan into another customer's shipment
 
 - **AI_VERIFIED_AWAITING_HUMAN; local candidate, not deployed.** Fulfillment
