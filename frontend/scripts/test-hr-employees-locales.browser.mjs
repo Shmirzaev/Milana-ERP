@@ -22,7 +22,7 @@ localStorage.setItem('erp_lang',new URLSearchParams(location.search).get('lang')
 function App(){const{setLang}=useT();const Page=location.pathname==='/admin/employees'?Admin:location.pathname==='/payroll/employees'?Payroll:Employees;return <><aside>{['en','ru','uz'].map(l=><button key={l} data-lang={l} onClick={()=>setLang(l)}>{l}</button>)}</aside>{location.pathname.startsWith('/hr')&&<HrWorkspaceNav/>}<Page/></>}
 createRoot(document.getElementById('root')).render(<LangProvider><App/></LangProvider>);`;
 const bundle = await build({ stdin: { contents: entry, resolveDir: root, loader: "tsx" }, bundle: true, write: false, format: "iife", jsx: "automatic",
-  define: { "process.env.NEXT_PUBLIC_TURNSTILE_UI_PREVIEW": '"0"' }, loader: { ".module.css": "empty" },
+  define: { "process.env.NEXT_PUBLIC_TURNSTILE_UI_PREVIEW": '"0"', "process.env.NEXT_PUBLIC_TURNSTILE_BACKEND": '"0"' }, loader: { ".module.css": "empty" },
   plugins: [{ name: "fixtures", setup(b) {
   b.onResolve({ filter: /^(?:@\/lib\/api|next\/(?:link|navigation))$/ }, args => ({ path: args.path, namespace: "fixture" }));
   b.onLoad({ filter: /.*/, namespace: "fixture" }, args => ({ contents: mocks[args.path], loader: "js", resolveDir: root }));
