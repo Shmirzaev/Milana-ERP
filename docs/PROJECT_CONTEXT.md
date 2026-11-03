@@ -15,6 +15,16 @@ Last updated 2026-11-03. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## Pack customer restriction and admin release candidate (3 November)
+
+The [local feature candidate](archive/PACK_CUSTOMER_RELEASE_2026-11-03.md) blocks
+cross-customer pack scanning/attachment/dispatch, including partial remainders,
+unless an admin explicitly releases selected remaining pieces. Origin order and
+stock links stay intact; later reservations still apply. New migration `0150`
+only adds the release ledger. No order-edit freeze was added. Production remains
+green `20261102_063110`, rollback blue `20261031_092951`, schema `0149`.
+This candidate is not merged or deployed; human acceptance remains pending.
+
 ## Identity policy-helper prerequisite (3 November)
 
 The [approved policy-only split](archive/ACCESS_POLICY_HELPER_SPLIT_2026-11-03.md)

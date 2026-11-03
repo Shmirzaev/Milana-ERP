@@ -1,5 +1,18 @@
 # Team bug tracker — clone_main
 
+## PACK-CUSTOMER-20261103 — customer-assigned packs can scan into another customer's shipment
+
+- **AI_VERIFIED_AWAITING_HUMAN; local candidate, not deployed.** Fulfillment
+  engineer Mirshoir; human reviewer Ismail; implementation `/root`, independent
+  AI reviewer `/root/customer_guard_review`. Shavkat approved pack-level scan
+  refusal plus admin release for any customer, without freezing order edits.
+- Source provenance survives partial dispatch. Admin release preserves source
+  history, is limited to remaining pieces and does not override later reservations.
+- [Operation, evidence and human checklist](../docs/archive/PACK_CUSTOMER_RELEASE_2026-11-03.md).
+  Keep active until human operator acceptance; no production business rows changed.
+  Focused 71 tests pass; wider 263/1 retains an unchanged base reserve/damage race
+  status mismatch, independently reproduced on untouched `77d090f6`.
+
 ## PACK-HISTORY-100-20261102 — older physical pack groups unreachable
 
 - **AI_VERIFIED_AWAITING_HUMAN; deployed green `20261102_063110`.** Packaging owner Mirshoir; reviewer
