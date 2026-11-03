@@ -107,10 +107,42 @@ Environment: disposable local Docker PostgreSQL 17, one app process and at most
 four concurrent sessions; no production or shared database. This is a local
 integrity check, not a production capacity or latency service-level claim.
 
+## Connected-browser follow-up — 3 November 2026
+
+[User-supplied browser report](rf009-browser-2026-11-03/PR374_BROWSER_RESULTS_2026-11-03.md)
+and the five original screenshots were copied byte-for-byte into the
+`rf009-browser-2026-11-03/` folder. The agent inspected each image:
+[create confirmation](rf009-browser-2026-11-03/pr374_1_created_message.jpg),
+[password set](rf009-browser-2026-11-03/pr374_2_password_set.jpg),
+[new-user Profile](rf009-browser-2026-11-03/pr374_3_profile_new_user.jpg),
+[admin Users row](rf009-browser-2026-11-03/pr374_4_admin_users_row.jpg), and
+[used-link refusal](rf009-browser-2026-11-03/pr374_5_used_link_refused.jpg).
+The desktop EN screens show the stated success/refusal messages, Profile values
+and reopened row. The browser report records a second use of the setup link
+returning “Invalid or expired reset link.” Its setup-versus-reset wording note
+is retained as a UI note, with no copy change in this extraction.
+
+Read-only comparison at 18:23 Asia/Seoul against **only** the isolated
+`rf009_local` PostgreSQL database for
+`rf009-browser-20261103@example.com`:
+
+| Browser observation | Persisted readback | Comparison |
+| --- | --- | --- |
+| Created “RF009 Browser Review”, Sales, MIL, active, around 18:10:06 | User **10**: same name/email, Sales, department null, `MIL`, active; create audit **9** by admin user **1** at **09:10:02.869Z** with `password_setup_email_queued=true`, role 5, empty extra grants and `{}` policy | Match; persistence precedes the observed UI confirmation by a few seconds |
+| Setup email said 60-minute link; password set around 18:11 | Exactly one setup-token row **3**, created **09:10:02.869Z**, expires **10:10:03.111Z**, used **09:11:13.635Z**; reset-password audit **10** by user **10** at **09:11:13.630Z** | Match; token is used, with no token value or hash copied into evidence |
+| New user logged in and Profile showed name/email/Sales/MIL by 18:11:43 | `last_login_at=09:11:36.215Z`, `last_seen_at=09:11:43.697Z`; stored user values above | Match |
+| Reopened Users row showed Active Yes; reused link refused | Same active user; sole setup token has non-null `used_at` | Match |
+
+The connected-browser check passed for the desktop EN steps that were run.
+**Phone layout and RU/UZ were not covered in this connected-browser session.**
+Earlier local automated phone screenshots do not fill that human coverage gap.
+No production access or business acceptance is claimed.
+
 **Current gate status:** baseline, focused, lint, required PostgreSQL groups,
-exact-image build, local visual/SMTP/database readback and bounded local
-integrity PASS. Full suite FAIL on the unchanged S06 test. Connected-browser
-human review and business acceptance remain pending; this is not AI_VERIFIED.
+exact-image build, local visual/SMTP/database readback, bounded local integrity
+and connected-browser desktop EN PASS. Full suite FAIL on the unchanged S06
+test. Connected-browser phone/RU/UZ and business acceptance remain pending;
+this is not AI_VERIFIED.
 
 **Rollback:** revert this one operation PR on the integration branch if needed;
 the old route body is preserved at parent `32c97e09`. Do not run both paths for
