@@ -24,6 +24,16 @@ Dilmurod implements; Ismail reviews this PR. RF-009 user creation, IDN-01 and
 human verification remain separate. This candidate changes no production release,
 permission or database contract; active/rollback records below are unchanged.
 
+## RF-009 create-user extraction candidate (3 November)
+
+Dilmurod approved the six recommended extraction decisions under Mirshoir's
+delegation. The [operation record](archive/RF009_CREATE_USER_EXTRACTION_2026-11-03.md)
+tracks a separate stacked PR for one create-user service, schema-owned account and
+setup-token writes, unchanged shared grant checks, and post-commit setup delivery.
+Ismail reviews. The #345 baseline passes unchanged before and after on SQLite and
+isolated PostgreSQL (196 cases, zero skips). This is a candidate, not a deployed
+release or human acceptance; active/rollback records below are unchanged.
+
 ## Active green release: older physical-pack history (2 November)
 
 PR369 merged into `clone_main` at `1ed3c5c7`; the owner authorized deployment.

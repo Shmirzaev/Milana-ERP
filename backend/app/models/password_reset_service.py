@@ -10,7 +10,9 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.deps import user_permissions
 from app.db.session import SessionLocal
-from app.schemas import Notification, PasswordResetToken, User
+from app.schemas import User
+from app.schemas.core_persistence import add_notification_row
+from app.schemas.identity.user_persistence import add_password_reset_token
 from app.models.email_service import send_password_reset_email, send_password_setup_email
 
 log = logging.getLogger(__name__)
@@ -28,12 +30,8 @@ def password_reset_url(token: str) -> str:
 def create_password_reset_token(db: Session, user: User) -> str:
     raw_token = secrets.token_urlsafe(32)
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.PASSWORD_RESET_TOKEN_MINUTES)
-    db.add(
-        PasswordResetToken(
-            user_id=user.id,
-            token_hash=password_reset_hash(raw_token),
-            expires_at=expires_at,
-        )
+    add_password_reset_token(
+        db, user_id=user.id, token_hash=password_reset_hash(raw_token), expires_at=expires_at,
     )
     return raw_token
 
@@ -72,16 +70,13 @@ def notify_admins_about_password_email_failure(
             if "*" in user_permissions(admin) or "admin.users" in user_permissions(admin)
         ]
         for admin in recipients:
-            db.add(
-                Notification(
-                    user_id=admin.id,
-                    title=title,
-                    message=(
-                        f"{user.name} ({user.email}) {action}, but email delivery failed. "
-                        f"{followup} Error: {safe_error}"
-                    ),
-                    link="/admin/users",
-                )
+            add_notification_row(
+                db, user_id=admin.id, title=title,
+                message=(
+                    f"{user.name} ({user.email}) {action}, but email delivery failed. "
+                    f"{followup} Error: {safe_error}"
+                ),
+                link="/admin/users",
             )
         if recipients:
             db.commit()
