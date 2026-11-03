@@ -1,6 +1,4 @@
 from datetime import datetime, time, timezone
-import secrets
-from types import SimpleNamespace
 
 from pydantic import BaseModel
 from fastapi import APIRouter, BackgroundTasks, HTTPException
@@ -20,19 +18,24 @@ from app.core.deps import (
     user_permissions,
 )
 from fastapi import Depends
-from app.core.security import hash_password, normalize_email, validate_password_strength
+from app.core.security import normalize_email
 from app.db.base import Base
 from app.schemas import User, Role, Department, AuditLog, Employee, WorkOrder
-from app.models.factory_scope_service import normalize_factory_code, selected_factory_code
+from app.models.factory_scope_service import normalize_factory_code
 from app.libs.dto.catalog.catalog import (
     UserIn, UserUpdate, UserOut, RoleIn, RoleOut, DepartmentIn, DepartmentOut,
 )
 from app.models.credentials_service import apply_password_credential_change, lock_user_for_credential_change
 from app.models.audit_service import export_audit_hash_chain, log_action, verify_audit_hash_chain
-from app.models.password_reset_service import create_password_reset_token, password_reset_url, send_password_email_safely
+from app.models.password_reset_service import send_password_email_safely
 from app.db.reset_demo import reset_to_seed
 from app.core.permission_catalog import PERMISSION_CATALOG, PERMISSION_KEYS
 from app.models.factory_scope_service import FACTORY_CODES, available_factory_codes
+from app.models.identity.users_service import create_user as create_user_account, require_strong_password as _require_strong_password
+from app.models.identity.access_service import (
+    _access_subject, _user_access_values, _assert_policy_change,
+    _assert_can_grant_role, _assert_can_grant_permissions,
+)
 
 router = APIRouter(tags=["admin"])
 
@@ -247,60 +250,6 @@ def _parse_date(value: str | None, end_of_day: bool = False) -> datetime | None:
 
 
 # ===== Users =====
-def _access_subject(db, values):
-    role = db.get(Role, values.get("role_id")) if values.get("role_id") else None
-    department = db.get(Department, values.get("department_id")) if values.get("department_id") else None
-    if values.get("role_id") and role is None:
-        raise HTTPException(404, "Role not found")
-    if values.get("department_id") and department is None:
-        raise HTTPException(404, "Department not found")
-    return SimpleNamespace(
-        role=role, department=department, name=values.get("name", ""), email=values.get("email", ""),
-        factory_code=values.get("factory_code") or "MIL",
-        extra_permissions=values.get("extra_permissions") or [], access_policy=values.get("access_policy") or {},
-    )
-
-
-def _user_access_values(user):
-    return {key: getattr(user, key, None) for key in (
-        "role_id", "department_id", "name", "email", "factory_code", "extra_permissions", "access_policy",
-    )}
-
-
-def _assert_policy_change(db, actor, values, old=None):
-    proposed = _access_subject(db, values)
-    for factory, policy in proposed.access_policy.items():
-        if factory != proposed.factory_code and SUPER_ADMIN_PERMISSION in set(policy.get("allow", [])) | set(policy.get("deny", [])):
-            raise HTTPException(400, "Super Admin access is configured in the primary factory only")
-    if is_super_admin(actor):
-        return proposed
-    own = set(user_permissions(actor))
-    previous = _access_subject(db, old) if old else None
-    old_policy = (old or {}).get("access_policy") or {}
-    for factory in FACTORY_CODES:
-        policy = proposed.access_policy.get(factory, {})
-        if policy == old_policy.get(factory, {}) and (factory not in proposed.access_policy) == (factory not in old_policy):
-            continue
-        if factory != selected_factory_code(actor):
-            raise HTTPException(403, "Only Super Admin can configure another factory")
-        proposed.session_factory_code = factory
-        before = set()
-        if previous:
-            previous.session_factory_code = factory
-            before = set(user_permissions(previous))
-        after = set(user_permissions(proposed))
-        if ({"*", SUPER_ADMIN_PERMISSION} & (set(policy.get("allow", [])) | (after - before))):
-            raise HTTPException(403, "Only Super Admin can grant administrator access")
-        # Removing a deny is also a grant; restoring a restrictive scope is not
-        # allowed to become an indirect privilege-escalation route.
-        if "*" not in own and ((after - before) - own):
-            raise HTTPException(403, "You cannot grant permissions you don't hold")
-        if "inventory.materials_only" in own and "inventory.materials_only" not in after:
-            raise HTTPException(403, "You cannot remove your own inventory scope from another account")
-    proposed.session_factory_code = proposed.factory_code
-    return proposed
-
-
 @router.get("/access-catalog")
 def access_catalog(current: User = Depends(require_permissions("admin.users", "*"))):
     own = set(user_permissions(current))
@@ -320,99 +269,6 @@ def preview_user_access(payload: UserIn, db: DbSession, current: User = Depends(
         expanded = sorted((set(effective) - {"*"}) | (PERMISSION_KEYS - {"*", SUPER_ADMIN_PERMISSION} if "*" in effective else set()))
         result[factory] = {"permissions": effective, "effective": sorted(set(expanded) | ({"*"} if "*" in effective else set())), "available": factory in available}
     return result
-
-
-def _require_strong_password(password: str) -> None:
-    try:
-        validate_password_strength(password)
-    except ValueError as e:
-        raise HTTPException(400, str(e)) from e
-
-
-def _role_is_super_admin(role: Role | None) -> bool:
-    if not role:
-        return False
-    role_name = (role.name or "").strip().lower()
-    return role_name == SUPER_ADMIN_ROLE_NAME.lower() or SUPER_ADMIN_PERMISSION in (role.permissions or [])
-
-
-def _permissions_grant_admin_control(permissions: list[str] | set[str]) -> bool:
-    return "*" in permissions or SUPER_ADMIN_PERMISSION in permissions
-
-
-def _role_grants_admin_control(role: Role) -> bool:
-    return _role_is_super_admin(role) or _permissions_grant_admin_control(set(role.permissions or []))
-
-
-def _future_is_super_admin(db: DbSession, role_id: int | None, extra_permissions: list[str] | None) -> bool:
-    if role_id is not None:
-        role = db.get(Role, role_id)
-        if not role:
-            raise HTTPException(404, "Role not found")
-        if _role_is_super_admin(role):
-            return True
-    return SUPER_ADMIN_PERMISSION in normalize_permissions(extra_permissions)
-
-
-def _assert_can_grant_role(db: DbSession, actor: User, role_id: int | None) -> None:
-    """Prevent privilege escalation: a user-manager may only assign a role whose
-    permissions are a subset of their own. Administrator roles require the
-    explicit Super Admin tier, even if the actor already holds '*'."""
-    if role_id is None:
-        return
-    role = db.get(Role, role_id)
-    if not role:
-        raise HTTPException(404, "Role not found")
-    if _role_grants_admin_control(role):
-        if not is_super_admin(actor):
-            raise HTTPException(403, "Only a super admin can assign administrator roles")
-        return
-    _assert_can_grant_permissions(actor, role.permissions)
-
-
-def _assert_can_grant_permissions(
-    actor: User, permissions: list[str] | None, *, previous: list[str] | None = None,
-) -> None:
-    if is_super_admin(actor):
-        return
-    target_perms = set(normalize_permissions(permissions))
-    previous_perms = set(normalize_permissions(previous))
-    added = target_perms - previous_perms
-    removed = previous_perms - target_perms
-    actor_perms = set(user_permissions(actor))
-    actor_factory = selected_factory_code(actor)
-    missing = set()
-    # Like access_policy, unchanged legacy grants must survive profile edits.
-    # Check removals too: another factory's access is not ours to configure.
-    for token in added | removed:
-        permission = token
-        if token.startswith("factory:"):
-            parts = token.split(":", 2)
-            if len(parts) != 3 or not parts[2].strip():
-                raise HTTPException(400, "Invalid factory permission")
-            factory = normalize_factory_code(parts[1])
-            if factory != actor_factory:
-                raise HTTPException(403, "Only Super Admin can configure another factory")
-            permission = parts[2].strip()
-        if token not in added:
-            continue
-        if permission in {"*", SUPER_ADMIN_PERMISSION}:
-            raise HTTPException(403, "Only a super admin can grant administrator access")
-        if "*" not in actor_perms and permission not in actor_perms:
-            missing.add(permission)
-    if missing:
-        raise HTTPException(403, f"You cannot grant permissions you don't hold: {sorted(missing)}")
-
-
-def _effective_permissions_for(db: DbSession, role_id: int | None, extra_permissions: list[str] | None) -> list[str]:
-    permissions: list[str] = []
-    if role_id is not None:
-        role = db.get(Role, role_id)
-        if not role:
-            raise HTTPException(404, "Role not found")
-        permissions.extend(role.permissions or [])
-    permissions.extend(extra_permissions or [])
-    return normalize_permissions(permissions)
 
 
 def _count_active_admins(db: DbSession, exclude_user_id: int | None = None) -> int:
@@ -479,52 +335,7 @@ def create_user(
     background_tasks: BackgroundTasks,
     current: User = Depends(require_permissions("admin.users", "*")),
 ):
-    email = normalize_email(payload.email)
-    password_provided = bool(payload.password)
-    if password_provided:
-        _require_strong_password(payload.password)
-    _assert_can_grant_role(db, current, payload.role_id)
-    extra_permissions = normalize_permissions(payload.extra_permissions)
-    _assert_can_grant_permissions(current, extra_permissions)
-    if db.query(User).filter(User.email == email).first():
-        raise HTTPException(400, "Email already exists")
-    factory_code = normalize_factory_code(payload.factory_code, default=selected_factory_code(current))
-    if not is_super_admin(current) and factory_code != selected_factory_code(current):
-        raise HTTPException(403, "Only Super Admin can assign another factory")
-    _assert_policy_change(db, current, {**payload.model_dump(), "factory_code": factory_code})
-    if len(payload.name) > 128:
-        raise HTTPException(422, "User name must be at most 128 characters")
-    if len(email) > 255:
-        raise HTTPException(422, "User email must be at most 255 characters")
-    setup_url: str | None = None
-    u = User(
-        name=payload.name,
-        email=email,
-        password_hash=hash_password(payload.password if password_provided else secrets.token_urlsafe(48)),
-        role_id=payload.role_id,
-        department_id=payload.department_id,
-        factory_code=factory_code,
-        extra_permissions=extra_permissions,
-        access_policy=payload.model_dump().get("access_policy"),
-        is_active=payload.is_active,
-    )
-    db.add(u)
-    db.flush()
-    if not password_provided and u.is_active:
-        setup_token = create_password_reset_token(db, u)
-        setup_url = password_reset_url(setup_token)
-    log_action(
-        db,
-        current,
-        "create",
-        "User",
-        u.id,
-        new_value={"email": u.email, "password_setup_email_queued": bool(setup_url),
-                   "role_id": u.role_id, "factory_code": u.factory_code,
-                   "extra_permissions": u.extra_permissions, "access_policy": u.access_policy},
-    )
-    db.commit()
-    db.refresh(u)
+    u, setup_url = create_user_account(db, payload, current)
     if setup_url:
         background_tasks.add_task(send_password_email_safely, u.email, u.name, setup_url, u.id, "setup")
     return u

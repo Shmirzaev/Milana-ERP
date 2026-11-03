@@ -21,6 +21,7 @@ export function systemLanguage(): Lang {
   return "en";
 }
 const messages: Record<string, [string, string]> = {
+  "Authentication is temporarily unavailable. Try again later.": ["Вход и восстановление пароля временно недоступны. Повторите попытку позже.", "Tizimga kirish va parolni tiklash vaqtincha mavjud emas. Keyinroq qayta urinib ko‘ring."],
   "Admin access required": ["Требуется доступ администратора.", "Administrator ruxsati talab qilinadi."],
   "Shipment customer must match the sales order customer": ["Клиент отгрузки должен совпадать с клиентом заказа.", "Jo‘natma mijozi buyurtma mijoziga mos kelishi kerak."],
   "Dispatch customer-assigned packs through their scanned customer shipment": ["Отгружайте упаковки клиента через отсканированную отгрузку этому клиенту.", "Mijozga biriktirilgan qadoqlarni shu mijozning skanerlangan jo‘natmasi orqali jo‘nating."],

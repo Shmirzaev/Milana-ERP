@@ -63,6 +63,18 @@ passed; independent AI review found no remaining source blocker. Human acceptanc
 guarded downgrade apply; no new migration. Production release/rollback pointers
 above are unchanged. REVOKE, adoption, live hardware and remaining system-wide
 refactor/type coverage stay pending.
+## Shared-counter outage policy (3 November)
+
+The approved [mixed policy and isolated evidence](archive/SHARED_STORE_MIXED_OUTAGE_2026-11-03.md)
+keep ordinary authenticated requests available with permissions enforced and a
+warning when global limiting is skipped. Login and both password-reset steps
+return JSON 503 until the store recovers. Dilmurod implements; Ismail reviews.
+Connected-browser evidence is PARTIAL (signed-in checks missing); human acceptance
+remains pending. No production changes were
+made; active/rollback records below are unchanged. #311 readiness/router integration
+must preserve this availability policy and is not included here. Full backend
+suite with a disclosed local PERF06 drain adapter: 5,947 passed, one known S06
+failure, zero errors/skips; the default fixture race remains a separate follow-up.
 
 ## Identity policy-helper prerequisite (3 November)
 
@@ -72,6 +84,16 @@ user-access exports while removing the factory-scope/user-access import cycle.
 Dilmurod implements; Ismail reviews this PR. RF-009 user creation, IDN-01 and
 human verification remain separate. This candidate changes no production release,
 permission or database contract; active/rollback records below are unchanged.
+
+## RF-009 create-user extraction candidate (3 November)
+
+Dilmurod approved the six recommended extraction decisions under Mirshoir's
+delegation. The [operation record](archive/RF009_CREATE_USER_EXTRACTION_2026-11-03.md)
+tracks a separate stacked PR for one create-user service, schema-owned account and
+setup-token writes, unchanged shared grant checks, and post-commit setup delivery.
+Ismail reviews. The #345 baseline passes unchanged before and after on SQLite and
+isolated PostgreSQL (196 cases, zero skips). This is a candidate, not a deployed
+release or human acceptance; active/rollback records below are unchanged.
 
 ## Active green release: older physical-pack history (2 November)
 
