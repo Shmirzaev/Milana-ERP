@@ -30,6 +30,7 @@ from app.libs.dto.identity.auth import ForgotPasswordIn, LoginIn, LoginOk, Reset
 from app.models.audit_service import log_action
 from app.models.credentials_service import apply_password_credential_change, lock_user_for_credential_change
 from app.models.factory_scope_service import assigned_factory_code, authorize_login_factory, available_factory_codes, selected_factory_code
+from app.models.identity.authentication_service import select_session_factory
 from app.models.password_reset_service import (
     create_password_reset_token,
     password_reset_hash,
@@ -211,9 +212,7 @@ def login_json(request: Request, response: Response, payload: LoginIn, db: DbSes
 @session_router.post("/switch-factory", response_model=LoginOk)
 @router.post("/switch-factory", response_model=LoginOk)
 def switch_factory(request: Request, response: Response, payload: FactorySwitchIn, user: CurrentUser):
-    if not 1 <= len(payload.factory_code) <= 3:
-        raise HTTPException(422, "Factory code must be 1 to 3 characters")
-    factory_code = authorize_login_factory(user, payload.factory_code)
+    factory_code = select_session_factory(user, payload.factory_code)
     token = create_access_token(user.id, extra={"factory_code": factory_code})
     _set_auth_cookie(request, response, token)
     return LoginOk()
