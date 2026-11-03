@@ -15,25 +15,38 @@ Last updated 2026-11-03. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Pack customer restriction and admin release candidate (3 November)
+## Customer-pack and FG release: merged, candidate staged (3 November)
 
-The [local feature candidate](archive/PACK_CUSTOMER_RELEASE_2026-11-03.md) blocks
-cross-customer pack scanning/attachment/dispatch, including partial remainders,
-unless an admin explicitly releases selected remaining pieces. Origin order and
-stock links stay intact; later reservations still apply. New migration `0150`
-only adds the release ledger. No order-edit freeze was added. Production remains
-green `20261102_063110`, rollback blue `20261031_092951`, schema `0149`.
-This candidate is not merged or deployed; human acceptance remains pending.
+The owner authorized push, merge and deployment of only customer shipment-pack
+restriction/admin release and FG numbering, explicitly excluding other pending
+clone_main runtime changes and waiving only the 30-minute observer. PR376 is merged
+at `54a51d79`; PR377 is also merged through preserved FG ancestry. The exact
+production-base candidate is `11f80a29`, blue `20261103_094602`, manifest
+`ee765f999e782193878390897873c7b5865749460d4d776cf321fcd28490f8a9`.
+Both blue slots are staged and healthy; public traffic remains green
+`20261102_063110` / `42078704`, verified manifest `becda671`.
 
-## FG model-number prefix candidate (3 November)
+Backup verified before additive migration `0150_package_customer_release`; the
+release ledger remains empty and no production business records were created or
+changed by this task. Old green workers continue serving, but their old image's
+strict head-0149 verifier cannot restart on schema 0150. Activation is blocked
+until immutable compatible rollback `ef5f8091` (exact old420 application plus
+identical0150 migration metadata) passes actual default-CMD, child replacement
+and full restart checks. No downgrade, schema stamp or startup/security bypass.
 
-The [FG numbering change](archive/FG_MODEL_PREFIX_2026-11-03.md), based on the
-user-approved `clone_main`, adds FG to the existing dynamic selector and starts
-its sequence at FG202001. Focused tests, independent AI review, actual local
-browser save/reload and bounded SQLite integrity checks passed. Real PostgreSQL
-concurrency/recovery remains blocked by unavailable local infrastructure; no
-AI-verified status, human acceptance, merge or deployment is claimed. Both live
-source manifests remain verified at `20261102_063110`; production data is untouched.
+Exact-source release CI41613691672 passed 4,935 backend tests (552 opt-in skips),
+required PostgreSQL jobs, frontend checks and immutable image builds. Focused
+real PostgreSQL customer release, quantity/lock budgets and FG concurrency/recovery
+passed with zero required skips. The isolated actual UI proved customer-B scan
+refusal, audited admin release, successful shipment after release, unchanged
+source links/quantities, FG save/reopen, and warehouse release-button denial.
+Connected Chrome now works in the user's new window: exact staged production
+images show package access and FG selection correctly, with zero console errors.
+Existing FG202001 models date from October; the next free preview is FG202002.
+Seven paired 120-sample endpoint checks passed unchanged performance thresholds.
+Public closing checks and final compatible rollback registration remain pending.
+See [release record](archive/PACK_CUSTOMER_FG_RELEASE_2026-11-03.md).
+Human production acceptance remains separate from the owner's release authorization.
 
 ## Identity policy-helper prerequisite (3 November)
 
