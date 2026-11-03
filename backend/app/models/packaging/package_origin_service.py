@@ -21,6 +21,16 @@ from app.schemas import (
 
 def package_number_fields(model: Model | None, receipt: LegacyStockReceipt | None = None) -> PackageNumbers:
     identity = model_number_fields(model)
+    if model and str(model.code or "").strip().upper().startswith("LEGACY-"):
+        # v3 imports retain an unresolved sticker under LEGACY-STICKER-<hash>.
+        # Its internal key is not a business model/variant number. Only explicit
+        # original/configured identity may fill gaps in the receipt evidence.
+        details = model.details_json if isinstance(model.details_json, dict) else {}
+        general = details.get("general") if isinstance(details.get("general"), dict) else {}
+        identity = {
+            "model_no": general.get("model_no") or general.get("modelNo") or details.get("legacy_original_model_no"),
+            "variant_no": general.get("variant_no") or general.get("variantNo") or details.get("legacy_original_variant_no"),
+        }
     source = receipt.source_payload if receipt and isinstance(receipt.source_payload, dict) else {}
     # The scanned legacy sticker is more specific than a subsequently edited
     # catalog model. Preserve its literal article; never infer from QR digits.

@@ -123,6 +123,39 @@ def test_historical_sewing_without_assignment_uses_record_department(client, aut
     assert result.json()["sewing_factory_code"] == "MIL"
 
 
+@pytest.mark.parametrize("model_number,article", [("", ""), ("TJ2049", ""), ("", "V-4326")])
+def test_v3_unresolved_sticker_never_exposes_hidden_model_hash(client, auth_headers, model_number, article):
+    # Mirrors ops/import_completed_packs.py:create_hidden_model for a v3
+    # manifest that legitimately lacks either or both original business numbers.
+    with TestSessionLocal() as db:
+        model = Model(code="LEGACY-STICKER-0123456789ABCDEF", name="Unknown model / Unknown variant",
+                      category="Legacy finished goods", status="approved", details_json={
+                          "legacy_import": True,
+                          "legacy_original_model_no": model_number,
+                          "legacy_original_variant_no": article,
+                          "general": {"model_no": model_number, "variant_no": article},
+                      })
+        db.add(model)
+        db.flush()
+        receipt = LegacyStockReceipt(source_system="UZERP_STICKER_PHOTO", source_warehouse_id="18",
+                                    source_record_id="unknown-origin", source_checksum="a" * 64,
+                                    source_payload={"model_number": model_number, "article": article})
+        db.add(receipt)
+        db.flush()
+        db.add(Package(package_no="OLD-UNKNOWN-ORIGIN", barcode="uzerp_ii_67890_2", model_id=model.id,
+                       legacy_receipt_id=receipt.id, color="Blue", total_quantity=60, capacity=60,
+                       qr_code_url="/synthetic/legacy"))
+        db.commit()
+    scanned = client.get("/api/packages/barcode/uzerp_ii_67890_2", headers=auth_headers)
+    assert scanned.status_code == 200, scanned.text
+    assert scanned.json()["model_no"] == (model_number or None)
+    assert scanned.json()["variant_no"] == (article or None)
+    listed = client.get("/api/packages", headers=auth_headers)
+    assert listed.status_code == 200, listed.text
+    assert listed.json()[0]["model_no"] == (model_number or None)
+    assert listed.json()[0]["variant_no"] == (article or None)
+
+
 def test_origin_query_count_does_not_grow_with_packages(client, auth_headers):
     _seed()
     counts = []
