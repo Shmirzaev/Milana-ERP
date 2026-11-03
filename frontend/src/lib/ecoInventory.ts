@@ -71,6 +71,9 @@ export function ecoInventoryText(language: string) { return labels[language === 
 export function transferStatusText(status: FabricTransferStatus, text: ReturnType<typeof ecoInventoryText>) {
   return status === "received" ? text.receivedStatus : text[status];
 }
+export function fabricTransferOutstanding(line: Pick<FabricTransferLine, "quantity" | "received_quantity">): number {
+  return (Math.round(Number(line.quantity) * 10000) - Math.round(Number(line.received_quantity) * 10000)) / 10000;
+}
 
 export function saveEcoPendingAttempt(key: string | null, attempt: unknown | null) {
   if (!key) return;

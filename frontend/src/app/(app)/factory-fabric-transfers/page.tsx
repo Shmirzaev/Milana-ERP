@@ -9,7 +9,7 @@ import { api, fetcher, fetchResponse } from "@/lib/api";
 import { ApiError } from "@/lib/errorMessages";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
-import { ecoInventoryText, loadEcoPendingAttempt, saveEcoPendingAttempt, transferStatusText, type FabricSourceBatch, type FabricTransfer, type FabricTransferStatus } from "@/lib/ecoInventory";
+import { ecoInventoryText, fabricTransferOutstanding, loadEcoPendingAttempt, saveEcoPendingAttempt, transferStatusText, type FabricSourceBatch, type FabricTransfer, type FabricTransferStatus } from "@/lib/ecoInventory";
 
 type DraftRow = FabricSourceBatch & { sendQuantity: string };
 type Attempt = { endpoint: string; body: { request_key: string; notes: string | null; lines: ({ source_batch_id: number; quantity: string } | { line_id: number; quantity: string })[] } };
@@ -26,6 +26,7 @@ export default function FactoryFabricTransfersPage() {
   const [receiving, setReceiving] = useState<FabricTransfer | null>(null); const [receiptQuantities, setReceiptQuantities] = useState<Record<number, string>>({});
   const [receiptNotes, setReceiptNotes] = useState(""); const [busy, setBusy] = useState(false); const [uncertain, setUncertain] = useState(false);
   const [error, setError] = useState(""); const [message, setMessage] = useState(""); const pending = useRef<Attempt | null>(null);
+  const confirming = useRef(false); const inFlight = useRef(false);
   const storageKey = me ? `milana:factory-fabric-transfers:pending:${me.id}:${me.factory_code}` : null;
   useEffect(() => {
     if (!storageKey) return;
@@ -42,7 +43,8 @@ export default function FactoryFabricTransfersPage() {
     setDraft(previous => [...previous, {...row, sendQuantity: ""}]); setSourceId(null); setError("");
   }
   async function runAttempt() {
-    if (!pending.current || busy) return;
+    if (!pending.current || busy || inFlight.current) return;
+    inFlight.current = true;
     saveEcoPendingAttempt(storageKey, pending.current);
     setBusy(true); setError(""); setMessage("");
     try {
@@ -55,14 +57,17 @@ export default function FactoryFabricTransfersPage() {
       setError(failure instanceof Error ? failure.message : text.error);
       if (failure instanceof ApiError && failure.status >= 400 && failure.status < 500) { pending.current = null; saveEcoPendingAttempt(storageKey, null); setUncertain(false); }
       else setUncertain(true);
-    } finally { setBusy(false); }
+    } finally { inFlight.current = false; setBusy(false); }
   }
   async function send() {
-    if (busy || uncertain || !draft.length) return;
+    if (busy || uncertain || confirming.current || !draft.length) return;
     if (draft.some(row => !Number.isFinite(Number(row.sendQuantity)) || Number(row.sendQuantity) <= 0 || Number(row.sendQuantity) > Number(row.available_quantity))) { setError(text.validQuantity); return; }
-    if (!await dialogs.ask({title: text.dispatch, message: text.confirmDispatch, confirmText: text.confirm})) return;
-    pending.current = { endpoint: "/api/factory-fabric-transfers/dispatch", body: { request_key: crypto.randomUUID(), notes: notes.trim() || null, lines: draft.map(row => ({source_batch_id: row.id, quantity: row.sendQuantity})) } };
-    await runAttempt();
+    confirming.current = true;
+    try {
+      if (!await dialogs.ask({title: text.dispatch, message: text.confirmDispatch, confirmText: text.confirm})) return;
+      pending.current = { endpoint: "/api/factory-fabric-transfers/dispatch", body: { request_key: crypto.randomUUID(), notes: notes.trim() || null, lines: draft.map(row => ({source_batch_id: row.id, quantity: row.sendQuantity})) } };
+      await runAttempt();
+    } finally { confirming.current = false; }
   }
   function openReceipt(record: FabricTransfer) {
     setReceiving(record); setReceiptNotes(""); setReceiptQuantities(Object.fromEntries(record.lines.map(row => [row.id, "0"]))); setError(""); setMessage("");
@@ -70,7 +75,7 @@ export default function FactoryFabricTransfersPage() {
   async function receive() {
     if (!receiving || busy || uncertain) return;
     const lines = receiving.lines.map(row => ({line_id: row.id, quantity: receiptQuantities[row.id] || "0"})).filter(row => Number(row.quantity) > 0);
-    if (!lines.length || receiving.lines.some(row => !Number.isFinite(Number(receiptQuantities[row.id] || 0)) || Number(receiptQuantities[row.id] || 0) < 0 || Number(receiptQuantities[row.id] || 0) > Number(row.quantity) - Number(row.received_quantity))) { setError(text.validQuantity); return; }
+    if (!lines.length || receiving.lines.some(row => !Number.isFinite(Number(receiptQuantities[row.id] || 0)) || Number(receiptQuantities[row.id] || 0) < 0 || Number(receiptQuantities[row.id] || 0) > fabricTransferOutstanding(row))) { setError(text.validQuantity); return; }
     pending.current = {endpoint: `/api/factory-fabric-transfers/${receiving.id}/receive`, body: {request_key: crypto.randomUUID(), notes: receiptNotes.trim() || null, lines}};
     await runAttempt();
   }
@@ -116,7 +121,7 @@ export default function FactoryFabricTransfersPage() {
           {record.notes && <p className="text-sm">{record.notes}</p>}
           {receiving?.id === record.id && <p className="text-sm">{text.receiptHint}</p>}
           <div className="overflow-x-auto"><table className="table w-full"><thead><tr>{[text.item, text.batch, text.color, text.sent, text.received, text.outstanding, ...(receiving?.id === record.id ? [text.receiveNow] : [])].map(label => <th key={label}>{label}</th>)}</tr></thead><tbody>
-            {record.lines.map(row => <tr key={row.id}><td>{row.item_name}</td><td>{row.batch_no}</td><td>{row.color || "—"}</td><td>{Number(row.quantity).toLocaleString()} {row.unit}</td><td>{Number(row.received_quantity).toLocaleString()} {row.unit}</td><td>{(Number(row.quantity) - Number(row.received_quantity)).toLocaleString()} {row.unit}</td>{receiving?.id === record.id && <td><label className="sr-only" htmlFor={`receive-${row.id}`}>{text.receiveNow} {row.item_name} {row.batch_no}</label><input id={`receive-${row.id}`} className="input min-w-28" type="number" min="0" step="0.0001" max={Number(row.quantity) - Number(row.received_quantity)} disabled={busy || uncertain || Number(row.quantity) === Number(row.received_quantity)} value={receiptQuantities[row.id] || "0"} onChange={event => setReceiptQuantities(previous => ({...previous, [row.id]: event.target.value}))} /></td>}</tr>)}</tbody></table></div>
+            {record.lines.map(row => <tr key={row.id}><td>{row.item_name}</td><td>{row.batch_no}</td><td>{row.color || "—"}</td><td>{Number(row.quantity).toLocaleString()} {row.unit}</td><td>{Number(row.received_quantity).toLocaleString()} {row.unit}</td><td>{fabricTransferOutstanding(row).toLocaleString()} {row.unit}</td>{receiving?.id === record.id && <td><label className="sr-only" htmlFor={`receive-${row.id}`}>{text.receiveNow} {row.item_name} {row.batch_no}</label><input id={`receive-${row.id}`} className="input min-w-28" type="number" min="0" step="0.0001" max={fabricTransferOutstanding(row)} disabled={busy || uncertain || Number(row.quantity) === Number(row.received_quantity)} value={receiptQuantities[row.id] || "0"} onChange={event => setReceiptQuantities(previous => ({...previous, [row.id]: event.target.value}))} /></td>}</tr>)}</tbody></table></div>
           {receiving?.id === record.id && <><label className="label">{text.notes}<input className="input" maxLength={2000} disabled={busy || uncertain} value={receiptNotes} onChange={event => setReceiptNotes(event.target.value)} /></label><div className="flex gap-2"><button className="btn btn-primary" disabled={busy || uncertain} onClick={() => void receive()}>{busy ? text.loading : text.confirmReceive}</button><button className="btn" disabled={busy || uncertain} onClick={() => setReceiving(null)}>{text.cancel}</button></div></>}
         </div>
       </details>)}

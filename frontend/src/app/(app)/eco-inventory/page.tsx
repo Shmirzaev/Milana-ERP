@@ -29,6 +29,7 @@ export default function EcoInventoryPage() {
   const [orderId, setOrderId] = useState<number | null>(null); const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false); const [uncertain, setUncertain] = useState(false);
   const [error, setError] = useState(""); const [message, setMessage] = useState(""); const pending = useRef<Attempt | null>(null);
+  const inFlight = useRef(false);
   const storageKey = me ? `milana:eco-inventory:pending:${me.id}:${me.factory_code}` : null;
   useEffect(() => {
     if (!storageKey) return;
@@ -47,7 +48,7 @@ export default function EcoInventoryPage() {
   }
   function changeKind(value: EcoMaterialKind) { router.replace(`/eco-inventory?kind=${value}`); setPage(0); setSearch(""); openForm(null); }
   async function submit() {
-    if (busy || (!form && !pending.current)) return;
+    if (busy || inFlight.current || (!form && !pending.current)) return;
     if (!pending.current) {
       if (!form) return;
       if (Number(quantity) <= 0 || !Number.isFinite(Number(quantity)) || (form !== "receive" && Number(quantity) > Number(form.available_quantity))) { setError(text.validQuantity); return; }
@@ -57,6 +58,7 @@ export default function EcoInventoryPage() {
       } else pending.current = { endpoint: "/api/eco-inventory/consume", body: { request_key: crypto.randomUUID(), batch_id: form.id, quantity, production_order_id: orderId, notes: notes.trim() || null } };
     }
     saveEcoPendingAttempt(storageKey, pending.current);
+    inFlight.current = true;
     setBusy(true); setError("");
     try {
       await api.post(pending.current.endpoint, pending.current.body);
@@ -66,7 +68,7 @@ export default function EcoInventoryPage() {
       setError(failure instanceof Error ? failure.message : text.error);
       if (failure instanceof ApiError && failure.status >= 400 && failure.status < 500) { pending.current = null; saveEcoPendingAttempt(storageKey, null); setUncertain(false); }
       else setUncertain(true);
-    } finally { setBusy(false); }
+    } finally { inFlight.current = false; setBusy(false); }
   }
   if (!me) return <p>{text.loading}</p>;
   if (!allowed) return <p role="alert">{text.denied}</p>;
