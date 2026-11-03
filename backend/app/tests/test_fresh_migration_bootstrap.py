@@ -1,6 +1,7 @@
 """Frozen bootstrap and opt-in PostgreSQL QA against reviewed known schema drift."""
 
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -27,6 +28,9 @@ from app.migrations.bootstrap_guards import (
 
 VERSIONS = Path(__file__).resolve().parents[2] / "alembic" / "versions"
 KNOWN_DRIFT = VERSIONS.parents[2] / "docs" / "audit-evidence" / "fresh-migration-schema-drift.json"
+COMPAT_HEAD = "0150_package_customer_release"
+COMPAT_GATE_SHA256 = "58630cedf4663df72f1348ffe02bc7d6b47a1e262f1a13905de5646d174010d6"
+COMPAT_MIGRATION_SHA256 = "17d24d19f0d49ecc2bc9ab78108aede5043a5e2e081355ffb6e13583a9901372"
 
 
 def load_migration(name):
@@ -209,6 +213,58 @@ def _assert_known_drift_baseline(actual, expected):
     )
 
 
+def _compatibility_release_drift(connection):
+    """One reviewed migration-owned table on the exact old-runtime rollback image.
+
+    Keep the shared 94-entry baseline untouched. The full feature maps this table
+    and receives no supplement. Exact source hashes make this a reviewed exception,
+    while a reflected storage contract prevents name-only remove_table output from
+    concealing added/changed columns, constraints, defaults or indexes.
+    """
+    root = VERSIONS.parents[2]
+    gate = root / "scripts" / "test_rollback_image_schema_0150.py"
+    feature = root / "backend" / "app" / "models" / "fulfillment" / "package_customer_service.py"
+    if not gate.is_file() or feature.exists():
+        return []
+    assert hashlib.sha256(gate.read_bytes().replace(b"\r\n", b"\n")).hexdigest() == COMPAT_GATE_SHA256
+    migration = VERSIONS / "0150_package_customer_release.py"
+    assert hashlib.sha256(migration.read_bytes().replace(b"\r\n", b"\n")).hexdigest() == COMPAT_MIGRATION_SHA256
+    assert MigrationContext.configure(connection).get_current_heads() == (COMPAT_HEAD,)
+    from app.db.base import Base
+
+    table = "package_customer_releases"
+    assert table not in Base.metadata.tables, "Compatibility runtime must remain unmapped"
+    inspector = sa.inspect(connection)
+    assert table in inspector.get_table_names(), "Reviewed compatibility ledger is missing"
+    columns = inspector.get_columns(table)
+    assert [(column["name"], str(column["type"]), column["nullable"], column["default"]) for column in columns] == [
+        ("package_id", "INTEGER", False, None),
+        ("source_order_ids", "JSON", False, None),
+        ("released_quantity", "INTEGER", False, None),
+        ("released_by", "INTEGER", False, None),
+        ("released_at", "TIMESTAMP", False, "now()"),
+        ("reason", "VARCHAR(1000)", False, None),
+    ], "Compatibility ledger columns/types/nullability/defaults changed"
+    assert columns[4]["type"].timezone is True
+    assert all(column.get("computed") is None and column.get("identity") is None for column in columns)
+    assert inspector.get_pk_constraint(table)["constrained_columns"] == ["package_id"]
+    foreign_keys = inspector.get_foreign_keys(table)
+    assert len(foreign_keys) == 2
+    assert {(
+        tuple(key["constrained_columns"]), key["referred_schema"], key["referred_table"],
+        tuple(key["referred_columns"]), tuple(sorted(key["options"].items())),
+    ) for key in foreign_keys} == {
+        (("package_id",), None, "packages", ("id",), (("ondelete", "CASCADE"),)),
+        (("released_by",), None, "users", ("id",), ()),
+    }, "Compatibility ledger foreign-key contract changed"
+    checks = inspector.get_check_constraints(table)
+    assert len(checks) == 1 and checks[0]["name"] == "ck_package_customer_release_quantity"
+    assert re.sub(r"[\s()]", "", checks[0]["sqltext"]) == "released_quantity>0"
+    assert not checks[0].get("dialect_options")
+    assert inspector.get_unique_constraints(table) == [] and inspector.get_indexes(table) == []
+    return [["remove_table", table]]
+
+
 def test_known_drift_baseline_ignores_only_order():
     expected = _known_drift_baseline()
     assert len(expected) == 94
@@ -272,7 +328,53 @@ def _assert_schema_contract_with_known_drift(engine):
         assert generated_keys_seen == {"model_group_key", "is_legacy_import"}, "0084 must preserve its generated lookup columns"
         normalized = _describe_difference(known_drift)
         print("KNOWN_SCHEMA_DRIFT=" + json.dumps(normalized, sort_keys=True))
-        _assert_known_drift_baseline(normalized, _known_drift_baseline())
+        _assert_known_drift_baseline(normalized, _known_drift_baseline() + _compatibility_release_drift(connection))
+
+
+@pytest.mark.parametrize("change", ["added", "missing", "changed", "duplicated"])
+def test_compatibility_drift_supplement_rejects_unreviewed_differences(change):
+    expected = _known_drift_baseline() + [["remove_table", "package_customer_releases"]]
+    actual = json.loads(json.dumps(expected))
+    if change == "added":
+        actual.append(["remove_table", "unreviewed_table"])
+    elif change == "missing":
+        actual.pop()
+    elif change == "changed":
+        actual[-1] = ["remove_table", "other_table"]
+    else:
+        actual.append(actual[-1])
+    with pytest.raises(AssertionError, match="Known schema drift changed"):
+        _assert_known_drift_baseline(actual, expected)
+
+
+@pytest.mark.parametrize("change", ["missing_table", "extra_column", "nullable", "type", "default", "foreign_key", "check"])
+def test_postgres_compatibility_ledger_contract_rejects_storage_drift(postgres_migrations, change):
+    root = VERSIONS.parents[2]
+    if not (root / "scripts" / "test_rollback_image_schema_0150.py").is_file() or (
+            root / "backend" / "app" / "models" / "fulfillment" / "package_customer_service.py").exists():
+        pytest.skip("Exact old-runtime schema-0150 compatibility candidate only")
+    engine, config = postgres_migrations.engine, postgres_migrations.config
+    command.upgrade(config, "head")
+    with engine.begin() as connection:
+        assert _compatibility_release_drift(connection) == [["remove_table", "package_customer_releases"]]
+        table = "package_customer_releases"
+        statements = {
+            "missing_table": f"DROP TABLE {table}",
+            "extra_column": f"ALTER TABLE {table} ADD COLUMN unexpected INTEGER",
+            "nullable": f"ALTER TABLE {table} ALTER COLUMN reason DROP NOT NULL",
+            "type": f"ALTER TABLE {table} ALTER COLUMN reason TYPE VARCHAR(999)",
+            "default": f"ALTER TABLE {table} ALTER COLUMN released_at DROP DEFAULT",
+            "check": f"ALTER TABLE {table} DROP CONSTRAINT ck_package_customer_release_quantity",
+        }
+        if change == "foreign_key":
+            key = next(key for key in sa.inspect(connection).get_foreign_keys(table) if key["constrained_columns"] == ["package_id"])
+            quoted = connection.dialect.identifier_preparer.quote(key["name"])
+            connection.exec_driver_sql(f"ALTER TABLE {table} DROP CONSTRAINT {quoted}")
+            connection.exec_driver_sql(f"ALTER TABLE {table} ADD FOREIGN KEY (package_id) REFERENCES packages(id) ON DELETE RESTRICT")
+        else:
+            connection.exec_driver_sql(statements[change])
+        with pytest.raises(AssertionError):
+            _compatibility_release_drift(connection)
 
 
 def test_postgres_fresh_head_rerun_and_known_drift_baseline(postgres_migrations):
