@@ -236,6 +236,8 @@ class Rehearsal:
         module.BASE = self.dir
         module.RUNTIME = self.dir
         module.PROXY_PATH = self.dir / "haproxy.cfg"
+        module.FRONTEND_ERROR_PATH = self.dir / "frontend-503.http"
+        module.API_ERROR_PATH = self.dir / "api-503.http"
         module.ROLES = self.roles
         module.container_name = self.name
         module.atomic_write = local_write
@@ -289,13 +291,23 @@ backend rf013_backend_active
 
 frontend rf013_frontend
     bind :3000
+    acl api_route path -i /api
+    acl api_route path_beg /api/
+    use_backend rf013_api_active if api_route
     default_backend rf013_frontend_active
 
 backend rf013_frontend_active
     option httpchk GET /login
     http-check expect status 200
+    errorfile 503 /cfg/frontend-503.http
     http-response set-header X-RF013-Release {RELEASES[active["frontend"]]}
     http-response set-header X-RF013-Slot {active["frontend"]}
+    server active {frontend_name}:3000 check inter 2s fall 3 rise 2
+
+backend rf013_api_active
+    option httpchk GET /login
+    http-check expect status 200
+    errorfile 503 /cfg/api-503.http
     server active {frontend_name}:3000 check inter 2s fall 3 rise 2
 """
 
@@ -479,6 +491,7 @@ backend rf013_frontend_active
             temp.replace(link)
 
     def start_proxy(self) -> None:
+        self.slotctl.write_errorfiles()
         content = self.proxy_config("frontend", "blue")
         self.validate_proxy(content)
         self.slotctl.atomic_write(self.dir / "haproxy.cfg", content)
@@ -630,6 +643,24 @@ backend rf013_frontend_active
             time.sleep(1)
         raise RuntimeError(f"stable routes did not settle on {expected}: {results}")
 
+    def assert_failed_switch_pages(self) -> None:
+        base = f"http://127.0.0.1:{self.roles['frontend']['stable']}"
+        for path, content_type, marker in (
+            ("/login", "text/html", "Back in a moment"),
+            ("/api/auth/me", "application/json", '{"detail":"Service unavailable"}'),
+        ):
+            try:
+                urllib.request.urlopen(base + path, timeout=PROBE_TIMEOUT)
+            except urllib.error.HTTPError as exc:
+                body = exc.read().decode("utf-8", "replace")
+                if exc.code != 503 or exc.headers.get_content_type() != content_type or marker not in body:
+                    raise RuntimeError(f"wrong failed-switch response for {path}") from exc
+                if path == "/login" and ('content="10"' not in body or 'lang="ru"' not in body or 'lang="uz"' not in body):
+                    raise RuntimeError("failed-switch page lacks automatic retry or translations")
+                self.event("failed_switch_response", f"{path}: 503 {content_type}")
+            else:
+                raise RuntimeError(f"failed-switch route {path} did not return 503")
+
     def run(self) -> None:
         self.prepare()
         self.stage("backend", "blue")
@@ -687,6 +718,7 @@ backend rf013_frontend_active
         else:
             raise RuntimeError("injected frontend post-reload failure did not fail activation")
         self.snapshot("failed_frontend_switch")
+        self.assert_failed_switch_pages()
         if self.state("frontend").get("active_slot") != "blue":
             raise RuntimeError("expected frontend state to remain blue after failed activation")
         if f"server active {self.name('frontend', 'green')}:3000" not in (self.dir / "haproxy.cfg").read_text():
@@ -709,6 +741,8 @@ backend rf013_frontend_active
                 )
         self.set_current("old")
         self.assert_routes("old", "old")
+        if request(self.urls["login"])["status"] != 200:
+            raise RuntimeError("frontend page did not return after reconciliation")
         opener = self.authenticated_opener()
         if self.setting(opener)["financial"]["default_currency"] != "USD":
             raise RuntimeError("reconciled old pair could not read persisted data")
