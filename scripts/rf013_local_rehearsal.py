@@ -447,7 +447,8 @@ backend rf013_api_active
                     "SEED_SAMPLE_DATA=false",
                     "IMPORT_LEGACY_MODELS=false",
                     "GLOBAL_RATE_LIMIT_ENABLED=false",
-                    f"CORS_ORIGINS=http://127.0.0.1:{self.roles['frontend']['stable']}",
+                    f"CORS_ORIGINS=http://127.0.0.1:{self.roles['frontend']['stable']},"
+                    f"http://localhost:{self.roles['frontend']['stable']}",
                 ]
             )
             + "\n"
