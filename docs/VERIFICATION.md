@@ -1,5 +1,21 @@
 # Verification after every runtime change
 
+## Owner review-gate update — 4 November 2026
+
+The owner explicitly instructed: continue refactoring, visually test PRs requesting
+his review, and merge passing PRs. QA master will check everything before deployment.
+For this owner-authorized continuation, complete meaningful automated checks, actual
+visual and persisted-data verification, and independent AI review on the identified
+candidate before an authorized source merge. Record AI_VERIFIED_AWAITING_HUMAN and
+retain the human checklist; do not pause development or merge solely for pending
+human review. QA master and named technical/business reviewers must complete and
+record their checks before deployment. A merge is not human acceptance, deployment
+authorization or permission to retire old paths; retain each path until its separately
+recorded retirement condition is met. This update supersedes conflicting instructions
+to wait for human review before source integration or the next development slice.
+Preserve historical evidence and do not relabel earlier unrecorded human acceptance.
+
+
 26 October 2026. Applies to each completed folder/operation migration, bug fix,
 feature and database migration before it is marked ready or its old path removed.
 Do not defer checks until the whole refactor ends. After the final edit, verify the
