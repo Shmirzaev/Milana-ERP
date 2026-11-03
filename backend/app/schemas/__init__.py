@@ -79,4 +79,12 @@ __all__ = [
     "ManualPackageReceipt", "PackagePrintRun", "PackagePrintRunMember",
     "PackageQuantityAdjustment",
     "PackageCustomerRelease",
+    "GatePhotoAsset",
+    "GateEmployeeDevice",
+    "GateOperation",
+    "GateTarget",
+    "GateSimulatorDevice",
+    "GateSimulatorPerson",
 ]
+
+from app.schemas.people.turnstile import GatePhotoAsset, GateEmployeeDevice, GateOperation, GateTarget, GateSimulatorDevice, GateSimulatorPerson

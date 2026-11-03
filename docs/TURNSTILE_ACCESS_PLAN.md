@@ -249,3 +249,12 @@ The uncommitted/no-push statements above describe the earlier verification snaps
 
 Publication preparation normalized CRLF to LF in owned source/test files only; logical
 source is unchanged. The hashes above identify the earlier raw verification snapshot.
+
+
+## Backend development authorized - 2026-11-03
+
+Owner explicitly approved frontend and requested backend implementation with multiple low-reasoning Terra agents and independent review. First operation is Add access (ENROLL), preserving explicit Apply, separate archive/revoke and both ERP systems. See [backend task packet](TURNSTILE_ACCESS_BACKEND_20261103.md) for exact source, ownership, typed/write ledger and evidence gates. Backend remains IN_PROGRESS; live hardware writes are not enabled.
+
+Backend ENROLL simulator slice is now AI_VERIFIED_AWAITING_HUMAN; final technical evidence and the exact human local checklist are in the backend task packet. This does not mark the full turnstile integration or later business operations complete.
+
+Owner authorized pushing the backend slice on2026-11-03. Publication reconciles latest clone_main54a51d79 and uses turnstile migration0151 after upstream package-customer migration0150. Earlier0150 gate evidence is historical; combined publication checks are recorded in the backend task packet.
