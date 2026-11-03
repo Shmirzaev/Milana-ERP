@@ -30,9 +30,11 @@ Backup verified before additive migration `0150_package_customer_release`; the
 release ledger remains empty and no production business records were created or
 changed by this task. Old green workers continue serving, but their old image's
 strict head-0149 verifier cannot restart on schema 0150. Activation is blocked
-until immutable compatible rollback `ef5f8091` (exact old420 application plus
+until immutable compatible rollback `37337ea6` (exact old420 application plus
 identical0150 migration metadata) passes actual default-CMD, child replacement
-and full restart checks. No downgrade, schema stamp or startup/security bypass.
+and full restart checks. Focused actual-image recovery now passes with the same
+shared SQLite counter profile as production, including counter persistence1/2/3/4.
+The final full exact-head CI remains pending. No downgrade, stamp or security bypass.
 
 Exact-source release CI41613691672 passed 4,935 backend tests (552 opt-in skips),
 required PostgreSQL jobs, frontend checks and immutable image builds. Focused

@@ -1,0 +1,307 @@
+{
+  "release": "20261103_094602",
+  "commit": "11f80a2995daeeb90b5c01318aec9e9c6a40f1c9",
+  "observation_minutes": 0,
+  "owner_waiver": "deploy without 30 minute monitoring",
+  "ci_provenance": {
+    "run": 41613691672,
+    "commit": "11f80a2995daeeb90b5c01318aec9e9c6a40f1c9",
+    "conclusion": "success",
+    "url": "https://github.com/Shmirzaev/Milana-ERP/actions/runs/41613691672",
+    "images": {
+      "backend": "ghcr.io/shmirzaev/milana-erp-backend@sha256:f7467a79c4b513cc62d11b5106161f21430cf1e1e4bde739949e5bbcecbfa655",
+      "frontend": "ghcr.io/shmirzaev/milana-erp-frontend@sha256:3fabcc509df640f0a183b065d58839a9ef61d73b36c8e4e189c5c825828e4a2a"
+    },
+    "backend_test_summaries": [
+      "4935 passed, 552 skipped, 15 warnings in 1099.81s (0:18:19)",
+      "7 passed, 1 warning in 1.86s",
+      "165 passed, 5 warnings in 141.42s (0:02:21)",
+      "11 passed, 5 warnings in 12.98s",
+      "20 passed, 5 warnings in 17.27s",
+      "176 passed, 5 warnings in 116.47s (0:01:56)"
+    ]
+  },
+  "backup": {
+    "path": "/opt/milana-erp/shared/backups/milana_erp_pre_20261103_094602_20261103_101940.dump",
+    "restore_objects": 1246,
+    "restore_list_bytes": 89402,
+    "restore_list_sha256": "9143a3c47de92d2a224ef350d5d6840afcd098580b95d0c75b6d394badbdc599",
+    "bytes": 110792077,
+    "mode": "0o600",
+    "sha256": "04ef92dca03dfc2f456c1ab3678957987d88ec05eedda99341108cd36cc48fef"
+  },
+  "database": {
+    "revision": "0150_package_customer_release",
+    "connections": 45,
+    "maximum": 100,
+    "invalid_indexes": 0
+  },
+  "paired_performance": {
+    "passed": true,
+    "comparison": {
+      "failures": [],
+      "report": {
+        "global_search": {
+          "baseline_median_ms": 98.43,
+          "candidate_median_ms": 96.3,
+          "median_change_pct": -2.16,
+          "p95_change_pct": -4.09,
+          "payload_change_pct": 0.0
+        },
+        "inventory_batches": {
+          "baseline_median_ms": 37.63,
+          "candidate_median_ms": 36.77,
+          "median_change_pct": -2.29,
+          "p95_change_pct": -7.65,
+          "payload_change_pct": 0.0
+        },
+        "inventory_stock": {
+          "baseline_median_ms": 25.95,
+          "candidate_median_ms": 25.32,
+          "median_change_pct": -2.43,
+          "p95_change_pct": -3.53,
+          "payload_change_pct": 0.0
+        },
+        "model_groups": {
+          "baseline_median_ms": 74.66,
+          "candidate_median_ms": 72.4,
+          "median_change_pct": -3.03,
+          "p95_change_pct": -3.65,
+          "payload_change_pct": 0.0
+        },
+        "model_options": {
+          "baseline_median_ms": 39.04,
+          "candidate_median_ms": 38.68,
+          "median_change_pct": -0.92,
+          "p95_change_pct": -3.35,
+          "payload_change_pct": 0.0
+        },
+        "print_runs": {
+          "baseline_median_ms": 46.32,
+          "candidate_median_ms": 44.71,
+          "median_change_pct": -3.48,
+          "p95_change_pct": -5.49,
+          "payload_change_pct": 0.0
+        },
+        "process_qr": {
+          "baseline_median_ms": 921.84,
+          "candidate_median_ms": 908.9,
+          "median_change_pct": -1.4,
+          "p95_change_pct": -2.95,
+          "payload_change_pct": 0.0
+        }
+      }
+    },
+    "samples_per_endpoint": 120,
+    "fixed_queries": true,
+    "client": "unchanged green backend container"
+  },
+  "candidate_customer_readback": {
+    "passed": true,
+    "package_id": 19270,
+    "package_no": "PKG-2026-002282",
+    "source_customer_names": [],
+    "source_order_ids": [],
+    "release_ledger_rows": 0,
+    "fg_preview": "FG202002",
+    "methods": [
+      "GET"
+    ],
+    "admin": true
+  },
+  "candidate_browser": {
+    "passed": true,
+    "commit": "11f80a2995daeeb90b5c01318aec9e9c6a40f1c9",
+    "release": "20261103_094602",
+    "browser": "Chrome new window",
+    "methods": [
+      "GET",
+      "HEAD"
+    ],
+    "production_business_writes": 0,
+    "package": "PKG-2026-002282",
+    "package_customer_access": "Available for any customer",
+    "fg_selector": "FG",
+    "fg_preview": "FG202002",
+    "FG202001_preexisting_since": "2026-10-28",
+    "console_warnings": 0,
+    "console_errors": 0,
+    "screenshots": [
+      "outputs/qa/candidate-package.png",
+      "outputs/qa/candidate-fg-preview.png",
+      "outputs/qa/candidate-admin-dialog.png"
+    ],
+    "customer_denial_release_and_role_e2e": "exact release isolated-browser-proof.json; ledger+quantities persisted and verified",
+    "admin_warehouse_dialog": {
+      "pack": "PKG-2026-002282",
+      "selected_pack_count": 1,
+      "reason_required": true,
+      "submit_disabled_without_reason": true,
+      "cancelled": true
+    }
+  },
+  "fg_live_occupancy": {
+    "occupied_FG202001": [
+      {
+        "id": 8800,
+        "code": "FG202001",
+        "created_at": "2026-10-28 09:10:03.898898+00:00"
+      },
+      {
+        "id": 8801,
+        "code": "FG202001-V-6721",
+        "created_at": "2026-10-28 10:10:10.669835+00:00"
+      },
+      {
+        "id": 8836,
+        "code": "FG202001-V-6752",
+        "created_at": "2026-10-30 04:25:02.495475+00:00"
+      }
+    ],
+    "FG_counter": null
+  },
+  "state": "STAGED_NOT_ACTIVATED; immutable compatible rollback CI pending",
+  "scope": "Only customer pack restriction/admin release and FG prefix; other clone_main runtime changes excluded",
+  "integration": {
+    "branch": "clone_main",
+    "pull_requests": [
+      376,
+      377
+    ],
+    "merge_commit": "54a51d7954f5eacc103a8960faef5b8c947ed1d3"
+  },
+  "isolated_browser": {
+    "source": "11f80a2995daeeb90b5c01318aec9e9c6a40f1c9",
+    "passed": true,
+    "browser": "Connected Chrome new window supplied by owner; tab1805103227",
+    "isolated_origin": "http://127.0.0.1:13124",
+    "checks": [
+      "Unreleased customerA pack2 refused in customerB shipment2",
+      "Admin release dialog renders exact selected pack with required reason",
+      "Previously released pack1 shipped to customerB; persisted quantities and source links conserved",
+      "Warehouse user sees source customer and zero admin release buttons",
+      "FG202001 created through real form and reopened with saved name"
+    ],
+    "console_warnings_errors": 0,
+    "screenshots": [
+      "outputs/qa/fg-saved.png",
+      "outputs/qa/release-dialog.png",
+      "outputs/qa/scan-denied.png",
+      "outputs/qa/released-pack.png",
+      "outputs/qa/warehouse-role.png"
+    ],
+    "persisted_readback": "outputs/qa/exact-release-ui-readback.json",
+    "earlier_capture_failures": "Chrome screenshot timeouts and Windows URL-verification stops retained; new owner-opened Chrome window succeeded.",
+    "local_auth_retry": "One final-dispatch attempt refused invalid local session; sign-in refreshed, then same operation passed. No failed attempt stock mutation."
+  },
+  "isolated_persistence": {
+    "packs": [
+      {
+        "id": 1,
+        "package_no": "PKG-QA-CUSTOMER-1",
+        "status": "shipped",
+        "production_order_id": 1,
+        "sales_order_id": 1,
+        "total_quantity": 8
+      },
+      {
+        "id": 2,
+        "package_no": "PKG-QA-CUSTOMER-2",
+        "status": "received_in_storage",
+        "production_order_id": 1,
+        "sales_order_id": 1,
+        "total_quantity": 8
+      }
+    ],
+    "stock": [
+      {
+        "package_id": 1,
+        "sales_order_id": 1,
+        "quantity": 8,
+        "available_qty": 0,
+        "reserved_qty": 0,
+        "sold_qty": 8
+      },
+      {
+        "package_id": 2,
+        "sales_order_id": 1,
+        "quantity": 8,
+        "available_qty": 8,
+        "reserved_qty": 0,
+        "sold_qty": 0
+      }
+    ],
+    "release": [
+      {
+        "package_id": 1,
+        "source_order_ids": "[1]",
+        "released_quantity": 8,
+        "released_by": 1,
+        "reason": "Isolated exact-release customer handoff QA"
+      }
+    ],
+    "shipment": [
+      {
+        "id": 3,
+        "customer_id": 2,
+        "status": "shipped"
+      }
+    ]
+  },
+  "screenshot_sha256": {
+    "outputs/qa/fg-saved.png": "06d8fb09355807456949402645a4898eb6c297b3a2b88a3f2716a23f28fe8670",
+    "outputs/qa/release-dialog.png": "a8c6a97337d2e6dc633fa34f9c9a7e1ebfff1c25923fa4ba4683da5594cbc8f5",
+    "outputs/qa/scan-denied.png": "44a2b930153b4520e8f61a51015862e9257ab9b34a9e2f44cfd304bcea7fd01c",
+    "outputs/qa/released-pack.png": "8f99b681865fa8d4b860af32bab044c44fc457384f827faddcc1d80368bfe6fd",
+    "outputs/qa/warehouse-role.png": "556f17a6185520d14187baf57ba0c373e91e4adae04fd468455f44d8a08ffc1b",
+    "outputs/qa/candidate-package.png": "9386249fd4a8748b853bee018cd48331a20837a9534987847098127b0224780c",
+    "outputs/qa/candidate-fg-preview.png": "8cc9f731c05d572eb0a9c4a80365986d88c55b442985622077bd6e4327f25040",
+    "outputs/qa/candidate-admin-dialog.png": "8e91b447e95659346a7a93dc0750e378170eea3f314f5427725aff1d9b81b166"
+  },
+  "historical_oom": {
+    "classification": "PREEXISTING_OOM; zero-OOM precheck remains failed",
+    "resources": {
+      "container": "ea7315ce6600948d478f5370521914cc6768bd157479918933b4e2928ca14e2c",
+      "worker_pids": [
+        643281,
+        1227068
+      ],
+      "oom": 0,
+      "oom_kill": 1,
+      "global_oom_events": 1
+    },
+    "kernel_event_utc": "2026-11-03T03:19:14Z",
+    "killed_worker_pid": 643282,
+    "independent_review": "customer_guard_review accepted historical flag distinction with counter and worker continuity; candidate zero-OOM gate unchanged"
+  },
+  "compatibility": {
+    "source_commit": "37337ea6d30ce855c53d438ebeef056adc9efb43",
+    "release": "20261103_112256",
+    "ci_run": 41627068789,
+    "state": "PENDING_CI_NO_ACTIVATION",
+    "application_delta_from_42078704": "none; identical0150 migration metadata only",
+    "initial_failed_ci_run": 41620483143,
+    "schema_contract_fix": "Exact compatibility-only reflected table contract:36realPGpass; mainintegration29pass7compat-onlyN/A",
+    "supplemental_image_qa": {
+      "run": 41627060559,
+      "passed": true,
+      "shared_store": "SQLiteSharedCounterStore",
+      "counter_values": [
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    "failed_ci_runs": [
+      41620483143,
+      41623628745
+    ]
+  },
+  "data_touched": {
+    "schema": "Additive migration0150 after verified backup",
+    "production_business_writes": 0,
+    "isolated_test_data": "Separate QA SQLite and UUID-owned disposable PostgreSQL databases"
+  },
+  "human_acceptance": "Separate from explicit owner push/merge/deploy authorization; not fabricated"
+}
