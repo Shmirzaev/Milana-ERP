@@ -35,13 +35,14 @@ def authorize_gate_employee(db: Session, actor: User, employee_id: int, *, lock:
 from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from app.core.config import settings
+from app.libs.types.turnstile_simulator import SimulatorEvidence
 from app.libs.dto.people.turnstile_input import GateEnrollmentInput, GateEditInput
 from app.libs.dto.people.turnstile_output import GateOperationOutput
 from app.libs.dto.people.turnstile_context_output import GateEmployeeContextOutput
 from app.libs.enums.turnstile import GateAction, GateBindingState, GateMode, GatePhotoValidation, GateTargetState
 from app.models.audit_service import log_action
 from app.models.idempotency_service import (bind_idempotency_identity, normalize_idempotency_key,
-    replay_idempotent_response, request_fingerprint, store_idempotent_response)
+    replay_idempotent_response, request_fingerprint, store_idempotent_response, lookup_idempotent_response)
 from app.schemas.people.attendance import AttendanceDevice, AttendancePerson
 from app.schemas.people.turnstile import GateEmployeeDevice, GateOperation, GatePhotoAsset, GateSimulatorDevice, GateSimulatorPerson, GateTarget
 from app.schemas.people.turnstile_persistence import insert_binding, insert_operation, insert_target, update_binding_state_revision
@@ -60,7 +61,7 @@ def get_gate_operation(db: Session, actor: User, operation_id: int) -> GateOpera
     return GateOperationOutput.model_validate(operation)
 
 
-def _trusted_baseline(db: Session, binding: GateEmployeeDevice, *, lock: bool = False):
+def _trusted_baseline(db: Session, binding: GateEmployeeDevice, *, lock: bool = False) -> SimulatorEvidence | None:
     if binding.state != GateBindingState.ACTIVE:
         return None
     targets = (db.query(GateTarget).filter_by(binding_id=binding.id)
@@ -73,7 +74,7 @@ def _trusted_baseline(db: Session, binding: GateEmployeeDevice, *, lock: bool = 
     person = (person_query.with_for_update() if lock else person_query).first()
     if target is None or person is None:
         return None
-    evidence = {"revision": person.accepted_revision, "payload_hash": person.accepted_payload_hash,
+    evidence: SimulatorEvidence = {"revision": person.accepted_revision, "payload_hash": person.accepted_payload_hash,
                 "full_name": person.full_name, "external_person_id": person.external_person_id,
                 "photo_sha256": person.photo_sha256}
     if (evidence != target.observed_evidence or evidence["revision"] != binding.desired_revision
@@ -254,3 +255,22 @@ def edit_gate_employee(db: Session, actor: User, employee_id: int, payload: Gate
     except Exception:
         db.rollback()
         raise
+
+
+def get_gate_request(db: Session, actor: User, employee_id: int, action: GateAction, idempotency_key: str | None) -> GateOperationOutput | None:
+    """Resolve only this actor's committed request; absence never proves no work is in flight."""
+    authorize_gate_employee(db, actor, employee_id)
+    if action not in (GateAction.ENROLL, GateAction.EDIT):
+        raise HTTPException(422, "Unsupported turnstile request action")
+    bind_idempotency_identity(db, actor)
+    receipt = lookup_idempotent_response(db, scope=f"turnstile:employee:{employee_id}:{action.value}", key=idempotency_key)
+    if receipt is None:
+        return None
+    operation_id = receipt.get("operation_id")
+    if type(operation_id) is not int or operation_id <= 0:
+        raise HTTPException(409, "Saved request receipt is inconsistent")
+    operation = db.get(GateOperation, operation_id)
+    if (operation is None or operation.requested_by != actor.id or operation.employee_id != employee_id
+            or operation.factory_code != selected_factory_code(actor) or operation.action != action):
+        raise HTTPException(409, "Saved request receipt scope is inconsistent")
+    return get_gate_operation(db, actor, operation.id)

@@ -61,15 +61,23 @@ def _matches(evidence: SimulatorEvidence | None, op: GateOperation, photo: GateP
 
 
 def _baseline(target: GateTarget) -> SimulatorEvidence:
+    if (target.baseline_revision is None or target.baseline_payload_hash is None
+            or target.baseline_full_name is None or target.baseline_external_person_id is None
+            or target.baseline_photo_sha256 is None or target.baseline_profile_hash is None
+            or target.desired_payload_hash is None):
+        raise RuntimeError("Edit baseline is incomplete")
     return {"revision": target.baseline_revision, "payload_hash": target.baseline_payload_hash,
             "full_name": target.baseline_full_name, "external_person_id": target.baseline_external_person_id,
             "photo_sha256": target.baseline_photo_sha256}
 
 
 def _desired(target: GateTarget, op: GateOperation) -> SimulatorEvidence:
+    baseline = _baseline(target)
+    if target.desired_payload_hash is None:
+        raise RuntimeError("Edit desired hash is missing")
     return {"revision": op.revision, "payload_hash": target.desired_payload_hash,
-            "full_name": op.full_name, "external_person_id": target.baseline_external_person_id,
-            "photo_sha256": target.baseline_photo_sha256}
+            "full_name": op.full_name, "external_person_id": baseline["external_person_id"],
+            "photo_sha256": baseline["photo_sha256"]}
 
 
 class SimulatorAdapter:
@@ -105,6 +113,8 @@ class SimulatorAdapter:
             person = db.scalar(select(GateSimulatorPerson).where(GateSimulatorPerson.binding_id == binding.id))
             evidence = _evidence(person, binding)
             if op.action == GateAction.EDIT:
+                if target.state != GateTargetState.PROCESSING:
+                    raise RuntimeError("Edit reconciliation cannot accept a write")
                 if evidence == _baseline(target):
                     compare_and_update_simulator_name(db, binding_id=binding.id, baseline=_baseline(target),
                         accepted_revision=target.revision, accepted_payload_hash=target.desired_payload_hash, full_name=op.full_name)

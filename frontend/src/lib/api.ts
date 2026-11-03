@@ -111,6 +111,7 @@ async function request<T = any>(path: string, init: RequestInit = {}, timeoutMs 
 
 export const api = {
   get: <T = any>(p: string, timeoutMs?: number) => request<T>(p, { method: "GET" }, timeoutMs),
+  getWithHeaders: <T = any>(p: string, headers: Record<string, string>, timeoutMs?: number) => request<T>(p, { method: "GET", headers }, timeoutMs),
   getWithSignal: <T = any>(p: string, signal: AbortSignal, timeoutMs?: number) =>
     request<T>(p, { method: "GET", signal }, timeoutMs),
   post: <T = any>(p: string, body?: any, timeoutMs?: number) =>

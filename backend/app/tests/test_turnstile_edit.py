@@ -90,22 +90,110 @@ def test_changed_device_after_review_is_not_overwritten(case):
 
 
 def test_heterogeneous_photos_are_preserved(case):
+    from app.libs.dto.people.turnstile_input import GateEnrollmentInput
+    from app.libs.enums.turnstile import GateMode
+    from app.schemas import AttendanceDevice
     factory, actor, employee_id, refs = prepare(case)
-    # Create a second legitimate verified enrollment with a different photo.
     with factory() as db:
-        target = db.query(GateTarget).filter_by(device_id=refs[1]["device_id"]).one()
-        person = db.scalar(select(GateSimulatorPerson).where(GateSimulatorPerson.binding_id == target.binding_id))
-        person.photo_sha256 = "b" * 64
-        evidence = sim._evidence(person, db.get(sim.GateEmployeeDevice, target.binding_id))
-        persistence.transition_target(db, target, state=GateTargetState.SUCCEEDED, attempts=target.attempts,
-            error_code=None, lease_token=None, lease_expires_at=None, observed_evidence=evidence)
+        device = AttendanceDevice(factory_code="MIL", device_key="second-photo", name="Second photo", sync_enabled=True, read_only=True)
+        db.add(device); db.flush()
+        photo = persistence.insert_photo_asset(db, employee_id=employee_id, factory_code="MIL", created_by=actor.id,
+            stored_name="second-photo", sha256="b" * 64, width=10, height=10, content_type="image/jpeg")
+        persistence.set_simulator_device(db, device_id=device.id, factory_code="MIL", online=True, mode=GateMode.SIMULATOR)
         db.commit()
+        enrollment = access.enroll_gate_employee(db, actor, employee_id, GateEnrollmentInput(expected_employee_no="S001",
+            device_ids=[device.id], photo_asset_id=photo.id, manual_face_reviewed=True), "second-enroll")
+    sim.run_simulator_operation(factory, actor, enrollment.id)
+    with factory() as db:
         context = access.get_gate_context(db, actor, employee_id)
         refs = [{"device_id": b.device_id, "expected_revision": b.edit_baseline.revision,
                  "expected_profile_hash": b.edit_baseline.profile_hash} for b in context.bindings if b.edit_baseline]
         op = access.edit_gate_employee(db, actor, employee_id, payload(refs), "photos")
-    sim.run_simulator_operation(factory, actor, op.id)
+    result = sim.run_simulator_operation(factory, actor, op.id)
+    assert all(t.state == GateTargetState.SUCCEEDED for t in result.targets)
     with factory() as db:
         persons = [db.scalar(select(GateSimulatorPerson).where(GateSimulatorPerson.binding_id == db.get(GateTarget, t.id).binding_id)) for t in op.targets]
-        assert [p.photo_sha256 for p in persons] == ["a" * 64, "b" * 64, "a" * 64]
-        assert all(p.full_name == "Updated Name" and p.write_count == 2 for p in persons)
+        assert [p.photo_sha256 for p in persons] == ["a" * 64, "a" * 64, "a" * 64, "b" * 64]
+        assert all(p.full_name == "Updated Name" and p.external_person_id == "S001" and p.write_count == 2 for p in persons)
+
+
+def test_receipt_lookup_is_actor_and_scope_isolated_without_writes(case):
+    from app.libs.enums.turnstile import GateAction
+    from app.schemas import User, Employee, IdempotencyRecord
+    from app.schemas.core import AuditLog
+    factory, actor_b, employee_id, refs = prepare(case)
+    with factory() as db:
+        actor_a = User(name="Other", email="other@example.invalid", password_hash="none", factory_code="MIL", is_active=True,
+                       extra_permissions=["attendance.provision", "hr.employees"])
+        other_employee = Employee(factory_code="MIL", employee_no="OTHER", full_name="Other", status="active")
+        db.add_all([actor_a, other_employee]); db.commit()
+        op = access.edit_gate_employee(db, actor_b, employee_id, payload(refs), "shared-key")
+        models = (GateOperation, GateTarget, IdempotencyRecord, AuditLog)
+        before = tuple(db.query(m).count() for m in models)
+        assert access.get_gate_request(db, actor_a, employee_id, GateAction.EDIT, "shared-key") is None
+        assert access.get_gate_request(db, actor_b, employee_id, GateAction.EDIT, "shared-key").id == op.id
+        assert access.get_gate_request(db, actor_b, employee_id, GateAction.EDIT, "unknown") is None
+        assert access.get_gate_request(db, actor_b, employee_id, GateAction.ENROLL, "shared-key") is None
+        assert access.get_gate_request(db, actor_b, other_employee.id, GateAction.EDIT, "shared-key") is None
+        actor_a.session_factory_code = "ECO"
+        with pytest.raises(HTTPException) as error:
+            access.get_gate_request(db, actor_a, employee_id, GateAction.EDIT, "shared-key")
+        assert error.value.status_code in (403, 404)
+        assert tuple(db.query(m).count() for m in models) == before
+        assert not db.new and not db.dirty and not db.deleted
+
+
+def test_edit_audit_failure_rolls_back_everything(case, monkeypatch):
+    from app.schemas import IdempotencyRecord
+    from app.schemas.core import AuditLog
+    factory, actor, employee_id, refs = prepare(case)
+    with factory() as db:
+        models = (GateOperation, GateTarget, IdempotencyRecord, AuditLog)
+        before = tuple(db.query(m).count() for m in models)
+        def fail(*args, **kwargs):
+            raise RuntimeError("injected audit failure")
+        monkeypatch.setattr(access, "log_action", fail)
+        with pytest.raises(RuntimeError, match="injected audit failure"):
+            access.edit_gate_employee(db, actor, employee_id, payload(refs), "audit-failure")
+        assert tuple(db.query(m).count() for m in models) == before
+        context = access.get_gate_context(db, actor, employee_id)
+        assert sum(b.edit_baseline is not None for b in context.bindings) == len(refs)
+
+
+def test_edit_refuses_archived_alias_and_missing(case):
+    from app.schemas import Employee, SystemSetting
+    from app.libs.enums.turnstile import GateAction
+    factory, actor, employee_id, refs = prepare(case)
+    with factory() as db:
+        before = db.query(GateOperation).count()
+        employee = db.get(Employee, employee_id)
+        employee.status = "archived"; db.commit()
+        with pytest.raises(HTTPException) as error:
+            access.edit_gate_employee(db, actor, employee_id, payload(refs), "archived")
+        assert error.value.status_code == 409
+        employee.status = "active"
+        db.add(SystemSetting(key="employee_merge_aliases:MIL", value_json={"numbers": {"S001": 999}})); db.commit()
+        with pytest.raises(HTTPException) as error:
+            access.edit_gate_employee(db, actor, employee_id, payload(refs), "alias")
+        assert error.value.status_code == 409
+        assert db.query(GateOperation).count() == before
+        with pytest.raises(HTTPException) as error:
+            access.edit_gate_employee(db, actor, 999999, payload(refs), "missing")
+        assert error.value.status_code == 404
+
+
+def test_edit_permission_and_inflight_refusals(case):
+    factory, actor, employee_id, refs = prepare(case)
+    with factory() as db:
+        before = db.query(GateOperation).count()
+        actor.extra_permissions = ["attendance.provision"]
+        with pytest.raises(HTTPException) as error:
+            access.edit_gate_employee(db, actor, employee_id, payload(refs), "permission")
+        assert error.value.status_code == 403
+        actor.extra_permissions = ["attendance.provision", "hr.employees"]
+        op = access.edit_gate_employee(db, actor, employee_id, payload(refs), "first")
+        with pytest.raises(HTTPException) as error:
+            access.edit_gate_employee(db, actor, employee_id, payload(refs), "inflight")
+        assert error.value.status_code == 409
+        assert db.query(GateOperation).count() == before + 1
+        assert len(op.targets) == len(refs)

@@ -8,7 +8,7 @@ import { fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { GateAction, GateState, PREVIEW_ENABLED, BACKEND_ENABLED, previewKey, readPreview, simulateOperation, type GateDevice, type GateEmployee, type GateOperation } from "./turnstilePreview";
 import { backendCopy } from "./turnstileBackendCopy";
-import { contextUrl, submitEnrollment, findAcceptedOperation, removeMatchingJournal, markJournalAccepted, getOperation, processOperation, reconnectOperation, projectOperation, uploadPhoto, validRequest, type EditTarget, type EnrollmentRequest, type GateContext, type ServerOperation } from "./turnstileBackend";
+import { contextUrl, GateBindingState, lookupRequest, submitEnrollment, findAcceptedOperation, removeMatchingJournal, markJournalAccepted, getOperation, processOperation, reconnectOperation, projectOperation, uploadPhoto, validRequest, type EditTarget, type EnrollmentRequest, type GateContext, type ServerOperation } from "./turnstileBackend";
 import { gateCopy } from "./turnstilePreviewCopy";
 import styles from "./TurnstileAccessPreview.module.css";
 
@@ -57,7 +57,7 @@ function Preview({ employee, actorId, canManage, onClose }: Props) {
   const latest = displayedHistory.find(item => item.id === resultId) || displayedHistory[0];
   const waiting = latest?.targets.some(t => t.state === GateState.Waiting);
   const employeeNumber = BACKEND_ENABLED ? context.data?.employee_no : employee.employee_no;
-  const eligibleDevices = BACKEND_ENABLED && action === GateAction.Edit ? devices.filter(d => context.data?.bindings.some(b => b.device_id === d.id && b.state === "active" && b.edit_baseline)) : devices;
+  const eligibleDevices = BACKEND_ENABLED && action === GateAction.Edit ? devices.filter(d => context.data?.bindings.some(b => b.device_id === d.id && b.state === GateBindingState.Active && b.edit_baseline)) : devices;
   const targetDevices = devices.filter(d => selected.includes(d.id));
   const blocked = !canManage || (BACKEND_ENABLED && (!context.data?.simulator_enabled || !context.data?.supported_actions.includes(action) || busy || !!pending || recoveryBlocked)) || !employeeNumber?.trim() || (employee.status === "archived" && action !== GateAction.Revoke);
   const actionLabel = (value: GateAction) => ({ [GateAction.Enroll]: c.enroll, [GateAction.Edit]: c.edit, [GateAction.Photo]: c.photo, [GateAction.Revoke]: c.revoke })[value];
@@ -135,7 +135,7 @@ function Preview({ employee, actorId, canManage, onClose }: Props) {
     if (needsPhoto && (!photo || !checks.every(Boolean))) { setMessage(c.photoRequired); return; }
     if (!name.trim()) return;
     if (BACKEND_ENABLED && action === GateAction.Edit) {
-      const refs = targetDevices.map(d => { const baseline = context.data?.bindings.find(b => b.device_id === d.id && b.state === "active")?.edit_baseline; return baseline ? { device_id: d.id, expected_revision: baseline.revision, expected_profile_hash: baseline.profile_hash } : null; });
+      const refs = targetDevices.map(d => { const baseline = context.data?.bindings.find(b => b.device_id === d.id && b.state === GateBindingState.Active)?.edit_baseline; return baseline ? { device_id: d.id, expected_revision: baseline.revision, expected_profile_hash: baseline.profile_hash } : null; });
       if (refs.some(ref => !ref) || targetDevices.some(d => !eligibleDevices.some(e => e.id === d.id))) { setMessage(b.staleBaseline); return; }
       setReviewedTargets(refs as EditTarget[]);
     }
@@ -155,7 +155,9 @@ function Preview({ employee, actorId, canManage, onClose }: Props) {
       if (verifyFirst) {
         const refreshed = await context.mutate();
         if (!refreshed) { if (mounted.current) setMessage(b.uncertain); return; }
-        const existing = findAcceptedOperation(refreshed.operations, request);
+        const receipt = await lookupRequest(employee.id, request);
+        const existing = receipt ? findAcceptedOperation([receipt], { ...request, acceptedId: request.acceptedId ?? receipt.id }) : undefined;
+        if (receipt && !existing) { if (mounted.current) { setRecoveryBlocked(true); setMessage(b.refreshFailed); } return; }
         if (existing) {
           if (mounted.current) { setAccepted(existing); setResultId(String(existing.id)); clearPending(request.key); setConfirm(false); }
           return;
@@ -164,7 +166,12 @@ function Preview({ employee, actorId, canManage, onClose }: Props) {
       }
       const outcome = await submitEnrollment(employee.id, request);
       if (outcome.kind === "refused") {
-        // The server explicitly rejected this transaction; inputs remain editable.
+        if (verifyFirst) {
+          // A later refusal cannot establish the outcome of an earlier unknown request.
+          if (mounted.current) setMessage(b.uncertain);
+          return;
+        }
+        // The server explicitly rejected this first attempt; inputs remain editable.
         if (mounted.current) { clearPending(request.key); setConfirm(false); setMessage(b.refused); }
         else { try { removeMatchingJournal(sessionStorage, recoveryKey, request.key); } catch { /* retain journal */ } }
         return;
@@ -182,7 +189,7 @@ function Preview({ employee, actorId, canManage, onClose }: Props) {
   }
   async function backendApply() {
     if (!confirm || blocked || !targetDevices.length || (action === GateAction.Enroll && (!photo || !checks.every(Boolean)))) return;
-    if (action === GateAction.Edit && (reviewedTargets.length !== targetDevices.length || reviewedTargets.some(ref => { const baseline = context.data?.bindings.find(b => b.device_id === ref.device_id && b.state === "active")?.edit_baseline; return !baseline || baseline.revision !== ref.expected_revision || baseline.profile_hash !== ref.expected_profile_hash; }))) { setConfirm(false); setMessage(b.staleBaseline); return; }
+    if (action === GateAction.Edit && (reviewedTargets.length !== targetDevices.length || reviewedTargets.some(ref => { const baseline = context.data?.bindings.find(b => b.device_id === ref.device_id && b.state === GateBindingState.Active)?.edit_baseline; return !baseline || baseline.revision !== ref.expected_revision || baseline.profile_hash !== ref.expected_profile_hash; }))) { setConfirm(false); setMessage(b.staleBaseline); return; }
     if (!reviewedNumber || reviewedNumber !== employeeNumber) { setConfirm(false); setMessage(b.identityChanged); return; }
     if (running.current) return;
     running.current = true; setBusy(true); setMessage("");
@@ -204,8 +211,9 @@ function Preview({ employee, actorId, canManage, onClose }: Props) {
     try {
       const refreshed = await context.mutate();
       if (pending && refreshed) {
-        const known = pending.acceptedId !== undefined ? await getOperation(pending.acceptedId) : null;
-        const match = findAcceptedOperation(known ? [known] : refreshed.operations, pending);
+        const receipt = await lookupRequest(employee.id, pending);
+        const match = receipt ? findAcceptedOperation([receipt], { ...pending, acceptedId: pending.acceptedId ?? receipt.id }) : undefined;
+        if (receipt && !match) { setRecoveryBlocked(true); setMessage(b.refreshFailed); }
         if (match) { setAccepted(match); setResultId(String(match.id)); clearPending(pending.key); setConfirm(false); setMessage(""); }
       }
       if (latest && !pending) await getOperation(Number(latest.id));

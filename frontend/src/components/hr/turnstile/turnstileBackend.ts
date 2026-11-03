@@ -48,7 +48,10 @@ export async function submitEnrollment(employeeId: number, request: EnrollmentRe
     return { kind: "unknown" };
   }
 }
+export const lookupRequest = (employeeId: number, request: EnrollmentRequest) => api.getWithHeaders<ServerOperation | null>(prefix + "/employees/" + employeeId + "/requests/" + request.payload.action, { "Idempotency-Key": request.key });
+
 export function findAcceptedOperation(operations: ServerOperation[], request: EnrollmentRequest): ServerOperation | undefined {
+  if (request.acceptedId === undefined) return undefined;
   const p = request.payload;
   return operations.find(op => op.external_person_id === p.expected_employee_no && op.action === p.action && op.mode === GateMode.Simulator && (request.acceptedId === undefined || op.id === request.acceptedId) && op.full_name === p.reviewed_name && (p.action === GateAction.Enroll
     ? op.photo_asset_id === p.photo_asset_id && op.targets.length === p.device_ids.length && op.targets.every(t => p.device_ids.includes(t.device_id))
