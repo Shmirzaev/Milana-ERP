@@ -43,5 +43,7 @@ New detailed dated events belong here; current summaries link to the relevant re
 
 - [RF-009 create_user baseline](RF009_CREATE_USER_BASELINE_2026-10-29.md):
   196 passing current-behavior cases; extraction agreement remains pending.
+- [RF-009 create_user extraction candidate, 3 November 2026](RF009_CREATE_USER_EXTRACTION_2026-11-03.md):
+  delegated seam approval, unchanged baseline, schema writes and pending human gate.
 - [Local PostgreSQL runner adaptation](LOCAL_POSTGRES_RUNNER_2026-10-29.md):
   combined fixture wiring, zero skips and the remaining S06 test-contract failure.
