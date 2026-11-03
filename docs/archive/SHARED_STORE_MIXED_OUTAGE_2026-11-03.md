@@ -34,8 +34,27 @@ Logout, password change and factory switching keep their existing behavior.
   aliases, reset request/completion, enabled/disabled global limiting, store
   construction/late operation failures, no session/password/token/audit side effects,
   and recovery of normal rate limiting. Ruff passes on the three changed Python files.
-- Full unmodified #322 runner: **PENDING**. HAProxy was installed only in the
-  disposable test container before running; no tracked runner or dependency changed.
+- Full unmodified #322 runner: **BLOCKED / incomplete; no final passed/failed/skipped
+  totals**. Both full attempts reached PERF06 PostgreSQL fixture teardown, where
+  `finalize_target` entered its deliberate `TARGET_DRAIN` lifecycle hold. The first
+  process ignored SIGINT by design; a diagnostic abort with core dumps disabled
+  captured the stack. Its output remains in `full-interrupted-attempt/full-suite.log`.
+  The fresh run adds only pytest diagnostic output options and reproduces the hold;
+  it is retained alive with its owned disposable database. No application/test/safety
+  guard was changed or bypassed. HAProxy was installed only in disposable test
+  containers; no tracked runner/dependency changed. Later suite cases and required
+  PostgreSQL/supplement gates have no final report and are **BLOCKED**, not passed.
+- All six unchanged PERF06 cases pass on exact base `75cf9c53` in a bounded separate
+  process using the approved #322 PostgreSQL instance (6 passed, 0 failed/errors/skipped).
+  The full-run hold may involve process-wide fixture/thread lifetime; the exact
+  retained failure is unknown. It is not claimed as a proven pre-existing failure.
+  The lifecycle helper changed in base commit `03a2d067` since earlier `58bca549`
+  full-suite evidence, so that historical green result does not establish this gate.
+- Separately, exact current base S06 `test_concurrent_stock_adjustments[batch_delta]`
+  reproduces its known `AttributeError: 'str' object has no attribute 'value'` in
+  `stock_movement_persistence.py:68`: **0 passed / 1 failed / 0 errors / 0 skipped**,
+  with one other case deselected. This is a baseline comparison, not a full-suite total.
+
 
 The first local test attempt used `/api/admin/users` instead of the real `/api/users`
 in two new assertions. That attempt is archived; the corrected fail-first was rerun
@@ -44,7 +63,7 @@ before restoring the candidate. No application change was made to satisfy a bad 
 ## Real three-minute outage and browser observation
 
 Only the isolated Compose project `milana-sec04-local-5962e45e` was touched. Its
-fresh PostgreSQL 17 database contains fake seed data, with no production import.
+fresh PostgreSQL 16 database contains fake seed data, with no production import.
 Backend API: `http://127.0.0.1:63150`; frontend: `http://localhost:63151/profile`.
 The frontend uses **Next dev with webpack**, matching the #311 outage scenario;
 this is not release-image or production-mode validation. Runtime backend source
@@ -84,7 +103,9 @@ browser-results.json}` plus four screenshots. These reports contain no secret va
 
 ## Remaining gates and integration limits
 
-Connected Chrome checks and human acceptance remain **PENDING**. A separate local
+Independent read-only Codex review (`/root/acceptance_people_recipe`) found no
+source, focused-test or three-minute-evidence blockers. Full-suite completion is blocked by the lifecycle hold and remains
+a separate gate. Connected Chrome checks and human acceptance remain **PENDING**. A separate local
 browser window will begin at least ten minutes after handoff, with a timed three-minute
 fault and automatic restoration; its exact plan and subsequent logs stay beside this
 run's evidence. The stack remains running for that checker until explicitly stopped.
