@@ -104,3 +104,29 @@ class NormalizedBomUpdate(TypedDict, total=False):
     quantity_per_piece: float | None
     unit: str | None
     waste_percent: float | None
+
+
+@dataclass(frozen=True)
+class ModelSizeCreateCommand:
+    """Validated configurable size and measurement values for one insert."""
+
+    model_id: int
+    size: str
+    measurement_json: dict | None
+
+
+class ModelSizeCreateResult(TypedDict):
+    id: int
+
+
+@dataclass(frozen=True)
+class ModelColorCreateCommand:
+    """Validated free-form color fields for one model."""
+
+    model_id: int
+    color_name: str
+    color_code: str | None
+
+
+class ModelColorCreateResult(TypedDict):
+    id: int

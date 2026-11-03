@@ -137,7 +137,8 @@ def main() -> int:
                 "-v", f"{ROOT}:/workspace", "-w", "/workspace"]
         for key, value in env.items():
             args += ["-e", f"{key}={value}"]
-        args += [image, "sh", "-c", "pip install -q -r backend/requirements-dev.txt && python scripts/run_local_postgres_tests.py --inside"]
+        args += [image, "sh", "-c", "apt-get update -qq && apt-get install -y --no-install-recommends haproxy "
+                 "&& pip install -q -r backend/requirements-dev.txt && python scripts/run_local_postgres_tests.py --inside"]
         return subprocess.run(args).returncode
     finally:
         if started:

@@ -48,6 +48,8 @@ GROUPS = {
         "test_concurrent_creation_does_not_duplicate_invoice_numbers",
     )),
     "test_customer_invoice_creation_race": (10, ()),
+    "test_modelsize_create_postgres": (2, ("test_pg_create_atomic_audit_and_failure_retry", "test_pg_concurrent_duplicate_creates")),
+    "test_modelcolor_create_postgres": (27, ()),
 }
 REQUIRED_CASES = json.loads(
     Path(__file__).with_name("refactor_pg_required_cases.json").read_text(encoding="utf-8")
