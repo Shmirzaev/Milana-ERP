@@ -195,8 +195,8 @@ def login_json(request: Request, response: Response, payload: LoginIn, db: DbSes
 
 @session_router.post("/switch-factory", response_model=LoginOk)
 @router.post("/switch-factory", response_model=LoginOk)
-def switch_factory(request: Request, response: Response, payload: FactorySwitchIn, user: CurrentUser):
-    factory_code = select_session_factory(user, payload.factory_code)
+def switch_factory(request: Request, response: Response, payload: FactorySwitchIn, db: DbSession, user: CurrentUser):
+    factory_code = select_session_factory(db, user, payload.factory_code)
     token = create_access_token(user.id, extra={"factory_code": factory_code})
     _set_auth_cookie(request, response, token)
     return LoginOk()

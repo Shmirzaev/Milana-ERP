@@ -28,9 +28,9 @@ particular operation and every caller/write before choosing what belongs here.
 | Proposed file | Responsibility |
 | --- | --- |
 | `access_policy_service.py` (implemented) | Pure policy allow/deny evaluation; imports only the permission catalog. Factory scope imports it directly, and user access re-exports its existing names. |
-| `authentication_service.py` | Login and password-reset operations. |
-| `users_service.py` (create implemented) | Account creation; profile updates remain in the admin route. One creation commit and refresh precede route scheduling of a setup email. |
-| `access_service.py` (shared checks implemented) | Unchanged role/grant and policy-change checks shared with creation, profile updates and role creation. |
+| authentication_service.py | Authentication and session-factory selection; authorized real factory-switch requests append an audit row before token issuance. |
+| users_service.py (create implemented) | Account creation; profile updates remain in the admin route. One creation commit and refresh precede route scheduling of a setup email. |
+| access_service.py (shared checks implemented) | Unchanged role/grant and policy-change checks shared with creation, profile updates and role creation. |
 
 Shared grant checks sit above the factory-context and policy helpers;
 neither lower helper may import `access_service.py` back. The policy-only split
