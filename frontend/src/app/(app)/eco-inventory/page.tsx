@@ -8,6 +8,7 @@ import SearchableSelect from "@/components/SearchableSelect";
 import { api, fetcher } from "@/lib/api";
 import { ApiError } from "@/lib/errorMessages";
 import { can, useMe } from "@/lib/auth";
+import { hasInventoryPathAccess } from "@/lib/access";
 import { useT } from "@/lib/i18n";
 import { ecoInventoryText, loadEcoPendingAttempt, retainEcoPendingAfterFailure, saveEcoPendingAttempt, type EcoBatch, type EcoMaterialItem, type EcoMaterialKind, type EcoMovement } from "@/lib/ecoInventory";
 
@@ -19,7 +20,7 @@ const pageSize = 100;
 export default function EcoInventoryPage() {
   const { me } = useMe(); const { lang } = useT(); const text = ecoInventoryText(lang);
   const router = useRouter(); const searchParams = useSearchParams();
-  const allowed = me?.factory_code === "ECO" && can(me, "eco_inventory.read");
+  const allowed = me?.factory_code === "ECO" && can(me, "eco_inventory.read") && hasInventoryPathAccess(me, `/eco-inventory?${searchParams}`);
   const kind: EcoMaterialKind = searchParams.get("kind") === "accessory" ? "accessory" : "fabric";
   const [view, setView] = useState<"stock" | "history">("stock");
   const [page, setPage] = useState(0); const [search, setSearch] = useState("");

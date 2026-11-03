@@ -16,9 +16,17 @@ def create_plan(db: Session, *, order, actor_id: int) -> EcoAccessoryPlan:
 
 
 def replace_requirements(db: Session, *, plan: EcoAccessoryPlan, order, notes: str, lines: list[tuple[int, Decimal, str]]) -> None:
-    db.query(EcoAccessoryRequirement).filter_by(plan_id=plan.id).delete(synchronize_session=False)
+    existing = {r.item_id: r for r in db.query(EcoAccessoryRequirement).filter_by(plan_id=plan.id).all()}
+    requested = {item_id for item_id, _, _ in lines}
+    for item_id, row in existing.items():
+        if item_id not in requested:
+            db.delete(row)
     for item_id, quantity, unit in lines:
-        db.add(EcoAccessoryRequirement(plan_id=plan.id, item_id=item_id, quantity=quantity, unit=unit))
+        if item_id in existing:
+            existing[item_id].quantity = quantity
+            existing[item_id].unit = unit
+        else:
+            db.add(EcoAccessoryRequirement(plan_id=plan.id, item_id=item_id, quantity=quantity, unit=unit))
     plan.model_id = order.model_id
     plan.planning_order_id = order.planning_order_id
     plan.planned_quantity = order.planned_quantity
@@ -41,7 +49,11 @@ def set_status(db: Session, plan: EcoAccessoryPlan, status: EcoAccessoryStatus, 
 
 
 def allocate(db: Session, requirement_id: int, batch_id: int, quantity: Decimal) -> None:
-    db.add(EcoAccessoryAllocation(requirement_id=requirement_id, batch_id=batch_id, quantity=quantity, issued_quantity=0))
+    existing = db.query(EcoAccessoryAllocation).filter_by(requirement_id=requirement_id, batch_id=batch_id).first()
+    if existing:
+        existing.quantity += quantity
+    else:
+        db.add(EcoAccessoryAllocation(requirement_id=requirement_id, batch_id=batch_id, quantity=quantity, issued_quantity=0))
 
 
 def issue_allocation(db: Session, allocation: EcoAccessoryAllocation, quantity: Decimal) -> None:
@@ -55,4 +67,14 @@ def advance_revision(db: Session, plan: EcoAccessoryPlan) -> None:
 
 
 def delete_allocations(db: Session, requirement_ids: list[int]) -> None:
-    db.query(EcoAccessoryAllocation).filter(EcoAccessoryAllocation.requirement_id.in_(requirement_ids)).delete(synchronize_session=False)
+    rows = db.query(EcoAccessoryAllocation).filter(EcoAccessoryAllocation.requirement_id.in_(requirement_ids)).all()
+    for row in rows:
+        if row.issued_quantity:
+            row.quantity = row.issued_quantity
+        else:
+            db.delete(row)
+
+
+def set_sewing_block(db: Session, work, *, blocked: bool) -> None:
+    work.is_blocked = blocked
+    work.block_reason = "ecoAccessories.approvalRequired" if blocked else None

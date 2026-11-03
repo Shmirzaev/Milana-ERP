@@ -161,15 +161,124 @@ def test_sent_bundle_freezes_edit_and_historical_missing_plan_is_preserved(scena
         service.save_plan(db, user, order.id, EcoAccessoryPlanIn(revision=0, lines=[]))
 
 
-def test_issued_allocation_cannot_be_reopened(scenario):
+def test_partial_issue_can_be_reapproved_without_erasing_issued_evidence(scenario):
     db, user, order, _, batch = scenario
     plan = approved(scenario)
     result = service.issue_plan(db, user, order.id, EcoAccessoryIssueIn(revision=plan.revision,
         lines=[{"allocation_id": plan.lines[0].allocations[0].id, "quantity": "1"}]), "partial")
-    with pytest.raises(HTTPException, match="alreadyIssued"):
-        service.reopen_plan(db, user, order.id, EcoAccessoryDecisionIn(revision=result.revision))
+    order.planned_quantity = 20; db.commit()
+    draft = service.reopen_plan(db, user, order.id, EcoAccessoryDecisionIn(revision=result.revision))
+    assert batch.quantity == 19 and batch.reserved_quantity == 0
+    assert draft.lines[0].allocations[0].issued_quantity == 1
+    draft = service.save_plan(db, user, order.id, EcoAccessoryPlanIn(revision=draft.revision,
+        lines=[{"item_id": scenario[3].id, "quantity": "15"}]))
+    plan = service.submit_plan(db, user, order.id, EcoAccessoryDecisionIn(revision=draft.revision))
+    plan = service.approve_plan(db, user, order.id, EcoAccessoryDecisionIn(revision=plan.revision))
+    assert batch.quantity == 19 and batch.reserved_quantity == 14
+    assert plan.lines[0].allocations[0].quantity == 15 and plan.lines[0].allocations[0].issued_quantity == 1
+    assert ensure_accessories_issued_for_sewing(db, order.id)["is_complete"]
+
+
+def test_cutting_block_is_cleared_by_valid_eco_approval(scenario):
+    from app.models.inventory_service import sync_sewing_accessory_block
+    from app.api.routes.production import _gate_record_submission
+    db, _, order, _, _ = scenario
+    work = db.query(WorkOrder).filter_by(production_order_id=order.id, operation="sewing").one()
+    assert not sync_sewing_accessory_block(db, order.id)["is_complete"]
+    assert work.is_blocked and work.block_reason == "ecoAccessories.approvalRequired"
+    db.commit()
+    approved(scenario)
+    assert ensure_accessories_issued_for_sewing(db, order.id, sewing_factory_code="ECO")["is_complete"]
+    assert not work.is_blocked and work.block_reason is None
+    _gate_record_submission(work)
+
+
+def test_milana_handoff_keeps_its_own_issue_requirement(scenario):
+    from app.schemas import ModelBOM, CuttingRecord
+    db, user, order, item, _ = scenario
+    dept = db.query(Department).filter_by(code="CUT").one()
+    cut = WorkOrder(production_order_id=order.id, department_id=dept.id, operation="cutting", passed_qty=10)
+    db.add(cut); db.flush()
+    db.add_all([ModelBOM(model_id=order.model_id, item_id=item.id, quantity_per_piece=1, waste_percent=0, unit="pcs"),
+        CuttingRecord(work_order_id=cut.id, input_quantity=10, input_unit="kg", cut_pieces=10, passed_pieces=10)])
+    db.commit()
+    plan = approved(scenario)
+    assert plan.status == Status.APPROVED
+    assert ensure_accessories_issued_for_sewing(db, order.id, sewing_factory_code="ECO")["is_complete"]
+    with pytest.raises(HTTPException, match="Accessories must be issued"):
+        ensure_accessories_issued_for_sewing(db, order.id, sewing_factory_code="MIL")
+
+
+def test_reassigned_or_cancelled_order_keeps_releasable_allocation_history(scenario):
+    db, user, order, _, batch = scenario
+    plan = approved(scenario)
+    sewing = db.query(WorkOrder).filter_by(production_order_id=order.id, operation="sewing").one()
+    sewing.department_id = db.query(Department).filter_by(code="MIL").one().id
+    order.status = "cancelled"; db.commit()
+    assert service.get_plan(db, user, order.id).id == plan.id
+    result = service.reopen_plan(db, user, order.id, EcoAccessoryDecisionIn(revision=plan.revision))
+    assert result.status == Status.DRAFT and batch.quantity == 20 and batch.reserved_quantity == 0
+
+
+def test_other_factory_history_never_grandfathers_or_blocks_eco_approval(scenario):
+    db, user, order, _, _ = scenario
+    mil_dept = db.query(Department).filter_by(code="MIL").one()
+    mil_work = WorkOrder(production_order_id=order.id, department_id=mil_dept.id, operation="sewing")
+    mil_bundle = Bundle(bundle_no="APP-MIL-OLD", barcode="APP-MIL-OLD", production_order_id=order.id,
+        model_id=order.model_id, color="black", size="M", quantity=10, sewing_factory_code="MIL", status="sent_to_sewing")
+    db.add_all([mil_work, mil_bundle]); db.commit()
+    with pytest.raises(HTTPException, match="approvalRequired"):
+        ensure_accessories_issued_for_sewing(db, order.id, sewing_factory_code="ECO")
+    assert not mil_work.is_blocked and mil_work.block_reason is None
     db.rollback()
-    assert batch.quantity == 19 and batch.reserved_quantity == 11
+    plan = approved(scenario)
+    assert not plan.sewing_started
+    assert ensure_accessories_issued_for_sewing(db, order.id, sewing_factory_code="ECO")["is_complete"]
+    assert not mil_work.is_blocked
+
+
+def test_materials_only_flag_still_protects_accessories(scenario):
+    from app.models.inventory.eco_inventory_service import list_stock
+    db, user, order, _, _ = scenario
+    user.extra_permissions = ["inventory.materials_only"]; db.commit()
+    with pytest.raises(HTTPException) as err:
+        service.get_plan(db, user, order.id)
+    assert err.value.status_code == 403
+    assert list_stock(db, user) == []  # implicit scope is fabric only
+
+
+def test_failed_multi_batch_issue_rolls_back_and_recovers_with_same_key(scenario, monkeypatch):
+    from app.models.inventory import eco_inventory_service as stock
+    db, user, order, item, batch = scenario
+    batch.quantity = 6
+    second = EcoMaterialBatch(item_id=item.id, kind="accessory", batch_no="ECO-APP-02", unit="pcs", quantity=6,
+        reserved_quantity=0, created_by=user.id)
+    db.add(second); db.commit()
+    plan = approved(scenario)
+    payload = EcoAccessoryIssueIn(revision=plan.revision, lines=[{"allocation_id": a.id, "quantity": a.quantity}
+        for a in plan.lines[0].allocations])
+    original = stock.consume_eco_batch
+    calls = 0
+    def fail_second(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("injected issue interruption")
+        return original(*args, **kwargs)
+    monkeypatch.setattr(stock, "consume_eco_batch", fail_second)
+    with pytest.raises(RuntimeError, match="injected"):
+        service.issue_plan(db, user, order.id, payload, "recover-issue")
+    assert batch.quantity == second.quantity == 6
+    assert batch.reserved_quantity == second.reserved_quantity == 6
+    assert db.query(EcoMaterialMovement).count() == 0
+    assert all(a.issued_quantity == 0 for a in db.query(EcoAccessoryAllocation))
+    monkeypatch.setattr(stock, "consume_eco_batch", original)
+    expected = service.issue_plan(db, user, order.id, payload, "recover-issue")
+    for _ in range(50):
+        assert service.issue_plan(db, user, order.id, payload, "recover-issue") == expected
+    assert batch.quantity == second.quantity == 0
+    assert batch.reserved_quantity == second.reserved_quantity == 0
+    assert db.query(EcoMaterialMovement).count() == 2
 
 
 @pytest.mark.parametrize("quantity", ["0", "-1", "NaN", "1.00001", "10000000000"])

@@ -5310,7 +5310,7 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
     from app.models.factory_scope_service import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
     if wo.operation != "sewing": raise HTTPException(400, "Work order is not a sewing operation")
-    ensure_accessories_issued_for_sewing(db, int(wo.production_order_id))
+    ensure_accessories_issued_for_sewing(db, int(wo.production_order_id), production_batch_id=payload.production_batch_id)
     _gate_record_submission(wo)
 
     assignment = None

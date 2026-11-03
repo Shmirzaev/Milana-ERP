@@ -19,6 +19,7 @@ from app.libs.enums.eco_inventory import EcoMaterialKind, EcoMaterialMovementKin
 from app.libs.enums.inventory import StockMovementType
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import require_factory_access, selected_factory_code
+from app.core.dt import as_utc
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 from app.models.inventory.eco_inventory_service import require_permission
 from app.models.inventory_service import available_reservation_item_capacity, reserved_stock_for_batch
@@ -37,7 +38,7 @@ def require_transfer_access(current: User, permission: str) -> None:
 def transfer_output(db: Session, transfer: FactoryFabricTransfer) -> FactoryFabricTransferOut:
     actor = db.get(User, transfer.dispatched_by)
     return FactoryFabricTransferOut(id=transfer.id, number=f"MEC-{transfer.id:06d}",
-                                     status=FactoryFabricTransferStatus(transfer.status), dispatched_at=transfer.dispatched_at,
+                                     status=FactoryFabricTransferStatus(transfer.status), dispatched_at=as_utc(transfer.dispatched_at),
                                      operator_name=actor.name, notes=transfer.notes,
                                      lines=[FactoryFabricTransferLineOut.model_validate(line) for line in db.query(FactoryFabricTransferLine)
                                             .filter_by(transfer_id=transfer.id).order_by(FactoryFabricTransferLine.id).all()])

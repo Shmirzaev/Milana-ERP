@@ -11,6 +11,7 @@ from app.core.pagination import clamp_pagination
 from app.core.model_search import model_code_contains
 from app.schemas import (
     CuttingRecord,
+    Department,
     Item,
     ManualAccessoryIssue,
     MaterialReservation,
@@ -2870,7 +2871,15 @@ def accessory_issue_requests(
     return (rows, len(all_rows)) if include_total else rows
 
 
-def sync_sewing_accessory_block(db: Session, production_order_id: int) -> dict:
+def sync_sewing_accessory_block(db: Session, production_order_id: int, *, sewing_factory_code: str | None = None,
+                              production_batch_id: int | None = None) -> dict:
+    from app.models.inventory.eco_accessory_service import accessory_gate_factories, sync_eco_accessory_block
+    factories = {sewing_factory_code} if sewing_factory_code else accessory_gate_factories(db, production_order_id, production_batch_id)
+    eco_plan = sync_eco_accessory_block(db, production_order_id, batch_id=production_batch_id) if "ECO" in factories else None
+    if factories == {"ECO"} and eco_plan is not None:
+        return eco_plan
+    legacy_factories = factories - {"ECO"} if eco_plan is not None else factories
+    legacy_departments = legacy_factories | ({"SEW"} if "MIL" in legacy_factories else set())
     plan = accessory_issue_plan(db, production_order_id)
     upstream_output = float(
         db.query(func.coalesce(func.sum(CuttingRecord.passed_pieces), 0))
@@ -2888,13 +2897,17 @@ def sync_sewing_accessory_block(db: Session, production_order_id: int) -> dict:
     plan["sewing_gate_active"] = upstream_output > EPSILON
     sewing_orders = (
         db.query(WorkOrder)
+        .join(Department, Department.id == WorkOrder.department_id)
         .filter(
             WorkOrder.production_order_id == production_order_id,
             WorkOrder.operation == "sewing",
+            Department.code.in_(legacy_departments),
             WorkOrder.status.notin_(("completed", "cancelled", "rejected")),
         )
         .all()
     )
+    if production_batch_id is not None:
+        sewing_orders = [wo for wo in sewing_orders if wo.production_batch_id in (None, production_batch_id)]
     if upstream_output <= EPSILON or plan.get("is_complete"):
         for wo in sewing_orders:
             if wo.block_reason == ACCESSORY_SEWING_BLOCK_REASON:
@@ -2905,6 +2918,9 @@ def sync_sewing_accessory_block(db: Session, production_order_id: int) -> dict:
             wo.is_blocked = True
             wo.block_reason = ACCESSORY_SEWING_BLOCK_REASON
     db.flush()
+    if eco_plan is not None and not eco_plan["is_complete"]:
+        plan["is_complete"] = False
+        plan["warning"] = eco_plan["warning"]
     return plan
 
 
@@ -2913,12 +2929,12 @@ def missing_accessory_issue_for_sewing(db: Session, production_order_id: int) ->
     return not bool(plan.get("is_complete"))
 
 
-def ensure_accessories_issued_for_sewing(db: Session, production_order_id: int) -> dict:
-    from app.models.inventory.eco_accessory_service import ensure_eco_accessory_approval
-    eco_plan = ensure_eco_accessory_approval(db, production_order_id)
-    if eco_plan is not None:
-        return eco_plan
-    plan = sync_sewing_accessory_block(db, production_order_id)
+def ensure_accessories_issued_for_sewing(db: Session, production_order_id: int, *, sewing_factory_code: str | None = None,
+                                       production_batch_id: int | None = None) -> dict:
+    plan = sync_sewing_accessory_block(db, production_order_id, sewing_factory_code=sewing_factory_code,
+                                     production_batch_id=production_batch_id)
+    if plan.get("warning") == "ecoAccessories.approvalRequired":
+        raise HTTPException(409, "ecoAccessories.approvalRequired")
     if plan.get("sewing_gate_active") and not plan.get("is_complete"):
         summary = plan.get("summary") or {}
         remaining = float(summary.get("remaining_quantity") or 0)

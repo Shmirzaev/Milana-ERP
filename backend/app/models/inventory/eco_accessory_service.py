@@ -4,10 +4,11 @@ Each public mutation owns one transaction; persistence helpers share its Session
 No factory-owned material is created by a requirement or approval.
 """
 from fastapi import HTTPException
-from sqlalchemy import or_
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import OperationalError
 from app.core.dt import as_utc
-from app.schemas import BrandedPlanningOrder, Bundle, Department, Item, Model, ProductionOrder, SewingRecord, WorkOrder
+from app.schemas import BrandedPlanningOrder, Bundle, Department, Item, Model, ProductionOrder, SewingAssignment, SewingFlow, SewingRecord, WorkOrder
 from app.schemas.inventory.eco_accessory import EcoAccessoryPlan, EcoAccessoryRequirement, EcoAccessoryAllocation
 from app.schemas.inventory import eco_accessory_persistence as writes
 from app.libs.dto.inventory.eco_accessory_input import EcoAccessoryPlanIn, EcoAccessoryDecisionIn, EcoAccessoryIssueIn
@@ -22,7 +23,9 @@ READ = ("eco_accessories.read", "eco_accessories.manage", "eco_accessories.appro
 
 def _access(current, *permissions: str) -> None:
     from app.core.deps import user_permissions
+    from app.models.inventory_access_service import require_accessories
     require_factory_access(current, "ECO")
+    require_accessories(current)
     granted = user_permissions(current)
     if "*" not in granted and not set(granted).intersection(permissions):
         raise HTTPException(403, "Missing ECO accessory permission")
@@ -51,9 +54,12 @@ def is_eco_bso_order(db: Session, order_id: int) -> bool:
         ProductionOrder.planning_order_id.isnot(None), eco_order_condition()).first() is not None
 
 
-def _order(db: Session, order_id: int, *, lock: bool = False):
+def _order(db: Session, order_id: int, *, lock: bool = False, include_history: bool = False):
+    condition = eco_order_condition()
+    if include_history:
+        condition = or_(condition, ProductionOrder.id.in_(db.query(EcoAccessoryPlan.production_order_id)))
     query = db.query(ProductionOrder).filter(ProductionOrder.id == order_id,
-        ProductionOrder.planning_order_id.isnot(None), eco_order_condition())
+        ProductionOrder.planning_order_id.isnot(None), condition)
     if lock:
         query = query.with_for_update(of=ProductionOrder).populate_existing()
     order = query.first()
@@ -64,9 +70,14 @@ def _order(db: Session, order_id: int, *, lock: bool = False):
 
 def _sewing_started(db: Session, order_id: int) -> bool:
     return bool(db.query(Bundle.id).filter(Bundle.production_order_id == order_id,
+        Bundle.sewing_factory_code == "ECO",
         Bundle.status.in_(("sent_to_sewing", "received_sewing"))).first() or db.query(SewingRecord.id)
         .join(WorkOrder, WorkOrder.id == SewingRecord.work_order_id)
-        .filter(WorkOrder.production_order_id == order_id).first())
+        .join(Department, Department.id == WorkOrder.department_id)
+        .outerjoin(SewingAssignment, SewingAssignment.id == SewingRecord.sewing_assignment_id)
+        .outerjoin(SewingFlow, SewingFlow.id == SewingAssignment.sewing_flow_id)
+        .filter(WorkOrder.production_order_id == order_id, or_(SewingFlow.factory_code == "ECO",
+            and_(SewingRecord.sewing_assignment_id.is_(None), Department.code == "ECO"))).first())
 
 
 def _editable(db: Session, order) -> None:
@@ -75,7 +86,15 @@ def _editable(db: Session, order) -> None:
 
 
 def _plan(db: Session, order_id: int, revision: int | None = None):
-    plan = db.query(EcoAccessoryPlan).filter_by(production_order_id=order_id).with_for_update().populate_existing().first()
+    try:
+        # Existing handoffs can already hold bundle/work-order locks. Refuse a
+        # concurrent plan edit instead of reversing their lock order and waiting.
+        plan = db.query(EcoAccessoryPlan).filter_by(production_order_id=order_id).with_for_update(nowait=True).populate_existing().first()
+    except OperationalError as error:
+        if getattr(error.orig, "sqlstate", None) == "55P03" or getattr(error.orig, "pgcode", None) == "55P03":
+            db.rollback()
+            raise HTTPException(409, "ecoAccessories.stale") from error
+        raise
     if revision is not None and (plan.revision if plan else 0) != revision:
         raise HTTPException(409, "ecoAccessories.stale")
     return plan
@@ -98,9 +117,14 @@ def _output_context(db: Session, orders):
         EcoMaterialBatch.id == EcoAccessoryAllocation.batch_id).filter(
         EcoAccessoryAllocation.requirement_id.in_([r.id for r in requirements])).order_by(EcoAccessoryAllocation.id).all()
     started = {oid for (oid,) in db.query(Bundle.production_order_id).filter(Bundle.production_order_id.in_(order_ids),
+        Bundle.sewing_factory_code == "ECO",
         Bundle.status.in_(("sent_to_sewing", "received_sewing"))).distinct().all()}
     started.update(oid for (oid,) in db.query(WorkOrder.production_order_id).join(SewingRecord,
-        SewingRecord.work_order_id == WorkOrder.id).filter(WorkOrder.production_order_id.in_(order_ids)).distinct().all())
+        SewingRecord.work_order_id == WorkOrder.id).join(Department, Department.id == WorkOrder.department_id)
+        .outerjoin(SewingAssignment, SewingAssignment.id == SewingRecord.sewing_assignment_id)
+        .outerjoin(SewingFlow, SewingFlow.id == SewingAssignment.sewing_flow_id)
+        .filter(WorkOrder.production_order_id.in_(order_ids), or_(SewingFlow.factory_code == "ECO",
+            and_(SewingRecord.sewing_assignment_id.is_(None), Department.code == "ECO"))).distinct().all())
     return {
         "plans": {p.production_order_id: p for p in plans}, "requirements": requirements, "allocations": allocations,
         "items": {i.id: i for i in db.query(Item).filter(Item.id.in_([r.item_id for r in requirements])).all()},
@@ -138,7 +162,8 @@ def _output(db: Session, order, context=None) -> EcoAccessoryPlanOut:
 def list_orders(db: Session, current, *, q: str = "", page: int = 1, page_size: int = 30) -> dict:
     _access(current, *READ)
     query = db.query(ProductionOrder).join(Model, Model.id == ProductionOrder.model_id).join(
-        BrandedPlanningOrder, BrandedPlanningOrder.id == ProductionOrder.planning_order_id).filter(eco_order_condition())
+        BrandedPlanningOrder, BrandedPlanningOrder.id == ProductionOrder.planning_order_id).filter(or_(eco_order_condition(),
+            ProductionOrder.id.in_(db.query(EcoAccessoryPlan.production_order_id))))
     if q.strip():
         like = f"%{q.strip()}%"
         query = query.filter(or_(ProductionOrder.production_no.ilike(like), Model.code.ilike(like), BrandedPlanningOrder.order_no.ilike(like)))
@@ -150,7 +175,7 @@ def list_orders(db: Session, current, *, q: str = "", page: int = 1, page_size: 
 
 def get_plan(db: Session, current, order_id: int) -> EcoAccessoryPlanOut:
     _access(current, *READ)
-    return _output(db, _order(db, order_id))
+    return _output(db, _order(db, order_id, include_history=True))
 
 
 def item_options(db: Session, current):
@@ -173,6 +198,12 @@ def save_plan(db: Session, current, order_id: int, payload: EcoAccessoryPlanIn) 
         if not item or not item.is_active or item.category not in {"accessory", "packaging"}:
             raise HTTPException(400, "ecoAccessories.accessoryRequired")
         lines.append((item.id, line.quantity, item.unit))
+    if plan:
+        issued_by_item = {r.item_id: sum(a.issued_quantity for a in db.query(EcoAccessoryAllocation).filter_by(requirement_id=r.id).all())
+            for r in _requirements(db, plan)}
+        requested = {item_id: quantity for item_id, quantity, _ in lines}
+        if any(requested.get(item_id, 0) < issued for item_id, issued in issued_by_item.items()):
+            raise HTTPException(409, "ecoAccessories.issueExceeded")
     old = _output(db, order).model_dump(mode="json")
     if not plan:
         plan = writes.create_plan(db, order=order, actor_id=current.id)
@@ -209,7 +240,7 @@ def approve_plan(db: Session, current, order_id: int, payload: EcoAccessoryDecis
         EcoMaterialBatch.kind == "accessory").order_by(EcoMaterialBatch.id).with_for_update().populate_existing().all() if requirements else []
     assignments = []
     for req in requirements:
-        remaining = req.quantity
+        remaining = req.quantity - sum(a.issued_quantity for a in db.query(EcoAccessoryAllocation).filter_by(requirement_id=req.id).all())
         item = db.get(Item, req.item_id)
         if not item or not item.is_active or item.unit != req.unit or item.category not in {"accessory", "packaging"}:
             raise HTTPException(409, "ecoAccessories.accessoryRequired")
@@ -236,24 +267,23 @@ def reopen_plan(db: Session, current, order_id: int, payload: EcoAccessoryDecisi
     from app.schemas.inventory.eco_inventory import EcoMaterialBatch
     from app.schemas.inventory.eco_inventory_persistence import set_batch_balance
     _access(current, "eco_accessories.approve")
-    order = _order(db, order_id, lock=True)
-    _editable(db, order)
+    order = _order(db, order_id, lock=True, include_history=True)
+    if _sewing_started(db, order.id):
+        raise HTTPException(409, "ecoAccessories.sewingStarted")
     plan = _plan(db, order_id, payload.revision)
-    if not plan or plan.status not in {Status.PENDING, Status.APPROVED}:
+    if not plan or plan.status not in {Status.PENDING, Status.APPROVED, Status.ISSUED}:
         raise HTTPException(409, "ecoAccessories.pendingOnly")
     requirements = _requirements(db, plan)
     allocations = db.query(EcoAccessoryAllocation).filter(EcoAccessoryAllocation.requirement_id.in_([r.id for r in requirements])).all()
-    if any(row.issued_quantity > 0 for row in allocations):
-        raise HTTPException(409, "ecoAccessories.alreadyIssued")
     batches = {b.id: b for b in db.query(EcoMaterialBatch).filter(EcoMaterialBatch.id.in_([a.batch_id for a in allocations]))
         .order_by(EcoMaterialBatch.id).with_for_update().populate_existing().all()} if allocations else {}
     for allocation in allocations:
         batch = batches[allocation.batch_id]
-        if batch.reserved_quantity < allocation.quantity:
+        if batch.reserved_quantity < allocation.quantity - allocation.issued_quantity:
             raise HTTPException(409, "ecoAccessories.allocationMismatch")
     for allocation in allocations:
         batch = batches[allocation.batch_id]
-        set_batch_balance(db, batch, quantity=batch.quantity, reserved_quantity=batch.reserved_quantity - allocation.quantity)
+        set_batch_balance(db, batch, quantity=batch.quantity, reserved_quantity=batch.reserved_quantity - (allocation.quantity - allocation.issued_quantity))
     writes.delete_allocations(db, [r.id for r in requirements])
     writes.set_status(db, plan, Status.DRAFT, notes=payload.notes)
     log_action(db, current, "reopen", "EcoAccessoryPlan", plan.id, new_value={"notes": payload.notes})
@@ -303,7 +333,7 @@ def issue_plan(db: Session, current, order_id: int, payload: EcoAccessoryIssueIn
         raise
 
 
-def ensure_eco_accessory_approval(db: Session, order_id: int) -> dict | None:
+def eco_accessory_readiness(db: Session, order_id: int) -> dict | None:
     """Shared send/receive/start gate. Never consult Milana's accessory balance.
 
     Non-BSO Usluga stays on its existing path. Previously sewn orders with no new
@@ -311,10 +341,48 @@ def ensure_eco_accessory_approval(db: Session, order_id: int) -> dict | None:
     """
     if not is_eco_bso_order(db, order_id):
         return None
-    order = _order(db, order_id, lock=True)
+    order = _order(db, order_id)
     plan = _plan(db, order_id)
     if not plan and _sewing_started(db, order_id):
         return None
-    if not plan or plan.status not in {Status.APPROVED, Status.ISSUED} or not _snapshot_matches(plan, order):
+    complete = bool(plan and plan.status in {Status.APPROVED, Status.ISSUED} and _snapshot_matches(plan, order))
+    return {"is_complete": complete, "status": plan.status if plan else Status.DRAFT.value,
+        "production_order_id": order_id, "sewing_gate_active": True,
+        "warning": None if complete else "ecoAccessories.approvalRequired", "summary": {}}
+
+
+def ensure_eco_accessory_approval(db: Session, order_id: int) -> dict | None:
+    plan = eco_accessory_readiness(db, order_id)
+    if plan is not None and not plan["is_complete"]:
         raise HTTPException(409, "ecoAccessories.approvalRequired")
-    return {"is_complete": True, "status": plan.status, "production_order_id": order_id, "sewing_gate_active": True}
+    return plan
+
+
+def accessory_gate_factories(db: Session, order_id: int, batch_id: int | None = None) -> set[str]:
+    query = db.query(Bundle.sewing_factory_code).filter(Bundle.production_order_id == order_id, Bundle.status != "cancelled")
+    if batch_id is not None:
+        query = query.filter(Bundle.production_batch_id == batch_id)
+    factories = {code or "MIL" for (code,) in query.distinct().all()}
+    if factories:
+        return factories
+    query = db.query(Department.code).join(WorkOrder, WorkOrder.department_id == Department.id).filter(
+        WorkOrder.production_order_id == order_id, WorkOrder.operation == "sewing", WorkOrder.status.notin_(("cancelled", "rejected")))
+    if batch_id is not None:
+        query = query.filter(or_(WorkOrder.production_batch_id == batch_id, WorkOrder.production_batch_id.is_(None)))
+    return {"MIL" if code == "SEW" else code for (code,) in query.distinct().all()} or {"MIL"}
+
+
+def sync_eco_accessory_block(db: Session, order_id: int, *, batch_id: int | None = None) -> dict | None:
+    plan = eco_accessory_readiness(db, order_id)
+    if plan is None:
+        return None
+    query = db.query(WorkOrder).join(Department, Department.id == WorkOrder.department_id).filter(
+        Department.code == "ECO", WorkOrder.production_order_id == order_id, WorkOrder.operation == "sewing",
+        WorkOrder.status.notin_(("completed", "cancelled", "rejected")))
+    if batch_id is not None:
+        query = query.filter(or_(WorkOrder.production_batch_id == batch_id, WorkOrder.production_batch_id.is_(None)))
+    for work in query.all():
+        if work.block_reason in {None, "Accessories must be issued before sewing.", "ecoAccessories.approvalRequired"}:
+            writes.set_sewing_block(db, work, blocked=not plan["is_complete"])
+    db.flush()
+    return plan

@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.deps import user_permissions
+from app.core.dt import as_utc
 from app.libs.dto.inventory.eco_inventory_input import EcoMaterialConsumeIn, EcoMaterialReceiveIn
 from app.libs.dto.inventory.eco_inventory_output import EcoMaterialBatchOut, EcoMaterialItemOut, EcoMaterialMovementOut, EcoMaterialMutationOut, EcoMaterialOrderOut
 from app.libs.enums.eco_inventory import EcoMaterialKind, EcoMaterialMovementKind
@@ -19,6 +20,13 @@ from app.models.idempotency_service import replay_idempotent_response, store_ide
 from app.schemas import Bundle, Department, Item, ProductionOrder, User, WorkOrder
 from app.schemas.inventory.eco_inventory import EcoMaterialBatch, EcoMaterialMovement
 from app.schemas.inventory import eco_inventory_persistence as persistence
+from app.models.inventory_access_service import materials_only, require_accessories
+
+
+def scoped_kind(current: User, kind: EcoMaterialKind | None) -> EcoMaterialKind | None:
+    if kind == EcoMaterialKind.ACCESSORY:
+        require_accessories(current)
+    return EcoMaterialKind.FABRIC if kind is None and materials_only(current) else kind
 
 
 def require_permission(current: User, permission: str) -> None:
@@ -52,11 +60,12 @@ def batch_output(db: Session, batch: EcoMaterialBatch, item: Item | None = None)
     return EcoMaterialBatchOut(id=batch.id, item_id=batch.item_id, item_name=item.name, sku=item.sku,
                                kind=EcoMaterialKind(batch.kind), batch_no=batch.batch_no, color=batch.color,
                                unit=batch.unit, quantity=batch.quantity, reserved_quantity=batch.reserved_quantity,
-                               available_quantity=batch.quantity - batch.reserved_quantity, received_at=batch.received_at)
+                               available_quantity=batch.quantity - batch.reserved_quantity, received_at=as_utc(batch.received_at))
 
 
 def list_items(db: Session, current: User, kind: EcoMaterialKind) -> list[EcoMaterialItemOut]:
     require_eco(current, "eco_inventory.read")
+    kind = scoped_kind(current, kind)
     categories = ("fabric", "semi_finished") if kind == EcoMaterialKind.FABRIC else ("accessory", "packaging")
     return [EcoMaterialItemOut(id=item.id, sku=item.sku, name=item.name, unit=item.unit, kind=kind)
             for item in db.query(Item).filter(Item.category.in_(categories), Item.is_active.is_(True)).order_by(Item.name).all()]
@@ -77,6 +86,7 @@ def list_orders(db: Session, current: User) -> list[EcoMaterialOrderOut]:
 def list_stock(db: Session, current: User, kind: EcoMaterialKind | None = None,
                offset: int = 0, limit: int = 200) -> list[EcoMaterialBatchOut]:
     require_eco(current, "eco_inventory.read")
+    kind = scoped_kind(current, kind)
     query = db.query(EcoMaterialBatch, Item).join(Item, Item.id == EcoMaterialBatch.item_id)
     if kind:
         query = query.filter(EcoMaterialBatch.kind == kind.value)
@@ -85,6 +95,7 @@ def list_stock(db: Session, current: User, kind: EcoMaterialKind | None = None,
 
 def receive_stock(db: Session, payload: EcoMaterialReceiveIn, current: User) -> EcoMaterialMutationOut:
     require_eco(current, "eco_inventory.receive")
+    scoped_kind(current, payload.kind)
     body = payload.model_dump(mode="json")
     replay = replay_idempotent_response(db, scope="eco_inventory.receive", key=payload.request_key, payload=body)
     if replay is not None:
@@ -167,6 +178,7 @@ def consume_stock(db: Session, payload: EcoMaterialConsumeIn, current: User) -> 
 def list_history(db: Session, current: User, kind: EcoMaterialKind | None = None,
                  batch_id: int | None = None, offset: int = 0, limit: int = 100) -> list[EcoMaterialMovementOut]:
     require_eco(current, "eco_inventory.read")
+    kind = scoped_kind(current, kind)
     query = db.query(EcoMaterialMovement, EcoMaterialBatch, Item, User, ProductionOrder).join(
         EcoMaterialBatch, EcoMaterialBatch.id == EcoMaterialMovement.batch_id,
     ).join(Item, Item.id == EcoMaterialBatch.item_id).join(User, User.id == EcoMaterialMovement.created_by).outerjoin(
@@ -180,5 +192,5 @@ def list_history(db: Session, current: User, kind: EcoMaterialKind | None = None
                                    unit=batch.unit, kind=EcoMaterialMovementKind(movement.kind), quantity=movement.quantity,
                                    production_order_id=movement.production_order_id, order_no=order.order_no if order else None,
                                    reference_type=movement.reference_type, reference_id=movement.reference_id,
-                                   notes=movement.notes, created_at=movement.created_at, operator_name=actor.name)
+                                   notes=movement.notes, created_at=as_utc(movement.created_at), operator_name=actor.name)
             for movement, batch, item, actor, order in query.order_by(EcoMaterialMovement.id.desc()).offset(offset).limit(limit).all()]

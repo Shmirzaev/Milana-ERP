@@ -9,6 +9,7 @@ import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { ecoAccessoriesText } from "@/lib/ecoAccessoriesText";
 import { ApiError } from "@/lib/errorMessages";
+import { retainEcoPendingAfterFailure } from "@/lib/ecoInventory";
 
 type Allocation = { id: number; batch_id: number; batch_no: string; quantity: number | string; issued_quantity: number | string };
 type Requirement = { item_id: number; sku: string; item_name: string; unit: string; quantity: number | string; allocations: Allocation[] };
@@ -75,6 +76,7 @@ export default function EcoAccessoriesPage() {
   }
   async function issue() {
     if (!plan || busy) return;
+    const wasUncertain = issuePending;
     issueAttempt.current ||= {orderId: plan.production_order_id, key: crypto.randomUUID(), body: {revision: plan.revision,
       lines: plan.lines.flatMap(line => line.allocations.filter(a => Number(a.quantity) > Number(a.issued_quantity)).map(a => ({
         allocation_id: a.id, quantity: (Number(a.quantity) - Number(a.issued_quantity)).toFixed(4),
@@ -88,7 +90,7 @@ export default function EcoAccessoriesPage() {
       await reloadDetail(result, false); await mutate(); setMessage(c.saved);
     } catch (err) {
       fail(err);
-      if (err instanceof ApiError && err.status >= 400 && err.status < 500 && err.status !== 408 && err.status !== 429) {
+      if (!retainEcoPendingAfterFailure(storageKey, err instanceof ApiError ? err.status : 0, wasUncertain)) {
         issueAttempt.current = null; setIssuePending(false); if (storageKey) sessionStorage.removeItem(storageKey);
         await reloadDetail();
       }
@@ -130,7 +132,7 @@ export default function EcoAccessoriesPage() {
           {editable && <button className="btn" disabled={busy || issuePending} onClick={() => action("save")}>{c.save}</button>}
           {editable && plan.id && <button className="btn btn-primary" disabled={busy || issuePending || dirty} onClick={() => action("submit")}>{c.submit}</button>}
           {!plan.sewing_started && plan.status === "pending" && can(me, "eco_accessories.approve") && <button className="btn btn-primary" disabled={busy || issuePending} onClick={() => action("approve")}>{c.approve}</button>}
-          {!plan.sewing_started && ["pending", "approved"].includes(plan.status) && can(me, "eco_accessories.approve") && <button className="btn" disabled={busy || issuePending} onClick={() => action("reopen")}>{c.reopen}</button>}
+          {!plan.sewing_started && ["pending", "approved", "issued"].includes(plan.status) && can(me, "eco_accessories.approve") && <button className="btn" disabled={busy || issuePending} onClick={() => action("reopen")}>{c.reopen}</button>}
           {(plan.status === "approved" && plan.lines.some(l => l.allocations.some(a => Number(a.quantity) > Number(a.issued_quantity))) || issuePending) && can(me, "eco_accessories.issue") && <button className="btn btn-primary" disabled={busy} onClick={() => issue()}>{issuePending ? c.retry : c.issue}</button>}
         </div>
       </>}</section>

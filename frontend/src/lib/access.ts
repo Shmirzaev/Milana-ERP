@@ -79,6 +79,7 @@ export function isMaterialsOnly(me: Me | undefined): boolean {
 export function hasInventoryPathAccess(me: Me | undefined, href: string): boolean {
   if (!isMaterialsOnly(me)) return true;
   const [pathname = "", query = ""] = href.split("?", 2);
+  if (pathname === "/eco-accessories" || (pathname === "/eco-inventory" && new URLSearchParams(query).get("kind") === "accessory")) return false;
   return !(pathname.startsWith("/inventory") && (
     pathname === "/inventory/accessory-pricing"
     || new URLSearchParams(query).get("group") === "accessories"
