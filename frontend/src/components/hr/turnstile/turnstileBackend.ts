@@ -14,7 +14,8 @@ export interface EditBaseline { revision: number; profile_hash: string; full_nam
 export interface EditTarget { device_id: number; expected_revision: number; expected_profile_hash: string }
 export interface EditPayload { expected_employee_no: string; reviewed_name: string; action: GateAction.Edit; targets: EditTarget[] }
 export interface PhotoPayload { expected_employee_no: string; photo_asset_id: number; manual_face_reviewed: true; action: GateAction.Photo; targets: EditTarget[] }
-export type GatePayload = EnrollmentPayload | EditPayload | PhotoPayload;
+export interface RevokePayload { expected_employee_no: string; action: GateAction.Revoke; targets: EditTarget[] }
+export type GatePayload = EnrollmentPayload | EditPayload | PhotoPayload | RevokePayload;
 export interface EnrollmentPayload { expected_employee_no: string; device_ids: number[]; photo_asset_id: number; reviewed_name: string; manual_face_reviewed: true; action: GateAction.Enroll }
 const prefix = "/api/turnstile-access";
 export const contextUrl = (employeeId: number) => `${prefix}/employees/${employeeId}`;
@@ -37,7 +38,7 @@ export function validRequest(value: unknown): value is EnrollmentRequest {
   const r = value as EnrollmentRequest, p = r.payload;
   if (typeof r.key !== "string" || !r.key || !p || typeof p.expected_employee_no !== "string" || !p.expected_employee_no.trim() || p.expected_employee_no.length > 64 || (r.acceptedId !== undefined && (!Number.isInteger(r.acceptedId) || r.acceptedId <= 0))) return false;
   if (p.action === GateAction.Enroll) return typeof p.reviewed_name === "string" && !!p.reviewed_name.trim() && p.reviewed_name.length <= 255 && Array.isArray(p.device_ids) && p.device_ids.length > 0 && p.device_ids.length <= 32 && new Set(p.device_ids).size === p.device_ids.length && p.device_ids.every(x => Number.isInteger(x) && x > 0) && Number.isInteger(p.photo_asset_id) && p.photo_asset_id > 0 && p.manual_face_reviewed === true;
-  if (p.action === GateAction.Edit || p.action === GateAction.Photo) return (p.action === GateAction.Edit ? typeof p.reviewed_name === "string" && !!p.reviewed_name.trim() && p.reviewed_name.length <= 255 : Number.isInteger(p.photo_asset_id) && p.photo_asset_id > 0 && p.manual_face_reviewed === true && !("reviewed_name" in p)) && Array.isArray(p.targets) && p.targets.length > 0 && p.targets.length <= 32 && new Set(p.targets.map(t => t?.device_id)).size === p.targets.length && p.targets.every(t => t && Number.isInteger(t.device_id) && t.device_id > 0 && Number.isInteger(t.expected_revision) && t.expected_revision > 0 && typeof t.expected_profile_hash === "string" && /^[0-9a-f]{64}$/.test(t.expected_profile_hash));
+  if (p.action === GateAction.Edit || p.action === GateAction.Photo || p.action === GateAction.Revoke) return (p.action === GateAction.Edit ? typeof p.reviewed_name === "string" && !!p.reviewed_name.trim() && p.reviewed_name.length <= 255 : p.action === GateAction.Photo ? Number.isInteger(p.photo_asset_id) && p.photo_asset_id > 0 && p.manual_face_reviewed === true && !("reviewed_name" in p) : Object.keys(p).every(k => ["action", "expected_employee_no", "targets"].includes(k))) && Array.isArray(p.targets) && p.targets.length > 0 && p.targets.length <= 32 && new Set(p.targets.map(t => t?.device_id)).size === p.targets.length && p.targets.every(t => t && Number.isInteger(t.device_id) && t.device_id > 0 && Number.isInteger(t.expected_revision) && t.expected_revision > 0 && typeof t.expected_profile_hash === "string" && /^[0-9a-f]{64}$/.test(t.expected_profile_hash));
   return false;
 }
 export type SubmissionResult = { kind: "accepted"; operation: ServerOperation } | { kind: "refused"; status: number } | { kind: "unknown" };
@@ -48,6 +49,7 @@ export async function submitEnrollment(employeeId: number, request: EnrollmentRe
     switch (request.payload.action) {
       case GateAction.Enroll: operation = await enroll(employeeId, request.payload, request.key); break;
       case GateAction.Edit: operation = await api.postWithHeaders<ServerOperation>(`${prefix}/employees/${employeeId}/edit`, request.payload, { "Idempotency-Key": request.key }); break;
+      case GateAction.Revoke: operation = await api.postWithHeaders<ServerOperation>(`${prefix}/employees/${employeeId}/revoke`, request.payload, { "Idempotency-Key": request.key }); break;
       case GateAction.Photo: operation = await api.postWithHeaders<ServerOperation>(`${prefix}/employees/${employeeId}/photo`, request.payload, { "Idempotency-Key": request.key }); break;
       default: return { kind: "refused", status: 400 };
     }
@@ -66,8 +68,8 @@ export function findAcceptedOperation(operations: ServerOperation[], request: En
   return operations.find(op => {
     if (op.id !== request.acceptedId || op.external_person_id !== p.expected_employee_no || op.action !== p.action || op.mode !== GateMode.Simulator || new Set(op.targets.map(t => t.device_id)).size !== op.targets.length) return false;
     if (p.action === GateAction.Enroll) return op.full_name === p.reviewed_name && op.photo_asset_id === p.photo_asset_id && op.targets.length === p.device_ids.length && op.targets.every(t => p.device_ids.includes(t.device_id));
-    if (p.action !== GateAction.Edit && p.action !== GateAction.Photo) return false;
-    if (p.action === GateAction.Edit ? op.full_name !== p.reviewed_name || op.photo_asset_id !== null : op.photo_asset_id !== p.photo_asset_id) return false;
+    if (p.action !== GateAction.Edit && p.action !== GateAction.Photo && p.action !== GateAction.Revoke) return false;
+    if (p.action === GateAction.Edit ? op.full_name !== p.reviewed_name || op.photo_asset_id !== null : p.action === GateAction.Photo ? op.photo_asset_id !== p.photo_asset_id : op.photo_asset_id !== null) return false;
     return op.targets.length === p.targets.length && op.targets.every(t => p.targets.some(ref => ref.device_id === t.device_id && ref.expected_revision === t.baseline_revision && ref.expected_profile_hash === t.baseline_profile_hash));
   });
 }

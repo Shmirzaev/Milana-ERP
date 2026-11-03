@@ -214,3 +214,25 @@ const photoStaleEnv = { ...staleEnv, action: preview.GateAction.Photo, reviewedT
 await new Function(...Object.keys(photoStaleEnv), `${applyJs}; return backendApply;`)(...Object.values(photoStaleEnv))();
 assert.deepEqual(photoStaleEvents, [["confirm",false],["message","stale"]]);
 console.log("turnstile photo stale baseline refusal passed");
+
+
+const revokeRequest = { key: "revoke-key", payload: { expected_employee_no: "EMP-4", action: preview.GateAction.Revoke, targets: [{ device_id: 2, expected_revision: 3, expected_profile_hash: hash }] } };
+const revokeReceipt = { ...editReceipt, action: preview.GateAction.Revoke, full_name: "Informational HR name", photo_asset_id: null };
+assert(out.validRequest(revokeRequest));
+for (const bad of [{ ...revokeRequest.payload, reviewed_name: "bad" }, { ...revokeRequest.payload, photo_asset_id: 1 }, { ...revokeRequest.payload, targets: [revokeRequest.payload.targets[0], revokeRequest.payload.targets[0]] }, { ...revokeRequest.payload, action: "REVOKE" }]) assert(!out.validRequest({ ...revokeRequest, payload: bad }));
+response = revokeReceipt; assert.equal((await out.submitEnrollment(4, revokeRequest)).kind, "accepted");
+assert.equal(calls.at(-1).url, "/api/turnstile-access/employees/4/revoke"); assert.equal(calls.at(-1).headers["Idempotency-Key"], "revoke-key");
+const anchoredRevoke = { ...revokeRequest, acceptedId: 12 };
+assert.equal(out.findAcceptedOperation([revokeReceipt], revokeRequest), undefined);
+assert.equal(out.findAcceptedOperation([revokeReceipt], anchoredRevoke)?.id, 12);
+for (const bad of [{ ...revokeReceipt, id: 13 }, { ...revokeReceipt, action: "edit" }, { ...revokeReceipt, mode: "disabled" }, { ...revokeReceipt, external_person_id: "OTHER" }, { ...revokeReceipt, photo_asset_id: 7 }, { ...revokeReceipt, targets: [{ ...revokeReceipt.targets[0], baseline_profile_hash: "b".repeat(64) }] }, { ...revokeReceipt, targets: [revokeReceipt.targets[0], revokeReceipt.targets[0]] }]) assert.equal(out.findAcceptedOperation([bad], anchoredRevoke), undefined);
+await out.lookupRequest(4, revokeRequest); assert.equal(calls.at(-1).url, "/api/turnstile-access/employees/4/requests/revoke");
+const revokeUnknown = await runHandler({ kind: "unknown" }, { savedRequest: revokeRequest }); assert(revokeUnknown.journal.has("key"));
+const revokeRefused = await runHandler({ kind: "refused", status: 403 }, { verifyFirst: true, receipt: null, savedRequest: revokeRequest }); assert(revokeRefused.journal.has("key"));
+const revokeRecovered = await runHandler({ kind: "unknown" }, { verifyFirst: true, receipt: revokeReceipt, savedRequest: revokeRequest }); assert(revokeRecovered.events.some(e => e[0] === "accepted")); assert(!revokeRecovered.events.some(e => e[0] === "post"));
+const revokeStaleEvents = [];
+const revokeStaleEnv = { ...staleEnv, needsPhoto: false, action: preview.GateAction.Revoke, reviewedTargets: revokeRequest.payload.targets, context: { data: { bindings: [{ device_id: 2, state: "revoked", edit_baseline: null }] } }, setConfirm: v => revokeStaleEvents.push(["confirm", v]), setMessage: v => revokeStaleEvents.push(["message", v]) };
+await new Function(...Object.keys(revokeStaleEnv), `${applyJs}; return backendApply;`)(...Object.values(revokeStaleEnv))();
+assert.deepEqual(revokeStaleEvents, [["confirm", false], ["message", "stale"]]);
+assert.equal(isBlocked(true, true, { data: { simulator_enabled: true, supported_actions: [preview.GateAction.Revoke] } }, preview.GateAction.Revoke, false, null, false, "EMP-4", { status: "archived" }, preview.GateAction), false);
+console.log("turnstile revoke bridge and recovery tests passed");
