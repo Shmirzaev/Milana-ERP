@@ -15,7 +15,7 @@ schema 0150; never bypass production security or stamp/downgrade the database.
 
 Copying the exact reviewed 0150 migration into the old source makes its real CMD
 and strict schema verifier compatible. CI must exercise the exact published image
-by digest against job-owned PostgreSQL and Redis: no host ports or source mounts,
+by digest against job-owned PostgreSQL and a production-style shared SQLite counter store: no host ports or source mounts,
 production security settings, seed disabled, two workers, strict-head verification,
 health/readiness, child-worker replacement, container restart, and zero test users,
 models or release ledger entries. Cleanup requires run-specific ownership labels.
@@ -47,3 +47,20 @@ unreviewed schema or normalized drift. Committed LF source hashes also work with
 Windows CRLF checkouts. Independent review and actual isolated PostgreSQL36cases
 passed before rerunning the complete immutable-release workflow. Application,
 frontend, migration, dependencies and image command remain unchanged.
+
+
+CI41623628745 on975fca92 passed all backend/frontend/PostgreSQL jobs and built
+backend digest75ff2b4e749990075061a423608fdd4752dc38d88e14c481c60b54b4f020a5a5.
+The actual defaultCMD started two strict head0150 workers and health/readiness
+passed. Its separate test-side shared-store validation then failed: the harness
+selected Redis although this exact old image intentionally has no Redis dependency.
+A read-only production scheme probe confirmed SQLite. No production preparation,
+leases, source staging or traffic switching occurred in this failed run.
+
+The correction matches the actual SQLiteSharedCounterStore in an owned container
+filesystem, keeps every production/rate/auth/proxy security guard enabled, and
+requires independent process increments1/2, post-worker-respawn3 and post-container-
+restart4. No application dependency is installed or changed. The canonical test
+source hash is updated in the exact schema-contract test. Supplemental read-only-
+GHCR image QA tests the already-built975 digest after proving unchanged application
+source; it publishes/deploys nothing and does not replace full exact-new-head CI.
