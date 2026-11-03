@@ -74,7 +74,7 @@ def bearer(user_id, factory="MIL"):
     return {"Authorization": f"Bearer {create_access_token(user_id, {'factory_code': factory})}"}
 
 
-def switch_without_writes(h, code, *, path="/api/auth/switch-factory", headers=None):
+def switch_with_expected_effects(h, code, *, path="/api/auth/switch-factory", headers=None, expected_audit=None):
     factory, user_id, client = h
     writes = []
     engine = factory.kw["bind"]
@@ -87,28 +87,46 @@ def switch_without_writes(h, code, *, path="/api/auth/switch-factory", headers=N
         before = db.query(AuditLog).count()
         user = db.get(User, user_id)
         assigned = (user.factory_code, user.extra_permissions, user.access_policy, user.tokens_valid_from)
+    started = datetime.now(timezone.utc) - timedelta(seconds=5)
     event.listen(engine, "before_cursor_execute", record_write)
     try:
         response = client.post(path, json={"factory_code": code}, headers=headers or {})
     finally:
         event.remove(engine, "before_cursor_execute", record_write)
-    assert writes == [], "switch must not write any database row"
     with factory() as db:
         user = db.get(User, user_id)
         assert (user.factory_code, user.extra_permissions, user.access_policy, user.tokens_valid_from) == assigned
-        assert db.query(AuditLog).count() == before
+        entries = db.query(AuditLog).order_by(AuditLog.id).all()[before:]
+        if expected_audit:
+            # Decided after #382: a real factory change now writes exactly one audit row.
+            old_factory, new_factory = expected_audit
+            assert response.status_code == 200
+            assert len(entries) == 1
+            entry = entries[0]
+            assert (entry.user_id, entry.action, entry.entity_type, entry.entity_id) == (
+                user_id, "switch_factory", "User", user_id,
+            )
+            assert entry.old_value_json == {"factory_code": old_factory}
+            assert entry.new_value_json == {"factory_code": new_factory}
+            assert entry.entry_hash
+            when = entry.created_at.replace(tzinfo=timezone.utc) if entry.created_at.tzinfo is None else entry.created_at
+            assert started <= when <= datetime.now(timezone.utc) + timedelta(seconds=5)
+            assert len(writes) == 1 and writes[0].lstrip().upper().startswith("INSERT INTO AUDIT_LOGS")
+        else:
+            assert entries == []
+            assert writes == [], "refused or unchanged selection must not write"
     return response
 
 
 @pytest.mark.parametrize("path", ["/api/auth/switch-factory", "/api/session/switch-factory"])
 def test_allowed_switch_reissues_cookie_with_selected_claim_and_scoped_grants(h, path):
     _, user_id, client = h
-    response = switch_without_writes(h, " eco ", path=path, headers=bearer(user_id))
+    response = switch_with_expected_effects(h, " eco ", path=path, headers=bearer(user_id))
     # The raw length guard runs before normalization, so use a three-character code.
     assert response.status_code == 422
     assert response.json() == {"detail": "Factory code must be 1 to 3 characters"}
 
-    response = switch_without_writes(h, "eco", path=path, headers=bearer(user_id))
+    response = switch_with_expected_effects(h, "eco", path=path, headers=bearer(user_id), expected_audit=("MIL", "ECO"))
     assert response.status_code == 200, response.text
     assert response.json() == {"message": "logged_in"}
     cookie = response.cookies[settings.AUTH_COOKIE_NAME]
@@ -128,16 +146,23 @@ def test_allowed_switch_reissues_cookie_with_selected_claim_and_scoped_grants(h,
 
 def test_normalization_and_primary_permissions_on_return(h):
     _, user_id, client = h
-    switch_without_writes(h, "ECO", headers=bearer(user_id))
-    response = switch_without_writes(h, " mil ", headers=bearer(user_id, "ECO"))
+    switch_with_expected_effects(h, "ECO", headers=bearer(user_id), expected_audit=("MIL", "ECO"))
+    response = switch_with_expected_effects(h, " mil ", headers=bearer(user_id, "ECO"))
     assert response.status_code == 422
-    response = switch_without_writes(h, "mil", headers=bearer(user_id, "ECO"))
+    response = switch_with_expected_effects(h, "mil", headers=bearer(user_id, "ECO"), expected_audit=("ECO", "MIL"))
     assert response.status_code == 200
     assert decode_token(response.cookies[settings.AUTH_COOKIE_NAME])["factory_code"] == "MIL"
     client.cookies.clear()
     me = client.get("/api/auth/me", headers=bearer(user_id, "MIL"))
     assert me.status_code == 200
     assert me.json()["permissions"] == ["planning.production", "finance.view"]
+
+
+def test_reselecting_current_factory_does_not_add_a_switch_audit(h):
+    _, user_id, _ = h
+    response = switch_with_expected_effects(h, "mil", headers=bearer(user_id))
+    assert response.status_code == 200
+    assert decode_token(response.cookies[settings.AUTH_COOKIE_NAME])["factory_code"] == "MIL"
 
 
 @pytest.mark.parametrize("code,status,detail", [
@@ -149,7 +174,7 @@ def test_normalization_and_primary_permissions_on_return(h):
 ])
 def test_refused_factory_has_exact_error_and_no_new_cookie(h, code, status, detail):
     _, user_id, client = h
-    response = switch_without_writes(h, code, headers=bearer(user_id))
+    response = switch_with_expected_effects(h, code, headers=bearer(user_id))
     assert (response.status_code, response.json()) == (status, {"detail": detail})
     assert "set-cookie" not in response.headers
 
@@ -161,7 +186,7 @@ def test_policy_denies_only_secondary_grant_and_factory_becomes_unavailable(h):
         user.extra_permissions = ["factory:ECO:usluga.manage"]
         user.access_policy = {"ECO": {"deny": ["usluga.manage"]}}
         db.commit()
-    response = switch_without_writes(h, "ECO", headers=bearer(user_id))
+    response = switch_with_expected_effects(h, "ECO", headers=bearer(user_id))
     assert (response.status_code, response.json()) == (
         403, {"detail": "This account is not assigned to the selected factory"})
     assert "set-cookie" not in response.headers
@@ -170,12 +195,12 @@ def test_policy_denies_only_secondary_grant_and_factory_becomes_unavailable(h):
 def test_inactive_and_missing_auth_refuse_before_switch_validation(h):
     factory, user_id, client = h
     client.cookies.clear()
-    missing = switch_without_writes(h, "MILX")
+    missing = switch_with_expected_effects(h, "MILX")
     assert (missing.status_code, missing.json()) == (401, {"detail": "Not authenticated"})
     with factory() as db:
         db.get(User, user_id).is_active = False
         db.commit()
-    inactive = switch_without_writes(h, "MILX", headers=bearer(user_id))
+    inactive = switch_with_expected_effects(h, "MILX", headers=bearer(user_id))
     assert (inactive.status_code, inactive.json()) == (401, {"detail": "Inactive or unknown user"})
     assert "set-cookie" not in inactive.headers
 
@@ -191,7 +216,7 @@ def test_invalid_token_refuses_before_factory_selection(h, token_kind):
             "exp": int((datetime.now(timezone.utc) - timedelta(minutes=1)).timestamp()),
         })
     )
-    response = switch_without_writes(h, "ECO", headers={"Authorization": f"Bearer {token}"})
+    response = switch_with_expected_effects(h, "ECO", headers={"Authorization": f"Bearer {token}"})
     assert (response.status_code, response.json()) == (401, {"detail": "Invalid token"})
     assert "set-cookie" not in response.headers
 
@@ -206,7 +231,7 @@ def test_old_token_retains_factory_until_its_grant_is_revoked(h, transport):
         headers = None
     else:
         headers = {"Authorization": f"Bearer {old}"}
-    switched = switch_without_writes(h, "MIL", headers=headers)
+    switched = switch_with_expected_effects(h, "MIL", headers=headers, expected_audit=("ECO", "MIL"))
     assert switched.status_code == 200, switched.text
     new = switched.cookies[settings.AUTH_COOKIE_NAME]
     assert decode_token(new)["factory_code"] == "MIL"
@@ -241,7 +266,7 @@ def test_credential_cutoff_rejects_pre_rotation_factory_token(h):
     with factory() as db:
         db.get(User, user_id).tokens_valid_from = datetime.now(timezone.utc) + timedelta(seconds=1)
         db.commit()
-    response = switch_without_writes(h, "MIL", headers={"Authorization": f"Bearer {old}"})
+    response = switch_with_expected_effects(h, "MIL", headers={"Authorization": f"Bearer {old}"})
     assert (response.status_code, response.json()) == (401, {"detail": "Token expired, please sign in again"})
     assert "set-cookie" not in response.headers
 
