@@ -4,10 +4,11 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import socket
-from threading import Thread
+from threading import Event, Thread, enumerate as live_threads
 from time import monotonic, sleep
 from uuid import uuid4
 
+from anyio._backends._asyncio import WorkerThread
 import httpx
 import pytest
 from sqlalchemy import create_engine, select
@@ -46,6 +47,7 @@ def bulk_http(request, tmp_path, monkeypatch):
         engine = create_engine(f"sqlite:///{tmp_path / 'bulk.sqlite'}", connect_args={"check_same_thread": False})
     sessions = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     server = thread = None
+    workers_before = None
     try:
         Base.metadata.create_all(engine)
         now = datetime.now(timezone.utc)
@@ -75,6 +77,7 @@ def bulk_http(request, tmp_path, monkeypatch):
             server = uvicorn.Server(uvicorn.Config(app, host=host, port=port, lifespan="off",
                                                    proxy_headers=False, log_level="critical"))
             thread = Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
+            workers_before = frozenset(live_threads())
             thread.start()
             deadline = monotonic() + 5
             while not server.started and thread.is_alive() and monotonic() < deadline:
@@ -84,14 +87,22 @@ def bulk_http(request, tmp_path, monkeypatch):
             with httpx.Client(base_url=f"http://{host}:{port}", headers=headers, timeout=60, trust_env=False) as client:
                 yield client, sessions, employee_id, period_id
     finally:
-        if server is not None:
-            server.should_exit = True
-        if thread is not None:
-            thread.join(timeout=5)
-            assert not thread.is_alive(), "Isolated HTTP server did not stop"
-        if target is not None:
-            finalize_target(target, engine)
-        else:
+        try:
+            if server is not None:
+                server.should_exit = True
+            if thread is not None:
+                thread.join(timeout=5)
+                assert not thread.is_alive(), "Isolated HTTP server did not stop"
+            # AnyIO workers can outlive the server thread while its loop closes.
+            deadline = monotonic() + 5
+            for worker in live_threads() if workers_before is not None else ():
+                if worker not in workers_before and isinstance(worker, WorkerThread):
+                    worker.join(timeout=max(0, deadline - monotonic()))
+                    assert not worker.is_alive(), "Isolated HTTP worker did not stop"
+        finally:
+            if target is not None:
+                finalize_target(target, engine)
+        if target is None:
             engine.dispose()
 
 
@@ -188,3 +199,42 @@ def test_perf06_500_distinct_issued_labels_replay_only_audits_request(bulk_http)
         assert summary["new_value_json"] == {"created_count": 0, "duplicate_count": 500, "record_ids": []}
         assert db.query(AuditLog).filter_by(entity_type="PayrollRecord", action="create").count() == 500
         assert verify_audit_hash_chain(db)["ok"], "Replay summary must preserve a valid audit chain"
+
+
+@pytest.mark.parametrize("bulk_http", ["postgres"], indirect=True)
+def test_postgres_fixture_waits_for_late_http_workers(bulk_http, monkeypatch):
+    client, _sessions, _employee_id, _period_id = bulk_http
+    workers = []
+    release = Event()
+    original_run = WorkerThread.run
+    original_join = WorkerThread.join
+    original_finalize = finalize_target
+
+    def delayed_exit(worker):
+        workers.append(worker)
+        try:
+            original_run(worker)
+        finally:
+            release.wait()
+
+    def join_and_release(worker, timeout=None):
+        release.set()
+        original_join(worker, timeout)
+
+    def check_then_finalize(target, engine):
+        try:
+            assert workers and all(not worker.is_alive() for worker in workers), (
+                "PostgreSQL finalizer reached before HTTP workers exited"
+            )
+        finally:
+            try:
+                release.set()
+                for worker in workers:
+                    original_join(worker, timeout=5)
+            finally:
+                original_finalize(target, engine)
+
+    monkeypatch.setitem(globals(), "finalize_target", check_then_finalize)
+    monkeypatch.setattr(WorkerThread, "run", delayed_exit)
+    monkeypatch.setattr(WorkerThread, "join", join_and_release)
+    assert client.get("/api/auth/me").status_code == 200
