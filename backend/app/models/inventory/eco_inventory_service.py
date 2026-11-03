@@ -11,12 +11,12 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import user_permissions
 from app.libs.dto.inventory.eco_inventory_input import EcoMaterialConsumeIn, EcoMaterialReceiveIn
-from app.libs.dto.inventory.eco_inventory_output import EcoMaterialBatchOut, EcoMaterialItemOut, EcoMaterialMovementOut, EcoMaterialMutationOut
+from app.libs.dto.inventory.eco_inventory_output import EcoMaterialBatchOut, EcoMaterialItemOut, EcoMaterialMovementOut, EcoMaterialMutationOut, EcoMaterialOrderOut
 from app.libs.enums.eco_inventory import EcoMaterialKind, EcoMaterialMovementKind
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import require_factory_access
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
-from app.schemas import Department, Item, ProductionOrder, User, WorkOrder
+from app.schemas import Bundle, Department, Item, ProductionOrder, User, WorkOrder
 from app.schemas.inventory.eco_inventory import EcoMaterialBatch, EcoMaterialMovement
 from app.schemas.inventory import eco_inventory_persistence as persistence
 
@@ -40,7 +40,9 @@ def require_eco_order(db: Session, production_order_id: int) -> ProductionOrder:
     assigned = db.query(WorkOrder.id).join(Department, Department.id == WorkOrder.department_id).filter(
         WorkOrder.production_order_id == order.id, WorkOrder.operation == "sewing", Department.code == "ECO",
     ).first()
-    if not assigned:
+    routed = db.query(Bundle.id).filter(Bundle.production_order_id == order.id, Bundle.sewing_factory_code == "ECO",
+                                        Bundle.status != "cancelled").first()
+    if not assigned and not routed:
         raise HTTPException(403, "Production order is not assigned to Eco Cotton sewing")
     return order
 
@@ -58,6 +60,18 @@ def list_items(db: Session, current: User, kind: EcoMaterialKind) -> list[EcoMat
     categories = ("fabric", "semi_finished") if kind == EcoMaterialKind.FABRIC else ("accessory", "packaging")
     return [EcoMaterialItemOut(id=item.id, sku=item.sku, name=item.name, unit=item.unit, kind=kind)
             for item in db.query(Item).filter(Item.category.in_(categories), Item.is_active.is_(True)).order_by(Item.name).all()]
+
+
+def list_orders(db: Session, current: User) -> list[EcoMaterialOrderOut]:
+    require_eco(current, "eco_inventory.read")
+    assigned = db.query(WorkOrder.production_order_id).join(Department, Department.id == WorkOrder.department_id).filter(
+        WorkOrder.operation == "sewing", Department.code == "ECO",
+    )
+    routed = db.query(Bundle.production_order_id).filter(Bundle.sewing_factory_code == "ECO", Bundle.status != "cancelled")
+    orders = db.query(ProductionOrder).filter(
+        (ProductionOrder.id.in_(assigned)) | (ProductionOrder.id.in_(routed)), ProductionOrder.source_type != "usluga",
+    ).order_by(ProductionOrder.id.desc()).all()
+    return [EcoMaterialOrderOut(id=order.id, order_no=order.order_no) for order in orders]
 
 
 def list_stock(db: Session, current: User, kind: EcoMaterialKind | None = None,

@@ -12,7 +12,7 @@ from app.models.factory_scope_service import bind_session_factory
 from app.models.idempotency_service import bind_idempotency_identity
 from app.models.inventory import eco_inventory_service as eco
 from app.models.inventory import factory_fabric_transfers_service as transfers
-from app.schemas import Item, Role, StockBatch, StockMovement, User, Warehouse
+from app.schemas import EcoFabricDispatch, EcoFabricRoll, Item, MaterialReservation, Model, ProductionOrder, Role, StockBatch, StockMovement, User, Warehouse
 from app.schemas.inventory.eco_inventory import EcoMaterialBatch, EcoMaterialMovement, FactoryFabricTransfer
 from app.schemas.inventory import eco_inventory_persistence as persistence
 from app.tests.conftest import TestSessionLocal
@@ -212,3 +212,62 @@ def test_database_prevents_overallocated_or_negative_eco_balance(setup_materials
         db.commit()
     db.rollback()
     assert db.get(EcoMaterialBatch, batch.id).reserved_quantity == 0
+
+
+def test_dispatch_respects_batch_and_item_only_reservations(setup_materials):
+    db, user, item, _, batch = setup_materials
+    order = ProductionOrder(production_no="PO-ECO-RESERVATION-TEST", production_type="branded_stock", source_type="standard",
+                              model_id=db.query(Model).first().id, planned_quantity=1)
+    db.add(order)
+    db.flush()
+    db.add(MaterialReservation(reservation_no="ECO-SOURCE-RESERVE", production_order_id=order.id,
+         item_id=item.id, stock_batch_id=batch.id, warehouse_id=batch.warehouse_id,
+         reserved_quantity=Decimal("80"), consumed_quantity=0, released_quantity=0,
+         unit="kg", status="reserved", reservation_type="material", source="manual"))
+    db.commit()
+    with pytest.raises(HTTPException) as error:
+        dispatch(db, user, batch, quantity="21", key="reserved-batch")
+    assert error.value.status_code == 409
+    db.rollback()
+    row = db.query(MaterialReservation).filter_by(reservation_no="ECO-SOURCE-RESERVE").one()
+    row.stock_batch_id = None
+    row.warehouse_id = None
+    db.commit()
+    with pytest.raises(HTTPException) as error:
+        dispatch(db, user, batch, quantity="21", key="reserved-item")
+    assert error.value.status_code == 409
+    db.rollback()
+    record = dispatch(db, user, batch, quantity="20", key="available")
+    assert record.lines[0].quantity == Decimal("20")
+    assert db.get(StockBatch, batch.id).quantity == Decimal("80")
+
+
+def test_dispatch_refuses_outstanding_custody_roll(setup_materials):
+    db, user, _, _, batch = setup_materials
+    custody = EcoFabricDispatch(request_key="existing-custody", created_by=user.id, operator_name=user.name, remaining_inventory=[])
+    db.add(custody)
+    db.flush()
+    db.add(EcoFabricRoll(dispatch_id=custody.id, batch_id=batch.id, roll_number=1,
+                         fabric_name="Fabric", batch_no=batch.batch_no, quantity=Decimal("10"), unit="kg"))
+    db.commit()
+    with pytest.raises(HTTPException) as error:
+        dispatch(db, user, batch, key="custody-conflict")
+    assert error.value.status_code == 409
+    db.rollback()
+    assert db.query(EcoFabricRoll).one().returned_at is None
+    assert db.get(StockBatch, batch.id).quantity == Decimal("100")
+
+
+def test_dispatch_refuses_customer_owned_usluga_fabric(setup_materials):
+    db, user, _, _, batch = setup_materials
+    order = ProductionOrder(production_no="PO-ECO-USLUGA-TEST", production_type="client_order", source_type="usluga",
+                              model_id=db.query(Model).first().id, fabric_batch_id=batch.id, planned_quantity=1)
+    db.add(order)
+    db.commit()
+    with pytest.raises(HTTPException) as error:
+        dispatch(db, user, batch, key="usluga-refused")
+    assert error.value.status_code == 409
+    db.rollback()
+    assert db.get(StockBatch, batch.id).quantity == Decimal("100")
+    actor(db, user, "MIL")
+    assert all(row.id != batch.id for row in transfers.source_batches(db, user))

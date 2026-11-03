@@ -12,6 +12,11 @@ class EcoMaterialItemOut(BaseModel):
     kind: EcoMaterialKind
 
 
+class EcoMaterialOrderOut(BaseModel):
+    id: int
+    order_no: str
+
+
 class EcoMaterialBatchOut(BaseModel):
     id: int
     item_id: int

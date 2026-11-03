@@ -3,12 +3,17 @@ from fastapi import APIRouter, Query, Response
 
 from app.core.deps import CurrentUser, DbSession
 from app.libs.dto.inventory.eco_inventory_input import EcoMaterialConsumeIn, EcoMaterialReceiveIn, FactoryFabricDispatchIn, FactoryFabricReceiptIn
-from app.libs.dto.inventory.eco_inventory_output import EcoMaterialBatchOut, EcoMaterialItemOut, EcoMaterialMovementOut, EcoMaterialMutationOut, FactoryFabricSourceBatchOut, FactoryFabricTransferOut
+from app.libs.dto.inventory.eco_inventory_output import EcoMaterialBatchOut, EcoMaterialItemOut, EcoMaterialMovementOut, EcoMaterialMutationOut, EcoMaterialOrderOut, FactoryFabricSourceBatchOut, FactoryFabricTransferOut
 from app.libs.enums.eco_inventory import EcoMaterialKind, FactoryFabricTransferStatus
 from app.models.inventory import eco_inventory_service as stock
 from app.models.inventory import factory_fabric_transfers_service as transfers
 
 router = APIRouter(tags=["eco-inventory"])
+
+
+@router.get("/eco-inventory/orders", response_model=list[EcoMaterialOrderOut])
+def list_orders(db: DbSession, current: CurrentUser):
+    return stock.list_orders(db, current)
 
 
 @router.get("/eco-inventory/items", response_model=list[EcoMaterialItemOut])
@@ -39,8 +44,9 @@ def consume_stock(payload: EcoMaterialConsumeIn, db: DbSession, current: Current
 
 
 @router.get("/factory-fabric-transfers/source-batches", response_model=list[FactoryFabricSourceBatchOut])
-def source_batches(db: DbSession, current: CurrentUser, offset: int = Query(0, ge=0), limit: int = Query(200, ge=1, le=500)):
-    return transfers.source_batches(db, current, offset, limit)
+def source_batches(db: DbSession, current: CurrentUser, offset: int = Query(0, ge=0), limit: int = Query(200, ge=1, le=500),
+                   q: str | None = Query(None, max_length=120)):
+    return transfers.source_batches(db, current, offset, limit, q)
 
 
 @router.get("/factory-fabric-transfers", response_model=list[FactoryFabricTransferOut])

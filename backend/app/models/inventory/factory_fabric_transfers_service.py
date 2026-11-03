@@ -71,21 +71,25 @@ def _customer_owned(db: Session, batch_id: int) -> bool:
                 ).first())
 
 
-def source_batches(db: Session, current: User, offset: int = 0, limit: int = 200) -> list[FactoryFabricSourceBatchOut]:
+def source_batches(db: Session, current: User, offset: int = 0, limit: int = 200, q: str | None = None) -> list[FactoryFabricSourceBatchOut]:
     require_factory_access(current, "MIL")
     require_permission(current, "factory_fabric_transfers.dispatch")
     result = []
-    batches = db.query(StockBatch).join(Item, Item.id == StockBatch.item_id).join(Warehouse, Warehouse.id == StockBatch.warehouse_id).filter(
+    query = db.query(StockBatch).join(Item, Item.id == StockBatch.item_id).join(Warehouse, Warehouse.id == StockBatch.warehouse_id).filter(
         StockBatch.archived_at.is_(None), StockBatch.quantity > 0, Item.category.in_(("fabric", "semi_finished")),
         Warehouse.type == "fabric_storage",
-    ).order_by(StockBatch.id.desc()).offset(offset).limit(limit).all()
+    )
+    if q and q.strip():
+        query = query.filter(or_(Item.name.icontains(q.strip(), autoescape=True), StockBatch.batch_no.icontains(q.strip(), autoescape=True),
+                                 StockBatch.color.icontains(q.strip(), autoescape=True)))
+    batches = query.order_by(StockBatch.id.desc()).offset(offset).limit(limit).all()
     for batch in batches:
         if not _source_is_milana(db, batch) or _customer_owned(db, batch.id):
             continue
         if db.query(EcoFabricRoll.id).filter_by(batch_id=batch.id, returned_at=None).first():
             continue
         available = min(Decimal(batch.quantity) - Decimal(str(reserved_stock_for_batch(db, batch.id))),
-                        Decimal(str(available_reservation_item_capacity(db, batch.item_id, batch.warehouse_id))))
+                        Decimal(str(available_reservation_item_capacity(db, batch.item_id, batch.warehouse_id))).quantize(Decimal("0.0001")))
         result.append(FactoryFabricSourceBatchOut(id=batch.id, item_name=batch.item.name, batch_no=batch.batch_no,
                                                   color=batch.color, unit=batch.unit, quantity=batch.quantity,
                                                   available_quantity=max(Decimal(0), available)))
@@ -121,7 +125,7 @@ def dispatch(db: Session, payload: FactoryFabricDispatchIn, current: User) -> Fa
             raise HTTPException(409, "Return outstanding fabric through the existing Eco custody register first")
         quantity = quantities[batch.id]
         available = min(Decimal(batch.quantity) - Decimal(str(reserved_stock_for_batch(db, batch.id))),
-                        Decimal(str(available_reservation_item_capacity(db, batch.item_id, batch.warehouse_id))))
+                        Decimal(str(available_reservation_item_capacity(db, batch.item_id, batch.warehouse_id))).quantize(Decimal("0.0001")))
         if quantity > available:
             raise HTTPException(409, f"Transfer exceeds available stock for batch {batch.batch_no}")
         persistence.insert_transfer_line(db, transfer_id=transfer.id, source_batch_id=batch.id, item_id=item.id,
