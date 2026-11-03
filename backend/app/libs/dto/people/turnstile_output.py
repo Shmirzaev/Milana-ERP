@@ -22,6 +22,8 @@ class GateTargetOutput(BaseModel):
     state: GateTargetState
     attempts: int
     error_code: GateErrorCode | None
+    baseline_revision: int | None = None
+    baseline_profile_hash: str | None = None
 
 class GateOperationOutput(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -32,7 +34,7 @@ class GateOperationOutput(BaseModel):
     mode: GateMode
     revision: int
     full_name: str
-    photo_asset_id: int
+    photo_asset_id: int | None
     external_person_id: str
     created_at: datetime
     targets: list[GateTargetOutput]

@@ -8,10 +8,16 @@ class GateDeviceContextOutput(BaseModel):
     device_key: str
     online: bool
 
+class GateEditBaselineOutput(BaseModel):
+    revision: int
+    profile_hash: str
+    full_name: str
+
 class GateBindingContextOutput(BaseModel):
     device_id: int
     state: GateBindingState
     desired_revision: int
+    edit_baseline: GateEditBaselineOutput | None = None
 
 class GateEmployeeContextOutput(BaseModel):
     employee_id: int
