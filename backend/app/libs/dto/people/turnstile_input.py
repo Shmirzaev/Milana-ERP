@@ -94,3 +94,24 @@ class GatePhotoReplacementInput(BaseModel):
         if len({target.device_id for target in value}) != len(value):
             raise ValueError("device IDs must be unique")
         return value
+
+
+class GateRevokeInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_employee_no: str = Field(min_length=1, max_length=64)
+    action: GateAction = GateAction.REVOKE
+    targets: list[GateEditTargetInput] = Field(min_length=1, max_length=32)
+
+    @field_validator("action")
+    @classmethod
+    def validate_action(cls, value: GateAction) -> GateAction:
+        if value is not GateAction.REVOKE:
+            raise ValueError("only revoke is supported")
+        return value
+
+    @field_validator("targets")
+    @classmethod
+    def unique_devices(cls, value: list[GateEditTargetInput]) -> list[GateEditTargetInput]:
+        if len({target.device_id for target in value}) != len(value):
+            raise ValueError("device IDs must be unique")
+        return value

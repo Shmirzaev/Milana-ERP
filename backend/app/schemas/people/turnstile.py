@@ -1,5 +1,5 @@
 from __future__ import annotations
-from app.libs.types.turnstile_simulator import SimulatorEvidence
+from app.libs.types.turnstile_simulator import SimulatorReadback
 from datetime import datetime
 from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum as SAEnum, ForeignKey, ForeignKeyConstraint, Integer, JSON, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -35,7 +35,7 @@ class GateEmployeeDevice(Base, PkMixin):
 
 class GateOperation(Base, PkMixin):
     __tablename__ = "gate_operations"
-    __table_args__ = (UniqueConstraint("id", "employee_id", "factory_code", "revision", name="uq_gate_operation_scope"), ForeignKeyConstraint(["employee_id", "factory_code"], ["employees.id", "employees.factory_code"]), ForeignKeyConstraint(["photo_asset_id", "employee_id", "factory_code"], ["gate_photo_assets.id", "gate_photo_assets.employee_id", "gate_photo_assets.factory_code"]), CheckConstraint("revision > 0", name="ck_gate_operation_revision"), CheckConstraint("(action = 'edit' AND photo_asset_id IS NULL) OR (action <> 'edit' AND photo_asset_id IS NOT NULL)", name="ck_gate_operation_photo_action"))
+    __table_args__ = (UniqueConstraint("id", "employee_id", "factory_code", "revision", name="uq_gate_operation_scope"), ForeignKeyConstraint(["employee_id", "factory_code"], ["employees.id", "employees.factory_code"]), ForeignKeyConstraint(["photo_asset_id", "employee_id", "factory_code"], ["gate_photo_assets.id", "gate_photo_assets.employee_id", "gate_photo_assets.factory_code"]), CheckConstraint("revision > 0", name="ck_gate_operation_revision"), CheckConstraint("(action IN ('edit', 'revoke') AND photo_asset_id IS NULL) OR (action IN ('enroll', 'photo') AND photo_asset_id IS NOT NULL)", name="ck_gate_operation_photo_action"))
     employee_id: Mapped[int] = mapped_column(Integer, nullable=False)
     factory_code: Mapped[str] = mapped_column(String(3), nullable=False)
     requested_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
@@ -71,7 +71,7 @@ class GateTarget(Base, PkMixin):
     baseline_photo_sha256: Mapped[str | None] = mapped_column(String(64))
     baseline_profile_hash: Mapped[str | None] = mapped_column(String(64))
     desired_payload_hash: Mapped[str | None] = mapped_column(String(64))
-    observed_evidence: Mapped[SimulatorEvidence | None] = mapped_column(JSON)
+    observed_evidence: Mapped[SimulatorReadback | None] = mapped_column(JSON)
     operation: Mapped[GateOperation] = relationship(back_populates="targets")
 
 class GateSimulatorDevice(Base, PkMixin):
@@ -85,6 +85,7 @@ class GateSimulatorDevice(Base, PkMixin):
 class GateSimulatorPerson(Base, PkMixin):
     __tablename__ = "gate_simulator_people"
     binding_id: Mapped[int] = mapped_column(ForeignKey("gate_employee_devices.id"), nullable=False, unique=True)
+    present: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     external_person_id: Mapped[str] = mapped_column(String(64), nullable=False)
     accepted_payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     accepted_revision: Mapped[int] = mapped_column(Integer, nullable=False)

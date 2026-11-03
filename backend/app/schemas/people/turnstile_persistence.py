@@ -1,4 +1,4 @@
-from app.libs.types.turnstile_simulator import SimulatorEvidence
+from app.libs.types.turnstile_simulator import SimulatorEvidence, SimulatorReadback
 """Persistence mechanics only; transaction and policy belong to the caller."""
 from datetime import datetime
 from sqlalchemy import select, update
@@ -22,7 +22,7 @@ def insert_target(session: Session, *, operation_id: int, binding_id: int, devic
     row = GateTarget(operation_id=operation_id, binding_id=binding_id, device_id=device_id, device_name=device_name, factory_code=factory_code, employee_id=employee_id, revision=revision, state=state, attempts=0, baseline_revision=baseline["revision"] if baseline else None, baseline_payload_hash=baseline["payload_hash"] if baseline else None, baseline_full_name=baseline["full_name"] if baseline else None, baseline_external_person_id=baseline["external_person_id"] if baseline else None, baseline_photo_sha256=baseline["photo_sha256"] if baseline else None, baseline_profile_hash=baseline_profile_hash, desired_payload_hash=desired_payload_hash)
     session.add(row); session.flush(); return row
 
-def transition_target(session: Session, target: GateTarget, *, state: GateTargetState, attempts: int, error_code: GateErrorCode | None, lease_token: str | None, lease_expires_at: datetime | None, observed_evidence: SimulatorEvidence | None) -> GateTarget:
+def transition_target(session: Session, target: GateTarget, *, state: GateTargetState, attempts: int, error_code: GateErrorCode | None, lease_token: str | None, lease_expires_at: datetime | None, observed_evidence: SimulatorReadback | None) -> GateTarget:
     target.state = state
     target.attempts = attempts
     target.error_code = error_code
@@ -53,6 +53,8 @@ def upsert_simulator_person(session: Session, *, binding: GateEmployeeDevice, ex
         row = GateSimulatorPerson(binding_id=binding.id, external_person_id=external_person_id, accepted_payload_hash=accepted_payload_hash, accepted_revision=accepted_revision, full_name=full_name, photo_sha256=photo_sha256, write_count=1)
         session.add(row)
     else:
+        if not row.present:
+            raise RuntimeError("Revoked simulator identity cannot be reused")
         row.external_person_id = external_person_id
         row.accepted_payload_hash = accepted_payload_hash
         row.accepted_revision = accepted_revision
@@ -66,6 +68,7 @@ def compare_and_update_simulator_name(session: Session, *, binding_id: int, base
     session.flush()
     result = session.execute(update(GateSimulatorPerson).where(
         GateSimulatorPerson.binding_id == binding_id,
+        GateSimulatorPerson.present.is_(True),
         GateSimulatorPerson.accepted_revision == baseline["revision"],
         GateSimulatorPerson.accepted_payload_hash == baseline["payload_hash"],
         GateSimulatorPerson.full_name == baseline["full_name"],
@@ -82,6 +85,7 @@ def compare_and_update_simulator_photo(session: Session, *, binding_id: int, bas
     session.flush()
     result = session.execute(update(GateSimulatorPerson).where(
         GateSimulatorPerson.binding_id == binding_id,
+        GateSimulatorPerson.present.is_(True),
         GateSimulatorPerson.accepted_revision == baseline["revision"],
         GateSimulatorPerson.accepted_payload_hash == baseline["payload_hash"],
         GateSimulatorPerson.full_name == baseline["full_name"],
@@ -90,5 +94,21 @@ def compare_and_update_simulator_photo(session: Session, *, binding_id: int, bas
     ).values(photo_sha256=photo_sha256, accepted_revision=accepted_revision,
              accepted_payload_hash=accepted_payload_hash, write_count=GateSimulatorPerson.write_count + 1)
       .execution_options(synchronize_session="fetch"))
+    session.flush()
+    return result.rowcount == 1
+
+
+def compare_and_revoke_simulator_person(session: Session, *, binding_id: int, baseline: SimulatorEvidence, accepted_revision: int, accepted_payload_hash: str) -> bool:
+    session.flush()
+    result = session.execute(update(GateSimulatorPerson).where(
+        GateSimulatorPerson.binding_id == binding_id,
+        GateSimulatorPerson.present.is_(True),
+        GateSimulatorPerson.accepted_revision == baseline["revision"],
+        GateSimulatorPerson.accepted_payload_hash == baseline["payload_hash"],
+        GateSimulatorPerson.full_name == baseline["full_name"],
+        GateSimulatorPerson.external_person_id == baseline["external_person_id"],
+        GateSimulatorPerson.photo_sha256 == baseline["photo_sha256"],
+    ).values(present=False, accepted_revision=accepted_revision, accepted_payload_hash=accepted_payload_hash,
+             write_count=GateSimulatorPerson.write_count + 1).execution_options(synchronize_session="fetch"))
     session.flush()
     return result.rowcount == 1

@@ -3,7 +3,7 @@ from uuid import uuid4
 from sqlalchemy.orm import Session, sessionmaker
 from app.schemas import User
 from app.libs.dto.people.turnstile_output import GateOperationOutput
-from app.libs.types.turnstile_simulator import SimulatorEvidence
+from app.libs.types.turnstile_simulator import SimulatorEvidence, SimulatorReadback
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -14,7 +14,7 @@ from app.models.people.turnstile_access_service import authorize_gate_employee, 
 from app.schemas.people.turnstile import (GateEmployeeDevice, GateOperation, GatePhotoAsset,
     GateSimulatorDevice, GateSimulatorPerson, GateTarget)
 from app.schemas.people.turnstile_persistence import (set_simulator_device, transition_target,
-    update_binding_state_revision, upsert_simulator_person, compare_and_update_simulator_name, compare_and_update_simulator_photo)
+    update_binding_state_revision, upsert_simulator_person, compare_and_update_simulator_name, compare_and_update_simulator_photo, compare_and_revoke_simulator_person)
 
 
 def _now() -> datetime:
@@ -34,7 +34,7 @@ def _guard() -> None:
         raise HTTPException(status_code=404, detail="Simulator unavailable")
 
 
-def _transition(db: Session, target: GateTarget, state: GateTargetState, error: GateErrorCode | None = None, token: str | None = None, expires: datetime | None = None, evidence: SimulatorEvidence | None = None, attempts: int | None = None) -> None:
+def _transition(db: Session, target: GateTarget, state: GateTargetState, error: GateErrorCode | None = None, token: str | None = None, expires: datetime | None = None, evidence: SimulatorReadback | None = None, attempts: int | None = None) -> None:
     transition_target(db, target, state=state, attempts=target.attempts if attempts is None else attempts,
         error_code=error, lease_token=token, lease_expires_at=expires, observed_evidence=evidence)
 
@@ -47,9 +47,12 @@ def _binding(db: Session, binding_id: int) -> GateEmployeeDevice | None:
     return db.scalar(select(GateEmployeeDevice).where(GateEmployeeDevice.id == binding_id).with_for_update())
 
 
-def _evidence(person: GateSimulatorPerson | None, binding: GateEmployeeDevice) -> SimulatorEvidence | None:
+def _evidence(person: GateSimulatorPerson | None, binding: GateEmployeeDevice) -> SimulatorReadback | None:
     if person is None:
         return None
+    if not person.present:
+        return {"action": GateAction.REVOKE, "revision": person.accepted_revision,
+            "payload_hash": person.accepted_payload_hash, "external_person_id": person.external_person_id, "present": False}
     return {"revision": person.accepted_revision, "payload_hash": person.accepted_payload_hash,
         "full_name": person.full_name, "external_person_id": person.external_person_id,
         "photo_sha256": person.photo_sha256}
@@ -91,7 +94,7 @@ class SimulatorAdapter:
     def __init__(self, factory: sessionmaker[Session]) -> None:
         self.factory = factory
 
-    def read(self, target_id: int, token: str) -> tuple[bool, SimulatorEvidence | None]:
+    def read(self, target_id: int, token: str) -> tuple[bool, SimulatorReadback | None]:
         with self.factory() as db:
             target = _target(db, target_id)
             if not target or target.lease_token != token or _expired(target.lease_expires_at):
@@ -118,10 +121,15 @@ class SimulatorAdapter:
                 return
             person = db.scalar(select(GateSimulatorPerson).where(GateSimulatorPerson.binding_id == binding.id))
             evidence = _evidence(person, binding)
-            if op.action in (GateAction.EDIT, GateAction.PHOTO):
+            if op.action in (GateAction.EDIT, GateAction.PHOTO, GateAction.REVOKE):
                 if target.state != GateTargetState.PROCESSING:
                     raise RuntimeError("Edit reconciliation cannot accept a write")
                 if evidence == _baseline(target):
+                    if op.action == GateAction.REVOKE:
+                        compare_and_revoke_simulator_person(db, binding_id=binding.id, baseline=_baseline(target),
+                            accepted_revision=target.revision, accepted_payload_hash=target.desired_payload_hash)
+                        db.commit()
+                        return
                     desired = _desired(target, op, photo)
                     if op.action == GateAction.EDIT:
                         compare_and_update_simulator_name(db, binding_id=binding.id, baseline=_baseline(target),
@@ -173,7 +181,7 @@ def _claim(factory: sessionmaker[Session], target_id: int) -> tuple[str, bool] |
         return token, was_uncertain
 
 
-def _finish(factory: sessionmaker[Session], target_id: int, token: str, state: GateTargetState, error: GateErrorCode | None = None, evidence: SimulatorEvidence | None = None) -> bool:
+def _finish(factory: sessionmaker[Session], target_id: int, token: str, state: GateTargetState, error: GateErrorCode | None = None, evidence: SimulatorReadback | None = None) -> bool:
     with factory() as db:
         target = _target(db, target_id)
         if not target or target.lease_token != token or _expired(target.lease_expires_at):
@@ -182,7 +190,8 @@ def _finish(factory: sessionmaker[Session], target_id: int, token: str, state: G
         if binding.desired_revision != target.revision:
             state, error = GateTargetState.SUPERSEDED, GateErrorCode.STALE_REVISION
         if state == GateTargetState.SUCCEEDED:
-            update_binding_state_revision(db, binding, state=GateBindingState.ACTIVE, desired_revision=target.revision)
+            op = db.get(GateOperation, target.operation_id)
+            update_binding_state_revision(db, binding, state=GateBindingState.REVOKED if op.action == GateAction.REVOKE else GateBindingState.ACTIVE, desired_revision=target.revision)
         _transition(db, target, state, error, evidence=evidence)
         db.commit()
         return True
@@ -203,10 +212,16 @@ def _process(factory: sessionmaker[Session], target_id: int, adapter: SimulatorA
             target = db.get(GateTarget, target_id)
             op = db.get(GateOperation, target.operation_id)
             photo = db.get(GatePhotoAsset, op.photo_asset_id) if op.photo_asset_id is not None else None
-            mutation = op.action in (GateAction.EDIT, GateAction.PHOTO)
+            mutation = op.action in (GateAction.EDIT, GateAction.PHOTO, GateAction.REVOKE)
             if not mutation and (op.action != GateAction.ENROLL or photo is None):
                 raise RuntimeError("Unsupported simulator action or missing photo")
-            matches = evidence == _desired(target, op, photo) if mutation else _matches(evidence, op, photo)
+            if op.action == GateAction.REVOKE:
+                desired = {"action": GateAction.REVOKE, "revision": op.revision, "payload_hash": target.desired_payload_hash,
+                           "external_person_id": target.baseline_external_person_id, "present": False}
+                _baseline(target)
+            else:
+                desired = _desired(target, op, photo) if mutation else None
+            matches = evidence == desired if mutation else _matches(evidence, op, photo)
             baseline = _baseline(target) if mutation else None
             exhausted = target.attempts >= settings.TURNSTILE_SIMULATOR_MAX_ATTEMPTS
         if matches:
@@ -227,7 +242,7 @@ def _process(factory: sessionmaker[Session], target_id: int, adapter: SimulatorA
             online, evidence = adapter.read(target_id, token)
             if not online:
                 _finish(factory, target_id, token, GateTargetState.UNCERTAIN, GateErrorCode.DEVICE_OFFLINE)
-            elif (evidence == _desired(target, op, photo) if mutation else _matches(evidence, op, photo)):
+            elif (evidence == desired if mutation else _matches(evidence, op, photo)):
                 _finish(factory, target_id, token, GateTargetState.SUCCEEDED, evidence=evidence)
             elif evidence is not None:
                 _finish(factory, target_id, token, GateTargetState.CONFLICT, GateErrorCode.PAYLOAD_CONFLICT, evidence)
