@@ -1,0 +1,62 @@
+{
+  "checked_at": "2026-10-31T12:52:16.908754+00:00",
+  "comparison": [
+    {
+      "title": "CB314-A high self",
+      "id": 3,
+      "matches_report": true,
+      "row": {
+        "id": 3,
+        "title": "CB314-A high self",
+        "description": null,
+        "status": "pending",
+        "priority": "high",
+        "assigned_to": 2,
+        "created_by": 2,
+        "entity_type": null,
+        "entity_id": null,
+        "due_date": "2026-11-20T00:00:00+00:00",
+        "completed_at": null
+      }
+    },
+    {
+      "title": "CB314-B low to recipient",
+      "id": 4,
+      "matches_report": true,
+      "row": {
+        "id": 4,
+        "title": "CB314-B low to recipient",
+        "description": null,
+        "status": "pending",
+        "priority": "low",
+        "assigned_to": 4,
+        "created_by": 2,
+        "entity_type": null,
+        "entity_id": null,
+        "due_date": "2026-11-25T00:00:00+00:00",
+        "completed_at": null
+      }
+    },
+    {
+      "title": "CB314-C restricted own",
+      "id": 5,
+      "matches_report": true,
+      "row": {
+        "id": 5,
+        "title": "CB314-C restricted own",
+        "description": null,
+        "status": "completed",
+        "priority": "medium",
+        "assigned_to": 3,
+        "created_by": 3,
+        "entity_type": null,
+        "entity_id": null,
+        "due_date": null,
+        "completed_at": "2026-10-31T12:27:29.152310+00:00"
+      }
+    }
+  ],
+  "task_count": 4,
+  "no_blank_task": true,
+  "phone_connected_browser": "NOT COVERED"
+}

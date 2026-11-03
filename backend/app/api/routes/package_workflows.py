@@ -1,4 +1,5 @@
 """Package workflow routes mounted before /packages/{pid}."""
+from datetime import date
 from fastapi import Query, APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import selectinload, load_only
@@ -9,6 +10,8 @@ from app.core.deps import CurrentUser, DbSession, require_permissions, user_perm
 from app.schemas import Package, PackagePrintRun, PackagePrintRunMember, ProductionOrder, User
 from app.libs.dto.fulfillment.package_workflows import ManualPackageReceiptIn, PrintRunIn, PrintRunCreatePackagesIn, PrintRunReceiveIn, PackageReturnIn
 from app.libs.dto.packaging.tracking import PackageChangeRequestIn
+from app.libs.dto.packaging.manual_package_input import ManualPackageCreateIn
+from app.libs.dto.packaging.manual_package_output import ManualPackageCreateOut, ManualPackageRecoveryOut
 from pydantic import BaseModel, ConfigDict, Field
 from app.models import package_workflows_service as service
 from app.models.audit_service import log_action
@@ -20,6 +23,8 @@ from app.models.packages_service import (create_package, _packaging_record_total
 from app.models.packaging_scope_service import packaging_departments_for_order
 from app.models.numbering_service import next_package_nos
 from app.models.workflow_service import sync_production_order_status
+from app.libs.enums.packaging import PrintRunReceiptStatus
+from app.models.packaging import print_runs_service
 
 router = APIRouter()
 _PRINT_RUN_LABEL_LIMIT = 200
@@ -47,7 +52,7 @@ def receiving_orders(db: DbSession, q: str = "", page: int = Query(1, ge=1),
         query = query.filter(or_(ProductionOrder.production_no.icontains(q.strip()[:100], autoescape=True),
                                  SalesOrder.order_no.icontains(q.strip()[:100], autoescape=True)))
     orders = query.distinct().order_by(ProductionOrder.id.desc()).offset((page - 1) * 20).limit(21).all()
-    ranked = db.query(Package.id, Package.production_order_id,
+    ranked = db.query(Package.id, Package.production_order_id, Package.package_no, Package.packed_at, Package.total_quantity,
                       func.row_number().over(partition_by=Package.production_order_id, order_by=Package.id).label("position"),
                       func.count().over(partition_by=Package.production_order_id).label("count"),
                       func.sum(Package.total_quantity).over(partition_by=Package.production_order_id).label("quantity")).filter(
@@ -64,6 +69,8 @@ def receiving_orders(db: DbSession, q: str = "", page: int = Query(1, ge=1),
         rows.append({"id": oid, "production_no": number, "sales_order_no": sales_number,
                      **model_number_fields(model), "model_name": model.name if model else None,
                      "package_ids": [p.id for p in packs], "count": packs[0].count if packs else 0,
+                     "packages": [{"id": p.id, "package_no": p.package_no, "packed_at": p.packed_at,
+                                   "quantity": p.total_quantity} for p in packs],
                      "quantity": packs[0].quantity if packs else 0})
     return {"rows": rows, "has_more": len(orders) > 20}
 
@@ -350,6 +357,27 @@ def resend_corrected(payload: PrintRunIn, db: DbSession,
     return _write(db, current, "resend-corrected", payload, lambda: resend_packages(db, current, payload))
 
 
+@router.post("/manual-packaging", status_code=201, response_model=ManualPackageCreateOut)
+def manual_packaging(payload: ManualPackageCreateIn,
+                     db: DbSession, current: User = Depends(require_permissions("packaging.packages", "*"))):
+    from app.models.packaging.manual_packages_service import create_manual_packages
+    return create_manual_packages(db, current, payload)
+
+
+@router.post("/manual-packaging/reconcile", response_model=ManualPackageRecoveryOut, response_model_exclude_unset=True)
+def reconcile_manual_packaging(payload: ManualPackageCreateIn,
+                               db: DbSession, current: CurrentUser):
+    from app.models.packaging.manual_packages_service import reconcile_manual_packages
+    return reconcile_manual_packages(db, current, payload)
+
+
+@router.delete("/manual-packaging/{rid}")
+def cancel_manual_packaging(rid: int, db: DbSession,
+                            current: User = Depends(require_permissions("packaging.packages", "*"))):
+    from app.models.packaging.manual_packages_service import cancel_manual_packages
+    return cancel_manual_packages(db, current, rid)
+
+
 @router.post("/manual-receipt", status_code=201)
 def create_manual_receipt(payload: ManualPackageReceiptIn, db: DbSession,
                           current: User = Depends(require_permissions("storage.packages", "*"))):
@@ -459,21 +487,13 @@ def create_packages_and_run(payload: PrintRunCreatePackagesIn, db: DbSession,
 @router.get("/print-runs")
 def list_print_runs(db: DbSession, production_order_id: int | None = None,
                     page: int | None = Query(None, ge=1), page_size: int = Query(50, ge=1, le=100),
+                    q: str = Query("", max_length=120), receipt_status: PrintRunReceiptStatus | None = None,
+                    created_from: date | None = None, created_to: date | None = None,
                     current: User = Depends(require_permissions("packaging.packages", "packaging.records", "storage.packages", "storage.shipment", "*"))):
-    query = db.query(PackagePrintRun).filter(PackagePrintRun.deleted_at.is_(None), PackagePrintRun.returned_at.is_(None), PackagePrintRun.superseded_at.is_(None))
-    if production_order_id:
-        query = query.filter(PackagePrintRun.id.in_(db.query(PackagePrintRunMember.run_id).join(
-            Package, Package.id == PackagePrintRunMember.package_id).filter(Package.production_order_id == production_order_id)))
-    permissions = set(user_permissions(current))
-    if not permissions.intersection({"storage.packages", "storage.shipment", "*"}):
-        query = query.filter(PackagePrintRun.packaging_department_code == packaging_department_scope(current))
-    if page is not None:
-        total = query.count()
-        runs = query.order_by(PackagePrintRun.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
-        return {"rows": service.run_list_payload(db, runs), "total": total, "page": page,
-                "page_size": page_size, "has_more": page * page_size < total}
-    runs = query.order_by(PackagePrintRun.id.desc()).limit(100).all()
-    return service.run_list_payload(db, runs)
+    return print_runs_service.list_print_runs(
+        db, current, production_order_id=production_order_id, page=page, page_size=page_size,
+        q=q, receipt_status=receipt_status, created_from=created_from, created_to=created_to,
+    )
 
 
 @router.get("/print-runs/resolve")

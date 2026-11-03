@@ -44,6 +44,7 @@ from app.models.fulfillment.stock_service import ready_pack_candidates, is_any_s
 from app.libs.enums.packaging import PackageStockKind
 from app.models.sales.ready_stock_service import _reserve_branded_stock
 from app.models.workflow_service import notify_department
+from app.models.model_images_service import model_print_image_url
 from app.schemas import (
     Customer, Model, ProductionOrder, SalesOrder, SalesOrderItem, Shipment, StockReservation, User,
 )
@@ -51,6 +52,7 @@ from app.schemas.sales.sales_order_persistence import (
     apply_sales_order_header_changes,
     create_sales_order_item,
     create_sales_order_row,
+    delete_sales_order_row,
     set_sales_order_total,
     set_sales_order_status,
 )
@@ -346,7 +348,10 @@ def create_sales_order(payload: SalesOrderIn, db: Session, current: User) -> Sal
             quantity=0 if pack_order else item.quantity,
             requested_pack_count=item.requested_pack_count,
             unit_price=unit_price,
-            printing_required=item.printing_required,
+            printing_required=item.printing_required or (
+                payload.order_type == SalesOrderType.CLIENT_ORDER
+                and bool(model_print_image_url(model))
+            ),
             source_type=SalesOrderItemSourceType.FROM_STOCK if pack_order else item.source_type,
             notes=item.notes,
         )
@@ -478,7 +483,7 @@ def delete_sales_order(sid: int, db: Session, current: User):
     if not so:
         raise HTTPException(404, "Sales order not found")
 
-    if so.status not in ("draft", "cancelled"):
+    if so.status not in (SalesOrderStatus.DRAFT.value, SalesOrderStatus.CANCELLED.value):
         raise HTTPException(409, "Only draft or cancelled sales orders can be deleted")
     if db.query(ProductionOrder).filter(ProductionOrder.sales_order_id == sid).first():
         raise HTTPException(409, "Sales order already has linked production orders")
@@ -487,6 +492,6 @@ def delete_sales_order(sid: int, db: Session, current: User):
     if db.query(StockReservation).filter(StockReservation.sales_order_id == sid).first():
         raise HTTPException(409, "Sales order already has stock reservations")
 
-    db.delete(so)
+    delete_sales_order_row(db, so)
     log_action(db, current, "delete", "SalesOrder", sid, new_value={"order_no": so.order_no})
     db.commit()

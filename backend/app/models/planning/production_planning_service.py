@@ -16,6 +16,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.libs.dto.production.production import ProductionOrderIn
+from app.libs.enums.planning import BrandedPlanningOrderStatus, BrandedPlanningOrderType
 from app.models.audit_service import log_action
 from app.models.numbering_service import next_branded_planning_order_no
 from app.models.planning.branded_orders_service import BRANDED_ORDER_PARTIES
@@ -26,6 +27,10 @@ from app.models.production_service import (
     printing_attachments_for_storage,
 )
 from app.schemas import BrandedPlanningOrder, SalesOrder, User
+from app.schemas.planning.branded_order_persistence import (
+    BrandedPlanningOrderInsert,
+    insert_branded_planning_order,
+)
 
 
 CLIENT_ORDER_STATUSES = {"confirmed", "pending_sales_approval", "planning_approved"}
@@ -90,16 +95,19 @@ def create_branded_stock_production(db: Session, payload: ProductionOrderIn, cur
     if payload.planning_order_id and not planning_order:
         raise HTTPException(404, "Branded planning order not found")
     if not planning_order:
-        planning_order = BrandedPlanningOrder(
-            order_no=next_branded_planning_order_no(db),
-            ordered_for_type="milana",
-            ordered_for_name=BRANDED_ORDER_PARTIES["milana"],
-            status="open",
-            created_by=current.id,
+        planning_order = insert_branded_planning_order(
+            db,
+            BrandedPlanningOrderInsert(
+                order_no=next_branded_planning_order_no(db),
+                ordered_for_type=BrandedPlanningOrderType.MILANA,
+                customer_id=None,
+                ordered_for_name=BRANDED_ORDER_PARTIES[BrandedPlanningOrderType.MILANA],
+                status=BrandedPlanningOrderStatus.OPEN,
+                notes=None,
+                created_by=current.id,
+            ),
         )
-        db.add(planning_order)
-        db.flush()
-    if planning_order.status != "open":
+    if planning_order.status != BrandedPlanningOrderStatus.OPEN.value:
         raise HTTPException(400, "Branded planning order is not open")
     printing_attachments = printing_attachments_for_storage(payload.printing_attachments)
     po = create_production_order(

@@ -24,6 +24,7 @@ from app.libs.dto.planning.price_calculation_request_update import (
     PriceCalculationFinanceIn,
     PriceCalculationPurchasingIn,
 )
+from app.libs.types.planning import PriceCalculationPurchasingCommand
 from app.models import price_calculation_service as pricing
 from app.models.audit_service import log_action
 from app.schemas import User
@@ -128,7 +129,11 @@ def update_purchasing_details(
     if not pricing.is_price_purchaser(current):
         raise HTTPException(403, "Abbosbek purchasing access required")
     request = load_price_request(db, request_id)
-    pricing.update_purchasing_details(db, request, payload.model_dump(), current)
+    command = PriceCalculationPurchasingCommand(
+        fabric_price=payload.fabric_price,
+        sewing_cost=payload.sewing_cost,
+    )
+    pricing.update_purchasing_details(db, request, command, current)
     db.commit()
     db.refresh(request)
     return pricing.serialize_price_request(request)

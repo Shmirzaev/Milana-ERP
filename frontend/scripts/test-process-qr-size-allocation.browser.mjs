@@ -26,10 +26,15 @@ const built = await build({stdin:{contents:`import React from 'react';import{cre
 const css=execFileSync(process.execPath,['node_modules/tailwindcss/lib/cli.js','-i','src/app/globals.css','--minify'],{encoding:'utf8',maxBuffer:8*1024*1024,stdio:['ignore','pipe','pipe']});
 const sizes=["46","48","50","52","54"];
 const operation={id:'sleeve',name:'Sleeve sewing',code:'OP-6162',section:'sewing',sewingFactory:'milana',rate:'550',selected:true,copies:1,splitMode:'none'};
-const model={id:8456,code:'KJ13051-V-6472',sizes:sizes.map(size=>({size})),details_json:{paid_operations:[operation]}};
+const model={id:8456,code:'KJ13051-V-6472',sizes:[...sizes,'56'].map(size=>({size})),details_json:{paid_operations:[operation]}};
 const batches=[{id:189,batch_no:'0319-01',batch_index:1,name:'Nastil 1',planned_quantity:300,sewing_completed_quantity:300,sewing_sizes:[]},{id:192,batch_no:'0319-02',batch_index:2,name:'Nastil 2',planned_quantity:300,sewing_completed_quantity:302,sewing_sizes:[]}];
 let issued=[], posts=[], requests=[], modelDelay=120;
 const fixtureOrder={production_order_id:319,production_no:'PO-0294',model_id:8456,model_code:model.code,planned_quantity:600,sewing_completed_quantity:602,sizes:sizes.map(size=>({size,planned_quantity:120,sewing_completed_quantity:0})),batches,stages:[],sewing_factories:[{code:'MIL'}]};
+if(process.argv.includes('--serve')){
+ Object.assign(model,{id:8679,code:'KJ13057-V-6634'});
+ Object.assign(fixtureOrder,{production_order_id:535,production_no:'PO-0495',model_id:model.id,model_code:model.code,sewing_completed_quantity:250});
+ batches.splice(0,batches.length,{id:656,batch_no:'0535-01',batch_index:1,name:'Nastil 1',planned_quantity:250,sewing_completed_quantity:250,sewing_sizes:[]});
+}
 const server=http.createServer(async(req,res)=>{
  const url=new URL(req.url,'http://local');
  if(url.pathname.startsWith('/api/')){
@@ -42,7 +47,7 @@ const server=http.createServer(async(req,res)=>{
   if(req.method!=='GET'){res.statusCode=500;res.end('{}');return;}
   let data=[];
   if(url.pathname==='/api/process-tracking')data=[fixtureOrder];
-  else if(url.pathname==='/api/models/8456'){await new Promise(r=>setTimeout(r,modelDelay));data=model;}
+  else if(url.pathname===`/api/models/${model.id}`){await new Promise(r=>setTimeout(r,modelDelay));data=model;}
   else if(url.pathname==='/api/sewing-flows')data=[{id:6,code:'SEW-06',name:'Line 6',is_active:true,factory_code:'MIL'}];
   else if(url.pathname==='/api/payroll/qr-labels')data={items:issued,total:issued.length};
   res.end(JSON.stringify(data));return;
@@ -50,6 +55,10 @@ const server=http.createServer(async(req,res)=>{
  res.setHeader('Content-Type','text/html;charset=utf-8');res.end(`<html><head><meta name="viewport" content="width=device-width, initial-scale=1"/><style>${css}</style></head><body><main style="padding:20px"><div id="root"></div></main><script>${built.outputFiles[0].text.replaceAll('</script>','<\\/script>')}</script></body></html>`);
 });
 await new Promise(r=>server.listen(0,'127.0.0.1',r));
+if(process.argv.includes('--serve')){
+ console.log(`Disposable Process QR fixture: http://127.0.0.1:${server.address().port} (PID ${process.pid}); no ERP connection`);
+ await new Promise(()=>{});
+}
 const browser=await chromium.launch({channel:process.platform==='win32'?'chrome':undefined,headless:true});
 const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
 const url=`http://127.0.0.1:${server.address().port}`;
@@ -63,6 +72,8 @@ try{
  await page.locator('select').filter({has:page.locator('option[value="6"]')}).selectOption('6');
  const issue=()=>page.getByRole('button',{name:'Issue labels',exact:true}).first();
  await page.waitForFunction(()=>[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='Issue labels'&&!b.disabled));
+ assert.equal(await inputs().count(),5,'the loaded six-size model must not expand the five-size order');
+ assert.deepEqual(await inputs().evaluateAll(nodes=>nodes.map(n=>n.value)),['60','60','60','60','60']);
  await inputs().nth(0).fill('50');assert.equal(await issue().isDisabled(),true);
  await inputs().nth(1).fill('70');assert.equal(await issue().isEnabled(),true);
  await page.getByRole('button',{name:'All batches',exact:true}).click();
@@ -71,7 +82,7 @@ try{
  await inputs().nth(5).fill('');assert.equal(await issue().isDisabled(),true);
  await inputs().nth(5).fill('61');assert.equal(await issue().isEnabled(),true);
  await panel().screenshot({path:path.join(out,'editable-size-split.png')});
- await issue().click();await page.waitForFunction(()=>document.body.textContent.includes('200000000'));
+ await issue().click();await page.getByText(dictionaries.en['page.processQr.labelsIssued'].replace('{count}','10'),{exact:true}).waitFor();
  assert.equal(posts.length,1);assert.equal(posts[0].labels.length,10);
  assert.deepEqual(posts[0].labels.filter(row=>row.production_batch_id===189).map(row=>row.quantity),[50,70,60,60,60]);
  assert.equal(posts[0].labels.filter(row=>row.production_batch_id===192).reduce((sum,row)=>sum+row.quantity,0),302);
@@ -93,7 +104,20 @@ try{
  await page.goto(url);await page.waitForFunction(()=>[...document.querySelectorAll('input[type=number]')].some(e=>e.value==='200'));
  assert.equal(await inputs().count(),2);
  assert.deepEqual(await inputs().evaluateAll(nodes=>nodes.map(n=>[n.value,n.readOnly])),[['200',true],['100',true]]);
+ // Match PO-0495's 250-piece batch, including reload after the six-size model arrives.
+ issued=[];batches[0].planned_quantity=250;batches[0].sewing_completed_quantity=250;batches[0].sewing_sizes=[];
+ for(let attempt=0;attempt<3;attempt++){
+  await page.goto(url);await page.getByRole('heading',{name:'0319-01 · Nastil 1',exact:true}).waitFor();
+  await page.getByText(`Loaded model operations from ${model.code}.`,{exact:true}).waitFor();
+  assert.equal(await inputs().count(),5);
+  assert.deepEqual(await inputs().evaluateAll(nodes=>nodes.map(n=>n.value)),['50','50','50','50','50']);
+ }
+ await panel().screenshot({path:path.join(out,'250-five-order-sizes.png')});
  assert.deepEqual(errors,[]);
  assert.ok(requests.filter(r=>r.method!=='GET').every(r=>r.method==='POST'&&r.url==='/api/payroll/qr-labels/issue'));
  console.log('PASS: actual Process QR page auto-splits, preserves edits across all-batch mode, gates invalid totals, issues exact edited payloads, blocks issued conflicts, and renders EN/RU/UZ on desktop/mobile. Fixture writes only.');
+}catch(error){
+ await page.screenshot({path:path.join(out,'failure.png'),fullPage:true});
+ console.error(JSON.stringify({posts:posts.length,issued:issued.length,errors,body:(await page.locator('body').innerText()).slice(-2500)}));
+ throw error;
 }finally{await browser.close();await new Promise(r=>server.close(r));}

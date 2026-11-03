@@ -11,16 +11,27 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import xml.etree.ElementTree as ET
 
 
 # Minimum collected counts pin the current parameterized business cases. Adding
 # cases is allowed; removing a required case needs an explicit ledger change.
 GROUPS = {
+    'test_customer_delete_postgres': (9, ('test_pg_delete_route_success_repeat_and_missing', 'test_pg_delete_route_auth_denials_preserve_customer', 'test_pg_delete_reference_refusal_preserves_customer', 'test_pg_delete_precommit_failure_rolls_back_then_retry', 'test_pg_delete_distinct_rows_concurrently_preserves_audit_chain')),
+    'test_customer_delete_extra_fk_postgres': (3, ('test_pg_existing_customer_fk_blocks_delete_then_retry',)),
+    'test_customer_delete_reference_race_postgres': (2, ('test_pg_payment_commit_after_guards_before_delete_flush', 'test_pg_delete_flush_blocks_payment_until_commit')),
+    "test_supplier_update_postgres": (6, ('test_pg_patch_fields_permissions_and_audit', 'test_pg_inactive_direct_update_remains_out_of_active_list', 'test_pg_concurrent_distinct_suppliers_allow_same_name_and_chain', 'test_pg_precommit_failure_rolls_back_and_retry')),
+    "test_customer_update_postgres": (5, ('test_pg_patch_fields_permissions_and_audit', 'test_pg_precommit_failure_rolls_back_and_retry', 'test_pg_concurrent_distinct_customers_allow_same_name_and_chain')),
+    "test_supplier_create_postgres": (7, ('test_pg_route_saves_all_fields_and_audit_same_session', 'test_pg_route_refuses_unauthenticated_and_forbidden_without_writes', 'test_pg_route_failure_rolls_back_then_retry', 'test_pg_concurrent_suppliers_keep_audit_chain', 'test_pg_create_preserves_raw_fields_duplicates_and_validation')),
+    "test_brand_update_postgres": (3, ('test_pg_update_persistence_omission_null_and_chain', 'test_pg_duplicate_and_audit_finalize_failure_roll_back_then_retry', 'test_pg_case_variant_update_is_allowed')),
+    "test_customer_create_postgres": (6, ("test_pg_route_saves_all_fields_and_audit_same_session", "test_pg_route_refuses_unauthenticated_and_forbidden_without_writes", "test_pg_route_failure_rolls_back_then_retry", "test_pg_concurrent_customers_keep_audit_chain")),
+    "test_brand_create_postgres": (2, ("test_pg_create_duplicate_and_audit", "test_pg_audit_failure_rolls_back_then_retry")),
+    "test_planning_alternate_creation_postgres": (5, ()),
     "test_purchase_conversion_postgres": (7, ()),
     "test_bom_add_characterization": (54, ()),
     "test_forecast_review_postgres": (9, ()),
-    "test_stock_movement_and_reservation_postgres": (5, ()),
+    "test_stock_movement_and_reservation_postgres": (7, ()),
     "test_sales_update_old_behavior": (4, (
         "test_pg_stale_unchanged_status_cannot_rewind_concurrent_workflow",
         "test_pg_edit_and_audit_rollback_together_then_retry",
@@ -37,6 +48,8 @@ GROUPS = {
         "test_concurrent_creation_does_not_duplicate_invoice_numbers",
     )),
     "test_customer_invoice_creation_race": (10, ()),
+    "test_modelsize_create_postgres": (2, ("test_pg_create_atomic_audit_and_failure_retry", "test_pg_concurrent_duplicate_creates")),
+    "test_modelcolor_create_postgres": (27, ()),
 }
 REQUIRED_CASES = json.loads(
     Path(__file__).with_name("refactor_pg_required_cases.json").read_text(encoding="utf-8")
@@ -107,6 +120,16 @@ def configure_ci(identity_path: Path, env_path: Path) -> None:
         output.write("MILANA_TEST_PG_INSTANCE=" + json.dumps(config, separators=(",", ":")) + "\n")
 
 
+def sanitized_pg_environment(source: dict[str, str], scratch: Path) -> dict[str, str]:
+    """Remove inherited libpq configuration; use only empty owned config files."""
+    env = {key: value for key, value in source.items() if not key.upper().startswith("PG")}
+    for key, filename in (("PGPASSFILE", "pgpass"), ("PGSERVICEFILE", "pgservice")):
+        path = scratch / filename
+        path.write_text("", encoding="utf-8")
+        env[key] = str(path)
+    return env
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ci-identity", type=Path)
@@ -127,7 +150,9 @@ def main() -> int:
     backend = Path(__file__).resolve().parents[1] / "backend"
     command = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
                *required_nodes(), f"--junitxml={report}"]
-    completed = subprocess.run(command, cwd=backend, check=False, timeout=1800)
+    with tempfile.TemporaryDirectory(prefix="milana-pg-env-") as scratch:
+        env = sanitized_pg_environment(dict(os.environ), Path(scratch))
+        completed = subprocess.run(command, cwd=backend, check=False, timeout=1800, env=env)
     if completed.returncode:
         return completed.returncode
     counts = check_report(report)

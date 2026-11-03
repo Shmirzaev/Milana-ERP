@@ -23,3 +23,10 @@ the required visual and release acceptance checks.
 See [DTO rules](../README.md), [business services](../../../models/README.md),
 [database definitions](../../../schemas/README.md) and
 [ownership](../../../../../docs/TEAM_OWNERSHIP.md).
+
+Turnstile enrollment uses [turnstile_input.py](turnstile_input.py),
+[turnstile_output.py](turnstile_output.py) and
+[turnstile_context_output.py](turnstile_context_output.py).
+Fixed state/action/mode/error fields use canonical enums. ENROLL requires the
+operator-reviewed stored employee number, scoped technical-valid photo, selected
+device IDs and manual review attestation. This is not automated identity validation.

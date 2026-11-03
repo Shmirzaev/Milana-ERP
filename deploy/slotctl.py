@@ -159,6 +159,7 @@ def stage(role: str, slot: str, release: str, image: str) -> None:
     if role == "backend":
         command.extend([
             "--env-file", str(BASE / "shared/backend.env"),
+            "-e", f"RELEASE_ID={release}",
             "-e", f"DB_POOL_SIZE={DB_POOL_SIZE}",
             "-e", f"DB_MAX_OVERFLOW={DB_MAX_OVERFLOW}",
             "-e", f"WEB_CONCURRENCY={BACKEND_WORKERS}",

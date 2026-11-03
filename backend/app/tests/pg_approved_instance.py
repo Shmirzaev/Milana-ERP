@@ -19,10 +19,14 @@ import re
 import os
 import secrets
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import Enum
+from threading import Event, Thread, current_thread, enumerate as live_threads
+from time import monotonic, sleep
+from typing import Literal, NoReturn
 
 from sqlalchemy import create_engine, event, text
-from sqlalchemy.engine import URL, make_url
+from sqlalchemy.engine import Connection, Engine, URL, make_url
 
 CONFIG_ENV = "MILANA_TEST_PG_INSTANCE"
 REQUIRE_ENV = "MILANA_REQUIRE_TEST_PG"
@@ -206,13 +210,149 @@ _owned_targets: dict[OwnedTarget, tuple[ApprovedInstance, str]] = {}
 _pending_targets: set[OwnedTarget] = set()
 
 
+class _OperationState(Enum):
+    NOT_ISSUED = "not_issued"
+    ISSUED_UNKNOWN = "issued_unknown"
+    ACKNOWLEDGED = "acknowledged"
+
+
+@dataclass
+class _Lifecycle:
+    target: OwnedTarget
+    instance: ApprovedInstance
+    name: str
+    owner_thread: Thread
+    baseline_threads: frozenset[Thread]
+    create: _OperationState = _OperationState.NOT_ISSUED
+    drop: _OperationState = _OperationState.NOT_ISSUED
+    admin_close: _OperationState = _OperationState.NOT_ISSUED
+    admin_dispose: _OperationState = _OperationState.NOT_ISSUED
+    target_dispose: _OperationState = _OperationState.NOT_ISSUED
+    held: bool = False
+    admin_engine: Engine | None = None
+    connection_context: Connection | None = None
+    connection: Connection | None = None
+    target_engine: Engine | None = None
+    fixture_sessions: object | None = None
+    resources: list[object] = field(default_factory=list)
+    errors: list[BaseException] = field(default_factory=list)
+
+
+_lifecycles: dict[OwnedTarget, _Lifecycle] = {}
+_ADMIN_ARGS = {"connect_timeout": 5, "options": "-c statement_timeout=10000 -c lock_timeout=3000"}
+_DRAIN_SQL = """
+SELECT (SELECT rolsuper FROM pg_roles WHERE rolname=current_user)
+           OR pg_has_role(current_user, 'pg_read_all_stats', 'MEMBER') AS stats_visible,
+       EXISTS (SELECT 1 FROM pg_database WHERE datname=:database_name) AS target_exists,
+       (SELECT count(*) FROM pg_stat_activity WHERE datname=:database_name) AS clients,
+       (SELECT count(*) FROM pg_prepared_xacts WHERE database=:database_name) AS prepared,
+       (SELECT count(*) FROM pg_locks
+          WHERE database=(SELECT oid FROM pg_database WHERE datname=:database_name)) AS locks
+"""
+
+
+def _park(operation: str, retained: tuple[object, ...], errors: list[BaseException]) -> NoReturn:
+    """No environment toggle or cleanup grant; fake-only tests may observe this seam."""
+    try:
+        print(json.dumps({"event": "OWNED_PG_LIFECYCLE_HOLD", "operation": operation}), flush=True)
+    except BaseException as error:
+        # Logging must never turn retention into an unwind/cleanup grant.
+        errors.append(error)
+    wake = None
+    while True:
+        try:
+            if wake is None:
+                wake = Event()
+            wake.wait()
+        except BaseException as error:
+            if len(errors) < 16:
+                errors.append(error)
+            # Keep the exact original objects in this live frame. Even failure
+            # constructing the local wait primitive cannot unwind this owner.
+            assert retained
+            try:
+                sleep(0.05)
+            except BaseException as pause_error:
+                if len(errors) < 16:
+                    errors.append(pause_error)
+
+
+def _retain(owner: _Lifecycle, operation: str) -> NoReturn:
+    owner.held = True
+    _park(operation, (owner,), owner.errors)
+    raise ApprovedInstanceUnavailable("HOLD observer unexpectedly returned")
+
+
+def _lifecycle(target: OwnedTarget) -> _Lifecycle:
+    try:
+        owner = _lifecycles[target]
+    except (KeyError, TypeError) as error:
+        raise ApprovedInstanceUnavailable("original target lifecycle is unavailable") from error
+    if owner.held:
+        _retain(owner, "REUSE_BLOCKED")
+    return owner
+
+
+def _assert_threads_drained(owner: _Lifecycle) -> None:
+    if current_thread() is not owner.owner_thread:
+        raise ApprovedInstanceUnavailable("target finalization changed its original owning thread")
+    if any(thread not in owner.baseline_threads for thread in live_threads()):
+        raise ApprovedInstanceUnavailable("target workers are not proven closed")
+
+
+def _native_drain(connection: Connection, owner: _Lifecycle) -> None:
+    deadline = monotonic() + 5
+    while True:
+        _assert_threads_drained(owner)
+        row = connection.execute(text(_DRAIN_SQL), {"database_name": owner.name}).one()
+        if row.stats_visible is not True or row.target_exists is not True:
+            raise ApprovedInstanceUnavailable("target drain visibility or existence is unproven")
+        counts = (row.clients, row.prepared, row.locks)
+        if any(type(value) is not int or value < 0 for value in counts):
+            raise ApprovedInstanceUnavailable("target drain census is invalid")
+        if counts == (0, 0, 0):
+            return
+        if monotonic() >= deadline:
+            raise ApprovedInstanceUnavailable("target clients, prepared transactions or locks remain")
+        sleep(0.05)
+
+
+def retain_fixture_uncertainty(
+    target: OwnedTarget, engine, sessions, error: BaseException,
+    *, prior_error: BaseException | None = None,
+) -> NoReturn:
+    """Retain setup/name/unbind failures before a yield fixture can unwind."""
+    errors = [prior_error] if prior_error is not None and prior_error is not error else []
+    errors.append(error)
+    try:
+        owner = _lifecycles.get(target)
+    except TypeError:
+        owner = None
+    if owner is None:
+        _park("FIXTURE_OWNER_UNAVAILABLE", (target, engine, sessions), errors)
+        raise ApprovedInstanceUnavailable("HOLD observer unexpectedly returned")
+    # Preserve the originally constructed engine even if assignment in the
+    # fixture did not complete; retain any supplied differing object separately.
+    owner.resources.extend(value for value in (engine, sessions) if value is not None)
+    if owner.target_engine is None:
+        owner.target_engine = engine
+    owner.fixture_sessions = sessions
+    owner.errors.extend(errors)
+    _retain(owner, "FIXTURE")
+
+
 def _require_owned(target: OwnedTarget) -> tuple[ApprovedInstance, str]:
     try:
+        owner = _lifecycles.get(target)
+        if owner is not None and owner.held:
+            raise ApprovedInstanceUnavailable("target lifecycle is retained; reuse and cleanup are blocked")
         instance, name = _owned_targets[target]
     except (KeyError, TypeError) as error:
         raise ApprovedInstanceUnavailable("target is not an active owned database") from error
     if target in _pending_targets:
         raise ApprovedInstanceUnavailable("target creation outcome is uncertain; inspect the recorded name")
+    if owner is None or owner.target is not target or owner.instance is not instance or owner.name != name:
+        raise ApprovedInstanceUnavailable("target no longer matches its original lifecycle")
     _validate_instance(instance)
     if not re.fullmatch(re.escape(instance.target_prefix) + r"[0-9a-f]{12}", name):
         raise ApprovedInstanceUnavailable("target does not match its approved namespace")
@@ -239,87 +379,176 @@ def require_or_skip(error: ApprovedInstanceUnavailable) -> None:
     pytest.skip(f"required PostgreSQL gate BLOCKED: {error}")
 
 
+def _admin_ddl(owner: _Lifecycle, operation: Literal["create", "drop"]) -> None:
+    """Run one owned statement; uncertainty retains this exact live stack."""
+    creating = operation == "create"
+    try:
+        engine = create_engine(owner.instance.admin_url, isolation_level="AUTOCOMMIT",
+                               connect_args=dict(_ADMIN_ARGS), future=True)
+    except BaseException as error:
+        owner.errors.append(error)
+        if not creating:
+            _retain(owner, "DROP_ADMIN_ENGINE")
+        # No engine/connection exists and CREATE has not been issued.
+        _pending_targets.discard(owner.target)
+        del _owned_targets[owner.target]
+        del _lifecycles[owner.target]
+        raise
+    owner.admin_engine = engine
+    owner.resources.append(engine)
+    owner.admin_close = _OperationState.NOT_ISSUED
+    owner.admin_dispose = _OperationState.NOT_ISSUED
+    try:
+        context = engine.connect()
+        owner.connection_context = context
+        owner.resources.append(context)
+        connection = context.__enter__()
+        owner.connection = connection
+        owner.resources.append(connection)
+    except BaseException as error:
+        owner.errors.append(error)
+        _retain(owner, "ADMIN_CONNECT")
+
+    preissue_error = None
+    try:
+        preflight_connection(connection, owner.instance, "postgres")
+        if not creating:
+            _native_drain(connection, owner)
+    except BaseException as error:
+        owner.errors.append(error)
+        preissue_error = error
+
+    if preissue_error is None:
+        if creating:
+            owner.create = _OperationState.ISSUED_UNKNOWN
+        else:
+            owner.drop = _OperationState.ISSUED_UNKNOWN
+        try:
+            connection.exec_driver_sql(
+                create_database_sql(owner.name) if creating else drop_database_sql(owner.name)
+            )
+        except BaseException as error:
+            owner.errors.append(error)
+            # Do not unwind connection/context or guess rejection from SQLSTATE.
+            _retain(owner, "CREATE_ISSUED" if creating else "DROP_ISSUED")
+        if creating:
+            owner.create = _OperationState.ACKNOWLEDGED
+            _pending_targets.remove(owner.target)
+        else:
+            owner.drop = _OperationState.ACKNOWLEDGED
+            # Acknowledged DROP retires live ownership exactly once, even if
+            # subsequent admin closure cannot be confirmed.
+            del _owned_targets[owner.target]
+            try:
+                absent = connection.execute(
+                    text("SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = :name)"),
+                    {"name": owner.name},
+                ).scalar_one()
+                if absent is not False:
+                    raise ApprovedInstanceUnavailable("acknowledged DROP readback did not prove absence")
+            except BaseException as error:
+                owner.errors.append(error)
+                _retain(owner, "DROP_READBACK")
+
+    owner.admin_close = _OperationState.ISSUED_UNKNOWN
+    try:
+        context.__exit__(
+            type(preissue_error) if preissue_error is not None else None,
+            preissue_error,
+            preissue_error.__traceback__ if preissue_error is not None else None,
+        )
+    except BaseException as error:
+        owner.errors.append(error)
+        _retain(owner, "ADMIN_CLOSE")
+    owner.admin_close = _OperationState.ACKNOWLEDGED
+    owner.admin_dispose = _OperationState.ISSUED_UNKNOWN
+    try:
+        engine.dispose()
+    except BaseException as error:
+        owner.errors.append(error)
+        _retain(owner, "ADMIN_DISPOSE")
+    owner.admin_dispose = _OperationState.ACKNOWLEDGED
+
+    if preissue_error is not None:
+        if not creating:
+            _retain(owner, "DROP_PREFLIGHT_OR_DRAIN")
+        # Proven nonissued CREATE and acknowledged resource closure only.
+        _pending_targets.discard(owner.target)
+        del _owned_targets[owner.target]
+        del _lifecycles[owner.target]
+        raise preissue_error
+
+
 def create_target_database(instance: ApprovedInstance) -> OwnedTarget:
     _validate_instance(instance)
     name = target_database_name(instance)
-    sql = create_database_sql(name)
-    # Record before any mutation; a statement whose outcome is unknown must not
-    # authorize dropping a potentially pre-existing database with this name.
+    create_database_sql(name)  # Validate before registering or opening resources.
     target = OwnedTarget()
+    owner = _Lifecycle(target, instance, name, current_thread(), frozenset(live_threads()))
+    _lifecycles[target] = owner
     _owned_targets[target] = (instance, name)
     _pending_targets.add(target)
-    engine = None
-    attempted = False
-    created = False
-    errors: list[BaseException] = []
-    try:
-        engine = create_engine(instance.admin_url, isolation_level="AUTOCOMMIT",
-                               connect_args={"connect_timeout": 5}, future=True)
-        with engine.connect() as conn:
-            try:
-                preflight_connection(conn, instance, "postgres")
-                attempted = True
-                conn.exec_driver_sql(sql)
-                created = True
-                _pending_targets.remove(target)
-            except BaseException as error:
-                errors.append(error)
-    except BaseException as error:
-        errors.append(error)
-    if engine is not None:
-        try:
-            engine.dispose()
-        except BaseException as error:
-            errors.append(error)
-    if errors:
-        for error in errors:
-            error.add_note(f"recorded target: {name}")
-        if created:
-            try:
-                drop_target_database(target)
-            except BaseException as error:
-                errors.append(error)
-        elif attempted:
-            errors.append(ApprovedInstanceUnavailable(
-                f"CREATE outcome uncertain for recorded target {name}; no automatic DROP authorized"))
-        else:
-            _pending_targets.discard(target)
-            del _owned_targets[target]
-        _raise_failures(f"owned target {name} setup and cleanup failures", errors)
+    _admin_ddl(owner, "create")
     return target
 
 
 def finalize_target(target: OwnedTarget, engine=None) -> None:
-    """Dispose and drop even if either fails, preserving an active setup error."""
+    """Drain before disposal and one DROP; retain original uncertainty in place."""
     active = sys.exception()
+    owner = None
     try:
-        name = owned_target_name(target)
-    except ApprovedInstanceUnavailable:
-        name = "unavailable"
-    errors: list[BaseException] = []
+        owner = _lifecycles[target]
+        _require_owned(target)
+    except BaseException as error:
+        errors = [active] if active is not None and active is not error else []
+        errors.append(error)
+        if owner is not None:
+            owner.resources.append(engine)
+            owner.errors.extend(errors)
+            _retain(owner, "FINALIZE_IDENTITY")
+        _park("FINALIZE_OWNER_UNAVAILABLE", (target, engine), errors)
+        raise ApprovedInstanceUnavailable("HOLD observer unexpectedly returned")
+    if active is not None and not any(error is active for error in owner.errors):
+        owner.errors.append(active)
+    try:
+        _assert_threads_drained(owner)
+        if engine is not owner.target_engine:
+            raise ApprovedInstanceUnavailable("finalization did not supply the original target engine")
+        if engine is not None:
+            if owner.target_dispose is not _OperationState.NOT_ISSUED:
+                raise ApprovedInstanceUnavailable("target disposal was already attempted")
+            checkedout = engine.pool.checkedout()
+            if type(checkedout) is not int or checkedout != 0:
+                raise ApprovedInstanceUnavailable("target pool is not proven drained")
+    except BaseException as error:
+        owner.errors.append(error)
+        _retain(owner, "TARGET_DRAIN")
     if engine is not None:
+        owner.target_dispose = _OperationState.ISSUED_UNKNOWN
         try:
             engine.dispose()
         except BaseException as error:
-            errors.append(error)
-    try:
-        drop_target_database(target)
-    except BaseException as error:
-        errors.append(error)
-    if errors:
-        if active is not None:
-            errors.insert(0, active)
-        _raise_failures(f"target {name} setup/teardown failures", errors)
+            owner.errors.append(error)
+            _retain(owner, "TARGET_DISPOSE")
+        owner.target_dispose = _OperationState.ACKNOWLEDGED
+    drop_target_database(target)
+    # A known setup failure continues to propagate naturally from the fixture's
+    # finally block. A failed test assertion is not thrown into a yield fixture.
 
 
 def target_engine(target: OwnedTarget, *, options: str | None = None):
     """Build an engine which checks every checked-out connection before use."""
     instance, name = _require_owned(target)
+    owner = _lifecycle(target)
+    if owner.target_engine is not None:
+        raise ApprovedInstanceUnavailable("target already has its original engine")
     args = {"connect_timeout": 5}
     if options:
         args["options"] = options
     engine = create_engine(instance.admin_url.set(database=name),
                            connect_args=args, future=True)
+    owner.target_engine = engine
+    owner.resources.append(engine)
 
     @event.listens_for(engine, "engine_connect")
     def _verify_target(conn):
@@ -334,29 +563,18 @@ def target_engine(target: OwnedTarget, *, options: str | None = None):
 
 
 def drop_target_database(target: OwnedTarget) -> None:
-    instance, name = _require_owned(target)
-    sql = drop_database_sql(name)
-    engine = None
-    dropped = False
-    errors: list[BaseException] = []
+    _require_owned(target)
+    owner = _lifecycle(target)
     try:
-        engine = create_engine(instance.admin_url, isolation_level="AUTOCOMMIT",
-                               connect_args={"connect_timeout": 5}, future=True)
-        with engine.connect() as conn:
-            try:
-                preflight_connection(conn, instance, "postgres")
-                conn.exec_driver_sql(sql)
-                dropped = True
-                del _owned_targets[target]
-            except BaseException as error:
-                errors.append(error)
+        _assert_threads_drained(owner)
+        if owner.target_engine is not None and owner.target_dispose is not _OperationState.ACKNOWLEDGED:
+            raise ApprovedInstanceUnavailable("original target engine has not been drained and disposed")
+        if owner.drop is not _OperationState.NOT_ISSUED:
+            raise ApprovedInstanceUnavailable("DROP was already attempted")
     except BaseException as error:
-        errors.append(error)
-    if engine is not None:
-        try:
-            engine.dispose()
-        except BaseException as error:
-            errors.append(error)
-    if errors and not dropped:
-        errors.append(ApprovedInstanceUnavailable(f"cleanup incomplete for recorded target {name}"))
-    _raise_failures(f"owned target {name} cleanup failures", errors)
+        owner.errors.append(error)
+        _retain(owner, "DROP_PREREQUISITES")
+    _admin_ddl(owner, "drop")
+    # No live database or unresolved resources remain. Remove the terminal record
+    # only after both DDL and admin closure/disposal were acknowledged.
+    del _lifecycles[target]

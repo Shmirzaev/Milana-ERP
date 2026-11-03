@@ -64,11 +64,16 @@ jobs:
         env:
           PUR_APPROVAL_PG_ADMIN_URL: postgresql://postgres@127.0.0.1:5432/postgres
         run: python backend/scripts/test_purchase_request_approval_postgres.py
+      - name: Purchasing approval cleanup controls
+        env:
+          PUR_APPROVAL_PG_ADMIN_URL: postgresql://postgres@127.0.0.1:5432/postgres
+        run: python backend/scripts/purchase_approval_cleanup_pg_control.py
       - name: P2 PostgreSQL locking and query-plan regressions
         env:
           STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
         run: >-
           python -m pytest -q
+          backend/app/tests/test_admin_membership_delete_race.py
           backend/app/tests/test_numbering_postgres_concurrency.py
           backend/app/tests/test_material_reservation_concurrency.py
           backend/app/tests/test_package_write_postgres.py
@@ -81,8 +86,15 @@ jobs:
           backend/app/tests/test_warehouse_pack_reservations_postgres.py
           backend/app/tests/test_sewing_band_postgres.py
           backend/app/tests/test_sewing_later_nastil_postgres.py
+          backend/app/tests/test_nastil_factory_postgres.py
+          backend/app/tests/test_open_shipment_allocations_postgres.py
           backend/app/tests/test_besttex_cutting_postgres.py
           backend/app/tests/test_payroll_overlap_repair.py
+          backend/app/tests/test_payroll_split_correction_races.py
+          backend/app/tests/test_payroll_returned_split_races.py
+          backend/app/tests/test_manual_packaging_postgres.py
+          backend/app/tests/test_payroll_qr_return_races.py
+          backend/app/tests/test_payroll_period_races.py
       - name: Deployment observation regression suite
         run: python -m unittest discover -s scripts -p 'test_observe_release.py' -v
       - name: Create disposable Sales list review database
@@ -151,7 +163,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - working-directory: frontend
@@ -191,14 +203,14 @@ jobs:
           API_URL: http://172.16.10.4:8000
         run: npm run build
       - name: Clear generated production build for isolated QA build
-        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025' || github.ref == 'refs/heads/codex/ismail-brand-feedback-20261028' || github.ref == 'refs/heads/codex/ismail-combined-review-20261028')
         working-directory: frontend
         run: |
           test -d .next
           test ! -L .next
           rm -rf -- .next
       - name: Build loopback-only QA frontend
-        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025' || github.ref == 'refs/heads/codex/ismail-brand-feedback-20261028' || github.ref == 'refs/heads/codex/ismail-combined-review-20261028')
         timeout-minutes: 5
         working-directory: frontend
         env:
@@ -208,12 +220,12 @@ jobs:
           NEXT_TELEMETRY_DISABLED: '1'
         run: npm run build -- --webpack
       - name: QA runtime manifest and smoke regressions
-        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025' || github.ref == 'refs/heads/codex/ismail-brand-feedback-20261028' || github.ref == 'refs/heads/codex/ismail-combined-review-20261028')
         timeout-minutes: 2
         working-directory: frontend
         run: python3 -m unittest discover -s scripts -p 'test_*qa_runtime*.py' -v
       - name: Stage bounded QA frontend runtime
-        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025' || github.ref == 'refs/heads/codex/ismail-brand-feedback-20261028' || github.ref == 'refs/heads/codex/ismail-combined-review-20261028')
         timeout-minutes: 2
         working-directory: frontend
         env:
@@ -227,7 +239,7 @@ jobs:
           NEXT_TELEMETRY_DISABLED: '1'
         run: python3 scripts/stage_qa_runtime.py
       - name: Smoke exact staged QA frontend archive
-        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025' || github.ref == 'refs/heads/codex/ismail-brand-feedback-20261028' || github.ref == 'refs/heads/codex/ismail-combined-review-20261028')
         timeout-minutes: 2
         working-directory: frontend
         env:
@@ -238,7 +250,7 @@ jobs:
         run: python3 scripts/smoke_qa_runtime.py
       - name: Upload QA-only frontend runtime
         id: qa_upload
-        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025' || github.ref == 'refs/heads/codex/ismail-brand-feedback-20261028' || github.ref == 'refs/heads/codex/ismail-combined-review-20261028')
         uses: actions/upload-artifact@v4
         with:
           name: qa-frontend-${{ github.sha }}
@@ -297,6 +309,13 @@ jobs:
           labels: org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha,scope=milana-backend-v1
           cache-to: type=gha,scope=milana-backend-v1,mode=max
+      - name: Verify rollback image strict schema-0150 startup and worker recovery
+        if: hashFiles('scripts/test_rollback_image_schema_0150.py') != '' && hashFiles('backend/app/models/fulfillment/package_customer_service.py') == ''
+        timeout-minutes: 12
+        env:
+          ROLLBACK_BACKEND_IMAGE: ${{ steps.images.outputs.backend }}@${{ steps.backend_image.outputs.digest }}
+          ROLLBACK_SOURCE_REVISION: ${{ github.sha }}
+        run: python scripts/test_rollback_image_schema_0150.py --image "$ROLLBACK_BACKEND_IMAGE" --revision "$ROLLBACK_SOURCE_REVISION"
       - name: Build and publish frontend image
         id: frontend_image
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7

@@ -1,11 +1,11 @@
 # Build from the repository root: docker build -f frontend/Dockerfile .
-FROM node:20-alpine AS dependencies
+FROM node:24-alpine AS dependencies
 
 WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --legacy-peer-deps
 
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 
 WORKDIR /app
 ARG NEXT_PUBLIC_API_URL
@@ -19,7 +19,7 @@ COPY frontend/ ./
 COPY backend/app/ /backend/app/
 RUN npm run build
 
-FROM node:20-alpine AS runtime
+FROM node:24-alpine AS runtime
 
 WORKDIR /app
 ENV NODE_ENV=production \

@@ -306,6 +306,9 @@ def cost_breakdown(db: Session) -> dict:
     accessories_cost = 0.0
     for po in pos:
         for bom in boms_by_model.get(int(po.model_id), []):
+            if bom.item_id is None:
+                # Descriptive BOM rows have no inventory cost to include.
+                continue
             item_id = int(bom.item_id)
             item = item_map.get(item_id)
             category = str(item.category if item else "").lower()

@@ -13,7 +13,7 @@ const stubs = {
   "@/components/sewing/BandOrder": `export default function Band(){return null}`,
   "@/components/WorkOrderProductInfo": `export default function Product(){return null}`,
   "@/components/PageHeader": `export default function Header(){return null}`,
-  "@/lib/api": `export const fetcher=async u=>(await fetch(u)).json();export const api={post:async(u,b)=>{const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});if(!r.ok)throw Error('Fixture rejection');return r.json()}};`,
+  "@/lib/api": `export const API_TIMEOUT_EVENT='milana:api-timeout';export const fetcher=async u=>(await fetch(u)).json();export const api={post:async(u,b)=>{const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});if(!r.ok)throw Error('Fixture rejection');return r.json()}};`,
 };
 const bundled = await build({ stdin: { resolveDir: root, loader: "tsx", contents: `
 import React from 'react';import{createRoot}from'react-dom/client';
@@ -44,11 +44,11 @@ const server = http.createServer(async (req, res) => {
   let data = [];
   if (url.pathname === "/api/work-orders/1347") data = { id: 1347, production_order_id: 346, operation: "sewing", status: "in_progress" };
   if (url.pathname === "/api/production-orders/346") data = { id: 346, production_no: "PO-0307", model_id: 1,
-    batches: [1, 2, 3].map(id => ({ id, batch_index: id, name: `Nastil ${id}`, planned_quantity: 128 })) };
+    batches: [1, 2, 3, 4].map(id => ({ id, batch_index: id, name: `Nastil ${id}`, planned_quantity: 128 })) };
   if (url.pathname === "/api/models/1") data = { id: 1 };
   if (url.pathname === "/api/sewing-flows") data = [1, 2, 3].map(id => ({ id, name: `${factory} line ${id}`, code: `${factory}-${id}` }));
   if (url.pathname.endsWith("assignments")) data = assignments;
-  if (url.pathname.endsWith("sewing-batch-progress")) data = { items: [] };
+  if (url.pathname.endsWith("sewing-batch-progress")) data = { items: [1, 2, 3].map(id => ({ id })) };
   if (url.pathname.endsWith("sewing-records")) data = records;
   res.end(JSON.stringify(data));
 });
@@ -71,6 +71,7 @@ try {
     const form = page.locator("form").first(), batch = form.locator("select").nth(0), line = form.locator("select").nth(1);
     await page.waitForFunction(() => document.querySelector('option[value="assignment:120"]'));
     await page.waitForFunction(() => document.querySelector('form select')?.value === "2");
+    assert.equal(await batch.locator('option[value="4"]').count(), 0, "A Nastil owned by another work order is not selectable");
     assert.equal(await line.locator('option[value="assignment:85"]').count(), 0);
     assert.equal(await line.inputValue(), "assignment:120");
     assert.equal(await batch.isEnabled(), true);
