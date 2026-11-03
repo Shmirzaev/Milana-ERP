@@ -60,6 +60,8 @@ def headers(actors, name="admin"):
 @pytest.mark.parametrize("path", ["/api/auth/me", "/api/session/me", "/api/tasks", "/api/users"])
 def test_ordinary_authenticated_reads_survive_and_warn(monkeypatch, actors, caplog, path):
     configure(monkeypatch, UnavailableStore())
+    # In-process Alembic tests disable existing loggers in their global config.
+    monkeypatch.setattr(main.log, "disabled", False)
     with caplog.at_level(logging.WARNING, logger="milana"):
         response = TestClient(main.app, raise_server_exceptions=False).get(path, headers=headers(actors))
     assert response.status_code == 200
