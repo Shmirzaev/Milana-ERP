@@ -11,9 +11,18 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-11-02. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-03. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## Identity policy-helper prerequisite (3 November)
+
+The [approved policy-only split](archive/ACCESS_POLICY_HELPER_SPLIT_2026-11-03.md)
+moves the three unchanged policy evaluators to a catalog-only leaf, preserving
+user-access exports while removing the factory-scope/user-access import cycle.
+Dilmurod implements; Ismail reviews this PR. RF-009 user creation, IDN-01 and
+human verification remain separate. This candidate changes no production release,
+permission or database contract; active/rollback records below are unchanged.
 
 ## Active green release: older physical-pack history (2 November)
 

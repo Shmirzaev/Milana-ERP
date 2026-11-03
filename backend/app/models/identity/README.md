@@ -1,8 +1,9 @@
 # Identity and access
 
 Business-service group guide, relocated into models/ on 24 October 2026. This
-directory remains README-only; existing implementations are the *_service.py files
-linked below. The proposed files describe later approved operation extractions.
+directory now contains pure policy evaluation in [access_policy_service.py](access_policy_service.py).
+Existing account/factory-context implementations remain in the *_service.py files
+linked below; operation extractions remain pending.
 
 **Purpose:** Own authentication, user accounts, roles and permission evaluation. Keep object/factory access checks reusable by every operation.
 
@@ -25,9 +26,14 @@ particular operation and every caller/write before choosing what belongs here.
 
 | Proposed file | Responsibility |
 | --- | --- |
+| `access_policy_service.py` (implemented) | Pure policy allow/deny evaluation; imports only the permission catalog. Factory scope imports it directly, and user access re-exports its existing names. |
 | `authentication_service.py` | Login and password-reset operations. |
 | `users_service.py` | Account creation and allowed profile changes. |
 | `access_service.py` | Role/grant/deny and object-scope decisions. |
+
+Future shared grant checks belong above the factory-context and policy helpers;
+neither lower helper may import `access_service.py` back. This policy-only split
+does not implement RF-009 user creation or change access decisions.
 
 Use snake_case_service.py filenames and operation names such as `create_*`, `record_*`,
 `receive_*` or `approve_*`. A typed function is sufficient; a class is optional
