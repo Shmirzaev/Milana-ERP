@@ -11,9 +11,22 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-11-02. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-03. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## Customer-pack and FG release preparation (3 November)
+
+The owner authorized pushing, merging and deploying only the customer shipment-pack
+restriction/admin release and the FG model-number prefix beginning at FG202001.
+Other pending clone_main application changes are explicitly excluded. The narrow
+candidate starts at exact active runtime 42078704 and ports the reviewed patches
+af630418 and 936c4601. Both VMs verified green 20261102_063110, manifest
+becda671a332afe6fe86857ab948be2d686c984e81d02e6e68053ba83cb7a079,
+with blue 20261031_092951 retained; schema is 0149 before the additive0150 migration.
+The owner waived only 30-minute monitoring. No production business writes are
+authorized. See [release preparation](archive/PACK_CUSTOMER_FG_RELEASE_2026-11-03.md).
+Older sections below retain their historical release state.
 
 ## Deployed QR correction reconciled; older-pack filters prepared (2 November)
 
