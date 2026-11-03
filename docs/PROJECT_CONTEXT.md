@@ -15,6 +15,16 @@ Last updated 2026-11-03. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## Shared-counter outage policy (3 November)
+
+The approved [mixed policy and isolated evidence](archive/SHARED_STORE_MIXED_OUTAGE_2026-11-03.md)
+keep ordinary authenticated requests available with permissions enforced and a
+warning when global limiting is skipped. Login and both password-reset steps
+return JSON 503 until the store recovers. Dilmurod implements; Ismail reviews.
+Connected-browser/human acceptance remains pending. No production changes were
+made; active/rollback records below are unchanged. #311 readiness/router integration
+must preserve this availability policy and is not included here.
+
 ## Identity policy-helper prerequisite (3 November)
 
 The [approved policy-only split](archive/ACCESS_POLICY_HELPER_SPLIT_2026-11-03.md)
