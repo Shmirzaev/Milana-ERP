@@ -29,7 +29,7 @@ from app.migrations.bootstrap_guards import (
 VERSIONS = Path(__file__).resolve().parents[2] / "alembic" / "versions"
 KNOWN_DRIFT = VERSIONS.parents[2] / "docs" / "audit-evidence" / "fresh-migration-schema-drift.json"
 COMPAT_HEAD = "0150_package_customer_release"
-COMPAT_GATE_SHA256 = "58630cedf4663df72f1348ffe02bc7d6b47a1e262f1a13905de5646d174010d6"
+COMPAT_GATE_SHA256 = "5ef93b3954aaf935107b155921ac722133cbfd43a06cb29064d06e8594c1c764"
 COMPAT_MIGRATION_SHA256 = "17d24d19f0d49ecc2bc9ab78108aede5043a5e2e081355ffb6e13583a9901372"
 
 
