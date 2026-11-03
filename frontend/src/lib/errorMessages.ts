@@ -127,6 +127,11 @@ const fallback: Record<Lang, Record<string, string>> = {
   uz: { default: "Amalni bajarib bo‘lmadi.", "400": "Kiritilgan ma’lumotlarni tekshiring.", "401": "Tizimga qayta kiring.", "403": "Ushbu amal uchun ruxsatingiz yo‘q.", "404": "Yozuv topilmadi.", "409": "Yozuvning joriy holati ushbu amalni bajarishga yo‘l qo‘ymaydi. Ma’lumotlar va bog‘langan yozuvlarni tekshiring.", "422": "Majburiy maydonlar va kiritilgan qiymatlarni tekshiring.", "429": "So‘rovlar juda ko‘p. Keyinroq qayta urinib ko‘ring.", server: "Server so‘rovni bajara olmadi. Keyinroq qayta urinib ko‘ring." },
 };
 const workflowErrors: Record<string, Record<"en" | "ru" | "uz", string>> = {
+  "ecoAccessories.approvalRequired": {
+    en: "Approve the current ECO accessory requirements before the sewing handoff or issue.",
+    ru: "Утвердите актуальную потребность ECO до передачи в пошив или выдачи.",
+    uz: "Tikishga uzatish yoki berishdan oldin joriy ECO furnitura talabini tasdiqlang.",
+  },
   FIRST_GRADE_VARIANT_EVIDENCE: { en: "Select the production model and color. Singles require a production order with one verified color.", ru: "Выберите модель и цвет производства. Для поштучных изделий нужен заказ с одним подтверждённым цветом.", uz: "Ishlab chiqarish modeli va rangini tanlang. Donalab mahsulot uchun bitta tasdiqlangan rangli buyurtma kerak." },
   FIRST_GRADE_SIZE_EVIDENCE_REQUIRED: { en: "Enter the accepted quantities by size in Packaging before allocating singles.", ru: "Перед поштучной упаковкой укажите принятые количества по размерам здесь, в упаковке.", uz: "Donalab ajratishdan oldin qabul qilingan o‘lcham miqdorlarini shu yerda, qadoqlashda kiriting." },
   FIRST_GRADE_BATCH_REQUIRED: { en: "Select a production batch first.", ru: "Сначала выберите производственную партию.", uz: "Avval ishlab chiqarish partiyasini tanlang." },

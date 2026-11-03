@@ -2914,6 +2914,10 @@ def missing_accessory_issue_for_sewing(db: Session, production_order_id: int) ->
 
 
 def ensure_accessories_issued_for_sewing(db: Session, production_order_id: int) -> dict:
+    from app.models.inventory.eco_accessory_service import ensure_eco_accessory_approval
+    eco_plan = ensure_eco_accessory_approval(db, production_order_id)
+    if eco_plan is not None:
+        return eco_plan
     plan = sync_sewing_accessory_block(db, production_order_id)
     if plan.get("sewing_gate_active") and not plan.get("is_complete"):
         summary = plan.get("summary") or {}

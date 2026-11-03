@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import PageHeader from "@/components/PageHeader";
 import SearchableSelect from "@/components/SearchableSelect";
@@ -17,8 +18,9 @@ const pageSize = 100;
 
 export default function EcoInventoryPage() {
   const { me } = useMe(); const { lang } = useT(); const text = ecoInventoryText(lang);
+  const router = useRouter(); const searchParams = useSearchParams();
   const allowed = me?.factory_code === "ECO" && can(me, "eco_inventory.read");
-  const [kind, setKind] = useState<EcoMaterialKind>("fabric");
+  const kind: EcoMaterialKind = searchParams.get("kind") === "accessory" ? "accessory" : "fabric";
   const [view, setView] = useState<"stock" | "history">("stock");
   const [page, setPage] = useState(0); const [search, setSearch] = useState("");
   const [form, setForm] = useState<"receive" | EcoBatch | null>(null);
@@ -43,7 +45,7 @@ export default function EcoInventoryPage() {
   function openForm(value: typeof form) {
     setForm(value); setItemId(null); setBatchNo(""); setColor(""); setQuantity(""); setNotes(""); setOrderId(null); setError(""); setMessage("");
   }
-  function changeKind(value: EcoMaterialKind) { setKind(value); setPage(0); setSearch(""); openForm(null); }
+  function changeKind(value: EcoMaterialKind) { router.replace(`/eco-inventory?kind=${value}`); setPage(0); setSearch(""); openForm(null); }
   async function submit() {
     if (busy || (!form && !pending.current)) return;
     if (!pending.current) {

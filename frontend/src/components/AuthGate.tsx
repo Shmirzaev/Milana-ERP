@@ -21,6 +21,9 @@ type RouteGuard = {
 };
 
 const ROUTE_GUARDS: RouteGuard[] = [
+  { prefix: "/eco-inventory", perms: ["eco_inventory.read", "eco_inventory.receive", "eco_inventory.consume"] },
+  { prefix: "/eco-accessories", perms: ["eco_accessories.read", "eco_accessories.manage", "eco_accessories.approve", "eco_accessories.issue"] },
+  { prefix: "/factory-fabric-transfers", perms: ["factory_fabric_transfers.read", "factory_fabric_transfers.dispatch", "factory_fabric_transfers.receive"] },
   { prefix: "/besttex/cutting-orders", perms: ["besttex.cutting_sheets"] },
   { prefix: "/dashboards/cutting", perms: ["cutting.records", "cutting.bundles", "planning.production", "*"] },
   { prefix: "/dashboards/printing", perms: ["printing.records", "printing.bundles", "planning.production", "*"] },
@@ -136,6 +139,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const redirectNonMilanaHome = Boolean(me && me.factory_code !== "MIL"
     && pathname !== factoryHome && (pathname === "/" || deniedFactoryLanding));
   const operationalFactory = (() => {
+    if (pathname === "/eco-inventory" || pathname === "/eco-accessories") return "ECO";
     if (pathname === "/usluga" || pathname.startsWith("/usluga/")) return "ECO";
     const department = pathname.match(/^\/departments\/(CUT|PRT|SEW|MIL|PKG|BST|BPK|ECT|ECO|ECP)(?:\/|$)/)?.[1];
     if (department) {

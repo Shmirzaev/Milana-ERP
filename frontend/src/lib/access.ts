@@ -42,6 +42,9 @@ export function factoryWorkspaceHome(me: Me | undefined): string {
   }
   if (me?.factory_code === "ECO") {
     if (!permits("cutting.records", "cutting.bundles", "planning.production") && !packaging) {
+      if (permits("eco_inventory.read")) return "/eco-inventory?kind=fabric";
+      if (permits("eco_accessories.read", "eco_accessories.manage", "eco_accessories.approve", "eco_accessories.issue")) return "/eco-accessories";
+      if (permits("factory_fabric_transfers.read", "factory_fabric_transfers.receive")) return "/factory-fabric-transfers";
       if (permits("payroll.view", "payroll.manage", "payroll.pay")) return "/payroll";
       if (permits("payroll.scan")) return "/payroll/scan";
     }
